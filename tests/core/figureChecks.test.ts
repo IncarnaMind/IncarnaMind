@@ -3647,6 +3647,25 @@ describe.each(["en", "zh-CN"] as const)(
       expect(await verdictOf("far", "minus", layout)).toBe("supported");
     });
 
+    // protects=a loss stated far back in the section, with an amount sentence that starts with a pronoun for its subject ("Party A made a loss this year. … Its result for the year was …"), keeps the bracket's minus: the plus sentence is Contradicted and its minus Supported (#3252); fails_when=the loss is out of the reader's sight and the plus reads Supported, as a real model's check did in 5 of 6 rounds
+    test.each([
+      { layout: { between: true, cited: true }, where: "on the page around a cited quote" },
+      { layout: { between: true, cited: false }, where: "in a Passage read whole" },
+    ])(
+      "a loss far back that the amount's sentence is tied to by 'Its' keeps the minus, $where",
+      async ({ layout }) => {
+        expect(await verdictOf("tiedFar", "amount", layout)).toBe("contradicted");
+        expect(await verdictOf("tiedFar", "minus", layout)).toBe("supported");
+      },
+    );
+
+    // protects=a loss clause far back that the amount's sentence has no pronoun for keeps today's reading: the right plus sentence is Supported, not red (#3252, #3228); fails_when=any far loss word gives the bracket its minus
+    test("a loss clause far back about something else leaves the plus", async () => {
+      const layout = { between: true, cited: true };
+      expect(await verdictOf("other", "amount", layout)).toBe("supported");
+      expect(await verdictOf("other", "minus", layout)).toBe("contradicted");
+    });
+
     // protects=a sign word in the sentence before the amount's that the amount still has keeps the minus (#2578 box 3); fails_when=the next sentence loses the sign
     test.each([
       { layout: { between: false, cited: true }, where: "on the page around a cited quote" },

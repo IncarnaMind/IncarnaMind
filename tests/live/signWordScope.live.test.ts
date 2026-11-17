@@ -82,6 +82,22 @@
  * the next sentence's subject (4 of 6), so the second box of #3228 stays as `main` has it. The far
  * tied decoy (tiedfar-own) is wrong in 5 of 6 rounds on `main` itself: #3252.
  *
+ * The run for #3252, written on 2026-11-17 before any request of it. On `main` the wrong plus sentence
+ * about a loss stated far above its amount (tiedfar-own) read Supported in 5 of 6 rounds and its
+ * right minus twin (tiedfar-minus) in 0 of 6: the reader sees a loss noun in the 400 characters above
+ * the quote only, and the amount's paragraph is in sight. The change: an amount's sentence that
+ * starts with a pronoun for a subject (Its, Their, His, Her, It; 其 它 她 他) keeps the bracket's
+ * minus when a loss or deduction noun is anywhere in the 2,000 characters above, as a state word is.
+ * The branch only, `main`'s numbers being those above (same model, same day): the pairs tiedfar-own,
+ * tiedfar-minus, tied-own, tied-minus, other-rent and other-minus in English and Chinese (12 pairs),
+ * 3 rounds each, DeepSeek V4.1 Flash, stop US$0.25.
+ * - Bar 1: tiedfar-own reads Supported in 0 of 6 rounds (`main`: 5 of 6).
+ * - Bar 2: tiedfar-minus reads Supported in at least 3 of 6 (`main`: 0 of 6).
+ * - Bar 3: the pairs this does not touch read as on `main`: tied-own in 0 of 6 rounds, tied-minus in
+ *   at least 3 of 6 (`main`: 4 of 6), other-minus in 0 of 6. other-rent is `main`'s 0 of 6 and stays
+ *   there: a loss clause about something else still keeps the minus (#3228).
+ * - A round with a refused, failed or timed out request is void and run again by hand.
+ *
  * INCARNAMIND_LIVE_PAIRS limits the run to those pairs, by key; INCARNAMIND_LIVE_ROUNDS sets the rounds.
  * Runs only with INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek V4.1 Flash, `deepseek-flash`, or
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL when set); INCARNAMIND_LIVE_REPORT keeps one JSON line per pair.

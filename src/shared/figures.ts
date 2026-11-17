@@ -3068,6 +3068,23 @@ const SUM_WORD =
 /** A word that says or may say an amount is below zero, or is taken off, in the text around it. */
 const NEGATIVE_WORD = new RegExp(`${STATE_WORD.source}|${SUM_WORD.source}`, "i");
 
+/** The end of a sentence: a full stop, "?" or "!" before a space or the end, or "。", "！", "？". A line break is none. */
+const SENTENCE_END = /[.!?](?=\s|$)|[。！？]/gu;
+
+/** What follows the last sentence end in `text`: the start of the sentence that `text` ends in. */
+function sentenceHead(text: string): string {
+  let from = 0;
+  for (const end of text.matchAll(SENTENCE_END)) from = end.index + end[0].length;
+  return text.slice(from);
+}
+
+/**
+ * A sentence that starts with a pronoun for a subject ("Its result for the year was …", "其本年经营成果为…"),
+ * so what is said of a loss above is its subject's. Not 其他, 其中, 他人.
+ */
+const TIED_START =
+  /^[\s"“'(（]*(?:(?:its|their|his|her|it)(?![A-Za-z'’])|其(?![他次中余实])|它|她|他(?!人))/i;
+
 /** A line that subtracts what follows: "Less: deposit paid …", "减：已付定金 …", a "Less" cell or heading. */
 const DEDUCTION_LINE = /^[\s|]*(?:less|deduct|减)[ \u00a0]*(?:[:：-]|\t|\||$)/im;
 
@@ -3121,6 +3138,14 @@ function restates(
     const after = s.slice(inner.to, inner.to + 400) + settled.after;
     const window = settled.before + s.slice(0, from);
     if (NEGATIVE_WORD.test(window) || NEGATIVE_WORD.test(after) || DEDUCTION_LINE.test(window))
+      return true;
+    // "Party A made a loss this year. … Its result for the year was …": a sentence that starts with a
+    // pronoun for its subject is the subject's, so a loss stated anywhere above, as far back as a
+    // state word counts, is its loss (#3252).
+    if (
+      TIED_START.test(sentenceHead(window)) &&
+      SUM_WORD.test(`${settled.wide}${s.slice(0, from)}`)
+    )
       return true;
     const start = s.lastIndexOf("\n", from - 1) + 1;
     // "减", a tab, "已付定金": the tab beside a Chinese character is gone from the text read.

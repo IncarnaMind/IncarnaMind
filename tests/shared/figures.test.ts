@@ -2022,6 +2022,44 @@ describe("a statement line's bracket that repeats its amount (#2576)", () => {
     expect(readFigures(far, EN).map((each) => each.value)).toEqual([3600000, -3600000]);
   });
 
+  // protects=an amount sentence that starts with a pronoun for its subject keeps the bracket's minus when a loss is stated anywhere in the 2,000 characters above the quote, and one that starts with a noun does not (#3252); fails_when=a loss out of the 400 characters leaves the bracket plus for a tied sentence, or gives every far loss clause a minus
+  describe.each([
+    {
+      language: "en",
+      context: EN,
+      loss: "Party A made a loss this year.",
+      filler: "The tenant pays the service charge quarterly in advance.",
+      tied: "Its result for the year was $2.6 million ($2,600,000).",
+      other: "The annual rent is $2.6 million ($2,600,000).",
+    },
+    {
+      language: "zh",
+      context: ZH,
+      loss: "甲方本年发生亏损。",
+      filler:
+        "承租人按季度预付服务费，逾期支付的，应按日向出租人支付违约金，违约金不得超过应付服务费的百分之十。",
+      tied: "其本年经营成果为人民币260万元（¥2,600,000）。",
+      other: "年租金为人民币260万元（¥2,600,000）。",
+    },
+  ])("far loss, $language", ({ context, loss, filler, tied, other }) => {
+    const above = `${loss}\n\n${`${filler}\n\n`.repeat(12)}`;
+    const bracket = (text: string, before: string) =>
+      readFigures(text, { ...context, around: { before, after: "" } }).find((figure) =>
+        /^[(（]/.test(figure.chars),
+      )?.value ?? null;
+
+    test("a pronoun-start amount sentence keeps the minus", () => {
+      expect(above.length).toBeGreaterThan(450);
+      expect(bracket(tied, above)).toBe(-2600000);
+    });
+
+    test("a noun-start amount sentence, or a loss out of the 2,000, does not", () => {
+      // The bracket gives its amount again: it is no figure of its own.
+      expect(bracket(other, above)).toBeNull();
+      expect(bracket(tied, `${loss}\n\n${"x".repeat(2100)}\n\n`)).toBeNull();
+    });
+  });
+
   test("a Document that says brackets are negative reads the repeated bracket as one", () => {
     expect(
       readFigures("Eliminations £3.6m (£3.6m)", { ...EN, negativeBrackets: true }).map(
