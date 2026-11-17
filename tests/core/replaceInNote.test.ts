@@ -108,6 +108,7 @@ async function askToSwap(model: MockLanguageModelV4, request: string) {
     withCitation(document?.id ?? "", document?.contentHash ?? ""),
     heading(2, "Pets"),
     note("The pet rule is in the lease. The deposit is two months of rent."),
+    note("看板组每周二上午十点开会半小时，报告负责人参加。"),
   ]);
   await client.settled();
   const answer = await askAssistant(core, {
@@ -145,11 +146,25 @@ describe("A small change as an exact replacement", { timeout: 30_000 }, () => {
     );
     expect(paragraphs[1]).toBe(FLOORS);
     expect(changesIn(answer)).toMatchObject([
-      { proposals: 1, swapped: { old: "£41,500 a year", now: "£43,000 a year" } },
+      { proposals: 1, swapped: { old: "41,500", now: "43,000" } },
     ]);
     expect(lastResult(model)).toContain(
       "Changed “£41,500 a year” to “£43,000 a year” in “Flat notes”",
     );
+  });
+
+  // protects=the change's own words, which the card shows, are the words that differ, not the whole phrase the model gave, and a language set without spaces keeps a few characters beside the change; fails_when=the card repeats the phrase, or cuts a word or a number in two
+  test.each([
+    ["The salary is £41,500 a year", "The salary is £43,000 a year", "41,500", "43,000"],
+    ["The notice is one month", "The notice is two months", "one month", "two months"],
+    ["每周二上午十点开会", "每周三上午十点开会", "每周二上午", "每周三上午"],
+  ])("the card says what differs: %s", async (before, after, old, now) => {
+    const model = swapModel([{ old: before, now: after }]);
+
+    const { answer } = await askToSwap(model, "Fix it.");
+
+    expect(mindCalls(answer).map((call) => call.status)).toEqual(["done"]);
+    expect(changesIn(answer)[0]?.swapped).toEqual({ old, now });
   });
 
   // protects=a swap is one change with one Checkpoint, and restoring it puts the Note back as it was; fails_when=a swap leaves none to go back to, or more than one

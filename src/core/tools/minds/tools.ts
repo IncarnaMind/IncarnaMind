@@ -657,6 +657,38 @@ const clipped = (words: string, most = 60): string => {
   return `${letters.slice(0, half).join("")}…${letters.slice(-half).join("")}`;
 };
 
+/**
+ * The words that differ between a replacement's old and new text, for a line the User reads: what
+ * the two share at either end is left out, but a word or a number is never cut in two, and a few
+ * characters of a language that sets no spaces stay beside the change so it reads as one.
+ */
+function changedWords(swap: Swap): { old: string; now: string } {
+  const { old, now } = swap;
+  if (now === "") return { old, now };
+  let start = 0;
+  while (start < old.length && start < now.length && old[start] === now[start]) start++;
+  let end = 0;
+  while (
+    end < old.length - start &&
+    end < now.length - start &&
+    old[old.length - 1 - end] === now[now.length - 1 - end]
+  ) {
+    end++;
+  }
+  const unspaced = (char: string | undefined) =>
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(char ?? "");
+  const wordChar = (char: string | undefined) =>
+    /[\p{L}\p{N}]/u.test(char ?? "") && !unspaced(char);
+  const inWord = (text: string, at: number) =>
+    at > 0 && at < text.length && wordChar(text[at - 1]) && wordChar(text[at]);
+  while (start > 0 && inWord(old, start)) start--;
+  while (end > 0 && inWord(old, old.length - end)) end--;
+  // A run of characters set with no spaces has no word to extend to: a few stay beside the change.
+  for (let more = 0; more < 2 && start > 0 && unspaced(old[start - 1]); more++) start--;
+  for (let more = 0; more < 2 && end > 0 && unspaced(old[old.length - end]); more++) end--;
+  return { old: old.slice(start, old.length - end), now: now.slice(start, now.length - end) };
+}
+
 /** How a paragraph starts, for a line that tells paragraphs apart. */
 const startOf = (paragraph: string): string => clipped(paragraph.replace(/\s+/g, " ").trim(), 48);
 
@@ -3095,7 +3127,12 @@ export function mindTools(options: MindToolsOptions): {
             ...(tables > 0 && { tables }),
             ...(sentences && { sentences }),
             ...(removed && { removed }),
-            ...(swap && { swapped: { old: clipped(swap.old), now: clipped(swap.now) } }),
+            ...(swap && {
+              swapped: {
+                old: clipped(changedWords(swap).old),
+                now: clipped(changedWords(swap).now),
+              },
+            }),
             ...notes,
           };
       if (revised) {
