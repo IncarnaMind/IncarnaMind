@@ -602,6 +602,78 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "人民币贷款全年增量为17.05万亿元。",
     wrong: "人民币贷款全年增量为1.705万亿元。",
   }),
+  // The word-boundary gaps of #2251: a letter or character that is no unit where it stands ("5G",
+  // 升 as a verb, 每米勒) beside a plain number, and a sentence that adds that unit to the number.
+  ...pair("en-u3", "short-note", "en", {
+    document: "The price was $5m. The cable length was 5.",
+    right: "The cable length was 5.",
+    wrong: "The cable was 5 m long.",
+  }),
+  ...pair("en-u4", "short-note", "en", {
+    document: "It runs on the 5G network. The parcel weight was 5.",
+    right: "The parcel weight was 5.",
+    wrong: "The parcel weighed 5 g.",
+  }),
+  ...pair("en-u5", "short-note", "en", {
+    document: "See note (m). The span was 54.",
+    right: "The span was 54.",
+    wrong: "The span was 54 m.",
+  }),
+  ...pair("zh-u1", "short-note", "zh-CN", {
+    document: "单位：元\n产量\t54,000",
+    right: "产量为54,000元。",
+    wrong: "产量为54,000吨。",
+  }),
+  ...pair("zh-u2", "short-note", "zh-CN", {
+    document: "单位：吨位分析\n产量\t54,000",
+    right: "产量为54,000。",
+    wrong: "产量为54,000吨。",
+  }),
+  ...pair("zh-u6a", "short-note", "zh-CN", {
+    document: "股价从10升至12。销量为12。",
+    right: "销量为12。",
+    wrong: "销量为12升。",
+  }),
+  ...pair("zh-u6b", "short-note", "zh-CN", {
+    document: "系统从3.0升级到4.0。容量为4.0。",
+    right: "容量为4.0。",
+    wrong: "容量为4.0升。",
+  }),
+  ...pair("zh-u7", "short-note", "zh-CN", {
+    document: "请千万克制。重量为54。",
+    right: "重量为54。",
+    wrong: "重量为54克。",
+  }),
+  ...pair("zh-u8", "short-note", "zh-CN", {
+    document: "每米勒公司一份，路线长54",
+    right: "路线长54。",
+    wrong: "路线长54米。",
+  }),
+  ...pair("zh-u9", "short-note", "zh-CN", {
+    document: "2026/克和米兰，产量54,000",
+    right: "产量为54,000。",
+    wrong: "产量为54,000吨。",
+  }),
+  ...pair("zh-u10", "short-note", "zh-CN", {
+    document: "编号2026/吨钢厂，产量54,000",
+    right: "产量为54,000。",
+    wrong: "产量为54,000吨。",
+  }),
+  ...pair("zh-u11a", "short-note", "zh-CN", {
+    document: "每升学一次登记一份，数量为54",
+    right: "数量为54。",
+    wrong: "数量为54升。",
+  }),
+  ...pair("zh-u11b", "short-note", "zh-CN", {
+    document: "每升任一次登记一份，数量为54",
+    right: "数量为54。",
+    wrong: "数量为54升。",
+  }),
+  ...pair("zh-u12", "short-note", "zh-CN", {
+    document: "吨级54,000",
+    right: "吨级为54,000。",
+    wrong: "产量为54,000吨。",
+  }),
 ];
 
 function pair(
