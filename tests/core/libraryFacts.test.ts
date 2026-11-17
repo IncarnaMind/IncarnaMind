@@ -812,35 +812,6 @@ describe.each(["en", "zh-CN"] as const)("a name with digits in it (%s)", (langua
   });
 });
 
-describe.each(["en", "zh-CN"] as const)(
-  "a true sentence about a name with a number (%s)",
-  (language) => {
-    const zh = language === "zh-CN";
-    const names = zh
-      ? ["报告 12", "发票 10432", "会议纪要 3.2"]
-      : ["Report 12", "Invoice 10432", "Minutes 3.2"];
-
-    // protects=a true sentence about a Document whose name holds a number ("Report 12 appears once in your Library.") is Supported by the line that gives the name's count, never Not checked for a number that is no figure of the sentence (#2525); fails_when=the name's number is sent as a figure, held to a count it isn't, and the sentence comes back Not checked
-    test.each(names)("%s appears once: Supported", async (name) => {
-      const sentence = zh
-        ? `${name} 在你的资料库中出现了一次。`
-        : `${name} appears once in your Library.`;
-      const line = `Documents named “${name}”: 1`;
-      const setup = await setUp(
-        [{ name: `${name}.txt`, contents: "Some text." }],
-        { [sentence]: { verdict: "supported", quote: line, line: "name" } },
-        language,
-      );
-      const { check, mind } = await checkInNote(setup.core, sentence);
-      expect(setup.factsSent()).toContain(line);
-      expect(check.state).toBe("supported");
-      // The name's number is no figure of the sentence, so no figure of it is left waiting.
-      expect(check.figures ?? []).toEqual([]);
-      expect(badgeOf(mind)?.kind).toBe("checked");
-    });
-  },
-);
-
 describe("a count wrong by its scale or unit", () => {
   // protects=a Library count is decided by its own figure, scale and unit: "22 thousand" or "22 GB" never reads Supported by "Documents in all: 22"; fails_when=the judge's Supported stands on the bare number.
   test.each([

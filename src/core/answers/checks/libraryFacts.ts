@@ -28,10 +28,8 @@ import {
   sourceValue,
 } from "../../../shared/libraryFacts";
 import type { ScopeKind } from "../../../shared/searchScope";
-import { citedNameStretches, isNameNumber } from "../../../shared/sourceNames";
 import type {
   CheckedVersion,
-  CheckFigure,
   ClaimJudgment,
   DocumentKind,
   FigureCheckResult,
@@ -654,7 +652,7 @@ function libraryRun(
     };
   }
 
-  return { search, documents, settle, shownFacts: () => shown.size > 0 };
+  return { search, documents, settle };
 }
 
 /**
@@ -667,27 +665,6 @@ const ownVersions = (versions: readonly CheckedVersion[]): CheckedVersion[] =>
 /** What a count of the Library counts, written after its figure: "22 uploaded Documents", "7 个文档". */
 const COUNT_NOUN =
   /^(?:[\p{L}-]+\s+){0,2}(?:documents?|files?|notes?|folders?|tags?|items?|cop(?:y|ies)|records?|entr(?:y|ies)|names?|times|workbooks?|spreadsheets?)(?![\p{L}])|^(?:个|份|篇|项|条|次|本|件)/iu;
-
-/**
- * Whether a figure is the number of a Document's name the sentence writes: inside the name, with no
- * unit, currency, percent or scale of its own. Its reading counts from its paragraph's start, so it
- * is found in its sentence by its characters, and only when they are there once.
- */
-function isNameOfDocument(figure: CheckFigure, names: readonly string[], claim: string): boolean {
-  const { chars, unit, currency, scale } = figure.reading;
-  const text = figure.context ?? claim;
-  const escaped = chars.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const found = [...text.matchAll(new RegExp(`(?<![\\d.,])${escaped}(?!\\d)`, "gu"))];
-  const [one] = found;
-  return (
-    found.length === 1 &&
-    one !== undefined &&
-    isNameNumber(
-      { start: one.index, end: one.index + chars.length, unit, currency, scale },
-      citedNameStretches(text, names),
-    )
-  );
-}
 
 /**
  * Whether a figure reads as a count of things, which a Library count may decide: no scale word,
@@ -838,29 +815,12 @@ export function withLibraryFacts(
       known ??= libraryListing(request.mindId ?? null, searched);
       return known;
     };
-    const attempt = async (figures: ClaimCheckRequest["figures"]) => {
-      const run = libraryRun(listing, searched, request.claim, deps);
-      const result = await create({
-        ...deps,
-        documents: run.documents,
-        libraryFacts: run.search,
-      })(figures === request.figures ? request : { ...request, figures });
-      return { run, settled: run.settle(result) };
-    };
-    const first = await attempt(request.figures);
-    // A number in the name of a Document the sentence writes is no figure of it, and is never a
-    // count: asked about it, the check is held to a count that isn't there and ends Not checked.
-    // Asked again without it, the sentence is judged on its words, and kept only as Supported (#2525).
-    if (first.settled.verdict !== "not-checked" || !first.run.shownFacts() || !request.figures)
-      return first.settled;
-    const names = listing().documents.map((document) => document.name);
-    const rest = request.figures.filter(
-      (figure) => !isNameOfDocument(figure, names, request.claim),
-    );
-    if (rest.length === request.figures.length) return first.settled;
-    const again = (await attempt(rest)).settled;
-    // Only to rescue a true sentence: a contradiction no figure now holds to the facts is never
-    // taken from a second ask.
-    return again.verdict === "supported" ? again : first.settled;
+    const run = libraryRun(listing, searched, request.claim, deps);
+    const result = await create({
+      ...deps,
+      documents: run.documents,
+      libraryFacts: run.search,
+    })(request);
+    return run.settle(result);
   };
 }
