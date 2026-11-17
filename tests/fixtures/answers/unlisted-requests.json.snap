@@ -1173,7 +1173,7 @@
        },
        "part": {
         "type": "string",
-        "description": "The heading of the section to change, as written in the Note, or the first words of the one paragraph to change. Whenever the User names a section, give its name here alone, also when the Note has that heading more than once: you are then told how to ask the User which. Only when the User names the heading it is under (\"the Summary under Part 2\"), put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
+        "description": "The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
        },
        "instruction": {
         "type": "string",
@@ -1197,7 +1197,7 @@
        },
        "removes_only": {
         "type": "boolean",
-        "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+        "description": "Give it on every call: true when the User asks only for text to go, as in \"Delete the last sentence\"; false when they ask to shorten, rewrite or change it in any other way."
        }
       },
       "additionalProperties": false
@@ -1737,7 +1737,7 @@
        },
        "part": {
         "type": "string",
-        "description": "The heading of the section to change, as written in the Note, or the first words of the one paragraph to change. Whenever the User names a section, give its name here alone, also when the Note has that heading more than once: you are then told how to ask the User which. Only when the User names the heading it is under (\"the Summary under Part 2\"), put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
+        "description": "The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
        },
        "instruction": {
         "type": "string",
@@ -1761,7 +1761,7 @@
        },
        "removes_only": {
         "type": "boolean",
-        "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+        "description": "Give it on every call: true when the User asks only for text to go, as in \"Delete the last sentence\"; false when they ask to shorten, rewrite or change it in any other way."
        }
       },
       "additionalProperties": false
@@ -2334,7 +2334,7 @@
        },
        "part": {
         "type": "string",
-        "description": "The heading of the section to change, as written in the Note, or the first words of the one paragraph to change. Whenever the User names a section, give its name here alone, also when the Note has that heading more than once: you are then told how to ask the User which. Only when the User names the heading it is under (\"the Summary under Part 2\"), put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
+        "description": "The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
        },
        "instruction": {
         "type": "string",
@@ -2358,7 +2358,7 @@
        },
        "removes_only": {
         "type": "boolean",
-        "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+        "description": "Give it on every call: true when the User asks only for text to go, as in \"Delete the last sentence\"; false when they ask to shorten, rewrite or change it in any other way."
        }
       },
       "additionalProperties": false
@@ -2891,7 +2891,7 @@
        },
        "part": {
         "type": "string",
-        "description": "The heading of the section to change, as written in the Note, or the first words of the one paragraph to change. Whenever the User names a section, give its name here alone, also when the Note has that heading more than once: you are then told how to ask the User which. Only when the User names the heading it is under (\"the Summary under Part 2\"), put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
+        "description": "The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
        },
        "instruction": {
         "type": "string",
@@ -2915,7 +2915,7 @@
        },
        "removes_only": {
         "type": "boolean",
-        "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+        "description": "Give it on every call: true when the User asks only for text to go, as in \"Delete the last sentence\"; false when they ask to shorten, rewrite or change it in any other way."
        }
       },
       "additionalProperties": false
@@ -3479,7 +3479,7 @@
        },
        "part": {
         "type": "string",
-        "description": "The heading of the section to change, as written in the Note, or the first words of the one paragraph to change. Whenever the User names a section, give its name here alone, also when the Note has that heading more than once: you are then told how to ask the User which. Only when the User names the heading it is under (\"the Summary under Part 2\"), put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
+        "description": "The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
        },
        "instruction": {
         "type": "string",
@@ -3503,7 +3503,7 @@
        },
        "removes_only": {
         "type": "boolean",
-        "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+        "description": "Give it on every call: true when the User asks only for text to go, as in \"Delete the last sentence\"; false when they ask to shorten, rewrite or change it in any other way."
        }
       },
       "additionalProperties": false
@@ -4100,7 +4100,7 @@
        },
        "part": {
         "type": "string",
-        "description": "The heading of the section to change, as written in the Note, or the first words of the one paragraph to change. Whenever the User names a section, give its name here alone, also when the Note has that heading more than once: you are then told how to ask the User which. Only when the User names the heading it is under (\"the Summary under Part 2\"), put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
+        "description": "The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: \"Part 2 > Summary\". Leave it out to change what the User selected, or else the whole Note."
        },
        "instruction": {
         "type": "string",
@@ -4124,7 +4124,7 @@
        },
        "removes_only": {
         "type": "boolean",
-        "description": "Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in \"Delete the last sentence\" or \"Take out the deposit line\"; false when they ask to shorten, rewrite or change it in any other way."
+        "description": "Give it on every call: true when the User asks only for text to go, as in \"Delete the last sentence\"; false when they ask to shorten, rewrite or change it in any other way."
        }
       },
       "additionalProperties": false

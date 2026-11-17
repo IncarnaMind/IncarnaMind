@@ -2839,7 +2839,7 @@ export function mindTools(options: MindToolsOptions): {
         part: {
           type: "string",
           description:
-            'The heading of the section to change as written in the Note, or the first words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
+            'The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
         },
         instruction: {
           type: "string",
