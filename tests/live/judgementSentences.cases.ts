@@ -172,7 +172,7 @@ export const JUDGEMENT_NOTES: readonly JudgementNote[] = [
   {
     id: "en-i1",
     language: "en",
-    name: "Helpdesk review",
+    name: "Helpdesk figures",
     document:
       "The helpdesk has 6 agents and answered 9,200 tickets in 2026. Ticket volume is forecast to grow 15% in 2027. The head of support, Mara Lindqvist, said the team cannot keep its reply time if volume grows. Customer satisfaction fell from 91% to 84% during 2026. The chat tool's contract ends in June 2027 and costs £18,000 a year. Two agents are due to retire in 2027.",
     lines: [
@@ -220,7 +220,7 @@ export const JUDGEMENT_NOTES: readonly JudgementNote[] = [
   {
     id: "en-i2",
     language: "en",
-    name: "Shop lease options",
+    name: "Shop lease figures",
     document:
       "The shop's lease ends on 31 March 2027. The landlord offers a five-year renewal at £42,000 a year, up from £36,000. A unit of the same size on Mill Street is offered at £33,000 a year, with a fit-out estimated at £25,000. Footfall on Mill Street is about 40% lower than on the High Street, according to the council's 2026 count. The shop made a profit of £58,000 in 2026.",
     lines: [
@@ -269,7 +269,7 @@ export const JUDGEMENT_NOTES: readonly JudgementNote[] = [
   {
     id: "zh-i1",
     language: "zh-CN",
-    name: "客服中心评估",
+    name: "客服中心数据",
     document:
       "客服中心有6名客服，2026年共处理工单9,200张。预计2027年工单量增长15%。客服负责人林若棠表示，如果工单量继续增长，团队无法保持现在的回复时间。2026年客户满意度从91%降到84%。在线客服工具的合同2027年6月到期，每年费用18万元。有两名客服将在2027年退休。",
     lines: [
@@ -287,7 +287,7 @@ export const JUDGEMENT_NOTES: readonly JudgementNote[] = [
   {
     id: "zh-i2",
     language: "zh-CN",
-    name: "店面租约方案",
+    name: "店面租约数据",
     document:
       "店面的租约2027年3月31日到期。房东提出续租五年，年租金42万元，现租金为36万元。磨坊街一处同样大小的店面年租金33万元，装修费用估计为25万元。根据区政府2026年的统计，磨坊街的人流量比中心大街低约40%。店铺2026年盈利58万元。",
     lines: [

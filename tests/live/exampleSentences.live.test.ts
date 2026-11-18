@@ -1420,11 +1420,16 @@ async function remarkRound(language: Language) {
   const core = await coreIn(language);
   const sources = await createSourceFolder();
   const notes: Written[] = [];
+  const added = new Set<string>();
   for (const each of cases) {
     const [file] = await addAndProcess(core, [
       await writeSourceFile(sources, `${each.name}.md`, `# ${each.name}\n\n${each.document}\n`),
     ]);
     if (!file) throw new Error(`${each.id}'s Document didn't process.`);
+    // Two Notes with one file name share one Document: the second move empties the first's Folder,
+    // and a Note in an empty Folder is checked against every Document.
+    if (added.has(file.id)) throw new Error(`${each.id}'s Document is another Note's.`);
+    added.add(file.id);
     const folder = await core.createLibraryGroup({ name: each.id, description: "" });
     await core.moveToFolder({ documentIds: [file.id], folderId: folder.id });
     notes.push({
