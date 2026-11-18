@@ -314,6 +314,7 @@ describe("Soniox's real-time transcription, played back as it was recorded", () 
     expect(audio.reduce((sum, each) => sum + each.byteLength, 0)).toBe(2 * RATE * 2);
     expect(service.sent.at(-1)).toBe("");
     expect(heard.opened.count).toBe(1);
+    expect(heard.losses).toEqual([]);
   });
 
   test("a line ends where the service heard a pause, with who said it; its words in English and Chinese as sent", async () => {
@@ -334,6 +335,37 @@ describe("Soniox's real-time transcription, played back as it was recorded", () 
     const sorted = [...heard.progress].sort((a, b) => a - b);
     expect(heard.progress).toEqual(sorted);
   });
+
+  test.each([
+    { end: "closes", final: "We agreed.", draft: " Draft" },
+    { end: "times out", final: "我们同意了。", draft: "初稿" },
+  ])(
+    "keeps final words and reports a loss when Soniox $end before confirming the end",
+    async ({ end, final, draft }) => {
+      vi.useFakeTimers();
+      try {
+        const { service, heard, finished } = run([
+          {
+            tokens: [
+              { text: final, start_ms: 0, end_ms: 700, is_final: true, speaker: "1" },
+              { text: draft, start_ms: 800, end_ms: 1200, is_final: false, speaker: "1" },
+            ],
+            final_audio_proc_ms: 700,
+            total_audio_proc_ms: 1200,
+          },
+        ]);
+        if (end === "closes") service.drop(1000);
+        else await vi.runAllTimersAsync();
+        await finished;
+
+        expect(heard.finals()).toEqual([expect.objectContaining({ text: final })]);
+        expect(heard.progress.at(-1)).toBe(700);
+        expect(heard.losses).toEqual(["dropped"]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   test("a refused key, or the connection lost, ends the stream: the service says so", async () => {
     for (const [message, loss] of [

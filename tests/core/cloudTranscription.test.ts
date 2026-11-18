@@ -6,8 +6,12 @@ import { hashBytes } from "../../src/core/documents/files";
 import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { InvalidInputError } from "../../src/core/errors";
 import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
-import { FAKE_LINES, FAKE_THEIR_LINES } from "../../src/core/transcription/fake";
-import { FAKE_CLOUD_LINES } from "../../src/core/transcription/fakeCloud";
+import {
+  createFakeSpeechEngine,
+  FAKE_LINES,
+  FAKE_THEIR_LINES,
+} from "../../src/core/transcription/fake";
+import { createFakeCloud, FAKE_CLOUD_LINES } from "../../src/core/transcription/fakeCloud";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
@@ -491,6 +495,113 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     const texts = final.cues.map((cue) => cue.text);
     expect(texts.some((text) => FAKE_CLOUD_LINES.includes(text))).toBe(true);
     expect(texts.some((text) => FAKE_LINES.includes(text))).toBe(true);
+  });
+
+  test("Soniox disconnecting during Stop recovers the unfinished audio in the saved Transcript", async () => {
+    const dataDir = await createTempDataFolder();
+    const connect = createFakeCloud();
+    const cloud: CloudConnect = (url, key, events, auth) => {
+      const socket = connect(url, key, events, auth);
+      return {
+        ...socket,
+        send(data) {
+          if (data === "") events.closed(1006);
+          else socket.send(data);
+        },
+      };
+    };
+    const { core, record } = await transcribingCore(dataDir, { cloud });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(7 * SECOND);
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.lines >= 2 && transcript.partials.length > 0,
+    );
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    if (!saved.savedPath) throw new Error("The Meeting's Transcript was not saved.");
+    const final = readVtt(readFileSync(saved.savedPath, "utf8"));
+    const texts = final.cues.map((cue) => cue.text);
+    const cloudTexts = texts.filter((text) => FAKE_CLOUD_LINES.includes(text));
+    expect(final.gaps).toEqual([]);
+    expect(cloudTexts.length).toBeGreaterThan(0);
+    expect(new Set(cloudTexts).size).toBe(cloudTexts.length);
+    expect(texts.some((text) => FAKE_LINES.includes(text) || FAKE_THEIR_LINES.includes(text))).toBe(
+      true,
+    );
+  });
+
+  test("Stop only replays the unconfirmed audio of the Soniox track that disconnected", async () => {
+    const dataDir = await createTempDataFolder();
+    const durationMs = 3 * SECOND;
+    const confirmedMs = 700;
+    const systemText = "Please review";
+    const tail = "the revised budget";
+    const microphoneText = "我已记下。";
+    let connections = 0;
+    const cloud: CloudConnect = (_url, _key, events) => {
+      const microphone = connections++ === 0;
+      let heard = false;
+      const say = (message: object) => events.message(JSON.stringify(message));
+      queueMicrotask(() => events.open());
+      return {
+        send(data) {
+          if (data === "") {
+            if (microphone) say({ finished: true });
+            else events.closed(1006);
+          } else if (typeof data !== "string" && !heard) {
+            heard = true;
+            say({
+              tokens: [
+                {
+                  text: microphone ? microphoneText : systemText,
+                  start_ms: 0,
+                  end_ms: confirmedMs,
+                  is_final: true,
+                },
+              ],
+              final_audio_proc_ms: confirmedMs,
+            });
+          }
+        },
+        close() {},
+      };
+    };
+    const { core, record } = await transcribingCore(dataDir, {
+      cloud,
+      engineFactory: async () => ({
+        ...createFakeSpeechEngine({ maxSpeechMs: durationMs }),
+        recognizer: {
+          async decode(samples, stream) {
+            if (!stream.endsWith(":system")) return microphoneText;
+            return samples.length <= (durationMs - confirmedMs) * 16
+              ? tail
+              : `${systemText} ${tail}`;
+          },
+        },
+      }),
+    });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(durationMs);
+    await until(core, meeting.id, (transcript) => transcript.partials.length === 2);
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    if (!saved.savedPath) throw new Error("The Transcript was not saved.");
+    const { cues, gaps } = readVtt(readFileSync(saved.savedPath, "utf8"));
+    expect(gaps).toEqual([]);
+    expect(cues.filter((cue) => cue.speaker === "Me").map((cue) => cue.text)).toEqual([
+      microphoneText,
+    ]);
+    const theirs = cues.filter((cue) => cue.speaker === "Them");
+    expect(theirs.map((cue) => cue.text)).toEqual([systemText, tail]);
+    expect(theirs[1]?.startMs).toBe(theirs[0]?.endMs);
   });
 
   test("the monthly cap hands the live audio to this computer with a notice; recording never stops", async () => {
