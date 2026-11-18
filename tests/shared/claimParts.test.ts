@@ -97,6 +97,31 @@ describe("ordered claim part codec", () => {
     expect(read?.[0]).toMatchObject({ evidence: [{ quotedWords: evidence.quotedWords }] });
   });
 
+  // protects=the writer's own view beside a fact never decides its sentence: a supported fact keeps the sentence Supported, a fact not found keeps it Not found whichever part comes first, and only a sentence whose every judged part is an own view reads as one (#3322); fails if an own view hides an unsupported fact, or turns a supported sentence into a view
+  test("an own view beside a fact leaves the sentence its fact's result", () => {
+    const view = partWithResult(
+      { span: { start: 13, end: 30 }, kind: "opinion" },
+      {
+        ...result("unsupported"),
+        unsupported: { reason: "Nothing on it.", covered: null, uncovered: null, word: "own-view" },
+      },
+    );
+    const stated = partWithResult(plan, result());
+    const absent = partWithResult(plan, {
+      ...result("unsupported"),
+      unsupported: { reason: "Not stated.", covered: null, uncovered: null, word: "not-found" },
+    });
+    expect(resultFromParts([view, stated]).verdict).toBe("supported");
+    expect(resultFromParts([view, absent])).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { word: "not-found" },
+    });
+    expect(resultFromParts([view])).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { word: "own-view" },
+    });
+  });
+
   // protects=a supported part keeps the card's line naming the Document clause that says which dollar it is, through the mark's codec and into the sentence's result (#2226); fails_when=the line is dropped or read from a non-string; no_claim=the card's wording.
   test("keeps the line that says which dollar a supported part is in", () => {
     const clause =

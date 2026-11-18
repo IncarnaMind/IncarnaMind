@@ -21,6 +21,7 @@ import {
   SENTENCES_CHECKED_AT_MOST,
   saysNotFound,
   supportedByOwnNotesOnly,
+  workedOutOf,
 } from "../../../shared/claimChecks";
 import { restsOnPassage } from "../../../shared/claimParts";
 import { hasKnownDomain } from "../../../shared/claimRows";
@@ -111,6 +112,7 @@ import {
   partReason,
   partTone,
   partVerdictText,
+  showsEveryQuote,
 } from "./ClaimPartRows";
 import { ClaimSentence } from "./ClaimSentence";
 import { CorrectionConflict, correctionLabel } from "./CorrectionOffer";
@@ -174,6 +176,7 @@ const TONE: Record<ClaimMarkState, string> = {
   supported: "found",
   unsupported: "unsupported",
   contradicted: "contradicted",
+  "own-view": "own-view",
   "not-checked": "cant-check",
   "needs-recheck": "checking",
 };
@@ -786,6 +789,9 @@ function FoldedRows({ children }: { children: ReactNode }) {
  * and Keep as my view, or, for a court decision no Document holds, Remove the mark only; for a
  * sentence with a Citation, what the Citation doesn't cover, with Cut the unsupported part (#1111);
  * otherwise why, with Check again. Documents IncarnaMind wrote that matched are named, with Count it.
+ * The writer's own view is no fault: what the Documents hold on it and every quote of it, with
+ * Check again only; a verdict worked out from what Passages state shows its one line of working and
+ * every quote it used (#3322).
  */
 export function ClaimCard({
   hint,
@@ -896,7 +902,11 @@ export function ClaimCard({
   const fromPassage = !calculation || (state === "contradicted" && calculation.agrees);
   // An unsupported sentence keeps the nearest line when it says something different (#770).
   const differs = state === "unsupported" && check.evidence !== null;
-  const partRows = claimPartRows(check);
+  // The writer's own view gives what the Documents hold on it as its part's row (#3322).
+  const ownView = state === "own-view";
+  const partRows = ownView && check.parts?.length ? check.parts : claimPartRows(check);
+  const solePart = partRows ? undefined : check.parts?.[0];
+  const soleWorking = solePart ? workedOutOf(solePart) : null;
   // A sentence whose parts are listed offers each part's correction on its own row.
   const sole = partRows ? undefined : corrections[0];
   // A one-part sentence takes this card, not the parts rows, and its clause is on its one part.
@@ -1003,7 +1013,7 @@ export function ClaimCard({
   const pickRead = check.action === "check-against-document" ? check.read : null;
   const findSourcesOffered = offersFindSources(editor, claim);
   const objectMenu = useObjectMenu({ kind: "check", id: check.id });
-  const checkedIn = decided || awaiting || state === "unsupported";
+  const checkedIn = decided || awaiting || ownView || state === "unsupported";
   const cuttable = fixes && uncoveredOf(claim) !== null;
   const pastCap = shown.state === "not-checked" && shown.reason === "too-many";
   // Review… is the Check, which asks the User to allow what checks send now (#2525); allowed
@@ -1334,6 +1344,12 @@ export function ClaimCard({
         primary: true,
         onClick: () => onCheckAgain(),
       },
+      ownView && {
+        key: "check-again",
+        testId: "claim-check-again",
+        label: t("claim.checkAgain"),
+        onClick: () => onCheckAgain(),
+      },
     ] as (CardAction | false | null | undefined | "" | 0)[]
   ).filter((action): action is CardAction => Boolean(action));
   // A fix that belongs to one part sits with that part when the card has another fix (#2869).
@@ -1351,6 +1367,7 @@ export function ClaimCard({
       state === "supported" ||
       state === "unsupported" ||
       state === "contradicted" ||
+      ownView ||
       state === "needs-recheck") &&
     checkedWith(awaiting ? claim.check : check) !== null;
   const about = [
@@ -1462,10 +1479,16 @@ export function ClaimCard({
   );
   // A ✓ card shows its first part's first quote; the count opens every other quote, and a later
   // part with none, which has nothing else to show it by.
-  const fineFirstQuoted = (fineRows[0]?.part.evidence.length ?? 0) > 0;
+  const fineFirst = fineRows[0]?.part;
+  const fineFirstQuoted = (fineFirst?.evidence.length ?? 0) > 0;
+  const fineFirstShown = !fineFirst
+    ? 0
+    : showsEveryQuote(fineFirst)
+      ? fineFirst.evidence.length
+      : Math.min(1, fineFirst.evidence.length);
   const fineHidden =
     fineRows.reduce((count, row) => count + row.part.evidence.length, 0) -
-    (fineFirstQuoted ? 1 : 0) +
+    fineFirstShown +
     fineRows.slice(1).filter((row) => row.part.evidence.length === 0).length;
   const fineMore: MoreShown | null =
     fineHidden > 0
@@ -1551,7 +1574,7 @@ export function ClaimCard({
                 blockOf(row, {
                   allQuotes: quotesOpen.has(row.key),
                   more:
-                    row.part.evidence.length > 1
+                    row.part.evidence.length > 1 && !showsEveryQuote(row.part)
                       ? {
                           count: row.part.evidence.length - 1,
                           open: quotesOpen.has(row.key),
@@ -1589,6 +1612,16 @@ export function ClaimCard({
             {state === "contradicted" && check.says && (
               <p data-testid="claim-says" className="claim-card-says">
                 {check.says}
+              </p>
+            )}
+            {soleWorking && (
+              <p data-testid="claim-worked-out" className="claim-worked-out">
+                {soleWorking}
+              </p>
+            )}
+            {ownView && (
+              <p data-testid="claim-own-view-why" className="claim-card-says">
+                {check.unsupported?.reason || t("claim.ownView.nothing")}
               </p>
             )}
             {currencyClause && (

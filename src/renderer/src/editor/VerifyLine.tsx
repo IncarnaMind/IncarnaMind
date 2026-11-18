@@ -74,6 +74,7 @@ const VERIFY_ROWS = [
   "recheck",
   "supported",
   "notYetCited",
+  "ownViews",
 ] as const;
 type VerifyRow = (typeof VERIFY_ROWS)[number];
 
@@ -82,6 +83,7 @@ const ROW_OF: Partial<Record<ShownClaim["shown"]["state"], VerifyRow>> = {
   unsupported: "unsupported",
   "needs-recheck": "recheck",
   supported: "supported",
+  "own-view": "ownViews",
 };
 
 /**
@@ -107,6 +109,7 @@ function claimMarks(editor: Editor, verified: (blockId: string) => boolean) {
     recheck: [],
     supported: [],
     notYetCited: [],
+    ownViews: [],
   };
   for (const claim of shownClaims(editor.state)) {
     const id: unknown = doc.resolve(claim.from).parent.attrs.id;
@@ -200,6 +203,7 @@ const VERIFY_MARKS: Record<Exclude<VerifyRow, "notYetCited">, ClaimMarkState> = 
   notChecked: "not-checked",
   recheck: "needs-recheck",
   supported: "supported",
+  ownViews: "own-view",
 };
 
 /** The question "Check these against your Documents?" with its estimate and its press. */
@@ -484,7 +488,9 @@ export function VerifyCard({
                 ? t("verify.notChecked", shown)
                 : row === "recheck"
                   ? t(count === 1 ? "verify.recheck.one" : "verify.recheck", shown)
-                  : t(`verify.row.${row}`, shown);
+                  : row === "ownViews"
+                    ? t(count === 1 ? "checks.row.ownViews.one" : "checks.row.ownViews", shown)
+                    : t(`verify.row.${row}`, shown);
             return (
               <button
                 key={row}

@@ -1326,7 +1326,11 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     detail,
   });
   if (new Set(native.map((figure) => figure.id)).size !== native.length) return failed("malformed");
-  const checked = outcomes.filter(({ part }) => part.verdict !== null && !part.kept);
+  const judged = outcomes.filter(({ part }) => part.verdict !== null && !part.kept);
+  // The writer's own view beside a fact is no fault of the sentence, which takes its facts' result;
+  // a sentence is an own view only when every part judged is one (#3322).
+  const facts = judged.filter(({ part }) => !isOwnView(part));
+  const checked = facts.length > 0 ? facts : judged;
   if (checked.length === 0)
     return outcomes.some(({ part }) => part.kept)
       ? {

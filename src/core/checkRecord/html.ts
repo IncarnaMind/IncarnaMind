@@ -196,6 +196,7 @@ const FIGURE_SHAPES: Readonly<Record<string, RecordItem["result"]>> = {
   checking: "notChecked",
   "needs-recheck": "needsRecheck",
   contradicted: "contradicted",
+  "own-view": "ownView",
 };
 
 /** The Figure schedule's rows, as its workbook has them (#1932). */

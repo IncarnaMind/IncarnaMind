@@ -126,6 +126,8 @@ export interface NoteHealth {
    * Passage it found is their Citation. Counted apart: never supported, never to check.
    */
   notYetCited: number[];
+  /** The sentences the check found to be their writer's own view (#3322): checked, never a look. */
+  ownViews: number[];
   checkable: number;
   supported: number;
   checkedAt: string | null;
@@ -356,6 +358,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     ownNotes: [],
     supportedAt: [],
     notYetCited: [],
+    ownViews: [],
     checkable: 0,
     supported: 0,
     checkedAt: null,
@@ -446,6 +449,10 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       }
       health.checkable++;
       checkedAt(claim.check.checkedAt);
+      if (claim.shown.state === "own-view") {
+        if (!lookFor(true)) health.ownViews.push(from);
+        return;
+      }
       const unsupported = markOf(claim) === "unsupported";
       const contradicted = claim.shown.state === "contradicted";
       if (unsupported) health.unsupported.push(from);
@@ -493,16 +500,17 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
  * up to the sentences a check reads. What needs a look (unsupported, contradicted, or a Citation
  * not found: its own card says which), what is supported, with the ones only the User's own notes
  * back named under it (`ownNotes`, of the supported), what is Supported, not yet cited (#3019),
- * what is being checked and what isn't checked, the sentences the last whole check couldn't sort
- * among them (named on that check's line too). Each counts once, in its worst state: needs a
- * look, then not checked, then supported, so an Analysis table with a column not recalculated is
- * one not checked. Rows with none are left out.
+ * what is its writer's own view (#3322), what is being checked and what isn't checked, the
+ * sentences the last whole check couldn't sort among them (named on that check's line too). Each
+ * counts once, in its worst state: needs a look, then not checked, then supported, so an Analysis
+ * table with a column not recalculated is one not checked. Rows with none are left out.
  */
 export const CHECK_ROWS = [
   "look",
   "supported",
   "ownNotes",
   "notYetCited",
+  "ownViews",
   "checking",
   "toCheck",
 ] as const;
@@ -526,6 +534,7 @@ export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly
     supported: supportedAt,
     ownNotes: health.ownNotes.filter((pos) => supported.has(pos)),
     notYetCited: health.notYetCited,
+    ownViews: health.ownViews,
     checking: health.checking,
     toCheck,
   };

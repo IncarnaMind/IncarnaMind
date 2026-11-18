@@ -42,6 +42,7 @@ const everything: AiUseFigures = {
     unsupported: 2,
     notFound: 1,
     contradicted: 1,
+    ownView: 1,
     needsRecheck: 1,
     notChecked: 1,
   },
@@ -50,6 +51,7 @@ const everything: AiUseFigures = {
     unsupported: 1,
     notFound: 0,
     contradicted: 0,
+    ownView: 0,
     needsRecheck: 0,
     notChecked: 0,
   },
@@ -66,6 +68,13 @@ const everything: AiUseFigures = {
       result: "changed",
       model: null,
       checkedAt: "2026-10-13T09:00:00.000Z",
+      carried: false,
+    },
+    {
+      sentence: "We should move the survey to the spring tides.",
+      result: "ownView",
+      model: "Claude Haiku 5.5 (Anthropic)",
+      checkedAt: "2026-10-14T09:00:00.000Z",
       carried: false,
     },
     {
@@ -113,6 +122,7 @@ const nothing: AiUseFigures = {
     unsupported: 0,
     notFound: 0,
     contradicted: 0,
+    ownView: 0,
     needsRecheck: 0,
     notChecked: 0,
   },
@@ -121,6 +131,7 @@ const nothing: AiUseFigures = {
     unsupported: 0,
     notFound: 0,
     contradicted: 0,
+    ownView: 0,
     needsRecheck: 0,
     notChecked: 0,
   },
@@ -153,6 +164,16 @@ describe("the words of the AI use statement", () => {
         expect(SCORES.filter((word) => said.includes(word))).toEqual([]);
       },
     );
+
+    // protects=the statement lists the writer's own views as a result of their own, by count and sentence by sentence (#3322); fails_when=they are left out or named as unsupported; no_claim=the table's layout.
+    test("names the writer's own views as their own result", () => {
+      const said = statementBlocks(everything, language, "2026-10-14T09:00:00.000Z")
+        .map(textOf)
+        .join("\n");
+      const name = translate(language, "aiStatement.sentences.ownView");
+      expect(said).toContain(`${name}\n1`);
+      expect(said).toContain(`We should move the survey to the spring tides.\n${name}`);
+    });
 
     test.each(Object.entries(FIGURES))(
       "ends with one line saying schools have their own forms (%s)",

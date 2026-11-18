@@ -136,12 +136,16 @@ export function CheckStateIcon({ check, ...props }: IconProps & { check: Citatio
   );
 }
 
-/** How a check of the User's own sentence shows (#96): its verdict, or why it doesn't hold now. */
+/**
+ * How a check of the User's own sentence shows (#96): its verdict, its writer's own view (#3322), or
+ * why it doesn't hold now.
+ */
 export type ClaimMarkState =
   | "checking"
   | "supported"
   | "unsupported"
   | "contradicted"
+  | "own-view"
   | "not-checked"
   | "needs-recheck";
 
@@ -177,6 +181,7 @@ const CLAIM_MARKS: Record<ClaimMarkState, (props: IconProps) => JSX.Element> = {
   supported: MARKS.found,
   unsupported: MARKS.unsupported,
   contradicted: MARKS.contradicted,
+  "own-view": MARKS["cant-check"],
   "not-checked": Ring,
   "needs-recheck": Again,
 };

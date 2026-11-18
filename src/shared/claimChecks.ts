@@ -1068,6 +1068,7 @@ export function checkedSentence(input: {
       case "supported":
       case "unsupported":
       case "contradicted":
+      case "own-view":
         return { kind: "covered" };
       case "not-checked":
         // Checked: what is left is the assistant's own conclusion, which no check settles (#3019).
@@ -1100,6 +1101,7 @@ export type SentenceResult =
   | "unsupported"
   | "notFound"
   | "contradicted"
+  | "ownView"
   | "needsRecheck"
   | "notChecked"
   | "changed";
@@ -1110,6 +1112,7 @@ export const SENTENCE_RESULT_LABELS: Readonly<Record<SentenceResult, MessageKey>
   contradicted: "aiStatement.sentences.contradicted",
   notFound: "aiStatement.sentences.notFound",
   unsupported: "aiStatement.sentences.unsupported",
+  ownView: "aiStatement.sentences.ownView",
   needsRecheck: "aiStatement.sentences.recheck",
   notChecked: "aiStatement.sentences.notChecked",
   changed: "aiStatement.sentences.changed",
@@ -1135,7 +1138,18 @@ export function sentenceResultOf(
       return "notChecked";
     case "unsupported":
       return saysNotFound(shown, check, citations) ? "notFound" : "unsupported";
+    case "own-view":
+      return "ownView";
     default:
       return shown.state;
   }
 }
+
+/**
+ * A Supported or Contradicted part's one line of working, where no Passage states it as it stands
+ * and the check worked it out from what they state (#3322); null for one a Passage states.
+ */
+export const workedOutOf = (part: Pick<ClaimCheckPart, "verdict" | "workedOut">): string | null =>
+  (part.verdict === "supported" || part.verdict === "contradicted") && part.workedOut
+    ? part.workedOut
+    : null;

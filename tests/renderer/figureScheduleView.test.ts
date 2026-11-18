@@ -3,7 +3,7 @@ import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { Citation, FigureInput, FigureSchedule, FigureScheduleRow } from "../../src/core/api";
-import { figureScheduleBook } from "../../src/core/exports/figureScheduleBook";
+import { figureScheduleBook, statusWord } from "../../src/core/exports/figureScheduleBook";
 import type { CommandContext } from "../../src/renderer/src/commands/registry";
 import {
   childrenOf,
@@ -11,6 +11,7 @@ import {
   footingNotes,
   lineRef,
   lineShows,
+  rowGlyph,
   scheduleLines,
   selectedFigures,
   sourceOf,
@@ -162,6 +163,20 @@ test("parent filters and stable status order preserve exact IDs and do not mutat
     "a",
   ]);
   expect(source).toEqual(before);
+});
+
+// protects=a figure in a sentence its check found to be the writer's own view needs no look: it is under no look filter, shows the dash and says so, in English and Chinese (#3322); fails_when=it is listed under Needs a look or its status word says so; no_claim=the schedule's counts.
+test("a figure in the writer's own view is no look", () => {
+  const view = row("view", 2, { shown: { state: "own-view" } });
+  const source = schedule([
+    row("a", 1),
+    view,
+    row("b", 3, { shown: { state: "unsupported" }, reason: "not-found" }),
+  ]);
+  expect(scheduleLines(source, "look", false, new Set()).map((line) => line.id)).toEqual(["b"]);
+  expect(rowGlyph(view)).toBe("kept");
+  expect(translate("en", statusWord(view))).toBe("Writer’s own view");
+  expect(translate("zh-CN", statusWord(view))).toBe("作者的判断");
 });
 
 test("bulk parent IDs exclude input selections and omitted Source rows on both axes", () => {

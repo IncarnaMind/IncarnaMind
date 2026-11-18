@@ -295,6 +295,8 @@ export interface AgentMindCheck {
   supported: number;
   /** How many need a look; `claims` lists the first `MAX_CHECKED_CLAIMS` of them. */
   needLook: number;
+  /** How many sentences the check found to be the writer's own view (#3322): none needs a look. */
+  ownViews: number;
   claims: AgentCheckedClaim[];
 }
 
@@ -1658,8 +1660,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
         const beyond = (item: (typeof record.sentences)[number]) =>
           item.check !== null && (item.check.scope.widened || item.check.scope.chosen != null);
+        const ownViews = record.sentences.filter(
+          (item) => item.result === "ownView" && !beyond(item),
+        ).length;
         const needLook = record.sentences.filter(
-          (item) => item.result !== "supported" || beyond(item),
+          (item) => (item.result !== "supported" && item.result !== "ownView") || beyond(item),
         );
         const claims = needLook.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
           const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
@@ -1702,8 +1707,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               !result || result.kind === "running" ? "running" : stopped ? "stopped" : "checked",
             stopped,
             models: record.models,
-            supported: record.sentences.length - needLook.length,
+            supported: record.sentences.length - needLook.length - ownViews,
             needLook: needLook.length,
+            ownViews,
             claims,
           },
           count: needLook.length,

@@ -77,6 +77,7 @@ A check of a sentence puts a `claimCheck` mark on it, holding the result and wha
 - **Kept as the User's view** (#1111): `kept: true` on an unsupported cited sentence's mark. While its words stay as checked, it shows no mark, isn't counted in the Note's health, and no check runs on it again; editing the words ends it. It lives on the mark, so ⌘Z takes it back with the words.
 - **The scope** records `chosen` when it was the Note's own choice (#1623), so the card, the Word comment and the check record name it, and a check made in another scope than the Note's needs a re-check.
 - **Unsupported, not Not found** (#1608): the `unsupported` reason carries `found` when the check found a Passage about the sentence that doesn't back it.
+- **The writer's own view, and working** (#3322): an `unsupported` reason whose `word` is `own-view` is no fault: its `reason` says what the Documents hold on the view, and `quoted` and `more` are the quotes for and against it. A part's `workedOut` is the one line of working behind a verdict no Passage states as it stands. An older version would show an own view as Unsupported, so it raised the version.
 - **Absence** (#1443): an absence sentence is Supported only after the check reads every scoped Document; `readDocuments` names each Document read, its version and the Locations shown, and a change to one needs a re-check.
 - **Which dollar** (#2226): a part's `currencyClause` is the card's one line naming the Document clause that says which dollar a bare "$" is.
 

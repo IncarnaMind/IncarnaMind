@@ -50,6 +50,7 @@ export function statusWord(row: FigureScheduleRow): MessageKey {
   const state = row.shown.state;
   return state === "supported" ||
     state === "kept" ||
+    state === "own-view" ||
     state === "not-checked" ||
     state === "checking"
     ? statusKey(row)

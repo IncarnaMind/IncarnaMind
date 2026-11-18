@@ -384,6 +384,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         models: z.array(z.string()),
         supported: z.number(),
         needLook: z.number(),
+        ownViews: z.number(),
         claims: z.array(
           z.object({
             sentence: z.string(),

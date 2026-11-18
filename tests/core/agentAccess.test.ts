@@ -229,6 +229,42 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
     });
   });
 
+  // protects=a sentence the check found to be the writer's own view is counted as one, never as supported and never as a claim that needs a look (#3322); fails_when=it is listed among the claims to fix or counted as supported
+  it("counts the writer's own views apart, never as needing a look", async () => {
+    const item = {
+      kind: "sentence" as const,
+      origin: "other" as const,
+      reason: null,
+      says: null,
+      evidence: null,
+      judgedOn: null,
+      check: {
+        model: null,
+        at: "2026-11-18T09:00:00.000Z",
+        scope: { folderId: "coast", widened: false },
+      },
+    };
+    const access = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        checkRecord: async () => ({
+          models: [],
+          sentences: [
+            { ...item, text: "Spring tides come twice a month.", result: "supported" },
+            { ...item, text: "We should survey at the spring tides.", result: "ownView" },
+            { ...item, text: "Neap tides are twice as strong.", result: "unsupported" },
+          ],
+        }),
+      },
+    );
+    const checked = await access.checkMind({ mindId: "note" });
+    expect(checked).toMatchObject({ supported: 1, needLook: 1, ownViews: 1 });
+    expect(checked.claims.map((claim) => claim.sentence)).toEqual([
+      "Neap tides are twice as strong.",
+    ]);
+  });
+
   // protects=a check an agent starts never raises a dialog, and what stopped it is said in plain words; fails_when=a model not allowed yet is asked about, or a stop at the cap reads as a finished check
   it("says why nothing was sent, and why a check stopped early", async () => {
     const refusedWith = (outcome: OutsideCheck) =>

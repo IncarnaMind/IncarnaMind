@@ -35,6 +35,7 @@ const MARKS: Partial<Record<ShownClaim["shown"]["state"], ClaimMarkState>> = {
   supported: "supported",
   unsupported: "unsupported",
   contradicted: "contradicted",
+  "own-view": "own-view",
   "needs-recheck": "needs-recheck",
 };
 
