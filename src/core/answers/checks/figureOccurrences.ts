@@ -412,7 +412,7 @@ function topBlockOf(node: Y.XmlElement): Y.XmlElement {
 }
 
 /** The heading above a Block, which says what the lines under it are about. */
-function headingAbove(node: Y.XmlElement): { heading?: string } {
+export function headingAbove(node: Y.XmlElement): { heading?: string } {
   for (let at = topBlockOf(node).prevSibling; at; at = at.prevSibling)
     if (at instanceof Y.XmlElement && at.nodeName === "heading") {
       const words = plainText(at).trim();

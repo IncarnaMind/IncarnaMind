@@ -8130,7 +8130,7 @@ export interface CheckClaimInput {
   /** The sentence, or claim, to check: the User's own words. */
   claim: string;
   figures?: CheckFigure[];
-  /** The paragraph it is in, for what its words refer to. */
+  /** The paragraph it is in and what stands above it, for what it is about and what its words refer to. */
   context?: string;
   /** What the sentence already cites, for Check against Documents. */
   cited?: CitedQuote[];

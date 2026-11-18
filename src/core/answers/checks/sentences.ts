@@ -56,7 +56,13 @@ import {
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
 import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
-import { type FigureOccurrence, figuresInMind, readAbove, withAboveNow } from "./figureOccurrences";
+import {
+  type FigureOccurrence,
+  figuresInMind,
+  headingAbove,
+  readAbove,
+  withAboveNow,
+} from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -213,10 +219,17 @@ export function wordsReader(element: Y.XmlElement): (from: number, to: number) =
 /**
  * A sentence as its check reads it: its words; the paragraph it is in, under what stands above it
  * in the Note (its title, the headings it is under, its section so far), which says what a line
- * is about that doesn't say so itself (#3332); and those of its figures that IncarnaMind worked
- * out itself, which no Passage states.
+ * is about that doesn't say so itself (#3332); that paragraph under its nearest heading alone,
+ * which is what a decision model's lines were measured with (#3118); and those of its figures that
+ * IncarnaMind worked out itself, which no Passage states.
  */
-export function checkText(sentence: SelectedSentence) {
+export function checkText(sentence: SelectedSentence): {
+  claim: string;
+  projection?: InlineTextProjection;
+  context: string;
+  near?: string;
+  figures?: FigureOccurrence[];
+} {
   const worked = (sentence.figures ?? []).filter(
     (figure) => figure.calculated !== null || figure.analysisRecord?.label !== undefined,
   );
@@ -228,6 +241,7 @@ export function checkText(sentence: SelectedSentence) {
     claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
     ...(sentence.projection && { projection: sentence.projection }),
     context: [...readAbove(sentence.element), around].join("\n\n"),
+    near: [headingAbove(sentence.element).heading, around].filter(Boolean).join("\n\n"),
     ...(worked.length > 0 && { figures: withAboveNow(worked, sentence.element) }),
   };
 }

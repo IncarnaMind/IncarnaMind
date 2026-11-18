@@ -26,8 +26,8 @@ const table: NodeJSON = {
   ],
 };
 
-/** What the check of the sentence `text` is given as the place it stands in. */
-function placeOf(blocks: NodeJSON[], text: string): string {
+/** What the check of the sentence `text` is given of the Note around it. */
+function read(blocks: NodeJSON[], text: string) {
   const doc = new Y.Doc();
   onTestFinished(() => doc.destroy());
   const fragment = doc.getXmlFragment(MIND_CONTENT_FIELD);
@@ -38,8 +38,11 @@ function placeOf(blocks: NodeJSON[], text: string): string {
   );
   const sentence = everySentence(fragment).find((each) => each.text === text);
   if (!sentence) throw new Error(`No sentence "${text}"`);
-  return checkText(sentence).context;
+  return checkText(sentence);
 }
+
+/** The place it is given as the one it stands in. */
+const placeOf = (blocks: NodeJSON[], text: string) => read(blocks, text).context;
 
 const NOTE = [
   heading(1, "Harbour Dairy: the delivery fleet in 2027"),
@@ -115,5 +118,12 @@ test("the prompt gives the place as the User's text, in its own tag", () => {
   });
   expect(prompt).toMatch(
     /Where it stands in the Note[^\n]*\n<paragraph>\nHarbour Dairy: the delivery fleet in 2027\n[\s\S]*We should start replacing them now\.\n<\/paragraph>/,
+  );
+});
+
+// protects=a decision model reads a sentence with what its lines were measured with, the paragraph under its nearest heading (#3118), whatever more the AI model's check is given; fails_when=the Note's lines above reach the decision model, whose scores were never measured with them.
+test("a decision model's reading keeps the paragraph under its nearest heading", () => {
+  expect(read(NOTE, "We should start replacing them now.").near).toBe(
+    "Recommendation\n\nWe should start replacing them now.",
   );
 });
