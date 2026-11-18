@@ -5,8 +5,9 @@
  * holds a typed-in number and which a formula is read from the file's structure here, never from a
  * word; what a number means is the checking model's reading, row by row.
  */
-import { columnName, parseCellRef } from "../../../shared/units";
-import type { NodeJSON } from "../blocks";
+import * as Y from "yjs";
+import { columnName, parseCellRef, type UnitText } from "../../../shared/units";
+import { BLOCK_ID_ATTRIBUTE } from "../../api";
 import {
   type WorkbookCell,
   type WorkbookModel,
@@ -15,7 +16,7 @@ import {
 } from "../../workbooks/model";
 import type { CellRange } from "../../workbooks/parse";
 import { cellsIn, placeKey, recalculate, WorkbookEngine } from "../../workbooks/recalculate";
-import type { UnitText } from "../../../shared/units";
+import type { NodeJSON } from "../blocks";
 
 /** The most typed-in numbers one check takes: a bigger range is chosen smaller. */
 export const MOST_TYPED_NUMBERS = 1_000;
@@ -78,22 +79,32 @@ export function parseRange(text: string): CellRange | null {
 export const rangeName = (range: CellRange): string =>
   `${columnName(range.left)}${range.top}:${columnName(range.right)}${range.bottom}`;
 
-/** A row of the table: the sheet's row it is, whether it has typed-in numbers, and its formulas. */
+/** A row of the table: the sheet's row it is, and the places of its formula cells. */
 export interface TableRow {
   row: number;
-  typed: boolean;
-  /** The columns of its formula cells, with their places in the table (`column` counts from the table's own first). */
-  formulas: { column: number; sheetColumn: number }[];
+  /** Their places in the table: the index into `SheetTable.columns`. */
+  formulas: number[];
 }
 
 export interface SheetTable {
   node: NodeJSON;
+  /** The sheet's columns the table has, in order. */
+  columns: number[];
   /** The rows after the header, in order: row `i` of the table node is `rows[i]` (past a header row). */
   rows: TableRow[];
   headed: boolean;
   typed: number;
   formulas: number;
 }
+
+/** The range a check covers: the one given, else every cell the sheet holds. */
+export const checkedRange = (sheet: WorkbookSheet, range: CellRange | null): CellRange =>
+  range ?? {
+    top: sheet.rows[0] ?? 1,
+    bottom: sheet.lastRow,
+    left: sheet.columns[0] ?? 0,
+    right: sheet.lastColumn,
+  };
 
 const cellNode = (type: string, text: string, right: boolean): NodeJSON => ({
   type,
@@ -103,12 +114,7 @@ const cellNode = (type: string, text: string, right: boolean): NodeJSON => ({
 
 /** The sheet, or the range of it, as a table, and what it holds: a header row when its first row has only words. */
 export function sheetTable(sheet: WorkbookSheet, range: CellRange | null): SheetTable {
-  const within: CellRange = range ?? {
-    top: sheet.rows[0] ?? 1,
-    bottom: sheet.lastRow,
-    left: sheet.columns[0] ?? 0,
-    right: sheet.lastColumn,
-  };
+  const within = checkedRange(sheet, range);
   const byRow = new Map<number, Map<number, WorkbookCell>>();
   for (const cell of cellsIn(sheet, within)) {
     const row = byRow.get(cell.row) ?? new Map<number, WorkbookCell>();
@@ -134,20 +140,16 @@ export function sheetTable(sheet: WorkbookSheet, range: CellRange | null): Sheet
   let formulas = 0;
   const rows: TableRow[] = dataRows.map((row) => {
     const cells = byRow.get(row) ?? new Map<number, WorkbookCell>();
-    const formulaColumns: TableRow["formulas"] = [];
-    let hasTyped = false;
+    const formulaColumns: number[] = [];
     columns.forEach((column, index) => {
       const cell = cells.get(column);
       if (!cell) return;
       if (cell.formula !== null) {
         formulas++;
-        formulaColumns.push({ column: index, sheetColumn: column });
-      } else if (isTyped(cell)) {
-        typed++;
-        hasTyped = true;
-      }
+        formulaColumns.push(index);
+      } else if (isTyped(cell)) typed++;
     });
-    return { row, typed: hasTyped, formulas: formulaColumns };
+    return { row, formulas: formulaColumns };
   });
   const textOf = (row: number, column: number) => byRow.get(row)?.get(column)?.shown ?? "";
   return {
@@ -155,6 +157,7 @@ export function sheetTable(sheet: WorkbookSheet, range: CellRange | null): Sheet
     typed,
     formulas,
     rows,
+    columns,
     node: {
       type: "table",
       content: [
@@ -179,8 +182,8 @@ export function sheetTable(sheet: WorkbookSheet, range: CellRange | null): Sheet
   };
 }
 
-/** A formula whose saved result is not what the workbook's own cells work out to. */
-export interface FormulaDifference {
+/** A formula whose saved result is not what the workbook's own cells work out to, by its place. */
+export interface FormulaDifferenceAt {
   row: number;
   column: number;
   saved: string;
@@ -193,7 +196,7 @@ export interface FormulaCheck {
   checked: number;
   /** Formula cells the engine can't work out (a function it doesn't read, a volatile one): left unchecked. */
   unchecked: number;
-  differs: FormulaDifference[];
+  differs: FormulaDifferenceAt[];
 }
 
 const shownValue = (value: unknown): string => {
@@ -209,17 +212,11 @@ export async function checkFormulas(
   range: CellRange | null,
   signal?: AbortSignal,
 ): Promise<FormulaCheck> {
-  const within = range ?? {
-    top: 1,
-    bottom: sheet.lastRow,
-    left: 0,
-    right: sheet.lastColumn,
-  };
-  const cells = cellsIn(sheet, within).filter((cell) => cell.formula !== null);
+  const cells = cellsIn(sheet, checkedRange(sheet, range)).filter((cell) => cell.formula !== null);
   if (cells.length === 0) return { checked: 0, unchecked: 0, differs: [] };
   const keys = cells.map((cell) => placeKey(sheet, cell.row, cell.column));
   const run = await recalculate(new WorkbookEngine(model), keys, signal ? { signal } : {});
-  const differs: FormulaDifference[] = [];
+  const differs: FormulaDifferenceAt[] = [];
   let unchecked = 0;
   let checked = 0;
   for (const cell of cells) {
@@ -240,4 +237,21 @@ export async function checkFormulas(
     else unchecked++;
   }
   return { checked, unchecked, differs };
+}
+
+const paragraphIdOf = (cell: unknown): string | null => {
+  const paragraph = cell instanceof Y.XmlElement ? cell.toArray()[0] : null;
+  const id = paragraph instanceof Y.XmlElement ? paragraph.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+  return typeof id === "string" ? id : null;
+};
+
+/** The paragraph of a cell of the table as made into Blocks: `row` and `column` count from the table's data rows and columns. */
+export function cellBlockId(
+  element: Y.XmlElement,
+  table: SheetTable,
+  row: number,
+  column: number,
+): string | null {
+  const at = element.toArray()[row + (table.headed ? 1 : 0)];
+  return at instanceof Y.XmlElement ? paragraphIdOf(at.toArray()[column]) : null;
 }

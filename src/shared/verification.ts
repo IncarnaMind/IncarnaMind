@@ -24,6 +24,30 @@ export interface VerifiedClaim {
   parts?: ClaimPartPlan[];
 }
 
+/** A formula whose saved result is not what the workbook's own cells work out to (#3278). */
+export interface FormulaDifference {
+  /** The paragraph of its cell in the Note. */
+  blockId: string;
+  /** Where it is in the workbook: "C14". */
+  cell: string;
+  saved: string;
+  worked: string;
+}
+
+/** What a checked workbook's sheet held, beside the claims its typed-in numbers make (#3278). */
+export interface WorkbookCheck {
+  sheet: string;
+  /** The range checked, "B2:M40"; null for the whole sheet. */
+  range: string | null;
+  /** The paragraphs of the cells that hold a formula: their numbers are worked out, not claims. */
+  formulaBlocks: readonly string[];
+  /** Formulas worked out again and compared. */
+  checked: number;
+  /** Formulas the engine can't work out, left as they are. */
+  unchecked: number;
+  differs: readonly FormulaDifference[];
+}
+
 export interface Verification {
   documentId: string;
   /** The Document's name when the Mind was made, for when it is gone. */
@@ -38,6 +62,8 @@ export interface Verification {
    */
   comments: boolean;
   sortedText?: string;
+  /** A workbook's sheet, its formulas as worked out again; none for a PDF or a Word file. */
+  workbook?: WorkbookCheck;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -71,12 +97,42 @@ function pagesOf(value: unknown): Record<string, number> {
   );
 }
 
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((each): each is string => typeof each === "string") : [];
+
+const count = (value: unknown): number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+
+function readWorkbook(value: unknown): WorkbookCheck | undefined {
+  if (!isRecord(value) || typeof value.sheet !== "string") return undefined;
+  const differs = Array.isArray(value.differs)
+    ? value.differs.flatMap((each): FormulaDifference[] =>
+        isRecord(each) &&
+        typeof each.blockId === "string" &&
+        typeof each.cell === "string" &&
+        typeof each.saved === "string" &&
+        typeof each.worked === "string"
+          ? [{ blockId: each.blockId, cell: each.cell, saved: each.saved, worked: each.worked }]
+          : [],
+      )
+    : [];
+  return {
+    sheet: value.sheet,
+    range: typeof value.range === "string" ? value.range : null,
+    formulaBlocks: strings(value.formulaBlocks),
+    checked: count(value.checked),
+    unchecked: count(value.unchecked),
+    differs,
+  };
+}
+
 /** What a Mind's settings say it verifies; null for a Mind that verifies nothing. */
 export function readVerification(settings: Y.Map<unknown>): Verification | null {
   const value = settings.get(KEY);
   if (!isRecord(value) || typeof value.documentId !== "string" || value.documentId === "") {
     return null;
   }
+  const workbook = readWorkbook(value.workbook);
   return {
     documentId: value.documentId,
     documentName: typeof value.documentName === "string" ? value.documentName : "",
@@ -84,6 +140,7 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     claims: claimsOf(value.claims),
     comments: value.comments === true,
     ...(typeof value.sortedText === "string" && { sortedText: value.sortedText }),
+    ...(workbook && { workbook }),
   };
 }
 
@@ -107,6 +164,13 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
     claims: verification.claims ? verification.claims.map((each) => ({ ...each })) : null,
     comments: verification.comments,
     ...(verification.sortedText !== undefined && { sortedText: verification.sortedText }),
+    ...(verification.workbook && {
+      workbook: {
+        ...verification.workbook,
+        formulaBlocks: [...verification.workbook.formulaBlocks],
+        differs: verification.workbook.differs.map((each) => ({ ...each })),
+      },
+    }),
   });
 }
 

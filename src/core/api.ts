@@ -8467,11 +8467,8 @@ export interface WorkbookSheetChoice {
 
 /** What `verifyDocument` did. */
 export type VerifyDocumentResult =
-  /**
-   * The Mind holds the document's text, a paragraph to a Block: its claims can be found. For a
-   * workbook, `claimed`: its claims are already the rows with a typed-in number (#3278).
-   */
-  | { ok: true; mind: Mind; documentId: string; claimed?: true }
+  /** The Mind holds the document's text, a paragraph to a Block: its claims can be found. */
+  | { ok: true; mind: Mind; documentId: string }
   /** A workbook: its sheets, to choose one (and a range) to check (#3278); nothing was made. */
   | { ok: false; reason: "choose-sheet"; documentId: string; sheets: WorkbookSheetChoice[] }
   /** A workbook's sheet or range holds more typed-in numbers than one check takes (#3278). */
