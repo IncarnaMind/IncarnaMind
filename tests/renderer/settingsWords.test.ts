@@ -114,6 +114,8 @@ const CONSENT_FACTS = [
   "setup.sorting.chatHere",
   "setup.sorting.sends",
   "setup.sorting.sendsWhenOn",
+  // Which service isn't allowed yet, while sorting new Documents asks before the first one goes (#3353).
+  "ai.organize.automatic.asks",
   // What a check sends to the decision model's host, where its switch is turned on or it is on by default (#3118).
   "ai.jobs.checks.sends",
   "ai.jobs.checks.sendsByDefault",

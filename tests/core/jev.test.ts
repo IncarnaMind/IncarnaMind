@@ -428,7 +428,7 @@ describe("Consent for Jev (ADR-0022)", { timeout: 30_000 }, () => {
     });
   });
 
-  test("not allowed, tagging never asks and sends nothing, to Jev or the chat model: Documents wait", async () => {
+  test("taken back, tagging never asks and sends nothing, to Jev or the chat model: Documents wait", async () => {
     const { core, jev, tagging } = await startWithJev();
     await core.saveJevSettings({ apiKey: JEV_KEY });
     await turnOnAutomaticTagging(core);
@@ -439,17 +439,17 @@ describe("Consent for Jev (ADR-0022)", { timeout: 30_000 }, () => {
     const first = await addDocument(core, "Attention.md", PAPER_TEXT);
     const second = await addDocument(core, "Invoice.txt", "Invoice 42. Amount due: 120 EUR.");
 
-    expect([first.tagging, second.tagging]).toEqual([
-      "waiting-for-provider",
-      "waiting-for-provider",
-    ]);
+    // The switch reads off, and nothing asks about it again (#3353).
+    expect([first.tagging, second.tagging]).toEqual(["off", "off"]);
+    expect((await core.getLibrary()).asksFor).toEqual([]);
     expect(requests).toEqual([]);
     expect(jev.requests).toEqual([]);
     expect(tagging.requests).toEqual([]);
 
-    // Allowed in place: both go on.
+    // Allowed again in place, the User's re-tag sends both.
     jev.answer({ Paper: 0.9 });
     await core.allowDataFlow("tagging", TYPESAFE.id);
+    await core.retagDocuments([first.id, second.id]);
     await waitForTagging(core, [first.id, second.id]);
     expect(jev.requests).toHaveLength(2);
   });

@@ -74,8 +74,6 @@ const AUTOMATIC: LibraryClassifier = { kind: "automatic" };
 /** A Document read to the end with nothing Organize can read. */
 const NO_TEXT = new Set(["no-text", "failed"]);
 
-const AUTOMATIC_OFF_NOTICE = "libraryAutomaticOffNotice";
-
 /** How many Documents an upgrade moved from their Suggested Folders into Suggestions (migration 136). */
 const REVIEW_MOVED_NOTICE = "organizeReviewMovedNotice";
 
@@ -367,6 +365,8 @@ export function createLibrary(options: {
   }): ExternalService[];
   /** Whether the User's consent to tagging sending to this service stands (../consent). */
   taggingAllowed(service: ExternalService): boolean;
+  /** Whether the User took back, in Settings › Privacy, a consent the switch would record for this service. */
+  consentTakenBack(service: ExternalService): boolean;
   /**
    * The service an Organize request with these settings sends a Document to; none on this
    * computer. A scan's page images may go to the image model's too, which the User allows for
@@ -416,7 +416,7 @@ export function createLibrary(options: {
     const saved = isRecord(stored) ? stored : {};
     return {
       classifier: taggingClassifierOf(saved.classifier) ?? LIBRARY_DEFAULTS.classifier,
-      // Null until the User sets the switch: it follows the model then (see `LibrarySettings.automatic`).
+      // Null until the User sets the switch, which is on until they turn it off (#3353).
       automatic: typeof saved.automatic === "boolean" ? saved.automatic : null,
       // When the User turned it on for each service; null for a switch saved before these were kept.
       automaticSince: isRecord(saved.automaticSince)
@@ -443,9 +443,6 @@ export function createLibrary(options: {
         : [],
     };
   };
-  const usesCloud = (saved: Parameters<typeof options.sendsTo>[0]) =>
-    options.sendsTo(saved).length > 0;
-  const defaultAutomatic = (saved: ReturnType<typeof savedSettings>) => !usesCloud(saved);
   /**
    * Where tagging and organizing by themselves send now, and so what a turn-on names: nowhere
    * outside this computer in Local mode, whose line names no service (#2982).
@@ -455,17 +452,33 @@ export function createLibrary(options: {
   /**
    * When the switch was turned on for each service. One saved before these were kept names none:
    * nothing stored tells a turn-on from a consent given elsewhere, so it holds only where tagging
-   * sends nothing out, until the User turns it on again (#2623).
+   * sends nothing out, and asks as one never set does elsewhere (#2623, #3353).
    */
   const sinceOf = (saved: ReturnType<typeof savedSettings>): Record<string, string> =>
     saved.automaticSince ?? {};
   /**
-   * Whether the switch the User turned on holds where tagging sends now: turned on for one
-   * service, it is off for another until they turn it on there (#2308).
+   * Whether the switch holds where tagging sends now: turned on for each service there, and its
+   * consent not taken back since. Turned on for one service, it is off for another until the User
+   * allows it there (#2308).
    */
   const turnedOnHere = (saved: ReturnType<typeof savedSettings>) => {
     const since = sinceOf(saved);
-    return sendsNow(saved).every((service) => since[service.id] !== undefined);
+    return sendsNow(saved).every(
+      (service) => since[service.id] !== undefined && options.taggingAllowed(service),
+    );
+  };
+  /**
+   * The services the switch asks the User about before the first Document goes to them
+   * (`LibrarySnapshot.asksFor`, #3353): it is on unless they turned it off, and sends there now
+   * without being turned on there. One whose consent they took back is never asked about: they
+   * turn it on again in Settings.
+   */
+  const asksFor = (saved: ReturnType<typeof savedSettings>): ExternalService[] => {
+    if (saved.automatic === false) return [];
+    const since = sinceOf(saved);
+    return sendsNow(saved).filter(
+      (service) => since[service.id] === undefined && !options.consentTakenBack(service),
+    );
   };
   /**
    * The place of the User's turn-on for this service in the database's order; null if none. The
@@ -488,8 +501,11 @@ export function createLibrary(options: {
     } = saved;
     return {
       ...shown,
+      // Never set, it holds only for a model on this computer, in Local mode too (#3353).
       automatic:
-        saved.automatic === null ? defaultAutomatic(saved) : saved.automatic && turnedOnHere(saved),
+        saved.automatic === null
+          ? options.sendsTo(saved).length === 0
+          : saved.automatic && turnedOnHere(saved),
     };
   };
   let lent: TaggingClassifier | null = null;
@@ -499,17 +515,9 @@ export function createLibrary(options: {
   };
   /** What the User chose: the same as `settings`, without a model lent to a run (#2252). */
   const chosenSettings = (): LibrarySettings => shownSettings(savedSettings());
-  const noticeIsOpen = (marker: unknown) => marker === "pending" || marker === true;
   const reviewMoved = (): number => {
     const count = settings.readDeviceValue(REVIEW_MOVED_NOTICE);
     return typeof count === "number" && count > 0 ? count : 0;
-  };
-  const automaticOffNotice = (): boolean => {
-    const marker = settings.readDeviceValue(AUTOMATIC_OFF_NOTICE);
-    if (!noticeIsOpen(marker)) return false;
-    const off = !getSettings().automatic;
-    if (marker === "pending" || !off) settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, off);
-    return off;
   };
   const placeOf = (id: string): string | null =>
     db.get<{ group_id: string }>(
@@ -1407,19 +1415,6 @@ export function createLibrary(options: {
     announce([id]);
   }
 
-  /**
-   * The cloud service new Documents wait to be allowed on (`LibrarySnapshot.sortWaitsFor`). None
-   * when turning sorting on would turn it on for another service too (tagging's, say a Jev key's):
-   * the row's Allow names one service, and is the consent for that one only.
-   */
-  function sortWaitsFor(): ExternalService | null {
-    const now = getSettings();
-    if (now.automatic || options.localOnly?.() || groups().length === 0) return null;
-    const service = options.organizeService(now);
-    if (!service || options.sendsTo(now).some((each) => each.id !== service.id)) return null;
-    return service;
-  }
-
   // Organize holds a Document's Tags while its assignment isn't finished (queued, running,
   // waiting or failed), or while Organize files new Documents by itself.
   const isOrganizing = (id: string): boolean => {
@@ -1430,6 +1425,7 @@ export function createLibrary(options: {
   return {
     settings: getSettings,
     chosenSettings,
+    asksFor: () => asksFor(savedSettings()),
     /**
      * Organize uses this model, as if the User had chosen it, until the returned function is
      * called; nothing is stored, so a quit leaves no trace (#2252). One the User chose wins.
@@ -1532,15 +1528,12 @@ export function createLibrary(options: {
         )
         .map(toGroup);
       const saved = savedSettings();
-      const waiting = sortWaitsFor();
       return {
         groups: groups(),
         deletedGroups,
         assignments,
         settings: shownSettings(saved),
-        automaticDefault: defaultAutomatic(saved),
-        automaticOffNotice: automaticOffNotice(),
-        ...(waiting && { sortWaitsFor: waiting }),
+        asksFor: asksFor(saved),
         reviewCount: options.reviewCount(),
         ...(reviewMoved() > 0 && { reviewMoved: reviewMoved() }),
       };
@@ -1569,11 +1562,6 @@ export function createLibrary(options: {
     reviewMovedSeen(): void {
       if (reviewMoved() === 0) return;
       settings.writeDeviceValue(REVIEW_MOVED_NOTICE, 0);
-      changed();
-    },
-    dismissAutomaticOffNotice(): void {
-      if (settings.readDeviceValue(AUTOMATIC_OFF_NOTICE) !== true) return;
-      settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
       changed();
     },
     inWall,
@@ -1958,10 +1946,11 @@ export function createLibrary(options: {
       // Only `turnOn`, sent where the line says what goes, turns it on, and records when and
       // where in the database's order, for each service it sends to (ADR-0022, #2370). Any other
       // save may only turn it off: a save sends the switch as shown, which can be a window's
-      // older view (#2308).
+      // older view (#2308). While it asks, `settings.automatic` reads off, so only the User's own
+      // no (`turnOn: false`) turns it off then (#3353).
       const turnOn = input.turnOn === true;
       const showing = shownSettings(before).automatic;
-      const turnOff = !turnOn && input.automatic === false && showing;
+      const turnOff = !turnOn && input.automatic === false && (showing || input.turnOn === false);
       const automatic = turnOn ? true : turnOff ? false : before.automatic;
       const at = now();
       const named = turnOn ? sendsNow(next) : [];
@@ -1991,9 +1980,6 @@ export function createLibrary(options: {
         : turnOff
           ? {}
           : sinceSeqOf(before);
-      if (automatic !== null && noticeIsOpen(settings.readDeviceValue(AUTOMATIC_OFF_NOTICE))) {
-        settings.writeDeviceValue(AUTOMATIC_OFF_NOTICE, false);
-      }
       settings.writeDeviceValue("library", {
         classifier: automaticChosen ? AUTOMATIC : chosen,
         ...(automatic !== null && { automatic }),

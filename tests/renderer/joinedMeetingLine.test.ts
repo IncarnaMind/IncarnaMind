@@ -101,7 +101,7 @@ async function show(language: "en" | "zh-CN") {
         organizeWith: null,
         taggingStopped: [],
       },
-      automaticDefault: false,
+      asksFor: [],
     },
   } as never);
   useJoinedMeetings.setState({ joined: [JOIN], loaded: true });

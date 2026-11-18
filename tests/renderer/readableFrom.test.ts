@@ -88,7 +88,7 @@ describe("A Document a Note's sentence may take now", () => {
           organizeWith: null,
           taggingStopped: [],
         },
-        automaticDefault: false,
+        asksFor: [],
         reviewCount: 0,
       },
     });

@@ -2,7 +2,7 @@
  * Dropped Documents wait for the User's Allow before a cloud service reads them (#2308): the
  * sidebar's footer says how many and names the service, its popover says what goes, the press
  * organizes them into Suggestions, where they wait for the User's Confirm with nothing filed
- * (#1569), and turning the switch off brings the row back.
+ * (#1569), and once the User turns the switch off no row asks again (#3353).
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -23,7 +23,6 @@ import {
 const CASES = {
   en: {
     row: "4 to organize",
-    one: "1 to organize",
     allow: "Allow Anthropic",
     sends:
       "4 Documents wait to be organized: Anthropic isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to Anthropic, for these and for Documents you add later.",
@@ -31,7 +30,6 @@ const CASES = {
   },
   "zh-CN": {
     row: "4 个待整理",
-    one: "1 个待整理",
     allow: "允许 Anthropic",
     sends:
       "4 个文档等待整理：尚未允许 Anthropic 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 Anthropic，包括这些文档和以后添加的文档。",
@@ -51,7 +49,7 @@ test.afterEach(async () => {
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`${language}: the footer asks, the press turns organizing on and proposes them for the User to confirm, off asks again`, async () => {
+  test(`${language}: the footer asks, the press turns organizing on and proposes them for the User to confirm, off asks no more`, async () => {
     test.setTimeout(120_000);
     const words = CASES[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -148,20 +146,31 @@ for (const language of ["en", "zh-CN"] as const) {
         translate(language, "organizeReview.waiting", { count: "5" }),
       );
 
-      // Off again: a Document dropped now waits, and the row asks once more.
+      // Turned off, the switch is the User's no: a Document dropped now waits, and nothing asks.
       await window.evaluate(async () => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        await core.saveLibrarySettings({ ...(await core.getLibrary()).settings, automatic: false });
+        await core.saveLibrarySettings({
+          ...(await core.getLibrary()).settings,
+          automatic: false,
+          turnOn: false,
+        });
       });
       await writeFile(join(sources, "Survey 6.md"), `# Survey 6\n\n${words.text(6)}\n`);
       await add(6);
-      await expect(row.getByTestId("status-label")).toHaveText(words.one, { timeout: 30_000 });
-      await expect(allow).toHaveText(words.allow);
-
-      // Local mode sends nothing to a cloud service, so nothing asks.
-      await window.evaluate(async () => {
-        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(true);
-      });
+      await expect
+        .poll(
+          () =>
+            window.evaluate(
+              async () =>
+                (
+                  await (
+                    globalThis as unknown as { incarnamind: CoreBridge }
+                  ).incarnamind.listDocuments()
+                ).find((each) => each.name === "Survey 6")?.tagging,
+            ),
+          { timeout: 30_000 },
+        )
+        .toBe("off");
       await expect(row).toHaveCount(0);
     } finally {
       await app.close();

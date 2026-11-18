@@ -171,7 +171,7 @@ describe("moving Minds and Documents", () => {
       organizeWith: null,
       taggingStopped: [],
     },
-    automaticDefault: false,
+    asksFor: [],
     reviewCount: 0,
   };
   const minds = [mind("shortlist", null, "Shortlist"), mind("notes", "research", "Notes")];
