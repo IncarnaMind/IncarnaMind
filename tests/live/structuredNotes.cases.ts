@@ -229,4 +229,84 @@ export const STRUCTURED_NOTES: readonly StructuredNote[] = [
       },
     ],
   },
+  {
+    id: "en-s3",
+    language: "en",
+    name: "Harbour Dairy fleet record",
+    document:
+      "Harbour Dairy runs 9 delivery vans. Four of them are more than ten years old. Repairs cost £21,400 in 2026, up from £12,900 in 2025. Two vans failed their annual inspection in September 2026. Diesel made up 18% of delivery costs in 2026. A new electric van is quoted at £41,000, and the council offers a grant of £8,000 a van until December 2027.",
+    blocks: [
+      { heading: "Harbour Dairy: the delivery fleet in 2027", level: 1 },
+      {
+        paragraph: [
+          { sentence: "Harbour Dairy runs 9 delivery vans.", expected: "right" },
+          { sentence: "Four are more than ten years old.", expected: "right" },
+        ],
+      },
+      { heading: "Costs", level: 2 },
+      { paragraph: [{ sentence: "Repairs came to £21,400 in 2026.", expected: "right" }] },
+      {
+        paragraph: [
+          { sentence: "That is £8,500 more than in 2025.", expected: "right", worked: true },
+        ],
+      },
+      { paragraph: [{ sentence: "They were £31,400 the year before.", expected: "wrong" }] },
+      { heading: "Recommendation", level: 2 },
+      {
+        paragraph: [
+          { sentence: "We should start replacing them now.", expected: "none", grounds: "for" },
+        ],
+      },
+      {
+        paragraph: [
+          { sentence: "Order before the offer runs out.", expected: "none", grounds: "for" },
+        ],
+      },
+      {
+        paragraph: [
+          {
+            sentence: "Waiting another year would cost more than acting.",
+            expected: "none",
+            grounds: "for",
+          },
+        ],
+      },
+      { paragraph: [{ sentence: "Do it in two batches.", expected: "none", grounds: "none" }] },
+    ],
+  },
+  {
+    id: "zh-s3",
+    language: "zh-CN",
+    name: "港湾乳业车队记录",
+    document:
+      "港湾乳业有9辆送货车，其中4辆车龄超过十年。2026年维修费用为21.4万元，2025年为12.9万元。2026年9月有两辆车没有通过年检。2026年柴油占送货成本的18%。一辆新的电动货车报价41万元，市里对每辆车补贴8万元，截止到2027年12月。",
+    blocks: [
+      { heading: "港湾乳业：2027年的送货车队", level: 1 },
+      {
+        paragraph: [
+          { sentence: "港湾乳业有9辆送货车。", expected: "right" },
+          { sentence: "其中4辆车龄超过十年。", expected: "right" },
+        ],
+      },
+      { heading: "费用", level: 2 },
+      { paragraph: [{ sentence: "2026年维修花了21.4万元。", expected: "right" }] },
+      {
+        paragraph: [{ sentence: "比2025年多了8.5万元。", expected: "right", worked: true }],
+      },
+      { paragraph: [{ sentence: "前一年是31.4万元。", expected: "wrong" }] },
+      { heading: "建议", level: 2 },
+      {
+        paragraph: [{ sentence: "我们应该现在就开始换。", expected: "none", grounds: "for" }],
+      },
+      {
+        paragraph: [{ sentence: "要赶在优惠结束之前下单。", expected: "none", grounds: "for" }],
+      },
+      {
+        paragraph: [
+          { sentence: "再等一年，花的钱会比现在动手更多。", expected: "none", grounds: "for" },
+        ],
+      },
+      { paragraph: [{ sentence: "分两批来做。", expected: "none", grounds: "none" }] },
+    ],
+  },
 ];
