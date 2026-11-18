@@ -3,15 +3,10 @@
  * DESIGN.md › Speakers words them: in a call the microphone stays "Me", and the other side is
  * "Them" while one voice speaks and "Speaker 1, 2…" when several do; in a room every voice is
  * "Speaker 1, 2…". When the pass can't tell the voices apart, every line keeps the label of
- * where it came from.
+ * where it came from. The voices a cloud service numbered as they spoke are rough, and start
+ * again at each new connection: over the lines the pass is run on, its voices are the final ones.
  */
-import {
-  lineKey,
-  numberedVoice,
-  SPEAKER_ME,
-  SPEAKER_THEM,
-  SPEAKER_UNKNOWN,
-} from "../../shared/speakers";
+import { lineKey, numberedVoice, SPEAKER_ME, SPEAKER_THEM } from "../../shared/speakers";
 import type { Logger, SpeakerSeparator, VoiceTurn } from "../adapters";
 import type { AudioSource, TranscriptSpeakers } from "../api";
 import type { Cue, WordTime } from "../documents/formats/vtt";
@@ -26,7 +21,11 @@ export const isCall = (cues: readonly Cue[]) =>
   cues.some((cue) => cue.speaker === SPEAKER_ME || cue.speaker === SPEAKER_THEM);
 
 /** The source whose voices the pass tells apart: the other side in a call, the room otherwise. */
-export const sourceToSeparate = (call: boolean): AudioSource => (call ? "system" : "microphone");
+const sourceToSeparate = (call: boolean): AudioSource => (call ? "system" : "microphone");
+
+/** A line of the side the pass tells apart: in a call every line but the User's. */
+const separated = (cue: Cue, call: boolean) =>
+  cue.speaker !== null && !(call && cue.speaker === SPEAKER_ME);
 
 type TimeRange = Pick<Cue, "startMs" | "endMs">;
 
@@ -58,11 +57,10 @@ export function labelled(
   turns: readonly VoiceTurn[],
   call: boolean,
 ): Cue[] | null {
-  const label = call ? SPEAKER_THEM : SPEAKER_UNKNOWN;
   let speech = 0;
   let covered = 0;
   const voices = cues.map((cue) => {
-    if (cue.speaker !== label) return null;
+    if (!separated(cue, call)) return null;
     speech += cue.endMs - cue.startMs;
     const shared = sharedVoices(cue, turns);
     covered += Math.min(
@@ -76,7 +74,7 @@ export function labelled(
   for (const voice of voices) {
     if (voice !== null && !names.has(voice)) names.set(voice, numberedVoice(names.size + 1));
   }
-  if (call && names.size < 2) return [...cues];
+  if (call && names.size < 2) for (const voice of names.keys()) names.set(voice, SPEAKER_THEM);
   const named = turns.filter((turn) => names.has(turn.voice));
   const nearest = (cue: Cue) =>
     named.reduce<VoiceTurn | null>(
@@ -84,7 +82,7 @@ export function labelled(
       null,
     )?.voice ?? -1;
   return cues.map((cue, at) => {
-    if (cue.speaker !== label) return cue;
+    if (!separated(cue, call)) return cue;
     const name = names.get(voices[at] ?? nearest(cue));
     return name ? { ...cue, speaker: name } : cue;
   });
@@ -169,13 +167,12 @@ export function speakerLabels(
   turns: readonly VoiceTurn[],
   call: boolean,
 ): TranscriptSpeakers | null {
-  const source = call ? SPEAKER_THEM : SPEAKER_UNKNOWN;
   const used = new Set(
     cues.flatMap((cue) => (cue.speaker ? [lineKey(Math.round(cue.startMs), cue.speaker)] : [])),
   );
   const ordered = turns.toSorted((a, b) => a.startMs - b.startMs);
   const lines = cues.map((cue) => {
-    const cuts = cue.speaker === source ? speakerCuts(cue, ordered, used) : [];
+    const cuts = separated(cue, call) ? speakerCuts(cue, ordered, used) : [];
     const parts = [{ at: 0, ms: cue.startMs }, ...cuts];
     return {
       cue,
@@ -232,8 +229,8 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
   async function tellApart(
     meetingId: string,
     cues: readonly Cue[],
+    call: boolean,
   ): Promise<TranscriptSpeakers | null> {
-    const call = isCall(cues);
     const source = sourceToSeparate(call);
     const parts = options.partsOf(meetingId).filter((part) => part.source === source);
     if (parts.length === 0) return null;
@@ -258,10 +255,14 @@ export function createSpeakerPass(options: SpeakerPassOptions) {
     /**
      * Speaker labels and splits for the Transcript, or null when the pass can't tell the voices
      * apart. Rejects when the pass couldn't run: the models couldn't be downloaded, or the
-     * audio couldn't be read or separated.
+     * audio couldn't be read or separated. `call`: the Meeting heard the computer's sound.
      */
-    run(meetingId: string, cues: readonly Cue[]): Promise<TranscriptSpeakers | null> {
-      const result = queue.then(() => tellApart(meetingId, cues));
+    run(
+      meetingId: string,
+      cues: readonly Cue[],
+      call: boolean,
+    ): Promise<TranscriptSpeakers | null> {
+      const result = queue.then(() => tellApart(meetingId, cues, call));
       queue = result.catch(() => {});
       return result;
     },

@@ -15,7 +15,13 @@ import { createFakeCloud, FAKE_CLOUD_LINES } from "../../src/core/transcription/
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
-import { fakeSeparator, transcribingCore, transcriptOf, until } from "../helpers/transcription";
+import {
+  fakeSeparator,
+  toldCues,
+  transcribingCore,
+  transcriptOf,
+  until,
+} from "../helpers/transcription";
 
 const SECOND = 1000;
 const SONIOX_KEY = "soniox-test-key-0123456789";
@@ -385,8 +391,8 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     second.core.close();
   });
 
-  // protects=DESIGN.md › Speakers on the cloud path: one voice on the other side stays "Them", and the speaker pass leaves voices the service told apart as they are; fails_when=one voice is numbered, or the pass runs over the cloud's labels; no_claim=the local pass's own labels, which tests/core/speakerPass.test.ts covers.
-  test('with one voice on the other side, its lines say "Them", and the speaker pass leaves the service\'s voices', async () => {
+  // protects=DESIGN.md › Speakers on the cloud path: one voice on the other side stays "Them", in the saved file and after the speaker pass, which runs on a cloud Transcript too; fails_when=one voice is numbered, or the pass leaves a cloud Transcript alone; no_claim=the pass's own labels, which tests/core/speakerPass.test.ts covers.
+  test('with one voice on the other side, its lines say "Them", before the speaker pass and after it', async () => {
     const dataDir = await createTempDataFolder();
     const pass = fakeSeparator();
     const { core, record } = await transcribingCore(dataDir, {
@@ -407,7 +413,97 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     );
     const { cues } = readVtt(readFileSync(saved.savedPath as string, "utf8"));
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(new Set(["Me", "Them"]));
+    expect(pass.requests).toHaveLength(1);
+    expect(new Set((await toldCues(core, meeting.id)).map((cue) => cue.speaker))).toEqual(
+      new Set(["Me", "Them"]),
+    );
+    core.close();
+  });
+
+  // protects=DESIGN.md › Speakers on the cloud path: the voices a service numbers as they speak are rough, so after the call the speaker pass gives the other side's lines their final voices from the computer's sound, in the Transcript's who's who over its file's labels, the file itself untouched, the User's lines "Me" throughout, and a call the User said nothing in, whose lines say neither "Me" nor "Them", is told apart the same way; fails_when=a line keeps the service's voice after the pass, a "Me" line changes, the file is rewritten, or the pass reads the microphone's audio of a call; no_claim=the pass's own rule, which tests/core/speakerPass.test.ts covers, and which labels are right on real audio, which eval/speakers measures.
+  test.each([
+    { who: "both sides speak", sources: ["microphone", "system"] as const },
+    { who: "the User says nothing", sources: ["system"] as const },
+  ])(
+    "after a call where $who, the speaker pass gives the final voices over the ones the service numbered",
+    async ({ sources }) => {
+      const dataDir = await createTempDataFolder();
+      const pass = fakeSeparator();
+      const { core, record } = await transcribingCore(dataDir, {
+        engine: { cloud: { voices: 2 } },
+        speakerSeparator: pass.separator,
+      });
+      await chooseSoniox(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+      record(25 * SECOND, [...sources]);
+      await until(core, meeting.id, (transcript) => transcript.lines >= 8);
+      await core.stopMeeting(meeting.id);
+      const saved = await until(
+        core,
+        meeting.id,
+        (transcript) => transcript.state === "saved" && !transcript.separating,
+      );
+      const file = readFileSync(saved.savedPath as string, "utf8");
+      const before = readVtt(file).cues;
+      const theirsBefore = before.filter((cue) => cue.speaker !== "Me");
+      // The service's voices take turns line by line, so both speak in the first ten seconds.
+      expect(
+        new Set(theirsBefore.filter((cue) => cue.endMs <= 10 * SECOND).map((cue) => cue.speaker)),
+      ).toEqual(new Set(["Speaker 1", "Speaker 2"]));
+
+      expect(pass.requests).toHaveLength(1);
+      expect(pass.requests[0]?.parts.length).toBeGreaterThan(0);
+      expect(pass.requests[0]?.parts.every((part) => /[\\/]system-\d+\.wav$/.test(part.path))).toBe(
+        true,
+      );
+      const cues = await toldCues(core, meeting.id);
+      expect(readFileSync(saved.savedPath as string, "utf8")).toBe(file);
+      expect(cues.filter((cue) => cue.speaker === "Me").map((cue) => cue.startMs)).toEqual(
+        before.filter((cue) => cue.speaker === "Me").map((cue) => cue.startMs),
+      );
+      // The fake pass hears voice 0 in the first ten seconds and voice 1 in the next.
+      const theirs = cues.filter((cue) => cue.speaker !== "Me");
+      expect(
+        new Set(theirs.filter((cue) => cue.endMs <= 10 * SECOND).map((cue) => cue.speaker)),
+      ).toEqual(new Set(["Speaker 1"]));
+      expect(
+        new Set(
+          theirs
+            .filter((cue) => cue.startMs >= 10 * SECOND && cue.endMs <= 20 * SECOND)
+            .map((cue) => cue.speaker),
+        ),
+      ).toEqual(new Set(["Speaker 2"]));
+      core.close();
+    },
+  );
+
+  // protects=in a room the voices a cloud service told apart stay the final ones: the speaker pass leaves that Transcript alone, because measured over the service's lines it is far worse on a two-person conversation in two languages (#138); fails_when=the pass runs over a room's cloud Transcript before that is decided; no_claim=a call, which the pass labels, and a room transcribed on this computer.
+  test("in a room, the speaker pass leaves the voices the service told apart", async () => {
+    const dataDir = await createTempDataFolder();
+    const pass = fakeSeparator();
+    const { core, record } = await transcribingCore(dataDir, {
+      capture: { system: "denied" },
+      speakerSeparator: pass.separator,
+    });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: false });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    record(9 * SECOND, ["microphone"]);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 3);
+    await core.stopMeeting(meeting.id);
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "saved" && !transcript.separating,
+    );
     expect(pass.requests).toHaveLength(0);
+    expect(new Set((await toldCues(core, meeting.id)).map((cue) => cue.speaker))).toEqual(
+      new Set(["Speaker 1", "Speaker 2"]),
+    );
+    core.close();
   });
 
   test("in a room, with no computer sound, the voices it told apart are numbered, never the User, and a Citation names them", async () => {

@@ -85,6 +85,45 @@ describe("The labels the speaker pass gives (#138)", () => {
     expect(labelled(call, [{ startMs: 0, endMs: 500, voice: 0 }], true)).toBeNull();
     expect(labelled(call, [], true)).toBeNull();
   });
+
+  // protects=the voices a cloud service numbered as they spoke are not final: the pass gives every line of the side it tells apart its voice, whatever the service called it, in a call and in a room, one voice heard on the other side is "Them" again, and the who's who is kept by the file's own labels, so a Citation of such a line follows; fails_when=a line keeps the service's voice where the pass heard another, a "Me" line changes, one voice stays two speakers, or the who's who is kept by the new label; no_claim=which of the two is right on real audio, which eval/speakers measures.
+  test("lines a cloud service numbered take the pass's voices, in a call and in a room", () => {
+    const call = [
+      line(0, "Me"),
+      line(2000, "Speaker 1"),
+      line(4000, "Speaker 2"),
+      line(6000, "Speaker 1"),
+      line(8000, "Them"),
+    ];
+    const turns = [
+      { startMs: 1900, endMs: 6100, voice: 4 },
+      { startMs: 6100, endMs: 10_000, voice: 1 },
+    ];
+    expect(labelled(call, turns, true)?.map((cue) => cue.speaker)).toEqual([
+      "Me",
+      "Speaker 1",
+      "Speaker 1",
+      "Speaker 2",
+      "Speaker 2",
+    ]);
+    expect(
+      labelled(call, [{ startMs: 0, endMs: 10_000, voice: 0 }], true)?.map((cue) => cue.speaker),
+    ).toEqual(["Me", "Them", "Them", "Them", "Them"]);
+    const room = [line(0, "Speaker 1"), line(2000, "Speaker 2"), line(4000, "Speaker 1")];
+    const heard = [
+      { startMs: 0, endMs: 2000, voice: 7 },
+      { startMs: 2000, endMs: 6000, voice: 3 },
+    ];
+    expect(labelled(room, heard, false)?.map((cue) => cue.speaker)).toEqual([
+      "Speaker 1",
+      "Speaker 2",
+      "Speaker 2",
+    ]);
+    expect(speakerLabels(room, heard, false)).toEqual({
+      labels: {},
+      lines: { "4000 Speaker 1": "Speaker 2" },
+    });
+  });
 });
 
 describe("A speaker change inside a timed Transcript line", () => {
