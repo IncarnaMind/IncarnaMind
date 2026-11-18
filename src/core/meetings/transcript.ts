@@ -605,19 +605,24 @@ export function createTranscripts(options: TranscriptsOptions) {
     source: AudioSource,
     callSound: boolean,
     label: string,
+    final: boolean,
   ): string {
     if (source === "microphone" && callSound) return SPEAKER_ME;
     const voices = state.voices ?? {};
-    state.voices = voices;
     const key = `${stream}:${label}`;
     const side = `:${source}:`;
     const before = Object.keys(voices).filter((each) => each.includes(side)).length;
     const number = voices[key] ?? before + 1;
-    voices[key] = number;
+    if (final) {
+      voices[key] = number;
+      state.voices = voices;
+    }
     if (source !== "system") return numberedVoice(number);
     if (number === 1 && before <= 1) return SPEAKER_THEM;
-    for (const cue of state.firstVoice) cue.speaker = numberedVoice(1);
-    state.firstVoice.clear();
+    if (final) {
+      for (const cue of state.firstVoice) cue.speaker = numberedVoice(1);
+      state.firstVoice.clear();
+    }
     return numberedVoice(number);
   }
 
@@ -663,7 +668,14 @@ export function createTranscripts(options: TranscriptsOptions) {
     const { state, baseMs, live } = found;
     const speaker =
       segment.speaker && found.speaker !== null
-        ? voiceOf(state, segment.stream, found.source, found.callSound, segment.speaker)
+        ? voiceOf(
+            state,
+            segment.stream,
+            found.source,
+            found.callSound,
+            segment.speaker,
+            segment.final,
+          )
         : found.speaker;
     const startMs = baseMs + segment.startMs;
     const text = options.lineText

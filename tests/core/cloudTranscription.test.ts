@@ -81,6 +81,69 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     );
   });
 
+  test.each([
+    { language: "English", first: "We have the draft.", second: "I will send it today." },
+    { language: "Chinese", first: "我们已经有初稿了。", second: "我今天发给你。" },
+  ])(
+    "a provisional Soniox voice does not renumber a single confirmed speaker in $language",
+    async ({ first, second }) => {
+      const connections: Array<{ heard: (message: object) => void }> = [];
+      const cloud: CloudConnect = (_url, _key, events) => {
+        const heard = (message: object) => events.message(JSON.stringify(message));
+        queueMicrotask(() => events.open());
+        return {
+          send(data) {
+            if (data === "") heard({ finished: true });
+            else if (
+              typeof data !== "string" &&
+              !connections.some((each) => each.heard === heard) &&
+              data.some((byte) => byte !== 0)
+            )
+              connections.push({ heard });
+          },
+          close() {},
+        };
+      };
+      const dataDir = await createTempDataFolder();
+      const { core, record } = await transcribingCore(dataDir, {
+        cloud,
+        capture: { microphone: "denied" },
+      });
+      await chooseSoniox(core);
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+      record(3 * SECOND, ["system"]);
+      await vi.waitFor(() => expect(connections).toHaveLength(1));
+      const socket = connections[0];
+      if (!socket) throw new Error("The system audio stream did not open.");
+      const end = { text: "<end>", is_final: true };
+      socket.heard({
+        tokens: [{ text: first, start_ms: 200, end_ms: 900, speaker: "1", is_final: true }, end],
+        final_audio_proc_ms: 900,
+      });
+      await until(core, meeting.id, (transcript) => transcript.lines === 1);
+      const draft = { text: second, start_ms: 1100, end_ms: 2200, speaker: "2", is_final: false };
+      socket.heard({ tokens: [draft] });
+      await until(core, meeting.id, (transcript) =>
+        transcript.partials.some((line) => line.text === second),
+      );
+      socket.heard({
+        tokens: [{ ...draft, speaker: "1", is_final: true }, end],
+        final_audio_proc_ms: 3000,
+      });
+      await until(core, meeting.id, (transcript) => transcript.lines === 2);
+      await core.stopMeeting(meeting.id);
+      const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+      if (!saved.savedPath) throw new Error("The Transcript was not saved.");
+      const { cues } = readVtt(readFileSync(saved.savedPath, "utf8"));
+      expect(cues.map(({ text, speaker }) => ({ text, speaker }))).toEqual([
+        { text: first, speaker: "Them" },
+        { text: second, speaker: "Them" },
+      ]);
+    },
+  );
+
   test("word-level AssemblyAI speakers appear in the live and saved Transcript", async () => {
     const cloud: CloudConnect = (_url, _key, events) => {
       const say = (message: object) => events.message(JSON.stringify(message));
