@@ -6,7 +6,7 @@ import {
   writeOpinionSentences,
 } from "../../../shared/opinions";
 import { isVerifiedBlock, readVerification, writeVerification } from "../../../shared/verification";
-import { type ClaimPartPlan, MIND_SETTINGS_FIELD } from "../../api";
+import { type ClaimCheckResult, type ClaimPartPlan, MIND_SETTINGS_FIELD } from "../../api";
 import { everySentence, markedSentences, type SelectedSentence, unmarkSentence } from "./sentences";
 
 export interface SortedSentence extends SelectedSentence {
@@ -17,6 +17,31 @@ const sameSentence = (
   a: Pick<SelectedSentence, "blockId" | "text" | "occurrence">,
   b: Pick<SelectedSentence, "blockId" | "text" | "occurrence">,
 ) => a.blockId === b.blockId && a.text === b.text && a.occurrence === b.occurrence;
+
+/**
+ * The check's model, which sees the Documents, found the sentence to be only its writer's own
+ * view: advice, a plan or a judgement that no Document gives (#3322).
+ */
+export const isOwnView = (result: ClaimCheckResult): boolean =>
+  result.verdict === "unsupported" && result.unsupported?.word === "own-view";
+
+/**
+ * Leaves the sentence of check `id` out as an opinion, its mark gone. False when its mark doesn't
+ * cover one sentence as the Note has it now, so its check's result is written as any other.
+ */
+export function leaveOutOwnView(blocks: Y.XmlFragment, id: string): boolean {
+  const marked = markedSentences(blocks).find((each) => each.check.id === id);
+  const sentence =
+    marked &&
+    everySentence(blocks).find(
+      (each) =>
+        each.element === marked.element && each.from === marked.from && each.to === marked.to,
+    );
+  if (!sentence) return false;
+  const whole = { start: 0, end: sentence.text.length };
+  recordOpinions(blocks, [{ ...sentence, parts: [{ kind: "opinion", span: whole }] }]);
+  return true;
+}
 
 export function recordOpinions(blocks: Y.XmlFragment, sorted: readonly SortedSentence[]): void {
   const doc = blocks.doc;

@@ -60,6 +60,7 @@ const MOON = "Spring tides come at new and full moon.";
 const OVERSTATED = "Spring tides come at new and full moon, and they flood the harbour every year";
 const UNBACKED = "Neap tides are twice as strong";
 const FAILING = "The harbour floods at every spring tide";
+const OWN_VIEW = "My advice is to raise the quay wall by 2 metres";
 const RECORD_SOURCE = "ECF No. 41 at 3 states the deadline";
 const RECORD_NEXT = "Id. at 2 states another deadline";
 const TWO_CITED_ZH = "公司营收增长了5%[^1]，所有地区成本都大幅下降[^1]。";
@@ -79,6 +80,11 @@ const RAW_PLANS: Record<string, Plan> = {
     },
   },
   [asChecked(FAILING)]: { reply: { error: { status: 500, message: "The service broke." } } },
+  [asChecked(OWN_VIEW)]: {
+    reply: {
+      text: "Verdict: own view\nExplanation: This is the writer's own advice.\nEvidence: []",
+    },
+  },
   [TWO_CITED_ZH.replaceAll("[^1]", INLINE_NODE)]: {
     reply: (call) => ({ text: unsupportedReply(call, "没有段落说两个数字都成立。") }),
   },
@@ -707,6 +713,18 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(await core.planMindCheck(change?.mindId ?? "", "changed")).toMatchObject({
       kind: "unchanged",
     });
+  });
+
+  // protects=a written sentence its check's model calls the writer's own view lands with no Mark and is counted as left out, as an opinion the sort names is (#3322); fails_when=it lands marked Unsupported, or the card counts it as a sentence to look at; no_claim=which sentences a real model calls the writer's own view
+  test("a sentence the check's model calls the writer's own view lands unmarked, left out as an opinion", async () => {
+    const { change, client } = await write({
+      content: `## Tides\n\n${OWN_VIEW} [^1].`,
+    });
+
+    expect(claimSpans(readMind(client))).toEqual([]);
+    expect(change?.selfCheck).toMatchObject({ leftOut: 1, failed: 0, look: 0 });
+    await resolveChanges(client, "accept");
+    expect(claimSpans(readMind(client))).toEqual([]);
   });
 
   // protects=a check that fails lands its sentence marked not checked, with why, and the card's line counts it, while the reply is told nothing of it; fails_when=it lands unmarked, which reads as supported, or the reply is told to say so; no_claim=the words of the line.

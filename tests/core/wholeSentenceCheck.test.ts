@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { readOpinionSentences } from "../../src/shared/opinions";
 import {
   checkGenerate,
   checkingModel,
@@ -157,6 +158,49 @@ test("an unsupported sentence keeps the word its model gave for it", async () =>
     verdict: "unsupported",
     says: null,
     evidence: [],
+  });
+});
+
+// protects=a sentence its check's model, which sees the Documents, calls the writer's own view (advice with a figure, which the sort can't tell from a Document's own) is left out as an opinion with no Mark, counts as no checked sentence, and isn't sent again (#3322); fails_when=it keeps an Unsupported Mark, the run counts it as a sentence it checked, or the next Check this Note asks about it again; no_claim=which sentences a real model calls the writer's own view
+test("a sentence the check's model calls the writer's own view is left out as an opinion", async () => {
+  const advice = "My suggestion is 2 coats of paint, before 14 March.";
+  const plans: Record<string, Plan> = {
+    [LEASE]: { verdict: "supported", quote: LEASE, says: "The lease says so." },
+    [advice]: { verdict: "own view", says: "This is the writer's own advice." },
+  };
+  const calls: ModelCall[] = [];
+  const { core, client, mind } = await setUpWithDocuments(checkingModel(plans, calls), [
+    { name: "Lease.md", contents: LEASE },
+  ]);
+  writeMind(
+    client,
+    [LEASE, advice].map((sentence, at) => ({
+      type: "paragraph",
+      attrs: { id: `p${at}` },
+      content: [{ type: "text", text: sentence }],
+    })),
+  );
+  await client.settled();
+  const ran = await core.checkMind({
+    requestId: crypto.randomUUID(),
+    mindId: mind.id,
+    mode: "all",
+  });
+  await client.settled();
+  const marks = claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check.state]);
+  const leftOut = readOpinionSentences(client.doc).map((sentence) => sentence.text);
+  const sent = calls.filter(isCheckRun).length;
+  const next = await core.planMindCheck(mind.id, "changed");
+  core.close();
+
+  expect(ran).toMatchObject({ kind: "checked", sentences: 1, checked: 1 });
+  expect(marks).toEqual([[LEASE, "supported"]]);
+  expect(leftOut).toEqual([advice]);
+  expect(sent).toBeGreaterThan(0);
+  expect(next).toMatchObject({ kind: "unchanged" });
+  expect(readVerdict("Verdict: own view\nEvidence: []")).toMatchObject({
+    verdict: "unsupported",
+    word: "own-view",
   });
 });
 

@@ -7610,10 +7610,12 @@ export interface UnsupportedReason {
   kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
   /**
    * Which way the check's model said the sentence goes unsupported: the Documents say less than
-   * it does, state only some of it, or don't state it. Absent when it gave only "unsupported", and
-   * on checks made before it was asked.
+   * it does, state only some of it, or don't state it; or the sentence is only its writer's own
+   * view (advice, a plan, a judgement), which no Document could state: a Note's check leaves such
+   * a sentence out as an opinion. Absent when it gave only "unsupported", and on checks made
+   * before it was asked.
    */
-  word?: "overstated" | "partly-supported" | "not-found";
+  word?: "overstated" | "partly-supported" | "not-found" | "own-view";
   /**
    * The check read a contradiction its confirmation didn't uphold (#2184): `reason` is the check's
    * own explanation, and `quoted` the quote it rested on.

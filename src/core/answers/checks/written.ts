@@ -86,7 +86,7 @@ import { marksOfRun, type NodeJSON, syncContent, topLevelBlocks } from "../block
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
 import { type FirstLook, type FirstLookResult, quickLook } from "./fastPaths";
 import { claimsAmong } from "./findClaims";
-import { recordOpinions } from "./opinions";
+import { isOwnView, recordOpinions } from "./opinions";
 import {
   type CheckOutcome,
   type CheckRuns,
@@ -1275,6 +1275,14 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       const { by } = checks.get(sentence) ?? { by: prepared };
       if (result.parts && !result.parts.some((part) => part.kind === "fact")) {
         landNow({ sentence, opinion: result.parts.map(planOf) }, "opinion");
+        return;
+      }
+      if (isOwnView(result)) {
+        const opinion = (result.parts ?? []).map((part) => ({
+          kind: "opinion" as const,
+          span: part.span,
+        }));
+        landNow({ sentence, opinion }, "opinion");
         return;
       }
       const at = options.now().toISOString();

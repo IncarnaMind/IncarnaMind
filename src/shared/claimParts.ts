@@ -250,7 +250,8 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
     }),
     ...((value.word === "overstated" ||
       value.word === "partly-supported" ||
-      value.word === "not-found") && { word: value.word }),
+      value.word === "not-found" ||
+      value.word === "own-view") && { word: value.word }),
     reason: text(value.reason),
     covered: text(value.covered),
     uncovered: text(value.uncovered),

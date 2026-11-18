@@ -955,7 +955,7 @@ export function createMindCheck(options: MindCheckOptions) {
         { ...options, claimCheck: early.claimCheck },
         { ...run, queued, slots: limit, width },
       );
-      ran = { ...result, sentences: queued.length };
+      ran = { ...result, sentences: queued.length - result.leftOut };
     } finally {
       if (shownEarly.length > 0) {
         shownEarly.length = 0;
