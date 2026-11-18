@@ -33,6 +33,7 @@ import { scriptedModel, scriptedModels } from "../helpers/models";
 import { ADVICE, DUTY_PAIRS } from "./dutySentences.cases";
 import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
 import { FIELD_PAIRS } from "./fieldSentences.cases";
+import { REMARK_NOTES } from "./remarkSentences.cases";
 
 const PROVIDER =
   process.env.INCARNAMIND_LIVE_GATE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
@@ -1402,6 +1403,37 @@ async function heldOutRound(
 }
 
 /**
+ * The Notes of `remarkSentences.cases.ts` (#3320), each in its own Folder with its Document: facts
+ * a check reads, and the writer's own remarks about the Note, which it leaves without a mark.
+ */
+async function remarkRound(language: Language) {
+  const cases = REMARK_NOTES.filter(
+    (each) =>
+      each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
+  );
+  const core = await coreIn(language);
+  const sources = await createSourceFolder();
+  const notes: Written[] = [];
+  for (const each of cases) {
+    const [file] = await addAndProcess(core, [
+      await writeSourceFile(sources, `${each.name}.md`, `# ${each.name}\n\n${each.document}\n`),
+    ]);
+    if (!file) throw new Error(`${each.id}'s Document didn't process.`);
+    const folder = await core.createLibraryGroup({ name: each.id, description: "" });
+    await core.moveToFolder({ documentIds: [file.id], folderId: folder.id });
+    notes.push({
+      ...(await noteOf(core, each.id, each.lines, null, folder.id)),
+      probes: each.lines,
+      row: { arm: ARM, round: ROUND, group: "remark", language, case: each.id },
+    });
+  }
+  const rows = await checkAll(core, language, notes);
+  const { spent } = await core.getCostSummary();
+  core.close();
+  return { rows, spent };
+}
+
+/**
  * Each held-out sentence through the bare claim check, as a Meeting's fill and a Comparison's
  * cells ask it (#3022): its own core, with the pair's Document alone in the Library.
  */
@@ -1532,6 +1564,11 @@ describe("the #3088 gate", () => {
             write(round.rows);
             spent.push(round.spent);
           }
+          if (GROUPS.includes("remark")) {
+            const round = await remarkRound(language);
+            write(round.rows);
+            spent.push(round.spent);
+          }
           if (GROUPS.includes("note")) {
             const round = await wholeNoteRound(language);
             write(round.rows);
@@ -1557,6 +1594,7 @@ describe("the #3088 gate", () => {
                 (GROUPS.includes("everyday") ? 2 : 0) +
                 (GROUPS.includes("duty") ? 2 : 0) +
                 (GROUPS.includes("field") ? 2 : 0) +
+                (GROUPS.includes("remark") ? 2 : 0) +
                 (GROUPS.includes("note") ? 2 : 0) +
                 (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,
