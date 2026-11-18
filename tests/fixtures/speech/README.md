@@ -13,3 +13,7 @@ What is said, three lines, each a short word said on its own, 0.4 s of silence, 
 - "是。" then "合同已经寄出去了。"
 
 Each word and sentence was trimmed to its sound. The file starts with 1 s of silence, and 1.6 s follow each line; it is 16 kHz mono 16-bit WAV.
+
+`two-voices.wav` is two clearly different voices, one after the other, for the packaged app's check that the speaker pass tells them apart (#138): `gettysburg.wav` as above, 0.8 s of silence, then a synthetic English line, then 1.2 s of silence; 16 kHz mono 16-bit WAV. The second line was made with the same Kokoro-82M v1.1-zh (Apache-2.0) package as the Mandarin file, speaker 0, at normal speed, and trimmed to its sound. No real person's voice is in the second line.
+
+What the second voice says: "Thank you. Our next meeting is on Thursday morning, and I will send the agenda tonight. Please read both reports before then, and bring your questions."

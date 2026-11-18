@@ -49,9 +49,9 @@ describe("Voices joined by voiceprint after the engine's clustering (#138)", () 
   test("alike voices become one, unlike ones stay apart", () => {
     const joined = joinedVoices(
       new Map([
-        [0, { print: print(1, 0, 0), seconds: 100 }],
-        [1, { print: print(0.95, 0.1, 0), seconds: 60 }],
-        [2, { print: print(0, 1, 0), seconds: 80 }],
+        [0, { print: print(1, 0, 0), seconds: 100, longest: 12 }],
+        [1, { print: print(0.95, 0.1, 0), seconds: 60, longest: 12 }],
+        [2, { print: print(0, 1, 0), seconds: 80, longest: 12 }],
       ]),
       0.9,
     );
@@ -62,14 +62,31 @@ describe("Voices joined by voiceprint after the engine's clustering (#138)", () 
   test("a voice with almost none of the speech joins the voice most like it", () => {
     const joined = joinedVoices(
       new Map([
-        [0, { print: print(1, 0), seconds: 100 }],
-        [1, { print: print(0, 1), seconds: 100 }],
-        [2, { print: print(0.2, 0.8), seconds: 1 }],
+        [0, { print: print(1, 0, 0), seconds: 100, longest: 12 }],
+        [1, { print: print(0, 1, 0), seconds: 100, longest: 12 }],
+        [2, { print: print(0.1, 0.25, 0.96), seconds: 1, longest: 1 }],
       ]),
-      0.99,
     );
     expect(joined.get(2)).toBe(joined.get(1));
     expect(new Set(joined.values()).size).toBe(2);
+  });
+
+  // protects=a voice whose voiceprint is rough, because it has only short stretches however many, is one person with a voice it is under half alike, so a person the engine split is not shown as several speakers (#138), while a voice that is clearly different stays its own speaker however little it says and two voices with a long stretch each still need the full likeness; fails_when=a voice of short stretches under half alike its person stays apart, whether it has seconds of speech or half a minute, a short and clearly different voice is joined to another, or two voices with long stretches half alike are joined; no_claim=the likenesses' and the stretch's best values, which eval/speakers measures.
+  test("a voice of short stretches joins a voice under half alike, and a clearly different one stays apart", () => {
+    const joined = joinedVoices(
+      new Map([
+        [0, { print: print(1, 0, 0, 0, 0), seconds: 40, longest: 12 }],
+        [1, { print: print(0.5, 0.866, 0, 0, 0), seconds: 4, longest: 2 }],
+        [2, { print: print(0.2, 0, 0.98, 0, 0), seconds: 7, longest: 3 }],
+        [3, { print: print(0.5, 0, 0, 0.866, 0), seconds: 30, longest: 12 }],
+        [4, { print: print(0.4, 0, 0, 0, 0.917), seconds: 25, longest: 1.5 }],
+      ]),
+    );
+    expect(joined.get(1)).toBe(joined.get(0));
+    expect(joined.get(4)).toBe(joined.get(0));
+    expect(joined.get(2)).not.toBe(joined.get(0));
+    expect(joined.get(3)).not.toBe(joined.get(0));
+    expect(new Set(joined.values()).size).toBe(3);
   });
 });
 
