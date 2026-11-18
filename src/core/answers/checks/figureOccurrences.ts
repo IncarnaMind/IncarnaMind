@@ -412,7 +412,7 @@ function topBlockOf(node: Y.XmlElement): Y.XmlElement {
 }
 
 /** The heading above a Block, which says what the lines under it are about. */
-export function headingAbove(node: Y.XmlElement): { heading?: string } {
+function headingAbove(node: Y.XmlElement): { heading?: string } {
   for (let at = topBlockOf(node).prevSibling; at; at = at.prevSibling)
     if (at instanceof Y.XmlElement && at.nodeName === "heading") {
       const words = plainText(at).trim();
@@ -424,15 +424,30 @@ export function headingAbove(node: Y.XmlElement): { heading?: string } {
 /** How much of the Note above a sentence its Analysis figures' scale and currency are read in. */
 const ABOVE_CHARACTERS = 2000;
 
+/** A Block's words, a list's items and a quote's paragraphs each on a line of their own. */
+function blockWords(block: Y.XmlElement): string {
+  const lines = textBlocksOf(block)
+    .map(({ element }) => plainText(element).trim())
+    .filter(Boolean);
+  return lines.length > 0 ? lines.join("\n") : plainText(block).trim();
+}
+
+/** A section above a Block: its heading, and its lines that are said of the Block, nearest first. */
+interface SectionAbove {
+  heading?: string;
+  lines: string[];
+}
+
 /**
- * The lines above a top-level Block that are said of it, nearest first (#2544): its section's
- * lines, each heading it is under up to the Note's title, and each enclosing section's own opening
- * lines ("# Report / All amounts below are in thousands. / ## North"). A sibling section's lines
- * aren't its, nor is a table or chart above, with its caption, which states its own cells' units.
- * Lines are read up to a bound; the headings above always are.
+ * What stands above a top-level Block and is said of it (#2544), nearest first: its own section's
+ * lines under their heading, each enclosing section up to the Note's title with its opening lines
+ * ("# Report / All amounts below are in thousands. / ## North"), and last the Note's lines before
+ * its first heading. A sibling section's lines aren't its, nor is a table or chart above, with its
+ * caption, which states its own cells' units. Lines are read up to a bound; the headings above
+ * always are.
  */
-function linesAbove(block: Y.XmlElement): string[] {
-  const lines: string[] = [];
+function sectionsAbove(block: Y.XmlElement): SectionAbove[] {
+  const sections: SectionAbove[] = [];
   let pending: string[] = [];
   let under = Number.POSITIVE_INFINITY;
   let read = 0;
@@ -442,22 +457,42 @@ function linesAbove(block: Y.XmlElement): string[] {
       const level = Number(at.getAttribute("level")) || 1;
       if (level < under) {
         under = level;
-        lines.push(plainText(at).trim(), ...pending);
+        sections.push({ heading: plainText(at).trim(), lines: pending });
       } else read -= pending.reduce((sum, each) => sum + each.length, 0);
       // A sibling section's lines aren't the sentence's, and take nothing from the bound.
       pending = [];
       continue;
     }
     if (read >= ABOVE_CHARACTERS || !saysOfText(at)) continue;
-    const words = plainText(at)
-      .trim()
-      .slice(-(ABOVE_CHARACTERS - read));
+    const words = blockWords(at).slice(-(ABOVE_CHARACTERS - read));
     read += words.length;
-    if (under === Number.POSITIVE_INFINITY) lines.push(words);
-    else pending.push(words);
+    pending.push(words);
   }
   // Lines before the first heading open the whole Note.
-  return [...lines, ...pending].filter(Boolean);
+  return [...sections, { lines: pending }];
+}
+
+/** Those lines, nearest first: the Block's own section's, then each heading with its opening lines. */
+function linesAbove(block: Y.XmlElement): string[] {
+  return sectionsAbove(block)
+    .flatMap(({ heading, lines }, index) =>
+      heading === undefined ? lines : index === 0 ? [...lines, heading] : [heading, ...lines],
+    )
+    .filter(Boolean);
+}
+
+/**
+ * Those lines as the Note reads, from its top: what a sentence in the Block is about, for a check
+ * of a line that doesn't say it itself (#3332).
+ */
+export function readAbove(node: Y.XmlElement): string[] {
+  return sectionsAbove(topBlockOf(node))
+    .reverse()
+    .flatMap(({ heading, lines }) => [
+      ...(heading === undefined ? [] : [heading]),
+      ...lines.reverse(),
+    ])
+    .filter(Boolean);
 }
 
 /** A record without what it read above its Block, which `withAboveNow` reads again. */

@@ -56,12 +56,7 @@ import {
 } from "../../api";
 import { layout, textBlocks, textBlocksOf } from "../../proposals/write";
 import type { NoteParagraph, RecordCiteNote, RecordCitePlace } from "../../recordCites/referents";
-import {
-  type FigureOccurrence,
-  figuresInMind,
-  headingAbove,
-  withAboveNow,
-} from "./figureOccurrences";
+import { type FigureOccurrence, figuresInMind, readAbove, withAboveNow } from "./figureOccurrences";
 
 const BREAK = "hardBreak";
 
@@ -216,8 +211,10 @@ export function wordsReader(element: Y.XmlElement): (from: number, to: number) =
 }
 
 /**
- * A sentence as its check reads it: its words, the paragraph it is in under the heading above it,
- * and those of its figures that IncarnaMind worked out itself, which no Passage states.
+ * A sentence as its check reads it: its words; the paragraph it is in, under what stands above it
+ * in the Note (its title, the headings it is under, its section so far), which says what a line
+ * is about that doesn't say so itself (#3332); and those of its figures that IncarnaMind worked
+ * out itself, which no Passage states.
  */
 export function checkText(sentence: SelectedSentence) {
   const worked = (sentence.figures ?? []).filter(
@@ -227,11 +224,10 @@ export function checkText(sentence: SelectedSentence) {
   const around =
     (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
     wordsOf(sentence.element);
-  const { heading } = headingAbove(sentence.element);
   return {
     claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
     ...(sentence.projection && { projection: sentence.projection }),
-    context: heading ? `${heading}\n\n${around}` : around,
+    context: [...readAbove(sentence.element), around].join("\n\n"),
     ...(worked.length > 0 && { figures: withAboveNow(worked, sentence.element) }),
   };
 }
