@@ -31,6 +31,7 @@ import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
+import { FIELD_PAIRS } from "./fieldSentences.cases";
 
 const PROVIDER =
   process.env.INCARNAMIND_LIVE_GATE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
@@ -813,6 +814,11 @@ const EVERYDAY: readonly HeldOut[] = EVERYDAY_PAIRS.flatMap((each) =>
   pair(each.id, "short-note", each.language, each),
 );
 
+/** The finance, law and medicine set (`fieldSentences.cases.ts`): twins wrong without a contradiction. */
+const FIELD: readonly HeldOut[] = FIELD_PAIRS.flatMap((each) =>
+  pair(each.id, "short-note", each.language, each),
+);
+
 /** What the run's requests did: each check Run's replies, and every refused, failed or timed-out request. */
 const heard = {
   requests: 0,
@@ -1269,6 +1275,7 @@ async function checkAll(core: Core, language: Language, notes: readonly Written[
             expected: probe.expected,
             state: check?.state ?? "no-mark",
             by: check?.parts?.[0]?.modelId ?? check?.modelId ?? null,
+            kind: check?.parts?.[0]?.unsupported?.word ?? null,
             reason: check?.state === "not-checked" ? check.reason : null,
             line:
               check?.state === "not-checked" && check.reason
@@ -1496,6 +1503,11 @@ describe("the #3088 gate", () => {
             write(round.rows);
             spent.push(round.spent);
           }
+          if (GROUPS.includes("field")) {
+            const round = await heldOutRound(language, FIELD, "field");
+            write(round.rows);
+            spent.push(round.spent);
+          }
           if (GROUPS.includes("note")) {
             const round = await wholeNoteRound(language);
             write(round.rows);
@@ -1519,6 +1531,7 @@ describe("the #3088 gate", () => {
               (GROUPS.includes("example") ? 4 : 0) +
                 (GROUPS.includes("held-out") ? 2 : 0) +
                 (GROUPS.includes("everyday") ? 2 : 0) +
+                (GROUPS.includes("field") ? 2 : 0) +
                 (GROUPS.includes("note") ? 2 : 0) +
                 (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,

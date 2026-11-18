@@ -13,7 +13,7 @@ import type { Editor } from "@tiptap/core";
 import type { Mark as ProseMirrorMark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
 import { CLAIM_CHECK_MARK, type ClaimCalculation, type ClaimCheckPart } from "../../core/api";
-import { checkedScope, saysNotFound } from "../../shared/claimChecks";
+import { checkedScope, namedReason, saysNotFound } from "../../shared/claimChecks";
 import { keepCheckAsView } from "../../shared/claimParts";
 import { readFigures } from "../../shared/figures";
 import { figureNumber } from "../../shared/formula";
@@ -115,14 +115,17 @@ export const sentenceOf = (editor: Editor, claim: ShownClaim): string =>
   (claimWordsAt(editor.state.doc, claim.sentence.from, claim.sentence.to) ?? "").trim();
 
 /**
- * The word a check's mark and card are headed with: "Not found" or "Units may differ" apart from
- * "Unsupported", "Record cite" for a Supported sentence one of whose own record cites needs a
- * look, "Supported, not yet cited" for one whose ✓ waits on its Passage (#3019), and what a
- * decision model's first reading leans to while no verdict stands (#3118).
+ * The word a check's mark and card are headed with: "Overstated" or "Partly supported" as its
+ * model named it, "Not found" or "Units may differ" apart from "Unsupported", "Record cite" for a
+ * Supported sentence one of whose own record cites needs a look, "Supported, not yet cited" for
+ * one whose ✓ waits on its Passage (#3019), and what a decision model's first reading leans to
+ * while no verdict stands (#3118).
  */
 export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey => {
   const leaning = firstReadingShown(claim);
   if (leaning) return `claim.state.likely.${leaning.verdict}`;
+  const named = claim.shown.state === "unsupported" ? namedReason(claim.check.unsupported) : null;
+  if (named && markOf(claim) === claim.shown.state) return `claim.state.${named}`;
   return markOf(claim) !== claim.shown.state
     ? "claim.state.recordCite"
     : foundElsewhere(claim)

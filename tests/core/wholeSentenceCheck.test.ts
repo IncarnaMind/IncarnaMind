@@ -109,6 +109,49 @@ test("a contradiction keeps its correction, and an unsupported sentence its reas
   );
 });
 
+// protects=the way a check's model says a sentence goes beyond its Documents (overstated, partly supported, not found) stays on its result: the sentence reads Unsupported with that word, and keeps the quote of what the Document does say; a reply that says only "unsupported" carries no word; fails_when=the word is lost or changed, such a sentence reads anything but Unsupported, or the quote of what the Document says is dropped; no_claim=that a model picks the right word
+test("an unsupported sentence keeps the word its model gave for it", async () => {
+  const stronger = "The Tenant may repaint the unit.";
+  const more = "The Tenant may repaint the unit in any colour.";
+  const absent = "The Tenant pays for the paint.";
+  const { marks } = await checked(
+    [{ name: "Lease.md", contents: LEASE }],
+    [{ text: stronger }, { text: more }, { text: absent }],
+    {
+      [stronger]: {
+        verdict: "overstated",
+        quote: LEASE,
+        says: "The lease lets the Tenant repaint only once the Landlord has agreed in writing.",
+      },
+      [more]: {
+        verdict: "partly supported",
+        quote: LEASE,
+        says: "The lease doesn't say which colour.",
+      },
+      [absent]: { verdict: "not found", says: "The lease doesn't say who pays for the paint." },
+    },
+  );
+
+  expect(marks.map((mark) => [mark.state, mark.unsupported?.word])).toEqual([
+    ["unsupported", "overstated"],
+    ["unsupported", "partly-supported"],
+    ["unsupported", "not-found"],
+  ]);
+  expect(marks.map((mark) => mark.unsupported?.quoted?.quote ?? null)).toEqual([
+    LEASE,
+    LEASE,
+    null,
+  ]);
+  expect(marks[0]?.unsupported?.reason).toBe(
+    "The lease lets the Tenant repaint only once the Landlord has agreed in writing.",
+  );
+  expect(readVerdict("Verdict: unsupported\nEvidence: []")).toEqual({
+    verdict: "unsupported",
+    says: null,
+    evidence: [],
+  });
+});
+
 // protects=a check's reply is read wherever its fields stand: after a turn's own words with no line break, several on one line, or labelled in Chinese; a reply with no verdict reads as none; fails_when=a reply that gives its verdict is read as none (its sentence would be Not checked), or one that gives none is read as a verdict; no_claim=which fields a model writes.
 test("a reply's fields are read wherever they stand on its lines", () => {
   expect(

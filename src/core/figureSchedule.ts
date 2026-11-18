@@ -17,6 +17,7 @@ import {
   figureCheckShown,
   keepRecordCites,
   type LiveFooting,
+  namedReason,
   saysNotFound,
 } from "../shared/claimChecks";
 import { resultFromParts } from "../shared/claimParts";
@@ -1052,6 +1053,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
           ? "contradicted"
           : shown.state === "unsupported"
             ? (figureProblem(finding) ??
+              namedReason(check?.unsupported) ??
               (check?.unsupported?.kind === "units"
                 ? "units-may-differ"
                 : check && saysNotFound(shown, check, 0)
