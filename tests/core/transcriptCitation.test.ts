@@ -20,6 +20,52 @@ import { connectToMind } from "../helpers/mindClient";
 import { scriptedModel } from "../helpers/models";
 import { startOllamaServer } from "../helpers/ollama";
 
+test("a timed quote in overlapping Transcript blocks cites the block that holds its words", async () => {
+  const quote = "The budget is approved.";
+  const opener = "The discussion starts with the forecast.";
+  const model = citingModel({
+    query: "The budget is approved",
+    records(passages) {
+      const passage = passages.find((entry) => entry.text.includes(quote));
+      expect(passage?.text).toContain(opener);
+      return [{ marker: 1, passage: passage?.id, location: "0:08 Dana", quote }];
+    },
+    answer: "The budget passed[^1].",
+  });
+  const { core, client, mind } = await setUpWithDocuments(model, [
+    {
+      name: "Budget.vtt",
+      contents: writeVtt({
+        cues: [
+          { startMs: 0, endMs: 12_000, text: opener, speaker: "Alex" },
+          ...Array.from({ length: 79 }, (_, index) => ({
+            startMs: (index + 1) * 100,
+            endMs: (index + 1) * 100 + 50,
+            text: "Yes.",
+            speaker: "Alex",
+          })),
+          { startMs: 8000, endMs: 8400, text: quote, speaker: "Dana" },
+        ],
+        gaps: [],
+      }),
+    },
+  ]);
+  const { answerId } = await askAndFinish(
+    core,
+    client,
+    mind.id,
+    "What was decided about the budget?",
+  );
+  expect(citationsIn(client, answerId)).toMatchObject([
+    {
+      check: "found",
+      pageFrom: 3,
+      pageTo: 3,
+      location: { kind: "time", from: 8000, to: 8400, speaker: "Dana" },
+    },
+  ]);
+});
+
 for (const language of ["en", "zh-CN"] as const) {
   const repeated = language === "en" ? "We agreed to review the plan." : "我们同意重新审阅计划。";
   const boat = language === "en" ? "The boat arrives on Monday." : "船将在星期一到达。";

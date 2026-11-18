@@ -174,6 +174,33 @@ describe("Transcripts as WebVTT", () => {
 describe("Citations of a Transcript", () => {
   const units = transcriptUnits(readVtt(FILE));
 
+  test("a time in the end of an overlapping cue still finds its Transcript block", async () => {
+    const [unit] = await extractUnits(
+      "transcript",
+      new TextEncoder().encode(
+        writeVtt({
+          cues: [
+            { startMs: 9000, endMs: 16_000, text: "We should schedule a review.", speaker: "Lin" },
+            { startMs: 12_500, endMs: 14_500, text: "Yes.", speaker: "Dana" },
+          ],
+          gaps: [],
+        }),
+      ),
+    );
+    if (!unit) throw new Error("The transcript has no cues.");
+    expect(unit.label).toEqual({ from: 9000, to: 16_000, speakers: ["Lin", "Dana"] });
+    const legacy = { ...unit, label: { ...unit.label, to: 14_500 } };
+    const requested = { kind: "time", from: 15_000, to: 15_000 } as const;
+    expect(resolveRequested(requested, [legacy])).toEqual({ from: 1, to: 1 });
+    expect(locationOf([legacy], null)).toEqual({ kind: "time", from: 9000, to: 16_000 });
+    expect(locationOf([legacy], quoteInUnits([legacy], "Yes."))).toEqual({
+      kind: "time",
+      from: 12_500,
+      to: 14_500,
+      speaker: "Dana",
+    });
+  });
+
   test("a Location is the time its quote starts, through the end of the cue it ends in", () => {
     const quote = "the contingency cover it";
     const ranges = quoteInUnits(units, quote);

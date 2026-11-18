@@ -571,6 +571,34 @@ describe("Migrations", () => {
     ).toBe(saved);
     db.close();
   });
+
+  test("a profile with its automatic tagging turn-on order stored as JSON text keeps that order (#2370)", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "test.db"));
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version < 144),
+    );
+    const origin = "https://api.anthropic.com";
+    const at = "2026-11-01T09:03:00.000Z";
+    const settings = { automatic: true, automaticSince: { [origin]: at } };
+    db.run(
+      "INSERT INTO device_settings (id, key, value, created_at, updated_at) VALUES ('d1', 'library', ?, ?, ?)",
+      [JSON.stringify({ ...settings, automaticSinceSeq: JSON.stringify({ [origin]: 3 }) }), at, at],
+    );
+
+    migrate(db);
+
+    expect(
+      JSON.parse(
+        db.get<{ value: string }>("SELECT value FROM device_settings WHERE key = 'library'")
+          ?.value ?? "null",
+      ),
+    ).toEqual({
+      ...settings,
+      automaticSinceSeq: { [origin]: 3 },
+    });
+    db.close();
+  });
 });
 
 describe("Folders inside Folders (#246)", () => {
