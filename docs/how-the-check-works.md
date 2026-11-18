@@ -16,7 +16,7 @@ When a sentence with a Citation puts words in quotation marks, those words are c
 
 ## A sentence's claim
 
-The model reads the sentence whole, in its paragraph and under the heading above it, with the Passages its own Citations quote. It gives the verdict; nothing in IncarnaMind changes it. IncarnaMind confirms one thing itself: that the quote a `Supported` or `Needs a look · Contradicted` result rests on is in its Document.
+The model reads the sentence whole, in its paragraph, under the headings above it and after the lines of its section so far, which say what it is about and are never evidence, with the Passages its own Citations quote. It gives the verdict; nothing in IncarnaMind changes it. IncarnaMind confirms one thing itself: that the quote a `Supported` or `Needs a look · Contradicted` result rests on is in its Document.
 
 `Check against Documents`, `Check someone else’s file…`, and the Note's `Check` ask the model for one result:
 

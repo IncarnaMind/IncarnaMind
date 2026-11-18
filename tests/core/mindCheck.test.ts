@@ -1395,9 +1395,12 @@ describe("Check this note starts each sentence's check once its claims are named
   const SECOND = "Spring tide 2 comes at new moon.";
 
   /** `held`: the first sentence's checks, by their order, wait at their first request until each is resolved. */
+  /** The sentence's own paragraph in a check's prompt: the last of the lines it is given the Note's place by. */
+  const ownParagraph = (call: ModelCall) =>
+    /<paragraph>\n([\s\S]*?)\n<\/paragraph>/.exec(call.prompt)?.[1]?.split("\n\n").at(-1) ?? "";
   /** A call checks `sentence`: by its words, or, for a record cite's sentence, by its paragraph's. */
   const checking = (sentence: string) => (call: ModelCall) =>
-    sentenceOf(call) === sentence || call.prompt.includes(sentence);
+    sentenceOf(call) === sentence || ownParagraph(call).includes(sentence);
 
   async function noteOfTwo(
     then: "held" | "fails",

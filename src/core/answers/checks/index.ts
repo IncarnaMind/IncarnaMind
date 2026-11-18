@@ -1065,6 +1065,7 @@ export function createChecks(options: ChecksOptions) {
     return {
       claim: sentence.claim,
       context: sentence.context,
+      ...(sentence.near !== undefined && { near: sentence.near }),
       ...(sentence.figures && { figures: sentence.figures }),
       cited: citedNow(sentence.cited),
       scope,

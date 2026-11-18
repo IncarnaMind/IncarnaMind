@@ -137,7 +137,7 @@ const leavesOutQuestion: JevNoulQuestion = {
 };
 
 type PassageText = Pick<WindowedPassage, "documentName" | "pageFrom" | "pageTo" | "text">;
-type Asked = Pick<ClaimCheckRequest, "claim" | "context">;
+type Asked = Pick<ClaimCheckRequest, "claim" | "context" | "near">;
 
 const pagesOf = ({ pageFrom, pageTo }: Pick<WindowedPassage, "pageFrom" | "pageTo">) =>
   pageFrom === null
@@ -152,10 +152,10 @@ const shown = (passage: PassageText) => {
 };
 
 /** What the decision model reads with every question: the sentence and the paragraph it stands in. */
-const sentenceOf = (request: Asked): Record<string, unknown> => ({
-  sentence: request.claim,
-  ...(request.context && { context: { paragraph: request.context } }),
-});
+const sentenceOf = (request: Asked): Record<string, unknown> => {
+  const paragraph = request.near ?? request.context;
+  return { sentence: request.claim, ...(paragraph && { context: { paragraph } }) };
+};
 
 /** What the decision model reads for one Passage alone. */
 const decisionState = (request: Asked, passage: PassageText): Record<string, unknown> => ({
