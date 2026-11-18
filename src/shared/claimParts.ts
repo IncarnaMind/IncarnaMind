@@ -221,7 +221,7 @@ export function readClaimCalculation(value: unknown): ClaimCalculation | null {
 export function readCheckWorking(value: unknown): CheckWorking | null {
   if (!isRecord(value) || typeof value.title !== "string" || typeof value.code !== "string")
     return null;
-  if (!Array.isArray(value.rows) || !Array.isArray(value.figures)) return null;
+  if (!Array.isArray(value.rows)) return null;
   const rows: CheckWorking["rows"] = [];
   for (const each of value.rows as unknown[]) {
     const citation = isRecord(each)
@@ -231,17 +231,10 @@ export function readCheckWorking(value: unknown): CheckWorking | null {
     if (typeof each.count !== "number") return null;
     rows.push({ citation, range: each.range, count: each.count });
   }
-  const figures: CheckWorking["figures"] = [];
-  for (const each of value.figures as unknown[]) {
-    if (!isRecord(each) || typeof each.label !== "string" || typeof each.value !== "number")
-      return null;
-    figures.push({ label: each.label, value: each.value, unit: text(each.unit) });
-  }
   return {
     title: value.title,
     code: value.code,
     rows,
-    figures,
     ranAt: typeof value.ranAt === "string" ? value.ranAt : "",
   };
 }

@@ -7432,15 +7432,13 @@ export type ClaimCheckAction = (typeof claimCheckActions)[number];
 
 /**
  * How a check worked a sentence's figure out again over a data file's rows (#3282): the code its
- * model wrote, the rows it read and the figures it came to. What the check's card opens.
+ * model wrote and the rows it read. What the check's card opens.
  */
 export interface CheckWorking {
   title: string;
   code: string;
   /** Each sheet or CSV file it read: its rows as a Citation, and how many. */
   rows: { citation: Citation; range: string; count: number }[];
-  /** The figures the code gave, as its model was told them. */
-  figures: { label: string; value: number; unit: string | null }[];
   ranAt: string;
 }
 

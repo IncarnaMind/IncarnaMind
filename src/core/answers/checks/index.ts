@@ -770,6 +770,10 @@ export function createChecks(options: ChecksOptions) {
     };
   const checkByAiModel = asCheck(withCites(createClaimCheck(options)));
   const claimCheck = asCheck(readFirst(withCites(createClaimCheck(options))));
+  // A check that starts by itself (of what the assistant wrote, of an Answer's own sentences)
+  // sends what the written check may: no code runs over a data file unless the User asked.
+  const unaskedCheck: typeof claimCheck = (request) =>
+    claimCheck({ ...request, sends: request.sends ?? WRITTEN_SENDS });
 
   const services = async () => {
     const service = chat.defaultService();
@@ -1356,7 +1360,7 @@ export function createChecks(options: ChecksOptions) {
     widened: ({ provider: { service } }) => waitsFor(service, WRITTEN_SENDS),
     quickModel: quickModelOf,
     firstLook,
-    claimCheck,
+    claimCheck: unaskedCheck,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     evidenceReady,
     citedNow,
@@ -1440,7 +1444,7 @@ export function createChecks(options: ChecksOptions) {
     capLeft: () => options.capLeft(),
     look: async ({ sentence, context, citations, cited, scope, mindId, callIn, model, signal }) => {
       const outcome = await runCheck(
-        claimCheck,
+        unaskedCheck,
         {
           claim: sentence,
           context,

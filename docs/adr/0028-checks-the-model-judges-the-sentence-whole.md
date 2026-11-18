@@ -16,8 +16,8 @@ Removed with this decision: parts of a sentence and their separate checks; figur
 
 ## What this changes in earlier decisions
 
-- **ADR-0021** stands for Answers: a figure an Answer works out is calculated by a program. A check no longer offers `calculate` or refuses a sentence whose number needs working out: the model judges whether the Passages' numbers give the sentence's, and says so in its verdict. A figure IncarnaMind worked out itself (a saved calculation, an Analysis's figure) is told to the check's model with its label and rule, as context.
-- **ADR-0022**: the checks flow sends less. It no longer sends the Library's counts and names, file properties or whole Documents, and the separate "document-check" flow is gone.
+- **ADR-0021** stands for Answers: a figure an Answer works out is calculated by a program. A check no longer refuses a sentence whose number needs working out: the model judges whether the Passages' numbers give the sentence's, and says so in its verdict. Where its model is measured to use them, a check offers `calculate`, and in a check the User starts, with a sheet or a CSV file among the Documents, the Analysis Tool (ADR-0023), to work a figure out again over the file's rows (#3282). Both are tools in the model's hands: what a result means for the sentence is the model's to say. For a verdict that rests on such a run and on no quote, code confirms what it confirms of a quote: that the run finished, on the whole file. One that didn't leaves the sentence Not checked. A figure IncarnaMind worked out itself (a saved calculation, an Analysis's figure) is told to the check's model with its label and rule, as context.
+- **ADR-0022**: the checks flow no longer sends the Library's counts and names, file properties or whole Documents, and the separate "document-check" flow is gone. It sends one thing more: the capped report of a run that a check the User starts makes over a data file's rows. A check that runs by itself runs no code.
 
 ## Considered options
 

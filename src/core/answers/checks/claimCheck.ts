@@ -148,19 +148,14 @@ const endedAs = ({ end }: AnswerAnalysis): ClaimCheckFailure =>
       ? "rows-unavailable"
       : "rows-run-failed";
 
-/** The most of a working's code, in characters, and of its figures, that a check keeps for its card. */
-const WORKING_KEPT = { code: 4_000, figures: 20 };
+/** The most of a working's code, in characters, that a check keeps for its card. */
+const CODE_KEPT = 4_000;
 
 /** What a check keeps of the Analysis its verdict rests on. */
 const workingOf = (run: AnswerAnalysis): CheckWorking => ({
   title: run.title,
-  code: run.code.slice(0, WORKING_KEPT.code),
+  code: run.code.slice(0, CODE_KEPT),
   rows: rowsOf(run).map(({ citation, range, rows }) => ({ citation, range, count: rows })),
-  figures: run.output.results
-    .flatMap((value) =>
-      value.kind === "figure" ? [{ label: value.label, value: value.value, unit: value.unit }] : [],
-    )
-    .slice(0, WORKING_KEPT.figures),
   ranAt: run.ranAt,
 });
 
