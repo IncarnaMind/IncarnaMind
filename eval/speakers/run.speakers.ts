@@ -15,6 +15,9 @@
  * INCARNAMIND_EVAL_SPEAKER_MINUTES: only the first minutes of each case, for tuning.
  * INCARNAMIND_EVAL_SPEAKER_HOUR=1: also an hour of the room cases one after the other, for the real-time factor.
  * INCARNAMIND_EVAL_SPEAKER_WINDOW: minutes the engine clusters at once (default: the app's), to check the join across windows on cases shorter than the app's window.
+ * INCARNAMIND_EVAL_SPEAKER_LINES: a results folder of another transcriber (a cloud route's run of
+ *   eval/meetings): the pass labels its lines, text and all, in place of Silero VAD's, as it does
+ *   after a Meeting that route transcribed. A case the folder lacks is left out.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -38,6 +41,7 @@ import { createSileroDetectors } from "../../src/core/transcription/sherpa";
 import { createSpeakerModel } from "../../src/core/transcription/speakerModel";
 import { SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN } from "../../src/shared/speakers";
 import { evalCache } from "../lib/cache";
+import { readHypothesis } from "../meetings/hypotheses";
 
 const CASES = process.env.INCARNAMIND_EVAL_MEETING_CASES ?? join(evalCache(), "meetings", "cases");
 const ONLY = process.env.INCARNAMIND_EVAL_SPEAKER_CASES?.split(",");
@@ -51,6 +55,7 @@ const MINUTES = Number(process.env.INCARNAMIND_EVAL_SPEAKER_MINUTES ?? "0");
 const WINDOW = process.env.INCARNAMIND_EVAL_SPEAKER_WINDOW
   ? Number(process.env.INCARNAMIND_EVAL_SPEAKER_WINDOW) * 60
   : WINDOW_SECONDS;
+const LINES = process.env.INCARNAMIND_EVAL_SPEAKER_LINES;
 const RATE = 16_000;
 const PART_SAMPLES = 10 * RATE;
 
@@ -156,11 +161,28 @@ async function linesOf(samples: Int16Array, vadFile: string, speaker: string): P
   return lines;
 }
 
-const asSegments = (cues: readonly { startMs: number; endMs: number; speaker: string | null }[]) =>
+/** Another transcriber's lines for the case, each with the label it gave; null when it has none. */
+async function linesIn(folder: string, id: string, call: boolean): Promise<Cue[] | null> {
+  const hypothesis = await readHypothesis(folder, id);
+  if (!hypothesis) return null;
+  const until = MINUTES > 0 ? MINUTES * 60 : Number.POSITIVE_INFINITY;
+  return hypothesis.segments
+    .filter((segment) => segment.start < until)
+    .map((segment) => ({
+      startMs: segment.start * 1000,
+      endMs: Math.min(segment.end, until) * 1000,
+      text: segment.text,
+      speaker: segment.speaker ?? (call ? SPEAKER_THEM : SPEAKER_UNKNOWN),
+    }));
+}
+
+const asSegments = (
+  cues: readonly { startMs: number; endMs: number; text?: string; speaker: string | null }[],
+) =>
   cues.map((cue) => ({
     start: cue.startMs / 1000,
     end: cue.endMs / 1000,
-    text: "",
+    text: cue.text ?? "",
     speaker: cue.speaker ?? SPEAKER_UNKNOWN,
   }));
 
@@ -206,17 +228,21 @@ describe.runIf(existsSync(CASES))("The speaker pass on the meeting audio set", (
       await mkdir(lines, { recursive: true });
       await mkdir(raw, { recursive: true });
       for (const each of cases) {
+        const call = each.mic !== null;
+        const theirs = LINES ? await linesIn(LINES, each.id, call) : null;
+        if (LINES && !theirs) continue;
         const { folder, parts } = await partsOf(each.separate);
         const load = loadavg()[0] ?? 0;
         const started = performance.now();
         const turns = separate({ parts, model: speakers });
         const seconds = (performance.now() - started) / 1000;
         await rm(folder, { recursive: true, force: true });
-        const call = each.mic !== null;
-        const cues = [
-          ...(each.mic ? await linesOf(each.mic, vad, SPEAKER_ME) : []),
-          ...(await linesOf(each.separate, vad, call ? SPEAKER_THEM : SPEAKER_UNKNOWN)),
-        ].sort((a, b) => a.startMs - b.startMs);
+        const cues = (
+          theirs ?? [
+            ...(each.mic ? await linesOf(each.mic, vad, SPEAKER_ME) : []),
+            ...(await linesOf(each.separate, vad, call ? SPEAKER_THEM : SPEAKER_UNKNOWN)),
+          ]
+        ).sort((a, b) => a.startMs - b.startMs);
         const final = labelled(cues, turns, call) ?? cues;
         const audio = each.separate.length / RATE;
         const hypothesis = {
@@ -250,6 +276,6 @@ describe.runIf(existsSync(CASES))("The speaker pass on the meeting audio set", (
       ].join("\n"),
     );
     console.log(`Hypotheses in ${out}: score each folder with eval/meetings' scorer.`);
-    expect(rows).toHaveLength(cases.length * THRESHOLDS.length * SAME.length);
+    if (!LINES) expect(rows).toHaveLength(cases.length * THRESHOLDS.length * SAME.length);
   });
 });

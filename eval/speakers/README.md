@@ -14,6 +14,7 @@ npm run eval:meetings:score -- eval/results/speakers-<time>/lines-<threshold>-<s
 - **The lines:** cut with Silero VAD as the transcription process cuts them, then labelled by the pass's rule. That is what DER is scored on: the final labels, a line at a time. `turns-…` holds the engine's own turns, for comparison.
 - **The models:** downloaded the first time into `~/.cache/incarnamind-eval/models/` (about 30 MB) and checked against the SHA-256 hashes in `src/core/transcription/speakerModel.ts`, as the app downloads them.
 - **Options:** `INCARNAMIND_EVAL_SPEAKER_CASES` picks cases by id, `INCARNAMIND_EVAL_SPEAKER_THRESHOLDS` tries clustering thresholds (`CLUSTER_THRESHOLD` is the app's), `INCARNAMIND_EVAL_SPEAKER_SAME` how alike two voiceprints are to be one person (`SAME_PERSON`), `INCARNAMIND_EVAL_SPEAKER_MINUTES` keeps only the start of each case, and `INCARNAMIND_EVAL_SPEAKER_HOUR=1` adds an hour of the room cases for the real-time factor, and `INCARNAMIND_EVAL_SPEAKER_WINDOW` sets the minutes the engine clusters at once (`WINDOW_SECONDS` is the app's), to check the voiceprint join across windows on cases shorter than the app's window.
+- **Another transcriber's lines:** `INCARNAMIND_EVAL_SPEAKER_LINES=<results folder>` gives the pass the lines of a cloud route's run of eval/meetings (`INCARNAMIND_EVAL_ROUTE=soniox npm run eval:meetings -- run`) in place of Silero VAD's, text and all, the microphone's "Me" kept: what the pass does after a Meeting that route transcribed. Scoring both folders compares the service's own speaker numbers with the pass's on the same lines.
 - **Reported:** each case's voices found, labels given and time over audio, with the machine's load average, in `speakers.md`. The scorer gives DER with a 0.25 s collar, overlap scored. The hypotheses carry no text, so its word error rate means nothing here.
 
 ## How the settings were chosen
@@ -56,6 +57,27 @@ The settings as they are against the first ones, same machine and day:
 
 - **Where it is worse:** one Chinese room meeting of four (R8007_M8010, 63.4% against 58.4%) comes out as two voices where the first settings found three. Its speakers' voiceprints are up to 0.74 alike across people, more than one English speaker's own (0.57), so no likeness separates them and keeps the English speakers whole. The first minute's difference is 3 s of 304 s of speech.
 - In the first minutes the first settings gave one voice to a two-person conversation's first minute and to a three-person call's first 3 minutes; these settings give three voices and two.
+
+## A cloud service's own speaker numbers
+
+Soniox (`stt-rt-v6`) numbers the speakers of each stream as they speak. Whether those numbers or the pass's should be the final ones was measured on 2026-11-18: each whole case sent to the live route once at speaking pace (the four online ones on both tracks, the six others on their one track), then the same lines labelled by the pass (`INCARNAMIND_EVAL_SPEAKER_LINES`), both scored by eval/meetings' scorer. The words are the same on both sides, so only who spoke differs. DER, and the speech given to the wrong speaker:
+
+| Case | People | The service's numbers | The pass's labels |
+|---|---|---|---|
+| en-online-EN2002a | 4 | 54.1%, 355 s | 32.2%, 29 s |
+| en-online-IS1009b | 4 | 46.8%, 605 s | 7.2%, 11 s |
+| zh-online-R8007_M8011 | 4 | 33.5%, 369 s | 18.8%, 150 s |
+| zh-online-R8008_M8013 | 3 | 7.0%, 9 s | 6.6%, 2 s |
+| en-room-ES2004b | 4 | 71.6%, 940 s | 17.5%, 29 s |
+| en-room-TS3003b | 4 | 54.4%, 563 s | 16.7%, 22 s |
+| zh-room-R8003_M8001 | 4 | 41.5%, 410 s | 23.6%, 132 s |
+| zh-room-R8007_M8010 | 4 | 66.0%, 360 s | 60.8%, 280 s |
+| mixed-conversation-test-1 | 2 | 33.9%, 13 s | 58.8%, 185 s |
+| mixed-conversation-test-3 | 2 | 29.2%, 5 s | 28.8%, 2 s |
+
+- **Online:** the service gave the other side two, one, one and two numbers where three, three, three and two people spoke (the fourth is the microphone, which stays "Me"); the pass is better on all four, English 50.4% to 19.7% and Chinese 19.5% to 12.3% together. On the first minute and the first 3 minutes of the four, no case is worse. So after a call the pass labels a cloud Transcript too (`src/core/meetings/transcript.ts`).
+- **In a room:** the pass is far better on the four meetings of four, and far worse on one of the two conversations: mixed-conversation-test-1, two people changing between Mandarin and English, comes out as three voices, where the service's two numbers were nearly all right. Until that is decided a room's cloud Transcript keeps the service's numbers.
+- The service's numbers also start again at each new connection, so a person can get a second number after a reconnect; the pass hears the whole recording at once.
 
 ## The models' licences
 

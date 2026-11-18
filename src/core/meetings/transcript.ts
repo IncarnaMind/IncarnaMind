@@ -84,7 +84,7 @@ import { whileOpen } from "../whileOpen";
 import type { AudioPart } from "./audioFiles";
 import { echoedBy, isEcho, repeats } from "./echoLines";
 import type { CaptureHealthRecords } from "./health";
-import { isCall, type SpeakerPass, sourceToSeparate } from "./speakerPass";
+import { isCall, type SpeakerPass } from "./speakerPass";
 import { createTracks, type TrackedAudio, type Tracks } from "./tracks";
 import type { MeetingWords } from "./words";
 
@@ -1495,11 +1495,11 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (state.speakers !== "due") options.saved?.(state.meetingId);
   }
 
-  // Voices a cloud service told apart as they spoke stand: the pass leaves that side.
-  const toldApart = (state: State) => {
-    const side = `:${sourceToSeparate(isCall(state.cues))}:`;
-    return Object.keys(state.voices ?? {}).some((key) => key.includes(side));
-  };
+  // In a room the voices a cloud service told apart as they spoke stand, for now: over them the
+  // pass is far better on meetings of four and far worse on a two-person conversation in two
+  // languages (#138, eval/speakers/README.md).
+  const toldApartInRoom = (state: State) =>
+    Object.keys(state.voices ?? {}).some((key) => key.includes(":microphone:"));
 
   // A Transcript whose who's who is set, by the User or by an earlier pass, keeps it: the User's
   // names and lines hang on its labels (#138), and a pass run again would move them.
@@ -1511,10 +1511,12 @@ export function createTranscripts(options: TranscriptsOptions) {
   function separate(state: State): void {
     const pass = options.speakers;
     if (!pass || state.separating || closed) return;
+    // Once a cloud service numbers the other side's voices, no line says "Them".
+    const call = state.callHeard === true || isCall(state.cues);
     if (
       !state.savedPath ||
       options.audioDeleted(state.meetingId) ||
-      toldApart(state) ||
+      (!call && toldApartInRoom(state)) ||
       named(state)
     ) {
       settle(state, "done");
@@ -1522,7 +1524,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     }
     state.separating = true;
     options.changed();
-    if (isCall(state.cues)) {
+    if (call) {
       // The pass runs whatever the notes do with this: they wait for its end at the latest.
       try {
         options.written?.(state.meetingId);
@@ -1536,7 +1538,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     const saved = transcriptOf(state);
     const current = () => !closed && states.get(state.meetingId) === state;
     pass
-      .run(state.meetingId, [...state.cues])
+      .run(state.meetingId, [...state.cues], call)
       .then(
         (speakers) =>
           current() && !named(state) && speakers && !tellApart(state, speakers, saved)
