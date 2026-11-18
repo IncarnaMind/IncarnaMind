@@ -686,7 +686,16 @@ function changedWords(swap: Swap): { old: string; now: string } {
   // A run of characters set with no spaces has no word to extend to: a few stay beside the change.
   for (let more = 0; more < 2 && start > 0 && unspaced(old[start - 1]); more++) start--;
   for (let more = 0; more < 2 && end > 0 && unspaced(old[old.length - end]); more++) end--;
-  return { old: old.slice(start, old.length - end), now: now.slice(start, now.length - end) };
+  let from = start;
+  // Words only put in have nothing of the Note's to show beside them: the word before is.
+  if (start === old.length - end) {
+    while (from > 0 && /\s/.test(old[from - 1] ?? "")) from--;
+    while (from > 0 && !/\s/.test(old[from - 1] ?? "")) from--;
+  }
+  return {
+    old: old.slice(from, old.length - end).trim(),
+    now: now.slice(from, now.length - end).trim(),
+  };
 }
 
 /** How a paragraph starts, for a line that tells paragraphs apart. */
@@ -703,7 +712,7 @@ function wordsIn(
   within: Stretch | null,
 ):
   | { kind: "one"; from: TextPlace; to: TextPlace }
-  | { kind: "none"; near: string[]; held: number; already: string[] }
+  | { kind: "none"; near: string[]; held: number; already: string[]; heldHasWords: boolean }
   | { kind: "several"; count: number; starts: string[] } {
   const all = textBlocks(blocks);
   const first = within ? all.findIndex(({ element }) => idOf(element) === within.from.blockId) : 0;
@@ -716,6 +725,7 @@ function wordsIn(
   const starts: string[] = [];
   let count = 0;
   let held = 0;
+  let heldHasWords = false;
   let at: { from: TextPlace; to: TextPlace } | null = null;
   let crosses = false;
   for (const { element } of all.slice(Math.max(first, 0), last + 1)) {
@@ -728,6 +738,7 @@ function wordsIn(
       held++;
       // A paragraph with changes waiting can't be searched, but it can be seen to hold the new words already.
       const accepted = textOnceAccepted(element);
+      heldHasWords ||= accepted.includes(swap.old);
       if (swap.now.length >= 6 && accepted.includes(swap.now) && already.length < 2) {
         already.push(startOf(accepted));
       }
@@ -752,7 +763,10 @@ function wordsIn(
     }
   }
   // Words that run across a Citation or footnote are no words of the Note's text: they are not found.
-  if (count === 0 || crosses) return { kind: "none", near, held, already };
+  // Which paragraph was meant can't be told when another that can't be read holds the words too.
+  if (count === 0 || crosses || heldHasWords) {
+    return { kind: "none", near, held, already, heldHasWords: heldHasWords && count > 0 };
+  }
   if (count > 1 || !at) return { kind: "several", count, starts: starts.slice(0, 4) };
   return { kind: "one", ...at };
 }
@@ -2673,6 +2687,12 @@ export function mindTools(options: MindToolsOptions): {
       throw new Refusal(
         { kind: "several-words", mindId: mind.id, words: shown, count: place.count },
         `${nothing} “${shown}” is in it ${place.count} times, in paragraphs that start ${place.starts.map((start) => `“${start}”`).join(", ")}. Give old_text with more of the words around the one to change, so it is there once, or name the paragraph in part.`,
+      );
+    }
+    if (place.heldHasWords) {
+      throw new Refusal(
+        { kind: "no-words", mindId: mind.id, words: shown },
+        `${nothing} “${shown}” is also in a paragraph with changes still waiting, such as your own earlier change in this Answer, which can't be searched, so which one you mean can't be told: change them with instruction.`,
       );
     }
     throw new Refusal(

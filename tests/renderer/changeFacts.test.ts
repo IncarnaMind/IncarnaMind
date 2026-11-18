@@ -258,8 +258,8 @@ describe("One exact replacement, said by its old and new words (#3284)", () => {
       row({ changed: 1, swapped: { old: "£41,500", now: "£43,000", count: 1 } }),
       "Changed “£41,500” to “£43,000” in “Q3”",
       "Changed “£41,500” to “£43,000”",
-      "在“Q3”中将“£41,500”改为“£43,000”",
-      "将“£41,500”改为“£43,000”",
+      "已将“Q3”中的“£41,500”改为“£43,000”",
+      "已将“£41,500”改为“£43,000”",
     ],
     [
       row({ changed: 1, swapped: { old: " The notice is one month.", now: "", count: 1 } }),

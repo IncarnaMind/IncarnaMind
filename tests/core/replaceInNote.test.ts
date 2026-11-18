@@ -158,6 +158,8 @@ describe("A small change as an exact replacement", { timeout: 30_000 }, () => {
     ["The salary is £41,500 a year", "The salary is £43,000 a year", "41,500", "43,000"],
     ["The notice is one month", "The notice is two months", "one month", "two months"],
     ["每周二上午十点开会", "每周三上午十点开会", "每周二上午", "每周三上午"],
+    ["Pets need the landlord's written consent", "Pets need the written consent", "landlord's", ""],
+    ["The notice is one month", "The notice is one full month", "one", "one full"],
   ])("the card says what differs: %s", async (before, after, old, now) => {
     const model = swapModel([{ old: before, now: after }]);
 
@@ -298,6 +300,23 @@ describe("A small change as an exact replacement", { timeout: 30_000 }, () => {
     });
     expect(kinds.filter((kind) => kind === "citation")).toHaveLength(1);
     expect(kinds).toContain("text:bold");
+  });
+
+  // protects=words that are also in a paragraph whose changes are still waiting are not swapped in the one other paragraph that holds them, since which one was meant can't be told; fails_when=the swap lands in the paragraph that can be read
+  test("words also in a paragraph with changes waiting are refused, and the other paragraph stays", async () => {
+    const model = swapModel([
+      { old: "The pet rule is in the lease.", now: "The pet rule is in the contract." },
+      { old: "The deposit is two months of rent", now: "The deposit is one month of rent" },
+    ]);
+
+    const { answer, paragraphs } = await askToSwap(model, "Fix the pet rule and the deposit.");
+
+    expect(mindCalls(answer).map((call) => call.status)).toEqual(["done", "failed"]);
+    expect(toldToTheModel(model)).toContain("with changes still waiting");
+    expect(paragraphs[3]).toContain("The deposit is two months of rent, held by the agent");
+    expect(paragraphs[5]).toBe(
+      "The pet rule is in the contract. The deposit is two months of rent.",
+    );
   });
 
   // protects=an empty new_text takes the words out and says so; fails_when=the words stay or the reply claims a swap
