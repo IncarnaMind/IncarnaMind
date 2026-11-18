@@ -139,7 +139,15 @@ import {
   waitingIn,
   writtenByAnswer,
 } from "../../proposals/ownWaiting";
-import { layout, leftOutText, textAround, textBlocks } from "../../proposals/write";
+import {
+  layout,
+  leftOutText,
+  readSelection,
+  type Swap,
+  textAround,
+  textBlocks,
+  textOnceAccepted,
+} from "../../proposals/write";
 import type { PreparedChatModel } from "../../providers/chat";
 import { MIND_TOOLS, type Tool, type ToolProviderInfo } from "..";
 import { partialFields } from "../partialInput";
@@ -244,6 +252,8 @@ export interface MindsForTools {
     requested: RequestedChange | null;
     ownRequests?: ReadonlySet<string>;
     removesOnly?: boolean;
+    /** An exact replacement of words in the one paragraph given (#3284): no model writes it. */
+    replace?: Swap;
   }): Promise<{
     result: EditWithAiResult;
     length: { before: string; after: string } | null;
@@ -637,6 +647,128 @@ function paragraphNamed(
     (element) => !isHeading(element) && nameKey(plainText(element)).startsWith(key),
   );
   return found.length === 1 ? found[0] : undefined;
+}
+
+/** A text cut to `most` characters, its start and its end kept, for a line that names it. */
+const clipped = (words: string, most = 60): string => {
+  const letters = [...words];
+  if (letters.length <= most) return words;
+  const half = Math.floor((most - 1) / 2);
+  return `${letters.slice(0, half).join("")}…${letters.slice(-half).join("")}`;
+};
+
+/**
+ * The words that differ between a replacement's old and new text, for a line the User reads: what
+ * the two share at either end is left out, but a word or a number is never cut in two, and a few
+ * characters of a language that sets no spaces stay beside the change so it reads as one.
+ */
+function changedWords(swap: Swap): { old: string; now: string } {
+  const { old, now } = swap;
+  if (now === "") return { old, now };
+  let start = 0;
+  while (start < old.length && start < now.length && old[start] === now[start]) start++;
+  let end = 0;
+  while (
+    end < old.length - start &&
+    end < now.length - start &&
+    old[old.length - 1 - end] === now[now.length - 1 - end]
+  ) {
+    end++;
+  }
+  const unspaced = (char: string | undefined) =>
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(char ?? "");
+  const wordChar = (char: string | undefined) =>
+    /[\p{L}\p{N}]/u.test(char ?? "") && !unspaced(char);
+  const inWord = (text: string, at: number) =>
+    at > 0 && at < text.length && wordChar(text[at - 1]) && wordChar(text[at]);
+  while (start > 0 && inWord(old, start)) start--;
+  while (end > 0 && inWord(old, old.length - end)) end--;
+  // A run of characters set with no spaces has no word to extend to: a few stay beside the change.
+  for (let more = 0; more < 2 && start > 0 && unspaced(old[start - 1]); more++) start--;
+  for (let more = 0; more < 2 && end > 0 && unspaced(old[old.length - end]); more++) end--;
+  let from = start;
+  // Words only put in have nothing of the Note's to show beside them: the word before is.
+  if (start === old.length - end) {
+    while (from > 0 && /\s/.test(old[from - 1] ?? "")) from--;
+    while (from > 0 && !/\s/.test(old[from - 1] ?? "")) from--;
+  }
+  return {
+    old: old.slice(from, old.length - end).trim(),
+    now: now.slice(from, now.length - end).trim(),
+  };
+}
+
+/** How a paragraph starts, for a line that tells paragraphs apart. */
+const startOf = (paragraph: string): string => clipped(paragraph.replace(/\s+/g, " ").trim(), 48);
+
+/**
+ * Where `swap.old` is in a Mind, read as an exact replacement reads it (#3284): the one paragraph
+ * that holds it once, or why none does, as the refusal tells the model. `within` narrows the search
+ * to a stretch the model named. Paragraphs with changes still waiting can't be read; they are counted.
+ */
+function wordsIn(
+  blocks: Y.XmlFragment,
+  swap: Swap,
+  within: Stretch | null,
+):
+  | { kind: "one"; from: TextPlace; to: TextPlace }
+  | { kind: "none"; near: string[]; held: number; already: string[]; heldHasWords: boolean }
+  | { kind: "several"; count: number; starts: string[] } {
+  const all = textBlocks(blocks);
+  const first = within ? all.findIndex(({ element }) => idOf(element) === within.from.blockId) : 0;
+  const last = within
+    ? all.findIndex(({ element }) => idOf(element) === within.to.blockId)
+    : all.length - 1;
+  const lead = swap.old.slice(0, 12);
+  const near: string[] = [];
+  const already: string[] = [];
+  const starts: string[] = [];
+  let count = 0;
+  let held = 0;
+  let heldHasWords = false;
+  let at: { from: TextPlace; to: TextPlace } | null = null;
+  let crosses = false;
+  for (const { element } of all.slice(Math.max(first, 0), last + 1)) {
+    const id = idOf(element);
+    const size = layout(element).reduce((sum, child) => sum + child.size, 0);
+    const from = { blockId: id, offset: 0 };
+    const to = { blockId: id, offset: size };
+    const read = readSelection(blocks, from, to, null, swap);
+    if (!read.ok) {
+      held++;
+      // A paragraph with changes waiting can't be searched, but it can be seen to hold the new words already.
+      const accepted = textOnceAccepted(element);
+      heldHasWords ||= accepted.includes(swap.old);
+      if (swap.now.length >= 6 && accepted.includes(swap.now) && already.length < 2) {
+        already.push(startOf(accepted));
+      }
+      continue;
+    }
+    const swapped = read.selection.swapped;
+    if (swapped && swapped.count > 0) {
+      count += swapped.count;
+      crosses ||= swapped.crosses;
+      at = { from, to };
+      starts.push(startOf(read.selection.text));
+    } else if (
+      swap.now.length >= 6 &&
+      read.selection.plain.includes(swap.now) &&
+      already.length < 2
+    ) {
+      already.push(startOf(read.selection.text));
+    } else if (lead.trim() !== "" && read.selection.plain.includes(lead) && near.length < 2) {
+      const text = read.selection.text;
+      const place = text.indexOf(lead);
+      near.push(clipped(text.slice(Math.max(0, place - 40), place + 200), 240));
+    }
+  }
+  // Words that run across a Citation or footnote are no words of the Note's text: they are not found.
+  // Which paragraph was meant can't be told when another that can't be read holds the words too.
+  if (count === 0 || crosses || heldHasWords) {
+    return { kind: "none", near, held, already, heldHasWords: heldHasWords && count > 0 };
+  }
+  if (count > 1 || !at) return { kind: "several", count, starts: starts.slice(0, 4) };
+  return { kind: "one", ...at };
 }
 
 /** The stretch of a Mind `edit_mind` changes, from one paragraph or heading to another. */
@@ -2545,6 +2677,38 @@ export function mindTools(options: MindToolsOptions): {
     return `${outcome === APPLIES ? "Wrote" : "Proposed"} your new text in place of your own in “${mind.name}”${went}. ${outcome}`;
   };
 
+  /** Where an exact replacement goes, or the refusal that tells the model why nowhere (#3284). */
+  const exactStretch = (mind: ChangeableMind, swap: Swap, within: Stretch | null): Stretch => {
+    const place = minds.read(mind.id, (blocks) => wordsIn(blocks, swap, within));
+    const nothing = `Nothing was changed in “${mind.name}”:`;
+    const shown = clipped(swap.old);
+    if (place.kind === "one") return { from: place.from, to: place.to };
+    if (place.kind === "several") {
+      throw new Refusal(
+        { kind: "several-words", mindId: mind.id, words: shown, count: place.count },
+        `${nothing} “${shown}” is in it ${place.count} times, in paragraphs that start ${place.starts.map((start) => `“${start}”`).join(", ")}. Give old_text with more of the words around the one to change, so it is there once, or name the paragraph in part.`,
+      );
+    }
+    if (place.heldHasWords) {
+      throw new Refusal(
+        { kind: "no-words", mindId: mind.id, words: shown },
+        `${nothing} “${shown}” is also in a paragraph with changes still waiting, such as your own earlier change in this Answer, which can't be searched, so which one you mean can't be told: change them with instruction.`,
+      );
+    }
+    throw new Refusal(
+      { kind: "no-words", mindId: mind.id, words: shown },
+      `${nothing} no paragraph holds “${shown}” as written${place.held > 0 ? ", and a paragraph with changes still waiting, such as your own earlier change in this Answer, can't be searched: change that one with instruction" : ""}${place.already.length > 0 ? `. The new words “${clipped(swap.now)}” are in a paragraph that starts ${place.already.map((start) => `“${start}”`).join(" or ")}: if that is this change, it is already made` : ""}. Give old_text exactly as the Note reads it, from one paragraph${place.near.length > 0 ? `; text near it reads ${place.near.map((text) => `“${text}”`).join(" and ")}` : ""}. Or use instruction.`,
+    );
+  };
+
+  const swappedText = (edited: ChangeableMind, change: MindChange, swap: Swap): string => {
+    const { mind, outcome } = namedAfter(edited, change.request);
+    const old = clipped(swap.old);
+    const now = clipped(swap.now);
+    const said = swap.now === "" ? `“${old}” out of` : `“${old}” to “${now}” in`;
+    return `${outcome === APPLIES ? (swap.now === "" ? "Took" : "Changed") : swap.now === "" ? "Proposed taking" : "Proposed changing"} ${said} “${mind.name}”. ${outcome}`;
+  };
+
   const editedText = (edited: ChangeableMind, change: MindChange, went: string): string => {
     const { mind, outcome } = namedAfter(edited, change.request);
     const { proposals } = change;
@@ -2732,7 +2896,7 @@ export function mindTools(options: MindToolsOptions): {
   const edit: Tool = {
     name: MIND_TOOLS.edit,
     description:
-      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. Say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or in the Note as you wrote it (an Answer added with Add to note), you may give its whole new text as content instead, cited as add_to_mind's, e.g. to make it longer with more from the Documents: it replaces that text, never adding a second copy, and each sentence it adds must cite a Passage. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies in the Note at once, with Undo, unless it would take out most of the User's own text, or, with removes_only, do more than take text out, which then waits for them: the result says which.",
+      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2740,12 +2904,21 @@ export function mindTools(options: MindToolsOptions): {
         part: {
           type: "string",
           description:
-            'The heading of the section to change, as written in the Note, or the first words of the one paragraph to change. Whenever the User names a section, give its name here alone, also when the Note has that heading more than once: you are then told how to ask the User which. Only when the User names the heading it is under ("the Summary under Part 2"), put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
+            'The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
         },
         instruction: {
           type: "string",
           description:
             'What to change, in the User\'s language, with anything from the conversation it needs, e.g. "Shorten to about 150 words, keeping every figure".',
+        },
+        old_text: {
+          type: "string",
+          description:
+            "The words to replace, as the Note reads them, from one paragraph, with enough around them to be found once.",
+        },
+        new_text: {
+          type: "string",
+          description: "What replaces old_text; empty takes it out.",
         },
         content: {
           ...contentProperty,
@@ -2760,7 +2933,7 @@ export function mindTools(options: MindToolsOptions): {
         removes_only: {
           type: "boolean",
           description:
-            'Give it on every call: true when the User asks only for text to go, the rest to stay word for word, as in "Delete the last sentence" or "Take out the deposit line"; false when they ask to shorten, rewrite or change it in any other way.',
+            'Give it on every call: true when the User asks only for text to go, as in "Delete the last sentence"; false when they ask to shorten, rewrite or change it in any other way.',
         },
       },
       additionalProperties: false,
@@ -2770,27 +2943,38 @@ export function mindTools(options: MindToolsOptions): {
     effects: effectOn("write"),
     untrustedResult: false,
     async call(input, { toolCallId, signal, canCallAgain }) {
-      const markdown = optional(input.content);
-      const instruction = markdown === null ? text(input.instruction, "instruction") : "";
-      const times = timesAsked(input.times_as_long);
+      const words =
+        typeof input.old_text === "string" && input.old_text !== "" ? input.old_text : null;
+      if (words !== null && typeof input.new_text !== "string") {
+        throw new Error("new_text must be text: give an empty one to take the words out.");
+      }
+      // An exact replacement: the model gives the words and their new words, and no model rewrites (#3284).
+      const swap: Swap | null = words === null ? null : { old: words, now: String(input.new_text) };
+      const markdown = swap ? null : optional(input.content);
+      const instruction = markdown === null && !swap ? text(input.instruction, "instruction") : "";
+      const times = swap ? null : timesAsked(input.times_as_long);
       const mind = picked.get(toolCallId) ?? found(targetOf(input));
       const part = optional(input.part);
       // The selection counts only in the Mind it is in, and only when no section is named.
       const selected = focused?.mindId === mind.id && part === null ? focused.blockIds : [];
       // Text the assistant still waits on is revised as a whole, from its heading.
-      const stretch = minds.read(mind.id, (blocks) =>
+      const named = minds.read(mind.id, (blocks) =>
         stretchOf(blocks, part, options.language, selected, options.paragraph),
       );
-      if ("why" in stretch) {
+      // Words to replace need no paragraph named: a part the Note doesn't hold only narrows nothing.
+      if ("why" in named && !swap) {
         throw new Refusal(
-          stretch.kind === "no-heading"
+          named.kind === "no-heading"
             ? { kind: "no-heading", mindId: mind.id, heading: part ?? "" }
-            : stretch.kind === "several-places"
+            : named.kind === "several-places"
               ? { kind: "several-places", mindId: mind.id, name: part ?? "", adding: false }
               : { kind: "no-text", mindId: mind.id },
-          `Nothing was changed in “${mind.name}”: ${stretch.why}.${stretch.hint ? ` ${stretch.hint}` : ""}`,
+          `Nothing was changed in “${mind.name}”: ${named.why}.${named.hint ? ` ${named.hint}` : ""}`,
         );
       }
+      const stretch: Stretch = swap
+        ? exactStretch(mind, swap, part === null || "why" in named ? null : named)
+        : (named as Stretch);
       const place = minds.read(mind.id, (blocks) => placeOf(blocks, stretch));
       const waiting = minds.read(mind.id, (blocks) =>
         waitingIn(blocks, stretch.from, stretch.to, ownRequests),
@@ -2894,14 +3078,15 @@ export function mindTools(options: MindToolsOptions): {
         mindId: mind.id,
         ...stretch,
         instruction: sized,
-        prepared: (await options.rewriting?.()) ?? options.prepared,
+        ...(swap && { replace: swap }),
+        prepared: swap ? options.prepared : ((await options.rewriting?.()) ?? options.prepared),
         signal,
         checkpoint: () => minds.checkpoint(mind.id),
         written: (request, proposals) =>
           options.changed(toolCallId, { mindId: mind.id, created: false, request, proposals }),
         requested: "edit",
         ownRequests,
-        removesOnly: input.removes_only === true,
+        removesOnly: swap ? swap.now === "" : input.removes_only === true,
       });
       if (result.kind !== "proposed") {
         const why = notProposed(
@@ -2962,6 +3147,12 @@ export function mindTools(options: MindToolsOptions): {
             ...(tables > 0 && { tables }),
             ...(sentences && { sentences }),
             ...(removed && { removed }),
+            ...(swap && {
+              swapped: {
+                old: clipped(changedWords(swap).old),
+                now: clipped(changedWords(swap).now),
+              },
+            }),
             ...notes,
           };
       if (revised) {
@@ -2984,11 +3175,15 @@ export function mindTools(options: MindToolsOptions): {
         : null;
       const done = change.sentences ? sentencesSaid(change.sentences) : null;
       const span = around ?? length;
-      const went = span ? ` (${lengthSaid(span.before, span.after, times)})` : "";
+      const went = span && !swap ? ` (${lengthSaid(span.before, span.after, times)})` : "";
       return [
-        revised ? revisedText(mind, change, went) : editedText(mind, change, went),
+        revised
+          ? revisedText(mind, change, went)
+          : swap
+            ? swappedText(mind, change, swap)
+            : editedText(mind, change, went),
         ...tableNotes(change, result.unmatchedMarkers),
-        ...(done ? [done] : []),
+        ...(done && !swap ? [done] : []),
         ...(stayed ? [stayed] : []),
         ...(reason ? [`Why, as the rewrite says: ${reason}`] : []),
         ...droppedSaid(result.droppedCitations),

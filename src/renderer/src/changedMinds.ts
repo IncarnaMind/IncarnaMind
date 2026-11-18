@@ -39,6 +39,8 @@ export interface ChangedMind {
   missingNumberRefused?: number;
   /** The whole paragraphs its removals there took out, when they only removed (#2356). Absent: none. */
   removed?: RemovedParagraphs;
+  /** Its exact replacements there (#3284): how many, and the words of the last. Absent: none. */
+  swapped?: { old: string; now: string; count: number };
 }
 
 /** The Minds an Answer's calls changed or made, in the order it first changed each. */
@@ -71,6 +73,9 @@ export function changedMinds(answer: Pick<ConversationAnswer, "toolCalls">): Cha
       const count = change.changed ?? change.proposals - tables;
       if (change.added) row.wrote += count;
       else row.changed += count;
+      if (change.swapped) {
+        row.swapped = { ...change.swapped, count: (row.swapped?.count ?? 0) + 1 };
+      }
       if (change.removed) {
         row.removed = {
           paragraphs: (row.removed?.paragraphs ?? 0) + change.removed.paragraphs,

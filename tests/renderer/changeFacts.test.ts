@@ -250,3 +250,35 @@ describe("Whole paragraphs removed, said as removed on the card and the line (#2
     expect(changeFact(t("zh-CN"), counts, null)).toBe(zhLine);
   });
 });
+
+describe("One exact replacement, said by its old and new words (#3284)", () => {
+  // protects=a change that swapped words, and only that, says on the card and the line which words became which and in which Note, in both languages; fails_when=it reads as a count of paragraphs, or says more than the swap
+  test.each([
+    [
+      row({ changed: 1, swapped: { old: "£41,500", now: "£43,000", count: 1 } }),
+      "Changed “£41,500” to “£43,000” in “Q3”",
+      "Changed “£41,500” to “£43,000”",
+      "已将“Q3”中的“£41,500”改为“£43,000”",
+      "已将“£41,500”改为“£43,000”",
+    ],
+    [
+      row({ changed: 1, swapped: { old: " The notice is one month.", now: "", count: 1 } }),
+      "Took “ The notice is one month.” out of “Q3”",
+      "Took “ The notice is one month.” out",
+      "从“Q3”中删除了“ The notice is one month.”",
+      "删除了“ The notice is one month.”",
+    ],
+    [
+      row({ changed: 2, swapped: { old: "a", now: "b", count: 2 } }),
+      "Changed 2 paragraphs in “Q3”",
+      "Changed 2 paragraphs",
+      "已修改“Q3”中的 2 段",
+      "修改了 2 个段落",
+    ],
+  ])("%o", (counts, card, line, zhCard, zhLine) => {
+    expect(appliedFact(t("en"), { ...counts, filled: false }, "Q3")).toBe(card);
+    expect(changeFact(t("en"), counts, null)).toBe(line);
+    expect(appliedFact(t("zh-CN"), { ...counts, filled: false }, "Q3")).toBe(zhCard);
+    expect(changeFact(t("zh-CN"), counts, null)).toBe(zhLine);
+  });
+});

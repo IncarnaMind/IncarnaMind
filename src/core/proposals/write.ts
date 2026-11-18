@@ -252,6 +252,8 @@ export interface Selection {
   citedElements: Y.XmlElement[];
   /** The User's footnotes in it, in order: marker "[^n]" is `footnotes[n - 1]`. */
   footnotes: Y.XmlElement[];
+  /** The Block as the model reads it with a `Swap` made; only when one was asked for. */
+  swapped?: SwapRead;
   /** The selected text as the editor reads it: an inline node as U+FFFC, a line per paragraph. */
   plain: string;
   /**
@@ -331,6 +333,26 @@ function inProposal(element: Y.XmlElement): boolean {
   return false;
 }
 
+/**
+ * A paragraph's text as it reads once every change waiting in it is accepted: what Proposals add
+ * kept, what they take out left out, an inline node as the character a Citation or footnote is.
+ */
+export function textOnceAccepted(element: Y.XmlElement): string {
+  let text = "";
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) {
+      text += NODE_CHARACTER;
+      continue;
+    }
+    for (const run of node.toDelta() as Run[]) {
+      if (typeof run.insert === "string" && !hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes)) {
+        text += run.insert;
+      }
+    }
+  }
+  return text;
+}
+
 /** An element's children with where each starts in its text, an inline node counting as one. */
 export function layout(element: Y.XmlElement) {
   let at = 0;
@@ -363,16 +385,87 @@ const keyOf = {
   node: (name: string, n: number) => `\u0000n${name}${n}`,
 };
 
+/** An exact replacement of some words of a paragraph (#3284): `old` as the paragraph holds them. */
+export interface Swap {
+  old: string;
+  now: string;
+}
+
+/**
+ * What a paragraph came to under a `Swap`: how many times `old` is in its text, whether the one
+ * place it is spans a Citation, footnote or other inline node, and the paragraph as the model
+ * reads it with the swap made, the same way as `Selection.text` and `Selection.named`.
+ */
+export interface SwapRead {
+  count: number;
+  crosses: boolean;
+  text: string;
+  named: string;
+}
+
+/**
+ * The tokens with `swap.old` replaced by `swap.now`, when it is in them once and no inline node
+ * sits inside it; the words around it keep their tokens and their looks. `count` says how often
+ * it is there either way.
+ */
+function swapTokens(
+  tokens: readonly OldToken[],
+  swap: Swap,
+): { count: number; crosses: boolean; tokens: OldToken[] | null } {
+  const plain = tokens.map((token) => token.text ?? NODE_CHARACTER).join("");
+  let count = 0;
+  let first = -1;
+  if (swap.old !== "") {
+    for (let at = plain.indexOf(swap.old); at >= 0; at = plain.indexOf(swap.old, at + 1)) {
+      count++;
+      if (first < 0) first = at;
+    }
+  }
+  if (count !== 1) return { count, crosses: false, tokens: null };
+  const end = first + swap.old.length;
+  if (plain.slice(first, end).includes(NODE_CHARACTER)) {
+    return { count, crosses: true, tokens: null };
+  }
+  const out: OldToken[] = [];
+  let pos = 0;
+  let placed = false;
+  for (const token of tokens) {
+    const length = token.text?.length ?? 1;
+    const from = pos;
+    pos += length;
+    if (pos <= first || from >= end || token.text === undefined) {
+      out.push(token);
+      continue;
+    }
+    const attributes = token.attributes;
+    const piece = (text: string): OldToken => ({
+      key: keyOf.text(text),
+      from: token.from,
+      to: token.to,
+      target: text,
+      text,
+      ...(attributes && { attributes }),
+    });
+    if (from < first) out.push(piece(token.text.slice(0, first - from)));
+    if (!placed && swap.now !== "") out.push(piece(swap.now));
+    placed = true;
+    if (pos > end) out.push(piece(token.text.slice(end - from)));
+  }
+  return { count, crosses: false, tokens: out };
+}
+
 /**
  * Reads the text from `from` to `to`, or says why it can't be edited: a place
  * isn't in the Mind (it changed), the text holds Proposals still waiting, or
- * an Answer being written holds it.
+ * an Answer being written holds it. With a `swap`, over one Block, the selection also holds that
+ * Block as the model reads it with the swap made (`Selection.swapped`).
  */
 export function readSelection(
   blocks: Y.XmlFragment,
   from: TextPlace,
   to: TextPlace,
   missingNumber: string | null = null,
+  swap?: Swap,
 ): ReadResult {
   const all = textBlocks(blocks);
   const first = all.findIndex(
@@ -394,6 +487,9 @@ export function readSelection(
   const plain: string[] = [];
   const text: string[] = [];
   const context: string[] = [];
+  const swapped: string[] = [];
+  let swapCount = 0;
+  let swapCrosses = false;
   let characters = 0;
   let marks = 0;
   /** An inline node of the selection, as the model reads it: a numbered marker, a formula. */
@@ -444,6 +540,12 @@ export function readSelection(
       .join("")
       .trim();
     const modelText = withEmphasis(tokens).trim();
+    if (swap) {
+      const read = swapTokens(tokens, swap);
+      swapCount += read.count;
+      swapCrosses ||= read.crosses;
+      swapped.push(read.tokens ? withEmphasis(read.tokens).trim() : modelText);
+    }
     const kind = start === 0 ? kindOf(element) : "paragraph";
     segments.push({
       element,
@@ -471,9 +573,25 @@ export function readSelection(
       return shown === "" || !marked ? shown : `${blockMarker(kind)}${escapeMarkers(shown, kind)}`;
     })
     .filter((each) => each !== "");
+  const swappedParagraphs = swapped
+    .map((shown, index) => {
+      const kind = segments[index]?.kind ?? "paragraph";
+      return shown === "" || !marked ? shown : `${blockMarker(kind)}${escapeMarkers(shown, kind)}`;
+    })
+    .filter((each) => each !== "");
   return {
     ok: true,
     selection: {
+      ...(swap && {
+        swapped: {
+          count: swapCount,
+          crosses: swapCrosses,
+          text: swappedParagraphs.join("\n\n"),
+          named: swappedParagraphs
+            .map((each, index) => `${paragraphName(index)} ${escapeNames(each)}`)
+            .join("\n\n"),
+        },
+      }),
       segments,
       citations,
       citedElements,

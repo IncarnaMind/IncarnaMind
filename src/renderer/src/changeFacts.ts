@@ -23,6 +23,8 @@ export interface ChangeCounts {
   charts?: number;
   /** The whole paragraphs removals took out (#2356). Absent: none. */
   removed?: RemovedParagraphs;
+  /** Exact replacements (#3284): how many, and the words of the last. Absent: none. */
+  swapped?: { old: string; now: string; count: number };
 }
 
 /** Whole paragraphs removed, nothing else changed: "Removed the paragraph “Parking” (3 sentences)", with the Note's name on the card. */
@@ -39,6 +41,25 @@ export function removedFact(t: Translate, removed: RemovedParagraphs, name: stri
   return name === null
     ? t("edit.removed", { count: removed.paragraphs, sentences })
     : t("mindChanges.removed", { count: removed.paragraphs, sentences, mind: name });
+}
+
+/** One exact replacement, when nothing else changed there: "Changed “£41,500” to “£43,000” in “Offer”"; null otherwise. */
+export function swappedFact(t: Translate, row: ChangeCounts, name: string | null): string | null {
+  const swapped = row.swapped;
+  if (
+    !swapped ||
+    swapped.count !== 1 ||
+    row.changed !== 1 ||
+    row.wrote > 0 ||
+    row.tables > 0 ||
+    (row.charts ?? 0) > 0
+  ) {
+    return null;
+  }
+  const params = { old: swapped.old, now: swapped.now, mind: name ?? "" };
+  if (swapped.now === "")
+    return t(name === null ? "edit.swapped.out" : "mindChanges.swapped.out", params);
+  return t(name === null ? "edit.swapped" : "mindChanges.swapped", params);
 }
 
 /** The whole paragraphs its removals took out, when nothing else changed there; null otherwise. */
@@ -120,6 +141,8 @@ const wroteNote = (row: ChangeCounts) => row.created || row.filled === true;
 export function changeFact(t: Translate, row: ChangeCounts, name: string | null): string {
   const count = row.wrote + row.changed;
   if (row.tables > 0 || (row.charts ?? 0) > 0) return tablesFact(t, row, name);
+  const swapped = swappedFact(t, row, name);
+  if (swapped) return swapped;
   const removed = removedOnly(row);
   if (removed) return removedFact(t, removed, name);
   if (name === null) {
@@ -163,6 +186,8 @@ export function appliedFact(
 ): string {
   if (row.created) return t("mindChanges.applied.created", { mind: name });
   if (row.filled) return t("mindChanges.applied.filled", { mind: name });
+  const swapped = swappedFact(t, row, name);
+  if (swapped) return swapped;
   const removed = removedOnly(row);
   if (removed) return removedFact(t, removed, name);
   if (row.changed > 0 && row.wrote === 0 && row.tables === 0 && (row.charts ?? 0) === 0) {
