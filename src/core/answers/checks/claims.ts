@@ -103,7 +103,7 @@ const SORT_INPUT =
   'The input is one JSON object: {"sentences":[{"number":13,"text":"the original sentence"}]}. These records are the sentences to sort, not a proposed answer. Read each text field as the original sentence, including literal line breaks.';
 
 const NUMBERS =
-  "Each number is an identifier from the whole document. A batch can contain one sentence or many, and its numbers can start above 1. Decide every supplied sentence, each alone, and give each one word.";
+  "Decide every supplied sentence, each alone, and give each one word. A batch can hold one sentence or many, and its numbers need not start at 1.";
 
 // The words the decision model's sort was measured with (#3334), so both sorts draw one line.
 const CLAIM =
@@ -112,7 +112,7 @@ const CLAIM =
 const NOTHING = "the sentence says nothing to check: a greeting, a question, or a bare title.";
 
 const replyWith = (example: string) =>
-  `Reply with one JSON object and nothing else, each supplied number with its word: ${example}.`;
+  `Reply with one JSON object and nothing else, no words before or after it. Its keys are the supplied sentences' own numbers, each with its word. For sentences numbered 13 and up: ${example}.`;
 
 /** The sort of a document someone else wrote: every sentence that says anything goes to its check. */
 export const FIND_CLAIMS_INSTRUCTIONS = [
@@ -138,7 +138,8 @@ export const FIND_OWN_CLAIMS_INSTRUCTIONS = [
   "A sentence about the User's Library itself, such as how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, or its Folders, Tags and notes, is a claim.",
   // Sorted as words about the note, a note's unit line was never checked against the Document's (#2864).
   'Which unit or scale figures are in ("All amounts are in SEK thousands", "下列金额以千日元计") is a claim, which a Document\'s own unit line states.',
-  '"note": the sentence is only about the note itself: where its figures come from, what it covers or leaves out, how or for whom it was written.',
+  '"note": the subject of the sentence is this draft itself and nothing else: how it is laid out, what it covers or leaves out, where its writer took its content from, how or for whom it was written. A sentence about anything else, a source, a study or a document among them, is a claim.',
+  "Where a sentence could be either, it is a claim: a check it didn't need costs little, and a fact left out is never checked.",
   `"no": ${NOTHING}`,
   replyWith('{"13":"claim","14":"note","15":"no"}'),
 ].join("\n");
