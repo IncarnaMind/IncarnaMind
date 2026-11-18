@@ -1,7 +1,9 @@
 import type { Editor } from "@tiptap/core";
 import { useRef, useState } from "react";
 import type * as Y from "yjs";
+import { formatDateTime } from "../../../shared/dates";
 import { mindName } from "../../../shared/naming";
+import { noteWriterOf } from "../../../shared/noteWriter";
 import type { Verification } from "../../../shared/verification";
 import { offersReview, reviewApplied } from "../appliedEdits";
 import { useCitationStylePicker } from "../citationStylePicker";
@@ -41,7 +43,8 @@ import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin"
  * from Word or made by Verify, which opens the original beside it, and
  * "Review their changes" for one with someone's changes or comments; Review
  * changes for the last AI edit applied, while it can be restored (#1795); and
- * at its foot the counts and the switch that shows the count while writing.
+ * at its foot which agent wrote a Mind an outside agent wrote, and when
+ * (#3306), the counts and the switch that shows the count while writing.
  */
 export function PageMenu({
   editor,
@@ -89,6 +92,7 @@ export function PageMenu({
     origin?.documentId ? state.documents.find((each) => each.id === origin.documentId) : undefined,
   );
   const away = original ? fileStatusLabel(original.fileStatus) : null;
+  const writer = noteWriterOf(doc);
   const otherExamples = useAppStore(
     (state) => allExamples(state).find((each) => each.mindId === mindId)?.more,
   );
@@ -289,6 +293,14 @@ export function PageMenu({
         foot={
           <>
             <MindSourceFoot mindId={mindId} />
+            {writer && (
+              <p className="page-menu-counts" data-testid="page-written-by">
+                {t("agents.note.writtenBy", {
+                  name: writer.agent,
+                  when: formatDateTime(writer.createdAt, language),
+                })}
+              </p>
+            )}
             <MindCounts editor={editor} doc={doc} switchable={!readOnly} />
           </>
         }

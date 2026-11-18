@@ -102,7 +102,13 @@ export function activityWords(activity: AgentActivity, t: Translate): string {
       { reason },
     )}`;
   }
-  if (activity.count === null || activity.tool === "show_citation") return what;
+  if (
+    activity.count === null ||
+    activity.tool === "show_citation" ||
+    activity.tool === "create_mind"
+  ) {
+    return what;
+  }
   const counted =
     activity.tool === "propose_changes" ? "agents.activity.changes" : "agents.activity.count";
   const count = t(activity.count === 1 ? `${counted}.one` : `${counted}.other`, {
