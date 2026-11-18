@@ -33,6 +33,7 @@ import { scriptedModel, scriptedModels } from "../helpers/models";
 import { ADVICE, DUTY_PAIRS } from "./dutySentences.cases";
 import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
 import { FIELD_PAIRS } from "./fieldSentences.cases";
+import { JUDGEMENT_NOTES } from "./judgementSentences.cases";
 import { REMARK_NOTES } from "./remarkSentences.cases";
 
 const PROVIDER =
@@ -1407,7 +1408,7 @@ async function heldOutRound(
  * a check reads, and the writer's own remarks about the Note, which it leaves without a mark.
  */
 async function remarkRound(language: Language) {
-  const cases = REMARK_NOTES.filter(
+  const cases = [...REMARK_NOTES, ...JUDGEMENT_NOTES].filter(
     (each) =>
       each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
   );
