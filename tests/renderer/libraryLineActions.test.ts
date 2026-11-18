@@ -18,12 +18,19 @@ async function mounted<Props extends object>(
   // The window's half of the core, as a bridge that answers nothing: the lines read the store, not the core.
   const bridge = new Proxy(
     { on: () => () => undefined },
-    { get: (target, name) => (name === "on" ? target.on : vi.fn(async () => undefined)) },
+    { get: (target, name) => (name === "on" ? target.on : vi.fn(async () => [])) },
   );
   const window = Object.assign(document.defaultView, { incarnamind: bridge, incarnamindFiles: {} });
+  const kept = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => void kept.set(key, value),
+    removeItem: (key: string) => void kept.delete(key),
+  };
   for (const [key, value] of Object.entries({
     document,
     window,
+    localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   })) {
     vi.stubGlobal(key, value);
