@@ -54,7 +54,12 @@ const DRY = process.env.INCARNAMIND_LIVE_GATE_DRY === "1";
 const DECISION_KEY = process.env.INCARNAMIND_LIVE_DECISION_KEY;
 /** "1": Python can run, as in the packaged app, so a check may be offered the Analysis Tool. */
 const PYTHON = process.env.INCARNAMIND_LIVE_PYTHON === "1";
-let python: Promise<AnalysisRuntime> | null = null;
+let python: Promise<AnalysisRuntime> | undefined;
+/** One Python for the whole run: loading it takes seconds. */
+function pythonRuntime(): Promise<AnalysisRuntime> {
+  python ??= pyodideAnalysisRuntime();
+  return python;
+}
 /** Saved replies files, comma apart: the round is answered from them and nothing is sent. */
 const REPLAY = process.env.INCARNAMIND_LIVE_GATE_REPLAY?.split(",").filter(Boolean);
 const OUT = process.env.INCARNAMIND_LIVE_GATE_OUT;
@@ -1172,7 +1177,7 @@ async function coreIn(language: Language): Promise<Core> {
       : REPLAY
         ? scriptedModels(replayModel).createChatModel
         : realModel,
-    ...(PYTHON && { analysisRuntime: await (python ??= pyodideAnalysisRuntime()) }),
+    ...(PYTHON && { analysisRuntime: await pythonRuntime() }),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language, monthlyCap: { amount: 5, currency: "USD" } } });
