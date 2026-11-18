@@ -107,7 +107,7 @@ const NUMBERS =
 
 // The words the decision model's sort was measured with (#3334), so both sorts draw one line.
 const CLAIM =
-  '"claim": the sentence says something about its subject that documents could confirm or contradict: a fact, a figure, an event, a comparison, what someone said, what a contract, a policy or a rule requires, or the writer\'s judgement, forecast or advice about it.';
+  '"claim": the sentence says something about its subject that documents could confirm or contradict: a fact, a figure, an event, a comparison, what someone said, what a contract, a policy or a rule requires, or the writer\'s judgement, forecast, advice or plan about it.';
 
 const NOTHING = "the sentence says nothing to check: a greeting, a question, or a bare title.";
 
@@ -138,7 +138,7 @@ export const FIND_OWN_CLAIMS_INSTRUCTIONS = [
   "A sentence about the User's Library itself, such as how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, or its Folders, Tags and notes, is a claim.",
   // Sorted as words about the note, a note's unit line was never checked against the Document's (#2864).
   'Which unit or scale figures are in ("All amounts are in SEK thousands", "下列金额以千日元计") is a claim, which a Document\'s own unit line states.',
-  '"note": the subject of the sentence is this draft itself and nothing else: how it is laid out, what it covers or leaves out, where its writer took its content from, how or for whom it was written. A sentence about anything else, a source, a study or a document among them, is a claim.',
+  '"note": the sentence only describes this draft as a text: how it is laid out, what it covers or leaves out, where its content was taken from, what a word means in it. It says nothing about the subject and gives no judgement, advice or plan. A sentence about anything else, a source, a study or a document among them, is a claim.',
   "Where a sentence could be either, it is a claim: a check it didn't need costs little, and a fact left out is never checked.",
   `"no": ${NOTHING}`,
   replyWith('{"13":"claim","14":"note","15":"no"}'),
