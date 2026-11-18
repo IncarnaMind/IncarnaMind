@@ -548,12 +548,14 @@ describe("outside agents", () => {
         "ask",
         "check_citations",
         "check_mind",
+        "check_mind_yourself",
         "cite",
         "create_mind",
         "list_minds",
         "propose_changes",
         "read_mind",
         "read_passages",
+        "report_check",
         "search",
         "show_citation",
       ]);
@@ -571,14 +573,14 @@ describe("outside agents", () => {
     const definitions = JSON.stringify(
       tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     );
-    expect(estimateTokens(definitions)).toBeLessThan(1_500);
+    expect(estimateTokens(definitions)).toBeLessThan(1_850);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
-      // Three write: Proposals the User decides on, a new Note that changes none there is, and
-      // the marks of a check on a Note the agent wrote.
+      // Four write: Proposals the User decides on, a new Note that changes none there is, and
+      // the marks of a check on a Note the agent wrote, IncarnaMind's or the agent's own.
       expect(tool.annotations?.readOnlyHint).toBe(
-        !["propose_changes", "create_mind", "check_mind"].includes(tool.name),
+        !["propose_changes", "create_mind", "check_mind", "report_check"].includes(tool.name),
       );
       expect(tool.annotations?.destructiveHint).toBe(false);
       expect(tool.outputSchema).toBeDefined();

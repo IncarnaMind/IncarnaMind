@@ -122,6 +122,7 @@ const WAV_HEADER_BYTES = 44;
 interface Range {
   fromMs: number;
   toMs: number;
+  source?: AudioSource;
 }
 
 /** What is kept in "<meeting>.json". */
@@ -204,6 +205,7 @@ interface Reading {
   baseMs: number;
   source: AudioSource;
   speaker(): string | null;
+  doneMs?: number;
   /** A cloud stream lost before its last lines came. */
   lost?: boolean;
 }
@@ -350,14 +352,18 @@ class EngineError extends Error {}
 /** Adds a stretch to a list of stretches, merging those it touches. */
 function addRange(ranges: Range[], range: Range): Range[] {
   if (range.toMs <= range.fromMs) return ranges;
-  const all = [...ranges, range].sort((a, b) => a.fromMs - b.fromMs);
+  const all = [...ranges.filter((each) => each.source === range.source), range].sort(
+    (a, b) => a.fromMs - b.fromMs,
+  );
   const merged: Range[] = [];
   for (const each of all) {
     const last = merged.at(-1);
     if (last && each.fromMs <= last.toMs) last.toMs = Math.max(last.toMs, each.toMs);
     else merged.push({ ...each });
   }
-  return merged;
+  return [...merged, ...ranges.filter((each) => each.source !== range.source)].sort(
+    (a, b) => a.fromMs - b.fromMs,
+  );
 }
 
 /** A part's samples, from our own WAV files. */
@@ -762,6 +768,11 @@ export function createTranscripts(options: TranscriptsOptions) {
 
   function heardProgress(stream: string, doneMs: number, heardMs = doneMs): void {
     const found = owner(stream);
+    const reading = found?.reading;
+    if (reading?.doneMs !== undefined) {
+      reading.doneMs = Math.max(reading.doneMs, reading.baseMs + doneMs);
+      return;
+    }
     if (!found?.live || !found.state.live) return;
     const { state } = found;
     const live = found.state.live;
@@ -1126,16 +1137,21 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (own.waiting) {
       // A cloud stream that never opened has sent nothing: this computer transcribes its stretch.
       transcriber.drop(own.stream);
-      state.pending = addRange(state.pending, { fromMs: own.baseMs, toMs: atMs });
+      state.pending = addRange(state.pending, {
+        fromMs: own.baseMs,
+        toMs: atMs,
+        source: "microphone",
+      });
       return;
     }
-    const reading: Reading = {
+    const reading: Reading & { doneMs: number } = {
       baseMs: own.baseMs,
+      doneMs: own.doneMs,
       source: "microphone",
       speaker: () => speakerOf("microphone", state.callHeard === true, state.memo),
     };
     state.catchUps.set(own.stream, reading);
-    const stretch = { fromMs: own.baseMs, toMs: atMs };
+    const stretch = { fromMs: reading.doneMs, toMs: atMs, source: reading.source };
     state.unfinished.push(stretch);
     let drop = () => {};
     const dropped = new Promise<void>((resolve) => {
@@ -1144,7 +1160,9 @@ export function createTranscripts(options: TranscriptsOptions) {
     const done: Promise<void> = Promise.race([transcriber.finish(own.stream), dropped])
       .then(
         () => {
-          if (reading.lost) state.pending = addRange(state.pending, stretch);
+          if (reading.lost) {
+            state.pending = addRange(state.pending, { ...stretch, fromMs: reading.doneMs });
+          }
         },
         (error: unknown) => {
           if (closed) return;
@@ -1306,10 +1324,16 @@ export function createTranscripts(options: TranscriptsOptions) {
     const parts = options
       .partsOf(state.meetingId)
       .filter(
-        (part) => part.offsetMs < range.toMs && part.offsetMs + part.durationMs > range.fromMs,
+        (part) =>
+          (range.source !== "system" || part.source === "system") &&
+          part.offsetMs < range.toMs &&
+          part.offsetMs + part.durationMs > range.fromMs,
       );
+    // Microphone recovery still needs the computer's audio to cancel its echo.
+    const toTranscribe =
+      range.source === "microphone" ? parts.filter((part) => part.source === "microphone") : parts;
     let covered: Range[] = [];
-    for (const part of parts) {
+    for (const part of toTranscribe) {
       covered = addRange(covered, { fromMs: part.offsetMs, toMs: part.offsetMs + part.durationMs });
     }
     // These stretches had no audio to transcribe, for a reason its own gap already says.
@@ -1326,7 +1350,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       if (toMs - at >= MIN_GAP_MS) state.gaps.push({ fromMs: at, toMs, reason });
       at = Math.max(at, each.toMs);
     }
-    if (parts.length === 0) return;
+    if (toTranscribe.length === 0) return;
     const prefix = `${state.meetingId}:catch-up:${++streams}`;
     const opened: string[] = [];
     let microphoneStreams = 0;
@@ -1335,7 +1359,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       const tracks = createTracks(range.fromMs);
       const end = Math.min(
         range.toMs,
-        Math.max(...parts.map((part) => part.offsetMs + part.durationMs)),
+        Math.max(...toTranscribe.map((part) => part.offsetMs + part.durationMs)),
       );
       // No chunk crosses the edge of a stretch the microphone was paused: it sends nothing for one.
       const edges = pauses.flatMap((pause) => [pause.fromMs, pause.toMs]);
@@ -1357,8 +1381,11 @@ export function createTranscripts(options: TranscriptsOptions) {
           }
         }
         const audio = tracks.flush();
-        if (audio?.system?.some((sample) => sample !== 0)) heardCall(state);
+        if (range.source !== "microphone" && audio?.system?.some((sample) => sample !== 0)) {
+          heardCall(state);
+        }
         for (const source of SOURCES) {
+          if (range.source !== undefined && source !== range.source) continue;
           const track = audio?.[source];
           if (!audio || !track) continue;
           if (source === "microphone" && paused) {
@@ -1577,35 +1604,27 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   function finishStreams(state: State, live: Live, endMs: number): void {
-    const fromMs = live.doneMs;
-    // A cloud stream that never opened has sent nothing: this computer transcribes its stretch.
-    let unopened = false;
+    const ending: { stream: string; reading: Reading & { doneMs: number } }[] = [];
     for (const source of SOURCES) {
       const own = live.streams[source];
-      if (!own?.waiting) continue;
-      transcriber.drop(own.stream);
-      delete live.streams[source];
-      unopened = true;
+      if (!own) continue;
+      if (own.waiting) {
+        transcriber.drop(own.stream);
+        delete live.streams[source];
+        state.pending = addRange(state.pending, { fromMs: own.baseMs, toMs: endMs, source });
+        continue;
+      }
+      const reading = {
+        baseMs: own.baseMs,
+        doneMs: own.doneMs,
+        source,
+        speaker: () => speakerOf(source, state.callHeard === true, state.memo),
+      };
+      ending.push({ stream: own.stream, reading });
+      state.catchUps.set(own.stream, reading);
     }
-    if (unopened) state.pending = addRange(state.pending, { fromMs, toMs: endMs });
-    const stretch = { fromMs, toMs: endMs };
+    const stretch = { fromMs: live.doneMs, toMs: endMs };
     state.unfinished.push(stretch);
-    const ending = SOURCES.flatMap((source) => {
-      const own = live.streams[source];
-      return own
-        ? [
-            {
-              stream: own.stream,
-              reading: {
-                baseMs: own.baseMs,
-                source,
-                speaker: () => speakerOf(source, state.callHeard === true, state.memo),
-              } as Reading,
-            },
-          ]
-        : [];
-    });
-    for (const { stream, reading } of ending) state.catchUps.set(stream, reading);
     const before = state.ending;
     const done: Promise<void> = Promise.all([
       before,
@@ -1614,9 +1633,15 @@ export function createTranscripts(options: TranscriptsOptions) {
     ])
       .then(
         () => {
-          if (ending.some(({ reading }) => reading.lost)) {
-            state.pending = addRange(state.pending, stretch);
-          } else state.doneMs = Math.max(state.doneMs, endMs);
+          for (const { reading } of ending) {
+            if (!reading.lost) continue;
+            state.pending = addRange(state.pending, {
+              fromMs: reading.doneMs,
+              toMs: endMs,
+              source: reading.source,
+            });
+          }
+          state.doneMs = Math.max(state.doneMs, endMs);
         },
         (error: unknown) => {
           if (closed) return;

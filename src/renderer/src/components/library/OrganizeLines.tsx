@@ -14,6 +14,7 @@ import {
   useOrganizeReview,
 } from "../../organizeReview";
 import { useAppStore } from "../../store";
+import { actionParts, MetaLine } from "../MetaLine";
 import { ProblemLine } from "../ProblemLine";
 import { UndoLineAt } from "../UndoLine";
 import { useTaggingService } from "../useTaggingService";
@@ -22,34 +23,34 @@ import { OrganizeAsk } from "./OrganizeAsk";
 
 function Action({ label, testId, onClick }: { label: string; testId: string; onClick(): void }) {
   return (
-    <>
-      <span aria-hidden="true" className="text-ink-meta">
-        ·
-      </span>
-      <button type="button" data-testid={testId} onClick={onClick} className={quietButtonClass}>
-        {label}
-      </button>
-    </>
+    <button type="button" data-testid={testId} onClick={onClick} className={quietButtonClass}>
+      {label}
+    </button>
   );
 }
 
+/** One of Organize's states as a meta line: its words, then its actions as one part (#3114). */
 function Line({
   testId,
-  children,
+  parts,
   role = "status",
+  children,
 }: {
   testId: string;
-  children: ReactNode;
+  parts: readonly ReactNode[];
   role?: "status" | "alert";
+  children?: ReactNode;
 }) {
   return (
-    <div
+    <MetaLine
+      as="div"
       role={role}
       data-testid={testId}
-      className="mt-2 flex min-h-6 flex-wrap items-center gap-x-1 text-[13px] leading-5 text-ink-secondary"
+      parts={parts}
+      className="mt-2 min-h-6 items-center text-[13px] leading-5 text-ink-secondary"
     >
       {children}
-    </div>
+    </MetaLine>
   );
 }
 
@@ -85,20 +86,25 @@ export function OrganizeLines() {
       <UndoLineAt place={LIBRARY_UNDO_PLACE} className="mt-2 -ml-4 empty:hidden" />
       {!run && <OrganizeAsk />}
       {run ? (
-        <Line testId="organize-running">
-          <span className="tabular-nums">
-            {t(run.tags ? "organizeReview.tagging" : "organizeReview.running", {
-              done: formatCount(run.done, language),
-              total: formatCount(run.total, language),
-            })}
-          </span>
-          {!run.each && (
-            <Action
-              label={t("organizeReview.stop")}
-              testId="organize-stop"
-              onClick={stopOrganizing}
-            />
-          )}
+        <Line
+          testId="organize-running"
+          parts={[
+            <span key="words" className="tabular-nums">
+              {t(run.tags ? "organizeReview.tagging" : "organizeReview.running", {
+                done: formatCount(run.done, language),
+                total: formatCount(run.total, language),
+              })}
+            </span>,
+            !run.each && (
+              <Action
+                key="stop"
+                label={t("organizeReview.stop")}
+                testId="organize-stop"
+                onClick={stopOrganizing}
+              />
+            ),
+          ]}
+        >
           <span
             aria-hidden="true"
             className="mt-1 h-1 basis-full overflow-hidden rounded-full bg-rule"
@@ -110,66 +116,77 @@ export function OrganizeLines() {
           </span>
         </Line>
       ) : estimate ? (
-        <Line testId="organize-estimate">
-          <span>
-            {t("organizeReview.estimate", {
+        <Line
+          testId="organize-estimate"
+          parts={[
+            t("organizeReview.estimate", {
               count: formatCount(estimate.count, language),
               cost: cost ?? "",
-            })}
-          </span>
-          <Action
-            label={t("library.classify")}
-            testId="organize-estimate-go"
-            onClick={acceptEstimate}
-          />
-          <Action
-            label={t("organizeReview.notNow")}
-            testId="organize-estimate-not-now"
-            onClick={dismissEstimate}
-          />
-        </Line>
+            }),
+            ...actionParts([
+              <Action
+                key="go"
+                label={t("library.classify")}
+                testId="organize-estimate-go"
+                onClick={acceptEstimate}
+              />,
+              <Action
+                key="not-now"
+                label={t("organizeReview.notNow")}
+                testId="organize-estimate-not-now"
+                onClick={dismissEstimate}
+              />,
+            ]),
+          ]}
+        />
       ) : (
         <>
           {stopped !== null && (
-            <Line testId="organize-stopped">
-              <span>
-                {t(stoppedTagging ? "organizeReview.stoppedTagging" : "organizeReview.stopped", {
+            <Line
+              testId="organize-stopped"
+              parts={[
+                t(stoppedTagging ? "organizeReview.stoppedTagging" : "organizeReview.stopped", {
                   count: formatCount(stopped, language),
-                })}
-              </span>
-            </Line>
+                }),
+              ]}
+            />
           )}
           {apart !== null && (
-            <Line testId="organize-apart">
-              <span>
-                {apart.count === 1
+            <Line
+              testId="organize-apart"
+              parts={[
+                apart.count === 1
                   ? t(apart.tags ? "organizeReview.noTagFits.one" : "organizeReview.apart.one")
                   : t(apart.tags ? "organizeReview.noTagFits" : "organizeReview.apart", {
                       count: formatCount(apart.count, language),
-                    })}
-              </span>
-            </Line>
+                    }),
+              ]}
+            />
           )}
           {count > 0 && (
-            <Line testId="organize-waiting">
-              <span className="tabular-nums">
-                {moved > 0
-                  ? t(
-                      moved === 1
-                        ? "organizeReview.waiting.migrated.one"
-                        : "organizeReview.waiting.migrated",
-                      { count: formatCount(moved, language) },
-                    )
-                  : t(count === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
-                      count: formatCount(count, language),
-                    })}
-              </span>
-              <Action
-                label={t("library.review")}
-                testId="organize-waiting-review"
-                onClick={openReview}
-              />
-            </Line>
+            <Line
+              testId="organize-waiting"
+              parts={[
+                <span key="words" className="tabular-nums">
+                  {moved > 0
+                    ? t(
+                        moved === 1
+                          ? "organizeReview.waiting.migrated.one"
+                          : "organizeReview.waiting.migrated",
+                        { count: formatCount(moved, language) },
+                      )
+                    : t(count === 1 ? "organizeReview.waiting.one" : "organizeReview.waiting", {
+                        count: formatCount(count, language),
+                      })}
+                </span>,
+                <Action
+                  key="review"
+                  label={t("library.review")}
+                  testId="organize-waiting-review"
+                  onClick={openReview}
+                />,
+              ]}
+            />
           )}
         </>
       )}

@@ -20,6 +20,7 @@ import { usePanelFault } from "./components/PanelBoundary";
 import { findable } from "./finding";
 import { currentTabOf } from "./layoutSlice";
 import { leavingCopies, motionRunning, setMotionSpeed } from "./motion";
+import { useOrganizeReview } from "./organizeReview";
 import { interceptSkillPicker } from "./skills";
 import { useAppStore } from "./store";
 import { setViewerOpenLimitMs } from "./viewer/openLimit";
@@ -72,6 +73,23 @@ export function installTestHooks(): void {
     setSilentWaitMs,
     setViewerOpenLimitMs,
     setComingUp: showComingUp,
+    showOrganizeEstimate: (documents, dollars) =>
+      useOrganizeReview.setState({
+        estimate: {
+          count: documents,
+          input: {},
+          estimate: {
+            billing: "per-token",
+            providerId: "test",
+            calls: 1,
+            tokens: 1,
+            cost: { currency: "USD", amount: dollars },
+            spentTowardCap: null,
+            setAsideTowardCap: null,
+            cap: null,
+          },
+        },
+      }),
     holdStyleCatalogue,
     motionRunning,
     setMotionSpeed,

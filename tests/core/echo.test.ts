@@ -5,6 +5,7 @@ import type { AudioCapture, AudioSink, Transcriber } from "../../src/core";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import { createEchoCanceller, ECHO_BLOCK } from "../../src/core/meetings/echo";
 import { createRealFft } from "../../src/core/meetings/fft";
+import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import { createFakeSpeechEngine } from "../../src/core/transcription/fake";
 import type { SpeechEngine } from "../../src/core/transcription/speech";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -216,6 +217,7 @@ async function laptopMeeting(transcriber: Transcriber) {
     audioCapture: capture,
     transcriber,
     transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+    transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
     now: clock.now,
   });
   await core.updateSettings({ device: { meetingNoticeAccepted: true } });
@@ -231,7 +233,7 @@ async function laptopMeeting(transcriber: Transcriber) {
     Int16Array.from(signal.subarray(from, from + RATE / 10), (value) => Math.round(value));
 
   /** Records the whole call, then stops it and waits for its Transcript to be saved. */
-  async function record() {
+  async function record(beforeStop?: (id: string) => Promise<unknown>) {
     const { id } = await core.createMeeting();
     await core.startMeeting({ meetingId: id, systemAudio: true });
     for (let at = 0; at + RATE / 10 <= microphone.length; at += RATE / 10) {
@@ -239,10 +241,11 @@ async function laptopMeeting(transcriber: Transcriber) {
       (sink as AudioSink | null)?.audio("microphone", pcm(microphone, at));
       (sink as AudioSink | null)?.audio("system", pcm(system, at));
     }
+    if (beforeStop) await beforeStop(id);
     await core.stopMeeting(id);
     return until(core, id, (transcript) => transcript.state === "saved");
   }
-  return { record, far, spans, voice, echo, floor };
+  return { core, record, far, spans, voice, echo, floor };
 }
 
 describe("A Meeting on laptop speakers", () => {
@@ -273,6 +276,61 @@ describe("A Meeting on laptop speakers", () => {
     expect(below(meeting.voice, left, meeting.far.length, fromMicrophone.length)).toBeGreaterThan(
       30,
     );
+  });
+
+  test("the computer's sound cancels echo during microphone-only recovery", async () => {
+    let connections = 0;
+    const cloud: CloudConnect = (_url, _key, events) => {
+      const microphone = connections++ === 0;
+      let responded = false;
+      queueMicrotask(() => events.open());
+      return {
+        send(data) {
+          if (data === "") {
+            if (microphone) events.closed(1006);
+            else events.message(JSON.stringify({ finished: true }));
+          } else if (!microphone && !responded && typeof data !== "string") {
+            responded = true;
+            events.message(
+              JSON.stringify({
+                tokens: [
+                  { text: "The others spoke.", start_ms: 800, end_ms: 1800, is_final: true },
+                  { text: "<end>", is_final: true },
+                ],
+                final_audio_proc_ms: 1800,
+              }),
+            );
+          }
+        },
+        close() {},
+      };
+    };
+    const engine = inProcessTranscriber({}, undefined, cloud);
+    const recovered: Int16Array[] = [];
+    const streams = new Set<string>();
+    const meeting = await laptopMeeting({
+      ...engine.transcriber,
+      push(stream, samples) {
+        if (stream.includes(":catch-up:")) {
+          streams.add(stream);
+          if (stream.endsWith(":microphone")) recovered.push(samples.slice());
+        }
+        engine.transcriber.push(stream, samples);
+      },
+    });
+    const { core } = meeting;
+    await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key-0123456789" });
+    await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
+    await meeting.record((id) => until(core, id, (transcript) => transcript.lines === 1));
+
+    expect([...streams].map((stream) => stream.split(":").at(-1))).toEqual(["microphone"]);
+    const fromMicrophone = Float64Array.from(recovered.flatMap((samples) => Array.from(samples)));
+    const left = Float64Array.from(
+      fromMicrophone,
+      (value, i) => value - (meeting.voice[i] ?? 0) - (meeting.floor[i] ?? 0),
+    );
+    const [from = 0, to = 0] = meeting.spans[2] ?? [];
+    expect(below(meeting.echo, left, from, to)).toBeGreaterThan(15);
   });
 
   test("the others' words that the echo leaves on the microphone are read there too, and don't show as the User's", async () => {
