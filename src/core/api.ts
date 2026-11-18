@@ -11837,6 +11837,17 @@ export interface Meeting {
   updatedAt: string;
 }
 
+/** A stretch of a call its notes lack (#3287), by the call's clock, in ms from its start. */
+export interface MeetingFillStretch {
+  from: number;
+  to: number;
+  /**
+   * "none": no notes of it could be made, asked for twice. "thin": its notes are few for its
+   * length and the model didn't say little was said there, so they may be incomplete.
+   */
+  notes: "none" | "thin";
+}
+
 /**
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
@@ -11870,6 +11881,8 @@ export interface MeetingFill {
   omitted?: number;
   /** Transcript parts not finished when a request failed; absent on older fills. */
   unfinishedParts?: number;
+  /** The stretches of the call the notes lack, in its order; absent when none, and on older fills. */
+  stretches?: MeetingFillStretch[];
   /** How many of its claims are being checked against the Documents now; 0 or absent when none. */
   checking?: number;
   /**

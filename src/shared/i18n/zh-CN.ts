@@ -6748,6 +6748,8 @@ export const zhCN = {
   "meetings.fill.omitted": "{count} 项内容未能添加",
   "meetings.fill.unfinishedParts.one": "{count} 段转写稿未处理完",
   "meetings.fill.unfinishedParts": "{count} 段转写稿未处理完",
+  "meetings.fill.stretch.none": "{from}–{to} 的笔记没能生成",
+  "meetings.fill.stretch.thin": "{from}–{to} 的笔记可能不完整",
   "meetings.fill.viewTranscript": "查看转写稿",
   "meetings.views.label": "会议视图",
   "meetings.views.notes": "笔记",

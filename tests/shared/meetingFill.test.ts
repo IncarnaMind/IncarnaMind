@@ -31,6 +31,7 @@ describe("partial meeting-fill status", () => {
     { unfinishedParts: 2 },
     { omitted: 1, problem: { kind: "model", message: "A malformed part was dropped" } },
     { omitted: 1, unfinishedParts: 2 },
+    { stretches: [{ from: 760_000, to: 1_265_000, notes: "thin" }] },
   ] satisfies Partial<MeetingFill>[])("recognizes the producer's signal %j", (fill) => {
     expect(isPartialMeetingFill(fillOf(fill))).toBe(true);
   });

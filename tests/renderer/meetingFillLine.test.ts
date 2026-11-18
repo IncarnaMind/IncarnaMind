@@ -275,6 +275,50 @@ describe("meeting notes with unfinished Transcript parts", () => {
   );
 });
 
+// protects=a stretch of the call whose notes couldn't be made, or may be incomplete, is told with the times it was said, in English and Chinese, each stretch its own part of the line, with the Transcript and Undo beside it; a stretch named with its times stands in for the count of parts (#3287); fails_when=a stretch isn't told, its times or words are wrong, the count repeats what the stretches say, or the line loses its actions; no_claim=which stretches a fill reports, which tests/core/meetingFactParts.test.ts covers.
+describe("meeting notes with a stretch of the call left out", () => {
+  const none = { from: 760_000, to: 1_265_000, notes: "none" } as const;
+  const thin = { from: 3_700_000, to: 4_030_000, notes: "thin" } as const;
+
+  test.each([
+    [
+      "en",
+      [none],
+      "Note partly filled in · Notes for 12:40 to 21:05 couldn’t be made · View Transcript · Undo",
+    ],
+    ["zh-CN", [none], "笔记未能全部补全 · 12:40–21:05 的笔记没能生成 · 查看转写稿 · 撤销"],
+    [
+      "en",
+      [thin],
+      "Note partly filled in · The notes from 1:01:40 to 1:07:10 may be incomplete · View Transcript · Undo",
+    ],
+    ["zh-CN", [thin], "笔记未能全部补全 · 1:01:40–1:07:10 的笔记可能不完整 · 查看转写稿 · 撤销"],
+    [
+      "en",
+      [none, thin],
+      "Note partly filled in · Notes for 12:40 to 21:05 couldn’t be made · The notes from 1:01:40 to 1:07:10 may be incomplete · View Transcript · Undo",
+    ],
+  ] as const)("tells %s stretches %j with their times", async (language, stretches, text) => {
+    actions.language.current = language;
+    const unfinishedParts = stretches.filter(({ notes }) => notes === "none").length * 2;
+    const meeting = meetingOf(fillOf({ unfinishedParts, stretches: [...stretches] }));
+    const line = await show(meeting);
+    expect(line?.textContent).toBe(text);
+    await click("meeting-fill-undo");
+    expect(actions.undoFill.mock.calls).toEqual([[meeting.id, EDITOR]]);
+  });
+
+  test("parts without notes that no stretch names are still counted, beside what is told", async () => {
+    actions.language.current = "en";
+    const line = await show(
+      meetingOf(fillOf({ omitted: 1, unfinishedParts: 2, stretches: [thin] })),
+    );
+    expect(line?.textContent).toBe(
+      "Note partly filled in · 1 item couldn’t be added · The notes from 1:01:40 to 1:07:10 may be incomplete · 2 Transcript parts couldn’t be finished · View Transcript · Undo",
+    );
+  });
+});
+
 describe("meeting notes with omitted items", () => {
   test.each([
     ["en", 1, "Note partly filled in · 1 item couldn’t be added · View Transcript · Undo"],

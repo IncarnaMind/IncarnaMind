@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { FillLine } from "../../src/core/meetings/fillPrompt";
-import { headingRoutes, unansweredLines } from "../../src/core/meetings/headingRoutes";
+import { headingRoutes, saysQuiet, unansweredLines } from "../../src/core/meetings/headingRoutes";
 
 const oneHeading: readonly FillLine[] = [
   { marker: "H1", text: "通话后的工作", heading: true },
@@ -408,5 +408,35 @@ describe("The lines a reply says the call doesn't answer", () => {
 
   test("a control line after the first frame is not read", () => {
     expect(unansweredLines(`${frames}\n\nUNANSWERED: L1`, twoHeadings)).toBeNull();
+  });
+});
+
+// protects=a reply says its part of the call held little to note with one control line before its first frame, in the forms a model writes it; a reply that doesn't say so, says it twice, says anything else or says it after a frame is not read as saying it (#3287); fails_when=a reply that never said so is trusted as short, or the line in a form a model writes isn't read; no_claim=when a real model writes the line, which the pull request's real-model runs show.
+describe("A reply that says its part of the call held little to note", () => {
+  const frames = "### FACT P1_F1\nA cited fact.\n### END P1_F1";
+
+  test.each([
+    "QUIET: YES",
+    "quiet: yes.",
+    "**QUIET:** YES",
+    "QUIET：YES",
+    "HEADINGS: H1=NONE\nQUIET: YES",
+  ])("%j is read", (line) => {
+    expect(saysQuiet(`${line}\n\n${frames}`)).toBe(true);
+  });
+
+  test.each([
+    ["no control line", ""],
+    ["NO", "QUIET: NO"],
+    ["an empty one", "QUIET:"],
+    ["two of them", "QUIET: YES\nQUIET: YES"],
+    ["more than the one word", "QUIET: YES and NO"],
+    ["words", "QUIET: the call was quiet"],
+  ] as const)("%s doesn't say so", (_, line) => {
+    expect(saysQuiet(`${line}\n\n${frames}`)).toBe(false);
+  });
+
+  test("the line after the first frame is not read", () => {
+    expect(saysQuiet(`${frames}\n\nQUIET: YES`)).toBe(false);
   });
 });

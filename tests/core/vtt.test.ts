@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { CitationLocation } from "../../src/core";
-import { withCueMarks } from "../../src/core/answers/cueMarks";
+import { saidBetween, withCueMarks } from "../../src/core/answers/cueMarks";
 import { extractUnits } from "../../src/core/documents/formats";
 import {
   listedGaps,
@@ -391,6 +391,28 @@ describe("Citations of a Transcript", () => {
       gaps: [],
     });
     expect(withCueMarks(passage, block)).toBe(marked);
+  });
+
+  // protects=when a Transcript Passage's lines were said is read from its cues: from its first line's start to its last line's end, for a Passage that is the whole block and for one that starts and ends part way, and text that is no cue's has no times (#3287); fails_when=a Passage takes the times of the block's first or last cue where it holds neither, or text outside the Transcript gets times.
+  test("a Passage's lines were said from its first cue's start to its last cue's end", () => {
+    const said = [
+      "Opening remarks.",
+      "The budget is approved.",
+      "Dana sends the plan.",
+      "Goodbye.",
+    ];
+    const block = transcriptUnits({
+      cues: said.map((text, index) => ({
+        startMs: 60_000 * (index + 1),
+        endMs: 60_000 * (index + 1) + 2500,
+        text,
+        speaker: null,
+      })),
+      gaps: [],
+    });
+    expect(saidBetween(said.join("\n"), block)).toEqual({ from: 60_000, to: 242_500 });
+    expect(saidBetween(said.slice(1, 3).join("\n"), block)).toEqual({ from: 120_000, to: 182_500 });
+    expect(saidBetween("A paragraph of a report.", block)).toBeNull();
   });
 
   test("clock times read back", () => {
