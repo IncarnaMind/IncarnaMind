@@ -1325,12 +1325,15 @@ export function createTranscripts(options: TranscriptsOptions) {
       .partsOf(state.meetingId)
       .filter(
         (part) =>
-          (range.source === undefined || range.source === part.source) &&
+          (range.source !== "system" || part.source === "system") &&
           part.offsetMs < range.toMs &&
           part.offsetMs + part.durationMs > range.fromMs,
       );
+    // Microphone recovery still needs the computer's audio to cancel its echo.
+    const toTranscribe =
+      range.source === "microphone" ? parts.filter((part) => part.source === "microphone") : parts;
     let covered: Range[] = [];
-    for (const part of parts) {
+    for (const part of toTranscribe) {
       covered = addRange(covered, { fromMs: part.offsetMs, toMs: part.offsetMs + part.durationMs });
     }
     // These stretches had no audio to transcribe, for a reason its own gap already says.
@@ -1347,7 +1350,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       if (toMs - at >= MIN_GAP_MS) state.gaps.push({ fromMs: at, toMs, reason });
       at = Math.max(at, each.toMs);
     }
-    if (parts.length === 0) return;
+    if (toTranscribe.length === 0) return;
     const prefix = `${state.meetingId}:catch-up:${++streams}`;
     const opened: string[] = [];
     let microphoneStreams = 0;
@@ -1356,7 +1359,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       const tracks = createTracks(range.fromMs);
       const end = Math.min(
         range.toMs,
-        Math.max(...parts.map((part) => part.offsetMs + part.durationMs)),
+        Math.max(...toTranscribe.map((part) => part.offsetMs + part.durationMs)),
       );
       // No chunk crosses the edge of a stretch the microphone was paused: it sends nothing for one.
       const edges = pauses.flatMap((pause) => [pause.fromMs, pause.toMs]);
@@ -1378,8 +1381,11 @@ export function createTranscripts(options: TranscriptsOptions) {
           }
         }
         const audio = tracks.flush();
-        if (audio?.system?.some((sample) => sample !== 0)) heardCall(state);
+        if (range.source !== "microphone" && audio?.system?.some((sample) => sample !== 0)) {
+          heardCall(state);
+        }
         for (const source of SOURCES) {
+          if (range.source !== undefined && source !== range.source) continue;
           const track = audio?.[source];
           if (!audio || !track) continue;
           if (source === "microphone" && paused) {
