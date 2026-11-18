@@ -26,8 +26,6 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { note, question, writeMind } from "../helpers/minds";
 import {
-  type GenerateCall,
-  type GeneratedReply,
   type ModelCall,
   questionOf,
   type ScriptedReply,
@@ -102,36 +100,26 @@ const TIDES = { name: "Tides.md", contents: `# Tides\n\n${SPRING}\n` };
 
 const SALARY = "The salary is 61,500 per year, paid monthly.";
 const FIGURE_CLAIM = "The salary is 61,500 per year.";
-const ABSENCE_CLAIM = "The lease has no break clause.";
 const TERM = "The lease runs for three years.";
 const LEASE = { name: "Lease.md", contents: `# Lease\n\n${TERM}\n\n${SALARY}\n` };
-
-/** A whole read that finds nothing of what the sentence says is absent. */
-const HOLDS = { absent: "break clause", absence: "holds" };
 
 const PLANS: Record<string, Plan> = {
   [FIGURE_CLAIM]: { verdict: "supported", quote: SALARY },
   [TERM]: { verdict: "supported", quote: TERM },
-  [ABSENCE_CLAIM]: { verdict: "supported", absence: true },
 };
 
 /** A reply whose text is written, cut off at its limit: what an Answer or a verdict ends with. */
 const cut = (reply: ScriptedReply): ScriptedReply =>
   "text" in reply && reply.text && !reply.calls ? { ...reply, cutOff: true } : reply;
 
-/** A model that checks as `PLANS` say; `cutVerdict`: its verdict is cut off; `cutRead`: so is a whole read. */
-function checkModel({ cutVerdict = false, cutRead = false } = {}) {
+/** A model that checks as `PLANS` say; `cutVerdict`: its verdict is cut off. */
+function checkModel({ cutVerdict = false } = {}) {
   return scriptedModel(
     (call) => {
       const reply = checkReply(call, PLANS);
       return cutVerdict ? cut(reply) : reply;
     },
-    {
-      generate: (call: GenerateCall): GeneratedReply =>
-        call.question === "absence-read"
-          ? { text: JSON.stringify(HOLDS), cutOff: cutRead }
-          : checkGenerate(PLANS)(call),
-    },
+    { generate: checkGenerate(PLANS) },
   );
 }
 
@@ -356,17 +344,14 @@ describe("Every model call's output limit", () => {
     }
   });
 
-  test("a check of a sentence with a figure, of one with none, and of an absence, with its whole read", async () => {
+  test("a check of a sentence with a figure, and of one with none", async () => {
     const model = checkModel();
     const { core } = await setUpWithDocuments(model, [LEASE]);
 
-    for (const claim of [FIGURE_CLAIM, TERM, ABSENCE_CLAIM]) {
+    for (const claim of [FIGURE_CLAIM, TERM]) {
       expect(await core.checkClaim({ claim }), claim).toMatchObject({ verdict: "supported" });
     }
 
-    expect(
-      model.doGenerateCalls.filter((call) => systemOf(call).startsWith("Read the whole")),
-    ).toHaveLength(1);
     expect(unlimited(model)).toEqual([]);
   });
 
@@ -476,25 +461,6 @@ describe("A reply cut at its limit", () => {
     for (const words of inBoth("claim.reason.cut-short")) {
       expect(words).not.toBe("claim.reason.cut-short");
     }
-  });
-
-  // protects=a whole read cut at its limit decides nothing: the absence is Not checked, not Supported; fails_when=the start of a cut reply, "holds", is taken (#2275).
-  test("leaves an absence Not checked when its whole read was cut, where a whole read decides it", async () => {
-    const whole = await setUpWithDocuments(checkModel(), [LEASE]);
-    const model = checkModel({ cutRead: true });
-    const { core } = await setUpWithDocuments(model, [LEASE]);
-
-    expect(await whole.core.checkClaim({ claim: ABSENCE_CLAIM })).toMatchObject({
-      verdict: "supported",
-    });
-    expect(await core.checkClaim({ claim: ABSENCE_CLAIM })).toMatchObject({
-      verdict: "not-checked",
-      reason: "cut-short",
-    });
-    // Not asked again at a higher limit, nor at the same one.
-    expect(
-      model.doGenerateCalls.filter((call) => systemOf(call).startsWith("Read the whole")),
-    ).toHaveLength(1);
   });
 
   test("tags nothing, and says so in English and Chinese", async () => {

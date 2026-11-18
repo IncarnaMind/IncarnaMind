@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { SEARCH_AGAIN, searchAgain } from "../../src/core/answers/checks/searchAgain";
+import { SEARCH_AGAIN } from "../../src/core/answers/checks/claimCheck";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { readClaimCheck, saysNotFound } from "../../src/shared/claimChecks";
+import { saysNotFound } from "../../src/shared/claimChecks";
 import { checkingModel, isCheckRun, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
@@ -14,10 +14,6 @@ const TIDES = {
     "",
     "Spring tides happen at new moon and at full moon, when the Sun and the Moon pull together.",
   ].join("\n"),
-};
-const TIDES_ZH = {
-  name: "潮汐.md",
-  contents: "# 潮汐\n\n潮汐中的大潮出现在新月和满月，太阳和月球共同产生引力。",
 };
 
 const SENTENCE = "The biggest tides come twice a lunar month.";
@@ -98,139 +94,11 @@ describe("Before a check says a sentence isn't found (#1608)", () => {
     expect(checked.runs).toBe(checked.askedAgain + 2);
   });
 
-  test("a check that finds its Passage, or names the part a Passage states, sends nothing more", async () => {
+  test("a check that finds its Passage sends nothing more", async () => {
     const found = await check(FOUND);
-    const part = await check({
-      reply: {
-        text: "Verdict: unsupported\nTopic: found\nThe Documents name new and full moon only.\nCovered: spring tides\nNot covered: twice a lunar month",
-      },
-    });
 
-    for (const checked of [found, part]) {
-      expect(checked.askedAgain).toBe(0);
-      expect(checked.queries).toEqual([SENTENCE]);
-    }
+    expect(found.askedAgain).toBe(0);
+    expect(found.queries).toEqual([SENTENCE]);
     expect(found.check?.state).toBe("supported");
   });
-
-  test("parts named for a topic no Passage is about don't spare the ask, which a model that searched more than once, or not at all, never gets", async () => {
-    const reply = "Verdict: unsupported\nThe Documents don't say how often.";
-    const fits = () => true;
-    const once = searchAgain(() => 1, fits);
-    expect((await once.check(reply))?.note).toBe(SEARCH_AGAIN);
-    const offTopic = `${reply}\nTopic: not found\nCovered: tides\nNot covered: how often`;
-    expect((await once.check(offTopic))?.note).toBe(SEARCH_AGAIN);
-    expect(await searchAgain(() => 2, fits).check(reply)).toBeNull();
-    expect(await searchAgain(() => 0, fits).check(reply)).toBeNull();
-  });
-
-  test("an absence is asked to search again only when its scope is too long to read whole", async () => {
-    const absence = "Verdict: unsupported\nAbsence: yes\nThe Documents don't mention one.";
-    const once = () => 1;
-    expect(await searchAgain(once, () => true).check(absence)).toBeNull();
-    expect((await searchAgain(once, () => false).check(absence))?.note).toBe(SEARCH_AGAIN);
-  });
-});
-
-describe("Not found only when nothing in the scope was about the sentence (#1608)", () => {
-  const UNSUPPORTED_ON_TOPIC =
-    "Verdict: unsupported\nScope: none, same\nTopic: found\nRoles: none, same\nTides says spring tides come at new and full moon, not how often.";
-
-  test("a reply that says a Passage is about the sentence is Unsupported, with its words, and isn't asked to search again", async () => {
-    const checked = await check({ reply: { text: UNSUPPORTED_ON_TOPIC } });
-
-    expect(checked.check?.state).toBe("unsupported");
-    expect(checked.check?.unsupported).toMatchObject({
-      found: true,
-      reason: "Tides says spring tides come at new and full moon, not how often.",
-    });
-    expect(checked.notFound).toBe(false);
-    expect(checked.askedAgain).toBe(0);
-  });
-
-  test("a reply that names the part a Passage states, with no Topic line and no quote, is Unsupported and isn't asked again", async () => {
-    const checked = await check({
-      reply: {
-        text: "Verdict: unsupported\nTides doesn't say how often.\nCovered: spring tides\nNot covered: twice a lunar month",
-      },
-    });
-
-    expect(checked.check?.state).toBe("unsupported");
-    expect(checked.check?.unsupported).toMatchObject({ found: true, covered: "spring tides" });
-    expect(checked.notFound).toBe(false);
-    expect(checked.askedAgain).toBe(0);
-  });
-
-  test("must for may, with no part to show, is Unsupported with the check's words", async () => {
-    const checked = await check({
-      ...FOUND,
-      says: "Roles: The biggest tides come twice / spring tides happen, differs\nTides says spring tides happen at new and full moon.",
-    });
-
-    expect(checked.check?.state).toBe("unsupported");
-    expect(checked.check?.unsupported).toMatchObject({
-      found: true,
-      reason: "Tides says spring tides happen at new and full moon.",
-    });
-    expect(checked.notFound).toBe(false);
-  });
-
-  test.each(["same", "neither"] as const)(
-    "a contradiction the judgement calls %s is Unsupported: the check found the Passage it quoted",
-    async (judgement) => {
-      const checked = await check({
-        verdict: "contradicted",
-        quote: FOUND.quote,
-        says: "Tides says spring tides come twice a month, at new and full moon.",
-        judgement,
-      });
-
-      expect(checked.check?.state).toBe("unsupported");
-      expect(checked.check?.unsupported?.found).toBe(true);
-      expect(checked.notFound).toBe(false);
-    },
-  );
-
-  test.each([
-    {
-      language: "English",
-      sentence: SENTENCE,
-      says: "Tides says nothing of how often tides come.",
-      document: TIDES,
-      quote: FOUND.quote,
-    },
-    {
-      language: "Chinese",
-      sentence: "最大的潮汐每个朔望月出现两次。",
-      says: "文档没有写潮汐出现的频率。",
-      document: TIDES_ZH,
-      quote: "大潮出现在新月和满月",
-    },
-  ])(
-    "a $language contradiction whose reply says no Passage is about the sentence is Not found",
-    async ({ sentence, says, document, quote }) => {
-      const checked = await check(
-        {
-          verdict: "contradicted",
-          quote,
-          says: `Topic: not found\n${says}`,
-          judgement: "neither",
-        },
-        sentence,
-        document,
-      );
-
-      expect(
-        checked.check?.state,
-        JSON.stringify({ reason: checked.check?.reason, detail: checked.check?.detail }),
-      ).toBe("unsupported");
-      expect(checked.check?.unsupported?.found).toBeUndefined();
-      expect(checked.check?.evidence).toBeNull();
-      expect(checked.check?.parts?.[0]?.evidence).toEqual([
-        expect.objectContaining({ check: "found", quote }),
-      ]);
-      expect(readClaimCheck(checked.check)).toEqual(checked.check);
-      expect(checked.notFound).toBe(true);
-    },
-  );
 });

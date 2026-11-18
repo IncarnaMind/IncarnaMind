@@ -179,6 +179,11 @@ export interface PreparedChatModel {
   window?: ContextWindow;
   /** How the model gives Citations, known before the first request (see ./capabilities). */
   support?: CitationSupport;
+  /**
+   * The same model asked to think, for the one step of a check that judges the sentence against
+   * its Passages; the check's other requests stay on `model` (#3257).
+   */
+  thinking?: ChatLanguageModel;
   /** Its reasoning comes back as its provider's summary, which an Answer may show (see ./models). */
   summarizesReasoning: boolean;
   /**

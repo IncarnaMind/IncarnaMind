@@ -27,7 +27,9 @@
  * together every so often. A send that fails (offline, timed out, refused) is
  * dropped without a retry or an error: usage data never gets in the way.
  * Turning usage data off stops sending at once and drops the queue, along
- * with the SDK's client; turning it on again starts a new one.
+ * with the SDK's client; turning it on again starts a new one. The one event
+ * the User can allow on its own while it is off (the first run's picks, #3296)
+ * goes through a client of its own, closed once that event is sent.
  *
  * `posthog-node` is a devDependency on purpose: electron-vite bundles what is
  * used here into a chunk loaded only once usage data is on, as for Sentry
@@ -100,6 +102,8 @@ export function createPostHogSender(options: PostHogSenderOptions): PostHogSende
   let starting: Promise<void> | undefined;
   /** Events captured while the SDK loads. */
   let waiting: PostHogMessage[] = [];
+  /** One-off events still being sent (`captureOnce`). */
+  const sendingOnce = new Set<Promise<void>>();
 
   /** A client whose requests go out only until it is closed, and only as batches of events. */
   const open = (sdk: PostHogSdk) => {
@@ -139,8 +143,22 @@ export function createPostHogSender(options: PostHogSenderOptions): PostHogSende
         live = false;
         client.shutdown(1_000).catch(() => undefined);
       },
+      /** Sends what it holds, then nothing more. */
+      async finish() {
+        try {
+          await client.shutdown(REQUEST_TIMEOUT_MS);
+        } finally {
+          live = false;
+        }
+      },
     };
   };
+
+  const toPostHog = (message: UsageEventMessage): PostHogMessage => ({
+    distinctId: message.installId,
+    event: message.event,
+    properties: { ...message.properties, $process_person_profile: false, $ip: NO_IP_ADDRESS },
+  });
 
   const capture = (message: PostHogMessage) => {
     try {
@@ -148,6 +166,12 @@ export function createPostHogSender(options: PostHogSenderOptions): PostHogSende
     } catch (error) {
       reportError(error);
     }
+  };
+
+  const queue = (message: UsageEventMessage) => {
+    const event = toPostHog(message);
+    if (current) capture(event);
+    else if (waiting.length < MAX_QUEUED_EVENTS) waiting.push(event);
   };
 
   const start = async () => {
@@ -182,14 +206,23 @@ export function createPostHogSender(options: PostHogSenderOptions): PostHogSende
     },
 
     capture(message: UsageEventMessage) {
-      if (!enabled) return;
-      const event: PostHogMessage = {
-        distinctId: message.installId,
-        event: message.event,
-        properties: { ...message.properties, $process_person_profile: false, $ip: NO_IP_ADDRESS },
-      };
-      if (current) capture(event);
-      else if (waiting.length < MAX_QUEUED_EVENTS) waiting.push(event);
+      if (enabled) queue(message);
+    },
+
+    captureOnce(message: UsageEventMessage) {
+      if (enabled) {
+        queue(message);
+        return;
+      }
+      const once = loadSdk()
+        .then(async (sdk) => {
+          const client = open(sdk);
+          client.client.capture(toPostHog(message));
+          await client.finish();
+        })
+        .catch(reportError);
+      sendingOnce.add(once);
+      void once.finally(() => sendingOnce.delete(once));
     },
 
     async flush() {
@@ -198,6 +231,7 @@ export function createPostHogSender(options: PostHogSenderOptions): PostHogSende
 
     async settled() {
       while (starting) await starting;
+      await Promise.all(sendingOnce);
     },
   };
 }

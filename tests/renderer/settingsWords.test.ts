@@ -31,7 +31,12 @@ const FILES = [
 ];
 const FOLDERS = ["agents", "ai", "connectors", "providers", "settings"];
 /** First-run screens in those folders: not Settings. */
-const NOT_SETTINGS = new Set(["ModelSetupCard.tsx", "GetOllama.tsx", "OllamaCard.tsx"]);
+const NOT_SETTINGS = new Set([
+  "ModelSetupCard.tsx",
+  "SetupWays.tsx",
+  "GetOllama.tsx",
+  "OllamaCard.tsx",
+]);
 
 function sources(): { name: string; text: string }[] {
   const files = FILES.map((name) => join(COMPONENTS, name));

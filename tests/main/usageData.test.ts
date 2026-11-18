@@ -203,4 +203,56 @@ describe("Usage data through PostHog", () => {
     expect(offline.fetch).toHaveBeenCalledTimes(1);
     expect(errors).not.toHaveBeenCalled();
   });
+
+  test("one event allowed on its own goes while usage data is off, and nothing after it (#3296)", async () => {
+    const network = fakeNetwork();
+    const off = sender(network);
+    const picks = message("work_picked", {
+      finance: true,
+      legal: false,
+      research: false,
+      reports: false,
+      meetings: true,
+      other: false,
+    });
+    off.captureOnce(picks);
+    await off.settled();
+    expect(network.requests.map(({ url, method }) => ({ url, method }))).toEqual([
+      { url: `${HOST}/batch/`, method: "POST" },
+    ]);
+    expect(network.requests[0]?.body.batch.map((event) => event.event)).toEqual(["work_picked"]);
+    expect(network.requests[0]?.body.batch[0]?.properties).toMatchObject({
+      finance: true,
+      meetings: true,
+      $ip: NO_IP_ADDRESS,
+    });
+    // Still off: what comes next isn't sent.
+    off.capture(message());
+    await off.flush();
+    expect(network.requests).toHaveLength(1);
+  });
+
+  test("while usage data is on, the event allowed on its own goes with the rest", async () => {
+    const network = fakeNetwork();
+    const on = sender(network);
+    on.setEnabled(true);
+    await on.settled();
+    on.captureOnce(
+      message("work_picked", {
+        finance: false,
+        legal: true,
+        research: false,
+        reports: false,
+        meetings: false,
+        other: false,
+      }),
+    );
+    on.capture(message());
+    await on.flush();
+    expect(network.requests).toHaveLength(1);
+    expect(network.requests[0]?.body.batch.map((event) => event.event)).toEqual([
+      "work_picked",
+      "settings_page_viewed",
+    ]);
+  });
 });

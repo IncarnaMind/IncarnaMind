@@ -786,8 +786,7 @@ describe("check comments in someone else's file", () => {
     expect(comments).toEqual([
       {
         author: "IncarnaMind",
-        comment:
-          "Unsupported: your Documents say something different (“The harbour wall was raised in 1984.”, Tides, p. 2)",
+        comment: "Unsupported by your Documents.",
         on: "1990The harbour wall was raised",
         marked: true,
       },
@@ -796,7 +795,7 @@ describe("check comments in someone else's file", () => {
 });
 
 describe("the export back into the file", () => {
-  test("each Unsupported and Contradicted claim gets IncarnaMind's comment on its own words, naming the evidence Document and page; supported ones get none", async () => {
+  test("each Unsupported and Contradicted claim gets IncarnaMind's comment on its own words, a contradiction naming the evidence Document and page; supported ones get none", async () => {
     const { core, mind } = await checkedReport();
 
     const { comments, result } = await exported(core, mind.id);
@@ -811,8 +810,7 @@ describe("the export back into the file", () => {
       },
       {
         author: "IncarnaMind",
-        comment:
-          "Unsupported: your Documents say something different (“The harbour wall was raised in 1984.”, Tides, p. 2)",
+        comment: "Unsupported by your Documents.",
         on: DIFFERS,
         marked: true,
       },
@@ -843,7 +841,7 @@ describe("the export back into the file", () => {
     ).toEqual([
       // Its English sentence, written again in the interface's Chinese (#2081).
       "与文档矛盾：Tides 写的是港口每年公布一次高潮时间，不是每周（“Harbours publish the times of high water every year.”，Tides，第 1 页）",
-      "无依据：你的文档里是另一种说法（“The harbour wall was raised in 1984.”，Tides，第 2 页）",
+      "无依据。",
       "未找到：未在“全部文档”中找到。",
     ]);
   });

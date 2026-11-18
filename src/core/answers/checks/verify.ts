@@ -23,7 +23,6 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { withFigureFacts } from "../../../shared/claimParts";
-import { beginFigureCheck } from "../../../shared/figureChecks";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import {
@@ -40,7 +39,6 @@ import {
   type ClaimCheckAttributes,
   type ClaimCheckPart,
   type ClaimCheckResult,
-  type ClaimPartPlan,
   type Document,
   type DocumentStatus,
   type DocumentText,
@@ -67,7 +65,7 @@ import type { ClaimCheckRequest } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
 import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
-import { pendingParts, runChecks } from "./runChecks";
+import { runChecks } from "./runChecks";
 import {
   checkText,
   everySentence,
@@ -428,7 +426,6 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
-          ...(claim.parts && { parts: pendingParts(claim.parts, previous) }),
         };
         const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
         const contextualRow = said.claim !== sentence.text;
@@ -444,32 +441,17 @@ export function createVerify(options: VerifyOptions) {
                 )
                 .flatMap((each) => each.figures ?? [])
             : sentence.figures;
-        const figures = rowFigures?.length ? rowFigures : undefined;
-        const parts: readonly ClaimPartPlan[] | undefined = contextualRow
-          ? [{ kind: "fact", span: { start: 0, end: said.claim.length } }]
-          : claim.parts;
-        markSentence(
-          sentence.element,
-          sentence.from,
-          sentence.to,
-          figures
-            ? beginFigureCheck(
-                null,
-                marked,
-                figures,
-                null,
-                contextualRow ? undefined : sentence.projection,
-              )
-            : marked,
+        const worked = (rowFigures ?? []).filter(
+          (figure) => figure.calculated !== null || figure.analysisRecord?.label !== undefined,
         );
+        markSentence(sentence.element, sentence.from, sentence.to, marked);
         return [
           {
             id: marked.id,
             ...said,
-            ...(parts && { parts }),
             ...(previous && { previous }),
             ...(priorParts && { priorParts }),
-            ...(figures && { figures }),
+            ...(worked.length > 0 && { figures: worked }),
           },
         ];
       });

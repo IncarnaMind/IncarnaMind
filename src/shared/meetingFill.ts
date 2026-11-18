@@ -1,12 +1,17 @@
 import type { EditCause, MeetingFill } from "../core/api";
 
 /**
- * Whether the note lacks something: an item the reply held that couldn't be added, or a Transcript
- * part never finished. A section placed under its own title instead of the User's heading lacks
- * nothing (#3099).
+ * Whether the note lacks something: an item the reply held that couldn't be added, a Transcript
+ * part never finished, or a stretch of the call whose notes are missing or may be incomplete. A
+ * section placed under its own title instead of the User's heading lacks nothing (#3099).
  */
 export function isPartialMeetingFill(fill: MeetingFill | null): boolean {
-  return fill !== null && ((fill.omitted ?? 0) > 0 || (fill.unfinishedParts ?? 0) > 0);
+  return (
+    fill !== null &&
+    ((fill.omitted ?? 0) > 0 ||
+      (fill.unfinishedParts ?? 0) > 0 ||
+      (fill.stretches?.length ?? 0) > 0)
+  );
 }
 
 /**

@@ -486,6 +486,8 @@ export interface AnswerRequest {
   outputKind?: ModelCallKind;
   /** Framed Meeting facts with missing Citations are omitted, never repaired (#2306). */
   meetingFacts?: true;
+  /** The request holds every Passage it needs, whole: no search of the Documents is offered. */
+  given?: true;
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -1964,15 +1966,21 @@ function presearchMessages(
   ];
 }
 
-/** The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours. */
+/**
+ * The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours.
+ * Without `search`, the Documents' search isn't among them.
+ */
 function offeredWith(
   documents: ReturnType<typeof documentTools> | null,
   others: readonly Tool[],
+  search = true,
 ): Tool[] {
   const offered = new Map(
     offeredTools([
       ...(documents
-        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
+        ? [search ? documents.search : null, documents.read, documents.cite].filter(
+            (tool) => tool !== null,
+          )
         : []),
       ...(documents?.calculate ? [documents.calculate] : []),
       ...others,
@@ -2055,7 +2063,7 @@ async function* toolLoop(
           request.toolSet,
         )
       : null;
-  const search = documents?.search ?? null;
+  const search = request.given ? null : (documents?.search ?? null);
   const read = documents?.read ?? null;
   const cite = documents?.cite ?? null;
   const calculate = documents?.calculate ?? null;
@@ -2133,7 +2141,9 @@ async function* toolLoop(
     },
   });
   /** The Tools offered, by the name the model calls them. */
-  const offered = new Map(offeredWith(documents, request.tools).map((each) => [each.name, each]));
+  const offered = new Map(
+    offeredWith(documents, request.tools, search !== null).map((each) => [each.name, each]),
+  );
   const tools = [...offered.values()];
   const maxSteps =
     stepLimit + (tools.some((each) => each.provider.kind === "analysis") ? ANALYSIS_STEPS : 0);
@@ -2522,7 +2532,10 @@ async function* toolLoop(
               searched,
             });
           }
-          if (recorded && MARKER.test(keptText)) answered = true;
+          // For a reply with a form of its own (a check's), words beside a record are the reply
+          // only when they have that form: a sentence written beside `cite` isn't the verdict.
+          if (recorded && MARKER.test(keptText) && (request.isReply?.(keptText) ?? true))
+            answered = true;
         }
         stepText = "";
         stepTools = [];

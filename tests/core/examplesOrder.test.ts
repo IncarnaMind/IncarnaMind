@@ -35,14 +35,28 @@ function examplesOver(store: Map<string, unknown>, random: () => number) {
 }
 
 describe("the examples a banner offers (#123)", () => {
-  test("the first-run example offers the other three, in an order picked once per install", () => {
+  test("the first-run example offers the other four, in an order picked once per install", () => {
     const first = new Map<string, unknown>();
     const second = new Map<string, unknown>();
     const orderA = examplesOver(first, () => 0).status("credit").more;
     const orderB = examplesOver(second, () => 0.99).status("credit").more;
-    expect([...orderA].sort()).toEqual(["contracts", "meetings", "papers"]);
-    expect([...orderB].sort()).toEqual(["contracts", "meetings", "papers"]);
+    expect([...orderA].sort()).toEqual(["contracts", "meetings", "papers", "reports"]);
+    expect([...orderB].sort()).toEqual(["contracts", "meetings", "papers", "reports"]);
     expect(orderA).not.toEqual(orderB);
+  });
+
+  test("an order kept before Reports was offered keeps its places, with Reports put in (#3296)", () => {
+    const store = new Map<string, unknown>([
+      ["examplesOrder", ["meetings", "papers", "contracts"]],
+    ]);
+    const more = examplesOver(store, () => 0.5).status("credit").more;
+    expect(more.filter((group) => group !== "reports")).toEqual([
+      "meetings",
+      "papers",
+      "contracts",
+    ]);
+    expect(more).toContain("reports");
+    expect(examplesOver(store, () => 0).status("credit").more).toEqual(more);
   });
 
   test("the order is the same after a restart, and for every example", () => {

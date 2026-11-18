@@ -36,7 +36,8 @@ const TARGET = ["claude-account"] as const;
 
 const linkClass = "font-semibold text-accent underline-offset-2 hover:underline";
 
-function useOffered(): boolean {
+/** Whether this copy can sign in with a Claude plan. */
+export function useClaudePlanOffered(): boolean {
   return useClaudeAccount()?.available === true;
 }
 
@@ -58,7 +59,7 @@ function useRowOpen(): [boolean, (open: boolean) => void] {
 
 export function ClaudePlanWay({ onUseKey }: { onUseKey(): void }) {
   const t = useT();
-  const offered = useOffered();
+  const offered = useClaudePlanOffered();
   const waiting = useClaudeSignIn((state) => state.waiting);
   const [expanded, setOpen] = useRowOpen();
   const panel = useId();
@@ -168,7 +169,7 @@ function AccountLines({ account }: { account: ClaudeAccount }) {
   return <p data-testid="claude-plan-account">{t("claudePlan.usage")}</p>;
 }
 
-function ClaudePlanSignIn({
+export function ClaudePlanSignIn({
   keepDefault = false,
   onClose,
   onUseKey,

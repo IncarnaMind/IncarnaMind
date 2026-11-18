@@ -658,6 +658,11 @@ export interface UsageDataSender {
   setEnabled(enabled: boolean): void;
   /** Queues an event. Called only while sending is on. Must not throw, offline or not. */
   capture(message: UsageEventMessage): void;
+  /**
+   * Sends one event the User allowed on its own while sending is off (the first run's picks,
+   * #3296): it goes, and nothing else starts or is kept. Must not throw, offline or not.
+   */
+  captureOnce(message: UsageEventMessage): void;
 }
 
 /** Meetings record 16 kHz mono, as 16-bit samples: what speech-to-text reads, at a third of the size of 48 kHz. */
@@ -1266,7 +1271,7 @@ export interface CoreAdapters {
    * Where the ChatGPT sign-in is kept instead of `keychain`: a store that
    * several data folders on this computer share, and a lock file that keeps
    * their token refreshes apart. Only a development or test build passes one
-   * (a ChatGPT test profile, see docs/agents/testing.md); release builds never do.
+   * (a ChatGPT test profile, see docs/agents/checks.md); release builds never do.
    */
   chatGptStore?: { keychain: Keychain; lockFile: string };
   /**
@@ -1315,6 +1320,11 @@ export interface CoreAdapters {
    * tests and the gate's runs set it.
    */
   decisionReadsByDefault?: boolean;
+  /**
+   * Whether a fresh profile opens on the first run's setup (#3296). Left out: it does. A test
+   * build says no unless a test asks for it, so the specs that open on the example still do.
+   */
+  setupOnFirstRun?: boolean;
   /**
    * Where Look up (#286) and checking references ask Crossref's,
    * arXiv's and OpenAlex's APIs. Defaults to theirs; tests point them at a

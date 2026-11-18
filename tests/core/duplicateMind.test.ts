@@ -2,11 +2,9 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { CheckMindInput } from "../../src/core";
-import { documentFigureContext } from "../../src/core/answers/calculations";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { readFigures } from "../../src/shared/figures";
 import { wordFileOf, wordImportProgressOf } from "../../src/shared/wordFiles";
-import { checkGenerate, type Plan, requestedFigures, sentenceOf } from "../helpers/checks";
+import { checkGenerate, type Plan, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, waitForDocuments, writeSourceFile } from "../helpers/documents";
@@ -70,24 +68,8 @@ describe("a Note duplicated from its menu", () => {
     const LOAN = "The Northgate Bank term loan stood at £214,480.00 at 31 March 2026.";
     const BANK = "Balance outstanding at 31 March 2026: GBP 212,480.00.";
     const MEMO = `Revenue for the year was £1,284,300. ${LOAN}`;
-    const plans: Record<string, Plan> = { [LOAN]: { judgement: "conflict" } };
+    const plans: Record<string, Plan> = { [LOAN]: {} };
     const calls: ModelCall[] = [];
-    const unbackedFigures = (call: ModelCall) =>
-      `Figures: ${JSON.stringify({
-        items: requestedFigures(call).map(({ id }) => ({
-          id,
-          verdict: "unsupported",
-          scope: "same",
-          topic: "not found",
-          roles: "same",
-          says: null,
-          reading: null,
-          relation: "equals",
-          source: null,
-          calculation: null,
-        })),
-        remainder: null,
-      })}`;
     // The draft's own sentence would support it; the bank's figure contradicts it.
     const model = scriptedModel(
       (call) => {
@@ -100,7 +82,7 @@ describe("a Note duplicated from its menu", () => {
         const itself = shown.find((each) => each.text.includes(sentenceOf(call)));
         const bank = shown.find((each) => each.text.includes(BANK));
         const decided = itself ?? bank;
-        if (!decided) return { text: unbackedFigures(call) };
+        if (!decided) return { text: "Verdict: unsupported\nEvidence: []" };
         const quote = itself ? sentenceOf(call) : BANK;
         if (!call.results.some((result) => result.tool === "cite")) {
           return {
@@ -109,28 +91,10 @@ describe("a Note duplicated from its menu", () => {
             ],
           };
         }
-        const sourceNumbers = readFigures(quote, documentFigureContext([{ text: quote }]));
         return {
-          text: `Figures: ${JSON.stringify({
-            items: requestedFigures(call).map(({ id, shown }) => {
-              const amount = shown === "£214,480.00";
-              const at = quote.indexOf(!itself && amount ? "GBP" : shown);
-              const position = sourceNumbers.findIndex((figure) => figure.start === at) + 1;
-              return {
-                id,
-                verdict: !itself && amount ? "contradicted" : "supported",
-                scope: "same",
-                topic: "found",
-                roles: "same",
-                says: !itself && amount ? "The bank says £212,480.00." : null,
-                reading: null,
-                relation: "equals",
-                source: { citation: 1, position, reading: null, unitQuote: null },
-                calculation: null,
-              };
-            }),
-            remainder: null,
-          })}`,
+          text: itself
+            ? "Verdict: supported\nExplanation: The draft says so. [^1]\nEvidence: [1]"
+            : "Verdict: contradicted\nExplanation: The bank says £212,480.00. [^1]\nEvidence: [1]",
         };
       },
       { generate: checkGenerate(plans) },

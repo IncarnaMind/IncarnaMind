@@ -1,6 +1,3 @@
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { gunzipSync } from "node:zlib";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { COMMON_FIELDS, SENDER_FIELDS, USAGE_EVENTS } from "../src/core/usageEvents";
 import {
@@ -16,48 +13,11 @@ import {
   openPrivacySettings,
   pointAndClick,
   removeDataFolder,
+  type SentEvent,
   showSettingsPage,
+  startFakePostHog,
   useLocalChatModel,
 } from "./app";
-
-interface SentEvent {
-  event: string;
-  distinct_id: string;
-  properties: Record<string, unknown>;
-}
-
-/** A stand-in for PostHog on this computer: it keeps every request it is sent. */
-async function startFakePostHog() {
-  const requests: { path: string; events: SentEvent[] }[] = [];
-  const server: Server = createServer(async (request, response) => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of request) chunks.push(chunk as Buffer);
-    const body = Buffer.concat(chunks);
-    const text = (
-      request.headers["content-encoding"] === "gzip" ? gunzipSync(body) : body
-    ).toString();
-    let events: SentEvent[] = [];
-    try {
-      events = (JSON.parse(text) as { batch?: SentEvent[] }).batch ?? [];
-    } catch {
-      // Not a batch: recorded with no events, and the test fails on its path.
-    }
-    requests.push({ path: request.url ?? "", events });
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end("{}");
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-  return {
-    host: `http://127.0.0.1:${port}`,
-    requests,
-    events: () => requests.flatMap((each) => each.events),
-    close: async () => {
-      server.closeAllConnections();
-      await new Promise((resolve) => server.close(resolve));
-    },
-  };
-}
 
 type FakePostHog = Awaited<ReturnType<typeof startFakePostHog>>;
 

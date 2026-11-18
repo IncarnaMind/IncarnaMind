@@ -9,7 +9,7 @@
  * scripted judge stands in and nothing is sent. INCARNAMIND_LIVE_GATE_PROVIDER=deepseek runs it on
  * DeepSeek's own API with INCARNAMIND_LIVE_KEY (#3022).
  */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { LanguageModelV4CallOptions, LanguageModelV4Usage } from "@ai-sdk/provider";
 import type { JSONContent } from "@tiptap/core";
@@ -31,6 +31,7 @@ import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
+import { FIELD_PAIRS } from "./fieldSentences.cases";
 
 const PROVIDER =
   process.env.INCARNAMIND_LIVE_GATE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
@@ -39,6 +40,10 @@ const KEY =
     ? process.env.INCARNAMIND_LIVE_KEY
     : process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const DRY = process.env.INCARNAMIND_LIVE_GATE_DRY === "1";
+/** With an OpenRouter key here, the measured decision model reads each sentence first (#3118). */
+const DECISION_KEY = process.env.INCARNAMIND_LIVE_DECISION_KEY;
+/** Saved replies files, comma apart: the round is answered from them and nothing is sent. */
+const REPLAY = process.env.INCARNAMIND_LIVE_GATE_REPLAY?.split(",").filter(Boolean);
 const OUT = process.env.INCARNAMIND_LIVE_GATE_OUT;
 /** A file for every reply with its request's words: a reply the check can't read is kept to replay. */
 const REPLIES = process.env.INCARNAMIND_LIVE_GATE_REPLIES;
@@ -676,7 +681,105 @@ const HELD_OUT: readonly HeldOut[] = [
     right: "吨级为54,000。",
     wrong: "产量为54,000吨。",
   }),
+  // A sentence that says less than its Passage, leaving out its year, number or how it was found,
+  // is right (#3197); one that adds a wider group or a part, or drops its condition, is not.
+  ...pair("en-n1", "short-note", "en", {
+    document:
+      "Report 14, March 2025: the Harbour depot handled 4,200 containers in the month, up from 3,900.",
+    right: "The Harbour depot handled 4,200 containers in the month.",
+    wrong: "The Harbour depot and the Quay depot each handled 4,200 containers in the month.",
+  }),
+  ...pair("en-n2", "short-note", "en", {
+    document:
+      "Under clause 9 of the 2024 handbook, staff may work remotely two days a week, provided the team lead agrees in advance.",
+    right: "Staff may work remotely two days a week, provided the team lead agrees in advance.",
+    wrong: "Staff may work remotely two days a week.",
+  }),
+  ...pair("en-n3", "short-note", "en", {
+    document:
+      "The survey of 1,180 tenants, carried out by post in May, found that 62% were satisfied with repairs.",
+    right: "62% of the tenants surveyed were satisfied with repairs.",
+    wrong: "62% of the tenants surveyed were satisfied with repairs and with rents.",
+  }),
+  ...pair("zh-n1", "short-note", "zh-CN", {
+    document: "2025年第三季度，南湖仓库（编号07）出库量为1.8万件，同比增长6%。",
+    right: "南湖仓库出库量为1.8万件。",
+    wrong: "南湖仓库和北岸仓库出库量均为1.8万件。",
+  }),
+  ...pair("zh-n2", "short-note", "zh-CN", {
+    document: "根据2024年版员工手册第9条，员工可每周远程办公两天，须事先与主管商定。",
+    right: "员工可每周远程办公两天，须事先与主管商定。",
+    wrong: "员工可每周远程办公两天。",
+  }),
+  ...pair("zh-n3", "short-note", "zh-CN", {
+    document: "本次问卷于5月以邮寄方式发放，共回收1,180份，其中62%的租户对维修服务表示满意。",
+    right: "62%的受访租户对维修服务表示满意。",
+    wrong: "62%的受访租户对维修服务和租金水平均表示满意。",
+  }),
+  // A right or a duty with the requirement that trails it after a comma (#3257): the sentence that
+  // keeps it is right, the one that drops it is wrong, and so is one that changes who must agree
+  // or what the limit is.
+  ...withCondition("en-n2x", "en", {
+    document:
+      "Under clause 9 of the 2024 handbook, staff may work remotely two days a week, provided the team lead agrees in advance.",
+    changed:
+      "Staff may work remotely two days a week, provided the finance director agrees in advance.",
+  }),
+  ...withCondition("en-k1", "en", {
+    document:
+      "Section 4 of the 2025 residents' guide: residents may keep one pet in a flat, provided the building manager approves it in writing.",
+    right:
+      "Residents may keep one pet in a flat, provided the building manager approves it in writing.",
+    dropped: "Residents may keep one pet in a flat.",
+    changed:
+      "Residents may keep one pet in a flat, provided their neighbours approve it in writing.",
+  }),
+  ...withCondition("en-k2", "en", {
+    document:
+      "Per rule 12 of the 2023 lab manual, students may use the laser cutter after hours, provided a technician is present.",
+    right: "Students may use the laser cutter after hours, provided a technician is present.",
+    dropped: "Students may use the laser cutter after hours.",
+    changed:
+      "Students may use the laser cutter after hours, provided they have booked it a week ahead.",
+  }),
+  ...withCondition("zh-n2x", "zh-CN", {
+    document: "根据2024年版员工手册第9条，员工可每周远程办公两天，须事先与主管商定。",
+    changed: "员工可每周远程办公两天，须事先与财务总监商定。",
+  }),
+  ...withCondition("zh-k1", "zh-CN", {
+    document: "按2025年版住户手册第4条，住户可在公共花园举办小型聚会，须提前三天向物业报备。",
+    right: "住户可在公共花园举办小型聚会，须提前三天向物业报备。",
+    dropped: "住户可在公共花园举办小型聚会。",
+    changed: "住户可在公共花园举办小型聚会，须提前一天向物业报备。",
+  }),
+  ...withCondition("zh-k2", "zh-CN", {
+    document: "根据2023年实验室守则第12条，学生可在课后使用三维打印机，但须有指导教师在场。",
+    right: "学生可在课后使用三维打印机，但须有指导教师在场。",
+    dropped: "学生可在课后使用三维打印机。",
+    changed: "学生可在课后使用三维打印机，但须有保安在场。",
+  }),
 ];
+
+/** A pair whose right sentence keeps its Document's condition, with a second wrong twin that changes it; `en-n2` and `zh-n2` above are the pairs of the two given only that twin. */
+function withCondition(
+  id: string,
+  language: Language,
+  words: { document: string; right?: string; dropped?: string; changed: string },
+): HeldOut[] {
+  const { document, right, dropped, changed } = words;
+  const twin = (suffix: string, sentence: string, expected: HeldOut["expected"]): HeldOut => ({
+    id: `${id}${suffix}`,
+    kind: "short-note",
+    language,
+    document,
+    sentence,
+    expected,
+  });
+  return [
+    ...(right && dropped ? [twin("-right", right, "right"), twin("-wrong", dropped, "wrong")] : []),
+    twin(right ? "x-wrong" : "-wrong", changed, "wrong"),
+  ];
+}
 
 function pair(
   id: string,
@@ -711,6 +814,11 @@ const EVERYDAY: readonly HeldOut[] = EVERYDAY_PAIRS.flatMap((each) =>
   pair(each.id, "short-note", each.language, each),
 );
 
+/** The finance, law and medicine set (`fieldSentences.cases.ts`): twins wrong without a contradiction. */
+const FIELD: readonly HeldOut[] = FIELD_PAIRS.flatMap((each) =>
+  pair(each.id, "short-note", each.language, each),
+);
+
 /** What the run's requests did: each check Run's replies, and every refused, failed or timed-out request. */
 const heard = {
   requests: 0,
@@ -719,6 +827,11 @@ const heard = {
   timedOut: 0,
   inputTokens: 0,
   outputTokens: 0,
+  /** Reasoning tokens the replies report, and how many replies reported any. */
+  reasoningTokens: 0,
+  thought: 0,
+  /** Replies that ended at the output limit. */
+  cut: 0,
   /** Dollars, at the catalog's Haiku 5.5 price, from each reply's own usage. */
   spent: 0,
   /** Requests not sent because the gate's stop was reached. */
@@ -742,6 +855,9 @@ function priced(usage: Usage) {
   const input = usage.inputTokens;
   heard.inputTokens += input.total ?? 0;
   heard.outputTokens += usage.outputTokens.total ?? 0;
+  const reasoning = usage.outputTokens.reasoning ?? 0;
+  heard.reasoningTokens += reasoning;
+  if (reasoning > 0) heard.thought++;
   const price = PROVIDER === "anthropic" ? undefined : catalogModel(PROVIDER, MODEL)?.price;
   if (price) {
     heard.spent += inCurrency(
@@ -765,6 +881,13 @@ function priced(usage: Usage) {
       (input.cacheWrite ?? 0) * 0.125 +
       (usage.outputTokens.total ?? 0) * 0.5) /
     1_000_000;
+}
+
+/** Counts a reply the provider ended at its output limit. */
+function endedAtLimit(reason: unknown) {
+  const unified =
+    typeof reason === "object" && reason !== null && "unified" in reason ? reason.unified : reason;
+  if (unified === "length") heard.cut++;
 }
 
 /** Sends no request once the gate's spend, before this arm-round and in it, reaches its stop. */
@@ -843,6 +966,7 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
         heard.requests++;
         const result = await Promise.resolve(doGenerate()).catch(heardFailure);
         priced(result.usage);
+        endedAtLimit(result.finishReason);
         const text = result.content.flatMap((part) => (part.type === "text" ? [part.text] : []));
         const calls = result.content.flatMap((part) =>
           part.type === "tool-call" ? [{ tool: part.toolName, input: part.input }] : [],
@@ -862,7 +986,10 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
               if (part.type === "text-delta") text += part.delta;
               if (part.type === "tool-call") calls.push({ tool: part.toolName, input: part.input });
               if (part.type === "error") heard.failed++;
-              if (part.type === "finish") priced(part.usage);
+              if (part.type === "finish") {
+                priced(part.usage);
+                endedAtLimit(part.finishReason);
+              }
               controller.enqueue(part);
             },
             flush() {
@@ -874,6 +1001,92 @@ const realModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"]
       },
     },
   });
+
+interface SavedReply {
+  to: string;
+  prompt: string;
+  results: unknown;
+  text: string;
+  calls: { tool: string; input: unknown }[];
+  /** What the model thought before this reply, read back from the next request of its Run. */
+  reasoning?: string;
+}
+
+/** The saved replies by their request: its system prompt's start, its words and its Tools' results. */
+const saved = new Map<string, SavedReply[]>();
+const savedLoosely = new Map<string, SavedReply[]>();
+for (const file of REPLAY ?? []) {
+  const replies = readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as SavedReply);
+  for (const reply of replies) {
+    // A thinking model's thoughts go back with its reply in the Run's next request, and the saved
+    // reply holds only its words: the thoughts are what stands before them there.
+    const start = `${reply.prompt}\n`;
+    let next: SavedReply | undefined;
+    for (const other of replies) {
+      if (
+        other.to === reply.to &&
+        other.prompt.length > start.length &&
+        other.prompt.startsWith(start) &&
+        (!next || other.prompt.length < next.prompt.length)
+      )
+        next = other;
+    }
+    if (next) {
+      const rest = next.prompt.slice(start.length);
+      const at = reply.text ? rest.indexOf(reply.text) : rest.endsWith("\n") ? rest.length - 1 : -1;
+      if (at > 0) reply.reasoning = rest.slice(0, at);
+    }
+    const loose = `${reply.to}\u0000${reply.prompt}`;
+    const exact = `${loose}\u0000${JSON.stringify(reply.results)}`;
+    saved.set(exact, [...(saved.get(exact) ?? []), reply]);
+    savedLoosely.set(loose, [...(savedLoosely.get(loose) ?? []), reply]);
+  }
+}
+const replayed = { exact: 0, loose: 0, missed: 0, misses: [] as string[] };
+
+/** The saved reply to this request; a request no saved reply answers is a miss and ends its check. */
+function savedReply(prompt: Params["prompt"]): SavedReply {
+  heard.requests++;
+  const loose = `${textOf(prompt, "system").slice(0, 80)}\u0000${textOf(prompt)}`;
+  const exact = saved.get(`${loose}\u0000${JSON.stringify(toolResults(prompt))}`);
+  const found = exact ?? savedLoosely.get(loose);
+  const reply = found?.[0];
+  if (!reply) {
+    replayed.missed++;
+    replayed.misses.push(
+      `${textOf(prompt, "system").slice(0, 40)} | ${/<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(textOf(prompt))?.[1] ?? textOf(prompt).slice(0, 120)}`,
+    );
+    throw new Error("No saved reply answers this request.");
+  }
+  if (exact) replayed.exact++;
+  else replayed.loose++;
+  // A request sent twice was answered twice: each saved reply is given once, the last one again.
+  if (found.length > 1) found.shift();
+  return reply;
+}
+
+const replayModel = scriptedModel(
+  (call) => {
+    void call.question;
+    void call.json;
+    const reply = savedReply(call.options.prompt);
+    if (isCheckRun(call) && reply.text)
+      heard.replies.push({ prompt: call.prompt, sentence: sentenceOf(call), text: reply.text });
+    return {
+      ...(reply.reasoning && { reasoning: reply.reasoning }),
+      text: reply.text,
+      calls: reply.calls.map((each) => ({
+        tool: each.tool,
+        input: typeof each.input === "string" ? JSON.parse(each.input) : each.input,
+        ...(typeof each.input === "string" && { raw: each.input }),
+      })),
+    };
+  },
+  { generate: (call) => ({ text: savedReply(call.options.prompt).text }) },
+);
 
 /** The dry run's sort: a sentence's parts are before and after its first comma, as a real sort may split them. */
 function dryParts(text: string): { kind: "fact"; text: string }[] {
@@ -919,12 +1132,34 @@ async function coreIn(language: Language): Promise<Core> {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir, {
     paths: { dataDir, examples: EXAMPLES },
-    createChatModel: DRY ? scriptedModels(dryModel).createChatModel : realModel,
+    createChatModel: DRY
+      ? scriptedModels(dryModel).createChatModel
+      : REPLAY
+        ? scriptedModels(replayModel).createChatModel
+        : realModel,
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language, monthlyCap: { amount: 5, currency: "USD" } } });
   if (DRY) await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-  else await core.saveChatProvider({ kind: PROVIDER, apiKey: KEY ?? "", modelId: MODEL });
+  else
+    await core.saveChatProvider({
+      kind: PROVIDER,
+      apiKey: REPLAY ? "replay" : (KEY ?? ""),
+      modelId: MODEL,
+    });
+  if (!DRY && !REPLAY && DECISION_KEY) {
+    await core.saveChatProvider({
+      kind: "openrouter",
+      apiKey: DECISION_KEY,
+      modelId: "anthropic/claude-haiku-5.5",
+      keepDefault: true,
+    });
+    await core.updateSettings({
+      device: {
+        checkDecisionModel: { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2" },
+      },
+    });
+  }
   return core;
 }
 
@@ -1039,6 +1274,8 @@ async function checkAll(core: Core, language: Language, notes: readonly Written[
             sentence: probe.sentence,
             expected: probe.expected,
             state: check?.state ?? "no-mark",
+            by: check?.parts?.[0]?.modelId ?? check?.modelId ?? null,
+            kind: check?.parts?.[0]?.unsupported?.word ?? null,
             reason: check?.state === "not-checked" ? check.reason : null,
             line:
               check?.state === "not-checked" && check.reason
@@ -1184,11 +1421,68 @@ async function claimRound(language: Language) {
   return { rows, spent };
 }
 
+/**
+ * One Note of a language's everyday sentences, the right ones and their wrong twins, in one Folder
+ * with their Documents: how long Check this Note takes the User from the click to the last Mark.
+ */
+async function wholeNoteRound(language: Language) {
+  const cases = EVERYDAY.filter((each) => each.language === language);
+  const core = await coreIn(language);
+  const sources = await createSourceFolder();
+  const folder = await core.createLibraryGroup({ name: "Everyday", description: "" });
+  const added = new Set<string>();
+  for (const each of cases) {
+    if (added.has(each.document)) continue;
+    added.add(each.document);
+    const name = each.id.replace(/-(?:right|wrong)$/, "");
+    const [file] = await addAndProcess(core, [
+      await writeSourceFile(sources, `${name}.md`, `# ${name}\n\n${each.document}\n`),
+    ]);
+    if (!file) throw new Error(`${name}'s Document didn't process.`);
+    await core.moveToFolder({ documentIds: [file.id], folderId: folder.id });
+  }
+  const { client, mindId } = await noteOf(core, "Everyday", cases, null, folder.id);
+  const started = performance.now();
+  const run = await core.checkMind({ requestId: `${ARM}-${ROUND}-note`, mindId, mode: "all" });
+  await client.settled();
+  const seconds = (performance.now() - started) / 1000;
+  const spans = claimSpans(readMind(client));
+  const states = Object.fromEntries(
+    cases.map((each) => [
+      each.id,
+      spans.find((span) => span.sentence.text.trim() === each.sentence)?.check?.state ?? "no-mark",
+    ]),
+  );
+  const { spent } = await core.getCostSummary();
+  core.close();
+  return {
+    rows: [
+      {
+        arm: ARM,
+        round: ROUND,
+        group: "note",
+        language,
+        run: run.kind,
+        sentences: cases.length,
+        seconds,
+        states,
+      },
+    ],
+    spent,
+  };
+}
+
 describe("the #3088 gate", () => {
-  test.skipIf(!DRY && KEY === undefined)(
+  test.skipIf(!DRY && !REPLAY && KEY === undefined)(
     "one round of every case, each Note checked once",
     { timeout: 3_600_000 },
     async () => {
+      // A stop with no room under it would hold every request, and the round would end as if the
+      // stop had been reached with nothing sent.
+      if (!DRY && !REPLAY && SPENT_BEFORE >= STOP - IN_FLIGHT)
+        throw new Error(
+          `The stop of US$${STOP} leaves no room for a request: US$${SPENT_BEFORE} was spent before this round and US$${IN_FLIGHT} is kept for requests in flight, so it needs to be more than US$${(SPENT_BEFORE + IN_FLIGHT).toFixed(2)}.`,
+        );
       const spent: unknown[] = [];
       // The round's own line is written however it ends, so what it spent is always counted.
       try {
@@ -1206,6 +1500,16 @@ describe("the #3088 gate", () => {
           }
           if (GROUPS.includes("everyday")) {
             const round = await heldOutRound(language, EVERYDAY, "everyday");
+            write(round.rows);
+            spent.push(round.spent);
+          }
+          if (GROUPS.includes("field")) {
+            const round = await heldOutRound(language, FIELD, "field");
+            write(round.rows);
+            spent.push(round.spent);
+          }
+          if (GROUPS.includes("note")) {
+            const round = await wholeNoteRound(language);
             write(round.rows);
             spent.push(round.spent);
           }
@@ -1227,6 +1531,8 @@ describe("the #3088 gate", () => {
               (GROUPS.includes("example") ? 4 : 0) +
                 (GROUPS.includes("held-out") ? 2 : 0) +
                 (GROUPS.includes("everyday") ? 2 : 0) +
+                (GROUPS.includes("field") ? 2 : 0) +
+                (GROUPS.includes("note") ? 2 : 0) +
                 (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,
             refused: heard.refused,
@@ -1234,8 +1540,12 @@ describe("the #3088 gate", () => {
             timedOut: heard.timedOut,
             inputTokens: heard.inputTokens,
             outputTokens: heard.outputTokens,
+            reasoningTokens: heard.reasoningTokens,
+            thought: heard.thought,
+            cut: heard.cut,
             priced: heard.spent,
             held: heard.held,
+            ...(REPLAY && { replayed }),
             spent,
           },
         ]);

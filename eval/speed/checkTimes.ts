@@ -12,22 +12,12 @@ import type {
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { ChatModelFactory } from "../../src/core";
 import type { CrossEncoder } from "../../src/core/adapters";
+import { SEARCH_AGAIN } from "../../src/core/answers/checks/claimCheck";
 import {
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
 } from "../../src/core/answers/checks/claims";
-import {
-  CONFIRM_INSTRUCTIONS,
-  COVERED_EVIDENCE_INSTRUCTIONS,
-  EVIDENCE_INSTRUCTIONS,
-  NEAREST_INSTRUCTIONS,
-  PRESENCE_INSTRUCTIONS,
-  RECORD_CITE_INSTRUCTIONS,
-  recheckInstructions,
-  STRICT_INSTRUCTIONS,
-  STRICT_PRESENCE_INSTRUCTIONS,
-} from "../../src/core/answers/checks/prompt";
-import { SEARCH_AGAIN } from "../../src/core/answers/checks/searchAgain";
+import { RECORD_CITE_INSTRUCTIONS } from "../../src/core/answers/checks/recordCites";
 import { sentenceBatchInstructions } from "../../src/core/answers/checks/sentenceBatch";
 import type { ClaimCheckAttributes } from "../../src/core/api";
 import { claimCheckShown } from "../../src/shared/claimChecks";
@@ -66,14 +56,6 @@ const KINDS: readonly [string, string][] = [
   ["batch", sentenceBatchInstructions("en")],
   ["find-claims", FIND_CLAIMS_INSTRUCTIONS],
   ["find-claims", FIND_OWN_CLAIMS_INSTRUCTIONS],
-  ["confirm", CONFIRM_INSTRUCTIONS],
-  ["evidence", EVIDENCE_INSTRUCTIONS],
-  ["evidence", COVERED_EVIDENCE_INSTRUCTIONS],
-  ["nearest", NEAREST_INSTRUCTIONS],
-  ["strict-compare", STRICT_INSTRUCTIONS],
-  ["presence", PRESENCE_INSTRUCTIONS],
-  ["presence", STRICT_PRESENCE_INSTRUCTIONS],
-  ["recheck", recheckInstructions("en")],
   ["record-cite", RECORD_CITE_INSTRUCTIONS],
 ];
 

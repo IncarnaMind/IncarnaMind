@@ -411,9 +411,9 @@ function topBlockOf(node: Y.XmlElement): Y.XmlElement {
   return block;
 }
 
-/** The heading above a top-level Block, as the judge reads a scale or unit stated there. */
-function headingAbove(block: Y.XmlElement): { heading?: string } {
-  for (let at = block.prevSibling; at; at = at.prevSibling)
+/** The heading above a Block, which says what the lines under it are about. */
+export function headingAbove(node: Y.XmlElement): { heading?: string } {
+  for (let at = topBlockOf(node).prevSibling; at; at = at.prevSibling)
     if (at instanceof Y.XmlElement && at.nodeName === "heading") {
       const words = plainText(at).trim();
       return words ? { heading: words.slice(0, 200) } : {};

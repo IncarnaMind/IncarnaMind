@@ -106,4 +106,13 @@ export const settingsPageCommands: readonly Command[] = [
     reversible: true,
     run: () => useAppStore.getState().openSettings("ai", "add-provider"),
   },
+  {
+    id: "settings.setUpStepByStep",
+    assistant: { never: "keys" },
+    label: "setupPage.again.command",
+    keywords: ["setupPage.again.keywords"],
+    group: "open",
+    reversible: true,
+    run: () => useAppStore.getState().openSetup(),
+  },
 ];

@@ -42,7 +42,7 @@ async function setUp(provider: SaveChatProviderInput) {
     (call) => {
       calls.push(call);
       return isCheckRun(call)
-        ? { text: "Verdict: unsupported\nAbsence: no" }
+        ? { text: "Verdict: unsupported\nEvidence: []" }
         : { text: "North sold 150 in 2025." };
     },
     { generate: () => ({ text: "{}" }) },

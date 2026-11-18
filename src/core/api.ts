@@ -3640,6 +3640,10 @@ export interface GettingStarted {
   hidden: boolean;
   /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
   seen: boolean;
+  /** The User recorded a Meeting of their own: the meetings card's first step (#3296). */
+  recorded: boolean;
+  /** A Meeting's notes were written from its Transcript: the meetings card's second step (#3296). */
+  notesWritten: boolean;
 }
 
 /** A decision model on a host, as the User chose it for checks. */
@@ -3678,6 +3682,13 @@ export interface DeviceSettings {
   openedBefore: boolean;
   /** The "Get started" checklist's progress on this device (see `GettingStarted`). */
   gettingStarted: GettingStarted;
+  /**
+   * What the User works on, as the first run's setup asked it (#3296), first pick first: it
+   * chooses the example the window opens on and Get started's words. Empty: not said.
+   */
+  work: WorkKind[];
+  /** The first run's setup was finished or skipped through on this device: it never shows again. */
+  setupFinished: boolean;
   /**
    * Skill scripts may run on this device: on by default, and each run still
    * asks first unless the Skill's scripts always run. Off, Answers aren't
@@ -5568,6 +5579,22 @@ export const EXAMPLE_GROUPS = ["credit", "papers", "reports", "contracts", "meet
 export type ExampleGroup = (typeof EXAMPLE_GROUPS)[number];
 
 /**
+ * What the User works on, as the first run's setup asks it (#3296): several may be picked, and
+ * "other" (Something else) stands alone. Each leads to an example (src/core/workKinds.ts).
+ */
+export const WORK_KINDS = ["finance", "legal", "research", "reports", "meetings", "other"] as const;
+export type WorkKind = (typeof WORK_KINDS)[number];
+
+/**
+ * Whether the window opens on the first run's setup (#3296), and, when it does, the order its
+ * kinds of work are shown in: picked once per install, Something else last. `picksSent`: this
+ * install has sent the picks already, which go once per install.
+ */
+export type FirstRunSetup =
+  | { show: false }
+  | { show: true; workOrder: WorkKind[]; picksSent: boolean };
+
+/**
  * An example Mind (onboarding, see src/core/examples.ts): "Draft: credit
  * committee paper", or one of a group, with its example Documents in their own
  * Linked folder, written in advance so it works before any chat model is set up.
@@ -6897,8 +6924,7 @@ export type RunEstimate =
        * The most it may come to, with the requests it sends only when what it reads asks for
        * them: in a whole read (#1554), every other call each check's Run may make, what a check
        * may ask after its Run, the looks at a quote a window's judgement gives, and a judgement
-       * its sentence's last check said it wouldn't need. A whole read's `cost` here is its
-       * budget, which the meter holds it to (../shared/readBudget).
+       * its sentence's last check said it wouldn't need.
        */
       upTo?: { calls: number; tokens: number; cost: Money | null };
       spentTowardCap: Money | null;
@@ -7395,7 +7421,9 @@ export type EditWithAiResult =
  * checks a sentence's claim against the Documents, telling the model what
  * the sentence already cites, so the claim is checked and not only the
  * quote. "find-support" is that check as an older version named it, and
- * runs as Check against Documents does. Contradiction watch (#112) checks a
+ * "check-against-document" a read of a Document the User picked (#1554),
+ * which no longer runs: each is checked again as Check against Documents
+ * does. Contradiction watch (#112) checks a
  * cited sentence against the other Documents in its Mind's Folder, the ones
  * it cites left out, and keeps a mark only where one contradicts it.
  */
@@ -7551,6 +7579,12 @@ export interface UnsupportedReason {
    * "units": a figure written as bare digits differs from its source only by a unit (#2864).
    */
   kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
+  /**
+   * Which way the check's model said the sentence goes unsupported: the Documents say less than
+   * it does, state only some of it, or don't state it. Absent when it gave only "unsupported", and
+   * on checks made before it was asked.
+   */
+  word?: "overstated" | "partly-supported" | "not-found";
   /**
    * The check read a contradiction its confirmation didn't uphold (#2184): `reason` is the check's
    * own explanation, and `quoted` the quote it rested on.
@@ -7934,7 +7968,9 @@ export type FigureScheduleReason =
   | "needs-recheck"
   | "doesnt-add-up"
   | "differs-from-analysis"
-  | "units-may-differ";
+  | "units-may-differ"
+  | "overstated"
+  | "partly-supported";
 
 export interface FigureScheduleRow extends FigureFinding {
   number: number;
@@ -8158,96 +8194,8 @@ export interface CheckSentencesInput {
   action: ClaimCheckAction;
   /** Search every Document, not the Mind's Folder ("Search all Documents"). */
   allDocuments?: boolean;
-  /**
-   * "check-against-document": the Document or Folder to read whole, on the Note's side of any
-   * Folder wall. With `part`, only that part is read; without, each part not yet Supported or
-   * Contradicted is.
-   */
-  within?: SearchScope;
-  /**
-   * With `within`, required: the `planDocumentCheck` it was asked from. Refused, sending nothing,
-   * unless it is still the Note's latest plan and was made for this pick and these sentences; a
-   * newer plan stops a read already running.
-   */
-  plan?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
   model?: ChatModelChoice | null;
-}
-
-/** What `checkSentences` will read whole: its sentences, or one part, and its pick. */
-export interface PlanDocumentCheckInput {
-  mindId: string;
-  from: TextPlace;
-  to: TextPlace;
-  more?: TextStretch[];
-  part?: { id: string; span: ClaimPartSpan };
-  within: SearchScope;
-  model?: ChatModelChoice | null;
-}
-
-/** Rewrite with what the Documents say (#1554): one sentence check of a Mind whose card offers it. */
-export interface RewriteFromDocumentsInput {
-  mindId: string;
-  /** The check: unsupported, with no Citation, beside a Passage that gives another value (#770). */
-  checkId: string;
-  /** The model to use: the Mind's own; none, or null, the default chat model. */
-  model?: ChatModelChoice | null;
-}
-
-export type RewriteFromDocumentsResult =
-  /**
-   * The sentence's old words and the Passage's for them, held by every rule a correction is, and
-   * the model that wrote them.
-   */
-  | { kind: "rewritten"; correction: ClaimCorrection; providerId: string; modelId: string }
-  /** The reply gave no rewrite the rules hold: the sentence stays. */
-  | { kind: "kept" }
-  /**
-   * The model found nothing to change, and the sentence already gives the Passage's figure, of
-   * what the Passage gives it for: the Documents give the same value.
-   */
-  | { kind: "same" }
-  /** The model found nothing to change, but the sentence doesn't give the Passage's value: it stays. */
-  | { kind: "none" }
-  /** The sentence, its check or its Passage changed since the check: nothing was sent. */
-  | { kind: "changed" }
-  | Extract<CheckSentencesResult, { kind: "not-ready" | "local-mode" | "cancelled" }>
-  | { kind: "failed"; error: ProviderError };
-
-export interface DocumentToRead {
-  documentId: string;
-  name: string;
-  pages: number;
-  readable: number;
-}
-
-/** What an explicit whole read takes; planning never sends text to a model. */
-export type DocumentCheckPlan =
-  | {
-      kind: "ready";
-      /** What a read of this plan names as its `plan`. */
-      id: string;
-      /**
-       * The parts the read checks against the pick, each through every window: the estimate's
-       * count. Null when a sentence's parts are sorted only as it is read: then at least one.
-       */
-      parts: number | null;
-      documents: DocumentToRead[];
-      pages: number;
-      readable: number;
-      tokens: number;
-      estimate: RunEstimate | null;
-    }
-  | { kind: "too-large"; tokens: number; most: number }
-  | { kind: "too-many"; documents: number; most: number }
-  | { kind: "nothing-to-read" };
-
-/** Progress through an explicit whole read, sent as it goes and never persisted. */
-export interface DocumentCheckProgress {
-  requestId: string;
-  mindId: string;
-  pages: number;
-  of: number;
 }
 
 /** What `checkSentences` did. */
@@ -8289,9 +8237,7 @@ export type CheckSentencesResult =
   /** Contradiction watch, nothing sent: the Mind is in no Folder, so there is none to check against. */
   | { kind: "no-folder" }
   /** Contradiction watch, nothing sent: the Folder holds no Documents but those its claims cite. */
-  | { kind: "only-cited"; folderId: string }
-  /** "check-against-document": the pick cannot be read whole, and the plan says why. */
-  | { kind: "cannot-read"; plan: Exclude<DocumentCheckPlan, { kind: "ready" }> };
+  | { kind: "only-cited"; folderId: string };
 
 /** Contradiction watch (#112) on a whole Mind, on demand. */
 export interface CheckContradictionsInput {
@@ -8332,7 +8278,7 @@ export interface ContradictionCheckOutcome {
 /** What `checkContradictions` did. */
 export type CheckContradictionsResult =
   | ({ kind: "checked" } & ContradictionCheckOutcome)
-  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" | "cannot-read" }>;
+  | Exclude<CheckSentencesResult, { kind: "checked" | "waiting" }>;
 
 /**
  * The last check for contradictions a new version of a Document in the Mind's
@@ -8449,10 +8395,7 @@ export type CheckMindResult =
   | { kind: "failed"; error: ProviderError }
   /** A Check of this Note is running already, asked from this window or another: none started. */
   | { kind: "running" }
-  | Exclude<
-      CheckSentencesResult,
-      { kind: "checked" | "no-folder" | "only-cited" | "waiting" | "cannot-read" }
-    >;
+  | Exclude<CheckSentencesResult, { kind: "checked" | "no-folder" | "only-cited" | "waiting" }>;
 
 /**
  * The last whole-Mind check (#737), in the Mind's settings
@@ -8530,10 +8473,7 @@ export interface MindCheckEarly {
 
 /** Why finding or checking a document's claims sent nothing. */
 type VerifyRefusal =
-  | Exclude<
-      CheckSentencesResult,
-      { kind: "checked" } | { kind: "waiting" } | { kind: "cannot-read" }
-    >
+  | Exclude<CheckSentencesResult, { kind: "checked" } | { kind: "waiting" }>
   /** Another document's claims are being found or checked, in that Mind: one run at a time. */
   | { kind: "busy"; mindId: string };
 
@@ -9855,7 +9795,6 @@ export const dataKinds = [
   "answers",
   "web-searches",
   "verified-document",
-  "whole-document",
   "references",
   "connector-search",
   "meeting-audio",
@@ -9868,10 +9807,6 @@ export const dataKinds = [
   "analysis-results",
   "source-quotes",
   "note-catalogue",
-  "library-counts",
-  "library-names",
-  "file-properties",
-  "absence-documents",
   "watched-sentences",
   "calendar-request",
   "checked-sentences",
@@ -9942,10 +9877,6 @@ export type DataKind = (typeof dataKinds)[number];
  *   else the image model's). Not allowed by choosing the provider (#1613):
  *   the User allows it here, in Settings › Privacy, and without it the scan
  *   stays unsorted. A model on this computer needs no consent.
- * - "document-check": when the User asks Check against a Document… (#1554),
- *   the sentence with its paragraph and the whole text of the Document or
- *   Folder they pick, to the chat model's provider. Asked where it is used;
- *   none in local mode.
  * - "calendars": the User's sign-in and which of their calendars and days to read, to Google
  *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
  *   and stay on this computer. Connecting the account allows it; background work, which never
@@ -9974,7 +9905,6 @@ export const dataFlowIds = [
   "connector-registry",
   "transcription",
   "scan-images",
-  "document-check",
   "calendars",
   "decision-checks",
 ] as const;
@@ -11912,6 +11842,17 @@ export interface Meeting {
   updatedAt: string;
 }
 
+/** A stretch of a call its notes lack (#3287), by the call's clock, in ms from its start. */
+export interface MeetingFillStretch {
+  from: number;
+  to: number;
+  /**
+   * "none": no notes of it could be made, asked for twice. "thin": its notes are few for its
+   * length and the model didn't say little was said there, so they may be incomplete.
+   */
+  notes: "none" | "thin";
+}
+
 /**
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
@@ -11945,6 +11886,8 @@ export interface MeetingFill {
   omitted?: number;
   /** Transcript parts not finished when a request failed; absent on older fills. */
   unfinishedParts?: number;
+  /** The stretches of the call the notes lack, in its order; absent when none, and on older fills. */
+  stretches?: MeetingFillStretch[];
   /** How many of its claims are being checked against the Documents now; 0 or absent when none. */
   checking?: number;
   /**
@@ -13503,6 +13446,26 @@ export interface CoreApi {
    */
   offerExamples(): Promise<Examples | null>;
   /**
+   * Whether the window opens on the first run's setup (#3296): on a fresh profile only (the
+   * examples ship and were never offered, no Note, never opened before, the setup never finished),
+   * where the host offers it. Asking consumes nothing: a setup left halfway shows again.
+   */
+  firstRunSetup(): Promise<FirstRunSetup>;
+  /**
+   * Ends the first run's setup, finished or skipped through (#3296): keeps what the User works on
+   * (`DeviceSettings.work`), never shows the setup again, and makes the example of each pick, the
+   * first pick's first, which it returns (null when this copy ships none). Nothing picked makes
+   * the credit paper, as Something else does.
+   */
+  finishFirstRunSetup(work: readonly WorkKind[]): Promise<Examples | null>;
+  /**
+   * Sends the first run's picks as one usage event, `work_picked` (#3296): the User pressed "Send
+   * and continue", which allows this event alone, so it goes even while usage data is off and turns
+   * nothing on. Never in Local mode, and never from a copy that can't send usage data. Resolves to
+   * whether it was sent.
+   */
+  sendWorkPicked(work: readonly WorkKind[]): Promise<boolean>;
+  /**
    * Makes the example Mind and its Documents (copies of the shipped files in
    * the data folder, linked), or returns them if they exist. Its Citations
    * are checked once the Documents have been read, and so are its draft's
@@ -13950,26 +13913,8 @@ export interface CoreApi {
    * "checking", then its result, pushed as a "mind.update" like any edit.
    * Sends on the "checks" flow once the User allows it for the model's
    * service; in local mode only a model on this computer is used.
-   *
-   * `check-against-document` instead reads the picked `within` scope in ordered
-   * windows on the separate "document-check" flow. It keeps the previous mark
-   * unchanged until the read settles, so stopping leaves no partial result.
    */
   checkSentences(input: CheckSentencesInput): Promise<CheckSentencesResult>;
-  /**
-   * Sizes Check against a Document… for its sentences, or one part, before anything is sent; the
-   * read is `checkSentences` with `within` and this plan's `id`. It becomes the Note's latest plan
-   * and stops a whole read already running there.
-   */
-  planDocumentCheck(input: PlanDocumentCheckInput): Promise<DocumentCheckPlan>;
-  /**
-   * Rewrite with what the Documents say (#1554): asks the Mind's model (the default one when it
-   * has none) for the words of the sentence to change to what the Passage beside its check says,
-   * on the "checks" flow, and keeps
-   * them only when the Passage's quote holds them and gives every figure the rewritten sentence
-   * gives. Nothing in the Mind changes: the editor writes it, cited, as one step of Undo.
-   */
-  rewriteFromDocuments(input: RewriteFromDocumentsInput): Promise<RewriteFromDocumentsResult>;
   /** Stops a `checkSentences` request: it gives "cancelled". Stopping one that ended does nothing. */
   cancelCheck(requestId: string): Promise<void>;
   /**
@@ -14072,11 +14017,6 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
-  /**
-   * The Library's facts the Mind's checks rest on (#2525), as the Library gives them now, by each
-   * fact's version id: what the window compares a check's versions with. Sends nothing.
-   */
-  libraryFactsNow(mindId: string): Promise<Record<string, string>>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -15104,8 +15044,6 @@ export interface CoreEvents {
    * "document.status". Carries each Document whole.
    */
   "references.changed": Document[];
-  /** How far a whole read of Check against a Document… is (#1554). */
-  "documentCheck.progress": DocumentCheckProgress;
   /** A Check this Note run's sentences checked before it marks them (`MindCheckEarly`). */
   "mindCheck.early": MindCheckEarly;
   /** How far the check of what the assistant wrote into a Mind is, as it runs and as it ends (#2830). */
@@ -15424,8 +15362,6 @@ const methods: Record<CoreApiMethod, true> = {
   cancelEdit: true,
   respondToEditAsk: true,
   checkSentences: true,
-  planDocumentCheck: true,
-  rewriteFromDocuments: true,
   cancelCheck: true,
   checkClaim: true,
   chooseRecordCiteSource: true,
@@ -15442,7 +15378,6 @@ const methods: Record<CoreApiMethod, true> = {
   getFigureScheduleChange: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
-  libraryFactsNow: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,
@@ -15551,6 +15486,9 @@ const methods: Record<CoreApiMethod, true> = {
   readyQuestion: true,
   isExampleDocument: true,
   offerExamples: true,
+  firstRunSetup: true,
+  finishFirstRunSetup: true,
+  sendWorkPicked: true,
   createExamples: true,
   removeExamples: true,
   restoreExamples: true,

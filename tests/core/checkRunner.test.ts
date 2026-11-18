@@ -109,7 +109,6 @@ interface World {
   example: Example;
   clock: ReturnType<typeof checkClock>;
   folderId: string;
-  tides: Document;
   office: Document;
   /** The Note the flow checks, or the one it wrote. */
   note: { mindId: string; client: MindClient };
@@ -195,27 +194,6 @@ const FLOWS: readonly Flow[] = [
         mindId: note.mindId,
         action: "check-against-documents",
         ...allClaims(example),
-      });
-    },
-  },
-  {
-    name: "Check against a Document…, read whole",
-    inTurn: true,
-    async run({ core, note, tides, example }) {
-      const within = { folderIds: [], tagIds: [], documentIds: [tides.id] };
-      const plan = await core.planDocumentCheck({
-        mindId: note.mindId,
-        ...allClaims(example),
-        within,
-      });
-      if (plan.kind !== "ready") throw new Error(`The tides can't be read whole: ${plan.kind}.`);
-      await core.checkSentences({
-        requestId: crypto.randomUUID(),
-        mindId: note.mindId,
-        action: "check-against-document",
-        ...allClaims(example),
-        within,
-        plan: plan.id,
       });
     },
   },
@@ -495,8 +473,7 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
   if (kind !== "local") {
     const service = kind === "plan" ? OLLAMA_CLOUD.id : provider.service?.id;
     if (!service) throw new Error("Anthropic is a service.");
-    for (const each of ["chat", "checks", "document-check"] as const)
-      await started.allowDataFlow(each, service);
+    for (const each of ["chat", "checks"] as const) await started.allowDataFlow(each, service);
   }
   await started.updateSettings({ user: { language: example.language } });
   const sources = await createTempDataFolder();
@@ -524,7 +501,6 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
     example,
     clock,
     folderId: folder.id,
-    tides,
     office,
     note: { mindId: mind.id, client },
     results: [null, null, null],
@@ -745,7 +721,7 @@ const CASES: readonly Case[] = [
 ];
 
 describe.each([EN, ZH])("every check flow, through one runner ($language)", (example) => {
-  // protects=each flow waits out a rate limit (1, 2, 4, 8, 16 s) and sends the claim again, ends Not checked on a limit no pause cleared, stops at the cap with every claim left Not checked for it, gives up a check after the one time limit with one message, and records every check a model replied to in the Note's record, checked with a verdict or asked with none, and none a model never got, in English and Chinese (#2897); fails_when=a flow marks a rate limit at once, ends a whole read's part on it, keeps sending after the cap or leaves a claim unmarked, has no time limit, leaves a check a model ran out of the record, or records one no model ran; no_claim=the verdicts, which the claim-check tests cover.
+  // protects=each flow waits out a rate limit (1, 2, 4, 8, 16 s) and sends the claim again, ends Not checked on a limit no pause cleared, stops at the cap with every claim left Not checked for it, gives up a check after the one time limit with one message, and records every check a model replied to in the Note's record, checked with a verdict or asked with none, and none a model never got, in English and Chinese (#2897); fails_when=a flow marks a rate limit at once, keeps sending after the cap or leaves a claim unmarked, has no time limit, leaves a check a model ran out of the record, or records one no model ran; no_claim=the verdicts, which the claim-check tests cover.
   describe.each(FLOWS)("$name", (flow) => {
     test.each(CASES)("$name", async (each) => {
       const made = await worldOf(example, flow, each.script.planLimit === true ? "plan" : "cloud");

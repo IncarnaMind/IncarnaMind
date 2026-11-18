@@ -41,9 +41,7 @@ import {
   closeOpenClaim,
   removeClaimMark,
   replaceCitation,
-  requestDocumentPicker,
   setClaimFocus,
-  setDocumentAsk,
   setOpenClaim,
   useChecks,
   widenCitation,
@@ -56,7 +54,7 @@ import { useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { askInAssistant } from "../conversations";
 import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
-import { readRestText, reasonText, sentenceReasonText } from "../cost";
+import { reasonText, sentenceReasonText } from "../cost";
 import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
@@ -68,7 +66,6 @@ import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
 import { useQuotedWordsOnPage } from "../quotedWordsOnPage";
-import { offersRewrite, rewriteWithDocuments } from "../rewriteFix";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import {
@@ -138,7 +135,6 @@ import {
   waitingParts,
 } from "./claimChecks";
 import { sentenceMarks } from "./claimSentenceMarks";
-import { DocumentCheckAction } from "./DocumentCheckAction";
 import { ClaimMarkIcon, type ClaimMarkState, FirstReadingIcon } from "./icons";
 import { LibrarySource } from "./LibrarySource";
 import {
@@ -234,16 +230,12 @@ export function ClaimMark({
   const t = useT();
   const state = claim.shown.state;
   const running = useChecks((store) => store.running[mindId] !== undefined);
-  // Its old verdict stands until the read's comes, but the mark says what its card says.
-  const reading = useChecks((store) => store.running[mindId]?.read?.checkId === claim.check.id);
-  const rewriting = useChecks((store) => store.rewriting[mindId] === claim.check.id);
-  const rewritingAny = useChecks((store) => store.rewriting[mindId] !== undefined);
-  const mark = reading || rewriting ? "checking" : markOf(claim);
+  const mark = markOf(claim);
   // Supported by the User's own notes alone: a box, so shape says it as well as colour (#335).
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(claim.reads);
   const awaiting = foundElsewhere(claim);
   // What a decision model's first reading leans to, while no verdict stands behind it (#3118).
-  const leaning = reading || rewriting ? null : firstReadingShown(claim);
+  const leaning = firstReadingShown(claim);
   // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
   const silent = mark === "not-checked" && !awaiting && !leaning;
   const id = claim.check.id;
@@ -288,11 +280,7 @@ export function ClaimMark({
   const editing = useEdits((store) => store.pending[mindId] !== undefined);
   // A check or an Edit with AI under way would write over the words a correction changes.
   const corrections = running || editing ? [] : correctionsFor(editor, claim);
-  const label = ownNoteOnly
-    ? t("claim.ownNote")
-    : t("claim.mark.label", {
-        state: reading ? t("claim.state.checking") : heading,
-      });
+  const label = ownNoteOnly ? t("claim.ownNote") : t("claim.mark.label", { state: heading });
 
   /** `now`: the keyboard's focus shows or hides the card at once; the pointer waits (#3102). */
   const hold = useCallback((source: string, on: boolean, now = false) => {
@@ -562,11 +550,6 @@ export function ClaimMark({
               fixes={offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
-              rewrite={!running && !editing && !rewritingAny && offersRewrite(editor, doc, claim)}
-              onRewrite={() => {
-                void rewriteWithDocuments(editor, mindId, doc, claim);
-                done();
-              }}
               corrections={corrections}
               editor={editor}
               decision={decision}
@@ -604,8 +587,7 @@ export function ClaimMark({
               }}
               onCheckAgain={(allDocuments) => {
                 void checkAgain(editor, mindId, doc, claim, allDocuments);
-                // A whole read is asked again in this card, which stays open for it.
-                if (allDocuments || claim.check.action !== "check-against-document") done();
+                done();
               }}
               onUseWording={(part) => {
                 applyDocumentWording(editor, claim, part);
@@ -657,14 +639,12 @@ export function ClaimMark({
               }}
               onCorrect={(span) => {
                 applyCorrection(editor, mindId, doc, claim, span);
-                // A whole read is asked again in this card, which stays open for it.
-                if (claim.check.action !== "check-against-document") done(true);
+                done(true);
               }}
               use={offersUseFigure(editor, claim)}
               onUse={() => {
                 applyFigure(editor, mindId, doc, claim);
-                // A whole read is asked again in this card, which stays open for it.
-                if (claim.check.action !== "check-against-document") done(true);
+                done(true);
               }}
             />
           </Popover>,
@@ -819,8 +799,6 @@ export function ClaimCard({
   fixes,
   notFound,
   keep,
-  rewrite,
-  onRewrite,
   corrections,
   editor,
   decision,
@@ -859,9 +837,6 @@ export function ClaimCard({
   fixes: boolean;
   notFound: boolean;
   keep: boolean;
-  /** Rewrite with what the Documents say: a close Passage gives another value (#1554). */
-  rewrite: boolean;
-  onRewrite(): void;
   /** Each contradicted part's correction from the Documents, as `correctionsFor` finds them. */
   corrections: readonly PartCorrection[];
   editor: Editor;
@@ -1050,7 +1025,7 @@ export function ClaimCard({
       ? { label: t("claim.reviewConsent"), testId: "claim-review-consent" }
       : null;
   // A whole read stopped at its budget before it judged every part, the sentence's verdict resting
-  // on those it did: Continue sizes what is left and asks again.
+  // on those it did.
   const sentenceStopped = shown.state === "not-checked" && shown.reason === "read-budget";
   const stoppedPart = check.parts?.find(stoppedAtBudget);
   const stopDetail = sentenceStopped ? check.detail : (stoppedPart?.detail ?? null);
@@ -1086,17 +1061,12 @@ export function ClaimCard({
         : shown.state === "needs-recheck"
           ? t(`claim.recheck.${shown.why}`)
           : null;
-  const reading = useChecks((store) => {
-    const read = store.running[mindId ?? ""]?.read;
-    return read !== undefined && read.checkId === check.id;
-  });
-  const asking = useChecks((store) => store.documentAsk[check.id]?.plan.kind === "ready");
   // Opened while its own sentence is still being checked, the card keeps the height it opened
   // with, so verdicts landing in its rows do not make it jump; content that needs more room
   // scrolls, and the next open fits the result (#2313). A card opened on a settled result sizes
   // to it as its parts load, even while the Note's other sentences are still checked.
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
-  const holdHeight = state === "checking" && !reading && !asking && Boolean(mindId);
+  const holdHeight = state === "checking" && Boolean(mindId);
   // Measured once the Popover holding the card has shown it: a layout effect here runs before the
   // Popover's own, while the card is still a closed popover, and held a height of 0.
   useEffect(() => {
@@ -1104,8 +1074,6 @@ export function ClaimCard({
     const height = rootRef.current?.offsetHeight ?? 0;
     if (height > 0) setHeldHeight(height);
   }, [holdHeight, heldHeight, rootRef]);
-  // Closing the card drops its question: opened again, it sizes the read afresh.
-  useEffect(() => () => setDocumentAsk(check.id, null), [check.id]);
 
   // A figure written as bare digits names the unit its Document states, which it was read in (#2864).
   const statedUnits =
@@ -1238,8 +1206,6 @@ export function ClaimCard({
   const addable = rows.flatMap((row) =>
     row.decisions.some(({ decision }) => decision.kind === "add") ? [row.part] : [],
   );
-  const showsDocumentCheck =
-    (notFound || check.action === "check-against-document") && verified === null && mindId;
   const offersDocuments = notFound && verified === null && mindId !== null;
   const menuButton = () =>
     rootRef.current?.querySelector<HTMLElement>('[data-testid="check-menu"]') ?? null;
@@ -1309,20 +1275,9 @@ export function ClaimCard({
         key: "search-all",
         testId: "claim-search-all",
         label: t("claim.searchAll"),
-        primary: !(cuttable || rewrite || check.citedOnly),
+        primary: !(cuttable || check.citedOnly),
         onClick: () => onCheckAgain(true),
       },
-      offersDocuments &&
-        mindId && {
-          key: "check-document",
-          testId: "claim-check-document",
-          label: t("claim.checkAgainstDocument"),
-          disabled: noteRunning,
-          onClick: () => requestDocumentPicker(check.id),
-          render: () => (
-            <DocumentCheckAction editor={editor} mindId={mindId} doc={doc} claim={claim} offer />
-          ),
-        },
       offersDocuments &&
         mindId && {
           key: "choose-citation",
@@ -1332,13 +1287,6 @@ export function ClaimCard({
           onClick: () => requestCitationPicker(check.id),
           render: () => <ChooseCitationAction mindId={mindId} claim={claim} onChosen={onOpen} />,
         },
-      rewrite && {
-        key: "rewrite",
-        testId: "claim-rewrite",
-        label: t("claim.rewrite"),
-        primary: true,
-        onClick: onRewrite,
-      },
       notFound &&
         verified === null && {
           key: "cut-sentence",
@@ -1455,39 +1403,6 @@ export function ClaimCard({
     />
   );
 
-  // While the sentence's own read runs, or the card asks about the next, the card is that read's:
-  // its question, or its progress and Stop, nothing it would replace, so no Continue or Check
-  // again starts a second read beside it.
-  if ((reading || asking) && mindId) {
-    const shownMark = reading ? "checking" : mark;
-    return (
-      <div
-        ref={rootRef}
-        className={`citation-card citation-card--${TONE[shownMark]} claim-card`}
-        contentEditable={false}
-        {...objectMenu.rowProps}
-      >
-        <div className="citation-card-head">
-          <p data-testid="claim-badge" data-check={shownMark} className="citation-badge">
-            <ClaimMarkIcon state={shownMark} className="citation-badge-icon" />
-            <span>{reading ? t("claim.state.checking") : heading}</span>
-          </p>
-          <ClaimSentence sentence={sentence} marks={[]} />
-        </div>
-        <div className="citation-card-actions">
-          <DocumentCheckAction
-            editor={editor}
-            mindId={mindId}
-            doc={doc}
-            claim={claim}
-            offer={false}
-          />
-        </div>
-        {hint}
-      </div>
-    );
-  }
-
   const badge = (
     <p
       data-testid="claim-badge"
@@ -1566,16 +1481,6 @@ export function ClaimCard({
         />
       </span>
     ) : null;
-  const documentCheck = showsDocumentCheck && !buttonKeys.has("check-document") && (
-    <DocumentCheckAction
-      editor={editor}
-      mindId={showsDocumentCheck}
-      doc={doc}
-      claim={claim}
-      offer={false}
-      anchor={menuButton}
-    />
-  );
   const chooseCitation = offersDocuments && mindId && !buttonKeys.has("choose-citation") && (
     <ChooseCitationAction
       mindId={mindId}
@@ -1944,23 +1849,9 @@ export function ClaimCard({
         </div>
       )}
       {stopLine && (
-        <div className="claim-card-says">
-          <MetaLine
-            data-testid="claim-read-stopped"
-            className="claim-stop-line"
-            parts={[
-              stopLine,
-              <LineAction
-                key="continue"
-                action={{
-                  label: readRestText(t, language, stopDetail),
-                  testId: "claim-read-continue",
-                  onClick: () => onCheckAgain(),
-                }}
-              />,
-            ]}
-          />
-        </div>
+        <p data-testid="claim-read-stopped" className="claim-card-says">
+          {stopLine}
+        </p>
       )}
       {reason && !lineAction && !sentenceStopped && (
         <p data-testid="claim-reason" className="claim-card-says">
@@ -2027,10 +1918,9 @@ export function ClaimCard({
           )
         );
       })}
-      {(buttons.length > 0 || documentCheck || chooseCitation) && (
+      {(buttons.length > 0 || chooseCitation) && (
         <div className="citation-card-actions">
           <CardButtons buttons={buttons} />
-          {documentCheck}
           {chooseCitation}
         </div>
       )}

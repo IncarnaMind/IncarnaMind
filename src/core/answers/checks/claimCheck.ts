@@ -1,61 +1,40 @@
 /**
- * The claim-check function (#96): one claim checked against the Documents
- * in a check Run, the one way Check against Documents checks a
- * sentence, and later verify (#97) and contradiction watch (#112).
+ * The claim-check function (#96): one sentence checked against the Documents, the one way every
+ * check judges a sentence.
  *
- * The Run is the Answer engine's Tool-calling loop (ADR-0007) with the check
- * Tool set: the Documents' search and `cite`, nothing else (ADR-0013, #78).
- * Its searches leave out what a check may not use as evidence (#80): the
- * files IncarnaMind wrote, unless counted, the User's own workings and the
- * document being checked.
- * The model records the Passage that decides the claim with `cite`, and its
- * quote must pass the Citation check before the verdict is taken: a
- * "supported" or "contradicted" without a quote that is found is not
- * checked. A refusal, a reply with no verdict, an empty one or a provider's
- * failure leaves the claim not checked, with the reason; never supported.
+ * The sentence goes to its model whole, in its paragraph, with the Passages its own Citations
+ * quote. The model may search the Documents for more, records each quote that decides the
+ * sentence with `cite`, and gives one verdict (./prompt). IncarnaMind confirms one thing: that a
+ * Supported or Contradicted verdict rests on a quote its Document holds (the Citation check).
+ * No rule here changes the verdict the model gave. A refusal, a reply with no verdict, an empty
+ * one or a provider's failure leaves the sentence not checked, with the reason; never Supported.
  *
- * A model measured to use `calculate` (ADR-0021) is offered it too, for a
- * figure the sentence states that no Passage does but their numbers give
- * (#707). It names the sentence's number as `stated`; IncarnaMind works the
- * figure out and compares, not the model. A figure that disagrees contradicts
- * the sentence; one that agrees settles that number only, and the model's
- * verdict on the rest of the sentence still stands.
+ * A decision model the User's checks use reads the sentence first (./decisionFirst), and only a
+ * sentence it leaves undecided comes here.
  */
-
-import { FiguresNotRead, readFigures } from "../../../shared/figures";
-import { translate } from "../../../shared/i18n";
-import type { InlineTextProjection } from "../../../shared/inlineText";
-import { formatLocation, joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
-import { type UnreadFigures, unreadFiguresDetail } from "../../../shared/unreadFigures";
+import { partWithResult, resultFromParts } from "../../../shared/claimParts";
+import { joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import type {
   CheckFigure,
   Citation,
   CitationLocation,
-  ClaimCheckPart,
   ClaimCheckResult,
-  ClaimPartCoverage,
-  ClaimPartPlan,
-  ClaimPartSpan,
+  ClaimCorrection,
   DataKind,
   Document,
-  SearchScope,
+  ProviderError,
   ThirdPartyReason,
 } from "../../api";
-import type { CitationSource } from "../../documents";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
-import type { WindowedPassage } from "../../documents/search";
 import type { Language } from "../../language";
+import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import type { Slots } from "../../runs/stop";
-import { type AnswerDocuments, matchingOf } from "../citations";
+import type { AnswerDocuments, matchingOf } from "../citations";
 import type { AnswerEngine, DocumentLanguage } from "../engine";
-import { absenceAfterSearch, fitsWholeRead } from "./absence";
-import { calculatesIn, createCalculationLedger, figureContextIn } from "./calculationLedger";
+import type { TurnCheck } from "../turnChecks";
 import { createCheckResults, uniqueCitations } from "./checkResults";
-import { checkRun } from "./checkRun";
 import {
-  type CourtDecisions,
   citedOutsideScope,
   courtDecisions,
   keptInside,
@@ -63,16 +42,14 @@ import {
   withoutDocumentLeftOut,
 } from "./checkSetup";
 import { explainedIn } from "./explanations";
-import { uncheckedFigureResults } from "./figureChecks";
-import { figuresVerdict } from "./figuresVerdict";
-import { type FilePropertySearch, withFileProperties } from "./fileProperties";
-import { type LibraryFactSearch, type LibraryListing, withLibraryFacts } from "./libraryFacts";
-import { lookForPresence } from "./looks";
-import { plainVerdict } from "./plainVerdict";
+import {
+  checkInstructions,
+  claimPrompt,
+  type ReadVerdict,
+  readsAsRefusal,
+  readVerdict,
+} from "./prompt";
 import type { BatchCall } from "./sentenceBatch";
-import { checkedTextOf, unitGate } from "./unitGate";
-import { dollarClause } from "./units";
-import { withWorkingUnsent } from "./workedFigures";
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -94,17 +71,9 @@ export interface ClaimCheckDependencies {
     /** The Documents with Passages to search, with their names: what a search names one by. */
     searchableBySize(documentIds: readonly string[] | null): { id: string; name: string }[];
     savedBySearch(documentId: string): boolean;
-    /** How many Units each Document's current version has, read from stored counts. */
-    unitCounts(documentIds: readonly string[]): ReadonlyMap<string, number>;
     getMany?(documentIds: readonly string[]): Document[];
     names?(): readonly import("../../../shared/citations").LiveDocument[];
   };
-  /** The Run's searches may show the Documents' file properties (./fileProperties). */
-  fileProperties?: FilePropertySearch;
-  /** What a scope sees of the Library, Folder walls applied, from a Note in `mindId` (./libraryFacts). */
-  libraryListing?(mindId: string | null, searched: SearchScope | null): LibraryListing;
-  /** The Run's searches may show the Library's own facts (./libraryFacts). */
-  libraryFacts?: LibraryFactSearch;
   /** The call a Transcript's Passage is from, for an Answer asked in the Note `callIn` holds a call of (#3005). */
   callMark?(callIn: string | null, documentId: string): BatchCall | null;
 }
@@ -122,36 +91,23 @@ export interface CheckedCitation {
 
 export interface ClaimCheckRequest {
   claim: string;
-  projection?: InlineTextProjection;
-  figureIds?: readonly string[];
-  // A legal prefix can govern later literal parts without being repeated in them (#2002).
-  originalClaim?: string;
-  figures?: readonly CheckFigure[];
-  /**
-   * The names of the Library's Documents a sentence about the Library may write, which a check
-   * of it is given: a number inside one is no number of the sentence to be quoted (#2525), as the
-   * number in a cited Document's name is none (#3093).
-   */
-  libraryNames?: readonly string[];
   context?: string;
   cited?: readonly CheckedCitation[];
+  /** The sentence's figures that IncarnaMind worked out itself: its check is told what each is. */
+  figures?: readonly CheckFigure[];
   scope: EvidenceScope;
-  /**
-   * The Search scope `scope` was resolved from, as its chip names it; null for every Document.
-   * Only a check that gives it may be shown the Library's facts (./libraryFacts).
-   */
-  searched?: SearchScope | null;
   model: PreparedChatModel;
   /**
    * What of the checks flow this check may send, the consent it was prepared on; all of it when
-   * left out. Without "worked-figures", how its figures were worked out stays here (./workedFigures).
+   * left out. Without "worked-figures" (the contradiction watch's), how its figures were worked
+   * out stays on this computer, and the sentence is judged from the Passages alone.
    */
   sends?: readonly DataKind[];
   /** The Run reads the document being checked (#97): it is third-party from its start. */
   thirdParty?: readonly ThirdPartyReason[];
   /** The Note the sentence is in, whose source choices and earlier record cites apply. */
   mindId?: string;
-  /** The Note whose call the sentence's Answer was asked in (#3005): the Run's Passages of a call's Transcript are marked as this call's or an earlier one's. */
+  /** The Note whose call the sentence's Answer was asked in (#3005). */
   callIn?: string;
   /** Where the sentence starts in the Note, for what its `Id.` and `supra` refer to. */
   place?: RecordCitePlace;
@@ -159,40 +115,13 @@ export interface ClaimCheckRequest {
   recordClaim?: string;
   /** Names the Mind, for a provider's prompt cache. */
   cacheKey?: string;
-  /** An explicit whole-read window (./wholeRead): every search in this Run stays within it. */
-  window?: readonly WindowedPassage[];
   /**
    * The Passages the run's decision model found to be about the sentence, each with how surely
    * (./decisionFirst). Given, they order each search's hits, and no reranking model runs.
    */
   about?: ReadonlyMap<string, number>;
   signal: AbortSignal;
-  parts?: readonly ClaimPartPlan[];
-  only?: ClaimPartSpan;
-  previous?: readonly ClaimCheckPart[];
-  /** Parts already Supported or Contradicted keep their results: a whole read looks for the rest (#1554). */
-  undecidedOnly?: boolean;
-  /** A whole read goes on from one of the same pick stopped at its budget: only the parts it stopped before judging are read. */
-  resumesStopped?: boolean;
-  /** The run's limit on model checks at once, which its claims' parts share. */
-  slots?: Slots;
-  /** The User didn't ask about this sentence: an opinion in it is left out, never checked. */
-  opinionsLeftOut?: boolean;
-  /**
-   * The Run's first turn names the sentence's parts: told what that turn wrote before any further
-   * request, or what the Run wrote when it calls no Tool.
-   */
-  findParts?: (heard: string) => void;
 }
-
-export type AtomicClaimCheckResult = ClaimCheckResult & {
-  checkedEvidence?: readonly Citation[];
-  coverage?: ClaimPartCoverage;
-  /** In a whole-read window: the Passages that reached the model in the request it answered. */
-  readPassages?: readonly string[];
-  /** In a whole-read window: the absence the sentence states holds in this window's text. */
-  absenceHeld?: true;
-};
 
 /**
  * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
@@ -220,231 +149,231 @@ export function lineLocation(
   );
 }
 
-function withDollarClause(
-  deps: ClaimCheckDependencies,
-  claim: string,
-  result: AtomicClaimCheckResult,
-): AtomicClaimCheckResult {
-  if (result.verdict !== "supported") return result;
-  const citations = uniqueCitations([
-    ...(result.evidence ? [result.evidence] : []),
-    ...(result.checkedEvidence ?? []),
-  ]).filter((citation) => citation.check === "found");
-  if (citations.length === 0) return result;
-  const checked = citations.map((citation) => ({
-    citation,
-    text: checkedTextOf(citation, deps.documents.pageTexts),
-  }));
-  const found = dollarClause(
-    claim,
-    checked.map((each) => ({ text: each.text, quote: each.citation.quote })),
-  );
-  const source = found ? checked.find((each) => each.text === found.text)?.citation : undefined;
-  if (!found || !source) return result;
-  const units = deps.documents.pageTexts(source.documentId, source.contentHash, null, null);
-  const location = lineLocation(units, found.line, matchingOf(units));
-  const where = location
-    ? formatLocation(location, (key, params) => translate(deps.language(), key, params), {
-        speakers:
-          location.kind === "time" ? (deps.documents.speakers?.(source.documentId) ?? null) : null,
-      })
-    : null;
-  const place = [source.documentName, where].filter(Boolean).join(" · ");
-  return {
-    ...result,
-    currencyClause: translate(
-      deps.language(),
-      place === "" ? "claim.currencyClause.noSource" : "claim.currencyClause",
-      place === "" ? { quote: found.line } : { quote: found.line, source: place },
-    ),
-  };
-}
+const SEARCH_FIRST =
+  "You gave a verdict without reading any Passage. Search the User's Documents with search_documents first, then give your verdict from what you find.";
+
+export const SEARCH_AGAIN =
+  "Before you say the Documents don't state this sentence, search them once more with other words: its key terms alone, a plainer paraphrase, or the Documents' language where it differs from the sentence's. Then give your verdict in the same form, from everything you found.";
+
+const CITE_FIRST =
+  "Your verdict rests on no recorded quote. Call cite now with the quote that decides the sentence, then write your whole reply again, naming its marker on the Evidence line.";
+
+/** The most markers a check's reply is read for when its Evidence line names none. */
+const MARKERS_READ = 8;
+
+/** The sentence as the one part of its result: what a sentence's mark and its card are made from. */
+const asWhole = (claim: string, { more, ...result }: Judged): ClaimCheckResult =>
+  claim.length === 0
+    ? { ...result, parts: [] }
+    : resultFromParts([
+        partWithResult({ kind: "fact", span: { start: 0, end: claim.length } }, result, more),
+      ]);
+
+/** A sentence's result, with the quotes that decide it beside the first, which its card shows too. */
+type Judged = ClaimCheckResult & { more?: readonly Citation[] };
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
-  return withLibraryFacts(deps, (withLibrary) =>
-    withFileProperties(withLibrary, createSentenceCheck),
-  );
-}
-
-function createSentenceCheck(deps: ClaimCheckDependencies) {
-  return (request: ClaimCheckRequest) => checkSentence(deps, request);
-}
-
-async function checkSentence(
-  deps: ClaimCheckDependencies,
-  request: ClaimCheckRequest,
-): Promise<AtomicClaimCheckResult> {
-  // The Passages the check was given or shown, so that a text whose figures couldn't be read is
-  // named by the one it came from.
-  let shownPassageIds: () => readonly string[] = () => [];
-  const leftOut = citedOutsideScope(deps, request);
-  const decide = async (): Promise<AtomicClaimCheckResult> => {
-    const kept = keptInside(deps, request);
-    if (kept) return kept;
-    if (leftOut?.every)
-      return {
-        verdict: "not-checked",
-        reason: "outside-scope",
-        detail: leftOut.name,
-        versions: [],
-        excluded: [],
-      };
-    const { signal } = request;
-    const results = createCheckResults(request);
-    const { facts, notChecked, failedCheck } = results;
-    const setup = setUpRun(deps, request, results);
-    shownPassageIds = setup.shownPassageIds;
-    const { scoped, session, looked } = setup;
-    const calculating = calculatesIn(request.model, request);
-    const ledger = createCalculationLedger(request, scoped, session, calculating);
-    const tools = setup.tools(ledger.tools);
-    let court: CourtDecisions;
-    try {
-      court = await courtDecisions(setup.decisions, scoped, signal);
-    } catch (error) {
-      if (signal.aborted) return notChecked("stopped");
-      throw error;
-    }
-    let fits: boolean | undefined;
-    const readsWhole = () => {
-      fits ??= fitsWholeRead(request.scope.documentIds, deps.documents);
-      return fits;
-    };
-    const transcript = await checkRun(deps, request, {
-      tools,
-      session,
-      citedShown: setup.citedShown,
-      looked,
-      searches: setup.searches,
-      readsWhole,
-      calculating,
-      ledger,
-      results,
+  return async (request: ClaimCheckRequest): Promise<ClaimCheckResult> => {
+    const result = await judged(deps, request);
+    const explained = await explainedIn(result, {
+      language: deps.language(),
+      model: request.model,
+      signal: request.signal,
     });
-    if (signal.aborted) return notChecked("stopped");
-    if (transcript.failed) return failedCheck(transcript.failed);
-    const { citedCase } = court;
-    const figureContext = figureContextIn(scoped);
-    const verdicts = {
-      transcript,
-      looked,
-      session,
-      scoped,
-      ledger,
-      results,
-      court,
-      citedCase,
-      unstatedUnit: unitGate(deps, scoped, figureContext),
-      figureContext,
-      absenceFor: absenceAfterSearch({
-        request,
-        documents: deps.documents,
-        session,
-        readVersion: results.readVersion,
-        facts,
-        citedCase,
-        fits: readsWhole,
-        notChecked,
-        failedCheck,
-        lookAt: (evidence, absent, first) =>
-          lookForPresence(request, evidence, absent, session, signal, first),
-      }),
-      // Which of two Documents that disagree is newer orders a correction's choices (#1481): the
-      // host's own date for each, never shown to the model as the Document's words.
-      newestFirst: (documentId: string) => deps.documents.documentDate(documentId),
-      unitsOf: (citation: Citation) =>
-        deps.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
-    };
-    const { figures } = request;
-    return figures?.length
-      ? figuresVerdict(deps, { ...request, figures }, verdicts)
-      : plainVerdict(deps, request, verdicts);
+    return asWhole(request.claim, explained);
   };
-  try {
-    const decided = withWorkingUnsent(request, await decide());
-    const result = leftOut ? withoutDocumentLeftOut(decided, leftOut.name) : decided;
-    return result.verdict === "supported"
-      ? withDollarClause(deps, request.claim, result)
-      : explainedIn(result, {
-          language: deps.language(),
-          model: request.model,
-          signal: request.signal,
-        });
-  } catch (error) {
-    if (!(error instanceof FiguresNotRead)) throw error;
-    return figuresNotRead(deps, request, error, shownPassageIds());
-  }
 }
 
-/**
- * A check whose figures couldn't be read (#2510) is never Supported, and its text is never taken
- * for one that holds no figures: it is not checked, and says where, as the Passage the text came
- * from, else the sentence itself.
- */
-function figuresNotRead(
-  deps: ClaimCheckDependencies,
-  request: ClaimCheckRequest,
-  error: FiguresNotRead,
-  passageIds: readonly string[],
-): AtomicClaimCheckResult {
-  const loose = (text: string) => text.replace(/\s+/g, " ").trim();
-  const unread = loose(error.text);
-  const holds = (text: string) => unread !== "" && loose(text).includes(unread);
-  // The text read may be a quote of a Passage, or a search's result that holds several: the place
-  // is the Passage whose own figures can't be read.
-  const near = passageIds
-    .map((id) => deps.documents.citationSource(id))
-    .filter(
-      (each): each is CitationSource =>
-        each !== null &&
-        (holds(each.text) || (loose(each.text) !== "" && unread.includes(loose(each.text)))),
-    );
-  const source = near.find((each) => !figuresReadIn(each.text)) ?? near[0] ?? null;
-  const sentence = [request.claim, request.originalClaim, request.recordClaim].some(
-    (text) => text !== undefined && (holds(text) || unread.includes(loose(text))),
+async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest): Promise<Judged> {
+  const { signal, model } = request;
+  const results = createCheckResults();
+  const { facts, notChecked, failedCheck } = results;
+  if (signal.aborted) return notChecked("stopped");
+  if (request.claim.trim() === "") return notChecked("empty");
+  const kept = keptInside(deps, request);
+  if (kept) return kept;
+  const leftOut = citedOutsideScope(deps, request);
+  if (leftOut?.every)
+    return {
+      verdict: "not-checked",
+      reason: "outside-scope",
+      detail: leftOut.name,
+      versions: [],
+      excluded: [],
+    };
+  const calculates = model.support === "tools" && checkCalculates(model.capabilities);
+  const { scoped, session, decisions, citedShown, looked, searches, tools } = setUpRun(
+    deps,
+    request,
+    results,
+    calculates,
   );
-  const where = source
-    ? `Passage ${source.passageId}`
-    : sentence
-      ? "its sentence"
-      : "a text it read";
-  console.error(`A check couldn't read the figures in ${where}: ${messageOf(error.cause)}`);
-  const result: ClaimCheckResult = source
-    ? {
-        verdict: "not-checked",
-        reason: "figures-not-read",
-        detail: unreadFiguresDetail(unreadPlaceOf(deps, source)),
-        versions: [{ documentId: source.documentId, contentHash: source.contentHash }],
-        excluded: [],
-      }
-    : {
-        verdict: "not-checked",
-        reason: sentence ? "sentence-figures-not-read" : "figures-not-read",
-        detail: null,
-        versions: [],
-        excluded: [],
-      };
-  return request.figures?.length ? uncheckedFigureResults(request.figures, result) : result;
-}
-
-function figuresReadIn(text: string): boolean {
+  let court: Awaited<ReturnType<typeof courtDecisions>>;
   try {
-    readFigures(text);
-    return true;
+    court = await courtDecisions(decisions, scoped, signal);
   } catch (error) {
-    if (error instanceof FiguresNotRead) return false;
+    if (signal.aborted) return notChecked("stopped");
     throw error;
   }
-}
 
-function unreadPlaceOf(deps: ClaimCheckDependencies, source: CitationSource): UnreadFigures {
-  const { documentId, documentName, contentHash, pageFrom, pageTo } = source;
-  const units =
-    pageFrom === null || pageTo === null
-      ? []
-      : deps.documents.pageTexts(documentId, contentHash, pageFrom, pageTo);
-  const location = units.length > 0 ? locationOf(units, null) : null;
-  return { documentId, documentName, contentHash, pageFrom, pageTo, location };
-}
+  // A figure IncarnaMind worked out itself is backed by its own record, which the model is given:
+  // a sentence that only names it as its label says is Supported with no quote from a Document.
+  const figures =
+    request.sends === undefined || request.sends.includes("worked-figures" satisfies DataKind)
+      ? (request.figures ?? [])
+      : [];
+  const restsOnOwnFigure = (read: ReadVerdict) =>
+    read.verdict === "supported" && figures.length > 0;
+  const recorded = (read: ReadVerdict) =>
+    (read.evidence ?? []).some((marker) => session.tools.hasRecord?.(marker) ?? false);
+  // Each asks the model once, for something its reply lacks; none of them reads its verdict.
+  const turnChecks: TurnCheck[] = [
+    {
+      name: "search-first",
+      check(text) {
+        const read = readVerdict(text);
+        return read && !looked() && !restsOnOwnFigure(read)
+          ? { claims: [], note: SEARCH_FIRST }
+          : null;
+      },
+    },
+    {
+      name: "search-again",
+      check: (text) =>
+        looked() && searches() <= 1 && readVerdict(text)?.verdict === "unsupported"
+          ? { claims: [], note: SEARCH_AGAIN }
+          : null,
+    },
+    {
+      name: "cite-first",
+      check(text) {
+        const read = readVerdict(text);
+        return read &&
+          looked() &&
+          read.verdict !== "unsupported" &&
+          !recorded(read) &&
+          !restsOnOwnFigure(read)
+          ? { claims: [], note: CITE_FIRST, requires: "cite" }
+          : null;
+      },
+    },
+  ];
+  const language = deps.language();
+  let reply = "";
+  let setAside: readonly string[] = [];
+  let failed: ProviderError | null = null;
+  let finished = false;
+  for await (const event of deps.engine.generate({
+    instructions: (mode, options) =>
+      checkInstructions(
+        mode,
+        language,
+        options?.passages,
+        request.callIn !== undefined,
+        calculates,
+      ),
+    messages: [
+      { role: "user", content: claimPrompt({ ...request, figures, citedShown, language }) },
+    ],
+    question: request.claim,
+    model: model.thinking ?? model.model,
+    documents: tools,
+    tools: [],
+    toolSet: "check",
+    thirdParty: request.thirdParty ?? [],
+    support: model.support,
+    structuredOutput: givesStructuredOutput(model.capabilities),
+    takesTemperature: model.capabilities.facts.temperature,
+    ...(model.provider.kind === "openrouter" && {
+      forcedToolChoice: model.capabilities.facts.forcedToolChoice,
+    }),
+    window: model.window,
+    ...(model.capabilities.facts.maxOutput !== undefined && {
+      maxOutput: model.capabilities.facts.maxOutput,
+    }),
+    retryQuotes: model.retryQuotes,
+    cacheKey: request.cacheKey,
+    isReply: (text) => readVerdict(text) !== null,
+    turnChecks,
+    signal,
+  })) {
+    if (event.type === "text-delta") reply += event.text;
+    else if (event.type === "text-retracted") reply = reply.slice(0, -event.length);
+    else if (event.type === "text-set-aside") setAside = event.texts;
+    else if (event.type === "failed") failed = event.error;
+    else if (event.type === "finished") finished = true;
+  }
+  if (signal.aborted) return notChecked("stopped");
+  if (failed) return failedCheck(failed);
+  if (!finished || reply.trim() === "") return notChecked("empty");
+  // A model may write its verdict beside `cite` and only its sentence after: the turns from that
+  // verdict on are read as one. A turn after it that declines takes the verdict back.
+  const turns = [...setAside, reply];
+  const from = turns.findLastIndex((turn) => readVerdict(turn) !== null);
+  const read =
+    from < 0 || turns.slice(from + 1).some(readsAsRefusal)
+      ? null
+      : readVerdict(turns.slice(from).join("\n"));
+  if (!read) return notChecked(turns.some(readsAsRefusal) ? "refused" : "malformed");
+  if (!looked() && !restsOnOwnFigure(read)) return notChecked("unread");
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+  session.check();
+  const found = (markers: readonly number[]) =>
+    uniqueCitations(
+      markers.flatMap((marker) => {
+        const citation = session.finalCitation(marker);
+        return citation?.check === "found" ? [citation] : [];
+      }),
+    );
+  const named = found(read.evidence ?? []);
+  const quotes =
+    named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
+  const [evidence, ...more] = quotes;
+  const result = ((): Judged => {
+    if (read.verdict === "unsupported")
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: {
+          ...(read.word && { word: read.word }),
+          reason: read.says,
+          covered: null,
+          uncovered: null,
+          ...(evidence && { found: true as const, quoted: evidence }),
+        },
+        calculation: null,
+        ...court.citedCase(null),
+        ...facts(),
+        excluded: [...facts().excluded, ...results.ownWorkings()],
+      };
+    // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
+    if (!evidence && !restsOnOwnFigure(read)) return notChecked("no-evidence");
+    const correction = read.correction && correctionOf(request.claim, read.correction, quotes);
+    return {
+      verdict: read.verdict,
+      evidence: evidence ?? null,
+      ...(correction && { correction }),
+      says: read.says,
+      unsupported: null,
+      calculation: null,
+      ...court.citedCase(evidence ?? null),
+      ...facts(),
+      ...(more.length > 0 && { more }),
+    };
+  })();
+  return leftOut ? withoutDocumentLeftOut(result, leftOut.name) : result;
+
+  /** The correction a contradiction offers: words the sentence has, and a quote that was found. */
+  function correctionOf(
+    claim: string,
+    { from, wording, marker }: NonNullable<ReadVerdict["correction"]>,
+    quotes: readonly Citation[],
+  ): ClaimCorrection | null {
+    const quoted = marker === null ? null : session.finalCitation(marker);
+    const source = quoted?.check === "found" ? quoted : quotes[0];
+    return source && claim.includes(from) && from !== wording
+      ? { from, choices: [{ wording, evidence: source }] }
+      : null;
+  }
+}

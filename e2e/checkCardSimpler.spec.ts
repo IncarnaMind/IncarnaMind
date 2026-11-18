@@ -671,7 +671,7 @@ for (const [language, width] of [
       ["nothing", "claim-nothing", null],
       ["court", "claim-court-decision", null],
       ["tooMany", "claim-reason", "claim-check-now"],
-      ["budget", "claim-read-stopped", "claim-read-continue"],
+      ["budget", "claim-read-stopped", null],
       ["differs", "claim-differs", "claim-open-quote"],
     ];
     for (const [id, line, control] of lines) {

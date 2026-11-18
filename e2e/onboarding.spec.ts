@@ -1094,7 +1094,7 @@ test("the Examples row's ⋯ offers the other examples in an order picked once p
   const tabs = window.getByTestId("tab-title");
   await expect(tabs).toHaveCount(1);
   const order = await groupsShown();
-  expect([...order].sort()).toEqual(["contracts", "meetings", "papers"]);
+  expect([...order].sort()).toEqual(["contracts", "meetings", "papers", "reports"]);
   await window.keyboard.press("Escape");
 
   // Contracts opens beside the first example, which stays in its own tab.

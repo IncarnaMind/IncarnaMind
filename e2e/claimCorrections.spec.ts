@@ -188,11 +188,11 @@ for (const [language, width] of [
   test(`single, long, conflicting and older checks on the card (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const { app, window, editor, check, evidence } = await launched(language, width);
-    const shortText = language === "en" ? "The rate is 36.8%." : "比率是 36.8%。";
+    const shortText = language === "en" ? "The first rate is 36.8%." : "比率是 36.8%。";
     const longText = "The detailed conclusion is old wording.";
     const conflictText = "The accepted reviewer is 李明.";
     const legacyText = "The legacy rate is 36.8%.";
-    const rateLine = language === "en" ? "The rate is 38.6%." : "比率是 38.6%。";
+    const rateLine = language === "en" ? "The first rate is 38.6%." : "比率是 38.6%。";
     const short = check("short", shortText, {
       from: "36.8%",
       choices: [{ wording: "38.6%", evidence: evidence("Rate card", "38.6%", rateLine) }],
@@ -293,7 +293,7 @@ for (const [language, width] of [
   test(`⌘Z and the Edit menu take back a fix and bring it back, and the next ⌘Z says which Documents it took out (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const { app, window, editor, check, evidence } = await launched(language, width);
-    const text = language === "en" ? "The rate is 36.8%." : "比率是 36.8%。";
+    const text = language === "en" ? "The first rate is 36.8%." : "比率是 36.8%。";
     await insert(window, [
       paragraph(
         marked(
@@ -306,7 +306,7 @@ for (const [language, width] of [
                 evidence: evidence(
                   "Rate card",
                   "38.6%",
-                  language === "en" ? "The rate is 38.6%." : "比率是 38.6%。",
+                  language === "en" ? "The first rate is 38.6%." : "比率是 38.6%。",
                 ),
               },
             ],

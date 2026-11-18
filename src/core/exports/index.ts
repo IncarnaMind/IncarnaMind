@@ -128,8 +128,6 @@ export interface ExportsDependencies {
   language(): Language;
   /** A Folder's, Tag's or Document's name; null for one that isn't there. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
-  /** The Library's facts the Mind's checks rest on, as it gives them now (`CoreApi.libraryFactsNow`). */
-  libraryFactsNow(mindId: string): Record<string, string>;
   /** The Mind's citation style (#289), and the language its text is in, which a style may take. */
   citationStyle(mindId: string): { style: ResolvedCitationStyle; textLanguage: Language };
   /** The family the Mind's font is written as in Word and HTML; null: the default. */
@@ -285,7 +283,6 @@ export function createExports(deps: ExportsDependencies) {
       leavesApp: true,
       missingNumber: missingNumberWords(language),
     };
-    const libraryNow = Object.entries(deps.libraryFactsNow(mind.id));
     const {
       read,
       questions,
@@ -308,10 +305,9 @@ export function createExports(deps: ExportsDependencies) {
         readOptions.review = reviewReading(fragment);
       else if (doc && fromWord) readOptions.review = theirChangesReading(doc);
       readOptions.sentenceChecks = failedSentences(fragment, {
-        versions: new Map([
-          ...documents.map((document) => [document.id, document.contentHash] as const),
-          ...libraryNow,
-        ]),
+        versions: new Map(
+          documents.map((document) => [document.id, document.contentHash] as const),
+        ),
         folderId: mind.folderId,
         scope: doc ? mindScopeOf(doc) : null,
         scopeItemName: deps.scopeItemName,

@@ -221,6 +221,9 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
       value.kind === "units") && {
       kind: value.kind,
     }),
+    ...((value.word === "overstated" ||
+      value.word === "partly-supported" ||
+      value.word === "not-found") && { word: value.word }),
     reason: text(value.reason),
     covered: text(value.covered),
     uncovered: text(value.uncovered),
@@ -703,15 +706,20 @@ function readFirstReading(value: unknown): ClaimFirstReading | null {
   return { verdict: value.verdict, providerId: value.providerId, modelId: value.modelId };
 }
 
-/** `check` with a decision model's first reading on its fact, the one part a sentence it reads has (#3118). */
+/**
+ * `check` with a decision model's first reading on its fact (#3118): the one part a sentence has,
+ * which a mark still being checked gets here.
+ */
 export function withFirstReading(
   check: ClaimCheckAttributes,
   firstReading: ClaimFirstReading,
 ): ClaimCheckAttributes {
-  if (!check.parts) return check;
+  const parts = check.parts ?? [
+    pendingPart({ kind: "fact", span: { start: 0, end: check.text.length } }),
+  ];
   return {
     ...check,
-    parts: check.parts.map((part) => (part.kind === "fact" ? { ...part, firstReading } : part)),
+    parts: parts.map((part) => (part.kind === "fact" ? { ...part, firstReading } : part)),
   };
 }
 

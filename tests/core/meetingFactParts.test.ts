@@ -7,7 +7,7 @@ import { buildPassages } from "../../src/core/documents/passages";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { Language } from "../../src/core/language";
 import { FILL_PART_TOKENS, transcriptParts } from "../../src/core/meetings/fill";
-import { clockTime } from "../../src/shared/clock";
+import { clockTime, parseClockTime } from "../../src/shared/clock";
 import { translate } from "../../src/shared/i18n";
 import { mindName } from "../../src/shared/naming";
 import { mindCitations, shownPassages } from "../helpers/citations";
@@ -66,9 +66,12 @@ function overview(part?: number): string {
 
 interface PartReply {
   text: string;
+  /** The reply doesn't say its part of the call held little to note. */
+  unsaid?: boolean;
   cutOff?: boolean;
   streamError?: boolean;
-  error?: boolean;
+  /** The provider refuses the request: with its HTTP status, 503 when only true. */
+  error?: boolean | number;
   held?: Promise<void>;
 }
 
@@ -92,7 +95,10 @@ function modelFor(
     if (!part) throw new Error("Unexpected request outside the Meeting fact Run.");
     calls.push({ part, call });
     const next = reply(part);
-    if (next.error) return { error: { status: 503, message: "The scripted provider stopped." } };
+    if (next.error) {
+      const status = next.error === true ? 503 : next.error;
+      return { error: { status, message: "The scripted provider stopped." } };
+    }
     if (!call.results.some((result) => result.tool === "cite")) {
       const shown = shownPassages(call.prompt);
       const selected = shown
@@ -120,7 +126,13 @@ function modelFor(
     }
     feedback.push(...call.results.map((result) => `${result.tool}: ${result.text}`));
     if (next.streamError) streamErrors.add(call.index);
-    return { text: `HEADINGS: H1=NONE\n\n${next.text}`, ...(next.cutOff && { cutOff: true }) };
+    // These replies hold a fact or two for a part of any length, and say their part held little
+    // to note: each is kept as it is (#3287).
+    const controls = ["HEADINGS: H1=NONE", ...(next.unsaid ? [] : ["QUIET: YES"])];
+    return {
+      text: `${controls.join("\n")}\n\n${next.text}`,
+      ...(next.cutOff && { cutOff: true }),
+    };
   });
   const doStream = model.doStream.bind(model);
   model.doStream = async (options) => {
@@ -325,17 +337,26 @@ async function undo(captured: Awaited<ReturnType<typeof capture>>): Promise<void
 }
 
 describe("Meeting fact frames across provider failures and Transcript parts", () => {
-  test.each(["provider failure", "output truncation"] as const)(
-    "closed checked frames survive %s without the unfinished sibling or a recovery request",
-    async (failure) => {
-      const model = modelFor(() => ({
-        text: [
-          fact("P1_review", EARLIER),
-          overview(),
-          fact("P1_checklist", UNFINISHED).replace("### END P1_checklist", ""),
-        ].join("\n\n"),
-        ...(failure === "provider failure" ? { streamError: true } : { cutOff: true }),
-      }));
+  // A stream that breaks may be that request's alone: its part is asked once more by itself, and
+  // the fill ends when that fails too (#3287). A reply out of room on a part too small to ask as
+  // two is not asked again.
+  test.each([
+    { failure: "provider failure", requests: [2, 2] },
+    { failure: "output truncation", requests: [2] },
+  ] as const)(
+    "closed checked frames survive $failure without the unfinished sibling",
+    async ({ failure, requests }) => {
+      const model = modelFor(
+        () => ({
+          text: [
+            fact("P1_review", EARLIER),
+            overview(),
+            fact("P1_checklist", UNFINISHED).replace("### END P1_checklist", ""),
+          ].join("\n\n"),
+          ...(failure === "provider failure" ? { streamError: true } : { cutOff: true }),
+        }),
+        { earlier: EARLIER, final: EARLIER },
+      );
       const captured = await capture(model);
       const { core, meeting, client } = captured;
       try {
@@ -345,7 +366,7 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
           JSON.stringify({ fill, calls: model.calls.length, feedback: model.feedback }),
         ).toBe("filled");
         await vi.waitFor(() => expectRetained(client, EARLIER, [UNFINISHED]));
-        expectRequests(model, [2]);
+        expectRequests(model, [...requests]);
         await undo(captured);
         expect(fill).toMatchObject({
           state: "filled",
@@ -374,7 +395,8 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
       try {
         const fill = await settledFill(core, meeting);
         expectRetained(client, EARLIER, [FINAL]);
-        expectRequests(model, [2, 1]);
+        // The failed part is asked once more by itself before the fill ends on it (#3287).
+        expectRequests(model, [2, 1, 1]);
         const mind = (await core.listMinds()).find((each) => each.id === meeting.mindId);
         if (!mind) throw new Error("The Meeting's Note is missing.");
         expect(show.mock.calls.map(([notification]) => notification)).toEqual([
@@ -898,6 +920,264 @@ describe("A long call's Transcript, each line once, in parts a reply has room fo
       expect(mindCitations(client)).toEqual([]);
     } finally {
       core.close();
+    }
+  });
+});
+
+describe("No stretch of a call is missing from its notes without the User being told (#3287)", () => {
+  /** A part's reply with one fact and its overview: `part` is the request's number, in the order asked. */
+  const notesOf = (part: number) =>
+    `${fact(`P${part}_F1`, part === 1 ? EARLIER : FINAL)}\n\n${overview(part)}`;
+  /** When the first line a request showed was said, in ms, to the second its mark shows. */
+  const startOf = (model: ReturnType<typeof modelFor>, part: number) =>
+    parseClockTime(linesShown(model, part)[0]?.split(" ")[0] ?? "") ?? Number.NaN;
+  /** When the last line a request showed began, in ms, to the second its mark shows. */
+  const lastOf = (model: ReturnType<typeof modelFor>, part: number) =>
+    parseClockTime(linesShown(model, part).at(-1)?.split(" ")[0] ?? "") ?? Number.NaN;
+  /** The fill's stretches, each start to the second a line's mark shows. */
+  const stretchesOf = (fill: MeetingFill) =>
+    (fill.stretches ?? []).map((each) => ({ ...each, from: Math.floor(each.from / 1000) * 1000 }));
+
+  // protects=a part's first request stays as it was, and only its second, sent when the first gave no notes or few, offers no search of the Documents and says its lines are in the request, whole: offered the search, a model searched the lines it already had and answered in prose, and taking it off every request cost a model facts for every part (#3287); fails_when=a second request offers the search or tells the model to search, or a first request loses it; no_claim=an Answer's or a check's request, which keeps the search.
+  test("only a part's second request offers no search and says its lines are given whole", async () => {
+    const model = modelFor((part) => ({ text: notesOf(part), unsaid: part === 2 }));
+    const captured = await capture(model, true);
+    try {
+      await settledFill(captured.core, captured.meeting);
+      expectRequests(model, [2, 2, 2, 2], true);
+      for (const { part, call } of model.calls) {
+        expect(call.tools).toContain("cite");
+        expect(call.tools.includes("search_documents")).toBe(part !== 3);
+        expect(call.system.includes("search_documents")).toBe(part !== 3);
+        expect(call.system.includes("there is nothing to search")).toBe(part === 3);
+      }
+    } finally {
+      captured.core.close();
+    }
+  });
+
+  // protects=a long call's part whose reply is short for its length and says its part held little to note is kept as it is: one request a part, nothing told (#3287); fails_when=a reply that says so is asked again, or its stretch is told as incomplete; no_claim=when a real model says so, which the pull request's real-model runs show.
+  test("a short reply that says its part held little is kept as it is, with nothing told", async () => {
+    const model = modelFor((part) => ({ text: notesOf(part) }));
+    const captured = await capture(model, true);
+    try {
+      const fill = await settledFill(captured.core, captured.meeting);
+      expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+      expect(fill.stretches).toBeUndefined();
+      expectRequests(model, [2, 2, 2], true);
+    } finally {
+      captured.core.close();
+    }
+  });
+
+  // protects=a part whose reply is short for its length and doesn't say its part held little is asked once more, by itself, with the same lines, and one reply's notes are kept; with a second reply that says so, nothing is told (#3287); fails_when=the short reply is kept unasked, the second request shows other lines, or both replies' facts are written; no_claim=how often a real model's second reply is fuller.
+  test("a short reply that doesn't say so is asked once more by itself, and one reply is the notes", async () => {
+    const model = modelFor((part) => ({ text: notesOf(part), unsaid: part === 2 }));
+    const captured = await capture(model, true);
+    try {
+      const fill = await settledFill(captured.core, captured.meeting);
+      expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+      expect(fill.stretches).toBeUndefined();
+      expectRequests(model, [2, 2, 2, 2], true);
+      expect(linesShown(model, 3)).toEqual(linesShown(model, 2));
+      expect(itemsShown(model, 4)[0]).toBe((itemsShown(model, 2).at(-1) ?? 0) + 1);
+      // Only the second request asks whether the part held little: asked of every part, the
+      // question made a model write fewer facts for all of them.
+      const asksWhetherQuiet = (part: number) =>
+        model.calls.some((each) => each.part === part && each.call.prompt.includes("QUIET: YES"));
+      expect([1, 2, 3, 4].map(asksWhetherQuiet)).toEqual([false, false, true, false]);
+      const shown = readMind(captured.client).textContent;
+      expect(shown.split(`${OVERVIEW} in part 2`)).toHaveLength(2);
+      expect(shown).not.toContain(`${OVERVIEW} in part 3`);
+    } finally {
+      captured.core.close();
+    }
+  });
+
+  // protects=a part whose reply is short for its length twice and never says its part held little keeps the better reply's notes, and its stretch of the call is told with its times as possibly incomplete; the parts after it are still read (#3287); fails_when=nothing is told, the stretch has the wrong times, or the later part isn't sent; no_claim=that the notes are in fact incomplete.
+  test("a part short twice, never called quiet, is told with its times as possibly incomplete", async () => {
+    const model = modelFor((part) => ({ text: notesOf(part), unsaid: part === 2 || part === 3 }));
+    const captured = await capture(model, true);
+    try {
+      const fill = await settledFill(captured.core, captured.meeting);
+      expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+      expectRequests(model, [2, 2, 2, 2], true);
+      expect(stretchesOf(fill)).toEqual([
+        { from: startOf(model, 2), to: expect.any(Number), notes: "thin" },
+      ]);
+      expect(fill.stretches?.[0]?.to).toBeGreaterThanOrEqual(lastOf(model, 2));
+      expect(fill.stretches?.[0]?.to).toBeLessThan(lastOf(model, 4));
+    } finally {
+      captured.core.close();
+    }
+  });
+
+  // protects=a part asked again for its few notes whose second request then meets a failure that may pass by itself (the service failing, a rate limit), once, keeps its first reply's notes, is told with its times as possibly incomplete, and the parts after it are still read: the failure wasn't met twice running (#3287); fails_when=the one failure ends the sending and the later part gets no notes, or the first reply's notes are dropped; no_claim=the same failure met by both requests of a part, which stops the sending.
+  test.each([
+    { status: 500, failure: "the service failing" },
+    { status: 429, failure: "a rate limit" },
+  ])(
+    "a short reply whose second request meets $failure keeps its notes, and the part after it is still read",
+    async ({ status }) => {
+      const model = modelFor((part) =>
+        part === 3 ? { text: "", error: status } : { text: notesOf(part), unsaid: part === 2 },
+      );
+      const captured = await capture(model, true);
+      try {
+        const fill = await settledFill(captured.core, captured.meeting);
+        expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+        expectRequests(model, [2, 2, 1, 2], true);
+        expect(stretchesOf(fill)).toEqual([
+          { from: startOf(model, 2), to: expect.any(Number), notes: "thin" },
+        ]);
+        const shown = readMind(captured.client).textContent;
+        expect(shown.split(`${OVERVIEW} in part 2`)).toHaveLength(2);
+        expect(shown.split(`${OVERVIEW} in part 4`)).toHaveLength(2);
+      } finally {
+        captured.core.close();
+      }
+    },
+  );
+
+  // protects=a part whose reply can't be read as notes (prose, no fact and no overview) is asked once more; unreadable twice, its stretch is told with its times as having no notes, the part after it is still read and its notes kept (#3287); fails_when=the prose reply is kept as an empty one with nothing told, or the fill stops there; no_claim=why a real model answers in prose.
+  test("a part unreadable as notes twice is told with its times, and the part after it is still read", async () => {
+    const model = modelFor((part) =>
+      part === 2 || part === 3
+        ? { text: "The workshop went over the review schedule again.", unsaid: true }
+        : { text: notesOf(part) },
+    );
+    const captured = await capture(model, true);
+    try {
+      const fill = await settledFill(captured.core, captured.meeting);
+      expect(fill).toMatchObject({ state: "filled", unfinishedParts: 1 });
+      expectRequests(model, [2, 2, 2, 2]);
+      expect(stretchesOf(fill)).toEqual([
+        { from: startOf(model, 2), to: expect.any(Number), notes: "none" },
+      ]);
+      expect(fill.stretches?.[0]?.to).toBeGreaterThanOrEqual(lastOf(model, 2));
+      expect(fill.stretches?.[0]?.to).toBeLessThan(lastOf(model, 4));
+      const shown = readMind(captured.client).textContent;
+      expect(shown.split(`${OVERVIEW} in part 4`)).toHaveLength(2);
+    } finally {
+      captured.core.close();
+    }
+  });
+
+  // protects=a part the provider refuses is asked once more by itself and its notes are kept: nothing is told and the parts after it are read (#3287); fails_when=one refusal ends the fill, or the stretch is told although its notes were made.
+  test("a refused part is asked once more by itself, and the call's notes are whole", async () => {
+    const model = modelFor((part) =>
+      part === 2 ? { text: "", error: 400 } : { text: notesOf(part) },
+    );
+    const captured = await capture(model, true);
+    try {
+      const fill = await settledFill(captured.core, captured.meeting);
+      expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+      expect(fill.stretches).toBeUndefined();
+      expectRequests(model, [2, 1, 2, 2], true);
+      expect(linesShown(model, 3)).toEqual(linesShown(model, 2));
+    } finally {
+      captured.core.close();
+    }
+  });
+
+  // protects=a part the provider refuses twice is told with its times as having no notes, and the part after it is still sent and its notes kept (#3287); fails_when=the refusal stops the later part, or the stretch isn't named.
+  test("a part refused twice is told with its times, and the part after it is still sent", async () => {
+    const model = modelFor((part) =>
+      part === 2 || part === 3 ? { text: "", error: 400 } : { text: notesOf(part) },
+    );
+    const captured = await capture(model, true);
+    try {
+      const fill = await settledFill(captured.core, captured.meeting);
+      expect(fill).toMatchObject({
+        state: "filled",
+        unfinishedParts: 1,
+        problem: { kind: "model", error: "refused" },
+      });
+      expectRequests(model, [2, 1, 1, 2]);
+      expect(stretchesOf(fill)).toEqual([
+        { from: startOf(model, 2), to: expect.any(Number), notes: "none" },
+      ]);
+      const shown = readMind(captured.client).textContent;
+      expect(shown.split(`${OVERVIEW} in part 4`)).toHaveLength(2);
+    } finally {
+      captured.core.close();
+    }
+  });
+
+  // protects=a failure that may pass by itself (the service failing, a rate limit) is asked once more before anything is given up: the part's notes are kept, nothing is told and the parts after it are read (#3287); fails_when=one such failure ends the fill or names a stretch; no_claim=a failure of the key or the account, which the test below covers.
+  test.each([
+    { status: 500, failure: "the service failing" },
+    { status: 429, failure: "a rate limit" },
+  ])(
+    "a part that meets $failure once is asked once more, and the call's notes are whole",
+    async ({ status }) => {
+      const model = modelFor((part) =>
+        part === 2 ? { text: "", error: status } : { text: notesOf(part) },
+      );
+      const captured = await capture(model, true);
+      try {
+        const fill = await settledFill(captured.core, captured.meeting);
+        expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+        expect(fill.stretches).toBeUndefined();
+        expectRequests(model, [2, 1, 2, 2], true);
+      } finally {
+        captured.core.close();
+      }
+    },
+  );
+
+  // protects=the same failure met again by the part asked by itself is every request's: nothing more is sent, and the whole stretch not sent is told as one (#3287); fails_when=the later part is still sent into a failing service, or the stretch isn't told to the call's end; no_claim=how long the app waits between the two requests.
+  test.each([
+    { status: 500, error: "provider" },
+    { status: 429, error: "rate-limit" },
+  ])(
+    "a part that fails twice with $error stops the sending, and the stretch not sent is told as one",
+    async ({ status, error }) => {
+      const model = modelFor((part) =>
+        part === 1 ? { text: notesOf(part) } : { text: "", error: status },
+      );
+      const captured = await capture(model, true);
+      try {
+        const fill = await settledFill(captured.core, captured.meeting);
+        expect(fill).toMatchObject({
+          state: "filled",
+          unfinishedParts: 2,
+          problem: { kind: "model", error },
+        });
+        expectRequests(model, [2, 1, 1]);
+        expect(stretchesOf(fill)).toEqual([
+          { from: startOf(model, 2), to: expect.any(Number), notes: "none" },
+        ]);
+        const asked = itemsShown(model, 2).length;
+        expect(fill.stretches?.[0]?.to).toBeGreaterThan(startOf(model, 2) + asked * 500);
+      } finally {
+        captured.core.close();
+      }
+    },
+  );
+
+  // protects=a failure every request of the fill shares (a refused key) stops the sending at once, with no second request, and the whole stretch not sent is told as one, from the failed part's start to the call's end (#3287); fails_when=the part is asked again, a later part is sent, or the stretches not sent aren't named.
+  test("a refused key stops the sending at once, and the stretch not sent is told as one", async () => {
+    const model = modelFor((part) =>
+      part === 1 ? { text: notesOf(part) } : { text: "", error: 401 },
+    );
+    const captured = await capture(model, true);
+    try {
+      const fill = await settledFill(captured.core, captured.meeting);
+      expect(fill).toMatchObject({
+        state: "filled",
+        unfinishedParts: 2,
+        problem: { kind: "model", error: "auth" },
+      });
+      expectRequests(model, [2, 1]);
+      expect(stretchesOf(fill)).toEqual([
+        { from: startOf(model, 2), to: expect.any(Number), notes: "none" },
+      ]);
+      // The stretch runs past the failed part, over the part never sent.
+      const asked = itemsShown(model, 2).length;
+      expect(fill.stretches?.[0]?.to).toBeGreaterThan(startOf(model, 2) + asked * 500);
+    } finally {
+      captured.core.close();
     }
   });
 });

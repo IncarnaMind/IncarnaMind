@@ -25,13 +25,14 @@ export type ServiceJob = "answers" | "transcription" | "search" | "organize" | "
 
 export type DirectoryGroup = "plans" | "popular" | "local" | "meetings" | "organize" | "more";
 
+/** Cloud services first and what runs on this computer last, as in every model step (#3296). */
 export const DIRECTORY_GROUPS: readonly DirectoryGroup[] = [
   "plans",
   "popular",
-  "local",
   "meetings",
   "organize",
   "more",
+  "local",
 ];
 
 /** What most Users of the language set up first (#179). */
@@ -128,18 +129,21 @@ const RERANK: readonly RerankServiceKind[] = (["cohere", "voyage"] as const).fil
 
 /**
  * Every service the User can set up, each once, in the directory's groups: the plans they sign in
- * to, the keys most Users of the language add, what runs on this computer, the services for
- * meetings only and for Organize only, then the rest. `offered` leaves out a plan this copy can't
- * set up. `matches` filters by name: a group with nothing left is left out.
+ * to, the keys most Users of the language add, the services for meetings only and for Organize
+ * only, the rest, then what runs on this computer. `offered` leaves out a plan this copy can't set
+ * up, and `only` keeps the entries it accepts. `matches` filters by name: a group with nothing
+ * left is left out.
  */
 export function serviceDirectory(
   language: Language,
   {
     offered = () => true,
+    only = () => true,
     name,
     query = "",
   }: {
     offered?(plan: PlanId): boolean;
+    only?(entry: ServiceEntry): boolean;
     /** An entry's shown name, which the search matches. */
     name(entry: ServiceEntry): string;
     query?: string;
@@ -172,6 +176,6 @@ export function serviceDirectory(
   };
   return DIRECTORY_GROUPS.map((group) => ({
     group,
-    entries: groups[group].filter(matches),
+    entries: groups[group].filter((entry) => only(entry) && matches(entry)),
   })).filter((each) => each.entries.length > 0);
 }

@@ -193,6 +193,8 @@ export interface QuestionContext {
   /** The Question's own text. */
   question: string;
   meetingFacts?: true;
+  /** The request holds every Passage it needs, whole: no search of the Documents is offered. */
+  given?: true;
 }
 /** A Question context, and where the third-party text it holds came from. */
 export interface QuestionContextWithOrigins {

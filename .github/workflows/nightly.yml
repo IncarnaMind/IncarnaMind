@@ -100,7 +100,7 @@ jobs:
 
   # Two packages of the same built main, at the old and the updated version in
   # tests/fixtures/lifecycle-versions.json: one instance, startup, quitting and the update between
-  # them (docs/agents/testing.md).
+  # them (docs/agents/checks.md).
   lifecycle-windows:
     name: Packaged startup, quit and updates (Windows)
     runs-on: windows-latest

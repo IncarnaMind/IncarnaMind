@@ -85,7 +85,7 @@ export function ChooseCitationAction({
 }
 
 /**
- * The shared picker of Check against a Document… for the one Document to choose a Citation in,
+ * The shared picker of a Document or Folder, for the one Document to choose a Citation in,
  * found by its name, pinyin or initials, on the Note's side of a Folder wall.
  */
 export function CitationDocumentPicker({

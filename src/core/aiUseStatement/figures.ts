@@ -339,7 +339,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const sentences = counts();
   const carried = counts();
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
-  const { figureContexts, figured } = figuresNow(fragment);
+  const { figureContexts } = figuresNow(fragment);
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const footing = noteFooting(fragment, { versions, folderId: sources.folderId, scope });
   const checked: CheckedSentence[] = [];
@@ -352,7 +352,6 @@ export function readFigures(sources: FigureSources): AiUseFigures {
       citations: marked.citations,
       footing,
       figureContexts,
-      figured: figured(marked),
       versions,
       folderId: sources.folderId,
       scope,

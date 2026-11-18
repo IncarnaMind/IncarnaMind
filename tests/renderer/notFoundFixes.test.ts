@@ -335,6 +335,34 @@ describe("The heading of a sentence's check (#1608)", () => {
     }
   });
 
+  // protects=a sentence its check's model called overstated or partly supported is headed with that word, in English and Chinese, cited or not; one it called not found is headed as what the check found says (Not found, or Unsupported beside a Citation); fails_when=either word is replaced by Unsupported or Not found, or a "not found" beside a Citation is headed Not found; no_claim=what the card's body says.
+  test("is the word its model gave where the sentence says more than its Documents", () => {
+    const { editor } = editorHolding([paragraph("One cat.", citation), paragraph("Two dogs.")]);
+    const said = (word: string) => ({ unsupported: { word, reason: null, found: true } });
+    for (const block of [0, 1]) {
+      expect(checkStateKey(editor, claimOn(editor, block, 0, said("overstated")))).toBe(
+        "claim.state.overstated",
+      );
+      expect(checkStateKey(editor, claimOn(editor, block, 0, said("partly-supported")))).toBe(
+        "claim.state.partly-supported",
+      );
+    }
+    const absent = { unsupported: { word: "not-found", reason: null } };
+    expect(checkStateKey(editor, claimOn(editor, 0, 0, absent))).toBe("claim.state.unsupported");
+    expect(checkStateKey(editor, claimOn(editor, 1, 0, absent))).toBe("claim.state.notFound");
+    expect([
+      translate("en", "claim.state.overstated"),
+      translate("en", "claim.state.partly-supported"),
+      translate("zh-CN", "claim.state.overstated"),
+      translate("zh-CN", "claim.state.partly-supported"),
+    ]).toEqual([
+      "Needs a look · Overstated",
+      "Needs a look · Partly supported",
+      "需要留意：夸大",
+      "需要留意：部分有依据",
+    ]);
+  });
+
   test("is Unsupported where Passages were found that don't back it, or the sentence has a card of its own", () => {
     const { editor } = editorHolding([paragraph("One cat.", citation), paragraph("Two dogs.")]);
     const unsupported = [

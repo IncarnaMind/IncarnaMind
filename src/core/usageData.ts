@@ -18,8 +18,8 @@
  * sent, which the User can reset. Nothing else identifies the install.
  */
 import { randomUUID } from "node:crypto";
-import type { UsageDataSender } from "./adapters";
-import type { UsageDataSettings } from "./api";
+import type { UsageDataSender, UsageEventMessage } from "./adapters";
+import { type UsageDataSettings, WORK_KINDS, type WorkKind } from "./api";
 import { InvalidInputError } from "./errors";
 import type { SettingsStore } from "./settings";
 import {
@@ -28,12 +28,14 @@ import {
   parseUsageEvent,
   UI_USAGE_EVENTS,
   type UsageEvent,
+  type UsageValue,
 } from "./usageEvents";
 
 /** Per-device values, outside `DeviceSettings` so only this module changes them. */
 const CHOICE = "usageData.enabled";
 const ASKED = "usageData.asked";
 const INSTALL_ID = "usageData.installId";
+const WORK_SENT = "usageData.workPickedSent";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -90,14 +92,21 @@ export function createUsageData(options: {
       })
     : null;
 
+  const messageOf = (
+    event: UsageEvent,
+    commonFields: Record<string, UsageValue>,
+  ): UsageEventMessage => ({
+    installId: installId(),
+    event: event.event,
+    properties: { ...event.fields, ...commonFields },
+  });
+
+  const workPickedSent = (): boolean => settings.readDeviceValue(WORK_SENT) === true;
+
   /** Sends an event that has been checked, if sending is on. */
   const send = (event: UsageEvent) => {
     if (!sending || !sender || !common) return;
-    sender.capture({
-      installId: installId(),
-      event: event.event,
-      properties: { ...event.fields, ...common },
-    });
+    sender.capture(messageOf(event, common));
   };
 
   return {
@@ -158,6 +167,25 @@ export function createUsageData(options: {
         reportError(error);
       }
     },
+
+    /**
+     * The first run's picks (#3296), on the User's press of "Send and continue", which allows
+     * this one event (ADR-0014): it goes with usage data while that is on, and otherwise once by
+     * itself, turning nothing on. Once per install: never again once it went to the sender. Never
+     * in local mode, nor from a copy that can't send usage data. Returns whether it went now.
+     */
+    sendWorkPicked(work: readonly WorkKind[]): boolean {
+      if (!sender || !common || localOnly() || workPickedSent()) return false;
+      const fields = Object.fromEntries(WORK_KINDS.map((kind) => [kind, work.includes(kind)]));
+      const event = parseUsageEvent("work_picked", fields);
+      if (sending) sender.capture(messageOf(event, common));
+      else sender.captureOnce(messageOf(event, common));
+      settings.writeDeviceValue(WORK_SENT, true);
+      return true;
+    },
+
+    /** Whether this install has sent the first run's picks. */
+    workPickedSent,
 
     /** An event from the interface: checked whether or not it is sent, so a bad one fails loudly. */
     recordFromUi(input: unknown): void {

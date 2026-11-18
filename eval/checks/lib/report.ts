@@ -10,6 +10,7 @@ import {
   causeOf,
   countCauses,
   type JudgeRequest,
+  NOT_CHECKED_CAUSES,
   type NotCheckedCause,
 } from "./judge";
 import type { PipelineUsage } from "./pipeline";
@@ -82,18 +83,16 @@ const where = (quote: FoundEvidence | LabelledQuote | null) => {
 
 const CAUSE_WORDS: Record<NotCheckedCause, string> = {
   "quote-not-found": "quote not found",
-  "calculation-not-made": "calculation not made",
   malformed: "malformed reply",
   other: "other",
 };
 
-/** The Not checked among `outcomes`, by cause: "41 (no evidence 40: quote not found 38, calculation not made 2; malformed reply 1; other 0)". */
+/** The Not checked among `outcomes`, by cause: "41 (quote not found 38; malformed reply 1; other 2)". */
 export function causesText(outcomes: readonly CheckOutcome[]): string {
   const notChecked = outcomes.filter((outcome) => outcome.verdict === "not-checked");
   const counts: CauseCounts = countCauses(notChecked);
-  const noEvidence = counts["quote-not-found"] + counts["calculation-not-made"];
   const named = (cause: NotCheckedCause) => `${CAUSE_WORDS[cause]} ${counts[cause]}`;
-  return `${notChecked.length} (no evidence ${noEvidence}: ${named("quote-not-found")}, ${named("calculation-not-made")}; ${named("malformed")}; ${named("other")})`;
+  return `${notChecked.length} (${NOT_CHECKED_CAUSES.map(named).join("; ")})`;
 }
 
 function fenced(text: string): string[] {
@@ -108,7 +107,7 @@ export function judgeLines(judge: readonly JudgeRequest[] | undefined, heading: 
   if (judge === undefined) return ["No replies were kept for this run.", ""];
   if (judge.length === 0) return ["The check made no request to the model.", ""];
   return judge.flatMap((request, index) => [
-    `${heading} Request ${index + 1}: ${request.kind}${request.part === null ? "" : `, part "${request.part}"`}${request.calculateAsked ? ", sent back to calculate" : ""}`,
+    `${heading} Request ${index + 1}: ${request.kind}`,
     "",
     ...request.calls.flatMap((call) => [
       `Tool call \`${call.tool}\`:`,
@@ -126,9 +125,9 @@ export function judgeLines(judge: readonly JudgeRequest[] | undefined, heading: 
 const verifyOutcomes = (report: ChecksReport): CheckOutcome[] =>
   report.results.verify.flatMap((document) => document.claims.map((claim) => claim.outcome));
 
-export function outcomeText({ verdict, code, judge }: CheckOutcome): string {
+export function outcomeText({ verdict, code }: CheckOutcome): string {
   return verdict === "not-checked"
-    ? `not checked, ${CAUSE_WORDS[causeOf(code, judge)]}${code ? ` (${code})` : ""}`
+    ? `not checked, ${CAUSE_WORDS[causeOf(code)]}${code ? ` (${code})` : ""}`
     : verdict;
 }
 
