@@ -179,7 +179,7 @@ test("Organize says which Documents it couldn't sort and why, files nothing befo
     ).toHaveText("Try again");
     // While the 37 wait, the Library's top offers their Review, not Not in a Folder's count.
     await expect(window.getByTestId("organize-waiting")).toHaveText(
-      "37 Documents to confirm·Review",
+      "37 Documents to confirm · Review",
     );
     await expect(loose.getByTestId("library-organize-failed")).toHaveCount(0);
     await expect(library.getByTestId("library-sorted")).toHaveCount(0);
@@ -192,7 +192,7 @@ test("Organize says which Documents it couldn't sort and why, files nothing befo
     // The same at the narrowest window, then in Chinese.
     await setWindowSize(app, window, 900, 760);
     await expect(window.getByTestId("organize-waiting")).toHaveText(
-      "37 Documents to confirm·Review",
+      "37 Documents to confirm · Review",
     );
     await expect(loose.getByTestId("library-not-sorted").first()).toContainText(reason);
     await toTop(library);

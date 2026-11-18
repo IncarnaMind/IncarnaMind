@@ -56,6 +56,11 @@ export interface TestHooks {
   /** Home's Coming up shows these meetings, as a calendar would give them. */
   setComingUp(meetings: { id: string; title: string; start: string }[]): void;
   /**
+   * The Library's Organize estimate line, as if a run over this many Documents would cost this
+   * many US dollars: a run really costing over $1 needs a paid model.
+   */
+  showOrganizeEstimate(documents: number, dollars: number): void;
+  /**
    * While true, the citation style picker's list of every style doesn't arrive, as on a slow
    * computer: it finds only the common styles until this is set back to false.
    */
