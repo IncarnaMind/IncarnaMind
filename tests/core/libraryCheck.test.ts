@@ -157,11 +157,11 @@ test("a run that gave no number is no evidence", async () => {
   expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
 });
 
-// protects=a sentence about the Library that its lists can't settle (what the files cover) reads Not checked with that reason, as the model said, never Not found with an offer to cut it; fails_when=a reading of the names is marked not found.
-test("a sentence the lists can't settle reads not checked, with its reason", async () => {
+// protects=a sentence the model counted the Library's lists for and still found nothing to state (what the files cover) reads Not checked with that reason, never Not found with an offer to cut it; fails_when=a reading of the names is marked not found.
+test("a sentence the lists were counted for and don't settle reads not checked", async () => {
   const { core, outside, repliesWith } = await setUp(counted(2));
   repliesWith(
-    "Verdict: unsettled\nExplanation: The lists hold names and kinds, not what the files cover.\nEvidence: []",
+    "Verdict: not found\nExplanation: The lists hold names and kinds, not what the files cover.\nEvidence: []",
   );
 
   const result = await core.checkClaim({

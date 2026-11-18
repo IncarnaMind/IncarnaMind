@@ -367,7 +367,6 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       ? null
       : readVerdict(turns.slice(from).join("\n"));
   if (!read) return notChecked(turns.some(readsAsRefusal) ? "refused" : "malformed");
-  if (read.unsettled && countsLibrary) return notChecked("library-unsettled");
   if (!looked() && !restsOnOwnFigure(read)) return notChecked("unread");
 
   session.check();
@@ -396,6 +395,15 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   // and gave none told the model nothing.
   const counted = worked?.output.results.some((each) => each.kind === "figure") === true;
   const lists = worked && counted ? libraryRead(worked) : undefined;
+  // The model counted the Library's lists for this sentence and still found nothing that states
+  // it: the lists don't settle it, which is not the same as no Document stating it (#2525).
+  if (
+    lists &&
+    !quoted &&
+    read.verdict === "unsupported" &&
+    (read.word ?? "not-found") === "not-found"
+  )
+    return notChecked("library-unsettled");
   const working = worked && { ...workingOf(worked), ...(lists && { library: lists.read }) };
   const evidence =
     quoted ?? (worked ? (rowsOf(worked)[0]?.citation ?? lists?.citation) : undefined);
