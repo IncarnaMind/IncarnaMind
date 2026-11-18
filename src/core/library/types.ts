@@ -138,14 +138,15 @@ export interface LibrarySettings {
   organizeWith: TaggingClassifier | null;
   /**
    * Tag and sort new and changed Documents by itself, once a model is chosen
-   * (#1617). Until the User sets it, it is on for a model on this computer
-   * and off for a cloud model, since each Document's name and an excerpt go
-   * to it. Turned on for where it sends (`turnOn` in `saveLibrarySettings`),
-   * it reads off once that changes, to another service or from this computer
-   * to one, until it is turned on there (#2308). On, only a Document new
-   * since it was turned on goes by itself (`mayBackgroundSend` in
-   * ../tags/held); the others are "off". Off, nothing is sent by itself: what
-   * the User starts by hand (Organize, a re-tag) still goes.
+   * (#1617): whether it may send by itself now. The switch is on until the
+   * User turns it off (#3353), but it holds only where it was turned on
+   * (`turnOn` in `saveLibrarySettings`) and its consent still stands: for a
+   * cloud service it wasn't turned on for, this reads off and
+   * `LibrarySnapshot.asksFor` names the service, until the User allows it
+   * there (#2308). On, only a Document new since it was turned on goes by
+   * itself (`mayBackgroundSend` in ../tags/held); the others are "off". Off,
+   * nothing is sent by itself: what the User starts by hand (Organize, a
+   * re-tag) still goes.
    */
   automatic: boolean;
   /**
@@ -235,23 +236,14 @@ export interface LibrarySnapshot {
   assignments: DocumentGroupAssignment[];
   settings: LibrarySettings;
   /**
-   * What `settings.automatic` would be if the User hadn't set the switch: on for a model
-   * on this computer, off for a cloud model (#1617). Settings › Models compares the two, so
-   * a switch that only follows the model never counts as a choice of the User's own.
+   * The cloud services the switch for sorting and tagging new Documents asks the User about before
+   * the first Document goes to them (#3353, ADR-0022): it is on, but `settings.automatic` reads
+   * off and nothing goes there until they answer. New Documents held "off" wait for the sidebar's
+   * row: its Allow turns it on for these services and reads them, its no turns the switch off.
+   * Empty once the User turned it off or took the consent back, in Local mode, and for a model on
+   * this computer.
    */
-  automaticDefault: boolean;
-  /**
-   * Automatic tagging and sorting was turned off for a cloud model once (#1617), since it sent
-   * each Document's name and an excerpt: the Library says so once, until the User closes the line.
-   */
-  automaticOffNotice?: boolean;
-  /**
-   * The cloud service Organize would sort new Documents on, while sorting them by itself isn't
-   * on for it (#2308, ADR-0022): Documents in no Folder held "off" wait for the User's Allow,
-   * which turns it on for that service and sorts them. Absent in Local mode, with no Folder, and
-   * for a model on this computer.
-   */
-  sortWaitsFor?: ExternalService;
+  asksFor: ExternalService[];
   /** How many Documents wait in Suggestions with something to confirm (#1569). */
   reviewCount: number;
   /**

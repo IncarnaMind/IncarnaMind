@@ -343,6 +343,22 @@ export function createConsent(
     covers,
 
     /**
+     * Whether the User took their decision on the flow to the service back in Settings › Privacy
+     * (`revoke`), or declined it, and hasn't allowed it since.
+     */
+    takenBack(flowId: DataFlowId, service: ExternalService): boolean {
+      const row = find(flowId, service.id);
+      if (row) return row.decision === "declined";
+      return (
+        db.get(
+          `SELECT 1 AS found FROM data_flow_consents
+           WHERE flow = ? AND service_id = ? AND deleted_at IS NOT NULL LIMIT 1`,
+          [flowId, service.id],
+        ) !== undefined
+      );
+    },
+
+    /**
      * Resolves once the User has accepted everything the flow sends to the
      * service, or, with `sends`, those kinds of it, asking them first if
      * needed. Throws `ConsentDeclinedError` if they declined, and, on a

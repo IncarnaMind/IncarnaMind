@@ -583,7 +583,7 @@ describe("Removing what sorting uses (#1907)", { timeout: 30_000 }, () => {
     expect(sorted?.tagging).toBe("tagged");
     expect(await proposedTagNamesOf(core, document.id)).toEqual(["Letter"]);
     expect(tagging.requests.length).toBeGreaterThan(0);
-    expect((await core.getLibrary()).sortWaitsFor).toBeUndefined();
+    expect((await core.getLibrary()).asksFor).toEqual([]);
     expect(hosts.tagging()).toEqual([]);
   });
   /** Decider through OpenRouter chosen with its Use this, beside Anthropic as the User's AI. */

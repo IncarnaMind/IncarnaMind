@@ -32,10 +32,17 @@ export const en = {
   "library.toSort.one": "1 to organize",
   "library.toSort.other": "{count} to organize",
   "library.toSort.allow": "Allow {service}",
+  "library.toSort.dontAllow": "Don’t allow",
   "library.toSort.sends.one":
     "1 Document waits to be organized: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to {service}, for this one and for Documents you add later.",
   "library.toSort.sends.other":
     "{count} Documents wait to be organized: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to {service}, for these and for Documents you add later.",
+  "library.toTag.one": "1 to tag",
+  "library.toTag.other": "{count} to tag",
+  "library.toTag.sends.one":
+    "1 Document waits to be tagged: {service} isn’t allowed to read it. Allowing it sends the Document’s name, kind and page count and the start of its text, with any matching Tags’ names and descriptions and your interface language, to {service}, for this one and for Documents you add later.",
+  "library.toTag.sends.other":
+    "{count} Documents wait to be tagged: {service} isn’t allowed to read them. Allowing it sends each Document’s name, kind and page count and the start of its text, with any matching Tags’ names and descriptions and your interface language, to {service}, for these and for Documents you add later.",
   "library.organize.consent.title": "Allow {service} to read your Documents?",
   "library.organize.consent.sends":
     "Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to {service}, each time you organize.",
@@ -281,10 +288,6 @@ export const en = {
   "library.model": "Model name",
   "library.server": "Local Ollama address",
   "library.pageImages": "Up to 3 PDF page images go to local Clef-Flash.",
-  "library.automaticOff":
-    "Automatic tagging and sorting is now off for {service}, since it sent each Document’s name and an excerpt.",
-  "library.automaticOff.turnOn": "Turn it on in Settings",
-  "library.automaticOff.dismiss": "Got it",
   "tagging.automatic.switch": "Tag and sort new Documents automatically",
   "tagging.automatic.local": "Runs on this computer.",
   "library.preset.research": "Research papers",
@@ -3217,6 +3220,8 @@ export const en = {
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
   "setup.sorting.sends":
     "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, go to {service}. Documents already in the Library go only when you run Organize.",
+  "setup.sorting.asks":
+    "Sorting and tagging new Documents is on: IncarnaMind asks you before the first one goes to {service}.",
   "setup.sorting.sendsWhenOn":
     "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, to {service}. Documents already in the Library go only when you run Organize.",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
@@ -4159,6 +4164,8 @@ export const en = {
   "ai.payer.local": "On this computer · free",
   "ai.organize.automatic": "Sort and tag new Documents as they arrive",
   "ai.organize.automatic.line": "What it proposes waits for you to confirm",
+  "ai.organize.automatic.asks":
+    "{service} isn’t allowed yet: IncarnaMind asks you before the first Document goes.",
   "ai.organize.pageImages": "Read scans as page images",
   "ai.organize.pageImages.line": "Sends a scan’s first pages as pictures to {service}",
   "ai.rerank.setUp.group": "Set up another service",

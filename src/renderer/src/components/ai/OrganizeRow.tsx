@@ -3,6 +3,8 @@ import type { LibrarySettings, TaggingModels } from "../../../../core/api";
 import type { Language } from "../../../../core/language";
 import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { formatTime } from "../../../../shared/dates";
+import { listOf } from "../../../../shared/i18n/join";
+import { sortingSwitchOn } from "../../../../shared/libraryModels";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useGap, useLanguage, useT } from "../../i18n";
@@ -274,6 +276,8 @@ function OrganizeOptions({
   const language = useLanguage();
   const library = useAppStore((state) => state.library);
   const [problem, setProblem] = useState<string | null>(null);
+  const on = library ? sortingSwitchOn(library) : settings.automatic;
+  const asks = library?.asksFor ?? [];
   const save = async (next: Partial<LibrarySettings> & { turnOn?: boolean }) => {
     setProblem(null);
     try {
@@ -303,6 +307,16 @@ function OrganizeOptions({
         detail={
           <>
             {sends && <p data-testid="tagging-automatic-sends">{sends}</p>}
+            {asks.length > 0 && (
+              <p data-testid="tagging-automatic-asks">
+                {t("ai.organize.automatic.asks", {
+                  service: listOf(
+                    asks.map((each) => each.name),
+                    language,
+                  ),
+                })}
+              </p>
+            )}
             <p>{t("ai.organize.automatic.line")}</p>
             {models?.planPausedUntil && (
               <p data-testid="tagging-plan-paused">
@@ -335,13 +349,11 @@ function OrganizeOptions({
             type="checkbox"
             role="switch"
             data-testid="tagging-automatic-organize"
-            aria-checked={settings.automatic}
-            checked={settings.automatic}
+            aria-checked={on}
+            checked={on}
             disabled={!resolved}
             onChange={(event) =>
-              void save(
-                event.target.checked ? { automatic: true, turnOn: true } : { automatic: false },
-              )
+              void save({ automatic: event.target.checked, turnOn: event.target.checked })
             }
             className="switch"
           />

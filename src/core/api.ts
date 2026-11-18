@@ -12622,9 +12622,11 @@ export interface CoreApi {
    * and whether new and changed Documents are organized automatically. A
    * classifier of null is Automatic. A model lent to a run (`organizeWith`) is never saved.
    * `automatic` is the switch as shown, and a save can only turn it off.
-   * `turnOn` turns it on, and records when, as the consent for the services
-   * it sends to now (ADR-0022): only where the line says what goes, as
-   * setup's Use this and Settings › AI's Organize and Tags switch do.
+   * `turnOn` is the User's own answer: true turns it on, and records when,
+   * as the consent for the services it sends to now (ADR-0022), only where
+   * the line says what goes, as Settings › AI's Organize and Tags switch and
+   * the sidebar row's Allow do; false, with `automatic` false, is their no,
+   * kept also while it asks before the first Document goes (#3353).
    * Turned on for one service, it reads off for another until it is turned
    * on there (#2308).
    */
@@ -12671,8 +12673,6 @@ export interface CoreApi {
   stopTagging(): Promise<(string | null)[]>;
   /** Turns automatic Tagging with AI on, or stops it, in a Folder or Not in a Folder (null). */
   setTaggingWithAi(folderId: string | null, on: boolean): Promise<void>;
-  /** Closes the Library's one-time line that automatic tagging and sorting went off (`LibrarySnapshot.automaticOffNotice`). */
-  dismissAutomaticOffNotice(): Promise<void>;
   /** The Review was opened: the Library's top line says what waits in its usual words from now on (`LibrarySnapshot.reviewMoved`). */
   reviewMovedSeen(): Promise<void>;
   /**
@@ -15517,7 +15517,6 @@ const methods: Record<CoreApiMethod, true> = {
   classifyDocuments: true,
   stopTagging: true,
   setTaggingWithAi: true,
-  dismissAutomaticOffNotice: true,
   reviewMovedSeen: true,
   assignDocumentGroup: true,
   moveToFolder: true,

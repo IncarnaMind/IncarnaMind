@@ -30,10 +30,17 @@ export const zhCN = {
   "library.toSort.one": "1 个待整理",
   "library.toSort.other": "{count} 个待整理",
   "library.toSort.allow": "允许 {service}",
+  "library.toSort.dontAllow": "不允许",
   "library.toSort.sends.one":
     "1 个文档等待整理：尚未允许 {service} 读取。允许后，会把这个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 {service}，包括这个文档和以后添加的文档。",
   "library.toSort.sends.other":
     "{count} 个文档等待整理：尚未允许 {service} 读取。允许后，会把每个文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 {service}，包括这些文档和以后添加的文档。",
+  "library.toTag.one": "1 个待打标签",
+  "library.toTag.other": "{count} 个待打标签",
+  "library.toTag.sends.one":
+    "1 个文档等待打标签：尚未允许 {service} 读取。允许后，会把这个文档的名称、类型和页数及开头部分的文字，连同相符标签的名称和描述以及你的界面语言，发送给 {service}，包括这个文档和以后添加的文档。",
+  "library.toTag.sends.other":
+    "{count} 个文档等待打标签：尚未允许 {service} 读取。允许后，会把每个文档的名称、类型和页数及开头部分的文字，连同相符标签的名称和描述以及你的界面语言，发送给 {service}，包括这些文档和以后添加的文档。",
   "library.organize.consent.title": "允许 {service} 读取你的文档？",
   "library.organize.consent.sends":
     "允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 {service}。",
@@ -269,9 +276,6 @@ export const zhCN = {
   "library.model": "模型名称",
   "library.server": "本地 Ollama 地址",
   "library.pageImages": "最多 3 张 PDF 页面图片交给本地的 Clef-Flash。",
-  "library.automaticOff": "已为 {service} 关闭自动打标签和整理，因为它会发送每个文档的名称和摘录。",
-  "library.automaticOff.turnOn": "在设置中开启",
-  "library.automaticOff.dismiss": "知道了",
   "tagging.automatic.switch": "自动为新文档打标签并整理",
   "tagging.automatic.local": "在这台电脑上运行。",
   "library.preset.research": "研究论文",
@@ -3060,6 +3064,8 @@ export const zhCN = {
   "setup.sorting.here": "标签、文件夹和会议提示都在本机运行 · 免费 · 不离开这台电脑",
   "setup.sorting.sends":
     "选择后会自动为新文档打标签，包括关联文件夹中的新文档：每个文档的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（发给 Jev 和决策模型时除外，还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
+  "setup.sorting.asks":
+    "已开启新文档自动整理和打标签：第一个文档发送给 {service} 前，IncarnaMind 会先问你。",
   "setup.sorting.sendsWhenOn":
     "开启自动给新文档打标签后，每个新文档（包括关联文件夹中的新文档）的名称、类型和开头的一段摘录（约 1,500 token），以及文档类别、你自己的标签和文件夹的名称及描述（发给 Jev 和决策模型时除外，还有你的界面语言），会发送给 {service}。资料库中已有的文档，只有在你运行“整理”时才会发送。",
   "command.tagging.turnOn": "开启自动给新文档打标签…",
@@ -3958,6 +3964,7 @@ export const zhCN = {
   "ai.payer.local": "在这台电脑上 · 免费",
   "ai.organize.automatic": "新文档到达时自动整理和打标签",
   "ai.organize.automatic.line": "整理结果会等你确认",
+  "ai.organize.automatic.asks": "尚未允许 {service}：第一个文档发送前，IncarnaMind 会先问你。",
   "ai.organize.pageImages": "以页面图片读取扫描件",
   "ai.organize.pageImages.line": "将扫描件的前几页作为图片发送到 {service}",
   "ai.rerank.setUp.group": "设置其他服务",

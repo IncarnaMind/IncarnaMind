@@ -57,7 +57,6 @@ import { moveThroughRows } from "../treeKeys";
 import { useUnreadFiles } from "../unreadFiles";
 import { FindSourcesPanel } from "./FindSourcesPanel";
 import { LibrarySelectionBar } from "./LibrarySelection";
-import { AutomaticOffNotice } from "./library/AutomaticOffNotice";
 import { DeletedSection } from "./library/DeletedSection";
 import { StarterFolders } from "./library/FolderForm";
 import { LibraryBar } from "./library/LibraryBar";
@@ -523,7 +522,6 @@ export function LibraryPane() {
                   />
                 )}
                 <OrganizeLines />
-                <AutomaticOffNotice />
                 {problem && (
                   <ProblemLine
                     role="status"

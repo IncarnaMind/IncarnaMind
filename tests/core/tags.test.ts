@@ -731,11 +731,10 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     expect(tagging.requests).toEqual([]);
   });
 
-  test("for a provider chosen before, tagging never asks: Documents wait until the User allows it", async () => {
+  test("taken back, tagging never asks: Documents wait until the User allows it again", async () => {
     const { core, tagging, models } = await startTagging(["Paper"]);
     await core.saveChatProvider(OPENAI);
     await turnOnAutomaticTagging(core);
-    // As turning it on left it before ADR-0022: tagging never asked.
     await core.revokeConsent("tagging", OPENAI_SERVICE.id);
     const requests = countRequests(core);
     const specsBefore = models.specs.length;
@@ -743,20 +742,24 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     const first = await addDocument(core, "Attention.md", PAPER_TEXT);
     const second = await addDocument(core, "Invoice.txt", "Invoice 42. Amount due: 120 EUR.");
 
-    expect([first.tagging, second.tagging]).toEqual([
-      "waiting-for-provider",
-      "waiting-for-provider",
-    ]);
+    // The switch reads off, and nothing asks about it again (#3353).
+    expect([first.tagging, second.tagging]).toEqual(["off", "off"]);
+    expect((await core.getLibrary()).asksFor).toEqual([]);
     expect(requests).toEqual([]);
     expect(tagging.requests).toEqual([]);
     expect(models.specs).toHaveLength(specsBefore);
     // Questions can still be asked: the chat flow is its own.
     expect(await core.getChatReadiness()).toMatchObject({ ready: true, consent: "accepted" });
 
-    // Allowed in Settings › Privacy: both Documents go on.
+    // Allowed again in Settings › Privacy: a Document added now goes by itself, and the User's
+    // re-tag sends those that waited.
     await core.allowDataFlow("tagging", OPENAI_SERVICE.id);
+    const third = await addDocument(core, "Report.md", PAPER_TEXT);
+    await waitForTagging(core, [third.id]);
+    expect(tagging.requests).toHaveLength(1);
+    await core.retagDocuments([first.id, second.id]);
     await waitForTagging(core, [first.id, second.id]);
-    expect(tagging.requests).toHaveLength(2);
+    expect(tagging.requests.length).toBeGreaterThan(1);
     expect(requests).toEqual([]);
   });
 
@@ -771,7 +774,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     await core.revokeConsent("tagging", OPENAI_SERVICE.id);
     const second = await addDocument(core, "Invoice.txt", "Invoice 42. Amount due: 120 EUR.");
 
-    expect(second.tagging).toBe("waiting-for-provider");
+    expect(second.tagging).toBe("off");
     expect(tagging.requests).toHaveLength(1);
     expect(requests).toEqual([]);
     // Every other flow to the provider stays allowed.
@@ -805,7 +808,7 @@ describe("Consent for automatic tagging (ADR-0022)", { timeout: 30_000 }, () => 
     }
 
     const document = await addDocument(core, "Attention.md", PAPER_TEXT);
-    expect(document.tagging).toBe("waiting-for-provider");
+    expect(document.tagging).toBe("off");
     expect(tagging.requests).toEqual([]);
 
     // Choosing the model again in Settings › Tagging: a new choice, where the line names Document text for Tags.

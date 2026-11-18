@@ -2,9 +2,10 @@
  * A profile saved before #2308 holds the switch for tagging and sorting new Documents with no list
  * of the services the User turned it on for, and nothing stored tells a turn-on from a consent
  * given elsewhere: an old Turn on…, Organize's, the Privacy page's Allow, TypeSafe Jev's key, a
- * model chosen for Tags. So for a service outside this computer it reads off until the User
- * presses Turn on…; a model on this computer keeps it (#2623, ADR-0022). Through the core's
- * public interface, counting what each service's stand-in receives.
+ * model chosen for Tags. So for a service outside this computer nothing goes by itself until the
+ * User allows it, and the sidebar's row asks for it as for a switch never set (#2623, #3353,
+ * ADR-0022); a model on this computer keeps it. Through the core's public interface, counting
+ * what each service's stand-in receives.
  */
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -206,13 +207,13 @@ const ARMS = CONSENTS.flatMap((each) =>
 );
 
 describe.each([{ language: "en-US" }, { language: "zh-CN" }])(
-  "A profile saved before #2308 reads tagging off for a service outside this computer until Turn on…, in $language (#2623)",
+  "A profile saved before #2308 sends nothing by itself to a service outside this computer and asks for it until Turn on…, in $language (#2623, #3353)",
   {
     timeout: 30_000,
   },
   ({ language }) => {
     test.each(ARMS)(
-      "with $consent on record (a Folder there: $folder; the upgrade kept a place: $placeKept): nothing goes out until Turn on…, then only what arrives after",
+      "with $consent on record (a Folder there: $folder; the upgrade kept a place: $placeKept): it asks, nothing goes out until Turn on…, then only what arrives after",
       async ({ sendsTo, setUp, chosenTagging, folder, placeKept }) => {
         const { jev, tagging, dataDir, options, start } = await startWithJev({
           systemLanguages: () => [language],
@@ -232,6 +233,8 @@ describe.each([{ language: "en-US" }, { language: "zh-CN" }])(
         const core = startCore(dataDir, options);
         if (folder) await core.createLibraryGroup({ name: "Finance", description: "Reports." });
         expect((await core.getLibrary()).settings).toMatchObject({ classifier, automatic: false });
+        const asksFor = async () => (await core.getLibrary()).asksFor.map((service) => service.id);
+        expect(await asksFor()).toEqual([sendsTo === "jev" ? TYPESAFE : ANTHROPIC]);
         const held = await add(core, "季度报告.txt", "季度报告：本季度收入增长百分之十。");
         const [settled] = await settledTagging(core, [held.id]);
 
@@ -251,6 +254,7 @@ describe.each([{ language: "en-US" }, { language: "zh-CN" }])(
             ? jev.requests.map((request) => JSON.stringify(request.body))
             : tagging.requests.map((request) => request.text);
         expect((await core.getLibrary()).settings.automatic).toBe(true);
+        expect(await asksFor()).toEqual([]);
         expect(jev.requests.length + tagging.requests.length).toBe(1);
         expect(received).toHaveLength(1);
         expect(received[0]).toContain("A quarterly report on revenue.");
