@@ -100,7 +100,20 @@ import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
 import { widerRun } from "./widerRun";
 
-export type NotAskedReason = "not-ready" | "consent-needed" | "local-mode";
+export type NotAskedReason =
+  | "not-ready"
+  | "consent-needed"
+  | "local-mode"
+  /** The Note is checked against Documents the agent may not read. */
+  | "beyond-reach"
+  | "no-documents";
+
+/** Ends an outside agent's Check before anything is sent. */
+class NotAsked extends Error {
+  constructor(readonly reason: NotAskedReason) {
+    super(reason);
+  }
+}
 
 /** A Note's Check run for an outside agent (see `checkOutside`), or why nothing was sent. */
 export type OutsideCheck =
@@ -111,8 +124,8 @@ export interface MindCheckOptions extends RunChecksOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   prepare: VerifyOptions["prepare"];
-  /** Why a check on this model would have to ask the User something first; null: it wouldn't. */
-  asksFirst(choice: ChatModelChoice | null): Promise<NotAskedReason | null>;
+  /** The model, prepared with nothing asked of the User, or why it can't be used so. */
+  prepareUnasked(choice: ChatModelChoice | null): Promise<PreparedChatModel | NotAskedReason>;
   unread: VerifyOptions["unread"];
   recordUnread: VerifyOptions["recordUnread"];
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
@@ -685,9 +698,17 @@ export function createMindCheck(options: MindCheckOptions) {
     return claims === 0 ? { kind: "nothing" } : { kind: "found", claims };
   }
 
+  const unasked = async (choice: ChatModelChoice | null) => {
+    const prepared = await options.prepareUnasked(choice);
+    if (typeof prepared === "string") throw new NotAsked(prepared);
+    return { ok: true as const, prepared };
+  };
+
+  /** `reach`: for an outside agent's Check, the Documents the agent may read (see `checkOutside`). */
   async function check(
     input: ReturnType<typeof parseCheckMind>,
     signal: AbortSignal,
+    reach?: ReadonlySet<string>,
   ): Promise<CheckMindResult> {
     const { mindId, requestId, mode } = input;
     // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
@@ -700,9 +721,19 @@ export function createMindCheck(options: MindCheckOptions) {
     if (signal.aborted) return { kind: "cancelled" };
     const { empty, check: scope } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
     if (empty) return empty;
+    if (reach) {
+      // A wider check is the User's to run: an agent would learn from it what it may not read.
+      if (scope.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
+      // A Folder with no Document searches every Document.
+      if (scope.marked.widened) throw new NotAsked("no-documents");
+      if (!scope.scope.documentIds?.every((id) => reach.has(id)))
+        throw new NotAsked("beyond-reach");
+    }
     const wide = widened.size > 0 ? options.scopeOf(mindId, true).check : scope;
     const scopeFor = (claim: SelectedSentence) => (widened.has(claim) ? wide : scope);
-    const ready = await options.prepare(input.model ?? modelOf(mindId));
+    const ready = reach
+      ? await unasked(input.model ?? modelOf(mindId))
+      : await options.prepare(input.model ?? modelOf(mindId));
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
     // The first sentence's search would otherwise start the reranker and wait for its model.
@@ -1051,8 +1082,8 @@ export function createMindCheck(options: MindCheckOptions) {
     /** Frees the Note a request kept, whether or not it ran (#2240). */
     release,
 
-    /** See `CoreApi.checkMind`. */
-    async checkMind(input: unknown): Promise<CheckMindResult> {
+    /** See `CoreApi.checkMind`. `reach`: see `check`. */
+    async checkMind(input: unknown, reach?: ReadonlySet<string>): Promise<CheckMindResult> {
       const parsed = parseCheckMind(input);
       options.requireMind(parsed.mindId);
       if (options.isRunning(parsed.requestId)) {
@@ -1070,7 +1101,7 @@ export function createMindCheck(options: MindCheckOptions) {
       });
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
-        return await check(parsed, tracked.signal);
+        return await check(parsed, tracked.signal, reach);
       } finally {
         tracked.done();
         const current = checking.get(parsed.mindId);
@@ -1088,15 +1119,19 @@ export function createMindCheck(options: MindCheckOptions) {
 
     /**
      * "Check this Mind" for an outside agent (#3317): what was never checked or needs a re-check,
-     * on the Note's model, as the window's Check runs. It asks nothing of the User: a model that
-     * can't be used now, or whose data flow isn't allowed yet, is said instead (ADR-0022).
+     * on the Note's model, as the window's Check runs, within `reach`, the Documents the agent may
+     * read. It asks nothing of the User: a model that can't be used now, or whose data flow isn't
+     * allowed, is said instead (ADR-0022), and so is a Note checked against Documents beyond `reach`.
      */
-    async checkOutside(mindId: string): Promise<OutsideCheck> {
+    async checkOutside(mindId: string, reach: ReadonlySet<string>): Promise<OutsideCheck> {
       options.requireMind(mindId);
-      const reason = await options.asksFirst(modelOf(mindId));
-      if (reason) return { asked: false, reason };
       const input = { requestId: randomUUID(), mindId, mode: "changed" };
-      return { asked: true, result: await windowCheck.checkMind(input) };
+      try {
+        return { asked: true, result: await windowCheck.checkMind(input, reach) };
+      } catch (error) {
+        if (error instanceof NotAsked) return { asked: false, reason: error.reason };
+        throw error;
+      }
     },
   };
 }

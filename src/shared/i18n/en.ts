@@ -8254,6 +8254,8 @@ export const en = {
   "agents.check.notYours":
     "check_mind checks a note this agent wrote with create_mind. It didn’t write this one.",
   "agents.check.noDocuments": "The note’s Folder has no Documents to check it against.",
+  "agents.check.beyondReach":
+    "This note is checked against Documents outside the Folders shared with this agent, so it can’t be checked for it. The User can check it in IncarnaMind.",
   "agents.check.notReady":
     "No AI model is ready in IncarnaMind to check with. Set one up in Settings › AI.",
   "agents.check.consent":

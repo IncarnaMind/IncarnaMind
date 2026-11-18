@@ -27,7 +27,7 @@ import { mindName } from "../../shared/naming";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
 import { setTextOrigin } from "../../shared/textOrigins";
 import type { OutsideAnswer } from "../answers";
-import type { OutsideCheck } from "../answers/checks/mindCheck";
+import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
 import {
@@ -265,7 +265,10 @@ export interface AgentCheckedClaim {
     | "not-checked"
     | "needs-recheck"
     | "changed";
-  /** Why a "not-checked" claim shows no verdict, as the check names it ("rate-limit", "cost-cap"). */
+  /**
+   * Why a "not-checked" claim shows no verdict, as the check names it ("rate-limit", "cost-cap"),
+   * or "beyond-reach": the User had it checked against Documents this agent may not read.
+   */
   reason: string | null;
   /** What the Document says, in the check's words; null when it gave none. */
   says: string | null;
@@ -449,8 +452,11 @@ export interface AgentAccessDeps {
   notesWrittenSince(pairingId: string, since: string): number;
   /** IncarnaMind's Answer to a Question from these Documents, on the default chat model. */
   answer(question: string, documentIds: string[], signal: AbortSignal): Promise<OutsideAnswer>;
-  /** A Note's Check of what it hasn't checked yet, on the Note's model, asking the User nothing. */
-  checkNote(mindId: string): Promise<OutsideCheck>;
+  /**
+   * A Note's Check of what it hasn't checked yet, on the Note's model, asking the User nothing and
+   * searching none but `documentIds`, the Documents the agent may read.
+   */
+  checkNote(mindId: string, documentIds: readonly string[]): Promise<OutsideCheck>;
   /** What a Note's checks found, sentence by sentence, as its check record lists them. */
   checkRecord(mindId: string): Promise<Pick<CheckRecord, "models" | "sentences">>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
@@ -472,8 +478,9 @@ export interface AgentAccessDeps {
 }
 
 /**
- * The Checks agents started (#3317): each Note's while it runs, so a second call joins it, and
- * when each pairing started one, by `clock`, for the hour's limit.
+ * The Checks agents started (#3317): each Note's until a call has had its end, so a second call
+ * joins it and one that stopped waiting still learns how it ended, and when each pairing started
+ * one, by `clock`, for the hour's limit.
  */
 export interface CheckRuns {
   running: Map<string, Promise<OutsideCheck>>;
@@ -940,7 +947,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       );
     }
     started.set(pairing.id, [...lately, now]);
-    const run = deps.checkNote(mindId).finally(() => running.delete(mindId));
+    const run = deps.checkNote(mindId, scopeOf(pairing, undefined));
     run.then(
       (outcome) => {
         if (outcome.asked && SENT.has(outcome.result.kind)) return;
@@ -952,20 +959,30 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         );
       },
       // A call that stopped waiting leaves it running: its failure is still said somewhere.
-      (error: unknown) => deps.reportError(error),
+      (error: unknown) => {
+        if (running.get(mindId) === run) running.delete(mindId);
+        deps.reportError(error);
+      },
     );
     running.set(mindId, run);
     return run;
   };
 
-  /** Why a Check sent nothing, in the words `ask` refuses with. */
-  const notAsked = (reason: "not-ready" | "consent-needed" | "local-mode") =>
-    reason === "local-mode"
-      ? new AgentRefusedError("local-mode", t("agents.problem.local-mode"))
-      : new AgentRefusedError(
-          "chat-not-ready",
-          t(reason === "consent-needed" ? "agents.check.consent" : "agents.check.notReady"),
-        );
+  /** Why a Check sent nothing, in plain words. */
+  const notAsked = (reason: NotAskedReason): AgentRefusedError => {
+    switch (reason) {
+      case "local-mode":
+        return new AgentRefusedError("local-mode", t("agents.problem.local-mode"));
+      case "beyond-reach":
+        return new AgentRefusedError("outside-scope", t("agents.check.beyondReach"));
+      case "no-documents":
+        return new AgentRefusedError("invalid", t("agents.check.noDocuments"));
+      case "consent-needed":
+        return new AgentRefusedError("chat-not-ready", t("agents.check.consent"));
+      case "not-ready":
+        return new AgentRefusedError("chat-not-ready", t("agents.check.notReady"));
+    }
+  };
 
   /** The Folder a new Note goes in: the one named, of the pairing's, or its only one. */
   const folderToWriteIn = (pairing: AdmittedPairing, folderId: unknown) => {
@@ -1608,7 +1625,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         if (writer?.pairingId !== pairing.id) {
           throw new AgentRefusedError("invalid", t("agents.check.notYours"));
         }
-        const outcome = await within(checkOf(pairing, mind.id), deps.checkWaitMs ?? CHECK_WAIT_MS);
+        const { running } = deps.checkRuns;
+        const run = checkOf(pairing, mind.id);
+        const outcome = await within(run, deps.checkWaitMs ?? CHECK_WAIT_MS);
+        // Its end is told once: the call after starts a Check of what changed since.
+        if (outcome && running.get(mind.id) === run) running.delete(mind.id);
         if (outcome && !outcome.asked) throw notAsked(outcome.reason);
         const result = outcome?.result ?? null;
         if (result?.kind === "not-ready") throw notAsked("not-ready");
@@ -1629,26 +1650,32 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               ? t(`agents.check.stopped.${result.stop.reason}`)
               : null;
         const record = await deps.checkRecord(mind.id);
-        const inScope = new Set(scopeOf(pairing, undefined));
+        // What the agent reaches may have changed while the Check ran.
+        const granted = deps.admit(pairingId);
+        mindInScope(granted, mind.id);
+        const inScope = new Set(scopeOf(granted, undefined));
         const read = new Set<string>();
-        const needLook = record.sentences.filter((item) => item.result !== "supported");
+        // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
+        const beyond = (item: (typeof record.sentences)[number]) =>
+          item.check !== null && (item.check.scope.widened || item.check.scope.chosen != null);
+        const needLook = record.sentences.filter(
+          (item) => item.result !== "supported" || beyond(item),
+        );
         const claims = needLook.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
+          const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
+          const sentence = clip(item.text, READY_QUOTE_CHARS);
+          if (beyond(item)) {
+            return { sentence, result: "not-checked", reason: "beyond-reach", ...unsaid };
+          }
           const claim = {
-            sentence: clip(item.text, READY_QUOTE_CHARS),
+            sentence,
             result: CLAIM_RESULTS[item.result as keyof typeof CLAIM_RESULTS],
             reason: item.reason,
           };
           const judgedOn = item.judgedOn ? citationOf(item.judgedOn) : null;
           // What a Document outside the pairing's Folders says stays there.
           if (!judgedOn || !item.evidence || !inScope.has(judgedOn.documentId)) {
-            return {
-              ...claim,
-              says: null,
-              document: null,
-              location: null,
-              quote: null,
-              cite: null,
-            };
+            return { ...claim, ...unsaid };
           }
           read.add(judgedOn.documentId);
           const { quote } = item.evidence;
@@ -1664,7 +1691,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             document: item.evidence.name,
             location: item.evidence.location,
             quote,
-            cite: found ? citeTag(mint(pairing, { ...judgedOn, check: "found" }).token) : null,
+            cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
           };
         });
         return {

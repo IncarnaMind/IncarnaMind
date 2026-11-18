@@ -398,7 +398,9 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
             reason: z
               .string()
               .nullable()
-              .describe("Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap."),
+              .describe(
+                "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
+              ),
             says: z.string().nullable(),
             document: z.string().nullable(),
             location,

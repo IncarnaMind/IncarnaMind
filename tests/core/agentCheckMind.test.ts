@@ -232,6 +232,58 @@ describe("an outside agent has its Note checked (#3317)", () => {
     expect(asked).toEqual([]);
   });
 
+  // protects=an agent learns nothing of Documents outside its Folders by having a Note checked: an empty Folder doesn't search the whole Library for it, and the User's own wider check isn't passed on; fails_when=check_mind searches Documents the agent can't read, or reports a verdict from a check that did
+  it("checks within the agent's Folders only, and keeps the User's wider check to the User", async () => {
+    const calls: ModelCall[] = [];
+    const { core, agent } = await paired({ calls });
+    const sources = await createSourceFolder();
+    const [rivers] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Rivers.md", "# Rivers\n\nPenguins nest on the cliffs.\n"),
+    ]);
+    if (!rivers) throw new Error("Rivers wasn't added.");
+    const inland = await core.createLibraryGroup({ name: "Inland", description: "Rivers." });
+    await core.assignDocumentGroup(rivers.id, inland.id);
+
+    // A Folder with no Document would search every Document: not for an agent.
+    const empty = await core.createLibraryGroup({ name: "Empty", description: "Nothing yet." });
+    const { launch } = await core.connectAgent({
+      name: "Codex",
+      folderIds: [empty.id],
+      propose: true,
+    });
+    const other = await connectLegacyAgent(launch);
+    const alone = await written(other);
+    calls.length = 0;
+    expect(refusal(await check(other, alone))).toBe(
+      "The note’s Folder has no Documents to check it against.",
+    );
+    expect(calls).toEqual([]);
+
+    // The User checks the agent's Note against every Document; the agent then asks for its check.
+    const mindId = await written(agent);
+    const own = await core.checkMind({
+      requestId: "the-users-own",
+      mindId,
+      mode: "changed",
+      allDocuments: true,
+    });
+    expect(own.kind).toBe("checked");
+    calls.length = 0;
+    const checked = structured<Checked>(await check(agent, mindId));
+    expect(checked).toMatchObject({ status: "checked", supported: 0, needLook: 3 });
+    expect(
+      checked.claims.map(({ result, reason, says, document, quote, cite }) => [
+        result,
+        reason,
+        says,
+        document,
+        quote,
+        cite,
+      ]),
+    ).toEqual(Array(3).fill(["not-checked", "beyond-reach", null, null, null, null]));
+    expect(calls).toEqual([]);
+  });
+
   // protects=an agent can't spend the User's model on, or mark, a Note that isn't its own, and one that may only read checks nothing; fails_when=check_mind runs on the User's own Note or for a read-only pairing
   it("is refused on a Note it didn't write, and for an agent that may only read", async () => {
     const { core, agent, coast } = await paired();

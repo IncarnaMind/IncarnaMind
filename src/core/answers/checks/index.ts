@@ -1259,14 +1259,18 @@ export function createChecks(options: ChecksOptions) {
     }
   }
 
-  /** Why a check on this model can't start with nothing asked of the User; null: it can. */
-  async function asksFirst(choice: ChatModelChoice | null): Promise<NotAskedReason | null> {
+  /** The model, prepared with nothing asked of the User (`prepareQuietly`), or why it can't be. */
+  async function prepareUnasked(
+    choice: ChatModelChoice | null,
+  ): Promise<PreparedChatModel | NotAskedReason> {
     const readiness = await chat.readiness(choice ?? undefined, "checks");
     if (!readiness.ready) return "not-ready";
     const { service } = readiness.provider;
-    if (!service) return null;
-    if (options.localOnly()) return "local-mode";
-    return options.consent.covers("checks", service, CHECKS_FLOW_SENDS) ? null : "consent-needed";
+    if (service && options.localOnly()) return "local-mode";
+    if (service && !options.consent.covers("checks", service, CHECKS_FLOW_SENDS)) {
+      return "consent-needed";
+    }
+    return (await prepareQuietly(choice)) ?? "not-ready";
   }
 
   const evidenceReady = (stop: AbortSignal, mindId: string) =>
@@ -1317,7 +1321,7 @@ export function createChecks(options: ChecksOptions) {
     ...options,
     documentVersions: options.watch.documentVersions,
     prepare,
-    asksFirst,
+    prepareUnasked,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     evidenceReady,
     citedNow,
@@ -1550,7 +1554,8 @@ export function createChecks(options: ChecksOptions) {
 
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),
-    checkMindOutside: (mindId: string) => mindCheck.checkOutside(mindId),
+    checkMindOutside: (mindId: string, reach: ReadonlySet<string>) =>
+      mindCheck.checkOutside(mindId, reach),
     documentsAddedSinceChecks: (mindId: unknown) => mindCheck.documentsAddedSinceChecks(mindId),
 
     /** A Document's status changed: a new version has its Folder's Minds checked for contradictions. */

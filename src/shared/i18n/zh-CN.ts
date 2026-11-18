@@ -7793,6 +7793,8 @@ export const zhCN = {
   "agents.problem.too-many": "这个智能体在过去一小时内已新建 {max} 篇笔记，达到上限。稍后再试。",
   "agents.check.notYours": "check_mind 只核对这个智能体用 create_mind 写的笔记，这篇不是它写的。",
   "agents.check.noDocuments": "这篇笔记所在的文件夹里没有可对照的文档。",
+  "agents.check.beyondReach":
+    "这篇笔记的核对范围包含未与这个智能体共享的文件夹中的文档，因此不能为它核对。用户可以在 IncarnaMind 中核对。",
   "agents.check.notReady": "IncarnaMind 中没有可用于核对的 AI 模型。请在“设置 › AI”中设置。",
   "agents.check.consent":
     "IncarnaMind 的 AI 模型尚未获准用于核对。在 IncarnaMind 中核对一篇笔记即可允许。",

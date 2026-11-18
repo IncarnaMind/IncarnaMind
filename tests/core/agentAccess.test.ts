@@ -8,6 +8,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import * as Y from "yjs";
 import {
   type AgentAccessDeps,
+  AgentRefusedError,
   createAgentAccess,
   createCheckRuns,
   MAX_CHECKS_AN_HOUR,
@@ -92,7 +93,11 @@ describe("ask, when IncarnaMind's Answer isn't written", () => {
 });
 
 /** An agent that may write, with one Note of its own in its Folder, whose Check `checkNote` runs. */
-function accessChecking(checkNote: AgentAccessDeps["checkNote"], clock: () => number = () => 0) {
+function accessChecking(
+  checkNote: AgentAccessDeps["checkNote"],
+  clock: () => number = () => 0,
+  overrides: Partial<AgentAccessDeps> = {},
+) {
   const doc = new Y.Doc();
   recordNoteWriter(doc, {
     source: "outside-agent",
@@ -110,6 +115,7 @@ function accessChecking(checkNote: AgentAccessDeps["checkNote"], clock: () => nu
       checkNote,
       checkWaitMs: 20,
       clock,
+      ...overrides,
     },
   );
 }
@@ -140,6 +146,89 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
     expect(checkNote).toHaveBeenCalledTimes(2);
   });
 
+  // protects=an agent that stopped waiting still learns the User stopped the check, and doesn't start it again by asking; fails_when=a check that ended between two calls is forgotten and the next call runs a new one
+  it("tells how a check ended to the call after it, once", async () => {
+    let finish: (outcome: OutsideCheck) => void = () => undefined;
+    const checkNote = vi.fn(
+      () =>
+        new Promise<OutsideCheck>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const access = accessChecking(checkNote);
+    expect(await access.checkMind({ mindId: "note" })).toMatchObject({ status: "running" });
+    finish({ asked: true, result: { kind: "cancelled" } });
+    expect(await access.checkMind({ mindId: "note" })).toMatchObject({
+      status: "stopped",
+      stopped: "It was stopped in IncarnaMind before it finished.",
+    });
+    expect(checkNote).toHaveBeenCalledTimes(1);
+    void access.checkMind({ mindId: "note" });
+    expect(checkNote).toHaveBeenCalledTimes(2);
+  });
+
+  // protects=what the User took from an agent while a check ran isn't handed to it when the check ends, and a verdict from the User's own wider check says nothing of Documents the agent can't read; fails_when=the reply is built on the grant as it was before the wait, or lists a widened mark's verdict
+  it("gives back only what the agent may read when the check ends", async () => {
+    let admitted = 0;
+    const gone = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        admit: (pairingId) => {
+          if (admitted++ > 0)
+            throw new AgentRefusedError("unpaired", "This agent isn’t connected.");
+          return { id: pairingId, name: "Codex", folderIds: ["coast"], propose: true };
+        },
+      },
+    );
+    await expect(gone.checkMind({ mindId: "note" })).rejects.toMatchObject({ problem: "unpaired" });
+
+    const item = {
+      kind: "sentence" as const,
+      text: "Spring tides come twice a month.",
+      origin: "other" as const,
+      reason: null,
+      says: "Rivers says so.",
+      evidence: null,
+      judgedOn: null,
+    };
+    const checkedAt = { model: null, at: "2026-11-01T09:00:00.000Z" };
+    const wider = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        checkRecord: async () => ({
+          models: [],
+          sentences: [
+            {
+              ...item,
+              result: "supported",
+              check: { ...checkedAt, scope: { folderId: "coast", widened: true } },
+            },
+            {
+              ...item,
+              result: "supported",
+              check: { ...checkedAt, scope: { folderId: "coast", widened: false } },
+            },
+          ],
+        }),
+      },
+    );
+    expect(await wider.checkMind({ mindId: "note" })).toMatchObject({
+      supported: 1,
+      needLook: 1,
+      claims: [
+        {
+          sentence: "Spring tides come twice a month.",
+          result: "not-checked",
+          reason: "beyond-reach",
+          says: null,
+          cite: null,
+        },
+      ],
+    });
+  });
+
   // protects=a check an agent starts never raises a dialog, and what stopped it is said in plain words; fails_when=a model not allowed yet is asked about, or a stop at the cap reads as a finished check
   it("says why nothing was sent, and why a check stopped early", async () => {
     const refusedWith = (outcome: OutsideCheck) =>
@@ -157,6 +246,13 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
     await expect(
       refusedWith({ asked: true, result: { kind: "no-documents", folderId: "coast" } }),
     ).rejects.toMatchObject({ message: "The note’s Folder has no Documents to check it against." });
+    await expect(refusedWith({ asked: false, reason: "no-documents" })).rejects.toMatchObject({
+      message: "The note’s Folder has no Documents to check it against.",
+    });
+    await expect(refusedWith({ asked: false, reason: "beyond-reach" })).rejects.toMatchObject({
+      problem: "outside-scope",
+      message: /outside the Folders shared with this agent/,
+    });
     expect(
       await refusedWith({
         asked: true,
