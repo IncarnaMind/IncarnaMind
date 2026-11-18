@@ -100,7 +100,6 @@ const ZH: Language = {
 const UNREAD_VERDICTS = [
   "Verdict: not supported",
   "结论：不支持",
-  "Verdict: partly supported",
   "Verdict: no",
   "结论：不成立",
 ];
@@ -207,6 +206,15 @@ describe.each([
         );
         expect(decoyCheck, taken).toMatchObject({ state: "not-checked", reason: "malformed" });
       }
+      const { check: lowered } = await checkWith(
+        language,
+        decoy,
+        plainSplitting(sentence, `Verdict: partly supported\nThe Documents say: ${sentence} [^1]`),
+      );
+      expect(lowered).toMatchObject({
+        state: "unsupported",
+        unsupported: { word: "partly-supported" },
+      });
     });
 
     test("a refusal set aside after the verdict takes it back", async () => {
