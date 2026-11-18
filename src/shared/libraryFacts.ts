@@ -4,6 +4,7 @@
  * rests on. Checks no longer read the Library's facts, so such a mark needs a re-check.
  */
 import type {
+  CheckWorking,
   CitationAttributes,
   CitationLocation,
   DocumentKind,
@@ -13,6 +14,7 @@ import type {
 } from "../core/api";
 import { isRecord } from "../core/errors";
 import type { Language } from "../core/language";
+import { listOf } from "./i18n/join";
 import type { Translate } from "./locations";
 import { storedSearchScope } from "./searchScope";
 
@@ -181,6 +183,20 @@ export function factWords(fact: LibraryFact, t: Translate, language: Language): 
         : t("claim.library.notes", { count: count(fact.count) });
   }
 }
+
+/** What a check's working counted of the Library: "Your Library: 22 Documents and 3 Folders". */
+export const listsRow = (
+  { source, lists }: NonNullable<CheckWorking["library"]>,
+  t: Translate,
+  language: Language,
+): string =>
+  t("claim.library.row", {
+    source: sourceWords(source, t, language),
+    fact: listOf(
+      lists.map(({ list, count }) => factWords({ kind: list, count }, t, language)),
+      language,
+    ),
+  });
 
 /** A check's row for the fact that decided its sentence: "Your Library: 22 Documents". */
 export const libraryRow = (location: LibraryLocation, t: Translate, language: Language): string =>

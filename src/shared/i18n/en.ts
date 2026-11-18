@@ -1305,6 +1305,7 @@ export const en = {
   "claim.why.needs-recheck": "Needs re-check",
   "claim.why.notFound": "Not found",
   "claim.working.show": "Show how it was worked out",
+  "claim.working.library": "Counted on this computer from IncarnaMind’s own lists. {lists}.",
   "claim.working.rows.one": "Worked out on this computer from {count} row of “{name}” ({range}).",
   "claim.working.rows.other":
     "Worked out on this computer from {count} rows of “{name}” ({range}).",

@@ -70,6 +70,8 @@ export function analysisReport(
   analysis: AnswerAnalysis,
   language: Language,
   codeOffered = false,
+  /** The inputs it keeps no record of, each as its line says it: a list of the Library. */
+  others: readonly string[] = [],
 ): string {
   const { output, end } = analysis;
   const lines = [`Analysis ${analysis.number}: ${analysis.title}`];
@@ -83,6 +85,7 @@ export function analysisReport(
     );
   }
   if (analysis.inputs.length > 0 || !analysis.files) lines.push("Inputs:");
+  lines.push(...others.map((each) => `- ${each}`));
   for (const input of analysis.inputs) {
     if (input.kind === "range") {
       const sheet = input.citation.location?.kind === "rows" ? input.citation.location.sheet : null;

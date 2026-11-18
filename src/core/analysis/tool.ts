@@ -364,7 +364,18 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         ok.flatMap((read) => (read.library ? [read.library] : [])),
       );
       options.ran(toolCallId, analysis);
-      return analysisReport(analysis, options.language, options.codeOffered?.() === true);
+      return analysisReport(
+        analysis,
+        options.language,
+        options.codeOffered?.() === true,
+        ok.flatMap(({ library, job }) =>
+          library && job.kind === "table"
+            ? [
+                `${job.name}: the Library's ${library}: ${job.rows.length} rows × ${job.columns.length} columns (${job.columns.join(", ")})`,
+              ]
+            : [],
+        ),
+      );
     },
   };
 }

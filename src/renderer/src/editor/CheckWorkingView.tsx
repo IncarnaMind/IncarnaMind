@@ -1,9 +1,13 @@
 import type { CheckWorking } from "../../../core/api";
+import { listsRow } from "../../../shared/libraryFacts";
 import { useLanguage, useT } from "../i18n";
 import { formatCount } from "../linkedFolders";
 import "./calculatedFigure.css";
 
-/** How a check worked a sentence's figure out again over a data file's rows: the rows it read and its code, folded. */
+/**
+ * How a check worked a sentence out in code, folded: the rows of a data file it read, or the
+ * Library's own lists it counted (#2525), and its code.
+ */
 export function CheckWorkingView({ working }: { working: CheckWorking }) {
   const t = useT();
   const language = useLanguage();
@@ -19,6 +23,9 @@ export function CheckWorkingView({ working }: { working: CheckWorking }) {
           })}
         </p>
       ))}
+      {working.library && (
+        <p>{t("claim.working.library", { lists: listsRow(working.library, t, language) })}</p>
+      )}
       <pre>
         <code>{working.code}</code>
       </pre>

@@ -1269,6 +1269,7 @@ export const zhCN = {
   "claim.why.needs-recheck": "需重新核对",
   "claim.why.notFound": "未找到",
   "claim.working.show": "查看重算过程",
+  "claim.working.library": "在这台电脑上根据 IncarnaMind 自己的清单数出。{lists}。",
   "claim.working.rows.one": "在这台电脑上根据“{name}”的 {count} 行（{range}）重算。",
   "claim.working.rows.other": "在这台电脑上根据“{name}”的 {count} 行（{range}）重算。",
   "claim.why.overstated": "夸大",
