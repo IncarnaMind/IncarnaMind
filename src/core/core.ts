@@ -264,7 +264,7 @@ import {
   pacedBy,
   withPageReader,
 } from "./library/classifier";
-import { libraryLists } from "./library/lists";
+import { libraryLists, libraryVersion } from "./library/lists";
 import { createLibraryOrganizer } from "./library/organizeLibrary";
 import { documentCitedPages, documentPageImages } from "./library/pageImages";
 import type { PlanRequest } from "./library/plan";
@@ -2939,6 +2939,43 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   }
 
+  // A walled Folder's Documents, Folders and notes are listed only for a Note inside that wall.
+  const libraryListsOf = (mindId: string | null) => {
+    const ownWall = walledFolder(mindId);
+    const sees = (folderId: string | null) => walledFolderId(folderId) === ownWall;
+    const listed = new Set(documents.ids({ listed: true }));
+    const seen = (scopeDocuments(null, mindId) ?? [...listed]).filter((id) => listed.has(id));
+    const walls = library.folders().filter((folder) => folder.keepInside).length;
+    return libraryLists({
+      source:
+        ownWall !== null
+          ? {
+              kind: "scope",
+              name: library.folders().find((folder) => folder.id === ownWall)?.name ?? "",
+              more: 0,
+            }
+          : walls > 0
+            ? { kind: "left-out", folders: walls }
+            : { kind: "library" },
+      documents: documents.getMany(seen),
+      folders: library.folders().filter((folder) => sees(folder.id)),
+      folderOf: new Map(
+        library
+          .snapshot()
+          .assignments.flatMap(({ documentId, groupId }) =>
+            groupId === null ? [] : [[documentId, groupId] as const],
+          ),
+      ),
+      tagNames: new Map(tags.list().map((tag) => [tag.id, tag.name])),
+      notes: minds
+        .list()
+        .filter((mind) => mind.id !== mindId && sees(mind.folderId))
+        .map((mind) => ({
+          name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+          folderId: mind.folderId,
+        })),
+    });
+  };
   const checks = createChecks({
     repliesOut,
     // The call a Transcript's Passage is from, for an Answer asked in a Note that holds a call (#3005).
@@ -3090,43 +3127,7 @@ export function createCore(adapters: CoreAdapters): Core {
     unread: unreadIn,
     evidence,
     ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
-    // A walled Folder's Documents, Folders and notes are listed only for a Note inside that wall.
-    libraryLists: (mindId) => {
-      const ownWall = walledFolder(mindId);
-      const sees = (folderId: string | null) => walledFolderId(folderId) === ownWall;
-      const listed = new Set(documents.ids({ listed: true }));
-      const seen = (scopeDocuments(null, mindId) ?? [...listed]).filter((id) => listed.has(id));
-      const walls = library.folders().filter((folder) => folder.keepInside).length;
-      return libraryLists({
-        source:
-          ownWall !== null
-            ? {
-                kind: "scope",
-                name: library.folders().find((folder) => folder.id === ownWall)?.name ?? "",
-                more: 0,
-              }
-            : walls > 0
-              ? { kind: "left-out", folders: walls }
-              : { kind: "library" },
-        documents: documents.getMany(seen),
-        folders: library.folders().filter((folder) => sees(folder.id)),
-        folderOf: new Map(
-          library
-            .snapshot()
-            .assignments.flatMap(({ documentId, groupId }) =>
-              groupId === null ? [] : [[documentId, groupId] as const],
-            ),
-        ),
-        tagNames: new Map(tags.list().map((tag) => [tag.id, tag.name])),
-        notes: minds
-          .list()
-          .filter((mind) => mind.id !== mindId && sees(mind.folderId))
-          .map((mind) => ({
-            name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
-            folderId: mind.folderId,
-          })),
-      });
-    },
+    libraryLists: libraryListsOf,
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
@@ -6774,6 +6775,7 @@ export function createCore(adapters: CoreAdapters): Core {
     holdMindCheck: async (input) => checks.holdMindCheck(input),
     findMindClaims: (input) => inFlow("check-mind", () => checks.findMindClaims(input)),
     checkMind: (input) => inFlow("check-mind", () => checks.checkMind(input)),
+    libraryListsVersion: async (mindId) => libraryVersion(libraryListsOf(mindId)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),

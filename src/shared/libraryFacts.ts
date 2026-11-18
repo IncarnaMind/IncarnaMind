@@ -28,7 +28,7 @@ const VERSION = `${LIBRARY_FACTS}:`;
 export const isLibraryCitation = (citation: Pick<CitationAttributes, "location">): boolean =>
   (citation.location as { kind?: unknown } | null)?.kind === "library";
 
-const DOCUMENT_KINDS: Readonly<Record<DocumentKind, true>> = {
+export const DOCUMENT_KINDS: Readonly<Record<DocumentKind, true>> = {
   pdf: true,
   text: true,
   markdown: true,

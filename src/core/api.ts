@@ -14080,6 +14080,11 @@ export interface CoreApi {
    * the run in the Mind (`MindCheckRun`). `cancelCheck` stops it.
    */
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
+  /**
+   * The version of the Library's own lists as the Note's check counts them (#2525): what the
+   * window compares with the version a check that counted them kept. Sends nothing.
+   */
+  libraryListsVersion(mindId: string): Promise<string>;
   /** The current Note’s figures, projected from its one Check and saved evidence. */
   getFigureSchedule(mindId: string): Promise<FigureSchedule>;
   /**
@@ -15448,6 +15453,7 @@ const methods: Record<CoreApiMethod, true> = {
   holdMindCheck: true,
   findMindClaims: true,
   checkMind: true,
+  libraryListsVersion: true,
   getFigureSchedule: true,
   getFigureScheduleChange: true,
   saveFigureScheduleExport: true,

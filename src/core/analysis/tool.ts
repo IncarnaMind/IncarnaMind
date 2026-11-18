@@ -1,4 +1,5 @@
 import { type AnalysisInput, noAnalysisOutput } from "../../shared/analysis";
+import { DOCUMENT_KINDS } from "../../shared/libraryFacts";
 import type { UnitText } from "../../shared/units";
 import type { AnalysisRuntime } from "../adapters";
 import { setAsideRowsOf } from "../answers/sheetRows";
@@ -57,8 +58,34 @@ export interface AnalysisToolOptions {
 }
 
 /** How the model is told to read the Library's lists, where a Run offers them. */
-const LIBRARY_INPUT =
-  ' An input can also be one of the lists IncarnaMind keeps of the User\'s Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, tags), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder). Count and compare their rows in the code and give what you worked out with result().';
+const LIBRARY_INPUT = ` An input can also be one of the lists IncarnaMind keeps of the User's Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, tags; kind is one of ${Object.keys(DOCUMENT_KINDS).join(", ")}, and tags are joined with ", "), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder). Their rows stay on the User's computer and are never shown to you: count or look up in the code what you need and give each number with result(). Nothing the code prints and no table comes back from such a run.`;
+
+/**
+ * A run that read the Library's lists, as its model is told of it: the numbers its code gave and
+ * nothing else of its output, so the lists themselves (names, Folders, Tags) stay on this computer
+ * (#2525). Of an error, only Python's name for it.
+ */
+function countsOnly(analysis: AnswerAnalysis): AnswerAnalysis {
+  const { output, end } = analysis;
+  return {
+    ...analysis,
+    end:
+      end.kind === "error"
+        ? {
+            ...end,
+            message: /^[\w.]+/.exec(end.message.trim().split("\n").at(-1) ?? "")?.[0] ?? "",
+          }
+        : end,
+    output: {
+      ...output,
+      results: output.results.filter((each) => each.kind === "figure"),
+      charts: [],
+      pictures: [],
+      notNumbers: [],
+      printed: "",
+    },
+  };
+}
 
 const fields = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -364,17 +391,18 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         ok.flatMap((read) => (read.library ? [read.library] : [])),
       );
       options.ran(toolCallId, analysis);
+      const lists = ok.flatMap(({ library, job }) =>
+        library && job.kind === "table"
+          ? [
+              `${job.name}: the Library's ${library}: ${job.rows.length} rows × ${job.columns.length} columns (${job.columns.join(", ")}), never shown: only the numbers result() gives come back`,
+            ]
+          : [],
+      );
       return analysisReport(
-        analysis,
+        lists.length > 0 ? countsOnly(analysis) : analysis,
         options.language,
         options.codeOffered?.() === true,
-        ok.flatMap(({ library, job }) =>
-          library && job.kind === "table"
-            ? [
-                `${job.name}: the Library's ${library}: ${job.rows.length} rows × ${job.columns.length} columns (${job.columns.join(", ")})`,
-              ]
-            : [],
-        ),
+        lists,
       );
     },
   };

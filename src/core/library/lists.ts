@@ -31,10 +31,19 @@ export interface LibrarySeen {
   notes: readonly { name: string; folderId: string | null }[];
 }
 
-/** A value that differs whenever any of the lists does: what a check that counted them rests on. */
+/**
+ * A value that differs whenever any of the lists does, in whatever order their rows come: what a
+ * check that counted them rests on.
+ */
 export const libraryVersion = ({ documents, folders, notes }: LibraryLists): string =>
   createHash("sha256")
-    .update(JSON.stringify([documents.rows, folders.rows, notes.rows]))
+    .update(
+      JSON.stringify(
+        [documents, folders, notes].map(({ rows }) =>
+          rows.map((row) => JSON.stringify(row)).sort(),
+        ),
+      ),
+    )
     .digest("base64url")
     .slice(0, 22);
 

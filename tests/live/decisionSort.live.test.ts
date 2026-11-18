@@ -186,7 +186,7 @@ test.skipIf(!KEY)(
       lowest: [...about].sort((a, b) => (a ?? 1) - (b ?? 1)).slice(0, 5),
       others: others.length,
       othersAtOrOver: Object.fromEntries(
-        [0.05, 0.1, 0.2, 0.3, 0.5].map((at) => [at, atOrOver(at)]),
+        [0.5, 0.9, 0.95, 0.98, 0.99].map((at) => [at, atOrOver(at)]),
       ),
     };
     if (OUT)

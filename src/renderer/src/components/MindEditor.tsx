@@ -31,6 +31,7 @@ import type { NoteFooting } from "../../../shared/claimChecks";
 import { figureRunsFor } from "../../../shared/figureRuns";
 import { footingOfRows } from "../../../shared/figureSchedule";
 import { type MessageKey, translate } from "../../../shared/i18n";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { setMindScope } from "../../../shared/mindScope";
 import { chosenScope } from "../../../shared/searchScope";
 import { askedInThisWindow } from "../askedChanges";
@@ -99,6 +100,7 @@ import { FootnoteKeys, focusNow } from "../editor/footnoteSchema";
 import { HeldSelection } from "../editor/heldSelection";
 import { drawHistory } from "../editor/keptHistories";
 import { LinkBubble } from "../editor/LinkBubble";
+import { useLibraryListsVersion } from "../editor/libraryVersion";
 import { ListKeys } from "../editor/listKeys";
 import { MarginChecks } from "../editor/MarginChecks";
 import { MathEditing, MathEditor } from "../editor/MathEditor";
@@ -798,10 +800,16 @@ function MindEditorView({
   const folderId = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
   );
+  const libraryVersion = useLibraryListsVersion(editor, mindId);
   const versions = useMemo(
     () =>
-      documents ? new Map(documents.map((each) => [each.id, each.contentHash] as const)) : null,
-    [documents],
+      documents
+        ? new Map([
+            ...documents.map((each) => [each.id, each.contentHash] as const),
+            ...(libraryVersion ? [[LIBRARY_FACTS, libraryVersion] as const] : []),
+          ])
+        : null,
+    [documents, libraryVersion],
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);
