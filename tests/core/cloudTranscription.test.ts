@@ -487,6 +487,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     const meeting = await core.createMeeting();
     await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
     await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
 
     for (let elapsed = 4 * SECOND; elapsed <= 44 * SECOND; elapsed += 4 * SECOND) {
       record(4 * SECOND, ["system"]);
@@ -504,7 +505,7 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
     if (!saved.savedPath) throw new Error("The Transcript was not saved.");
     const { cues, gaps } = readVtt(readFileSync(saved.savedPath, "utf8"));
-    expect(gaps).toEqual([]);
+    expect(gaps).toEqual([{ fromMs: 0, toMs: 44 * SECOND, reason: "muted" }]);
     expect(cues.map((cue) => cue.text)).toEqual([text]);
   });
 
