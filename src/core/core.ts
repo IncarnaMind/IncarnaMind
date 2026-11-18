@@ -358,6 +358,7 @@ import { createOllamaModels } from "./providers/ollamaModels";
 import { outputTokens } from "./providers/outputLimits";
 import { classifyProviderError } from "./providers/providerErrors";
 import { createAiSdkRerankingModel, createRerank } from "./providers/rerank";
+import { createUnsupportedSettings } from "./providers/unsupportedSettings";
 import { createQuestions } from "./questions";
 import { createRecentlyDeleted } from "./recentlyDeleted";
 import { createReferenceChecks } from "./referenceChecks";
@@ -1485,13 +1486,18 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   // Nothing is in flight yet: what is still reserved was left by a crash.
   meter.settleOpen();
+  const unsupportedSettings = createUnsupportedSettings();
   const chat = createChat({
     db,
     now,
     settings,
     secrets,
     consent,
-    createModel: adapters.createChatModel ?? createAiSdkChatModel,
+    createModel: (spec) =>
+      unsupportedSettings.wrap(
+        (adapters.createChatModel ?? createAiSdkChatModel)(spec),
+        `${spec.kind}\n${spec.modelId}`,
+      ),
     chatGpt,
     claudeAccount,
     copilot,
