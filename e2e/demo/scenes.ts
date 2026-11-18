@@ -6,7 +6,14 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
-import { assistantAnswers, leaveText, openDocumentAt, openSteps, transcribeHere } from "../app";
+import {
+  assistantAnswers,
+  leaveText,
+  markShownFor,
+  openDocumentAt,
+  openSteps,
+  transcribeHere,
+} from "../app";
 import { say } from "./call";
 import type { Film, Hand } from "./film";
 import { SCENE_TABLE } from "./sceneTable";
@@ -635,7 +642,7 @@ async function check(take: Take): Promise<void> {
     if (shown) await ask.click();
   });
   await hand.cut(() =>
-    expect(window.getByTestId("claim-mark").first()).toBeVisible({ timeout: 180_000 }),
+    expect(window.getByTestId("claim-mark").first()).toBeAttached({ timeout: 180_000 }),
   );
   const counted = film.kept;
   film.speed(2);
@@ -696,7 +703,7 @@ async function check(take: Take): Promise<void> {
       .catch(() => false);
     if (shown) await againAsk.click();
     await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 240_000 });
-    await expect(window.getByTestId("claim-mark").first()).toBeVisible();
+    await expect(window.getByTestId("claim-mark").first()).toBeAttached();
     await window.keyboard.press("Escape");
   });
   await expect(wrong).toHaveCount(0);
@@ -767,6 +774,7 @@ async function check(take: Take): Promise<void> {
       ) {
         continue;
       }
+      await markShownFor(window, mark);
       await mark.click();
       if (
         await card

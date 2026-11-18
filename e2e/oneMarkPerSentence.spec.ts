@@ -18,6 +18,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  showEveryCheckResult,
   slideSelect,
   tokenColor,
   useLocalChatModel,
@@ -199,6 +200,8 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     const marks = window.getByTestId("claim-mark");
     await expect(marks).toHaveCount(4);
+    // Every mark, the ✓ and the one that can be cited included, shows with every result (#3358).
+    await showEveryCheckResult(window);
     for (const [at, check] of [
       "supported",
       "unsupported",

@@ -23,6 +23,7 @@ import {
   focusSettled,
   launchApp,
   linkFolderFromSidebar,
+  markShownFor,
   motionSettled,
   newMind,
   pointAndClick,
@@ -248,6 +249,7 @@ for (const language of ["en", "zh-CN"] as const) {
           delete legacy.parts;
           legacy.evidence = citation;
           await setContent(window, [paragraph("legacy", words.fact.trim(), legacy)]);
+          await markShownFor(window, window.getByTestId("claim-mark"));
           await expect(window.getByTestId("claim-mark")).toContainText("+");
           await window.getByTestId("claim-mark").click();
           await expect(window.getByTestId("claim-add-citation")).toBeVisible();
@@ -274,6 +276,7 @@ for (const language of ["en", "zh-CN"] as const) {
           ]);
           await expect(window.getByTestId("claim-mark")).toContainText("+");
           const sourceParts = await partsOfCheck(window, "multisource-check");
+          await markShownFor(window, window.getByTestId("claim-mark"));
           await pointAndClick(window, window.getByTestId("claim-mark"));
           const sourceCard = window.getByTestId("claim-card");
           const receipts = sourceCard.getByTestId("claim-part-receipt");
@@ -298,6 +301,7 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(toggle).toHaveAttribute("aria-pressed", "true");
           await pointAndClick(window, window.getByTestId("undo-action"));
           await expect(sourceCard).toHaveCount(0);
+          await markShownFor(window, window.getByTestId("claim-mark"));
           await pointAndClick(window, window.getByTestId("claim-mark"));
           await expect(toggle).toHaveAttribute("aria-pressed", "false");
           // A quote's own menu still signs it alone, and says so on that quote.
@@ -316,6 +320,7 @@ for (const language of ["en", "zh-CN"] as const) {
           await runCommand(window, "citation.signOffRemove", translate(language, "signOff.action"));
           await window.keyboard.press("Escape");
           await expect(sourceCard).toHaveCount(0);
+          await markShownFor(window, window.getByTestId("claim-mark"));
           await pointAndClick(window, window.getByTestId("claim-mark"));
           await expect(toggle).toHaveAttribute("aria-pressed", "false");
           await expect(receipts.nth(0).getByTestId("sign-off-line")).toHaveCount(0);
@@ -366,6 +371,7 @@ for (const language of ["en", "zh-CN"] as const) {
           unexamined: [],
         });
         await applySettings(window, Array.from(Y.encodeStateAsUpdate(settings)));
+        await markShownFor(window, window.getByTestId("claim-mark"));
         const health = await checkCard(window);
         await expect(health.getByTestId("opinions-line").first()).toContainText(words.omitted);
         await expect(window.getByTestId("claim-mark")).toHaveCount(1);
@@ -539,6 +545,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await setContent(window, [
           paragraph("summary", summary, checked("summary-check", summary, summaryParts)),
         ]);
+        await markShownFor(window, window.getByTestId("claim-mark"));
         await window.getByTestId("claim-mark").click();
         // Every part supported: one quote, and a count of the other five that opens them (#2869).
         await allRowsVisible(window, 1);
@@ -693,6 +700,7 @@ for (const language of ["en", "zh-CN"] as const) {
           // Opened once the page's check badge shows, as a User sees it, so the card can keep clear of it.
           const badge = window.locator(".mind-foot-badge .check-badge").first();
           await expect(badge).toBeVisible();
+          await markShownFor(window, window.getByTestId("claim-mark"));
           await window.getByTestId("claim-mark").click();
           await expect(card.getByTestId("claim-cited-case-unchecked")).toHaveText(
             translate(language, "claim.citedCaseUnchecked"),
@@ -813,6 +821,7 @@ for (const language of ["en", "zh-CN"] as const) {
           paragraph("pure-verify", words.verifyOpinion),
         ]);
         await applySettings(window, Array.from(Y.encodeStateAsUpdate(verifySettings)));
+        await markShownFor(window, window.getByTestId("claim-mark"));
         await window.getByTestId("claim-mark").click();
         // Two supported parts: one quote, and the other behind its count.
         await allRowsVisible(window, 1);
@@ -950,6 +959,7 @@ for (const language of ["en", "zh-CN"] as const) {
         .toBe(true);
       for (const multiple of [false, true]) {
         await setContent(window, [changedBlock(multiple)]);
+        await markShownFor(window, window.getByTestId("claim-mark"));
         await window.getByTestId("claim-mark").click();
         const changedCard = window.getByTestId("claim-card");
         const notice = changedCard.getByTestId("citation-changed-notice");

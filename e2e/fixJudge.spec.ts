@@ -8,6 +8,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   pointAndClick,
@@ -189,6 +190,7 @@ for (const [language, width] of [
     // The words are written at once; the verdict then comes from the check the press asked for.
     await expect(mark).not.toHaveAttribute("data-claim", earlierId ?? "", { timeout: 30_000 });
     await expect(mark).toHaveAttribute("data-check", "supported", { timeout: 30_000 });
+    await markShownFor(window, mark);
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "supported");
     await expect(card.getByTestId("claim-badge")).toContainText(words.supported);

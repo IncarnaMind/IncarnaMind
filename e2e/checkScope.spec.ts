@@ -11,6 +11,7 @@ import {
   documentIdOf,
   importWordFile,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   openCardMenu,
@@ -105,6 +106,7 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
     await window.keyboard.press("Escape");
     await expect(card.getByTestId("check-actions")).toBeHidden();
   };
+  await markShownFor(window, marks.first());
   await pointAndClick(window, marks.first());
   await expect(card.getByTestId("claim-checked-in")).toHaveCount(0);
   await expect(await checkedIn()).toHaveText("Checked against “Harbour times”");
@@ -122,6 +124,7 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
   await screenshot(window, "not-found-in-scope-en");
   await pointAndClick(window, card.getByTestId("claim-search-all"));
   await expect(marks.nth(1)).toHaveAttribute("data-check", "supported");
+  await markShownFor(window, marks.nth(1));
   await pointAndClick(window, marks.nth(1));
   await expect(await checkedIn()).toHaveText("Checked against “All Documents”");
   await screenshot(window, "widened-en");
@@ -129,11 +132,13 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
   await window.keyboard.press("Escape");
 
   await setLanguage(window, "zh-CN");
+  await markShownFor(window, marks.first());
   await pointAndClick(window, marks.first());
   await expect(await checkedIn()).toHaveText("已对照“Harbour times”核对");
   await screenshot(window, "checked-in-zh");
   await closeMenu();
   await window.keyboard.press("Escape");
+  await markShownFor(window, marks.nth(1));
   await pointAndClick(window, marks.nth(1));
   await expect(await checkedIn()).toHaveText("已对照“全部文档”核对");
   await screenshot(window, "widened-zh");

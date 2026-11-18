@@ -17,6 +17,7 @@ import {
   dismissChatSetup,
   focusSettled,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   pointAndClick,
@@ -219,6 +220,7 @@ const citationAttrs = (window: Page) =>
   });
 
 async function openCard(window: Page, mark: Locator) {
+  await markShownFor(window, mark);
   await motionSettled(window);
   await pointAndClick(window, mark);
   const card = window.getByTestId("claim-card");

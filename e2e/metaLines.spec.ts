@@ -9,6 +9,7 @@ import {
   dismissChatSetup,
   expectDotsBetweenParts,
   launchApp,
+  markShownFor,
   nameMind,
   newMind,
   pointAndClick,
@@ -92,6 +93,7 @@ for (const value of ["en", "zh-CN"] as const) {
     );
     const mark = window.getByTestId("claim-mark");
     await expect(mark).toHaveAttribute("data-check", "supported");
+    await markShownFor(window, mark);
     await pointAndClick(window, mark);
     await pointAndClick(window, window.getByTestId("claim-card").getByTestId("claim-add-citation"));
     await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");

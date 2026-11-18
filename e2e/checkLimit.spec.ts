@@ -8,6 +8,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   openCardMenu,
@@ -100,6 +101,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     for (const [size, [width, height]] of Object.entries(SIZES)) {
       if (size === "wide") await setWindowSize(app, window, width, height);
+      await markShownFor(window, supported);
       await pointAt(window, supported);
       await expect(card.getByTestId("claim-badge")).toHaveText(
         translate(language, "claim.state.supported"),

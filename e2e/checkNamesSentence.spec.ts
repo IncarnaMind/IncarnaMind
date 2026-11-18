@@ -11,6 +11,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   openCardMenu,
@@ -249,15 +250,15 @@ for (const language of ["en", "zh-CN"] as const) {
       };
     };
     await expect(marks).toHaveCount(8);
-    // A claim not checked yet takes no room in the margin's stack: on the same line as a checked
-    // claim, its unseen anchor sits on that line, and the checked mark keeps its own place (#1941).
+    // A claim not checked keeps its quiet ring on its sentence's line, beside the checked claim
+    // that starts on the same line (#3358).
     const beside = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
-    const unseen = window.locator('[data-testid="claim-mark"][data-claim="check-8"]');
+    const ring = window.locator('[data-testid="claim-mark"][data-claim="check-8"]');
     const rectOf = (locator: Locator) =>
       locator.evaluate((element) => element.getBoundingClientRect().toJSON());
-    await expect(unseen).toBeHidden();
-    const [besideBox, unseenBox] = await Promise.all([rectOf(beside), rectOf(unseen)]);
-    expect(unseenBox.y).toBe(besideBox.y);
+    await expect(ring).toBeVisible();
+    const [besideBox, ringBox] = await Promise.all([rectOf(beside), rectOf(ring)]);
+    expect(ringBox.y).toBe(besideBox.y);
 
     const metaInk = await tokenColor(window, "--color-ink-meta");
     const clock = await clockOf(window);
@@ -277,12 +278,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(outlined).toHaveCount(0);
 
       if (kind === "not-checked") {
-        // A claim not checked yet has no mark on the page (#1941): it draws no icon and stays
-        // unseen, and its card opens from the badge's row for it.
-        await expect(mark).toBeHidden();
-        await expect(mark.locator("svg")).toHaveCount(0);
+        // A claim not checked keeps its quiet grey ring (#3358), and its card opens from the
+        // badge's row for it too.
+        await expect(mark).toBeVisible();
+        await expect(mark.locator("svg")).toHaveCount(1);
         await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
       } else {
+        await markShownFor(window, mark);
         await pointAndClick(window, mark);
       }
       await expect(card).toHaveAttribute("data-check", kind);
@@ -339,6 +341,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(mark).not.toHaveAttribute("data-open", "true");
     }
 
+    await markShownFor(window, marks.nth(5));
     await pointAndClick(window, marks.nth(5));
     await expect(card).toHaveAttribute("data-check", "supported");
     await expect(card.getByTestId("claim-where").getByTestId("claim-already-chip")).toBeVisible();
@@ -599,6 +602,7 @@ for (const language of ["en", "zh-CN"] as const) {
       }
       await window.keyboard.press("Escape");
       await expect(card).toHaveCount(0);
+      await markShownFor(window, markOf(id));
       await pointAndClick(window, markOf(id));
       await expect(card).toHaveAttribute("data-check", "supported");
       await openCardMenu(window, card);
@@ -811,6 +815,7 @@ for (const language of ["en", "zh-CN"] as const) {
             requestAnimationFrame(sample);
           }),
       );
+      await markShownFor(window, markOf(id));
       await pointAndClick(window, markOf(id));
       await expect(card).toBeVisible();
       await pointAndClick(window, card.getByTestId("check-menu"));

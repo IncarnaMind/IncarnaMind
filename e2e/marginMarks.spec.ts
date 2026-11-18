@@ -15,6 +15,7 @@ import {
   setGroupBeside,
   setLanguage,
   setWindowSize,
+  showEveryCheckResult,
   sizeMind,
   slideSelect,
   useLocalChatModel,
@@ -315,6 +316,8 @@ test("a wider ✓+ starts its row by its own width, its neighbour 4px after it a
   const marks = window.getByTestId("margin-checks").getByTestId("claim-mark");
   await expect(marks).toHaveCount(2, { timeout: 60_000 });
   await marksDone(window);
+  // A ✓ shows with every result (#3358).
+  await showEveryCheckResult(window);
   // The first mark's Passage can become its Citation, so it draws wider with its +.
   await expect(marks.nth(0)).toHaveAttribute("data-addable", "true");
   await expect(marks.nth(1)).not.toHaveAttribute("data-addable");

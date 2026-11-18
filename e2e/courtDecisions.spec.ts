@@ -11,6 +11,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   newMind,
   openCardMenu,
   pointAndClick,
@@ -164,6 +165,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const marks = window.getByTestId("claim-mark");
     await expect(marks.first()).toHaveAttribute("data-check", "supported");
 
+    await markShownFor(window, marks.first());
     await pointAndClick(window, marks.first());
     const card = window.getByTestId("claim-card");
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "supported");
@@ -192,6 +194,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const marks = window.getByTestId("claim-mark");
     await expect(marks.first()).toHaveAttribute("data-check", "supported");
 
+    await markShownFor(window, marks.first());
     await pointAndClick(window, marks.first());
     const card = window.getByTestId("claim-card");
     await expect(card.getByTestId("claim-badge")).toHaveAttribute("data-check", "supported");
@@ -264,6 +267,7 @@ test.describe("a web page the User saved", () => {
       const marks = window.getByTestId("claim-mark");
       await expect(marks.first()).toHaveAttribute("data-check", "supported");
 
+      await markShownFor(window, marks.first());
       await pointAndClick(window, marks.first());
       const card = window.getByTestId("claim-card");
       const source = card.getByTestId("claim-web-source");

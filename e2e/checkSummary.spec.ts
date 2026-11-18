@@ -22,8 +22,8 @@ import {
  * The card counts sentences, each once, by its one state (#2831): what needs a look, what is
  * supported, what is being checked and what isn't checked, each a row a click moves to (#2313),
  * and no row of Citations. "Everything checked" shows only when nothing is left. A sentence not
- * checked yet has no mark on the page and opens from the card's row for it or from ⇧⌘K. The
- * checks are written into the page, so no model is involved.
+ * checked keeps a quiet ring on the page and opens from the card's row for it or from ⇧⌘K too.
+ * The checks are written into the page, so no model is involved.
  */
 
 const TIDES = buildPdf([
@@ -187,7 +187,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
     await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
 
-    // A claim no check covers yet is named too, and has no mark on the page.
+    // A claim no check covers yet is named too.
     await insert([
       paragraph(checked("check-7", "not-checked", sentences.notChecked, { reason: "refused" })),
     ]);
@@ -195,9 +195,10 @@ for (const language of ["en", "zh-CN"] as const) {
     // Each count shows once in the card: the row names the one not checked yet (#2313).
     await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
     await expect(card.getByText(words.toCheck, { exact: true })).toHaveCount(1);
-    const unseen = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
-    await expect(unseen).toBeHidden();
-    await expect(unseen.locator("svg")).toHaveCount(0);
+    // On the page it keeps the quiet grey ring, so it never looks like a Supported one (#3358).
+    const ring = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
+    await expect(ring).toBeVisible();
+    await expect(ring.locator("svg")).toHaveCount(1);
 
     // Its card still opens from the badge's row for the claims not checked yet.
     await pointAndClick(window, card.getByTestId("health-toCheck"));

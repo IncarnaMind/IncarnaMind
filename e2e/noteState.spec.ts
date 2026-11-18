@@ -381,11 +381,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(badge(window)).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
-      // Its card counts the sentence once, supported (#2831): with no Citation yet it is done, so
-      // the card says everything is checked, the files still named.
+      // Its card counts the sentence once (#2831), as one that can be cited (#3358): with no
+      // Citation yet it is done, so the card says everything is checked, the files still named.
       const done = await checkCard(window);
-      await expect(done.getByTestId("health-supported")).toContainText(
-        language === "en" ? "1 supported" : "1 句有依据",
+      await expect(done.getByTestId("health-notYetCited")).toContainText(
+        language === "en" ? "1 can be cited" : "1 句可添加引用",
       );
       await expect(done.getByTestId("health-noCitation")).toHaveCount(0);
       await expect(done.getByTestId("health-all-checked")).toBeVisible();
@@ -482,10 +482,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(stateWords(window)).toHaveText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
-      // The card counts the sentence once, supported, though it still has no Citation.
+      // The card counts the sentence once, as one that can be cited: it still has no Citation.
       const narrow = await checkCard(window);
-      await expect(narrow.getByTestId("health-supported")).toContainText(
-        language === "en" ? "1 supported" : "1 句有依据",
+      await expect(narrow.getByTestId("health-notYetCited")).toContainText(
+        language === "en" ? "1 can be cited" : "1 句可添加引用",
       );
       await expect(narrow.getByTestId("health-noCitation")).toHaveCount(0);
       await expect(narrow.getByTestId("health-all-checked")).toHaveCount(0);

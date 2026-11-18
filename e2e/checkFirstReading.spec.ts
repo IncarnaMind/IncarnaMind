@@ -202,8 +202,10 @@ for (const language of ["en", "zh-CN"] as const) {
           await each.locator("svg").evaluate((icon) => getComputedStyle(icon).animationName),
         ).toBe("none");
       }
-      // A sentence nobody read keeps no mark on the page.
-      await expect(mark("plain")).toBeHidden();
+      // A sentence whose check gave nothing keeps the solid grey ring, never the dashed one (#3358).
+      await expect(mark("plain")).toBeVisible();
+      await expect(mark("plain").locator("circle")).toHaveCount(1);
+      await expect(mark("plain").locator("circle[stroke-dasharray]")).toHaveCount(0);
     };
 
     const open = async (id: keyof typeof words) => {

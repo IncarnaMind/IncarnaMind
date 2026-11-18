@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   pointAndClick,
@@ -101,6 +102,7 @@ async function citedClaim(window: Page): Promise<Locator> {
   await pointAndClick(window, menu.getByTestId("selection-action-check-against-documents"));
   const mark = window.getByTestId("claim-mark");
   await expect(mark).toHaveAttribute("data-check", "supported");
+  await markShownFor(window, mark);
   await pointAndClick(window, mark);
   await pointAndClick(window, window.getByTestId("claim-card").getByTestId("claim-add-citation"));
   await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
