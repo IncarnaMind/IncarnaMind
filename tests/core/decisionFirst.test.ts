@@ -18,6 +18,7 @@ import {
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { askAssistant } from "../helpers/assistant";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
@@ -26,7 +27,12 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
-import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
+import {
+  type ModelCall,
+  type ScriptedReply,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 
 const LINES = {
   verdict: {
@@ -167,6 +173,7 @@ const PLANS: Record<string, Plan> = {
     says: "The harbour office says every week, not every year.",
   },
   [PENGUINS]: { verdict: "unsupported" },
+  [IN_LIBRARY]: { verdict: "unsupported" },
   [TONNES]: { verdict: "unsupported" },
   [FERRY]: { verdict: "unsupported" },
   [BOTH]: { verdict: "unsupported" },
@@ -289,6 +296,7 @@ async function setUp(
     reranker,
     cargoSheet = false,
     python = cargoSheet,
+    writes,
   }: {
     readsByDefault?: boolean;
     asShipped?: boolean;
@@ -297,6 +305,8 @@ async function setUp(
     cargoSheet?: boolean;
     /** Python can run, with or without a data file among the Documents. */
     python?: boolean;
+    /** What the assistant writes into a new Note when asked, checked as it lands. */
+    writes?: string;
   } = {},
 ) {
   const host = await startDecisionHost();
@@ -306,6 +316,7 @@ async function setUp(
   const generate = checkGenerate(PLANS);
   const model = scriptedModel(
     (call) => {
+      if (writes !== undefined && !isCheckRun(call)) return writesNote(call, writes);
       checks.push(call);
       const reply = checkReply(call, PLANS);
       return held && isCheckRun(call) ? { ...reply, pause: { after: 0, until: held } } : reply;
@@ -327,6 +338,7 @@ async function setUp(
   });
   let accepts = true;
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, accepts));
+  if (writes !== undefined) await core.updateSettings({ user: { checkAssistantWrites: true } });
   const provider = await core.saveChatProvider({
     kind: "openrouter",
     apiKey: KEY,
@@ -390,6 +402,15 @@ async function setUp(
       accepts = false;
     },
   };
+}
+
+/** The assistant's turn that writes `content` into a new Note, once more where it is told the Note has no Citation. */
+function writesNote(call: ModelCall, content: string): ScriptedReply {
+  const made = call.results.filter((result) => result.tool === "create_mind");
+  const refused = made.length === 1 && made[0]?.text.includes("content has no Citation");
+  return made.length === 0 || refused
+    ? { calls: [{ tool: "create_mind", input: { title: "Library notes", content } }] }
+    : { text: "Wrote it." };
 }
 
 const choose = (core: Core, model: CheckDecisionModel | "off" | null = DECIDER) =>
@@ -850,6 +871,20 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     const found = await marks(client);
     expect(found[PENGUINS]).toMatchObject({ state: "unsupported", by: DECIDER.modelId });
     expect(found[IN_LIBRARY]?.by).not.toBe(DECIDER.modelId);
+  });
+
+  // protects=in the check that runs by itself on what the assistant writes, which may count the Library's lists too (#3357), a sentence about the Library that no Passage is about is left to the AI model's check rather than read Unsupported by the decision model; fails_when=the decision model's Unsupported stands on a sentence the automatic check could count.
+  test("a sentence about the Library the assistant writes goes to the AI model too", async () => {
+    const { core, host, readByAiModel } = await setUp([MOON], {
+      python: true,
+      writes: `${PENGUINS} ${IN_LIBRARY}`,
+    });
+    host.aboutLibrary((sentence) => (sentence === IN_LIBRARY ? 0.995 : 0.02));
+    await choose(core);
+
+    await askAssistant(core, { text: "Write a note on the harbour" });
+
+    expect(readByAiModel()).toEqual([IN_LIBRARY]);
   });
 
   // protects=a score inside the band of its line is a first reading, not a verdict: the Mark shows it while the AI model checks the sentence, and keeps it as the record once the AI model has answered; fails_when=a score just over the line marks the sentence, the first reading isn't on the Mark while the check runs, or it is gone afterwards; no_claim=how wide the band should be, or how the card draws a first reading.

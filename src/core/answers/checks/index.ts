@@ -153,9 +153,9 @@ import { createWrittenCheck, type WrittenCheckOptions } from "./written";
  * What the "checks" flow sends: the sentences checked, with their paragraphs,
  * the Passages found, a verified document's sentences, to find its claims
  * (#97), a Mind's sentences when the whole Mind is checked (#737), how a
- * figure an Answer worked out was worked out, which its check is told, and
- * what the code came to where a check worked a figure out over a data file's
- * rows (#3282).
+ * figure an Answer worked out was worked out, which its check is told, what
+ * the code came to where a check worked a figure out over a data file's rows
+ * (#3282), and the numbers code counted from the Library's own lists (#3357).
  */
 export const CHECKS_FLOW_SENDS = [
   "selection",
@@ -165,6 +165,7 @@ export const CHECKS_FLOW_SENDS = [
   "watched-sentences",
   "worked-figures",
   "analysis-results",
+  "library-counts",
 ] as const;
 
 /**
@@ -175,11 +176,19 @@ const WATCH_SENDS: readonly DataKind[] = ["selection", "passages", "watched-sent
 
 /**
  * What checking the assistant's write may send: all the checks flow does but the watch's
- * sentences, and no code's results: only a check the User starts runs code over a data file.
+ * sentences, and no results of code over a data file's rows: only a check the User starts runs
+ * that. The numbers code counts from the Library's own lists go (#3357).
  */
 const WRITTEN_SENDS: readonly DataKind[] = CHECKS_FLOW_SENDS.filter(
   (kind) => kind !== "watched-sentences" && kind !== "analysis-results",
 );
+
+/**
+ * What an Answer's own look at a sentence may send: the written check's, but no count of the
+ * Library's lists, which the chat flow it goes on doesn't name and which gives an Answer no
+ * verdict (./answerLook).
+ */
+const LOOK_SENDS: readonly DataKind[] = WRITTEN_SENDS.filter((kind) => kind !== "library-counts");
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
 const MAX_CLAIM_CHARACTERS = 2_000;
@@ -772,7 +781,7 @@ export function createChecks(options: ChecksOptions) {
   const checkByAiModel = asCheck(withCites(createClaimCheck(options)));
   const claimCheck = asCheck(readFirst(withCites(createClaimCheck(options))));
   // A check that starts by itself (of what the assistant wrote, of an Answer's own sentences)
-  // sends what the written check may: no code runs over a data file unless the User asked.
+  // sends what the written check may: no code runs over a data file's rows unless the User asked.
   const unaskedCheck: typeof claimCheck = (request) =>
     claimCheck({ ...request, sends: request.sends ?? WRITTEN_SENDS });
 
@@ -1479,6 +1488,7 @@ export function createChecks(options: ChecksOptions) {
           ...(callIn !== null && { callIn }),
           model,
           ...(mindId && { cacheKey: mindId }),
+          sends: LOOK_SENDS,
           signal,
         },
         // Part of the Answer's own check, which started by itself: behind a reply, as its batches are (#2944).

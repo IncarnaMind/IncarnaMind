@@ -187,17 +187,27 @@ export function withoutDocumentLeftOut(result: ClaimCheckResult, name: string): 
       };
 }
 
+/**
+ * What a check's code may read: a Document's rows and tables where `rows` (#3282), and the
+ * Library's own lists where `lists` is given (#2525).
+ */
+export interface CheckCode {
+  runtime: AnalysisRuntime;
+  rows: boolean;
+  lists: ClaimCheckDependencies["libraryLists"];
+}
+
+const ROWS_NOT_READ =
+  "this check runs no code over a Document's rows or tables, which only a check the User starts does: give only the Library's lists as inputs here, and judge a figure from the Passages you read";
+
 export function setUpRun(
-  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark" | "libraryLists">,
-  request: Pick<
-    ClaimCheckRequest,
-    "claim" | "cited" | "scope" | "about" | "callIn" | "mindId" | "outside"
-  >,
+  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark">,
+  request: Pick<ClaimCheckRequest, "claim" | "cited" | "scope" | "about" | "callIn" | "mindId">,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
   /** The model is offered `calculate`, the calculator Answers use (ADR-0021). */
   calculates = false,
-  /** Given, the model is offered the Analysis Tool, to work a figure out over a data file's rows. */
-  runtime?: AnalysisRuntime,
+  /** Given, the model is offered the Analysis Tool, over what it may read. */
+  code?: CheckCode,
 ) {
   const { scope } = request;
   let searches = 0;
@@ -266,12 +276,13 @@ export function setUpRun(
   // The Library's lists are read once, when a run first asks for one: every run of this check
   // counts the same rows.
   let lists: LibraryLists | null = null;
-  const libraryLists = listsFor(deps, request);
+  const libraryLists = code?.lists;
   const listsRead = new Map<AnswerAnalysis, LibraryRead>();
-  const analysis = runtime
+  const analysis = code
     ? analysisTool({
-        runtime,
+        runtime: code.runtime,
         passage(id) {
+          if (!code.rows) return { problem: ROWS_NOT_READ };
           const named = id.trim().toLowerCase();
           const shown = session.shownPassages().find((each) => each.id.toLowerCase() === named);
           const source = shown ? scoped.citationSource(shown.passageId) : null;
