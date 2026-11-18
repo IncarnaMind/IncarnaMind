@@ -1448,6 +1448,7 @@ export const en = {
   "claim.courtDecision.held":
     "Quote found in your copy of the opinion ({document}, {location}). Not checked whether it was overruled or changed. Check it in your legal research service before you rely on it.",
   "claim.unsupported.ownWorkings": "Only your own working file says this.",
+  "claim.fixSentence": "Fix the sentence",
   "claim.findSources": "Find sources",
   "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",

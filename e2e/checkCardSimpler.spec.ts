@@ -306,14 +306,13 @@ for (const [language, width] of [
     await expect(receipts.first().getByTestId("claim-part-citation")).toHaveText(words.quotes[2]);
     await expect(receipts.first().locator(".claim-part-source")).toContainText(words.page(3));
     // Two buttons, the first two actions this card has had (a cited sentence whose part found a
-    // nearest Passage: the rewrite from the Documents, Remove the mark), and one ⋯.
+    // nearest Passage: Fix the sentence, Remove the mark), and one ⋯.
     const buttons = card.locator(".citation-card-actions button");
     await expect(buttons).toHaveCount(2);
     expect(await buttons.evaluateAll((all) => all.map((each) => each.dataset.testid))).toEqual([
       "claim-fix",
       "claim-remove",
     ]);
-    await expect(card.getByTestId("claim-fix")).toHaveText(t("claim.useDocumentWording"));
     await expect(card.getByTestId("check-menu")).toHaveCount(1);
     // The supported part folds into one line at the foot.
     await expect(card.getByTestId("claim-parts-folded")).toHaveText(

@@ -1404,6 +1404,7 @@ export const zhCN = {
   "claim.courtDecision.held":
     "已在你保存的判决书中找到引文（{document}，{location}）。未核对是否已被推翻或修改。依赖前请在你的法律数据库中查证。",
   "claim.unsupported.ownWorkings": "只有你自己的工作文件这样写。",
+  "claim.fixSentence": "修改这句话",
   "claim.findSources": "查找资料",
   "claim.findSourcesFor": "为这句话查找资料",
   "claim.findSources.menu": "查找资料…",
