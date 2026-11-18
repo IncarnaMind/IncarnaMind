@@ -341,10 +341,18 @@ function readsPassages(deps: ClaimCheckDependencies, request: ClaimCheckRequest)
   );
 }
 
-/** Whether the sentence's check may run code, over a data file's rows or the Library's lists: one the User started, where Python runs. */
-const worksOutRows = (deps: ClaimCheckDependencies, request: ClaimCheckRequest): boolean =>
+/**
+ * Whether the sentence's check may run code where Python runs: over a data file's rows
+ * ("analysis-results"), in a check the User started (#3282), or over the Library's lists
+ * ("library-counts"), in a check that runs by itself too (#3357).
+ */
+const mayRun = (
+  deps: ClaimCheckDependencies,
+  request: ClaimCheckRequest,
+  kind: "analysis-results" | "library-counts",
+): boolean =>
   deps.analysisRuntime !== undefined &&
-  (request.sends === undefined || request.sends.includes("analysis-results"));
+  (request.sends === undefined || request.sends.includes(kind));
 
 /** Whether any of `passages` is of a sheet or a CSV file. */
 function readsSheet(deps: ClaimCheckDependencies, passages: readonly WindowedPassage[]): boolean {
@@ -459,7 +467,7 @@ export function createFirstReading(deps: Dependencies) {
     if (passages.length === 0) return null;
     // A sheet's rows state no total over them: where the sentence's own check can work a figure
     // out from the whole file, a sentence that reads a data file is left to it (#3282).
-    if (worksOutRows(deps, request) && readsSheet(deps, passages)) return null;
+    if (mayRun(deps, request, "analysis-results") && readsSheet(deps, passages)) return null;
     for (const passage of passages) results.readVersion(passage.documentId, passage.contentHash);
     for (const each of found.excluded) results.leftOut(each);
     const scores = await scoresOfEach(reader, request, passages, signal);
@@ -505,7 +513,7 @@ export function createFirstReading(deps: Dependencies) {
         // No Passage states what the Library holds: a sentence about the Library is left to its
         // own check where that can count the Library's lists (#2525).
         const counted =
-          worksOutRows(deps, request) &&
+          mayRun(deps, request, "library-counts") &&
           listsFor(deps, request) !== undefined &&
           (await aboutLibrary(reader, request.claim, signal));
         return counted ? unsettled(null) : verdictOf("unsupported", null);

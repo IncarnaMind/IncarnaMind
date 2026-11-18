@@ -98,6 +98,9 @@ export const OVERRIDES: CatalogOverrides = {
     openai: {
       // It calls functions (OpenAI's docs, and LiteLLM); models.dev says it doesn't.
       "gpt-3.5-turbo": { tools: true },
+      // It refuses "none". "low" is its least, as OpenRouter asks for it, where its call help was
+      // measured (#3354, eval/speed/gates/call-help-one-reply.md).
+      "gpt-6.1-sol": { thinkingOff: { openai: { reasoningEffort: "low" } } },
     },
     google: {
       "gemini-3.8-flash": {

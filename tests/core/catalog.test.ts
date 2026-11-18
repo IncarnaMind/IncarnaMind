@@ -763,11 +763,13 @@ describe("The providers of #178", () => {
       expect(catalogProvider(id)?.request?.thinkingOff, id).toBeDefined();
     }
     expect(catalogProvider("glm")?.request?.thinkingOff?.unless).toEqual(["glm-5.3"]);
-    // OpenAI's small calls run with reasoning off, except on the models that refuse "none".
+    // OpenAI's small calls run with reasoning off, except on the models that refuse "none";
+    // GPT-6.1 Sol, which refuses it too, thinks at "low" instead (#3354, moreProviders.test.ts).
     expect(catalogProvider("openai")?.request?.thinkingOff?.except).toEqual(
-      expect.arrayContaining(["gpt-6.1-sol", "gpt-6-astra", "gpt-5", "gpt-5-mini", "gpt-5-nano"]),
+      expect.arrayContaining(["gpt-6-astra", "gpt-5", "gpt-5-mini", "gpt-5-nano"]),
     );
     expect(catalogProvider("openai")?.request?.thinkingOff?.except).not.toContain("gpt-6-luna");
+    expect(catalogProvider("openai")?.request?.thinkingOff?.except).not.toContain("gpt-6.1-sol");
   });
 
   test("a provider needs a key and takes no server URL; a region comes with the endpoint", () => {

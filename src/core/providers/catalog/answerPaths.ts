@@ -48,6 +48,31 @@ const WRITES_THEN_CITES: readonly Admitted[] = [];
  */
 const RETRIEVES_FIRST: readonly Admitted[] = [];
 
+/**
+ * Answers a call-help press, or a question typed in the panel, in one reply, its Citation records
+ * first and then its lines, from the Passages the press already holds (the live transcript, and
+ * the Documents found ahead), with no Tool loop (#3354): a press in the loop is two requests one
+ * after the other, and no words show before the second writes. A reply that says the Passages
+ * don't hold what it needs goes to the loop. Measured on 2026-11-18
+ * (eval/speed/gates/call-help-one-reply.md): GPT-6.1 Sol through OpenRouter passed twice, and the
+ * ChatGPT plan is read as OpenAI's. Claude Haiku 5.5 is left out (its first option came later,
+ * 0.9 → 1.7 s), and so is Claude Sonnet 5.5 (expected Passages cited 30 → 26 on its second run).
+ */
+const ONE_REPLY: readonly Admitted[] = [
+  {
+    model: "openai/gpt-6.1-sol",
+    since: "2026-11-18",
+    flows: ["call-help"],
+    gate: "eval/speed/gates/call-help-one-reply.md",
+  },
+  {
+    model: "openrouter/openai/gpt-6.1-sol",
+    since: "2026-11-18",
+    flows: ["call-help"],
+    gate: "eval/speed/gates/call-help-one-reply.md",
+  },
+];
+
 /** A model as an Answer runs it. */
 export interface ListedModel {
   catalogId: string | null;
@@ -58,6 +83,7 @@ export interface ListedModel {
 export interface AnswerPathsOverride {
   writesThenCites?(model: ListedModel): boolean | undefined;
   retrievesFirst?(model: ListedModel): boolean | undefined;
+  answersInOneReply?(model: ListedModel): boolean | undefined;
 }
 
 const listed = (
@@ -82,6 +108,12 @@ export const retrievesFirst = (
   flow: AnswerFlow,
   override?: AnswerPathsOverride,
 ): boolean => override?.retrievesFirst?.(model) ?? listed(RETRIEVES_FIRST, model, flow);
+
+export const answersInOneReply = (
+  model: ListedModel,
+  flow: AnswerFlow,
+  override?: AnswerPathsOverride,
+): boolean => override?.answersInOneReply?.(model) ?? listed(ONE_REPLY, model, flow);
 
 /**
  * Call help on its Answers model's provider's quick model, offered as the User's choice in

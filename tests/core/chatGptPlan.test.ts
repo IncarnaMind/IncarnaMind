@@ -626,6 +626,33 @@ describe("Answers with the ChatGPT plan", () => {
     expect(second?.body).not.toHaveProperty("instructions");
   });
 
+  // protects=a small call on the plan is asked not to think as OpenAI's API asks, GPT-6.1 Sol at "low", the level its call help was measured at (#3354); fails_when=the plan sends no reasoning setting on a small call; no_claim=how long the plan takes.
+  test("a small call on the plan thinks as OpenAI's does: GPT-6 Luna not at all, GPT-6.1 Sol at low", async () => {
+    const { fake } = await signedIn();
+    const credentials = {
+      access: async () => ({ accessToken: fake.issued[0]?.accessToken ?? "" }),
+    };
+    for (const [modelId, effort] of [
+      ["gpt-6-luna", "none"],
+      ["gpt-6.1-sol", "low"],
+    ] as const) {
+      const before = fake.responses().length;
+      await generateText({
+        model: createAiSdkChatModel({
+          kind: "chatgpt",
+          baseUrl: fake.endpoints.apiBaseUrl,
+          apiKey: null,
+          modelId,
+          credentials,
+          thinking: "off",
+        }),
+        prompt: "Hi",
+        maxRetries: 0,
+      });
+      expect(fake.responses()[before]?.body).toMatchObject({ reasoning: { effort } });
+    }
+  });
+
   test("Tools go in a namespace, as the route asks", async () => {
     const { core, fake } = await signedIn();
     const { model } = await core.prepareChatModel();

@@ -159,8 +159,10 @@ export const createAiSdkChatModel: ChatModelFactory = (spec) => {
     model = withoutStorage(model, spec.kind === "xai" ? "xai" : "openai");
   }
   if (anthropicFor(spec.kind) === "anthropic") model = withCacheBreakpoints(model);
-  if (spec.thinking === "off" && request?.thinkingOff && canSkipThinking(spec, request)) {
-    model = withThinkingOff(model, spec, request.thinkingOff);
+  // The ChatGPT plan has no catalog entry of its own: it thinks as OpenAI's models do (#3354).
+  const thinkingOff = (spec.kind === "chatgpt" ? thinkingQuirks(spec.kind) : request)?.thinkingOff;
+  if (spec.thinking === "off" && thinkingOff && canSkipThinking(spec, thinkingOff)) {
+    model = withThinkingOff(model, spec, thinkingOff);
   }
   const thinking = thinkingOptions(spec);
   if (thinking) model = withAnswerThinking(model, spec, thinking);
@@ -222,9 +224,8 @@ function effortOf(
 /** Whether thinking can be turned off on this model: not on one the provider says always thinks, nor one the catalog knows doesn't think. */
 function canSkipThinking(
   spec: ChatModelSpec,
-  request: NonNullable<ReturnType<typeof catalogProviderOfKind>>["request"],
+  { unless = [], except = [] }: NonNullable<RequestQuirks["thinkingOff"]>,
 ): boolean {
-  const { unless = [], except = [] } = request?.thinkingOff ?? {};
   if (unless.some((prefix) => spec.modelId.startsWith(prefix))) return false;
   if (except.includes(spec.modelId) || except.includes(withoutDateSuffix(spec.modelId))) {
     return false;
