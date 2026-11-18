@@ -38,11 +38,13 @@ import {
   type TranscriptionRoute,
   type UserSettings,
   type WordExportPreferences,
+  type WorkKind,
 } from "./api";
 import { InvalidInputError, isRecord } from "./errors";
 import { isLanguagePreference, resolveLanguage } from "./language";
 import { isDecisionModelChoice } from "./providers/catalog/decisions";
 import type { Database } from "./storage";
+import { pickedWork } from "./workKinds";
 
 /**
  * Settings are split into per-User (synced later) and per-device (never synced),
@@ -236,13 +238,16 @@ const GETTING_STARTED_STEPS = [
   "exported",
   "hidden",
   "seen",
+  "recorded",
+  "notesWritten",
 ];
 
 // Progress kept before the ready Question (#123) has no `askedReady`; `get` reads it as not asked.
 // Progress kept before the mistake had its own step has no `mistakeSeen`; `get` takes it from
 // `citationChecked`, so a first open already finished stays finished. A device that exported no
-// note, or showed no first-run card, has no `exported` or `seen`: both read as false.
-const ADDED_LATER = ["askedReady", "mistakeSeen", "exported", "seen"];
+// note, or showed no first-run card, has no `exported` or `seen`: both read as false. Nor had it
+// the meetings card's steps (#3296): `recorded` and `notesWritten` read as false.
+const ADDED_LATER = ["askedReady", "mistakeSeen", "exported", "seen", "recorded", "notesWritten"];
 const isGettingStarted = (value: unknown): value is GettingStarted =>
   isRecord(value) &&
   Object.keys(value).every((key) => GETTING_STARTED_STEPS.includes(key)) &&
@@ -275,7 +280,11 @@ const deviceScope: Scope<DeviceSettings> = {
       exported: false,
       hidden: false,
       seen: false,
+      recorded: false,
+      notesWritten: false,
     },
+    work: [],
+    setupFinished: false,
     skillScriptsEnabled: true,
     skillScriptTimeoutSeconds: SKILL_SCRIPT_LIMITS.defaultTimeoutSeconds,
     suggestionOffers: 0,
@@ -302,6 +311,8 @@ const deviceScope: Scope<DeviceSettings> = {
     sandboxNoticeDismissed: isBoolean,
     openedBefore: isBoolean,
     gettingStarted: isGettingStarted,
+    work: (value): value is WorkKind[] => pickedWork(value) !== null,
+    setupFinished: isBoolean,
     skillScriptsEnabled: isBoolean,
     skillScriptTimeoutSeconds: isScriptTimeout,
     suggestionOffers: (value): value is number =>

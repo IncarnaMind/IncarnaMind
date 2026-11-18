@@ -1826,7 +1826,10 @@ describe("moving Folders", () => {
 describe("loading keeps a list the core pushed after reading it", () => {
   beforeEach(() => {
     method("listMinds").mockResolvedValue([]);
-    method("getSettings").mockResolvedValue({ device: { gettingStarted: { askedOwn: false } } });
+    method("getSettings").mockResolvedValue({
+      device: { gettingStarted: { askedOwn: false }, work: [] },
+    });
+    method("firstRunSetup").mockResolvedValue({ show: false });
     method("getExamples").mockResolvedValue({
       group: "credit",
       available: false,

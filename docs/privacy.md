@@ -133,8 +133,9 @@ Usage data is a small set of anonymous product events, such as "a Question was a
 ### When it's sent
 
 - **Only from a build made with an analytics project.** A build without one (from source, by default) sends nothing, asks nothing, and doesn't load the analytics code.
-- **A release asks once, after the first Answer to a Question of your own,** in a card at the bottom of the sidebar, not on the first run. Nothing is sent, or kept to send, unless you choose Send; the default is no.
+- **A release asks once, after the first Answer to a Question of your own,** in a card at the bottom of the sidebar, not on the first run. Apart from what you work on (below), nothing is sent, or kept to send, unless you choose Send; the default is no.
 - **A test build, for invited testers,** sends usage data until you turn it off, as testers agree to when they join. Its first run says so, in a notice at the bottom of the sidebar with the switch to turn it off.
+- **What you work on, once, if you say so.** The first run asks what you work on. Pressing **Send and continue** sends those picks once per install, as the one event `work_picked`, and never again from that install, even while usage data is off; it doesn't turn usage data on. **Continue without sending** and **Skip** send nothing. Nothing is sent from a build without an analytics project, or while "Keep everything on this computer" is on. While usage data is on, the event goes with the rest.
 - **Local mode** ("Keep everything on this computer", in Settings → AI → Limits) turns usage data off, and it stays off.
 - **You can change it any time** in Settings → Privacy, under "Usage data". Turning it off stops sending at once and drops anything still waiting to be sent.
 - **A completed week is sent once.** A week with no model call sends nothing, and turning usage data on doesn't send a week from before you agreed.
@@ -159,6 +160,7 @@ Every field is a value from a closed list, a whole number, or true/false: there'
 | Event | Fields |
 | --- | --- |
 | `app_opened` | `language`: the interface language, `en` or `zh-CN` |
+| `work_picked` | What you work on, as the first run asked it: `finance`, `legal`, `research`, `reports`, `meetings` and `other`, each true for one you picked and false otherwise. Sent once per install, only when you press Send and continue. Never your name, your files or anything you write |
 | `example_opened` | `group`: which example was opened from an example's banner: `tea`, `papers`, `reports`, `contracts` or `meetings`. Nothing else |
 | `mind_created` | No fields: you made a Note |
 | `question_asked` | `provider`: the kind of provider of the model (`openai`, `anthropic`, `google`, `deepseek`, `qwen`, `kimi`, `glm`, `siliconflow`, `mistral`, `xai`, `openrouter`, `openai-compatible`, `ollama`, `chatgpt`, `claude-account`, `copilot`); `local`: whether the model runs on your computer. Never the Question or the model's prompt |
