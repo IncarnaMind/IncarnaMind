@@ -123,10 +123,32 @@ const blankUnderHeading = (
 };
 
 /**
+ * A year or a date in a table's first row beside a label is a value of that row, not a column's
+ * name, when each column under one is mostly words (#3318): a table of labels and values has no
+ * heading row. A year over a column of figures names it, whatever stray word the column holds.
+ */
+function firstRowHoldsValues(rows: readonly (readonly string[])[], headingCount: number): boolean {
+  const dated = (rows[0] ?? []).flatMap((text, column) =>
+    isYear(text) || isDate(text) ? [column] : [],
+  );
+  return (
+    dated.length > 0 &&
+    dated.every((column) => {
+      const below = rows
+        .slice(headingCount)
+        .map((row) => (row[column] ?? "").trim())
+        .filter((cell) => cell !== "" && !placeholder(cell));
+      return below.length > 0 && below.filter(isFigure).length * 2 <= below.length;
+    })
+  );
+}
+
+/**
  * How many of a file's rows head its columns (#448): the first, and a row below it with an empty
  * label cell (a units row or a merged heading), unless it says a value beside a label of its own.
  * A row with a label of its own heads only while no heading above it has a label and its cells are
- * neither placeholders, figures under figures, nor blanks under a heading no span covers.
+ * neither placeholders, figures under figures, nor blanks under a heading no span covers. None
+ * head a table whose first row holds a value of its own (`firstRowHoldsValues`).
  */
 export function headingRowsOf(
   rows: readonly (readonly string[])[],
@@ -166,7 +188,7 @@ export function headingRowsOf(
       break;
     headingCount++;
   }
-  return headingCount;
+  return firstRowHoldsValues(rows, headingCount) ? 0 : headingCount;
 }
 
 /**
