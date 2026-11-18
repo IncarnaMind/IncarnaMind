@@ -1,4 +1,5 @@
-import { mkdtempSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +22,7 @@ import {
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { scriptedLocalServers } from "../../src/core/providers/localServers";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
-import { openDatabase, type SqlValue } from "../../src/core/storage";
+import { migrate, migrations, openDatabase, type SqlValue } from "../../src/core/storage";
 
 /** The citation-style engine, styles and locales the app ships (ADR-0016). */
 export const CITATION_STYLES = fileURLToPath(
@@ -50,6 +51,34 @@ export async function createTempDataFolder(): Promise<string> {
   const dataDir = await mkdtemp(join(tmpdir(), "incarnamind-test-"));
   onTestFinished(() => rm(dataDir, { recursive: true, force: true }));
   return dataDir;
+}
+
+let migrated: string | undefined;
+
+/**
+ * A database with every migration applied, built once for these migrations and kept in the
+ * system's temporary folder. A core that starts in an empty data folder takes about 130 ms to
+ * apply them, and 9 ms from a copy of this; nearly every test starts one.
+ */
+function migratedDatabase(): string {
+  if (migrated) return migrated;
+  const version = createHash("sha256").update(JSON.stringify(migrations)).digest("hex");
+  const file = join(tmpdir(), `incarnamind-test-migrated-${version.slice(0, 16)}.db`);
+  if (!existsSync(file)) {
+    const folder = mkdtempSync(join(tmpdir(), "incarnamind-test-migrating-"));
+    const building = join(folder, DATABASE_FILE);
+    const db = openDatabase(building);
+    try {
+      migrate(db);
+    } finally {
+      db.close();
+    }
+    // Built aside and moved into place: a test file that starts meanwhile finds it whole or not at all.
+    renameSync(building, file);
+    rmSync(folder, { recursive: true, force: true });
+  }
+  migrated = file;
+  return file;
 }
 
 /**
@@ -119,6 +148,11 @@ export type TestAdapters = Omit<Partial<CoreAdapters>, "paths"> & { paths?: Part
  */
 export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
   const { paths, ...rest } = overrides;
+  const database = join(dataDir, DATABASE_FILE);
+  if (!existsSync(database)) {
+    mkdirSync(dataDir, { recursive: true });
+    copyFileSync(migratedDatabase(), database);
+  }
   const core = createCore({
     systemLanguages: () => ["en-US"],
     systemUserName: () => "Priya Raman",
