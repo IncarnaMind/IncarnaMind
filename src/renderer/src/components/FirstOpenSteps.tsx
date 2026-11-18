@@ -353,7 +353,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </Step>
           ))}
         </ol>
-        {allDone && !hasModel && (
+        {allDone && !hasModel && !setupFinished && (
           <div className="flex flex-col items-start gap-2 pt-3">
             <p className="text-[13px] leading-5 text-ink-secondary">{t("firstOpen.model.body")}</p>
             <button

@@ -268,18 +268,20 @@ export interface AppState extends LayoutSlice {
    */
   questionToStart: { mindId: string; scope: SearchScope | null } | null;
   /**
-   * The setup page the window shows instead of everything else (#3296): a fresh profile's first
-   * run, from its first step, with the order its kinds of work are shown in; or its model steps
-   * again, from Settings › AI or ⌘K. Null while the window shows the app.
+   * The setup (#3296): a fresh profile's first run, the window's only page, from its first step,
+   * with the order its kinds of work are shown in and whether this install sent its picks; or its
+   * model steps again, from Settings › AI or ⌘K, in a dialog over the app. Null when neither shows.
    */
-  setup: { from: "work"; workOrder: WorkKind[] } | { from: "ai" } | null;
+  setup: { from: "work"; workOrder: WorkKind[]; picksSent: boolean } | { from: "ai" } | null;
 
   load(): Promise<void>;
-  /** Shows the setup's model steps again, in place of the window (#3296). */
+  /** Shows the setup's model steps again, in a dialog over the app (#3296). */
   openSetup(): void;
+  /** Closes the model steps' dialog. */
+  closeSetup(): void;
   /**
-   * The setup finished or skipped through: a first run keeps the picks and opens their example
-   * with Get started; the model steps opened again go back to the app.
+   * The first run's setup finished or skipped through: it keeps the picks and opens their example
+   * with Get started.
    */
   finishSetup(work: readonly WorkKind[]): Promise<void>;
   /**
@@ -1258,7 +1260,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           readyQuestion: firstOpen?.ready ?? null,
           readyReading: firstOpen?.reading ?? null,
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
-          setup: setup.show ? { from: "work", workOrder: setup.workOrder } : null,
+          setup: setup.show
+            ? { from: "work", workOrder: setup.workOrder, picksSent: setup.picksSent }
+            : null,
           status: { kind: "ready" },
         });
         // A setup quit halfway shows again: until it ends, this isn't a launch that counts.
@@ -1273,15 +1277,15 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openSetup() {
-      if (get().settingsOpen) get().closeSettings();
-      set({ setup: { from: "ai" } });
+      if (!get().setup) set({ setup: { from: "ai" } });
+    },
+
+    closeSetup() {
+      if (get().setup?.from === "ai") set({ setup: null });
     },
 
     async finishSetup(work) {
-      if (get().setup?.from !== "work") {
-        set({ setup: null });
-        return;
-      }
+      if (get().setup?.from !== "work") return;
       try {
         const lead = await core.finishFirstRunSetup(work);
         if (lead?.mindId) await startGettingStarted(lead.mindId);

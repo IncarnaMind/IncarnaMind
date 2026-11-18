@@ -18,6 +18,7 @@ import { ErrorNotices } from "./components/ErrorNotices";
 import { FeedbackDialog } from "./components/FeedbackDialog";
 import { DropOverlay, useFileDrop, useWindowDrop } from "./components/FileDrop";
 import { FileWriteDialog } from "./components/FileWriteDialog";
+import { SetupDialog } from "./components/firstRun/SetupDialog";
 import { SetupPage } from "./components/firstRun/SetupPage";
 import { HistoryView } from "./components/history/HistoryView";
 import { InfoPanel } from "./components/InfoPanel";
@@ -87,7 +88,9 @@ export function App() {
 
   // The frame shows at once; the data fills it in as it arrives.
   if (status.kind === "loading") return <AppShell />;
-  if (setup) return <SetupPage setup={setup} />;
+  if (setup?.from === "work") {
+    return <SetupPage workOrder={setup.workOrder} picksSent={setup.picksSent} />;
+  }
   if (status.kind === "failed") {
     return (
       <p role="alert" className="p-6 text-ui text-ink">
@@ -342,6 +345,7 @@ function Workspace() {
             className="pointer-events-none fixed top-16 left-[calc(50%-8rem)] size-px"
           />
           <SettingsDialog />
+          <SetupDialog />
           <HistoryView />
           <TagsDialog />
           <RequestedDialogs />

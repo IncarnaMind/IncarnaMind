@@ -24,27 +24,34 @@ const toggled = (work: readonly WorkKind[], kind: WorkKind): WorkKind[] =>
 
 /**
  * The setup's first step (#3296): what the User works on, several picks allowed, in an order kept
- * for this install. Where this copy can send them, "Send and continue" sends the picks once, as
- * its line says, and "Continue without sending" sends nothing; Skip picks nothing.
+ * for this install. Where this copy can send them and hasn't, "Send and continue" sends the picks,
+ * once per install, as its line says, and "Continue without sending" sends nothing; Skip picks
+ * nothing.
  */
 export function WorkStep({
   place,
   order,
   work,
   onWork,
+  sent,
+  onSent,
 }: {
   place: StepPlace;
   order: readonly WorkKind[];
   work: readonly WorkKind[];
   onWork(work: WorkKind[]): void;
+  /** This install has sent the picks. */
+  sent: boolean;
+  onSent(): void;
 }) {
   const t = useT();
   const usageData = useAppStore((state) => state.privacy?.usageData);
-  const canSend = usageData?.available === true && !usageData.localMode;
+  const canSend = usageData?.available === true && !usageData.localMode && !sent;
   const send = () => {
     core
       .sendWorkPicked(work)
       .catch((error: unknown) => console.error("The first run's picks couldn't be sent.", error));
+    onSent();
     place.next();
   };
   const picked = work.length > 0;

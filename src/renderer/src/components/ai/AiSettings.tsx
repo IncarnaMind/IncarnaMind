@@ -284,10 +284,10 @@ export function AiSettings() {
       <UndoLineAt place={MODELS_UNDO_PLACE} className="-mb-6 has-[*]:mb-0" />
       {body ?? (
         <>
-          {providers.length === 0 && <NoAiYet onAdd={add} />}
           <p data-testid="ai-lede" className="px-4 text-[13px] leading-5 text-ink-meta">
             {t("ai.lede")}
           </p>
+          {providers.length === 0 && <NoAiYet onAdd={add} />}
           <ReadinessNote />
           {removed && <RemovedLine removed={removed} providers={providers} />}
           <JobsSection

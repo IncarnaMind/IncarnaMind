@@ -1,19 +1,15 @@
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import type { ChatProvider, ProviderError } from "../../../../core/api";
 import { formOfKey, type KeyTarget } from "../../../../core/providers/catalog/keyForms";
-import {
-  billingUrlOf,
-  catalogProvider,
-  kindOfCatalogId,
-} from "../../../../core/providers/catalog/providers";
+import { billingUrlOf, catalogProvider } from "../../../../core/providers/catalog/providers";
 import { checkApiKey } from "../../../../shared/apiKey";
 import type { MessageKey } from "../../../../shared/i18n";
-import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { hintClass, inputClass } from "../ui";
+import { testAndSaveKey } from "./saveKey";
 import { defaultRegion, shortProviderName, testErrorKey } from "./shared";
 
 type Problem =
@@ -93,33 +89,23 @@ export function KeyEntry({
   const send = async (key: string, target: KeyTarget, others: readonly KeyTarget[] | null) => {
     if (busy) return;
     const named = target.service;
-    const catalog = catalogProvider(named);
-    const modelId = catalog?.roles.answers;
-    if (!catalog || !modelId) {
-      setProblem({ kind: "unrecognised" });
-      return;
-    }
     const region = target.region ?? defaultRegion(named, language);
     const endpoint = region === "" ? null : region;
     setProblem(null);
     setBusy(true);
     try {
-      const request = {
-        kind: kindOfCatalogId(named),
-        catalogId: named,
-        modelId,
-        apiKey: key,
-        ...(endpoint !== null && { endpoint }),
-      };
-      const result = await core.testChatConnection(request);
-      if (!result.ok) {
+      const result = await testAndSaveKey({ service: named, key, endpoint });
+      if (result.kind === "unknown") {
+        setProblem({ kind: "unrecognised" });
+        return;
+      }
+      if (result.kind === "refused") {
         setProblem({ kind: "refused", error: result.error, catalogId: named, endpoint, others });
         return;
       }
-      const provider = await core.saveChatProvider(request);
       setValue("");
       setProblem(null);
-      onSaved(provider, { providerId: provider.id, modelId });
+      onSaved(result.provider, { providerId: result.provider.id, modelId: result.modelId });
     } catch (failure) {
       reportError(failure);
     } finally {

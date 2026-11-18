@@ -1,18 +1,21 @@
-import { useEffect, useId, useState } from "react";
-import type { ChatProvider, DecisionHost, DecisionHostStatus } from "../../../../core/api";
+import { useId, useState } from "react";
+import type { DecisionHost, DecisionHostStatus } from "../../../../core/api";
 import { JEV_SERVICE } from "../../../../core/providers/jev";
 import { core } from "../../core";
 import { useDecisionHosts } from "../../decisionHosts";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { DecisionSortingSetUp, firstModelOf, hostName } from "../providers/DecisionKeyForm";
-import { JevSortingSetUp } from "../providers/JevSortingSetUp";
-import { ProviderForm } from "../providers/ProviderForm";
-import { SortingLine, useSorting } from "../providers/SortingChoice";
-import { keyProviderName } from "../providers/shared";
+import { useMounted } from "../../useMounted";
+import { firstModelOf, hostName } from "../providers/DecisionKeyForm";
+import { setUpJevForSorting } from "../providers/jevSetUp";
+import { SendsLine } from "../providers/SendsLine";
+import { useSorting } from "../providers/SortingChoice";
+import { refusalWords, testAndSaveKey } from "../providers/saveKey";
+import { defaultRegion, keyProviderName } from "../providers/shared";
 import type { SortingOption } from "../providers/sortingOptions";
 import { buttonStyle, fieldClass, fieldLabelClass, hintClass } from "../ui";
 import { KeysStay, SetupChoice, SetupPanel, type StepPlace, WorksRow } from "./SetupPanel";
+import { StepKeyField, useStepKey } from "./StepKey";
 
 type Choice = "decision" | "chat" | "local";
 type Host = DecisionHost | "jev";
@@ -28,22 +31,29 @@ const HOSTS: readonly Host[] = [
   "jev",
 ];
 
+const lineClass = "text-[12px] leading-5 text-ink-meta";
+
 /**
  * The setup's third step (#3296): what sorts new Documents and reads a check's sentences first. A
  * decision model leads, on the host the User's key already reaches, else on the best measured
  * one, whose key is asked for in place; then the User's AI model; last a model on this computer.
- * Only the choice is saved: turning tagging on stays the User's own act (ADR-0022).
+ * Use this checks and keeps a key typed and saves the choice, under the line that says what
+ * sorting sends: that press is the consent. Turning tagging on stays the User's own act (ADR-0022).
  */
 export function SortingStep({ place }: { place: StepPlace }) {
   const t = useT();
   const id = useId();
   const language = useLanguage();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
+  const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const sorting = useSorting();
   const [hosts, setHosts] = useDecisionHosts();
   const [choice, setChoice] = useState<Choice>(localOnly ? "local" : "decision");
   const [picked, setPicked] = useState<Host | null>(null);
+  const [account, setAccount] = useState("");
   const [saving, setSaving] = useState(false);
+  const step = useStepKey();
+  const mounted = useMounted();
   const chat = localOnly
     ? undefined
     : sorting.options.find((option) => option.classifier.kind === "chat");
@@ -76,24 +86,83 @@ export function SortingStep({ place }: { place: StepPlace }) {
   const option =
     shown === "decision" ? decision : shown === "chat" ? (chat ?? null) : (local ?? null);
 
-  const use = async (chosen: Pick<SortingOption, "classifier">) => {
-    setSaving(true);
-    try {
-      if (await sorting.choose(chosen)) place.next();
-    } finally {
-      setSaving(false);
-    }
-  };
+  const setUp = shown === "decision" && decision === null;
+  const asksKey = setUp && (host === "jev" ? jev !== null : status !== null && !status.hasKey);
+  const asksAccount = setUp && status?.account != null && !status.account.value;
+  // A chat provider's key kept here becomes the Answers model where there is none yet.
+  const answersToo =
+    asksKey && status?.key === "provider" && status.provider !== null && chatModel === null;
+  const serviceName =
+    host === "jev" ? JEV_SERVICE.name : status ? hostName(status, language) : null;
+  const keyName =
+    status?.key === "provider" && status.provider
+      ? keyProviderName(status.provider, t, language)
+      : serviceName;
+  const filled =
+    (asksKey || asksAccount) && (!asksKey || step.typed) && (!asksAccount || account.trim() !== "");
+  const ready = setUp ? filled : option !== null && option.unresolved !== true;
+
   const chooseHere = async (chosen: SortingOption["classifier"]) => {
     const done = await sorting.choose({ classifier: chosen });
     sorting.reread();
     return done;
   };
-  const keySaved = () => {
-    core.listDecisionHosts().then(setHosts, (error: unknown) => {
-      console.error("The decision model hosts couldn't be read again.", error);
-    });
-    sorting.reread();
+
+  /** Checks and keeps what was typed, then chooses the host; why it couldn't, or null once done. */
+  const keepAndChoose = async (): Promise<string | null> => {
+    const typed = step.key.text;
+    if (host === "jev") {
+      const outcome = await setUpJevForSorting(
+        core,
+        { apiKey: typed },
+        () => chooseHere({ kind: "jev" }),
+        mounted,
+      );
+      if (outcome.kind === "failed") {
+        return refusalWords(outcome.result.error, JEV_SERVICE.name, t);
+      }
+      // The choice's own failure is told where it happened.
+      return outcome.kind === "saved" && outcome.chosen ? null : "";
+    }
+    if (!status) return "";
+    let after: DecisionHostStatus[] | null = null;
+    if (asksKey && status.key === "provider" && status.provider) {
+      const saved = await testAndSaveKey({
+        service: status.provider,
+        key: typed,
+        endpoint: defaultRegion(status.provider, language) || null,
+        keepDefault: true,
+      });
+      if (saved.kind === "refused") return refusalWords(saved.error, status.provider, t);
+      if (saved.kind === "unknown") return t("setup.key.unrecognised");
+    }
+    const ownKey = asksKey && status.key === "own";
+    if (ownKey || asksAccount) {
+      after = await core.setDecisionKey({
+        host: status.host,
+        ...(ownKey && { apiKey: typed }),
+        ...(asksAccount && { account: account.trim() }),
+      });
+    }
+    after ??= await core.listDecisionHosts();
+    setHosts(after);
+    const now = after.find((each) => each.host === status.host) ?? status;
+    return (await chooseHere(firstModelOf(now))) ? null : "";
+  };
+
+  const next = async () => {
+    if (!ready || saving || step.busy) return;
+    if (setUp) {
+      if (await step.save(keepAndChoose)) place.next();
+      return;
+    }
+    if (!option) return;
+    setSaving(true);
+    try {
+      if (await sorting.choose(option)) place.next();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const nameOf = (each: Host) =>
@@ -101,6 +170,13 @@ export function SortingStep({ place }: { place: StepPlace }) {
       ? JEV_SERVICE.name
       : (hosts?.find((entry) => entry.host === each)?.name[language === "zh-CN" ? "zh" : "en"] ??
         each);
+
+  const sends = (service: string | null) =>
+    service && (
+      <p data-testid="setup-sorting-sends" className={lineClass}>
+        {t("setup.sorting.sendsWhenOn", { service })}
+      </p>
+    );
 
   return (
     <SetupPanel
@@ -125,6 +201,7 @@ export function SortingStep({ place }: { place: StepPlace }) {
             type="button"
             data-testid="setup-skip"
             onClick={place.next}
+            disabled={step.busy}
             className={buttonStyle("ghost", "lg")}
           >
             {t("setupPage.skip")}
@@ -132,8 +209,8 @@ export function SortingStep({ place }: { place: StepPlace }) {
           <button
             type="button"
             data-testid="setup-next"
-            disabled={option === null || option.unresolved === true || saving}
-            onClick={() => option && void use(option)}
+            disabled={!ready || saving || step.busy}
+            onClick={() => void next()}
             className={buttonStyle("primary", "lg")}
           >
             {t("setup.step.useThis")}
@@ -186,9 +263,12 @@ export function SortingStep({ place }: { place: StepPlace }) {
               id={`${id}-host`}
               data-testid="setup-decision-host"
               value={host}
-              onChange={(event) =>
-                setPicked(HOSTS.find((each) => each === event.target.value) ?? null)
-              }
+              disabled={step.busy}
+              onChange={(event) => {
+                setPicked(HOSTS.find((each) => each === event.target.value) ?? null);
+                step.reset();
+                setAccount("");
+              }}
               className={`${fieldClass} w-fit min-w-48`}
             >
               {HOSTS.filter(
@@ -200,117 +280,76 @@ export function SortingStep({ place }: { place: StepPlace }) {
               ))}
             </select>
           </label>
-          <DecisionPlace
-            key={host}
-            host={host}
-            status={status}
-            option={decision}
-            onKeySaved={keySaved}
-            choose={chooseHere}
-            onChosen={place.next}
-            jev={jev}
-          />
+          {decision ? (
+            <>
+              <WorksRow
+                text={t(status?.key === "provider" ? "setupPage.usesKey" : "setupPage.keyWorks", {
+                  provider: keyName ?? decision.label,
+                })}
+                testId="setup-decision-works"
+              >
+                <span className={lineClass}>{decision.label}</span>
+              </WorksRow>
+              {sends(decision.provider)}
+            </>
+          ) : (
+            (asksKey || asksAccount) && (
+              <div className="flex flex-col gap-3">
+                {asksKey && (
+                  <StepKeyField
+                    step={step}
+                    label={t("setupPage.key", { provider: keyName ?? "" })}
+                    keyUrl={status?.keyUrl ?? null}
+                    testId="setup-decision-key"
+                    onEnter={() => void next()}
+                  />
+                )}
+                {asksAccount && status?.account && (
+                  <label className={`${fieldLabelClass} flex flex-col gap-1`}>
+                    <span className="font-semibold">
+                      {t(`decisions.account.${status.account.kind}`)}
+                    </span>
+                    <input
+                      type="text"
+                      data-testid="setup-decision-account"
+                      value={account}
+                      onChange={(event) => setAccount(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        void next();
+                      }}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className={`${fieldClass} w-full`}
+                    />
+                  </label>
+                )}
+                <div className="flex flex-col gap-1">
+                  <KeysStay />
+                  {sends(serviceName)}
+                  {answersToo && keyName && (
+                    <>
+                      <p data-testid="setup-decision-answers" className={lineClass}>
+                        {t("setupPage.alsoAnswers", { provider: keyName })}
+                      </p>
+                      <SendsLine provider={keyName} testId="setup-decision-chat-sends" />
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          )}
         </div>
       )}
       {shown !== "decision" &&
-        (option ? (
-          <SortingLine option={option} choosing={false} />
-        ) : (
-          shown === "local" && (
-            <p data-testid="setup-sorting-none" className={`${hintClass} mt-0`}>
-              {t("setupPage.sorting.local.none")}
-            </p>
-          )
-        ))}
+        (option
+          ? option.unresolved !== true && sends(option.provider)
+          : shown === "local" && (
+              <p data-testid="setup-sorting-none" className={`${hintClass} mt-0`}>
+                {t("setupPage.sorting.local.none")}
+              </p>
+            ))}
     </SetupPanel>
-  );
-}
-
-const focusHostPicker = () =>
-  document.querySelector<HTMLElement>("[data-testid=setup-decision-host]")?.focus();
-
-function DecisionPlace({
-  host,
-  status,
-  option,
-  onKeySaved,
-  choose,
-  onChosen,
-  jev,
-}: {
-  host: Host;
-  status: DecisionHostStatus | null;
-  option: SortingOption | null;
-  onKeySaved(): void;
-  choose(classifier: SortingOption["classifier"]): Promise<boolean>;
-  onChosen(): void;
-  jev: ReturnType<typeof useSorting>["jevSettings"];
-}) {
-  const t = useT();
-  const language = useLanguage();
-  const [providers, setProviders] = useState<ChatProvider[] | null>(null);
-  const asksProviderKey = status?.key === "provider" && !status.hasKey;
-  useEffect(() => {
-    if (!asksProviderKey) return;
-    core.listChatProviders().then(setProviders, (error: unknown) => {
-      console.error("The saved chat providers couldn't be listed for the setup.", error);
-      setProviders([]);
-    });
-  }, [asksProviderKey]);
-  if (option) {
-    const own = status?.key === "provider" && status.provider !== null;
-    const name = own
-      ? keyProviderName(status.provider ?? "", t, language)
-      : (option.provider ?? option.label);
-    return (
-      <>
-        <WorksRow
-          text={t(own ? "setupPage.usesKey" : "setupPage.keyWorks", { provider: name })}
-          testId="setup-decision-works"
-        >
-          <span className="text-[12px] leading-[18px] text-ink-meta">{option.label}</span>
-        </WorksRow>
-        <SortingLine option={option} choosing={false} />
-      </>
-    );
-  }
-  if (host === "jev") {
-    return jev ? (
-      <>
-        <JevSortingSetUp
-          jev={jev}
-          choose={() => choose({ kind: "jev" })}
-          onChosen={onChosen}
-          onCancel={focusHostPicker}
-        />
-        <KeysStay />
-      </>
-    ) : null;
-  }
-  if (!status) return null;
-  if (asksProviderKey && status.provider) {
-    if (providers === null) return null;
-    return (
-      <>
-        <ProviderForm
-          providers={providers}
-          only={status.provider}
-          keepDefault
-          onSaved={onKeySaved}
-        />
-        <KeysStay />
-      </>
-    );
-  }
-  return (
-    <>
-      <DecisionSortingSetUp
-        host={status}
-        choose={() => choose(firstModelOf(status))}
-        onChosen={onChosen}
-        onCancel={focusHostPicker}
-      />
-      <KeysStay />
-    </>
   );
 }

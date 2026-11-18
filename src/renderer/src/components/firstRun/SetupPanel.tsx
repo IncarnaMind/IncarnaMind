@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
-import { CheckLineIcon, ChevronLeftLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronLeftLineIcon, CloseLineIcon } from "../lineIcons";
 import { OnThisComputer } from "../OnThisComputer";
 
 export type SetupStep = "work" | "ai" | "sorting" | "meetings";
@@ -20,6 +20,8 @@ export interface StepPlace {
   next(): void;
   /** Absent on the first step shown. */
   back?(): void;
+  /** Where the steps show in a dialog: what its ✕ does. */
+  close?(): void;
 }
 
 /**
@@ -64,12 +66,14 @@ export function SetupPanel({
       data-testid="setup-panel"
       data-step={place.steps[place.at]}
       aria-labelledby="setup-title"
-      className="flex min-h-[548px] w-full max-w-[640px] flex-col rounded-[12px] bg-sheet shadow-[0_0_0_1px_var(--color-rule)]"
+      className={`relative flex min-h-[548px] w-full max-w-[640px] flex-col bg-sheet ${
+        place.close ? "" : "rounded-[12px] shadow-[0_0_0_1px_var(--color-rule)]"
+      }`}
     >
-      <div className="px-6 pt-5">
+      <div className={`flex px-6 pt-5 ${place.close ? "pr-14" : ""}`}>
         <ol
           aria-label={t("setupPage.progress", { step: place.at + 1, count: place.steps.length })}
-          className="grid gap-1.5"
+          className="grid flex-1 gap-1.5"
           style={{ gridTemplateColumns: `repeat(${place.steps.length}, minmax(0, 1fr))` }}
         >
           {place.steps.map((step, index) => (
@@ -117,6 +121,19 @@ export function SetupPanel({
         >
           {foot}
         </div>
+      )}
+      {/* Last, so the step's own first choice takes the focus as the dialog opens. */}
+      {place.close && (
+        <button
+          type="button"
+          data-testid="setup-close"
+          aria-label={t("setupPage.close")}
+          title={t("setupPage.close")}
+          onClick={place.close}
+          className="absolute top-3.5 right-4 inline-flex size-8 items-center justify-center rounded-md text-ink-secondary hover:bg-chip hover:text-ink focus-visible:outline-offset-0"
+        >
+          <CloseLineIcon className="size-4" />
+        </button>
       )}
     </section>
   );
