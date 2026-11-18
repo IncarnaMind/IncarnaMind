@@ -30,22 +30,26 @@ import type {
 } from "../api";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
+import { PASSAGE_PARAMETERS } from "./passages";
 import type { WindowedPassage } from "./search";
 import type { Reranker, SearchToolOptions, SearchToolParameters } from "./searchTool";
 import type { TextCopies, TextVersion } from "./textCopies";
 
+const EXCLUDED_DOCUMENTS = 4;
+
 /**
  * How much a search looks at the Documents left out, to say where they
  * matched: as many Documents as the evidence can come from, each at its best
- * Passage, so it costs the reranker little.
+ * window, from few candidates. Room for every Document's whole window, so the
+ * first two never keep the others from being named.
  */
 const EXCLUDED_PARAMETERS: Partial<SearchToolParameters> = {
   candidates: 12,
   rerankPerList: 6,
   keywordRerankCandidates: 12,
-  maxDocuments: 4,
+  maxDocuments: EXCLUDED_DOCUMENTS,
   maxWindowsPerDocument: 1,
-  maxPassages: 4,
+  maxPassages: EXCLUDED_DOCUMENTS * PASSAGE_PARAMETERS.windowSize,
 };
 
 interface PassageRow {
