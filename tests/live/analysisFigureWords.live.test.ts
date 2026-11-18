@@ -55,8 +55,9 @@ import {
   wordsLabel,
 } from "../helpers/analysisFigureWords";
 import { askAssistant } from "../helpers/assistant";
-import { checkGenerate, checkReply, isCheckRun, listedSentences } from "../helpers/checks";
+import { checkGenerate, checkReply, isCheckRun } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
 import { billedModels } from "../helpers/liveBilling";
@@ -310,14 +311,7 @@ function answering(held: WordsCase) {
     {
       generate: (call: GenerateCall) => {
         if (call.system.startsWith("You sort the sentences"))
-          return {
-            text: JSON.stringify({
-              sentences: listedSentences(call.prompt).map(({ number, text }) => ({
-                number,
-                parts: [{ kind: "fact", text }],
-              })),
-            }),
-          };
+          return { text: sortReply(call.prompt) };
         return checkGenerate({})(call);
       },
     },

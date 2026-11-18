@@ -7,16 +7,12 @@ import { wrapLanguageModel } from "ai";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
+import type { SortWord } from "../../src/core/answers/checks/claims";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { askAssistant } from "../helpers/assistant";
-import {
-  checkGenerate,
-  checkReply,
-  isCheckRun,
-  listedSentences,
-  sentenceOf,
-} from "../helpers/checks";
+import { checkGenerate, checkReply, isCheckRun, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -29,8 +25,6 @@ import {
   scriptedModel,
   unscripted,
 } from "../helpers/models";
-
-type Part = { kind: "fact" | "opinion"; text: string };
 
 const LANGUAGES = [
   {
@@ -123,16 +117,12 @@ async function inFolder(core: Core, name: string, contents: string) {
   return folder.id;
 }
 
-/** Answers a sort with `parts` of each sentence listed, and a request that asks no question with nothing. */
-const sortingInto = (parts: (text: string) => readonly Part[]) => (call: GenerateCall) => {
+/** Answers a sort with `word` for each sentence listed, and a request that asks no question with nothing. */
+const sortingInto = (word: (text: string) => SortWord) => (call: GenerateCall) => {
   if (!call.question) return { text: "" };
   if (call.question === "claimed-changes") return { text: JSON.stringify({ claims: [] }) };
   if (call.question !== "find-claims") return unscripted(call.question, call.system);
-  const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
-    number,
-    parts: parts(text),
-  }));
-  return { text: JSON.stringify({ sentences }) };
+  return { text: sortReply(call.prompt, word) };
 };
 
 /** The assistant's model: it searches, cites `source`, writes `written` into a new Note and replies; check Runs as `check`. */
@@ -211,9 +201,6 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
   // protects=written sentences with numbers cost the requests they did before sentences had parts: one Run each of search, cite and reply, judged whole, and no sorting request is sent (#1635, #1932); fails_when=a sentence with a figure sends a sorting request of its own, or takes more steps; no_claim=how many steps a real model takes.
   test("three written sentences with numbers make no sorting request", async () => {
     const sentences = [1, 2, 3].map(example.sentence);
-    const whole = (sentence: string): Part[] => [
-      { kind: "fact", text: sentence.replace(/[.。]$/u, "") },
-    ];
     const plans = Object.fromEntries(
       sentences.map((sentence) => [sentence, { verdict: "supported" as const, quote: sentence }]),
     );
@@ -222,7 +209,9 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
       sentences.map((sentence) => sentence.replace(/([.。])$/u, "[^1]$1")).join(" "),
       (call) => checkReply(call, plans),
       (call) =>
-        call.system.startsWith(SORTS) ? sortingInto(whole)(call) : checkGenerate(plans)(call),
+        call.system.startsWith(SORTS)
+          ? sortingInto(() => "claim")(call)
+          : checkGenerate(plans)(call),
     );
     const core = await coreWith(model);
     const folderId = await inFolder(core, "Stores.md", `# Stores\n\n${sentences.join(" ")}\n`);
@@ -245,7 +234,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     let sorting = 0;
     let most = 0;
     const inner = scriptedModel((call) => quoting(call), {
-      generate: sortingInto((text) => [{ kind: "fact", text }]),
+      generate: sortingInto(() => "claim"),
     });
     const model = wrapLanguageModel({
       model: inner,

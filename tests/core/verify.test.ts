@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, VerifyClaimsInput } from "../../src/core";
+import type { SortWord } from "../../src/core/answers/checks/claims";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
@@ -24,6 +25,7 @@ import {
   unsupportedReply,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { textOf, unzip } from "../helpers/docx";
@@ -177,17 +179,18 @@ describe("Verify a document", () => {
         const reply = checkGenerate(PLANS)(call);
         if (call.question !== "find-claims" || !("text" in reply)) return reply;
         sorts.push(call.prompt);
-        const decisions = JSON.parse(reply.text) as { sentences: { number: number }[] };
+        const decisions = JSON.parse(reply.text) as Record<string, SortWord>;
         const missing = new Set(
           listedSentences(call.prompt)
             .filter(({ text }) => text === UNSUPPORTED)
             .map(({ number }) => number),
         );
         return {
-          text: JSON.stringify({
-            ...decisions,
-            sentences: decisions.sentences.filter(({ number }) => !missing.has(number)),
-          }),
+          text: JSON.stringify(
+            Object.fromEntries(
+              Object.entries(decisions).filter(([number]) => !missing.has(Number(number))),
+            ),
+          ),
         };
       },
     });
@@ -637,12 +640,7 @@ describe("Verify a document", () => {
       () => ({ text: "Verdict: unsupported", pause: { after: 0, until: held } }),
       {
         generate: (call) => ({
-          text: JSON.stringify({
-            sentences: listedSentences(call.prompt).map(({ number, text }) => ({
-              number,
-              parts: number <= 3 ? [{ kind: "fact", text }] : [],
-            })),
-          }),
+          text: sortReply(call.prompt, (_, { number }) => (number <= 3 ? "claim" : "no")),
         }),
       },
     );

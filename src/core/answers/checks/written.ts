@@ -1413,7 +1413,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         uncited.map((sentence) => ({ text: reads.get(sentence)?.claim ?? sentence.text })),
         "own",
         AbortSignal.any([signal, timedOut]),
-        true,
         { slots: limit },
       );
       if (found.kind === "cancelled" && timedOut.aborted && !signal.aborted) {

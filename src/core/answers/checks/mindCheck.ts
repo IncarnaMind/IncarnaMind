@@ -329,7 +329,7 @@ export function createMindCheck(options: MindCheckOptions) {
       // A decision model in use sorts (#3334); where it can't, the AI model does, as with none.
       const found =
         (decision && (await sortedByDecision(decision, texts, signal, hears?.named))) ??
-        (await claimsAmong(prepared, texts, "own", signal, true, hears));
+        (await claimsAmong(prepared, texts, "own", signal, hears));
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
         if (found.undecided.has(index)) continue;

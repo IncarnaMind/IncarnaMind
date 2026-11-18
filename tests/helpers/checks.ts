@@ -4,7 +4,7 @@
  */
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/claimCheck";
 import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
-import { listedSentences } from "./claimSentences";
+import { sortReply } from "./claimSentences";
 
 export { listedSentences } from "./claimSentences";
 
@@ -70,13 +70,6 @@ export const sentenceOf = (call: ModelCall) => {
     .join("\n");
   return SENTENCE.exec(text)?.[1] ?? "";
 };
-
-function plannedParts(prompt: string, plans: Record<string, Plan>) {
-  return listedSentences(prompt).map(({ number, text }) => ({
-    number,
-    parts: text in plans ? [{ kind: "fact", text }] : [],
-  }));
-}
 
 /** A check Run's instructions (src/core/answers/checks/prompt.ts). */
 export const isCheckRun = (call: ModelCall) => call.system.startsWith("You check one sentence");
@@ -147,7 +140,7 @@ export const checkGenerate =
       )?.[1];
     switch (call.question) {
       case "find-claims":
-        return { text: JSON.stringify({ sentences: plannedParts(call.prompt, plans) }) };
+        return { text: sortReply(call.prompt, (text) => (text in plans ? "claim" : "no")) };
       case "verify-brief":
         return { text: JSON.stringify({ conclusions: [], figures: [] }) };
       case "parts":

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { readClaimParts } from "../../src/core/answers/checks/claims";
 import { figuresOf } from "../../src/shared/numberWords";
 import { setUpWithDocuments, shownPassages } from "../helpers/citations";
 import { restatedAsQuoted, scriptedModel, unscripted } from "../helpers/models";
@@ -70,52 +69,7 @@ describe("the quotes a sentence's check keeps", () => {
   });
 });
 
-describe("the claims sort's reader and number words", () => {
-  test("a literal span retains UTF16 positions after an astral character", () => {
-    const sentence = "🌳 我认为时机不妥，但成本上涨了40%。";
-    const opinion = "我认为时机不妥";
-    const literal = "成本上涨了40%";
-    const parts = [
-      { kind: "opinion", text: opinion },
-      { kind: "fact", text: literal },
-    ];
-    expect(
-      readClaimParts(JSON.stringify({ sentences: [{ number: 1, parts }] }), [
-        { number: 1, text: sentence },
-      ])?.get(1),
-    ).toEqual([
-      {
-        kind: "opinion",
-        span: { start: sentence.indexOf(opinion), end: sentence.indexOf(opinion) + opinion.length },
-      },
-      {
-        kind: "fact",
-        span: { start: sentence.indexOf(literal), end: sentence.indexOf(literal) + literal.length },
-      },
-    ]);
-  });
-
-  test.each([
-    { claims: [1] },
-    { sentences: [{ number: 2, parts: [] }] },
-    { sentences: [{ number: 1, parts: [{ kind: "fact", text: "rewritten" }] }] },
-    {
-      sentences: [
-        {
-          number: 1,
-          parts: [
-            { kind: "fact", text: "second" },
-            { kind: "fact", text: "first" },
-          ],
-        },
-      ],
-    },
-  ])("rejects missing or rewritten inventories: %j", (reply) => {
-    expect(
-      readClaimParts(JSON.stringify(reply), [{ number: 1, text: "first and second" }]),
-    ).toBeNull();
-  });
-
+describe("number words", () => {
   // protects=numbers said one after another are each read with their own words (#1031); fails_when=one hundred twenty one hundred reads 100 and 2,100, or three hundred four thousand five hundred two thousand three reads 304,000 and 502,003; no_claim=which numbers a speaker meant where the words allow two readings.
   test.each<[string, number[]]>([
     ["one hundred twenty one hundred", [120, 100]],

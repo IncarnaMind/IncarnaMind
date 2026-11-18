@@ -30,6 +30,7 @@ import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { checkGenerate, isCheckRun, sentenceOf, unsupportedReply } from "../helpers/checks";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -1128,17 +1129,7 @@ const replayModel = scriptedModel(
   { generate: (call) => ({ text: savedReply(call.options.prompt).text }) },
 );
 
-/** The dry run's sort: a sentence's parts are before and after its first comma, as a real sort may split them. */
-function dryParts(text: string): { kind: "fact"; text: string }[] {
-  const comma = /,\s+|，/u.exec(text);
-  if (!comma) return [{ kind: "fact", text }];
-  return [
-    { kind: "fact", text: text.slice(0, comma.index) },
-    { kind: "fact", text: text.slice(comma.index + comma[0].length).replace(/[.。]$/u, "") },
-  ];
-}
-
-/** The dry run's judge: it sorts as `dryParts` does, searches once and finds nothing. */
+/** The dry run's judge: it sorts every sentence as a claim, searches once and finds nothing. */
 const dryModel = scriptedModel(
   (call) => {
     heard.requests++;
@@ -1153,17 +1144,7 @@ const dryModel = scriptedModel(
     generate: (call) => {
       heard.requests++;
       if (call.question !== "find-claims") return checkGenerate({})(call);
-      const { sentences } = JSON.parse(call.prompt) as {
-        sentences: { number: number; text: string }[];
-      };
-      return {
-        text: JSON.stringify({
-          sentences: sentences.map(({ number, text }) => ({
-            number,
-            parts: dryParts(text),
-          })),
-        }),
-      };
+      return { text: sortReply(call.prompt) };
     },
   },
 );

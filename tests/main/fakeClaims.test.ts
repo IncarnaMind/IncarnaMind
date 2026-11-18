@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import {
   FIND_OWN_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
-  readClaimParts,
+  readSortWords,
 } from "../../src/core/answers/checks/claims";
 import { fakeClaims } from "../../src/main/fakeChat/claims";
 import type { GenerateOptions } from "../../src/main/fakeChat/prompt";
@@ -14,7 +14,7 @@ const options = (text: string): GenerateOptions => ({
   ],
 });
 
-test("the scripted sorter preserves multiline text and numbered words inside it", () => {
+test("the scripted sorter reads multiline text and numbered words inside it as one claim", () => {
   const text = "Revenue rose 8%\nin June; [2] is the report's own numbering.";
   const sentences = [
     { number: 1, text },
@@ -22,17 +22,35 @@ test("the scripted sorter preserves multiline text and numbered words inside it"
   ];
   const reply = fakeClaims(options(findClaimsPrompt(sentences)));
   expect(reply).not.toBeNull();
-  const parts = readClaimParts(reply ?? "", sentences);
-  expect(parts?.get(1)).toEqual([{ kind: "fact", span: { start: 0, end: text.length } }]);
-  expect(parts?.get(2)).toEqual(parts?.get(1));
+  expect(readSortWords(reply ?? "", [1, 2])).toEqual(
+    new Map([
+      [1, "claim"],
+      [2, "claim"],
+    ]),
+  );
 });
 
-test("the scripted sorter distinguishes a left-out opinion from a question's empty inventory", () => {
+test("the scripted sorter sends a view to its check, leaves a question out and sets words about the note aside", () => {
   const sentences = [
     { number: 1, text: "We think the deal is risky." },
     { number: 2, text: "What should we do?" },
+    { number: 3, text: "This note leaves out VAT." },
   ];
   const reply = fakeClaims(options(findClaimsPrompt(sentences)));
-  expect(readClaimParts(reply ?? "", sentences)?.get(1)?.[0]?.kind).toBe("opinion");
-  expect(readClaimParts(reply ?? "", sentences)?.get(2)).toEqual([]);
+  expect(readSortWords(reply ?? "", [1, 2, 3])).toEqual(
+    new Map([
+      [1, "claim"],
+      [2, "no"],
+      [3, "note"],
+    ]),
+  );
+});
+
+test("the scripted sorter can leave the last sentence undecided", () => {
+  const sentences = [
+    { number: 1, text: "Revenue rose 8%." },
+    { number: 2, text: "Costs fell 3%." },
+  ];
+  const reply = fakeClaims(options(findClaimsPrompt(sentences)), { undecidedLast: true });
+  expect(readSortWords(reply ?? "", [1, 2])).toEqual(new Map([[1, "claim"]]));
 });

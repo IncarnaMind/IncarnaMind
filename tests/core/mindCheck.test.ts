@@ -9,7 +9,7 @@ import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { type CheckMindInput, type Core, MindReadOnlyError, type Reranker } from "../../src/core";
-import { claimPartsReader } from "../../src/core/answers/checks/claims";
+import { type SortWord, sortWordsReader } from "../../src/core/answers/checks/claims";
 import { updateCheck } from "../../src/core/answers/checks/sentences";
 import {
   CLAIM_CHECK_MARK,
@@ -82,12 +82,8 @@ const PLANS: Record<string, Plan> = {
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 
-interface SortDecisions {
-  sentences: {
-    number: number;
-    parts: { kind: "fact" | "opinion" | "about-this-text"; text: string }[];
-  }[];
-}
+/** A sort's reply as the model writes it: each sentence's number and its word. */
+type SortDecisions = Record<string, SortWord>;
 
 /** The numbers a request listed `sentence` under. */
 const numbersOf = (call: GenerateCall, sentence: string): number[] =>
@@ -100,7 +96,9 @@ const withoutDecisions =
   (sentences: readonly string[]) =>
   (call: GenerateCall, decisions: SortDecisions): SortDecisions => {
     const missing = new Set(sentences.flatMap((sentence) => numbersOf(call, sentence)));
-    return { sentences: decisions.sentences.filter((sentence) => !missing.has(sentence.number)) };
+    return Object.fromEntries(
+      Object.entries(decisions).filter(([number]) => !missing.has(Number(number))),
+    );
   };
 
 /** The check Runs made: each starts with a call that has no Tool results yet. */
@@ -132,13 +130,12 @@ async function setUp(
         if (sorting && "text" in reply) {
           const decisions = JSON.parse(reply.text) as SortDecisions;
           const views = new Set(numbersOf(call, ASIDE));
-          const explicit = {
-            sentences: decisions.sentences.map((sentence) =>
-              views.has(sentence.number)
-                ? { ...sentence, parts: [{ kind: "about-this-text" as const, text: ASIDE }] }
-                : sentence,
-            ),
-          };
+          const explicit: SortDecisions = Object.fromEntries(
+            Object.entries(decisions).map(([number, word]) => [
+              number,
+              views.has(Number(number)) ? "note" : word,
+            ]),
+          );
           return { text: JSON.stringify(decide ? decide(finds.length, call, explicit) : explicit) };
         }
         return billed?.judged && "text" in reply && comparesAQuote(call)
@@ -647,9 +644,7 @@ describe("Check this note", () => {
   ])(
     "a readable reply missing every sentence leaves them unexamined: %s",
     async (first, second) => {
-      const { core, client, mindId, folderId, finds } = await setUp(undefined, () => ({
-        sentences: [],
-      }));
+      const { core, client, mindId, folderId, finds } = await setUp(undefined, () => ({}));
       writeMind(client, [
         { type: "paragraph", attrs: { id: "all-missing" }, content: [text(`${first} ${second}`)] },
       ]);
@@ -743,13 +738,7 @@ describe("Check this note", () => {
   test("the same words twice, named a claim once and left out once, are checked and not left out (#1682)", async () => {
     const { core, client, mindId, folderId } = await setUp(undefined, (_, call, decisions) => {
       const [, second] = numbersOf(call, MOON);
-      return second === undefined
-        ? decisions
-        : {
-            sentences: decisions.sentences.map((sentence) =>
-              sentence.number === second ? { ...sentence, parts: [] } : sentence,
-            ),
-          };
+      return second === undefined ? decisions : { ...decisions, [second]: "no" };
     });
     editMind(client, (blocks) => [
       ...blocks,
@@ -1355,7 +1344,7 @@ function sortStopsAfterFirst(model: LanguageModelV4, then: "held" | "fails") {
         if (typeof system !== "string" || !system.startsWith("You sort the sentences"))
           return result;
         const listed = listedSentences(promptText(params.prompt));
-        const read = claimPartsReader(listed);
+        const read = sortWordsReader(listed.map(({ number }) => number));
         let named = false;
         const stream = result.stream.pipeThrough(
           new TransformStream<LanguageModelV4StreamPart, LanguageModelV4StreamPart>({

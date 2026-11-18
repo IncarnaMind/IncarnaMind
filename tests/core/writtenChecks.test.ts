@@ -997,8 +997,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         generate: (call) => {
           if (!writeSorted(call)) return isSort(call) ? judgesNothing(call) : null;
           sorted.push(call.prompt);
-          const parts = [{ kind: "fact", text: "The harbour is quiet in winter." }];
-          return { text: JSON.stringify({ sentences: [{ number: 1, parts }] }) };
+          return { text: JSON.stringify({ "1": "claim" }) };
         },
       },
       ({ core: started }) => {
@@ -1058,13 +1057,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
   const QUAY = "The quay is busy in summer.";
   /** The sort of the write's sentence with no Citation answered: it states a fact. */
   const quayIsFact = (call: GenerateCall) =>
-    isSort(call) && call.prompt.includes(QUAY)
-      ? {
-          text: JSON.stringify({
-            sentences: [{ number: 1, parts: [{ kind: "fact", text: QUAY }] }],
-          }),
-        }
-      : null;
+    isSort(call) && call.prompt.includes(QUAY) ? { text: JSON.stringify({ "1": "claim" }) } : null;
 
   // protects=the sentences with a Citation are checked first, in the Note's order, and the sort and the sentences with none only once their checks are over, so the marks main's check gives land first (#2830); fails_when=the claims sort or a sentence with no Citation is sent while a cited sentence's check is still out; no_claim=how long each check takes.
   test("the sentences with a Citation are checked first, in the Note's order, and those with none after them", async () => {
@@ -2132,11 +2125,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
           sortsOfBoth++;
           if (sortsOfBoth > 1) return judgesNothing(call);
           // The first write's sort comes back once the newer write has taken its sentences over.
-          const sentences = [
-            { number: 1, parts: [{ kind: "opinion", text: "The harbour is quiet in winter." }] },
-            { number: 2, parts: [{ kind: "fact", text: "The quay is busy in summer." }] },
-          ];
-          return { text: JSON.stringify({ sentences }), until: sortHeld };
+          return { text: JSON.stringify({ "1": "claim", "2": "claim" }), until: sortHeld };
         },
       },
       calls,

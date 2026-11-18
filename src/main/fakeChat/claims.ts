@@ -3,7 +3,6 @@ import {
   REQUEST_DONE_INSTRUCTIONS,
 } from "../../core/answers/claimedChanges";
 import { REMOVAL_ASKED_INSTRUCTIONS } from "../../core/edits/removalAsked";
-import { LISTED_PROJECTS, LISTS_PROJECTS } from "./answers";
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 
 /** Finding the claims of a verified document (#97) or of the User's own draft (#737), src/core/answers/checks/claims.ts. */
@@ -68,10 +67,7 @@ export function fakeClaims(
     !Array.isArray(input.sentences)
   )
     return null;
-  const sentences: {
-    number: number;
-    parts: { kind: "fact" | "opinion" | "about-this-text"; text: string }[];
-  }[] = [];
+  const words: [number, "claim" | "note" | "no"][] = [];
   for (const sentence of input.sentences as unknown[]) {
     if (
       typeof sentence !== "object" ||
@@ -83,32 +79,12 @@ export function fakeClaims(
     )
       return null;
     const { number, text } = sentence;
-    if (/[?？]$|thank|谢/i.test(text)) {
-      sentences.push({ number, parts: [] });
-      continue;
-    }
-    // A sentence that lists projects is one part for each it names (#2809).
-    const projects = LISTS_PROJECTS.test(text)
-      ? Object.values(LISTED_PROJECTS)
-          .flatMap(({ held, absent }) => [...held, absent])
-          .filter((project) => text.includes(project))
-          .sort((a, b) => text.indexOf(a) - text.indexOf(b))
-      : [];
-    if (projects.length > 0) {
-      sentences.push({
-        number,
-        parts: projects.map((project) => ({ kind: "fact" as const, text: project })),
-      });
-      continue;
-    }
-    const kind = SAYS_A_VIEW.test(text)
-      ? "opinion"
-      : ABOUT_THE_NOTE.test(text)
-        ? "about-this-text"
-        : "fact";
-    sentences.push({ number, parts: [{ kind, text }] });
+    words.push([
+      number,
+      /[?？]$|thank|谢/i.test(text) ? "no" : ABOUT_THE_NOTE.test(text) ? "note" : "claim",
+    ]);
   }
-  return JSON.stringify({ sentences: undecidedLast ? sentences.slice(0, -1) : sentences });
+  return JSON.stringify(Object.fromEntries(undecidedLast ? words.slice(0, -1) : words));
 }
 
 export const checksChangeClaims = (options: GenerateOptions): boolean =>

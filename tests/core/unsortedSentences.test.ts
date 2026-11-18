@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import type { SortWord } from "../../src/core/answers/checks/claims";
 import { CITATION_NODE, MIND_SETTINGS_FIELD } from "../../src/core/api";
 import { mindCheckOf, sentenceKey } from "../../src/shared/mindCheck";
 import {
@@ -17,6 +18,7 @@ import {
   type Plan,
   sentenceOf,
 } from "../helpers/checks";
+import { type ListedSentence, sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -159,14 +161,8 @@ const citation = (quote: string) => ({
   },
 });
 
-interface Sorted {
-  number: number;
-  parts: { kind: "fact"; text: string }[];
-}
-/** A sort's reply to one request: each record it decides, by its number. */
-type Sorter = (
-  records: { number: number; text: string; row?: string; column?: string }[],
-) => Sorted[];
+/** The word a sort gives a record of one request; none leaves it undecided. */
+type Sorter = (text: string, record: ListedSentence) => SortWord | undefined;
 
 /**
  * The Note written as `blocks` and checked whole, its sort replying as `sorter` says; `before`, the
@@ -193,8 +189,7 @@ async function checkedNote(
       generate: (call) => {
         if (call.question !== "find-claims") return checkGenerate(pack.plans)(call);
         sorts.push(call);
-        const { sentences } = JSON.parse(call.prompt) as { sentences: Parameters<Sorter>[0] };
-        return { text: JSON.stringify({ sentences: sorter(sentences) }) };
+        return { text: sortReply(call.prompt, sorter) };
       },
     },
   );
@@ -236,8 +231,6 @@ async function checkedNote(
   };
 }
 
-const fact = (words: string) => [{ kind: "fact" as const, text: words }];
-
 describe.each(PACKS)("Check this Note in $language", (pack) => {
   test("a sentence with a figure, a Citation or a record cite that the sort says nothing of is checked; one with none is counted as unsorted", async () => {
     const silent = new Set([pack.figure, pack.plain, pack.cited, pack.record]);
@@ -249,10 +242,7 @@ describe.each(PACKS)("Check this Note in $language", (pack) => {
         paragraph(text(pack.cited), citation(pack.cited)),
         paragraph(text(pack.record)),
       ],
-      (records) =>
-        records
-          .filter((record) => !silent.has(record.text))
-          .map(({ number, text: words }) => ({ number, parts: fact(words) })),
+      (words) => (silent.has(words) ? undefined : "claim"),
     );
 
     // Asked once and once more, the sort says nothing of any of the four.
@@ -270,11 +260,7 @@ describe.each(PACKS)("Check this Note in $language", (pack) => {
       pack,
       table(pack),
       // Shown a row's label or a column's heading, the sort takes the record for a fact.
-      (records) =>
-        records.map(({ number, text: words, row, column }) => ({
-          number,
-          parts: row || column ? fact(words) : [],
-        })),
+      (_, { row, column }) => (row || column ? "claim" : "no"),
     );
 
     expect(sorts).toHaveLength(1);
@@ -297,7 +283,7 @@ describe.each(PACKS)("Check this Note in $language", (pack) => {
     const { sent, shown, run } = await checkedNote(
       pack,
       [paragraph(text(pack.question)), ...table(pack)],
-      (records) => records.map(({ number }) => ({ number, parts: [] })),
+      () => "no",
     );
 
     expect(sent).toEqual(["2,100", "540"]);
@@ -312,11 +298,7 @@ describe.each(PACKS)("Check this Note in $language", (pack) => {
     const { sent, shown, run } = await checkedNote(
       pack,
       [paragraph(text(wrong)), ...table(pack)],
-      (records) =>
-        records.map(({ number, text: words, row, column }) => ({
-          number,
-          parts: row || column ? fact(words) : [],
-        })),
+      (_, { row, column }) => (row || column ? "claim" : "no"),
       { skipped: [sentenceKey(wrong)] },
     );
 
@@ -340,7 +322,7 @@ describe.each(PACKS)("Check this Note in $language", (pack) => {
           })),
         },
       ],
-      (records) => records.map(({ number }) => ({ number, parts: [] })),
+      () => "no",
     );
 
     expect(JSON.parse(sorts[0]?.prompt ?? "")).toEqual({

@@ -28,6 +28,7 @@ import {
   setUpWithDocuments,
   shownPassages,
 } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { connectToMind, FROM_CORE } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import {
@@ -290,14 +291,7 @@ async function setUp(example: Example, answer?: Answering) {
         if (call.question === "sentence-batch") return batchReply(call, plans);
         // Every sentence it is shown makes a claim, but a row's label: what the check is sent is the core's choice.
         if (call.question === "find-claims")
-          return {
-            text: JSON.stringify({
-              sentences: listedSentences(call.prompt).map(({ number, text: words }) => ({
-                number,
-                parts: labels.has(words) ? [] : [{ kind: "fact", text: words }],
-              })),
-            }),
-          };
+          return { text: sortReply(call.prompt, (words) => (labels.has(words) ? "no" : "claim")) };
         return generate(call);
       },
     },

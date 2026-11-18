@@ -8,13 +8,14 @@
  * answer it didn't give.
  */
 import { describe, expect, test } from "vitest";
-import { readClaimDecisions } from "../../src/core/answers/checks/claims";
+import { readSortWords } from "../../src/core/answers/checks/claims";
 import { readBatchText } from "../../src/core/answers/checks/sentenceBatch";
 import { replyJson } from "../../src/core/answers/judge";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { isRecord } from "../../src/shared/record";
-import { checkGenerate, checkReply, listedSentences, type Plan } from "../helpers/checks";
+import { checkGenerate, checkReply, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { editMind, readMind, writeMind } from "../helpers/minds";
 import { scriptedModel } from "../helpers/models";
 
@@ -53,11 +54,7 @@ async function checked(example: (typeof CASES)[number], wording: Wording) {
   const model = scriptedModel((call) => checkReply(call, plans), {
     generate(call) {
       if (call.question !== "find-claims") return generate(call);
-      const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
-        number,
-        parts: [{ kind: "fact", text }],
-      }));
-      return { text: wording(JSON.stringify({ sentences }), example) };
+      return { text: wording(sortReply(call.prompt), example) };
     },
   });
   const { core, mind, client } = await setUpWithDocuments(model, [
@@ -84,8 +81,8 @@ describe.each(CASES)("a sorting reply with words around its JSON, in $language",
 });
 
 describe("a reply's JSON is the whole object it wrote, or nothing", () => {
-  const OBJECT = '{"sentences":[{"number":1,"parts":[]}]}';
-  const READ = { sentences: [{ number: 1, parts: [] }] };
+  const OBJECT = '{"1":"claim","2":"no"}';
+  const READ = { "1": "claim", "2": "no" };
 
   test.each([
     ["words and a marker before it", `The request asks for marker [1]. ${OBJECT}`],
@@ -101,14 +98,11 @@ describe("a reply's JSON is the whole object it wrote, or nothing", () => {
   test.each([
     ["only the marker", "The request asks for marker [1]."],
     ["a marker and nothing else", "[1]"],
-    ["a cut-off object after a marker", 'Marker [1]: {"sentences":[{"number":1,"parts":['],
-    ["a cut-off object", '{"sentences":[{"number":1,'],
-    [
-      "two answers around a marker",
-      '{"sentences":[]} Marker [1] {"sentences":[{"number":1,"parts":[]}]}',
-    ],
+    ["a cut-off object after a marker", 'Marker [1]: {"1":"claim","2":'],
+    ["a cut-off object", '{"1":"claim","2":'],
+    ["two answers around a marker", '{"1":"no"} Marker [1] {"1":"claim"}'],
     ["a list that is no record", "Marker [1]: [1, 2, 3]"],
-    ["a list holding one object", 'Marker [1]: [{"sentences":[]}]'],
+    ["a list holding one object", 'Marker [1]: [{"1":"claim"}]'],
     ["an object with a word in its braces' place", "Marker [1] {not json}"],
   ])("%s: no record is read", (_name, reply) => {
     expect(isRecord(replyJson(reply))).toBe(false);
@@ -142,16 +136,16 @@ describe("the readers that take a reply's JSON from its text, with a marker in w
   test.each([
     ["before it", 'The request asks for marker [1].\n{"1":"claim","2":"no"}'],
     ["after it", '{"1":"claim","2":"no"}\nMarker [1] is the only one.'],
-  ])("the claim decisions with a marker %s are read", (_name, reply) => {
-    expect([...(readClaimDecisions(reply, [1, 2]) ?? [])]).toEqual([
-      [1, true],
-      [2, false],
+  ])("the sort's words with a marker %s are read", (_name, reply) => {
+    expect([...(readSortWords(reply, [1, 2]) ?? [])]).toEqual([
+      [1, "claim"],
+      [2, "no"],
     ]);
   });
 
   test("a record that decides no sentence, after a marker, decides none", () => {
     expect(
-      readClaimDecisions('Marker [1]: {"citations":[{"marker":1,"quote":"x"}]}', [1, 2]),
+      readSortWords('Marker [1]: {"citations":[{"marker":1,"quote":"x"}]}', [1, 2]),
     ).toBeNull();
   });
 });
@@ -166,11 +160,7 @@ describe("the sentence is checked again after an edit, still read from a reply w
     const model = scriptedModel((call) => checkReply(call, plans), {
       generate(call) {
         if (call.question !== "find-claims") return generate(call);
-        const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
-          number,
-          parts: [{ kind: "fact", text }],
-        }));
-        return { text: `${example.before}\n${JSON.stringify({ sentences })}` };
+        return { text: `${example.before}\n${sortReply(call.prompt)}` };
       },
     });
     const { core, mind, client } = await setUpWithDocuments(model, [
