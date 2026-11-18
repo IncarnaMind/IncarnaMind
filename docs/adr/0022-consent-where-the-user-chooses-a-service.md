@@ -48,7 +48,7 @@ Nothing the AI sorts or tags is kept until the User confirms it (ADR-0012). The 
 
 ## A decision model reads a check's sentences first (#3118)
 
-Check this Note can have a decision model read each sentence before the User's AI model does. That is the `decision-checks` flow, to the decision model's host. It sorts the Note's sentences first (#3334): each goes alone, with nothing else, to decide whether it needs a check. Every later request holds one sentence that does and its paragraph, with Passages of the User's Documents or parts of them, each under its Document's name and page. The requests such a sentence can cause:
+Check this Note can have a decision model read each sentence before the User's AI model does. That is the `decision-checks` flow, to the decision model's host. It sorts the Note's sentences first (#3334): each goes alone, with nothing else, to decide whether it needs a check, and some alone once more, to ask whether they are about the Library itself (#2525). Every later request holds one sentence that does and its paragraph, with Passages of the User's Documents or parts of them, each under its Document's name and page. The requests such a sentence can cause:
 
 1. The sentence with its Passages: up to 30 the check's search finds, and every Passage the sentence cites.
 2. Before a verdict stands, the sentence with the verdict's Passage alone; once more with the same Passage where it writes one of the sentence's numbers another way.

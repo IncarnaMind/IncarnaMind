@@ -126,6 +126,7 @@ const WEEKLY = "The harbour office publishes the times of high water every week.
 const MOON = "Spring tides come at new and full moon.";
 const YEARLY = "The harbour office publishes the times of high water every year.";
 const PENGUINS = "Penguins nest on the cliffs above the harbour.";
+const IN_LIBRARY = "Your Library holds a Document called Tides.";
 const TONNES = "The harbour office handled 54,000 tonnes of cargo.";
 const FERRY = "The ferry to the island leaves the harbour at seven every morning.";
 // A sentence whose search finds both Documents.
@@ -207,6 +208,7 @@ async function startDecisionHost() {
   const sorted: State[] = [];
   let answer: (asked: Asked) => Answer | Promise<Answer> = sure;
   let sort: (sentence: string) => number | { status: number } = () => 0.95;
+  let library: (sentence: string) => number = () => 0.02;
   const server = createServer(async (request, response) => {
     let text = "";
     for await (const chunk of request) text += chunk;
@@ -224,6 +226,13 @@ async function startDecisionHost() {
       return send(200, {
         model: body.model,
         answers: { S: { type: "noul", noul: given } },
+        usage: { input_tokens: 10, output_tokens: 0 },
+      });
+    }
+    if (questions.join() === "LIB") {
+      return send(200, {
+        model: body.model,
+        answers: { LIB: { type: "noul", noul: library(body.state.sentence) } },
         usage: { input_tokens: 10, output_tokens: 0 },
       });
     }
@@ -262,6 +271,10 @@ async function startDecisionHost() {
     sorts(next: typeof sort) {
       sort = next;
     },
+    /** How sure the host is, from now on, that a sentence is about the Library itself (#2525). */
+    aboutLibrary(next: typeof library) {
+      library = next;
+    },
   };
 }
 
@@ -275,12 +288,15 @@ async function setUp(
     asShipped = false,
     reranker,
     cargoSheet = false,
+    python = cargoSheet,
   }: {
     readsByDefault?: boolean;
     asShipped?: boolean;
     reranker?: Reranker;
     /** A CSV file of cargo by month is among the Documents, and Python can run. */
     cargoSheet?: boolean;
+    /** Python can run, with or without a data file among the Documents. */
+    python?: boolean;
   } = {},
 ) {
   const host = await startDecisionHost();
@@ -307,7 +323,7 @@ async function setUp(
     decisionOrigins: { openrouter: host.url },
     ...(!asShipped && { decisionReadsByDefault: readsByDefault }),
     ...(reranker && { reranker }),
-    ...(cargoSheet && { analysisRuntime: createFakeAnalysisRuntime() }),
+    ...(python && { analysisRuntime: createFakeAnalysisRuntime() }),
   });
   let accepts = true;
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, accepts));
@@ -820,6 +836,22 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(mark?.by).not.toBe(DECIDER.modelId);
   });
 
+  // protects=where a check can count the Library's lists, a sentence about the Library that no Passage is about is left to the AI model's check instead of reading Unsupported; another such sentence still reads Unsupported by the decision model; fails_when=the decision model's Unsupported stands on a sentence the lists could confirm, or every Unsupported is handed to the AI model.
+  test("a sentence about the Library that no Passage is about goes to the AI model", async () => {
+    const { core, client, host, run, readByAiModel } = await setUp([PENGUINS, IN_LIBRARY], {
+      python: true,
+    });
+    host.aboutLibrary((sentence) => (sentence === IN_LIBRARY ? 0.995 : 0.02));
+    await choose(core);
+
+    await core.checkMind(run());
+
+    expect(readByAiModel()).toEqual([IN_LIBRARY]);
+    const found = await marks(client);
+    expect(found[PENGUINS]).toMatchObject({ state: "unsupported", by: DECIDER.modelId });
+    expect(found[IN_LIBRARY]?.by).not.toBe(DECIDER.modelId);
+  });
+
   // protects=a score inside the band of its line is a first reading, not a verdict: the Mark shows it while the AI model checks the sentence, and keeps it as the record once the AI model has answered; fails_when=a score just over the line marks the sentence, the first reading isn't on the Mark while the check runs, or it is gone afterwards; no_claim=how wide the band should be, or how the card draws a first reading.
   test("a score too near its line is a first reading the AI model confirms", async () => {
     const { core, client, host, run, readByAiModel, holdAiModel, aiModelId } = await setUp();
@@ -1221,6 +1253,23 @@ describe("The decision model sorts the Note's sentences (#3334)", { timeout: 30_
     await core.checkMind(run());
 
     expect(Object.keys(await marks(client)).sort()).toEqual([MOON, TONNES].sort());
+  });
+
+  // protects=a sentence about the Library itself, which reads like words about the Note, is asked about once more and checked; fails_when=the sort leaves it out with no Mark, so its count is never checked.
+  test("a sentence about the Library that it would leave out is checked", async () => {
+    const { core, client, host, run, sortsByAiModel } = await setUp([
+      MOON,
+      IN_LIBRARY,
+      SOURCE_LINE,
+    ]);
+    host.sorts(leavesOut(IN_LIBRARY, SOURCE_LINE));
+    host.aboutLibrary((sentence) => (sentence === IN_LIBRARY ? 0.995 : 0.6));
+    await choose(core);
+
+    await core.checkMind(run());
+
+    expect(Object.keys(await marks(client)).sort()).toEqual([MOON, IN_LIBRARY].sort());
+    expect(sortsByAiModel()).toBe(0);
   });
 
   // protects=a host that can't be asked leaves the sort to the AI model, and every sentence still gets its Mark; fails_when=a refused sort request ends the check or leaves sentences unsorted.

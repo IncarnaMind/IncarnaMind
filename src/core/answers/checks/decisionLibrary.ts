@@ -7,7 +7,7 @@
 import type { JevNoulQuestion } from "../../providers/jev";
 import type { DecisionReader } from "./decisionFirst";
 
-const ABOUT = "L";
+const ABOUT = "LIB";
 
 // The line was measured with these words, sent as they are here.
 export const LIBRARY_QUESTION: JevNoulQuestion = {

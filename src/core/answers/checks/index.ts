@@ -1618,6 +1618,7 @@ export function createChecks(options: ChecksOptions) {
           cited: citedNow(parsed.cited),
           scope,
           model: ready.prepared,
+          ...(parsed.mindId !== null && { mindId: parsed.mindId }),
           // Reading the document being checked makes the Run third-party (#78).
           ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
           signal: ends,

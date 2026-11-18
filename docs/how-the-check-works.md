@@ -44,6 +44,17 @@ A sentence can give a figure that no Passage states because it is worked out ove
 - It rests on the code the model wrote. The check doesn't judge whether that is the right way to work the figure out, so open the code where the figure matters.
 - A check that runs by itself, such as the contradiction check after a new version of a Document, never runs code.
 
+### A sentence about the Library itself
+
+No Document says how many Documents your Library holds, what they are called or where they are filed. In a check you start, the model counts it. It writes code, IncarnaMind runs that code on this computer over its own lists of your Documents (name, kind, Folder, Tags), your Folders and your other Notes, and the model compares the count with the sentence.
+
+- The same count is `Supported`, and another is `Needs a look · Contradicted`. The card names your Library and what was counted, and `Show how it was worked out` shows the code.
+- The lists stay on this computer: the model gets back only the numbers its code gives.
+- A Folder that keeps its work inside it is counted only for a Note in that Folder.
+- When your Library changes afterwards, the sentence reads `Needs a look · Needs re-check`.
+- The lists hold names, kinds, Folders and Tags only. They settle no sentence about what a Document says.
+- A check that runs by itself never runs code, and some models can't. There such a sentence reads `Needs a look · Not found`.
+
 ### A table or figure from an Analysis
 
 - A table an Analysis made is never checked against your Documents: its cells are the Analysis's. The marker at the end of its caption opens how each column was worked out.
