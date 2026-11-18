@@ -53,6 +53,7 @@ import { useOpinionChecks } from "./opinionChecks";
 import { ReferencesLine } from "./ReferencesLine";
 import { UncoveredLine } from "./UncoveredLine";
 import { useVerificationBrief, VerifyBrief } from "./VerifyBrief";
+import { VerifyFormulas } from "./VerifyFormulas";
 import { shownPhase } from "./verifyPhase";
 import { wordPlaceAt } from "./WordOrigin";
 
@@ -522,6 +523,9 @@ export function VerifyCard({
         />
       )}
       {body}
+      {verification.workbook && (
+        <VerifyFormulas editor={editor} workbook={verification.workbook} goTo={goTo} />
+      )}
       <UnreadFilesLine files={unread} testId="verify-unread" className="mind-unread" />
       {running === null && marks.marked > 0 && marks.coverage.mostlyUncovered && (
         <UncoveredLine
