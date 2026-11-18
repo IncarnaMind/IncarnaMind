@@ -42,20 +42,44 @@ export function wordPlaces(text: string, words: readonly string[]): number[] {
   });
 }
 
+function wordPlacesFromEnd(text: string, words: readonly string[]): number[] {
+  let end = text.length;
+  return words
+    .toReversed()
+    .map((word) => {
+      const token = word.trim();
+      if (!token) return -1;
+      const wanted = token.toLocaleLowerCase();
+      const first = end - token.length;
+      for (let at = first; at >= 0 && at >= first - NEXT_WORD_WITHIN; at--) {
+        if (text.slice(at, at + token.length).toLocaleLowerCase() === wanted) {
+          end = at;
+          return at;
+        }
+      }
+      return -1;
+    })
+    .reverse();
+}
+
 /**
  * Where a transcriber's words fall in a line's text as it was written, each looked for just after
  * the one before. A word the text no longer has as it came (a number written as figures, the
- * other Chinese script) is left out, and its time with it.
+ * other Chinese script) is left out, and its time with it. For timings read from a separate
+ * draft, both directions must agree so a missed repetition can't move an earlier word's time.
  */
-export function alignWords(text: string, words: readonly HeardWord[]): WordTime[] {
+export function alignWords(
+  text: string,
+  words: readonly HeardWord[],
+  requireAgreement = false,
+): WordTime[] {
   const placed: WordTime[] = [];
-  const places = wordPlaces(
-    text,
-    words.map((word) => word.text),
-  );
+  const tokens = words.map((word) => word.text);
+  const places = wordPlaces(text, tokens);
+  const backwards = requireAgreement ? wordPlacesFromEnd(text, tokens) : null;
   for (const [index, word] of words.entries()) {
     const at = places[index] ?? -1;
-    if (at < 0) continue;
+    if (at < 0 || (backwards && backwards[index] !== at)) continue;
     const last = placed.at(-1);
     if (!last || (at > last.at && word.ms >= last.ms)) placed.push({ at, ms: Math.round(word.ms) });
   }

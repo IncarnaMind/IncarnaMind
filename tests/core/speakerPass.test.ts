@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, SpeakerSeparator } from "../../src/core";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
-import { labelled } from "../../src/core/meetings/speakerPass";
+import { labelled, speakerLabels } from "../../src/core/meetings/speakerPass";
+import { partsOf, speakerOf, splitsHold } from "../../src/shared/speakers";
 import { createTempDataFolder } from "../helpers/core";
 import {
   fakeSeparator,
@@ -83,6 +84,109 @@ describe("The labels the speaker pass gives (#138)", () => {
     const call = [line(0, "Them"), line(2000, "Them"), line(4000, "Them")];
     expect(labelled(call, [{ startMs: 0, endMs: 500, voice: 0 }], true)).toBeNull();
     expect(labelled(call, [], true)).toBeNull();
+  });
+});
+
+describe("A speaker change inside a timed Transcript line", () => {
+  test.each([
+    {
+      text: "Created equal. Thank you.",
+      before: "Created equal.",
+      after: "Thank you.",
+      anchors: [0, 8, 15, 21],
+    },
+    {
+      text: "已经签了。我们继续。",
+      before: "已经签了。",
+      after: "我们继续。",
+      anchors: [2, 3, 5, 6],
+    },
+  ])("assigns each part of $text to the voice that said it", ({ text, before, after, anchors }) => {
+    const cue = {
+      startMs: 100,
+      endMs: 3000,
+      text,
+      speaker: "Speaker ?",
+      words: anchors.map((at, index) => ({ at, ms: [800, 1150, 1650, 1850][index] ?? 0 })),
+    };
+    const fileLine = { ...cue, label: cue.speaker };
+    const speakers = speakerLabels(
+      [cue],
+      [
+        { startMs: 100, endMs: 1400, voice: 3 },
+        { startMs: 1550, endMs: 3000, voice: 4 },
+      ],
+      false,
+    );
+    if (!speakers) throw new Error("No speaker labels");
+    expect(splitsHold(speakers, [fileLine])).toBe(true);
+    expect(
+      partsOf(speakers, fileLine).map((part) => [
+        part.text,
+        speakerOf(speakers, part.startMs, part.label),
+      ]),
+    ).toEqual([
+      [before, "Speaker 1"],
+      [after, "Speaker 2"],
+    ]);
+
+    const overlapping = speakerLabels(
+      [cue],
+      [
+        { startMs: 100, endMs: 1800, voice: 3 },
+        { startMs: 1550, endMs: 3000, voice: 4 },
+      ],
+      false,
+    );
+    expect(partsOf(overlapping, fileLine).map((part) => part.text)).toEqual([text]);
+  });
+
+  test("a clear handoff followed by an unaligned handoff leaves the line intact", () => {
+    const cue = {
+      startMs: 100,
+      endMs: 4300,
+      text: "Created equal. Thank you. And welcome.",
+      speaker: "Speaker ?",
+      words: [
+        { at: 0, ms: 800 },
+        { at: 8, ms: 1150 },
+        { at: 15, ms: 1650 },
+        { at: 21, ms: 1850 },
+      ],
+    };
+    const speakers = speakerLabels(
+      [cue],
+      [
+        { startMs: 100, endMs: 1400, voice: 3 },
+        { startMs: 1550, endMs: 3000, voice: 4 },
+        { startMs: 3200, endMs: 4300, voice: 3 },
+      ],
+      false,
+    );
+    expect(speakers?.splits).toBeUndefined();
+  });
+
+  test("a missing word time or a word without a trustworthy boundary leaves the line intact", () => {
+    const cue = { startMs: 100, endMs: 3000, text: "This one. Another word.", speaker: "Them" };
+    const turns = [
+      { startMs: 100, endMs: 1400, voice: 3 },
+      { startMs: 1550, endMs: 3000, voice: 4 },
+    ];
+    for (const words of [
+      [],
+      [
+        { at: 0, ms: 950 },
+        { at: 5, ms: 1200 },
+        { at: 11, ms: 1650 },
+        { at: 18, ms: 1950 },
+      ],
+    ]) {
+      const speakers = speakerLabels([{ ...cue, words }], turns, true);
+      expect(speakers?.splits).toBeUndefined();
+      expect(partsOf(speakers, { ...cue, label: cue.speaker }).map((part) => part.text)).toEqual([
+        cue.text,
+      ]);
+    }
   });
 });
 

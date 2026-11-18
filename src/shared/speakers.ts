@@ -1,6 +1,6 @@
 import type { TranscriptSpeakers, TranscriptSplit } from "../core/api";
 import type { MessageKey, MessageParams } from "./i18n";
-import { findQuote } from "./quoteMatch";
+import { findQuote, findQuoteOccurrences } from "./quoteMatch";
 
 /**
  * Who a live line of a Meeting's Transcript is from, before speakers are told
@@ -455,19 +455,26 @@ export function withLineSplit(
 /**
  * When the part a quote of a file's line starts in begins (#138): a Citation stores its line's
  * start and label, and shows the part its words are in. The line's start when it isn't split, or
- * the quote isn't found in it.
+ * the quote isn't found in it. Null if the words could be from multiple parts.
  */
 export function partStartOf(
   speakers: TranscriptSpeakers | null | undefined,
   lineMs: number,
   label: string,
   quote: string | null | undefined,
-): number {
+): number | null {
   const splits = speakers?.splits;
   const split =
     splits && Object.hasOwn(splits, lineKey(lineMs, label)) ? splits[lineKey(lineMs, label)] : null;
   if (!split || !quote) return lineMs;
-  const at = findQuote(split.text, quote)?.[0]?.start;
-  if (at === undefined) return lineMs;
-  return split.parts.findLast((part) => part.at <= at)?.ms ?? lineMs;
+  const occurrences = findQuoteOccurrences(split.text, quote);
+  const ranges = occurrences.length ? occurrences : findQuote(split.text, quote, { unique: true });
+  if (!ranges) return findQuote(split.text, quote) ? null : lineMs;
+  const time = (at: number) => split.parts.findLast((part) => part.at <= at)?.ms ?? lineMs;
+  const first = ranges[0];
+  if (!first) return lineMs;
+  const from = time(first.start);
+  return ranges.every((range) => time(range.start) === from && time(range.end - 1) === from)
+    ? from
+    : null;
 }

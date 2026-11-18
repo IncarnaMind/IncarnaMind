@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
-import { recordMeeting, startRecording, transcriptSaved, useOutputLocation } from "../app";
+import { recordMeeting, startRecording, transcriptSaved, turnOf, useOutputLocation } from "../app";
 import {
   copyModelsIn,
   copyModelsOut,
@@ -21,6 +21,7 @@ const root = resolve(__dirname, "../..");
 const speech = join(root, "tests/fixtures/speech/two-voices.wav");
 // Three Mandarin lines, each a short word alone, a pause, then the rest (tests/fixtures/speech/README.md).
 const shortFirstWords = join(root, "tests/fixtures/speech/short-first-words-zh.wav");
+const closeVoices = join(root, "tests/fixtures/speech/close-voices.wav");
 
 test.skip(
   process.platform !== "darwin" && process.platform !== "win32",
@@ -127,6 +128,50 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   await app.close();
   app = undefined;
   // Only a run that got this far has the whole model to keep.
+  await copyModelsOut(dataDir);
+});
+
+test("a speaker handoff without a pause gets two speaker turns after Stop", async () => {
+  expect(
+    existsSync(packagedExecutable),
+    `${packagedExecutable}: build the packaged app first`,
+  ).toBe(true);
+  const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+  dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
+  folders.push(home, dataDir);
+  await copyModelsIn(dataDir);
+  app = await launchPackaged(home, dataDir, { speech: closeVoices });
+  const window = await app.firstWindow();
+  const start = await recordMeeting(window);
+  await start.getByTestId("meeting-start-audio").selectOption("me");
+  const bar = await startRecording(window, start, { notice: true });
+  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+  const beside = window.getByTestId("meeting-transcript-beside");
+  await expect(beside).toBeEnabled({ timeout: 2 * 60_000 });
+  await beside.click();
+
+  const lines = window.getByTestId("transcript-line");
+  const shared = lines.filter({ hasText: /created equal.*thank you/i });
+  await expect(shared.first()).toBeVisible({ timeout: 2 * 60_000 });
+  const wordsBefore = (await shared.first().innerText()).trim();
+  await bar.getByTestId("meeting-stop").click();
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const [meeting] = await core.listMeetings();
+          return meeting?.transcript?.state === "saved" && !meeting.transcript.separating;
+        }),
+      { timeout: 5 * 60_000 },
+    )
+    .toBe(true);
+  const first = lines.filter({ hasText: /created equal/i }).first();
+  const second = lines.filter({ hasText: /Thursday morning/i }).first();
+  await expect(turnOf(first).getByTestId("transcript-speaker")).toHaveText("Speaker 1");
+  await expect(turnOf(second).getByTestId("transcript-speaker")).toHaveText("Speaker 2");
+  await expect(shared).toHaveCount(0);
+  expect([await first.innerText(), await second.innerText()].join(" ")).toBe(wordsBefore);
   await copyModelsOut(dataDir);
 });
 
