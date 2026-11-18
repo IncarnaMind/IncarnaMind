@@ -1515,6 +1515,17 @@ export async function openTranscriptBeside(
 /** The turn of a Transcript a line is in: its Speaker, its time and its Add to note. */
 export const turnOf = (line: Locator): Locator => line.locator("xpath=ancestor::*[@data-turn][1]");
 
+/**
+ * On the first recording's sheet, chooses this computer where the sheet still asks where the
+ * audio is transcribed (#3305): a cloud service is picked first there, and the tests' engine is
+ * on this computer.
+ */
+export async function transcribeHere(notice: Locator): Promise<void> {
+  await expect(notice).toBeVisible();
+  const here = notice.locator('[data-testid="setup-transcription"][data-value="local"] input');
+  if ((await here.count()) > 0) await here.check();
+}
+
 /** Starts recording from the start block; the first time, through the one-time notice. */
 export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
   const record = start.getByTestId("meeting-start-record");
@@ -1522,7 +1533,7 @@ export async function startRecording(window: Page, start: Locator, { notice = fa
   await record.click();
   if (notice) {
     const dialog = window.getByTestId("meeting-notice");
-    await expect(dialog).toBeVisible();
+    await transcribeHere(dialog);
     await dialog.getByTestId("meeting-notice-start").click();
     await expect(dialog).toBeHidden();
   }

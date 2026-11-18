@@ -15,6 +15,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  transcribeHere,
 } from "./app";
 
 /*
@@ -106,7 +107,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, window.getByTestId("plus-record-meeting"));
     await pointAndClick(window, window.getByTestId("meeting-start-record"));
     const notice = window.getByTestId("meeting-notice");
-    await expect(notice).toBeVisible();
+    await transcribeHere(notice);
     await expect(notice.getByTestId("meeting-notice-model-size")).toHaveText(
       language === "en" ? "The speech models are about 1.2 GB." : "语音模型约 1.2 GB。",
     );
