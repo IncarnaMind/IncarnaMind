@@ -5,6 +5,7 @@ import type { Core } from "../../src/core";
 import { hashBytes } from "../../src/core/documents/files";
 import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { InvalidInputError } from "../../src/core/errors";
+import type { CloudConnect } from "../../src/core/transcription/cloud/socket";
 import { FAKE_LINES, FAKE_THEIR_LINES } from "../../src/core/transcription/fake";
 import { FAKE_CLOUD_LINES } from "../../src/core/transcription/fakeCloud";
 import { askAndFinish, citingModel, onlyCitation, type ShownPassage } from "../helpers/citations";
@@ -78,6 +79,73 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     expect(new Set(cues.map((cue) => cue.speaker))).toEqual(
       new Set(["Me", "Speaker 1", "Speaker 2"]),
     );
+  });
+
+  test("word-level AssemblyAI speakers appear in the live and saved Transcript", async () => {
+    const cloud: CloudConnect = (_url, _key, events) => {
+      const say = (message: object) => events.message(JSON.stringify(message));
+      let audioBytes = 0;
+      queueMicrotask(() => {
+        events.open();
+        say({ type: "Begin", id: "room" });
+      });
+      return {
+        send(data) {
+          if (typeof data === "string") {
+            say({ type: "Termination", audio_duration_seconds: audioBytes / 32_000 });
+            return;
+          }
+          const before = audioBytes;
+          audioBytes += data.byteLength;
+          if (before < 64_000 && audioBytes >= 64_000) {
+            say({
+              type: "Turn",
+              turn_order: 0,
+              end_of_turn: true,
+              speaker_label: "A",
+              transcript: "Let's confirm. 周三吗？",
+              words: [
+                { text: "Let's", start: 300, end: 550, speaker: "A", word_is_final: true },
+                { text: "confirm.", start: 550, end: 990, speaker: "A", word_is_final: true },
+                { text: "周三吗？", start: 940, end: 1650, speaker: "B", word_is_final: true },
+              ],
+            });
+          }
+        },
+        close() {},
+      };
+    };
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, { cloud });
+    await core.setTranscriptionKey({ route: "assemblyai", apiKey: "assemblyai-test-key" });
+    await core.updateSettings({ device: { transcriptionRoute: "assemblyai" } });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "assemblyai");
+
+    record(3 * SECOND, ["microphone"]);
+    await until(core, meeting.id, (transcript) => transcript.lines === 2);
+    const expected = [
+      { speaker: "Speaker 1", text: "Let's confirm.", startMs: 300, endMs: 990 },
+      {
+        speaker: "Speaker 2",
+        text: "周三吗？",
+        startMs: 940,
+        endMs: 1650,
+        words: [{ at: 0, ms: 940 }],
+      },
+    ];
+    const livePath = join(dataDir, "Transcripts", `${meeting.id}.vtt`);
+    expect(readVtt(readFileSync(livePath, "utf8")).cues).toMatchObject(expected);
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    if (!saved.savedPath) throw new Error("The Transcript has no saved file.");
+    expect(readVtt(readFileSync(saved.savedPath, "utf8")).cues).toMatchObject(expected);
+    expect((await shownSpeakers(core, saved.documentId, saved.savedPath)).speakers).toEqual([
+      "Speaker 1",
+      "Speaker 2",
+    ]);
   });
 
   test("the service's unfinished words show for both sides before any line is finished, and the finished line takes their place", async () => {

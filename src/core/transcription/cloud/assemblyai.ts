@@ -7,6 +7,7 @@
  * as an Error message before the socket closes, all of an account's under close code 1008, told
  * apart by their words (https://www.assemblyai.com/docs/streaming/common-session-errors-and-closures).
  */
+import { type HeardWord, wordPlaces } from "../../../shared/wordTimes";
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
 import {
@@ -56,10 +57,64 @@ interface Turn {
   endMs: number;
   text: string;
   speaker: string | null;
-  words: { text: string; ms: number }[];
+  words: Word[];
+}
+
+interface Word extends HeardWord {
+  endMs: number;
+  speaker: string | null;
 }
 
 const numberOf = (value: unknown) => (typeof value === "number" ? value : null);
+function speakerOf(value: unknown, fallback: string | null): string | null {
+  if (typeof value !== "string" || !value.trim()) return fallback;
+  return value === "UNKNOWN" || value === "PENDING" ? null : value;
+}
+
+const WORD_MATERIAL = /[\p{L}\p{M}\p{N}]/u;
+const LATIN_WORD = /[\p{Script=Latin}\p{M}\p{N}]/u;
+
+function speakerParts(turn: Turn): Omit<Turn, "id">[] {
+  const first = turn.words[0];
+  let speaker = first ? first.speaker : turn.speaker;
+  const starts = [{ index: 0, speaker }];
+  for (const [index, word] of turn.words.entries()) {
+    if (word.speaker === speaker) continue;
+    speaker = word.speaker;
+    starts.push({ index, speaker });
+  }
+  if (starts.length === 1) return [{ ...turn, speaker }];
+
+  const places = wordPlaces(
+    turn.text,
+    turn.words.map((word) => word.text),
+  );
+  let end = 0;
+  for (const [index, word] of turn.words.entries()) {
+    const at = places[index] ?? -1;
+    if (at < end || WORD_MATERIAL.test(turn.text.slice(end, at))) return [turn];
+    end = at + word.text.trim().length;
+  }
+  if (WORD_MATERIAL.test(turn.text.slice(end))) return [turn];
+  for (const { index } of starts.slice(1)) {
+    const at = places[index] ?? 0;
+    if (LATIN_WORD.test(turn.text.charAt(at - 1)) && LATIN_WORD.test(turn.text.charAt(at))) {
+      return [turn];
+    }
+  }
+  return starts.map(({ index, speaker }, part) => {
+    const next = starts[part + 1]?.index ?? turn.words.length;
+    const words = turn.words.slice(index, next);
+    const startMs = words[0]?.ms ?? turn.startMs;
+    return {
+      startMs,
+      endMs: words.reduce((end, word) => Math.max(end, word.endMs), startMs),
+      text: turn.text.slice(part === 0 ? 0 : places[index], places[next]).trim(),
+      speaker,
+      words,
+    };
+  });
+}
 
 export function createAssemblyAiStream(options: CloudStreamOptions): CloudStreamHandle {
   const { stream, report } = options;
@@ -82,10 +137,7 @@ export function createAssemblyAiStream(options: CloudStreamOptions): CloudStream
       typeof message.transcript === "string"
         ? message.transcript
         : joinWords(words.map((word) => (typeof word.text === "string" ? word.text : "")));
-    const speaker =
-      typeof message.speaker_label === "string" && message.speaker_label !== "UNKNOWN"
-        ? message.speaker_label
-        : (known?.speaker ?? null);
+    const speaker = speakerOf(message.speaker_label, known?.speaker ?? null);
     const turn: Turn = {
       id: known?.id ?? nextId++,
       startMs,
@@ -94,7 +146,15 @@ export function createAssemblyAiStream(options: CloudStreamOptions): CloudStream
       speaker,
       words: words.flatMap((word) => {
         const ms = numberOf(word.start);
-        return typeof word.text === "string" && ms !== null ? [{ text: word.text, ms }] : [];
+        if (typeof word.text !== "string" || !word.text.trim() || ms === null) return [];
+        return [
+          {
+            text: word.text,
+            ms,
+            endMs: numberOf(word.end) ?? ms,
+            speaker: speakerOf(word.speaker, speaker),
+          },
+        ];
       }),
     };
     open.set(order, turn);
@@ -103,17 +163,20 @@ export function createAssemblyAiStream(options: CloudStreamOptions): CloudStream
 
   function say(turn: Turn, final: boolean): void {
     if (!turn.text) return;
-    report.segment({
-      stream,
-      id: turn.id,
-      startMs: turn.startMs,
-      endMs: turn.endMs,
-      text: turn.text,
-      final,
-      decodeMs: 0,
-      ...(turn.speaker !== null && { speaker: turn.speaker }),
-      ...(final && turn.words.length > 0 && { words: turn.words }),
-    });
+    for (const [index, part] of (final ? speakerParts(turn) : [turn]).entries()) {
+      report.segment({
+        stream,
+        id: index === 0 ? turn.id : nextId++,
+        startMs: part.startMs,
+        endMs: part.endMs,
+        text: part.text,
+        final,
+        decodeMs: 0,
+        ...(part.speaker !== null && { speaker: part.speaker }),
+        ...(final &&
+          part.words.length > 0 && { words: part.words.map(({ text, ms }) => ({ text, ms })) }),
+      });
+    }
   }
 
   function progress(): void {
