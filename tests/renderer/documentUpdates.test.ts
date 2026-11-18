@@ -142,7 +142,7 @@ describe("applying gathered assignments to the Library", () => {
       organizeWith: null,
       taggingStopped: [],
     },
-    automaticDefault: false,
+    asksFor: [],
     reviewCount: 0,
   };
 

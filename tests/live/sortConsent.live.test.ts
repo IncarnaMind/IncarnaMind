@@ -81,7 +81,7 @@ describe("DeepSeek, live", () => {
           await Promise.all(FILES.map(([name, text]) => writeSourceFile(sources, name, text))),
         );
         expect(sent).toEqual([]);
-        expect((await core.getLibrary()).sortWaitsFor?.name).toBe("DeepSeek");
+        expect((await core.getLibrary()).asksFor.map((each) => each.name)).toEqual(["DeepSeek"]);
 
         const { settings } = await core.getLibrary();
         await core.saveLibrarySettings({ ...settings, automatic: true, turnOn: true });

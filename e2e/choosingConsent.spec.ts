@@ -129,15 +129,21 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   await form.getByTestId("provider-use-key").click();
   await expect(window.getByTestId("composer-input")).toBeVisible();
 
-  // Tags are turned on where they are set: Settings › AI's switch says what goes before it is
-  // turned on (#2308). Then a Document is tagged without asking.
+  // Tags are on, but ask before the first Document goes (#2308, #3353): Settings › AI's switch
+  // says what goes and that it asks first, and the footer asks with the first Document, saying
+  // what goes. After its Allow, a Document is tagged without asking.
   const jobs = (await openSettings(window, "ai")).getByTestId("ai-jobs");
   const turnOn = jobs.getByTestId("tagging-automatic-organize");
   await expect(jobs.getByTestId("tagging-automatic-sends")).toContainText("to OpenAI");
-  await pointAndClick(window, turnOn);
   await expect(turnOn).toBeChecked();
+  await expect(jobs.getByTestId("tagging-automatic-asks")).toHaveText(
+    "OpenAI isn’t allowed yet: IncarnaMind asks you before the first Document goes.",
+  );
   await closeSettings(window);
   await addDocuments(window, [await invoice("Invoice 40")]);
+  const allow = window.getByTestId("sort-consent").getByTestId("sort-consent-allow");
+  await expect(allow).toHaveText("Allow OpenAI");
+  await pointAndClick(window, allow);
   await expect(
     window.getByTestId("document-list-item").filter({ hasText: "Invoice 40" }),
   ).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
@@ -185,27 +191,30 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   ).toHaveCount(0);
   await screenshot(window, "privacy-chosen-en");
 
-  // Stopping OpenAI stops tagging too: the next Document waits, saying why, with Allow in place.
+  // Stopping OpenAI stops tagging too: the next Document waits, and nothing asks again (#3353).
   await service.getByTestId("data-service-revoke").click();
   await expect(service).toHaveAttribute("data-consent", "not-asked");
   await closeSettings(window);
   await window.getByTestId("add-documents-input").setInputFiles([await invoice("Invoice 42")]);
   const second = window.getByTestId("document-list-item").filter({ hasText: "Invoice 42" });
   await expect(second).toHaveAttribute("data-status", "ready");
-  await expect(second).toHaveAttribute("data-tagging", "waiting-for-provider");
-  // A Tag of the User's own: only now is Tags named, and its permission asked for (#1942).
-  await makeTagOnDocument(window, "Invoice 42");
-  const status = window.getByTestId("tagging-waiting");
-  await expect(status).toContainText("Tags need your OK");
-  await expect(status).toHaveAttribute(
-    "title",
-    "Tags wait until you allow Document text to go to OpenAI.",
-  );
-  await screenshot(window, "tagging-permission-en");
+  await expect(second).toHaveAttribute("data-tagging", "off");
+  await expect(window.getByTestId("sort-consent")).toHaveCount(0);
+  await expect(window.getByTestId("tagging-waiting")).toHaveCount(0);
 
-  await status.getByTestId("tagging-waiting-allow").click();
-  await expect(second).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
-  await expect(status).toHaveCount(0);
+  // Settings › AI is where it is turned on again, with its line: a Document added after is tagged.
+  const again = (await openSettings(window, "ai")).getByTestId("ai-jobs");
+  const switchAgain = again.getByTestId("tagging-automatic-organize");
+  await expect(switchAgain).not.toBeChecked();
+  await expect(again.getByTestId("tagging-automatic-asks")).toHaveCount(0);
+  await pointAndClick(window, switchAgain);
+  await expect(switchAgain).toBeChecked();
+  await closeSettings(window);
+  await window.getByTestId("add-documents-input").setInputFiles([await invoice("Invoice 44")]);
+  await expect(
+    window.getByTestId("document-list-item").filter({ hasText: "Invoice 44" }),
+  ).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
+  await expect(second).toHaveAttribute("data-tagging", "off");
   expect(await consentAsked()).toEqual([]);
 
   // Allowed for Tags alone, the service says some uses aren't allowed yet; Allow allows the rest.

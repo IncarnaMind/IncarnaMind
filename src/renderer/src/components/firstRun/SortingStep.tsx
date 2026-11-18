@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import type { DecisionHost, DecisionHostStatus } from "../../../../core/api";
 import { JEV_SERVICE } from "../../../../core/providers/jev";
+import { sortingSwitchOn } from "../../../../shared/libraryModels";
 import { core } from "../../core";
 import { useDecisionHosts } from "../../decisionHosts";
 import { useLanguage, useT } from "../../i18n";
@@ -38,13 +39,15 @@ const lineClass = "text-[12px] leading-5 text-ink-meta";
  * decision model leads, on the host the User's key already reaches, else on the best measured
  * one, whose key is asked for in place; then the User's AI model; last a model on this computer.
  * Use this checks and keeps a key typed and saves the choice, under the line that says what
- * sorting sends: that press is the consent. Turning tagging on stays the User's own act (ADR-0022).
+ * sorting sends: that press is the consent. Sorting new Documents by themselves still asks before
+ * the first one goes to a cloud service (#3353, ADR-0022).
  */
 export function SortingStep({ place }: { place: StepPlace }) {
   const t = useT();
   const id = useId();
   const language = useLanguage();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
+  const switchOn = useAppStore((state) => !state.library || sortingSwitchOn(state.library));
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const sorting = useSorting();
   const [hosts, setHosts] = useDecisionHosts();
@@ -173,9 +176,16 @@ export function SortingStep({ place }: { place: StepPlace }) {
 
   const sends = (service: string | null) =>
     service && (
-      <p data-testid="setup-sorting-sends" className={lineClass}>
-        {t("setup.sorting.sendsWhenOn", { service })}
-      </p>
+      <>
+        {switchOn && (
+          <p data-testid="setup-sorting-asks" className={lineClass}>
+            {t("setup.sorting.asks", { service })}
+          </p>
+        )}
+        <p data-testid="setup-sorting-sends" className={lineClass}>
+          {t("setup.sorting.sendsWhenOn", { service })}
+        </p>
+      </>
     );
 
   return (

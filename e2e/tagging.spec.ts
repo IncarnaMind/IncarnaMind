@@ -138,12 +138,14 @@ test("in Chinese: 整理和标签, with what sorts now and the picker's groups",
 });
 
 // The switch for sorting and tagging new Documents as they arrive says what each one sends, and
-// to which service, before it is turned on; choosing the model alone never turns it on (#2308).
+// to which service. With a cloud model it is on, but asks before the first Document goes:
+// choosing the model alone allows nothing (#2308, #3353). Off there is the User's no; on again is
+// the consent.
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a cloud model's switch says what each new Document sends to its service before it is turned on (${language})`, async () => {
+  test(`a cloud model's switch is on, says what each new Document sends and that it asks first; off is kept, on again allows it (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
-      await setWindowSize(app, window, 1440, 900);
+      await setWindowSize(app, window, 900, 800);
       await dismissChatSetup(window);
       await acceptPlainTextKeys(window);
       const provider = await window.evaluate(async () => {
@@ -166,25 +168,38 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect
         .poll(async () => (await libraryOf(window)).classifier)
         .toMatchObject({ kind: "chat", choice: { modelId: "claude-haiku-5-5" } });
-      await expect(automatic).not.toBeChecked();
+      const asks = settings.getByTestId("tagging-automatic-asks");
+      await expect(automatic).toBeChecked();
       expect((await libraryOf(window)).automatic).toBe(false);
       await expect(settings.getByTestId("tagging-automatic-sends")).toHaveText(
         translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
       );
+      await expect(asks).toHaveText(
+        translate(language, "ai.organize.automatic.asks", { service: "Anthropic" }),
+      );
+      const [line, dialog] = await Promise.all([asks.boundingBox(), settings.boundingBox()]);
+      expect(line && dialog && line.x + line.width <= dialog.x + dialog.width + 0.5).toBe(true);
+
+      await pointAndClick(window, automatic);
+      await expect(automatic).not.toBeChecked();
+      await expect(asks).toHaveCount(0);
+      expect((await libraryOf(window)).automatic).toBe(false);
 
       await pointAndClick(window, automatic);
       await expect(automatic).toBeChecked();
       await expect.poll(async () => (await libraryOf(window)).automatic).toBe(true);
+      await expect(asks).toHaveCount(0);
     } finally {
       await app.close();
     }
   });
 }
 
-// Turned on in Local mode, whose line names no service, the switch names none: once Local mode is
-// off it reads off for the cloud model, with the model's line, until it is turned on there (#2982).
+// Turned on in Local mode, whose line names no service, the switch names none and asks nothing:
+// once Local mode is off it asks before the first Document goes to the cloud model, with the
+// model's line (#2982, #3353).
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a switch turned on in Local mode reads off for a cloud model once Local mode is off (${language})`, async () => {
+  test(`a switch turned on in Local mode asks for a cloud model once Local mode is off (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1440, 900);
@@ -215,22 +230,24 @@ for (const language of ["en", "zh-CN"] as const) {
         service: "Anthropic",
       });
 
+      const asks = settings.getByTestId("tagging-automatic-asks");
+
       await setLocalOnly(window, true);
       await expect(line).toHaveText(translate(language, "tagging.localMode"));
       await expect(automatic).not.toBeChecked();
+      await expect(asks).toHaveCount(0);
       await pointAndClick(window, automatic);
       await expect(automatic).toBeChecked();
       await expect(line).toHaveText(translate(language, "tagging.localMode"));
+      await expect(asks).toHaveCount(0);
 
       await setLocalOnly(window, false);
       await expect(line).toHaveText(sendsToAnthropic);
-      await expect(automatic).not.toBeChecked();
-      expect((await libraryOf(window)).automatic).toBe(false);
-
-      await pointAndClick(window, automatic);
       await expect(automatic).toBeChecked();
-      await expect(line).toHaveText(sendsToAnthropic);
-      await expect.poll(async () => (await libraryOf(window)).automatic).toBe(true);
+      await expect(asks).toHaveText(
+        translate(language, "ai.organize.automatic.asks", { service: "Anthropic" }),
+      );
+      expect((await libraryOf(window)).automatic).toBe(false);
     } finally {
       await app.close();
     }

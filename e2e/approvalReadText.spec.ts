@@ -242,7 +242,6 @@ async function cardFor(
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.setTaggingWithAi(null, false);
-      await bridge.dismissAutomaticOffNotice();
     });
     if (!pageOnly) {
       const path = join(sources, "Q3 board pack notes.md");

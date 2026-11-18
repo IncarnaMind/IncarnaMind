@@ -948,39 +948,22 @@ test("by keyboard alone: Choose a model takes the focus into the setup, and a sa
   await app.close();
 });
 
-test("on the quiet first open the tagging question still shows, with Allow, in the footer (#1027)", async () => {
+test("on the quiet first open the question before the first Document goes still shows, with Allow, in the footer (#1027, #3353)", async () => {
   const invoice = join(sources, "Invoice 41.txt");
   await writeFile(invoice, "Invoice 41. Amount due: 120 EUR.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const provider = await core.saveChatProvider({
-      kind: "openai",
-      apiKey: "sk-test",
-      modelId: "gpt-6-luna",
-    });
-    await core.saveLibrarySettings({
-      ...(await core.getLibrary()).settings,
-      automatic: true,
-      turnOn: true,
-    });
-    if (provider.service) await core.revokeConsent("tagging", provider.service.id);
+    await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
   });
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await window.getByTestId("add-documents-input").setInputFiles([invoice]);
   const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 41" });
-  await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider");
-  // A Tag of the User's own: only now is Tags named, so only now is the sending asked about (#1942).
-  await window.evaluate(async () => {
-    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const [document] = (await core.listDocuments()).filter((each) => each.name === "Invoice 41");
-    const tag = await core.createTag({ name: "Invoices", description: "" });
-    if (document) await core.addTagToDocuments([document.id], tag.id);
-  });
-  const question = window.getByTestId("sidebar").getByTestId("tagging-waiting");
-  await expect(question).toContainText("Tags need your OK");
-  await question.getByTestId("tagging-waiting-allow").click();
+  await expect(item).toHaveAttribute("data-tagging", "off");
+  const question = window.getByTestId("sidebar").getByTestId("sort-consent");
+  await expect(question).toContainText("1 to tag");
+  await question.getByTestId("sort-consent-allow").click();
   await expect(item).toHaveAttribute("data-tagging", "tagged", { timeout: 15_000 });
   await app.close();
 });

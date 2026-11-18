@@ -101,7 +101,7 @@ describe("the Documents a cause covers", () => {
           automatic: false,
           taggingStopped: [],
         },
-        automaticDefault: false,
+        asksFor: [],
         reviewCount: 0,
       } as LibrarySnapshot,
     });

@@ -1421,10 +1421,11 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// With tagging new Documents off, a model chosen in Settings › AI tags nothing: its switch says
-// what each new Document would send, and to which service, before it is turned on (#2308).
+// With a cloud model, sorting and tagging new Documents is on but tags nothing before the User's
+// yes: its switch says what each new Document sends, and to which service, and that it asks first
+// (#2308, #3353). Turned off there, it is the User's no, and ⌘K offers to turn it on again.
 for (const language of ["en", "zh-CN"] as const) {
-  test(`Settings › AI's Organize and Tags switch is off, and says what goes before it is turned on (${language})`, async () => {
+  test(`Settings › AI's Organize and Tags switch is on and asks first; off is kept, and ⌘K offers it again (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1280, 800);
@@ -1432,30 +1433,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await saveAnthropicAsDefault(window, "claude-haiku-5-5");
       await dismissChatSetup(window);
       await setLanguage(window, language);
-      expect(
-        await paletteOffers(
-          window,
-          "tagging.turnOn",
-          translate(language, "command.tagging.turnOn"),
-        ),
-      ).toBe(1);
-      // The button that opens Settings is named in English until the language is changed inside it.
-      await setLanguage(window, "en");
-      const settings = await openSettings(window, "ai");
-      await setLanguage(window, language);
-      const toggle = settings.getByTestId("tagging-automatic-organize");
-      await expect(toggle).not.toBeChecked();
-      await expect(settings.getByTestId("tagging-automatic-sends")).toHaveText(
-        translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
-      );
-      expect((await bridge(window).library()).automatic).toBe(false);
-
-      // By keyboard: Space on the switch, with the line on screen, turns it on.
-      await toggle.focus();
-      await window.keyboard.press("Space");
-      await expect.poll(async () => (await bridge(window).library()).automatic).toBe(true);
-      await expect(toggle).toBeChecked();
-      await closeSettingsDialog(window);
       expect(
         await paletteOffers(
           window,
@@ -1463,22 +1440,60 @@ for (const language of ["en", "zh-CN"] as const) {
           translate(language, "command.tagging.turnOn"),
         ),
       ).toBe(0);
+      // The button that opens Settings is named in English until the language is changed inside it.
+      await setLanguage(window, "en");
+      const settings = await openSettings(window, "ai");
+      await setLanguage(window, language);
+      const toggle = settings.getByTestId("tagging-automatic-organize");
+      const asks = settings.getByTestId("tagging-automatic-asks");
+      await expect(toggle).toBeChecked();
+      await expect(settings.getByTestId("tagging-automatic-sends")).toHaveText(
+        translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
+      );
+      await expect(asks).toHaveText(
+        translate(language, "ai.organize.automatic.asks", { service: "Anthropic" }),
+      );
+      expect((await bridge(window).library()).automatic).toBe(false);
+
+      // By keyboard: Space on the switch turns it off, the User's no.
+      await toggle.focus();
+      await window.keyboard.press("Space");
+      await expect(toggle).not.toBeChecked();
+      await expect(asks).toHaveCount(0);
+      expect((await bridge(window).library()).automatic).toBe(false);
+      await closeSettingsDialog(window);
+      expect(
+        await paletteOffers(
+          window,
+          "tagging.turnOn",
+          translate(language, "command.tagging.turnOn"),
+        ),
+      ).toBe(1);
     } finally {
       await app.close();
     }
   });
 
-  test(`⌘K's Turn on tagging opens Settings › AI at the switch, which stays off until pressed (${language})`, async () => {
+  test(`⌘K's Turn on tagging opens Settings › AI at the switch the User turned off, which stays off until pressed (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
       await setWindowSize(app, window, 1280, 800);
       await acceptPlainTextKeys(window);
       await saveAnthropicAsDefault(window, "claude-haiku-5-5");
       await dismissChatSetup(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.saveLibrarySettings({
+          ...(await core.getLibrary()).settings,
+          automatic: false,
+          turnOn: false,
+        });
+      });
       await setLanguage(window, language);
       await runCommand(window, "tagging.turnOn", translate(language, "command.tagging.turnOn"));
       const toggle = window.getByTestId("tagging-automatic-organize");
       await expect(toggle).toBeFocused();
+      await expect(toggle).not.toBeChecked();
       await expect(window.getByTestId("tagging-automatic-sends")).toHaveText(
         translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }),
       );

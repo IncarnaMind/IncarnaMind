@@ -168,7 +168,12 @@ for (const [language, width, height] of [
       await expect(picker.locator("option:checked")).toHaveText("TypeSafe Jev");
       await expect(picker.locator("option").first()).toHaveText("TypeSafe Jev");
       await expect(picker.locator("option", { hasText: setUp })).toHaveCount(0);
-      await expect(settings.getByTestId("tagging-automatic-organize")).not.toBeChecked();
+      // Choosing it allows nothing by itself: the switch asks before the first Document goes (#3353).
+      await expect(settings.getByTestId("tagging-automatic-organize")).toBeChecked();
+      await expect(settings.getByTestId("tagging-automatic-asks")).toHaveText(
+        translate(language, "ai.organize.automatic.asks", { service: "TypeSafe Jev" }),
+      );
+      expect(await fitsIn(settings.getByTestId("tagging-automatic-asks"), settings)).toBe(true);
       expect((await library(window)).classifier).toEqual({ kind: "jev" });
       expect(typeSafe.requests).toEqual(["Bearer jev-a-wrong-key", `Bearer ${JEV_KEY}`]);
     } finally {
@@ -230,8 +235,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(form).toHaveCount(0);
       await expect(picker.locator("option:checked")).toHaveText("d1-ultra · Liquid AI");
       await expect(picker.locator("option", { hasText: liquid })).toHaveCount(0);
-      // As for Jev, choosing here never turns tagging on: Turn on… does, with its line.
-      await expect(settings.getByTestId("tagging-automatic-organize")).not.toBeChecked();
+      // As for Jev, choosing here allows nothing: the switch asks before the first Document goes.
+      await expect(settings.getByTestId("tagging-automatic-organize")).toBeChecked();
+      await expect(settings.getByTestId("tagging-automatic-asks")).toHaveText(
+        translate(language, "ai.organize.automatic.asks", { service: "Liquid AI" }),
+      );
+      expect(await fitsIn(settings.getByTestId("tagging-automatic-asks"), settings)).toBe(true);
       const liquidKey = providers.locator('[data-testid="sorting-key-row"][data-host="liquid"]');
       await expect(liquidKey).toContainText("Liquid AI");
       await expect(liquidKey).toContainText(translate(language, "ai.uses.organize"));

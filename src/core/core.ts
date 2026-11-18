@@ -3882,6 +3882,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return classifier && tagging.service(classifier);
     },
     taggingAllowed: (service) => consent.allows("tagging", service),
+    consentTakenBack: (service) =>
+      consent.takenBack("tagging", service) || consent.takenBack("classification", service),
     pagesWaitFor: (classifier) => {
       if (classifier.kind !== "chat") return null;
       const reader = chat.imageModel(classifier.choice);
@@ -4303,14 +4305,16 @@ export function createCore(adapters: CoreAdapters): Core {
     if (endsPause) rateLimit.resumeNow();
     tagger.resume();
     library.resume();
-    // The switch for tagging and sorting follows the model until the User sets it: say when it moved.
-    const automatic = library.settings().automatic;
-    if (automatic !== lastAutomatic) {
-      lastAutomatic = automatic;
+    // Whether the switch holds, and whom it asks, follow the model and the consents: say when they moved.
+    const state = switchState();
+    if (state !== lastSwitch) {
+      lastSwitch = state;
       events.emit("library.changed", null);
     }
   };
-  let lastAutomatic = library.settings().automatic;
+  const switchState = () =>
+    JSON.stringify([library.settings().automatic, library.asksFor().map((each) => each.id)]);
+  let lastSwitch = switchState();
 
   /** What the decision model for checks was set to when Settings › Privacy turned it off, for Undo. */
   let checkDecisionTakenBack: { at: string; was: CheckDecisionModel | null } | null = null;
@@ -7297,7 +7301,6 @@ export function createCore(adapters: CoreAdapters): Core {
       library.setTaggingStopped([folderId], !on);
       tagger.resume();
     },
-    dismissAutomaticOffNotice: async () => library.dismissAutomaticOffNotice(),
     reviewMovedSeen: async () => library.reviewMovedSeen(),
 
     getJevSettings: () => jev.status(),

@@ -76,7 +76,7 @@ const snapshot = (classifier: LibrarySnapshot["settings"]["classifier"]): Librar
   deletedGroups: [],
   assignments: [],
   settings: { classifier, automatic: false, organizeWith: null, taggingStopped: [] },
-  automaticDefault: false,
+  asksFor: [],
   reviewCount: 0,
 });
 const planning = snapshot({ kind: "chat", choice: { providerId: "anthropic", modelId: "haiku" } });

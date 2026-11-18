@@ -131,7 +131,7 @@ const snapshot = (assignments: DocumentGroupAssignment[]): LibrarySnapshot => ({
     organizeWith: null,
     taggingStopped: [],
   },
-  automaticDefault: false,
+  asksFor: [],
   reviewCount: 0,
 });
 

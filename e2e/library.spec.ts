@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { AUTO_CLASSIFICATION } from "../src/core/library/automatic";
-import { openDatabase } from "../src/core/storage";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
@@ -1211,63 +1210,53 @@ test("a scan with no text waits for its page images to be allowed with a cloud m
   }
 });
 
-test("a Library whose automatic tagging and sorting went off for a cloud model says so once, with the way back", async () => {
-  const first = await launchApp(dataDir, { fakeChat: true });
-  await acceptPlainTextKeys(first.window);
-  await (await coreOf(first.window)).evaluate(async (core) => {
-    await core.saveChatProvider({
-      kind: "openai",
-      apiKey: "sk-not-a-real-key",
-      modelId: "gpt-6-luna",
-    });
-  });
-  const path = join(sources, "Research notes.txt");
-  await writeFile(path, "Research report about membrane separation and water filtration.");
-  await first.window.getByTestId("add-documents-input").setInputFiles([path]);
-  await expect(first.window.getByTestId("document-list-item")).toHaveCount(1);
-  await first.app.close();
-  // What the migration that turned it off leaves behind.
-  const db = openDatabase(join(dataDir, "incarnamind.db"));
-  try {
-    db.run(
-      `INSERT INTO device_settings (id, key, value, created_at, updated_at)
-       VALUES ('notice', 'libraryAutomaticOffNotice', 'true', '2026-10-22T09:00:00.000Z', '2026-10-22T09:00:00.000Z')`,
-    );
-  } finally {
-    db.close();
-  }
-
+test("with a cloud model and no Folder, the footer asks before the first Document goes, at 900 px, and its no keeps the switch off (#3353)", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   try {
     await setWindowSize(app, window, 900, 800);
-    await window.getByTestId("open-library").click();
-    const line = window.getByTestId("library-automatic-off");
-    await expect(line).toContainText(
-      "Automatic tagging and sorting is now off for OpenAI, since it sent each Document’s name and an excerpt.",
-    );
+    await acceptPlainTextKeys(window);
+    await (await coreOf(window)).evaluate(async (core) => {
+      await core.saveChatProvider({
+        kind: "openai",
+        apiKey: "sk-not-a-real-key",
+        modelId: "gpt-6-luna",
+      });
+    });
+    const add = async (name: string, text: string) => {
+      const path = join(sources, name);
+      await writeFile(path, text);
+      await addDocuments(window, [path]);
+    };
+    await add("Research notes.txt", "Research report about membrane separation and filtration.");
+
+    const row = window.getByTestId("sort-consent");
+    const allow = row.getByTestId("sort-consent-allow");
+    const no = row.getByRole("button", { name: "Don’t allow" });
+    await expect(row.getByTestId("status-label")).toHaveText("1 to tag", { timeout: 30_000 });
+    await expect(allow).toHaveText("Allow OpenAI");
+    const footer = await window.getByTestId("sidebar-status").boundingBox();
+    for (const control of [allow, no]) {
+      const box = await control.boundingBox();
+      expect(box && footer && box.x + box.width <= footer.x + footer.width + 0.5).toBe(true);
+    }
     await setLanguage(window, "zh-CN");
-    await expect(line).toContainText("已为 OpenAI 关闭自动打标签和整理");
+    await expect(row.getByTestId("status-label")).toHaveText("1 个待打标签");
+    await expect(allow).toHaveText("允许 OpenAI");
     await setLanguage(window, "en");
 
-    // The way back is one click: Settings opens on the Tagging switch, and the line is gone for good.
-    await line.getByTestId("library-automatic-off-settings").click();
-    const tagging = window.getByTestId("ai-organize-automatic");
-    await expect(tagging).toBeVisible();
+    // The no: the switch is off, and a Document added after waits with nothing asking.
+    await pointAndClick(window, no);
+    await expect(row).toHaveCount(0);
+    await add("Field notes.txt", "Field notes on the pilot plant's second filtration stage.");
+    await expectReadyDocuments(window, 2);
+    await expect(row).toHaveCount(0);
+    const settings = await openSettings(window, "ai");
     await expect(
-      tagging.getByRole("switch", { name: /^Sort and tag new Documents as they arrive/ }),
+      settings.getByRole("switch", { name: /^Sort and tag new Documents as they arrive/ }),
     ).not.toBeChecked();
+    await expect(settings.getByTestId("tagging-automatic-asks")).toHaveCount(0);
     await closeSettings(window);
-    await expect(window.getByTestId("library-automatic-off")).toHaveCount(0);
   } finally {
     await app.close();
-  }
-
-  const again = await launchApp(dataDir, { fakeChat: true });
-  try {
-    await again.window.getByTestId("open-library").click();
-    await expect(again.window.getByTestId("library")).toBeVisible();
-    await expect(again.window.getByTestId("library-automatic-off")).toHaveCount(0);
-  } finally {
-    await again.app.close();
   }
 });

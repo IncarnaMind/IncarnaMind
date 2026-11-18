@@ -435,7 +435,7 @@ test("with no Tag, a refused key still reaches the footer, in English and Chines
   }
 });
 
-test("with no Tag, a missing consent still reaches the footer, in English and Chinese (#1942)", async () => {
+test("with no Tag, the question before the first Document goes still reaches the footer, in English and Chinese (#1942, #3353)", async () => {
   test.setTimeout(180_000);
   const file = join(sources, "Invoice 81.txt");
   await writeFile(file, "Invoice 81. Amount due: 150 EUR.\n");
@@ -447,21 +447,18 @@ test("with no Tag, a missing consent still reaches the footer, in English and Ch
   await setWindowSize(app, window, 1440, 900);
   try {
     await setLanguage(window, "en");
-    const service = await tagAutomatically(window, "sk-test");
-    if (!service) throw new Error("The saved key has no service to send to.");
-    await window.evaluate(async (id) => {
+    await acceptPlainTextKeys(window);
+    await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await core.revokeConsent("tagging", id);
-    }, service);
+      await core.saveChatProvider({ kind: "openai", apiKey: "sk-test", modelId: "gpt-6-luna" });
+    });
     await window.getByTestId("add-documents-input").setInputFiles([file]);
     const item = window.getByTestId("document-list-item").filter({ hasText: "Invoice 81" });
-    await expect(item).toHaveAttribute("data-tagging", "waiting-for-provider", {
-      timeout: 60_000,
-    });
+    await expect(item).toHaveAttribute("data-tagging", "off", { timeout: 60_000 });
     await expect(window.getByTestId("sidebar-tags")).toHaveCount(0);
-    await expect(statusLabel(window, "tagging-waiting")).toHaveText("Tags need your OK");
+    await expect(statusLabel(window, "sort-consent")).toHaveText("1 to tag");
     await setLanguage(window, "zh-CN");
-    await expect(statusLabel(window, "tagging-waiting")).toHaveText("打标签需要你允许");
+    await expect(statusLabel(window, "sort-consent")).toHaveText("1 个待打标签");
   } finally {
     await app.close();
   }

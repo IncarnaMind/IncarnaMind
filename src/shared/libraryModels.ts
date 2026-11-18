@@ -1,4 +1,4 @@
-import type { LibrarySettings, TaggingClassifier } from "../core/api";
+import type { LibrarySettings, LibrarySnapshot, TaggingClassifier } from "../core/api";
 
 export const LIBRARY_DEFAULTS = {
   classifier: { kind: "automatic" },
@@ -6,16 +6,9 @@ export const LIBRARY_DEFAULTS = {
   taggingStopped: [],
 } satisfies Omit<LibrarySettings, "automatic">;
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-
-export const changedFromDefaults = (
-  settings: LibrarySettings,
-  automaticDefault: boolean,
-): boolean =>
-  !same(settings.classifier, LIBRARY_DEFAULTS.classifier) ||
-  !same(settings.organizeWith, LIBRARY_DEFAULTS.organizeWith) ||
-  settings.automatic !== automaticDefault ||
-  !same(settings.taggingStopped, LIBRARY_DEFAULTS.taggingStopped);
+/** The switch for sorting and tagging new Documents as the User sees it: on while it asks first (#3353). */
+export const sortingSwitchOn = (library: Pick<LibrarySnapshot, "settings" | "asksFor">): boolean =>
+  library.settings.automatic || library.asksFor.length > 0;
 
 /** Only this verified local decision-model family receives PDF page images. */
 export const supportsLibraryImages = (model: string) => /^clef-flash(?::|$)/i.test(model.trim());
