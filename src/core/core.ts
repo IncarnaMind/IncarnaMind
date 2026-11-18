@@ -195,6 +195,7 @@ import { pdfIsLocked, pdfOpensWith, pdfTablePages } from "./documents/extract";
 import { statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
+import { extractPptx } from "./documents/formats/pptx";
 import { createOwnFiles } from "./documents/ownFiles";
 import { approximateTokens } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
@@ -3008,6 +3009,20 @@ export function createCore(adapters: CoreAdapters): Core {
           message: error instanceof Error ? error.message : String(error),
         });
         return new Map();
+      }
+    },
+    async readSlides(documentId) {
+      if (documents.get(documentId).kind !== "pptx") return null;
+      try {
+        const bytes = await readFile(await documents.filePath(documentId));
+        return (await extractPptx(bytes)).slides;
+      } catch (error) {
+        // Its text, as read for the Library, still makes the Mind: only the slides' shape is lost.
+        (adapters.log ?? silentLogger).warn("verify.slides_unread", {
+          documentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return null;
       }
     },
     // Named so it doesn't share its Document's name in ⌘K and the sidebar.

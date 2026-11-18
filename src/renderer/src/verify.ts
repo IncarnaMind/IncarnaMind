@@ -1,8 +1,9 @@
 /**
  * Verify (#97), the window's side. "Check someone else’s file…"
- * (the + menu, ⌘K) takes a PDF or a Word file (#110), or a workbook's sheet
- * or range (#3278), whose Mind opens with the file beside it and has its
- * claims found. The check badge's card then checks them (editor/VerifyLine).
+ * (the + menu, ⌘K) takes a PDF, a Word file (#110) or a deck (#3275), or a
+ * workbook's sheet or range (#3278), whose Mind opens with the file beside it
+ * and has its claims found. The check badge's card then checks them
+ * (editor/VerifyLine).
  * One run goes at a time: asking again while one runs shows its Mind.
  */
 
@@ -145,7 +146,11 @@ const refusalOf = (path: string, made: Extract<VerifyDocumentResult, { ok: false
   const name = path.split(/[\\/]/).pop() ?? path;
   if (made.reason === "word") return translateNow(refusalKey(made.refusal), { name });
   if (/\.xlsx$/i.test(path)) return translateNow("verify.refused.workbook");
-  if (made.reason === "unreadable" || made.reason === "no-text") {
+  if (
+    made.reason === "unreadable" ||
+    made.reason === "password-protected" ||
+    made.reason === "no-text"
+  ) {
     return translateNow(`verify.refused.${made.reason}`);
   }
   return translateNow("verify.refused.unreadable");

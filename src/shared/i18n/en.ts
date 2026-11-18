@@ -1778,12 +1778,13 @@ export const en = {
   "mindCheck.cancel": "Not now",
   "verify.command": "Check someone else’s file…",
   "verify.command.keywords":
-    "verify check PDF Word docx Excel xlsx workbook spreadsheet someone else’s claims fact-check received draft another person counterparty",
+    "verify check PDF Word docx Excel xlsx workbook spreadsheet PowerPoint pptx deck slides someone else’s claims fact-check received draft another person counterparty",
   "verify.command.purpose": "Check the claims in a file someone else wrote",
   "verify.pick.title": "Check someone else’s file",
-  "verify.pick.filter": "PDF, Word and Excel documents",
-  "verify.refused.unreadable": "Couldn’t read that PDF.",
-  "verify.refused.no-text": "That PDF has no text to check. If it’s a scan, it couldn’t be read.",
+  "verify.pick.filter": "PDF, Word, Excel and PowerPoint files",
+  "verify.refused.unreadable": "Couldn’t read that file.",
+  "verify.refused.password-protected": "That file needs a password, so it couldn’t be read.",
+  "verify.refused.no-text": "That file has no text to check. If it’s a scan, it couldn’t be read.",
   "verify.refused.workbook":
     "Couldn’t read that workbook. It may be damaged or protected with a password.",
   "verify.refused.noNumbers": "That sheet has no typed-in numbers or formulas to check.",

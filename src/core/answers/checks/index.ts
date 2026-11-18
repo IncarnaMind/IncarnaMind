@@ -204,6 +204,7 @@ export interface ChecksOptions
     | "readText"
     | "readUnits"
     | "readTables"
+    | "readSlides"
     | "readScanned"
     | "createMind"
     | "wordRefusal"
