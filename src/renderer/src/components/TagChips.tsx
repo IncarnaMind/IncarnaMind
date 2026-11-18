@@ -3,16 +3,9 @@ import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { chipsOf, hiddenTagsLine } from "../tagEditing";
 import { DocumentTagFooter } from "./DocumentTags";
-import { SparkLineIcon, TagLineIcon } from "./lineIcons";
+import { TagLineIcon } from "./lineIcons";
 import { tagChipColour } from "./TagColour";
-import {
-  chipClass,
-  chipTitle,
-  pickerLabel,
-  TagPicker,
-  tagPopoverClass,
-  useTagPopover,
-} from "./TagPicker";
+import { chipClass, pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "./TagPicker";
 import { useFittingChips } from "./useFittingChips";
 
 /** How many chips the viewer's header shows before "+N": they stay one line. */
@@ -20,7 +13,7 @@ const MOST_CHIPS = 2;
 
 /**
  * A Document's Tags in the viewer's header, on one line: the chips its room
- * holds (a spark marks one tagging applied automatically), then "+N", then the
+ * holds, then "+N", then the
  * button that opens the Tag picker. A narrow viewer keeps only the button.
  * In a peek (`variant="peek"`) every chip shows, wrapping, and the button says "+ Add tags".
  * The Library's rows have their own (`RowTags`).
@@ -109,9 +102,7 @@ export function DocumentTagChips({
   );
 }
 
-/** One Tag in the header: its name, a spark when tagging applied it automatically. */
 function TagChip({ tag, link }: { tag: Tag; link: DocumentTag }) {
-  const t = useT();
   return (
     <span
       data-tag-chip=""
@@ -119,12 +110,9 @@ function TagChip({ tag, link }: { tag: Tag; link: DocumentTag }) {
       data-tag-id={tag.id}
       data-source={link.source}
       data-colour={tag.colour}
-      title={chipTitle(link, tag, t)}
+      title={tag.name}
       className={`group/chip ${chipClass} ${tagChipColour(tag.colour)} min-w-0 shrink`}
     >
-      {link.source === "automatic" && (
-        <SparkLineIcon aria-hidden="true" className="size-2.5 shrink-0 opacity-70" />
-      )}
       <span className="min-w-0 truncate">{tag.name}</span>
     </span>
   );

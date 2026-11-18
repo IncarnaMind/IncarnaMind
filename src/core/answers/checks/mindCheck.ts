@@ -30,7 +30,7 @@ import {
   claimCheckShown,
   type NoteFooting,
 } from "../../../shared/claimChecks";
-import { withFigureFacts } from "../../../shared/claimParts";
+import { partsToCheck } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
@@ -65,6 +65,7 @@ import { recordCiteSpans } from "../../recordCites/parser";
 import { type Slots, slots } from "../../runs/stop";
 import type { CheckedCitation } from "./claimCheck";
 import type { DecisionReader } from "./decisionFirst";
+import { sortedByDecision } from "./decisionSort";
 import { cellHeadings, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
@@ -100,10 +101,32 @@ import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
 import { widerRun } from "./widerRun";
 
+export type NotAskedReason =
+  | "not-ready"
+  | "consent-needed"
+  | "local-mode"
+  /** The Note is checked against Documents the agent may not read. */
+  | "beyond-reach"
+  | "no-documents";
+
+/** Ends an outside agent's Check before anything is sent. */
+class NotAsked extends Error {
+  constructor(readonly reason: NotAskedReason) {
+    super(reason);
+  }
+}
+
+/** A Note's Check run for an outside agent (see `checkOutside`), or why nothing was sent. */
+export type OutsideCheck =
+  | { asked: false; reason: NotAskedReason }
+  | { asked: true; result: CheckMindResult };
+
 export interface MindCheckOptions extends RunChecksOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   prepare: VerifyOptions["prepare"];
+  /** The model, prepared with nothing asked of the User, or why it can't be used so. */
+  prepareUnasked(choice: ChatModelChoice | null): Promise<PreparedChatModel | NotAskedReason>;
   unread: VerifyOptions["unread"];
   recordUnread: VerifyOptions["recordUnread"];
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
@@ -253,6 +276,7 @@ export function createMindCheck(options: MindCheckOptions) {
     mindId: string,
     fresh: readonly SelectedSentence[],
     prepared: PreparedChatModel,
+    decision: DecisionReader | null,
     signal: AbortSignal,
     along?: {
       slots: Slots;
@@ -282,32 +306,30 @@ export function createMindCheck(options: MindCheckOptions) {
       // it, as Verify's is.
       return said.length === 0 && inValueCell(sentence.figures)
         ? [{ kind: "fact" as const, span: { start: 0, end: claim.length } }]
-        : withFigureFacts(claim, said, sentence.figures ?? [], sentence.projection);
+        : partsToCheck(claim, said, sentence.figures ?? [], sentence.projection);
     };
     if (unsorted.length > 0) {
       const grids = new Map<Y.XmlElement, TableLayout>();
       const heard = new Set<number>();
-      const found = await claimsAmong(
-        prepared,
-        unsorted.map((sentence) => ({
-          text: checkText(sentence).claim,
-          ...cellHeadings(sentence.element, grids),
-        })),
-        "own",
-        signal,
-        true,
-        along && {
-          slots: along.slots,
-          named: (index, said) => {
-            const sentence = unsorted[index];
-            // Sentences of the same words share one inventory, which only the whole reply settles.
-            if (!sentence || heard.has(index)) return;
-            heard.add(index);
-            if (unsorted.filter((each) => each.text === sentence.text).length > 1) return;
-            along.named(sentence, partsOf(sentence, said));
-          },
+      const texts = unsorted.map((sentence) => ({
+        text: checkText(sentence).claim,
+        ...cellHeadings(sentence.element, grids),
+      }));
+      const hears = along && {
+        slots: along.slots,
+        named: (index: number, said: readonly ClaimPartPlan[]) => {
+          const sentence = unsorted[index];
+          // Sentences of the same words share one inventory, which only the whole reply settles.
+          if (!sentence || heard.has(index)) return;
+          heard.add(index);
+          if (unsorted.filter((each) => each.text === sentence.text).length > 1) return;
+          along.named(sentence, partsOf(sentence, said));
         },
-      );
+      };
+      // A decision model in use sorts (#3334); where it can't, the AI model does, as with none.
+      const found =
+        (decision && (await sortedByDecision(decision, texts, signal, hears?.named))) ??
+        (await claimsAmong(prepared, texts, "own", signal, true, hears));
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
         if (found.undecided.has(index)) continue;
@@ -670,15 +692,24 @@ export function createMindCheck(options: MindCheckOptions) {
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
     options.warmReranker?.();
-    const found = await sort(mindId, fresh, ready.prepared, signal);
+    const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
+    const found = await sort(mindId, fresh, ready.prepared, decision, signal);
     if (found.kind !== "found") return found;
     const claims = found.claims.length + again.length;
     return claims === 0 ? { kind: "nothing" } : { kind: "found", claims };
   }
 
+  const unasked = async (choice: ChatModelChoice | null) => {
+    const prepared = await options.prepareUnasked(choice);
+    if (typeof prepared === "string") throw new NotAsked(prepared);
+    return { ok: true as const, prepared };
+  };
+
+  /** `reach`: for an outside agent's Check, the Documents the agent may read (see `checkOutside`). */
   async function check(
     input: ReturnType<typeof parseCheckMind>,
     signal: AbortSignal,
+    reach?: ReadonlySet<string>,
   ): Promise<CheckMindResult> {
     const { mindId, requestId, mode } = input;
     // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
@@ -691,9 +722,19 @@ export function createMindCheck(options: MindCheckOptions) {
     if (signal.aborted) return { kind: "cancelled" };
     const { empty, check: scope } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
     if (empty) return empty;
+    if (reach) {
+      // A wider check is the User's to run: an agent would learn from it what it may not read.
+      if (scope.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
+      // A Folder with no Document searches every Document.
+      if (scope.marked.widened) throw new NotAsked("no-documents");
+      if (!scope.scope.documentIds?.every((id) => reach.has(id)))
+        throw new NotAsked("beyond-reach");
+    }
     const wide = widened.size > 0 ? options.scopeOf(mindId, true).check : scope;
     const scopeFor = (claim: SelectedSentence) => (widened.has(claim) ? wide : scope);
-    const ready = await options.prepare(input.model ?? modelOf(mindId));
+    const ready = reach
+      ? await unasked(input.model ?? modelOf(mindId))
+      : await options.prepare(input.model ?? modelOf(mindId));
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
     // The first sentence's search would otherwise start the reranker and wait for its model.
@@ -873,7 +914,7 @@ export function createMindCheck(options: MindCheckOptions) {
       // The sort takes its places first, so the checks started early don't hold it back.
       const sorting =
         fresh.length > 0
-          ? sort(mindId, fresh, width.prepared, signal, {
+          ? sort(mindId, fresh, width.prepared, decision, signal, {
               slots: limit,
               named: (sentence, parts) => {
                 if (parts.some((part) => part.kind === "fact")) startEarly(sentence, parts);
@@ -947,7 +988,7 @@ export function createMindCheck(options: MindCheckOptions) {
     };
   }
 
-  return {
+  const windowCheck = {
     /** See `CoreApi.planMindCheck`. */
     planMindCheck(
       mindId: unknown,
@@ -1042,8 +1083,8 @@ export function createMindCheck(options: MindCheckOptions) {
     /** Frees the Note a request kept, whether or not it ran (#2240). */
     release,
 
-    /** See `CoreApi.checkMind`. */
-    async checkMind(input: unknown): Promise<CheckMindResult> {
+    /** See `CoreApi.checkMind`. `reach`: see `check`. */
+    async checkMind(input: unknown, reach?: ReadonlySet<string>): Promise<CheckMindResult> {
       const parsed = parseCheckMind(input);
       options.requireMind(parsed.mindId);
       if (options.isRunning(parsed.requestId)) {
@@ -1061,7 +1102,7 @@ export function createMindCheck(options: MindCheckOptions) {
       });
       const tracked = options.track(parsed.requestId, parsed.mindId);
       try {
-        return await check(parsed, tracked.signal);
+        return await check(parsed, tracked.signal, reach);
       } finally {
         tracked.done();
         const current = checking.get(parsed.mindId);
@@ -1070,6 +1111,27 @@ export function createMindCheck(options: MindCheckOptions) {
           if (current.clientId === null || current.windowGone) checking.delete(parsed.mindId);
           else checking.set(parsed.mindId, { ...current, running: false });
         }
+      }
+    },
+  };
+
+  return {
+    ...windowCheck,
+
+    /**
+     * "Check this Mind" for an outside agent (#3317): what was never checked or needs a re-check,
+     * on the Note's model, as the window's Check runs, within `reach`, the Documents the agent may
+     * read. It asks nothing of the User: a model that can't be used now, or whose data flow isn't
+     * allowed, is said instead (ADR-0022), and so is a Note checked against Documents beyond `reach`.
+     */
+    async checkOutside(mindId: string, reach: ReadonlySet<string>): Promise<OutsideCheck> {
+      options.requireMind(mindId);
+      const input = { requestId: randomUUID(), mindId, mode: "changed" };
+      try {
+        return { asked: true, result: await windowCheck.checkMind(input, reach) };
+      } catch (error) {
+        if (error instanceof NotAsked) return { asked: false, reason: error.reason };
+        throw error;
       }
     },
   };

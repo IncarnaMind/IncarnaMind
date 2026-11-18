@@ -3014,6 +3014,23 @@ export function createDocuments(options: DocumentsOptions) {
     },
 
     /**
+     * A live Document's current Units as the index keeps them, a workbook's formulas and saved
+     * values too (#3278): for the core's own reading, never for a window.
+     */
+    readUnits(idInput: unknown): { contentHash: string; units: UnitText[] } {
+      const row = find(parseId(idInput));
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      const units = db
+        .all<UnitRow>(
+          `SELECT page, text, kind, label, anchors FROM document_pages
+           WHERE document_id = ? AND content_hash = ? AND deleted_at IS NULL ORDER BY page`,
+          [row.id, row.content_hash],
+        )
+        .map(toUnitText);
+      return { contentHash: row.content_hash, units };
+    },
+
+    /**
      * The text kept of one version of a live Document, its Units `pageFrom`
      * to `pageTo`, and when that version was made (see
      * `CoreApi.readVersionText`). Null when that version's text isn't kept.

@@ -1373,7 +1373,7 @@ describe("Why a sentence is unsupported", () => {
     const { check } = await mindWith([UNSUPPORTED], checkingModel(PLANS, calls));
     await check();
     expect(calls[0]?.system).toContain("Explanation: one plain sentence in English");
-    expect(calls[0]?.system).toContain("for not found, say what the Documents don't say.");
+    expect(calls[0]?.system).toContain("for not found, say what the Documents don't say;");
   });
 
   test("is kept with the check: the reason", async () => {

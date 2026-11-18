@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
+import { encodeWav, monoSamples, toPcm16 } from "../../eval/lib/wav";
+import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 import type { CoreBridge } from "../../src/core/api";
-import { recordMeeting, startRecording, transcriptSaved, useOutputLocation } from "../app";
+import { recordMeeting, startRecording, transcriptSaved, turnOf, useOutputLocation } from "../app";
 import {
   copyModelsIn,
   copyModelsOut,
@@ -16,10 +18,28 @@ import { audioOutputsHeldBy } from "./macAudio";
 import { expectSpeechEngineOnTheAppsRuntime } from "./windowsRuntime";
 
 const root = resolve(__dirname, "../..");
-// The opening of the Gettysburg Address, read for LibriVox (tests/fixtures/speech/README.md).
-const speech = join(root, "tests/fixtures/speech/gettysburg.wav");
+// The opening of the Gettysburg Address, read for LibriVox, then a line in a second, synthetic
+// voice (tests/fixtures/speech/README.md).
+const speech = join(root, "tests/fixtures/speech/two-voices.wav");
 // Three Mandarin lines, each a short word alone, a pause, then the rest (tests/fixtures/speech/README.md).
 const shortFirstWords = join(root, "tests/fixtures/speech/short-first-words-zh.wav");
+const closeVoices = join(root, "tests/fixtures/speech/close-voices.wav");
+
+async function overlapVoices(home: string): Promise<string> {
+  const samplesPerMs = MEETING_SAMPLE_RATE / 1000;
+  const handoff = 7170 * samplesPerMs;
+  const shift = 400 * samplesPerMs;
+  const samples = monoSamples(await readFile(closeVoices), closeVoices);
+  const mixed = new Float32Array(samples.length - shift);
+  mixed.set(samples.subarray(0, handoff));
+  for (const [at, sample] of samples.subarray(handoff).entries()) {
+    const offset = handoff - shift + at;
+    mixed[offset] = (mixed[offset] ?? 0) + sample;
+  }
+  const file = join(home, "overlapping-voices.wav");
+  await writeFile(file, encodeWav(toPcm16(mixed)));
+  return file;
+}
 
 test.skip(
   process.platform !== "darwin" && process.platform !== "win32",
@@ -43,7 +63,7 @@ test.afterEach(async () => {
   for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
 });
 
-// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), with its streaming model's live words while a line is said (#2662), told Words to know none of which is said (#1031), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's lines are numbered; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?"; no_claim=the computer's sound, how well voices are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
+// protects=meeting transcription works in the packaged app, through its real speech engine and model (#1233 failed only there, with every test passing on the fake transcriber), with its streaming model's live words while a line is said (#2662), told Words to know none of which is said (#1031), keeps going past its first stretch, and saves the Transcript; then the speaker pass runs to the end on its real engine and models in its own process (#138), and the room's two clearly different voices are two numbered speakers; fails_when=the engine doesn't load in the packaged app, the transcript misses the words spoken, it stops after the first line, or the speaker process, its bundle or its models are broken, which leaves every line "Speaker ?", or the two voices come out as one speaker or more than two; no_claim=the computer's sound, how well alike voices or a long meeting's are told apart (eval/speakers), Linux, or a cloud transcription service; on Windows the speech process also loads exactly one ONNX Runtime library, the app's own (#2152), which fails when the speech package brings its own older copy back.
 test("the packaged app transcribes a meeting from the microphone on this computer, and tells its speakers apart", async () => {
   expect(existsSync(packagedExecutable), `${packagedExecutable}: run npm run dist:dir first`).toBe(
     true,
@@ -85,7 +105,7 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   });
   await beside.click();
   const lines = window.getByTestId("transcript-lines");
-  for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i]) {
+  for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i, /Thursday/i]) {
     await expect(lines).toContainText(word, { timeout: 2 * 60_000 });
   }
   await expect(lines).not.toContainText(/Lindqvist|Harbor Logistics|星河科技/);
@@ -116,18 +136,68 @@ test("the packaged app transcribes a meeting from the microphone on this compute
         if ((await failed.count()) > 0) return "failed";
         const labels = await speakers.allTextContents();
         return labels.length > 0 && labels.every((label) => /^Speaker \d+$/.test(label))
-          ? "numbered"
+          ? [...new Set(labels)].sort().join(", ")
           : "waiting";
       },
       { timeout: 10 * 60_000 },
     )
-    .toBe("numbered");
+    .toBe("Speaker 1, Speaker 2");
 
   await app.close();
   app = undefined;
   // Only a run that got this far has the whole model to keep.
   await copyModelsOut(dataDir);
 });
+
+for (const { kind, overlap } of [
+  { kind: "without a pause", overlap: false },
+  { kind: "with overlapping audio", overlap: true },
+]) {
+  test(`a speaker handoff ${kind} gets two speaker turns after Stop`, async () => {
+    expect(
+      existsSync(packagedExecutable),
+      `${packagedExecutable}: build the packaged app first`,
+    ).toBe(true);
+    const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+    dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
+    folders.push(home, dataDir);
+    await copyModelsIn(dataDir);
+    const speech = overlap ? await overlapVoices(home) : closeVoices;
+    app = await launchPackaged(home, dataDir, { speech });
+    const window = await app.firstWindow();
+    const start = await recordMeeting(window);
+    await start.getByTestId("meeting-start-audio").selectOption("me");
+    const bar = await startRecording(window, start, { notice: true });
+    await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+    const beside = window.getByTestId("meeting-transcript-beside");
+    await expect(beside).toBeEnabled({ timeout: 2 * 60_000 });
+    await beside.click();
+
+    const lines = window.getByTestId("transcript-line");
+    const shared = lines.filter({ hasText: /created equal.*thank you/i });
+    await expect(shared.first()).toBeVisible({ timeout: 2 * 60_000 });
+    const wordsBefore = (await shared.first().innerText()).trim();
+    await bar.getByTestId("meeting-stop").click();
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async () => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const [meeting] = await core.listMeetings();
+            return meeting?.transcript?.state === "saved" && !meeting.transcript.separating;
+          }),
+        { timeout: 5 * 60_000 },
+      )
+      .toBe(true);
+    const first = lines.filter({ hasText: /created equal/i }).first();
+    const second = lines.filter({ hasText: /Thursday morning/i }).first();
+    await expect(turnOf(first).getByTestId("transcript-speaker")).toHaveText("Speaker 1");
+    await expect(turnOf(second).getByTestId("transcript-speaker")).toHaveText("Speaker 2");
+    await expect(shared).toHaveCount(0);
+    expect([await first.innerText(), await second.innerText()].join(" ")).toBe(wordsBefore);
+    await copyModelsOut(dataDir);
+  });
+}
 
 // protects=a Chinese line keeps its first word when it is short and a pause follows it ("对。总价是八十万元。"), through the packaged app's real speech engine and model: the stretch starts at the first speech the detector hears, not a quarter second into it (#2305); fails_when=a line reads "总价是80万元" without 对, as when the detector forgot speech shorter than a quarter second; no_claim=how well the engine hears names and numbers (#1031), the computer's sound, or English.
 test("the packaged app keeps the short first word of each Chinese line", async () => {

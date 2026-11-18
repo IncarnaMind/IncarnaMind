@@ -14,6 +14,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  transcribeHere,
 } from "./app";
 
 /*
@@ -392,6 +393,7 @@ test("someone setting up Meetings now reads that the offers turn on, and Home ne
   const windows = process.platform === "win32";
   await expect(notice).toBeVisible();
   await expect(notice.getByTestId("meeting-notice-background")).toHaveCount(windows ? 0 : 1);
+  await transcribeHere(notice);
   await notice.getByTestId("meeting-notice-start").click();
   await expect
     .poll(() => deviceSettings(window))

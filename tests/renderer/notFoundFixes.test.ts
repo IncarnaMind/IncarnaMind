@@ -539,6 +539,32 @@ test.each(["en", "zh-CN"] as const)(
   },
 );
 
+// protects=#3322: a sentence its check found to be the writer's own view is named so and counted as a result of its own, never Unsupported or Not found, and offers none of the fixes for a sentence nothing backs; fails_when=it is headed or counted as Unsupported or Not found, or offers Cut it, Find sources or Keep as my view; no_claim=what its card shows.
+test.each(["en", "zh-CN"] as const)(
+  "the writer's own view is named and counted as itself, with no fix, in %s",
+  (language) => {
+    const { editor } = editorHolding([paragraph("We should add two agents by May")]);
+    const claim = partsClaim(editor, 0, 0, [
+      partOf(0, 31, "unsupported", {
+        unsupported: {
+          word: "own-view",
+          reason: "The review says nothing of hiring.",
+          covered: null,
+          uncovered: null,
+        },
+      }),
+    ]);
+    expect(claim.shown).toEqual({ state: "own-view" });
+    expect(translate(language, checkStateKey(editor, claim))).toBe(
+      translate(language, "claim.state.own-view"),
+    );
+    expect(sentenceResultOf(claim.shown, claim.check, 0)).toBe("ownView");
+    expect(offersNotFound(editor, claim)).toBe(false);
+    expect(offersFindSources(editor, claim)).toBe(false);
+    expect(offersKeepAsView(editor, claim)).toBe(false);
+  },
+);
+
 // protects=#2313: a part whose check read a Passage and judged it keeps Unsupported even with no quote; fails_when=a read Passage is called found nothing; no_claim=the same part with no Passage found.
 test.each(["en", "zh-CN"] as const)(
   "a part that read a Passage stays Unsupported with no quote in %s",

@@ -104,6 +104,8 @@ export interface CheckedCitation {
 export interface ClaimCheckRequest {
   claim: string;
   context?: string;
+  /** The sentence's paragraph under its nearest heading: what a decision model reads with it. */
+  near?: string;
   cited?: readonly CheckedCitation[];
   /** The sentence's figures that IncarnaMind worked out itself: its check is told what each is. */
   figures?: readonly CheckFigure[];
@@ -406,6 +408,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         ...(working && { working }),
         ...court.citedCase(null),
         ...facts(),
+        ...(read.word === "own-view" && more.length > 0 && { more }),
         excluded: [...facts().excluded, ...results.ownWorkings()],
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
@@ -421,6 +424,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       unsupported: null,
       calculation: null,
       ...(working && { working }),
+      ...(read.working && { workedOut: read.working }),
       ...court.citedCase(evidence ?? null),
       ...facts(),
       ...(more.length > 0 && { more }),

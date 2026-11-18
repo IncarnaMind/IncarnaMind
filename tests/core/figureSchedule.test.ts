@@ -14,6 +14,7 @@ import { figureCitations } from "../../src/core/answers/citedVersions";
 import type {
   Citation,
   ClaimCheckAttributes,
+  ClaimJudgment,
   FigureCheckAttributes,
   FigureCheckResult,
   FigureFinding,
@@ -373,6 +374,67 @@ test("a matching source total names an omitted source row only from a checked ex
   expect(owned.parts?.[0]?.figures?.at(-1)?.footing).toEqual(total?.footing);
   expect(owned.parts?.[0]?.figures?.at(-1)?.sourceFooting).toEqual(total?.sourceFooting);
   expect(resultFromParts(owned.parts ?? [])).toEqual(owned);
+});
+
+test("the writer's own view beside its figures leaves the sentence its figures' result, a total that doesn't add up included", () => {
+  const blocks = note(
+    table(
+      row(cell("h0", "Item", true), cell("h1", "Amount", true)),
+      row(cell("l1", "A"), cell("a1", "10")),
+      row(cell("l2", "B"), cell("a2", "20")),
+      row(cell("lt", "Total"), cell("at", "35")),
+    ),
+  );
+  const source = sourceTable(["Item\tAmount", "A\t10", "B\t20", "C\t5", "Total\t35"]);
+  const results = figuresInMind(blocks).map((occurrence, index): FigureCheckResult => {
+    const input = source.input(index === 2 ? 5 : index + 2);
+    return {
+      ...finding(occurrence),
+      sourceInput: input,
+      result: {
+        verdict: "supported",
+        evidence: input.citation,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        versions: [{ documentId: "accounts", contentHash: "v1" }],
+        excluded: [],
+      },
+    };
+  });
+  const view: ClaimJudgment = {
+    verdict: "unsupported",
+    evidence: null,
+    says: null,
+    unsupported: {
+      reason: "The accounts say nothing of what to do.",
+      covered: null,
+      uncovered: null,
+      word: "own-view",
+    },
+    calculation: null,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    versions: [{ documentId: "accounts", contentHash: "v1" }],
+    excluded: [],
+  };
+  const aggregate = aggregateFigureResults(results, view);
+  expect(aggregate).toMatchObject({ verdict: "supported", unsupported: null });
+  const owned = augmentFigureFooting(
+    blocks,
+    resultFromParts([
+      partWithResult(
+        { kind: "fact", span: { start: 0, end: 2 } },
+        { ...aggregate, figures: results, remainder: view },
+      ),
+    ]),
+    source.documents,
+  );
+  expect(owned.parts?.[0]?.figures?.at(-1)?.footing).toMatchObject([{ sum: 30, agrees: false }]);
+  expect(owned).toMatchObject({ verdict: "unsupported", unsupported: { reason: null } });
+  expect(owned.remainder).toMatchObject({ unsupported: { word: "own-view" } });
 });
 
 test("a sentence's record cites and the versions they read stay through the footing", () => {

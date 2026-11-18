@@ -195,6 +195,7 @@ import { pdfIsLocked, pdfOpensWith, pdfTablePages } from "./documents/extract";
 import { statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
+import { extractPptx } from "./documents/formats/pptx";
 import { createOwnFiles } from "./documents/ownFiles";
 import { approximateTokens } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
@@ -2020,7 +2021,8 @@ export function createCore(adapters: CoreAdapters): Core {
         };
       }
       const exported = await mindExports.export(mindId, written);
-      // The window shows first what a Word file can't keep (#105); the assistant can't.
+      // The window's Saved line lists what a Word file couldn't keep (#105); the assistant has no
+      // such line, so it sends the User there.
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
@@ -2999,6 +3001,7 @@ export function createCore(adapters: CoreAdapters): Core {
     document: (documentId) => documents.get(documentId),
     onStatus: (listener) => events.on("document.status", listener),
     readText: (documentId) => documents.readText(documentId),
+    readUnits: (documentId) => documents.readUnits(documentId),
     readScanned: (documentId) => documents.readScannedText(documentId),
     async readTables(documentId) {
       if (documents.get(documentId).kind !== "pdf") return new Map();
@@ -3012,6 +3015,20 @@ export function createCore(adapters: CoreAdapters): Core {
           message: error instanceof Error ? error.message : String(error),
         });
         return new Map();
+      }
+    },
+    async readSlides(documentId) {
+      if (documents.get(documentId).kind !== "pptx") return null;
+      try {
+        const bytes = await readFile(await documents.filePath(documentId));
+        return (await extractPptx(bytes)).slides;
+      } catch (error) {
+        // Its text, as read for the Library, still makes the Mind: only the slides' shape is lost.
+        (adapters.log ?? silentLogger).warn("verify.slides_unread", {
+          documentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return null;
       }
     },
     // Named so it doesn't share its Document's name in ⌘K and the sidebar.
@@ -5571,8 +5588,13 @@ export function createCore(adapters: CoreAdapters): Core {
           pictures: false,
         }).text;
       },
+      createMind: (title, folderId, headed) =>
+        makeMind(parseCreateMindInput({ title, folderId }), { headed }),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
+      checkNote: (mindId, documentIds) =>
+        inFlow("check-mind", () => checks.checkMindOutside(mindId, new Set(documentIds))),
+      checkRecord: (mindId) => checkRecord.build(mindId),
       show: (place) => events.emit("agents.citationShown", place),
     },
     skillInstalled: (client) => skillInstalled(home, client),
@@ -7419,9 +7441,6 @@ export function createCore(adapters: CoreAdapters): Core {
           files,
           ...counts
         } = await mindExports.export(known.mindId, options, checkComments);
-        const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
-        if (word?.notKept.some((loss) => !accepted.has(loss.key)))
-          return { status: "review", word };
         // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
         // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
         await saveExportFiles(files, dirname(known.path), known.mindId);
@@ -7463,9 +7482,6 @@ export function createCore(adapters: CoreAdapters): Core {
         files,
         ...counts
       } = await mindExports.export(mindId, options);
-      // What a Word file can't keep is said before anything is saved (#105).
-      const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
-      if (word?.notKept.some((loss) => !accepted.has(loss.key))) return { status: "review", word };
       const saved = await saveExport(
         fileName,
         data,

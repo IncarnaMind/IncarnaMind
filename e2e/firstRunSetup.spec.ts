@@ -112,7 +112,7 @@ async function skipTheRest(window: Page) {
   await expect(panelOf(window)).toHaveCount(0);
 }
 
-// protects=a fresh profile opens on the setup's first step, its order kept with Something else last and standing alone; two picks lead to the first pick's example with both listed, the card in that work's words with no empty band under it, and the picks sent once on Send and continue, the step offering no second send when the User comes back to it; fails_when=the example opens first, Something else can be picked with another, the wrong example leads, a pick is lost, nothing reaches PostHog, the picks go twice, or the card keeps room it never fills; no_claim=PostHog itself.
+// protects=a fresh profile opens on the setup's first step, its order kept with Something else last and every choice a pick of its own; two picks lead to the first pick's example with both listed, the card in that work's words with no empty band under it, and the picks sent once on Send and continue, the step offering no second send when the User comes back to it; fails_when=the example opens first, Something else can be picked with another, the wrong example leads, a pick is lost, nothing reaches PostHog, the picks go twice, or the card keeps room it never fills; no_claim=PostHog itself.
 test("a fresh profile opens on the setup: two picks, sent once, lead to their examples", async () => {
   test.setTimeout(120_000);
   const posthog = await startFakePostHog();
@@ -138,13 +138,13 @@ test("a fresh profile opens on the setup: two picks, sent once, lead to their ex
 
     const pick = (value: string) =>
       panel.locator(`[data-testid="setup-work"][data-value="${value}"] input`);
-    // Something else stands alone, either way round.
+    // Every choice is a pick of its own: Something else sits beside another.
     await pick("legal").check();
     await pick("other").check();
-    await expect(pick("legal")).not.toBeChecked();
-    await pick("legal").check();
-    await expect(pick("other")).not.toBeChecked();
+    await expect(pick("legal")).toBeChecked();
+    await pick("other").uncheck();
     await pick("research").check();
+    await expect(pick("legal")).toBeChecked();
     await expect(panel.getByTestId("setup-work-sent")).toHaveText(
       "Sent with no name and no files, to help us decide what to build.",
     );

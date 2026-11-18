@@ -286,6 +286,14 @@ _Avoid_: nothing says this, missing, not in your Documents
 The result for a sentence when Verify or contradiction watch finds a Passage that says the opposite. It is not the same as unsupported, where nothing is found either way.
 _Avoid_: wrong, conflict, false
 
+**Writer's own view**:
+The result for a sentence that is wholly its writer's own thinking, which the Documents' facts can't settle: advice or a plan, an evaluation, a forecast, a likely cause. The check doesn't rule on whether the view is sound. Its card lists the Documents' facts that are a reason for it and those that point the other way, or says the Documents hold nothing on it (作者的判断). It is never Unsupported or Not found, has no warning colour and isn't counted as needing a look. A conclusion the Documents' facts settle is not one, however it is worded: it is Supported, worked out, or Contradicted. What a Document itself recommends or forecasts is stated by it, so a sentence that repeats it is checked as a fact.
+_Avoid_: opinion left out (words a check didn't read), unsupported, unverified, subjective
+
+**Worked out**:
+A Supported or Contradicted sentence that no Passage states as it stands, which the check reached from the Documents' facts for certain: a sum, a difference, a comparison of two figures, a step of plain logic. Its card shows the quotes used and one line of working ("412 + 388 = 800", 推算得出). Never a likelihood: what the facts leave open is the Writer's own view.
+_Avoid_: inferred, likely, estimated, Calculated figure (the app's own recorded arithmetic)
+
 **Not examined**:
 A sentence the check couldn't tell is a Claim or not, because the model said nothing of it when the check named the Claims, even when asked again. The Note says "Couldn’t tell whether 1 sentence needs checking". A sentence with a figure, a Citation, a record cite or a court decision never ends here: it is checked. The next Check asks about it again.
 _Avoid_: unsorted (Sort files Documents), Not checked (a Claim whose check failed or hasn't run)
@@ -295,7 +303,7 @@ One piece of a sentence that a reader can check on its own: a fact, or the write
 _Avoid_: chunk, clause, segment
 
 **Opinion left out**:
-The writer's own view in a sentence, which a check doesn't judge: a whole sentence that is one has no Mark, and a mixed sentence's opinion part keeps its row. The check's line counts each once: "3 opinions left out · Show" (3 处观点未纳入核对 · 查看), and Check anyway (仍然核对) checks that part alone. Never "Not checked", which is a claim whose check failed.
+Words a check doesn't read: the opinion part of a sentence that also states a fact, which keeps its row, and a remark about the text itself, which has no Mark. A sentence that is wholly its writer's opinion is read, and its result is Writer's own view. The check's line counts each once: "3 opinions left out · Show" (3 处观点未纳入核对 · 查看), and Check anyway (仍然核对) checks that part alone. Never "Not checked", which is a claim whose check failed.
 _Avoid_: skipped, not checked, ignored
 
 **Needs re-check**:

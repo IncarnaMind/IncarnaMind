@@ -20,7 +20,13 @@ import {
   readFigureInput,
 } from "./calculatedFigures";
 import type { ClaimCheckShown } from "./claimChecks";
-import { checkWithParts, figuresByPart, partWithResult, pendingPart } from "./claimParts";
+import {
+  checkWithParts,
+  figuresByPart,
+  isOwnView,
+  partWithResult,
+  pendingPart,
+} from "./claimParts";
 import type { FigureFooting } from "./figureFooting";
 import type { Ambiguity, Figure, Reading } from "./figures";
 import type { InlineTextProjection } from "./inlineText";
@@ -306,6 +312,9 @@ export function aggregateFigureResults(
       : result.verdict === "not-checked"
         ? { state: "not-checked", reason: result.reason }
         : { state: result.verdict };
+  // The writer's own view beside a figure is no fault of the sentence, which takes its figures'
+  // result (#3322), as the sentence is shown.
+  const rest = remainder && isOwnView(remainder) ? null : remainder;
   const summary = aggregateFigureStates(
     figures.map((figure) =>
       !figure.result.kept &&
@@ -314,7 +323,7 @@ export function aggregateFigureResults(
         ? { state: "unsupported" }
         : shown(figure.result),
     ),
-    remainder ? shown(remainder) : remainder,
+    rest ? shown(rest) : rest,
   );
   const all = [...figures.map((figure) => figure.result), ...(remainder ? [remainder] : [])];
   const versions = [
@@ -331,7 +340,7 @@ export function aggregateFigureResults(
         .map((item) => [`${item.documentId}\n${item.reason}`, item]),
     ).values(),
   ];
-  const selected = all.find(
+  const selected = [...figures.map((figure) => figure.result), ...(rest ? [rest] : [])].find(
     (result) =>
       !result.kept &&
       result.verdict === summary.state &&

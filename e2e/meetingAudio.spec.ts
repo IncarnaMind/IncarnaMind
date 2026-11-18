@@ -18,6 +18,7 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
+  transcribeHere,
   useLocalChatModel,
 } from "./app";
 import { encode, film } from "./feel";
@@ -132,6 +133,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const start = await recordMeeting(window);
       await pointAndClick(window, start.getByTestId("meeting-start-record"));
       const notice = window.getByTestId("meeting-notice");
+      await transcribeHere(notice);
       await expect(notice).toContainText(words.notice);
       await shot(window, `meeting-audio-notice-${language}`);
       await notice.getByTestId("meeting-notice-start").click();

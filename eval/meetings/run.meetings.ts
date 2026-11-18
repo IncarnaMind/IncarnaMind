@@ -170,7 +170,9 @@ async function runOnCloud(
       processingSeconds: (Date.now() - started) / 1000,
       segments: segments
         .map((segment) => {
-          const speaker = LABELS[segment.stream as Track];
+          const reported = segment.speaker && `${segment.stream}:${segment.speaker}`;
+          const speaker =
+            segment.stream === "mic" ? LABELS.mic : reported || LABELS[segment.stream as Track];
           return {
             start: segment.startMs / 1000,
             end: segment.endMs / 1000,

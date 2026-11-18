@@ -1,7 +1,7 @@
 /**
  * Check this note (#737): every sentence of a Mind that makes a claim,
- * checked in one run; then only what changed. Headings, questions and the
- * User's own opinions are left out, as the model names the claims.
+ * checked in one run; then only what changed. Headings, questions and words
+ * about the note itself are left out, as the model names the claims.
  */
 import type { LanguageModelV4, LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import type { JSONContent } from "@tiptap/core";
@@ -66,7 +66,7 @@ const MOON = "Spring tides come at new and full moon.";
 const YEARLY = "Harbours publish the times of high water every year.";
 const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const QUESTION = "Does high water come at noon on Sundays?";
-const OPINION = "We think the harbour office is very helpful.";
+const ASIDE = "This note lists what the harbour office told us, in the order we heard it.";
 
 const PLANS: Record<string, Plan> = {
   [MOON]: { verdict: "supported", quote: MOON },
@@ -83,7 +83,10 @@ const PLANS: Record<string, Plan> = {
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 
 interface SortDecisions {
-  sentences: { number: number; parts: { kind: "fact" | "opinion"; text: string }[] }[];
+  sentences: {
+    number: number;
+    parts: { kind: "fact" | "opinion" | "about-this-text"; text: string }[];
+  }[];
 }
 
 /** The numbers a request listed `sentence` under. */
@@ -128,11 +131,11 @@ async function setUp(
         const reply = checkGenerate(PLANS)(call);
         if (sorting && "text" in reply) {
           const decisions = JSON.parse(reply.text) as SortDecisions;
-          const views = new Set(numbersOf(call, OPINION));
+          const views = new Set(numbersOf(call, ASIDE));
           const explicit = {
             sentences: decisions.sentences.map((sentence) =>
               views.has(sentence.number)
-                ? { ...sentence, parts: [{ kind: "opinion" as const, text: OPINION }] }
+                ? { ...sentence, parts: [{ kind: "about-this-text" as const, text: ASIDE }] }
                 : sentence,
             ),
           };
@@ -170,7 +173,7 @@ async function setUp(
   writeMind(client, [
     { type: "heading", attrs: { level: 2 }, content: [text("High water in the harbour")] },
     { type: "paragraph", attrs: { id: "one" }, content: [text(`${MOON} ${YEARLY} ${QUESTION}`)] },
-    { type: "paragraph", attrs: { id: "two" }, content: [text(`${OPINION} ${PENGUINS}`)] },
+    { type: "paragraph", attrs: { id: "two" }, content: [text(`${ASIDE} ${PENGUINS}`)] },
   ]);
   await client.settled();
   /** Quits the app and starts it again on the same data: what the model named is forgotten. */
@@ -573,7 +576,7 @@ describe("Check this note", () => {
     expect(await named()).toEqual(defaultModel);
   });
 
-  test("checks every claim, each marked; the heading, the question and the User's opinion aren't; the run is recorded", async () => {
+  test("checks every claim, each marked; the heading, the question and the words about the note aren't; the run is recorded", async () => {
     const { core, client, mindId, folderId, checks, finds } = await setUp();
     expect(await core.planMindCheck(mindId, "all")).toEqual({
       kind: "ready",
@@ -835,7 +838,7 @@ describe("Check this note", () => {
     const runsBefore = runsIn(checks).length;
 
     typeInto(client, 1, 0, "Big ");
-    typeInto(client, 2, OPINION.length + 1, "Some ");
+    typeInto(client, 2, ASIDE.length + 1, "Some ");
     expect(
       (await shownChecks(core, client, mindId, folderId)).map(({ shown }) => shown.state),
     ).toEqual(["needs-recheck", "contradicted", "needs-recheck"]);
@@ -888,11 +891,11 @@ describe("Check this note", () => {
     });
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
 
-    typeInto(client, 2, OPINION.length + 1, "Some ");
+    typeInto(client, 2, ASIDE.length + 1, "Some ");
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ sentences: 1 });
   });
 
-  test("a sentence written since is found among the new ones only, and the opinion isn't sent again", async () => {
+  test("a sentence written since is found among the new ones only, and the words about the note aren't sent again", async () => {
     const { core, client, mindId, finds } = await setUp();
     await core.checkMind(request(mindId, "all"));
     const added = "The harbour master retired in 2025.";
@@ -999,7 +1002,7 @@ describe("Check this note", () => {
     });
     expect(finds).toHaveLength(1);
     expect(mindCheckOf(client.doc)?.skipped).toEqual([sentenceKey(QUESTION), sentenceKey(memo)]);
-    expect(readOpinionSentences(client.doc).map((sentence) => sentence.text)).toEqual([OPINION]);
+    expect(readOpinionSentences(client.doc).map((sentence) => sentence.text)).toEqual([ASIDE]);
     expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ kind: "unchanged" });
   });
@@ -1045,7 +1048,7 @@ describe("Check this note", () => {
 
     // A later check of one sentence doesn't make the others newer.
     clock.advance(60 * 60 * 1000);
-    typeInto(client, 2, OPINION.length + 1, "Some ");
+    typeInto(client, 2, ASIDE.length + 1, "Some ");
     expect(await core.planMindCheck(mindId, "changed")).toMatchObject({ sentences: 1 });
     await core.checkMind(request(mindId, "changed"));
     expect(await core.planMindCheck(mindId, "changed")).toEqual({
@@ -1392,9 +1395,12 @@ describe("Check this note starts each sentence's check once its claims are named
   const SECOND = "Spring tide 2 comes at new moon.";
 
   /** `held`: the first sentence's checks, by their order, wait at their first request until each is resolved. */
+  /** The sentence's own paragraph in a check's prompt: the last of the lines it is given the Note's place by. */
+  const ownParagraph = (call: ModelCall) =>
+    /<paragraph>\n([\s\S]*?)\n<\/paragraph>/.exec(call.prompt)?.[1]?.split("\n\n").at(-1) ?? "";
   /** A call checks `sentence`: by its words, or, for a record cite's sentence, by its paragraph's. */
   const checking = (sentence: string) => (call: ModelCall) =>
-    sentenceOf(call) === sentence || call.prompt.includes(sentence);
+    sentenceOf(call) === sentence || ownParagraph(call).includes(sentence);
 
   async function noteOfTwo(
     then: "held" | "fails",

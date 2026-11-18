@@ -29,6 +29,7 @@ const ROW_KEY = {
   supported: "supported",
   ownNotes: "ownNotes",
   notYetCited: "notYetCited",
+  ownViews: "ownViews",
   checking: "checking",
   toCheck: "notChecked",
 } as const;
@@ -656,6 +657,40 @@ describe("The check card's rows (#2831)", () => {
       ["look", 1],
       ["supported", 1],
     ]);
+  });
+
+  // protects=a sentence the check found to be its writer's own view counts once, in a row of its own in English and Chinese, never under needs a look or supported, and leaves nothing to do (#3322); fails_when=it counts as a look, as supported or as not checked, or has no row; no_claim=the row's mark.
+  test("the writer's own view has a row of its own, never a look", () => {
+    const view = {
+      word: "own-view" as const,
+      reason: "The review says nothing of hiring.",
+      covered: null,
+      uncovered: null,
+    };
+    const doc = docOf(
+      paragraph(
+        checked("We should add two agents by May.", "unsupported", null, { unsupported: view }),
+      ),
+      paragraph(
+        checked("In my view the team will cope next year.", "unsupported", null, {
+          unsupported: view,
+        }),
+      ),
+      paragraph(checked("Spring tides come at full moon.", "supported"), citation("found")),
+    );
+    const health = healthOf(doc);
+    expect(rowsOf(health)).toEqual([
+      ["supported", 1],
+      ["ownViews", 2],
+    ]);
+    expect(health.lookClaims).toEqual([]);
+    expect(health.unsupported).toEqual([]);
+    expect(say("en", "ownViews", 2)).toBe("2 writer’s own views");
+    expect(say("en", "ownViews", 1)).toBe("1 writer’s own view");
+    expect(say("zh-CN", "ownViews", 2)).toBe("2 句作者的判断");
+    expect(healthSummary(health, { running: false, problem: false, unread: 0 })).toEqual({
+      kind: "all",
+    });
   });
 
   // protects=a sentence kept as the User's view is no sentence a check reads and has no row, unless a Citation of it isn't found, which puts it under needs a look (#2831); fails_when=a kept sentence counts as not checked, or its missing quote hides; no_claim=how the card names kept sentences.

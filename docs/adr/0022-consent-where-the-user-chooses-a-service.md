@@ -48,7 +48,7 @@ Nothing the AI sorts or tags is kept until the User confirms it (ADR-0012). The 
 
 ## A decision model reads a check's sentences first (#3118)
 
-Check this Note can have a decision model read each sentence before the User's AI model does. That is the `decision-checks` flow, to the decision model's host. Every request holds one sentence and its paragraph, with Passages of the User's Documents or parts of them, each under its Document's name and page. The requests a sentence can cause:
+Check this Note can have a decision model read each sentence before the User's AI model does. That is the `decision-checks` flow, to the decision model's host. It sorts the Note's sentences first (#3334): each goes alone, with nothing else, to decide whether it needs a check. Every later request holds one sentence that does and its paragraph, with Passages of the User's Documents or parts of them, each under its Document's name and page. The requests such a sentence can cause:
 
 1. The sentence with its Passages: up to 30 the check's search finds, and every Passage the sentence cites.
 2. Before a verdict stands, the sentence with the verdict's Passage alone; once more with the same Passage where it writes one of the sentence's numbers another way.
@@ -56,7 +56,7 @@ Check this Note can have a decision model read each sentence before the User's A
 4. The sentence with that one line alone, under its Document's name.
 5. Where no Passage is about the sentence, the sentence with the five nearest Passages joined as one.
 
-Nothing else goes: not the rest of the Note, another Note, a Folder's or Tag's name, an id or a file path.
+Nothing else goes: not another Note, a Folder's or Tag's name, an id or a file path. Since the sort, every sentence of the checked Note reaches the host, as the line the User turns it on by says ("each sentence of a note you check").
 
 - **Chosen.** The User turns it on in Settings › AI, on the row whose line says what goes and to which service. Turning it on there is the consent, recorded in Settings › Privacy, and it then reads every check, also one whose AI model runs on another service. A key to the host saved for something else turns nothing on.
 - **By default, only where the check already goes.** For a User who hasn't said, a measured decision model reads only when the User's own AI model for checks runs on the same service as that model's host, and then only the checks that go to that service. The User asked for the check, and it already sends the Note's text and the Passages found for it to that service: no new kind of data goes, and to no new service. So the User's choice of that service for their checks covers it, and there is no dialog. Settings and Settings › Privacy show it by that same rule, so neither says off while a check is read. A Note checked with a model on another service is not read by default, whichever of the two services the decision model is on.

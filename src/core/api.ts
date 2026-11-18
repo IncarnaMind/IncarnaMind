@@ -432,8 +432,12 @@ export interface CreateMindInput {
  *   hasn't confirmed is never a verdict. An older version would write the part again without them
  *   and show the line as the Mark's quote, so it opens these Notes read-only. Older content is
  *   version 59 content as it is: a part without them shows its quote and was never a first reading.
+ * - 61: a part of a check may be its writer's own view, with the Documents' facts for and against
+ *   it, and a verdict worked out from the Documents keeps its line of working (#3322). An older
+ *   version reads the view as Not found and writes the part again without the working, so it
+ *   opens these Notes read-only. Older content is version 60 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 60;
+export const CONTENT_SCHEMA_VERSION = 61;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -796,6 +800,13 @@ export interface OutsideAgentRequest {
   createdAt: string;
 }
 
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that says which outside agent wrote the Mind
+ * whole (#3306), as an `OutsideAgentRequest` under "agent". Absent for a Mind the User or
+ * IncarnaMind made. See src/shared/noteWriter.ts.
+ */
+export const MIND_WRITER_FIELD = "writer";
+
 /** The start of the id of someone's tracked change imported from a Word file (`WordChangeRequest`). */
 export const WORD_CHANGE_ID = "word:";
 
@@ -1079,7 +1090,8 @@ export const INCLUDE_IN_CONTEXT_ATTRIBUTE = "includeInContext";
  * - "web-page": a saved web page (#261): Passages a search found in one, or a
  *   quote added from one (#101);
  * - "checked-document": the document a check reads to check it (#97, #110);
- * - "outside-agent": text an outside agent proposed for a Note (#352).
+ * - "outside-agent": text an outside agent proposed for a Note (#352), or a Note it wrote
+ *   whole (#3306).
  */
 export type ThirdPartySource = "imported" | "web-page" | "checked-document" | "outside-agent";
 
@@ -1489,6 +1501,9 @@ export type MindProblem =
   | { kind: "no-heading"; mindId: string; heading: string }
   | { kind: "no-place"; mindId: string; place: string }
   | { kind: "several-places"; mindId: string; name: string; adding: boolean }
+  /** An exact replacement (#3284): the words aren't in the Note as given, or are in it `count` times. */
+  | { kind: "no-words"; mindId: string; words: string }
+  | { kind: "several-words"; mindId: string; words: string; count: number }
   | {
       kind:
         | "no-text"
@@ -1638,6 +1653,8 @@ export interface MindChange {
   sentences?: SentenceChanges;
   /** It only removes whole paragraphs, none of the User's other text changed (`onlyRemoves`). */
   removed?: RemovedParagraphs;
+  /** It was an exact replacement of these words, each cut to its first and last words if long (#3284). */
+  swapped?: { old: string; now: string };
   /** What it came to for each paragraph and heading of the Mind (`touchedBy`). Absent: the call wrote no edit, or revised its own text. */
   touched?: TouchedParagraphs;
   /** Where the stretch it edited sits in the Mind (`placeOf`). Absent: with `touched`. */
@@ -2340,8 +2357,8 @@ export interface WordSource {
 }
 
 /**
- * Something exporting a Mind back into its Word file can't keep (#105), said
- * before the file is saved:
+ * Something exporting a Mind back into its Word file couldn't keep (#105), listed with the saved
+ * file (#3305):
  * - "comment": someone's comment on text the User deleted;
  * - "change": someone's tracked change in text the User deleted;
  * - "copy": a copy of something kept from Word, written as its text;
@@ -2361,7 +2378,7 @@ export interface WordExportLoss {
 
 /** What exporting a Mind imported from a Word file does with the original (#105). */
 export interface WordExportReport {
-  /** What can't be kept: the User sees it before the file is saved. */
+  /** What couldn't be kept: the Saved line lists it. */
   notKept: WordExportLoss[];
   /** Parts of the package IncarnaMind doesn't know, kept as they are. */
   unknownParts: string[];
@@ -7597,10 +7614,13 @@ export interface UnsupportedReason {
   kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
   /**
    * Which way the check's model said the sentence goes unsupported: the Documents say less than
-   * it does, state only some of it, or don't state it. Absent when it gave only "unsupported", and
-   * on checks made before it was asked.
+   * it does, state only some of it, or don't state it; or the sentence is only its writer's own
+   * view (advice, a plan, a judgement, a forecast), which the check doesn't rule on: `reason` says
+   * what the Documents hold for and against it, and `quoted` and the result's `more` are the
+   * quotes of those facts (#3322). Absent when it gave only "unsupported", and on checks made
+   * before it was asked.
    */
-  word?: "overstated" | "partly-supported" | "not-found";
+  word?: "overstated" | "partly-supported" | "not-found" | "own-view";
   /**
    * The check read a contradiction its confirmation didn't uphold (#2184): `reason` is the check's
    * own explanation, and `quoted` the quote it rested on.
@@ -7780,6 +7800,11 @@ export interface ClaimCheckPart
    * part's own words.
    */
   correction?: ClaimCorrection;
+  /**
+   * For "supported" and "contradicted": the check's one line of working, where no Passage states
+   * the part as it stands and it follows from what they state (#3322). Absent when one states it.
+   */
+  workedOut?: string;
 }
 
 export type ClaimPartJudgment = (
@@ -7883,6 +7908,12 @@ export type ClaimJudgment =
       calculation: ClaimCalculation | null;
       /** The working it rests on, where the check worked its figure out over a data file's rows. */
       working?: CheckWorking;
+      /**
+       * For "supported" and "contradicted": the check's one line of working, where no Passage
+       * states the sentence as it stands and it follows from what they state (a sum, a comparison,
+       * a step of plain logic). Absent when a Passage states it (#3322).
+       */
+      workedOut?: string;
       /**
        * The sentence cites a court decision that none of the Documents holds: the citation itself
        * isn't checked, whatever else backs the sentence.
@@ -8032,6 +8063,7 @@ export interface FigureSchedule {
     notChecked: number;
     checking: number;
     kept: number;
+    ownViews: number;
   };
   checkedAt: string | null;
   model: ChatModelChoice | null;
@@ -8098,7 +8130,7 @@ export interface CheckClaimInput {
   /** The sentence, or claim, to check: the User's own words. */
   claim: string;
   figures?: CheckFigure[];
-  /** The paragraph it is in, for what its words refer to. */
+  /** The paragraph it is in and what stands above it, for what it is about and what its words refer to. */
   context?: string;
   /** What the sentence already cites, for Check against Documents. */
   cited?: CitedQuote[];
@@ -8444,18 +8476,42 @@ export interface MindCheckRun {
  * files (#110).
  */
 export interface VerifyDocumentInput {
-  /** The file's absolute path: a PDF, a Word file, or any other file the Library reads. */
+  /** The file's absolute path: a PDF, a Word file, a deck, or any other file the Library reads. */
   path: string;
   /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
+  /** A workbook's sheet to check, by its name (#3278); without it the sheets are listed (`choose-sheet`). */
+  sheet?: string;
+  /** A range of that sheet, "B2:M40"; the whole sheet when left out. */
+  range?: string;
+}
+
+/** What a workbook's sheet holds, for choosing what to check (#3278). */
+export interface WorkbookSheetChoice {
+  name: string;
+  /** Rows with anything in them. */
+  rows: number;
+  /** Numbers typed into its cells. */
+  typed: number;
+  /** Its cells with a formula. */
+  formulas: number;
 }
 
 /** What `verifyDocument` did. */
 export type VerifyDocumentResult =
   /** The Mind holds the document's text, a paragraph to a Block: its claims can be found. */
   | { ok: true; mind: Mind; documentId: string }
-  /** No Mind was made: the file can't be read, or holds no text (a scan nothing could read). */
-  | { ok: false; reason: "unreadable" | "no-text" }
+  /** A workbook: its sheets, to choose one (and a range) to check (#3278); nothing was made. */
+  | { ok: false; reason: "choose-sheet"; documentId: string; sheets: WorkbookSheetChoice[] }
+  /** A workbook's sheet or range holds more typed-in numbers than one check takes (#3278). */
+  | { ok: false; reason: "too-many"; typed: number; most: number }
+  /** The range isn't one ("B2:M40"), or the sheet isn't in the workbook (#3278). */
+  | { ok: false; reason: "range" }
+  /**
+   * No Mind was made: the file can't be read, needs a password, or holds no text (a scan nothing
+   * could read, a deck of pictures).
+   */
+  | { ok: false; reason: "unreadable" | "password-protected" | "no-text" }
   /** No Mind was made: a Word file that can't be imported, for the reason Word import gives. */
   | { ok: false; reason: "word"; refusal: WordRefusalReason };
 
@@ -9901,9 +9957,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
  *   and stay on this computer. Connecting the account allows it; background work, which never
  *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
- * - "decision-checks": while Check this Note runs (#3118), each sentence it checks, with its
- *   paragraph, and each Passage the check's search finds for it, with its Document's name and
- *   page, to the host of the decision model that reads first. Choosing the model, where its line
+ * - "decision-checks": while Check this Note runs (#3118), every sentence of the Note alone, to
+ *   sort it (#3334), then each sentence it checks, with its paragraph, and each Passage the
+ *   check's search finds for it, with its Document's name and page, to the host of the decision
+ *   model that reads first. Choosing the model, where its line
  *   says so, allows it; where one reads by default, the User's choice of that same service for
  *   their checks does (ADR-0022). None in local mode.
  */
@@ -11330,12 +11387,6 @@ export interface ExportMindOptions {
    */
   includeQuestions?: boolean;
   /**
-   * For a Mind imported from a Word file, exported to Word (#105): the keys of
-   * what can't be kept (`WordExportLoss.key`) that the User has seen and
-   * exports anyway. `saveMindExport` saves nothing while anything else can't be kept.
-   */
-  accept?: string[];
-  /**
    * Word only (#107): for a Mind imported from a Word file, the User's edits
    * since the import go in as tracked changes under their name
    * (`Settings.author`). Changes still waiting to be accepted always go into
@@ -11521,11 +11572,6 @@ export type SavedMindExport =
         | "markAiText"
         | "footnotes"
       >)
-  /**
-   * Not saved: a Mind imported from Word can't keep something in its file
-   * (`WordExportReport.notKept`) the User hasn't accepted (`ExportMindOptions.accept`).
-   */
-  | { status: "review"; word: WordExportReport }
   | Exclude<SavedExport, { status: "saved" }>;
 
 /** What `rewriteMindExport` did: as `saveMindExport` says, and once saved, the step its Undo names. */
@@ -12398,6 +12444,8 @@ export const AGENT_TOOLS = [
   "read_mind",
   "ask",
   "propose_changes",
+  "create_mind",
+  "check_mind",
 ] as const;
 
 /**
@@ -12519,6 +12567,7 @@ export type AgentProblem =
   | "read-only"
   | "changed"
   | "waiting"
+  | "too-many"
   | "invalid"
   | "failed";
 

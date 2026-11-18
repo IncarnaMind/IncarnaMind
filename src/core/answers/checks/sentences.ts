@@ -60,6 +60,7 @@ import {
   type FigureOccurrence,
   figuresInMind,
   headingAbove,
+  readAbove,
   withAboveNow,
 } from "./figureOccurrences";
 
@@ -216,10 +217,19 @@ export function wordsReader(element: Y.XmlElement): (from: number, to: number) =
 }
 
 /**
- * A sentence as its check reads it: its words, the paragraph it is in under the heading above it,
- * and those of its figures that IncarnaMind worked out itself, which no Passage states.
+ * A sentence as its check reads it: its words; the paragraph it is in, under what stands above it
+ * in the Note (its title, the headings it is under, its section so far), which says what a line
+ * is about that doesn't say so itself (#3332); that paragraph under its nearest heading alone,
+ * which is what a decision model's lines were measured with (#3118); and those of its figures that
+ * IncarnaMind worked out itself, which no Passage states.
  */
-export function checkText(sentence: SelectedSentence) {
+export function checkText(sentence: SelectedSentence): {
+  claim: string;
+  projection?: InlineTextProjection;
+  context: string;
+  near?: string;
+  figures?: FigureOccurrence[];
+} {
   const worked = (sentence.figures ?? []).filter(
     (figure) => figure.calculated !== null || figure.analysisRecord?.label !== undefined,
   );
@@ -227,11 +237,11 @@ export function checkText(sentence: SelectedSentence) {
   const around =
     (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
     wordsOf(sentence.element);
-  const { heading } = headingAbove(sentence.element);
   return {
     claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
     ...(sentence.projection && { projection: sentence.projection }),
-    context: heading ? `${heading}\n\n${around}` : around,
+    context: [...readAbove(sentence.element), around].join("\n\n"),
+    near: [headingAbove(sentence.element).heading, around].filter(Boolean).join("\n\n"),
     ...(worked.length > 0 && { figures: withAboveNow(worked, sentence.element) }),
   };
 }

@@ -10,14 +10,29 @@ import type { SpeakerEmbeddingExtractor } from "sherpa-onnx-node";
 import { MEETING_SAMPLE_RATE, type SpeakerModelFiles, type VoiceTurn } from "../adapters";
 import { SHERPA } from "./sherpa";
 
-/** Voiceprints closer than this are one voice: set on the first 15 minutes of the English cases of eval/meetings (eval/speakers/README.md). */
-export const CLUSTER_THRESHOLD = 1.05;
+/**
+ * The engine joins stretches whose voiceprints are closer than this (a distance: 1 less how alike
+ * they are). Kept low on purpose, so the engine splits a person rather than joins two: at 1.05,
+ * which keeps a person whole over a long meeting, two voices only 0.2 alike came out as one
+ * speaker in a short recording (#138). The settings below were chosen on the English cases of
+ * eval/meetings (eval/speakers/README.md).
+ */
+export const CLUSTER_THRESHOLD = 0.7;
 
 /**
- * Voices whose voiceprints are at least this alike are taken for one person afterwards: over a
- * long meeting the engine's clustering splits people into several voices.
+ * Voices whose voiceprints are at least this alike are taken for one person afterwards: the
+ * engine's clustering splits people into several voices.
  */
 export const SAME_PERSON = 0.6;
+/**
+ * A voiceprint from short stretches is rough, however many of them there are, and makes one
+ * person's voices look less alike. So two voices are one person from `ROUGH_PRINT_SAME` alike when
+ * one of them has only the shortest stretches, rising evenly to `SAME_PERSON` when both have a
+ * stretch of `SOLID_STRETCH_SECONDS`. Two clearly different voices stay under it however little
+ * one says (#138).
+ */
+const ROUGH_PRINT_SAME = 0.3;
+const SOLID_STRETCH_SECONDS = 10;
 /** A voice with less of the speech than this is someone else's stray stretch: it joins the voice most like it. */
 const STRAY_SHARE = 0.02;
 /** A voiceprint is taken from a voice's longest stretches, up to this much of them. */
@@ -114,10 +129,15 @@ const cosine = (a: Float32Array, b: Float32Array) => {
   return aa === 0 || bb === 0 ? 0 : dot / Math.sqrt(aa * bb);
 };
 
-interface Group {
-  ids: number[];
+interface Voice {
   print: Float32Array;
   seconds: number;
+  /** Its longest stretch, in seconds. */
+  longest: number;
+}
+
+interface Group extends Voice {
+  ids: number[];
 }
 
 function join(into: Group, from: Group): void {
@@ -126,30 +146,34 @@ function join(into: Group, from: Group): void {
     (value, i) => (value * into.seconds + (from.print[i] ?? 0) * from.seconds) / total,
   );
   into.seconds += from.seconds;
+  into.longest = Math.max(into.longest, from.longest);
   into.ids.push(...from.ids);
 }
 
 /**
  * Which voice each voice becomes once alike voices are one person: the two most alike join
- * while they are at least `samePerson` alike; then each voice with less than `STRAY_SHARE` of
- * the speech joins the voice most like it.
+ * while they are at least `samePerson` alike, or less when one's voiceprint is rough; then each
+ * voice with less than `STRAY_SHARE` of the speech joins the voice most like it.
  */
 export function joinedVoices(
-  voices: ReadonlyMap<number, { print: Float32Array; seconds: number }>,
+  voices: ReadonlyMap<number, Voice>,
   samePerson = SAME_PERSON,
 ): Map<number, number> {
+  const rough = Math.min(samePerson, ROUGH_PRINT_SAME);
   let groups: Group[] = [...voices].map(([id, voice]) => ({
     ids: [id],
     print: Float32Array.from(voice.print),
     seconds: voice.seconds,
+    longest: voice.longest,
   }));
   for (;;) {
     let best: { into: Group; from: Group; alike: number } | null = null;
     for (const [at, a] of groups.entries()) {
       for (const b of groups.slice(at + 1)) {
         const alike = cosine(a.print, b.print);
-        if (alike >= samePerson && (!best || alike > best.alike))
-          best = { into: a, from: b, alike };
+        const solid = Math.min(a.longest, b.longest, SOLID_STRETCH_SECONDS) / SOLID_STRETCH_SECONDS;
+        const needed = rough + (samePerson - rough) * solid;
+        if (alike >= needed && (!best || alike > best.alike)) best = { into: a, from: b, alike };
       }
     }
     if (!best) break;
@@ -178,12 +202,12 @@ function voiceprintsOf(
   extractor: SpeakerEmbeddingExtractor,
   samples: Float32Array,
   segments: readonly Segment[],
-): Map<number, { print: Float32Array; seconds: number }> {
+): Map<number, Voice> {
   const bySpeaker = new Map<number, Segment[]>();
   for (const segment of segments) {
     bySpeaker.set(segment.speaker, [...(bySpeaker.get(segment.speaker) ?? []), segment]);
   }
-  const voices = new Map<number, { print: Float32Array; seconds: number }>();
+  const voices = new Map<number, Voice>();
   for (const [speaker, own] of bySpeaker) {
     const longest = [...own].sort((a, b) => b.end - b.start - (a.end - a.start));
     const stream = extractor.createStream();
@@ -202,6 +226,7 @@ function voiceprintsOf(
     voices.set(speaker, {
       print: Float32Array.from(extractor.compute(stream, false)),
       seconds: own.reduce((sum, segment) => sum + segment.end - segment.start, 0),
+      longest: longest[0] ? longest[0].end - longest[0].start : 0,
     });
   }
   return voices;

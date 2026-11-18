@@ -35,7 +35,7 @@ import * as Y from "yjs";
 import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
 import { restsElsewhere } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";
-import { partsWrittenBy, planOf } from "../../../shared/claimParts";
+import { isOwnView, partsWrittenBy, planOf } from "../../../shared/claimParts";
 import { readTableBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextProjection,
@@ -1294,7 +1294,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       const found = foundCitations(sentence, reads.get(sentence)?.claim ?? sentence.text, result);
       landNow(
         { sentence, mark, found },
-        result.verdict === "unsupported" || result.verdict === "contradicted"
+        (result.verdict === "unsupported" && !isOwnView(result)) ||
+          result.verdict === "contradicted"
           ? result.verdict
           : "checked",
       );
@@ -1431,9 +1432,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       const claims: Sentence[] = [];
       for (const [index, sentence] of uncited.entries()) {
         const parts = found.parts.get(index) ?? [];
+        // An opinion is checked too: the check says what the Documents hold on it (#3322). Words
+        // about the text itself are left out.
         if (
           found.undecided.has(index) ||
-          parts.some((part) => part.kind === "fact") ||
+          parts.some((part) => part.kind === "fact" || (part.kind === "opinion" && !part.itself)) ||
           (reads.get(sentence)?.figures?.length ?? 0) > 0
         )
           claims.push(sentence);

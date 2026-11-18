@@ -1380,6 +1380,10 @@
     box-shadow: inset 0 0 0 1.25px var(--color-danger);
     color: var(--color-danger);
   }
+  .check-row[data-part="ownViews"] .mind-health-icon {
+    background: var(--color-chip);
+    color: var(--color-ink-secondary);
+  }
 
   /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
   .mind-menu-slot {
@@ -1649,6 +1653,9 @@
   .page-menu-counts {
     margin: 0;
     padding: 2px 8px;
+    font-size: 12px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
   }
   .page-menu-switch {
     display: flex;
@@ -6003,9 +6010,15 @@
     --check-wash: var(--color-danger-wash);
   }
   .citation-marker[data-check="cant-check"],
-  .citation-card--cant-check {
+  .citation-card--cant-check,
+  .margin-check[data-check="own-view"],
+  .citation-card--own-view {
     --check-ink: var(--color-ink-secondary);
     --check-wash: var(--color-chip);
+  }
+  .citation-card--own-view .citation-badge-icon {
+    border-radius: 50%;
+    background: var(--check-wash);
   }
   .margin-check:is([data-check="not-checked"], [data-check="needs-recheck"]) {
     --check-ink: var(--color-ink-meta);
@@ -6288,6 +6301,11 @@
   .claim-wash--contradicted {
     background: var(--color-danger-wash);
   }
+  /* Supported, but worked out from what the Documents state, not their own words (#3322). */
+  .claim-wash--worked-out {
+    text-decoration: underline dotted var(--color-success);
+    text-underline-offset: 5px;
+  }
   /* A line of the sentence whose check card is open, outlined as a selected Citation marker is. */
   .claim-outline {
     position: absolute;
@@ -6354,6 +6372,13 @@
     color: var(--color-ink);
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
+  }
+  /* A part that is its writer's own view needs no look: the Note's quiet dotted line (#3322). */
+  .claim-sentence-mark.citation-card--own-view {
+    background: none;
+    box-shadow: none;
+    text-decoration: underline dotted var(--color-ink-meta);
+    text-underline-offset: 4px;
   }
   .claim-parts {
     list-style: none;
@@ -6597,6 +6622,17 @@
     white-space: nowrap;
   }
 
+  /* A verdict's one line of working, where the check worked it out from what Passages state (#3322). */
+  .claim-worked-out {
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--color-chip);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 20px;
+    overflow-wrap: anywhere;
+  }
   /* A figure a check worked out (#707): how, then each input's Citation. */
   .claim-card-working {
     display: flex;

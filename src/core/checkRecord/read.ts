@@ -46,6 +46,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   type CitationAttributes,
   type CitationCheck,
+  type ClaimCheckFailure,
   type ClaimCheckScope,
   type Document,
   GENERATED_MARK,
@@ -94,6 +95,10 @@ export interface SentenceCheck {
 export type SentenceItem = RecordItemFields & {
   kind: "sentence";
   result: SentenceResult;
+  /** Why no verdict shows, for a sentence that is Not checked. */
+  reason: ClaimCheckFailure | null;
+  /** The Passage the check judged it on, as the mark keeps it; null when none backs it. */
+  judgedOn: Partial<CitationAttributes> | null;
   /** Null when no check ran: the model refused or couldn't be reached. */
   check: SentenceCheck | null;
 };
@@ -282,21 +287,18 @@ export function readRecord(sources: RecordSources): {
     noteText,
   } of checkedSentences(fragment)) {
     requests.push(check.request);
-    const result = sentenceResultOf(
-      claimCheckShown(check, {
-        text: sentence,
-        citations,
-        footing,
-        versions,
-        folderId,
-        scope,
-        figureContexts,
-        note: note(place),
-        ...noteTextOfMarked({ noteText }),
-      }),
-      check,
-      cited.length,
-    );
+    const shown = claimCheckShown(check, {
+      text: sentence,
+      citations,
+      footing,
+      versions,
+      folderId,
+      scope,
+      figureContexts,
+      note: note(place),
+      ...noteTextOfMarked({ noteText }),
+    });
+    const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
     const origin =
       blockOrigin(fragment, topOf(fragment, element)) ??
@@ -318,6 +320,7 @@ export function readRecord(sources: RecordSources): {
       kind: "sentence",
       text: recordSentence(sentence),
       result,
+      reason: shown.state === "not-checked" ? shown.reason : null,
       origin,
       says: check.says,
       evidence: check.evidence
@@ -326,6 +329,7 @@ export function readRecord(sources: RecordSources): {
             ...(restsOnPassage(check) && { quote: null }),
           }
         : null,
+      judgedOn: check.evidence ?? null,
       check:
         result === "notChecked"
           ? null

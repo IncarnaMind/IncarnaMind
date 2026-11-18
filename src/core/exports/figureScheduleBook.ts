@@ -50,6 +50,7 @@ export function statusWord(row: FigureScheduleRow): MessageKey {
   const state = row.shown.state;
   return state === "supported" ||
     state === "kept" ||
+    state === "own-view" ||
     state === "not-checked" ||
     state === "checking"
     ? statusKey(row)
@@ -111,6 +112,7 @@ export function figureScheduleBook(
     counts.needsLook === 1 ? t("figures.look.one") : t("figures.look", { count: counts.needsLook }),
     t("figures.notChecked", { count: counts.notChecked + counts.checking }),
     ...(counts.kept > 0 ? [t("figures.yourView", { count: counts.kept })] : []),
+    ...(counts.ownViews > 0 ? [t("figures.ownView", { count: counts.ownViews })] : []),
   ].join(" · ");
   const info = (id: string, label: string, value: string): SheetRow => ({
     id,

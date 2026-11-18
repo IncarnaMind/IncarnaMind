@@ -61,6 +61,8 @@ export function figureGroup(
   row: FigureScheduleRow,
 ): Exclude<FigureFilter, "all" | "not-mine"> | "checking" | "kept" {
   const state = row.shown.state;
+  // The writer's own view is no look: it sorts and shows its dash with the User's own (#3322).
+  if (state === "own-view") return "kept";
   return state === "supported" ||
     state === "not-checked" ||
     state === "checking" ||

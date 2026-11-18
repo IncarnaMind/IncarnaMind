@@ -808,6 +808,8 @@ export interface SpeechSegment {
    * (#138): a final segment's, in order. The text may write them otherwise (spaces, case).
    */
   words?: { text: string; ms: number }[];
+  /** Word times came from a separate streaming reading of the same audio. */
+  draftWordTimes?: true;
 }
 
 /**

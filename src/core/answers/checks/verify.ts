@@ -1,11 +1,12 @@
 /**
- * Verify (#97): a PDF someone else wrote, checked claim by claim against the
+ * Verify (#97): a file someone else wrote, checked claim by claim against the
  * User's Documents.
  *
- * 1. `verifyDocument` adds the PDF to the Library, or finds it there, waits
+ * 1. `verifyDocument` adds the file to the Library, or finds it there, waits
  *    until its text is read, and makes a Mind of it: its paragraphs, and its
  *    tables as tables (#1368), with each Block's page and each table row's,
- *    all of it third-party text (#78). A Word file (#110) is imported as a
+ *    all of it third-party text (#78). A deck (#3275) is read slide by slide
+ *    (./verifySlides), a slide its page. A Word file (#110) is imported as a
  *    Mind instead, kept to export back into with the results as comments,
  *    and added to the Library as its original. The Mind's settings say which
  *    Document it verifies (src/shared/verification.ts).
@@ -22,9 +23,10 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { withFigureFacts } from "../../../shared/claimParts";
+import { partsToCheck } from "../../../shared/claimParts";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
+import type { UnitText } from "../../../shared/units";
 import {
   isVerifiedBlock,
   readVerification,
@@ -53,11 +55,13 @@ import {
   type WordRefusalReason,
 } from "../../api";
 import type { PagePart } from "../../documents/extract";
+import type { SlideOutline } from "../../documents/formats/pptx";
 import { parseModel } from "../../edits";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { MindContent } from "../../mindContent";
 import { parseFolderChoice, parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import { cellName } from "../../workbooks/parse";
 import { createElement } from "../blocks";
 import { answerTemperature } from "../engine";
 import { markdownToBlocks } from "../markdown";
@@ -74,10 +78,24 @@ import {
   type SelectedSentence,
 } from "./sentences";
 import { askBrief } from "./verifyBrief";
+import { slideBlocks } from "./verifySlides";
 import { documentBlocks, tableClaim } from "./verifyTables";
+import {
+  cellBlockId,
+  checkFormulas,
+  MOST_TYPED_NUMBERS,
+  parseRange,
+  rangeName,
+  sheetChoices,
+  sheetTable,
+  workbookOf,
+} from "./verifyWorkbook";
 
 /** A Document whose text is read: its Passages can be searched and its pages read. */
 const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "ready"];
+
+/** A workbook, checked a sheet at a time (#3278). */
+const WORKBOOK_FILE = /\.xlsx$/i;
 
 /** A file Word import takes, or refuses with its reason (an older .doc, macros). */
 const WORD_FILE = /\.(?:docx|docm|doc|dotx|dotm|dot)$/i;
@@ -102,9 +120,13 @@ export interface VerifyOptions extends CheckRuns {
   document(documentId: string): Document;
   onStatus(listener: (document: Document) => void): () => void;
   readText(documentId: string): DocumentText;
+  /** A live Document's Units as the index keeps them, a workbook's formulas and saved values too (#3278). */
+  readUnits(documentId: string): { contentHash: string; units: UnitText[] };
   /** A PDF's text-layer pages that hold a table, laid out (#1368); none when it can't be read again. */
   readTables(documentId: string): Promise<ReadonlyMap<number, PagePart[]>>;
   readScanned(documentId: string): ScannedText;
+  /** A deck's slides, read again from its file; null for another kind of file, or when it can't be read again. */
+  readSlides(documentId: string): Promise<SlideOutline[] | null>;
   createMind(title: string, folderId: string | null): Mind;
   /** Why a Word file can't be imported as a Mind; null when it can. */
   wordRefusal(path: string): Promise<WordRefusalReason | null>;
@@ -175,6 +197,12 @@ export interface MindCheckScope {
   check: CheckScope;
 }
 
+const NO_FORMULAS: ReadonlySet<string> = new Set();
+
+function formulasOf(verification: Verification): ReadonlySet<string> {
+  return verification.workbook ? new Set(verification.workbook.formulaBlocks) : NO_FORMULAS;
+}
+
 function parseRequest(input: unknown) {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
   const { requestId } = input;
@@ -189,8 +217,11 @@ function parseRequest(input: unknown) {
   };
 }
 
-function claimOf(sentence: SelectedSentence): ReturnType<typeof checkText> | undefined {
-  const row = tableClaim(sentence);
+function claimOf(
+  sentence: SelectedSentence,
+  verification: Verification,
+): ReturnType<typeof checkText> | undefined {
+  const row = tableClaim(sentence, formulasOf(verification));
   if (row === "not-a-claim") return undefined;
   return row ?? checkText(sentence);
 }
@@ -251,7 +282,7 @@ export function createVerify(options: VerifyOptions) {
     const sentences = content.read(mindId, (blocks) =>
       everySentence(blocks).flatMap((sentence) => {
         if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
-        const said = claimOf(sentence)?.claim;
+        const said = claimOf(sentence, verification)?.claim;
         return said !== undefined && isClaim(said) ? [{ ...sentence, said }] : [];
       }),
     );
@@ -292,7 +323,7 @@ export function createVerify(options: VerifyOptions) {
       const plans = found.parts.get(index);
       return plans === undefined || sentence.said !== sentence.text
         ? plans
-        : withFigureFacts(sentence.said, plans, sentence.figures ?? [], sentence.projection);
+        : partsToCheck(sentence.said, plans, sentence.figures ?? [], sentence.projection);
     };
     const claims = sentences.flatMap((sentence, index) => {
       const plans = sorted(sentence, index);
@@ -427,7 +458,10 @@ export function createVerify(options: VerifyOptions) {
           excluded: [],
           checkedAt: startedAt,
         };
-        const said = claimOf(sentence) ?? { claim: sentence.text, context: sentence.context };
+        const said = claimOf(sentence, verification) ?? {
+          claim: sentence.text,
+          context: sentence.context,
+        };
         const contextualRow = said.claim !== sentence.text;
         const row =
           sentence.element.parent instanceof Y.XmlElement ? sentence.element.parent.parent : null;
@@ -517,6 +551,120 @@ export function createVerify(options: VerifyOptions) {
     return { ok: true, mind: made.mind, documentId: document.id };
   }
 
+  /**
+   * A workbook's sheet, or a range of it, as a Note's one table (#3278): each row a claim on its
+   * typed-in numbers, every formula worked out again and the results that differ kept with the
+   * Mind. Without a sheet, the sheets are listed to choose from, and nothing is made.
+   */
+  async function verifyWorkbookFile(
+    path: string,
+    folderId: string | null,
+    chosen: { sheet: unknown; range: unknown },
+  ): Promise<VerifyDocumentResult> {
+    const document = await options.addFile(path, folderId);
+    if (!document) return { ok: false, reason: "unreadable" };
+    if (!(await textRead(document.id))) {
+      const now = options.document(document.id);
+      return { ok: false, reason: now.status === "no-text" ? "no-text" : "unreadable" };
+    }
+    const { name } = options.document(document.id);
+    const { contentHash, units } = options.readUnits(document.id);
+    const model = workbookOf(document.id, contentHash, units);
+    if (!model) return { ok: false, reason: "no-text" };
+    if (chosen.sheet === undefined) {
+      return {
+        ok: false,
+        reason: "choose-sheet",
+        documentId: document.id,
+        sheets: sheetChoices(model),
+      };
+    }
+    const sheet =
+      typeof chosen.sheet === "string" ? model.byName.get(chosen.sheet.toUpperCase()) : null;
+    const range =
+      typeof chosen.range === "string" && chosen.range.trim() !== ""
+        ? parseRange(chosen.range)
+        : null;
+    if (!sheet || (typeof chosen.range === "string" && chosen.range.trim() !== "" && !range)) {
+      return { ok: false, reason: "range" };
+    }
+    const table = sheetTable(sheet, range);
+    if (table.typed > MOST_TYPED_NUMBERS) {
+      return { ok: false, reason: "too-many", typed: table.typed, most: MOST_TYPED_NUMBERS };
+    }
+    if (table.typed === 0 && table.formulas === 0) return { ok: false, reason: "no-text" };
+
+    const formulas = await checkFormulas(model, sheet, range);
+    const page = units.find((unit) => unit.label?.sheet === sheet.name)?.page ?? 1;
+    const mind = options.createMind(name, folderId);
+    content.edit(mind.id, (blocks) => {
+      const doc = blocks.doc;
+      if (!doc) return;
+      const elements = [
+        {
+          type: "heading",
+          attrs: { level: 2 },
+          content: [
+            { type: "text", text: range ? `${sheet.name}!${rangeName(range)}` : sheet.name },
+          ],
+        },
+        table.node,
+      ].map((node) => createElement(node));
+      blocks.insert(0, elements);
+      const pages: Record<string, number> = {};
+      for (const element of elements) {
+        for (const each of [element, ...element.createTreeWalker(() => true)]) {
+          const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+          if (typeof id === "string") pages[id] = page;
+        }
+      }
+      setTextOrigin(doc, Object.keys(pages), "checked-document");
+      const grid = elements[1];
+      const formulaBlocks = table.rows.flatMap((row, at) =>
+        row.formulas.flatMap((column) => {
+          const id = grid && cellBlockId(grid, table, at, column);
+          return id ? [id] : [];
+        }),
+      );
+      const differs = formulas.differs.flatMap((each) => {
+        const id =
+          grid &&
+          cellBlockId(
+            grid,
+            table,
+            table.rows.findIndex((row) => row.row === each.row),
+            table.columns.indexOf(each.column),
+          );
+        return id
+          ? [
+              {
+                blockId: id,
+                cell: cellName(each.row, each.column),
+                saved: each.saved,
+                worked: each.worked,
+              },
+            ]
+          : [];
+      });
+      writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
+        documentId: document.id,
+        documentName: name,
+        pages,
+        claims: null,
+        comments: false,
+        workbook: {
+          sheet: sheet.name,
+          range: range ? rangeName(range) : null,
+          formulaBlocks,
+          checked: formulas.checked,
+          unchecked: formulas.unchecked,
+          differs,
+        },
+      });
+    });
+    return { ok: true, mind, documentId: document.id };
+  }
+
   return {
     async verifyDocument(input: unknown): Promise<VerifyDocumentResult> {
       if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
@@ -527,24 +675,32 @@ export function createVerify(options: VerifyOptions) {
       const folderId = parseFolderChoice(input.folderId);
       if (folderId !== null) options.requireFolder(folderId);
       if (WORD_FILE.test(path)) return verifyWordFile(path, folderId);
+      if (WORKBOOK_FILE.test(path)) {
+        return verifyWorkbookFile(path, folderId, { sheet: input.sheet, range: input.range });
+      }
 
       const document = await options.addFile(path, folderId);
       if (!document) return { ok: false, reason: "unreadable" };
       if (!(await textRead(document.id))) {
         const now = options.document(document.id);
-        return { ok: false, reason: now.status === "no-text" ? "no-text" : "unreadable" };
+        if (now.status === "no-text") return { ok: false, reason: "no-text" };
+        const locked = now.failure?.reason === "password-protected";
+        return { ok: false, reason: locked ? "password-protected" : "unreadable" };
       }
       const text = options.readText(document.id);
       const { name, kind } = options.document(document.id);
       // A Markdown file keeps its own shape: its headings are headings, not "#" in a paragraph (#2771).
       const markdown = kind === "markdown";
+      const slides = markdown ? null : await options.readSlides(document.id);
       const found = markdown
         ? []
-        : documentBlocks(
-            text.pages,
-            await options.readTables(document.id),
-            options.readScanned(document.id).pages,
-          );
+        : slides
+          ? slideBlocks(slides)
+          : documentBlocks(
+              text.pages,
+              await options.readTables(document.id),
+              options.readScanned(document.id).pages,
+            );
       if (markdown) {
         if (!text.pages.some((each) => each.text.trim() !== ""))
           return { ok: false, reason: "no-text" };

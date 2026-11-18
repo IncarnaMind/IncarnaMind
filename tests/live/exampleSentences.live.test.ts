@@ -33,6 +33,9 @@ import { scriptedModel, scriptedModels } from "../helpers/models";
 import { ADVICE, DUTY_PAIRS } from "./dutySentences.cases";
 import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
 import { FIELD_PAIRS } from "./fieldSentences.cases";
+import { JUDGEMENT_NOTES } from "./judgementSentences.cases";
+import { REMARK_NOTES } from "./remarkSentences.cases";
+import { linesOf, STRUCTURED_NOTES, type StructuredNote } from "./structuredNotes.cases";
 
 const PROVIDER =
   process.env.INCARNAMIND_LIVE_GATE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
@@ -842,6 +845,8 @@ const DUTY: readonly HeldOut[] = [
 const heard = {
   requests: 0,
   refused: 0,
+  /** How many refused requests ended with each HTTP status. */
+  statuses: {} as Record<number, number>,
   failed: 0,
   timedOut: 0,
   inputTokens: 0,
@@ -935,8 +940,10 @@ function heardFailure(error: unknown): never {
       : null;
   const name = error instanceof Error ? error.name : "";
   if (name === "AbortError" || name === "TimeoutError") heard.timedOut++;
-  else if (status !== null && status >= 400) heard.refused++;
-  else heard.failed++;
+  else if (status !== null && status >= 400) {
+    heard.refused++;
+    heard.statuses[status] = (heard.statuses[status] ?? 0) + 1;
+  } else heard.failed++;
   throw error;
 }
 
@@ -1231,22 +1238,53 @@ async function noteOf(
   probes: readonly Probe[],
   citation: JSONContent | null,
   folderId?: string,
+  layout?: JSONContent[],
 ): Promise<Pick<Written, "client" | "mindId">> {
   const mind = await core.createMind({ title, ...(folderId && { folderId }) });
   const client = await connectToMind(core, mind.id);
   writeMind(
     client,
-    probes.map(({ sentence }, index) => ({
-      type: "paragraph",
-      attrs: { id: `line-${index}` },
-      content: [
-        { type: "text", text: sentence },
-        ...(citation && sentence.includes("EBITDA") ? [citation] : []),
-      ],
-    })),
+    layout ??
+      probes.map(({ sentence }, index) => ({
+        type: "paragraph",
+        attrs: { id: `line-${index}` },
+        content: [
+          { type: "text", text: sentence },
+          ...(citation && sentence.includes("EBITDA") ? [citation] : []),
+        ],
+      })),
   );
   await client.settled();
   return { client, mindId: mind.id };
+}
+
+/** A structured Note's Blocks: its headings, its paragraphs of sentences and its lists. */
+function layoutOf(note: StructuredNote): JSONContent[] {
+  let at = 0;
+  const id = () => `line-${at++}`;
+  const paragraph = (sentences: readonly string[]): JSONContent => ({
+    type: "paragraph",
+    attrs: { id: id() },
+    content: [{ type: "text", text: sentences.join(note.language === "en" ? " " : "") }],
+  });
+  return note.blocks.map((block) =>
+    "heading" in block
+      ? {
+          type: "heading",
+          attrs: { id: id(), level: block.level },
+          content: [{ type: "text", text: block.heading }],
+        }
+      : "paragraph" in block
+        ? paragraph(block.paragraph.map((line) => line.sentence))
+        : {
+            type: "bulletList",
+            attrs: { id: id() },
+            content: block.bullets.map((item) => ({
+              type: "listItem",
+              content: [paragraph([item.sentence])],
+            })),
+          },
+  );
 }
 
 /**
@@ -1285,6 +1323,7 @@ async function checkAll(core: Core, language: Language, notes: readonly Written[
             text: probe.sentence.slice(each.span.start, each.span.end),
             verdict: each.verdict,
             reason: each.verdict === "not-checked" ? each.reason : null,
+            ...(each.workedOut && { workedOut: each.workedOut }),
           }));
           const part = probe.part ? parts.find((each) => each.text === probe.part) : undefined;
           rows.push({
@@ -1402,6 +1441,47 @@ async function heldOutRound(
 }
 
 /**
+ * The Notes of `remarkSentences.cases.ts` (#3320), each in its own Folder with its Document: facts
+ * a check reads, and the writer's own remarks about the Note, which it leaves without a mark.
+ */
+async function remarkRound(language: Language) {
+  const laidOut = new Map(STRUCTURED_NOTES.map((note) => [note.id, layoutOf(note)]));
+  const cases = [
+    ...REMARK_NOTES,
+    ...JUDGEMENT_NOTES,
+    ...STRUCTURED_NOTES.map((note) => ({ ...note, lines: linesOf(note) })),
+  ].filter(
+    (each) =>
+      each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
+  );
+  const core = await coreIn(language);
+  const sources = await createSourceFolder();
+  const notes: Written[] = [];
+  const added = new Set<string>();
+  for (const each of cases) {
+    const [file] = await addAndProcess(core, [
+      await writeSourceFile(sources, `${each.name}.md`, `# ${each.name}\n\n${each.document}\n`),
+    ]);
+    if (!file) throw new Error(`${each.id}'s Document didn't process.`);
+    // Two Notes with one file name share one Document: the second move empties the first's Folder,
+    // and a Note in an empty Folder is checked against every Document.
+    if (added.has(file.id)) throw new Error(`${each.id}'s Document is another Note's.`);
+    added.add(file.id);
+    const folder = await core.createLibraryGroup({ name: each.id, description: "" });
+    await core.moveToFolder({ documentIds: [file.id], folderId: folder.id });
+    notes.push({
+      ...(await noteOf(core, each.id, each.lines, null, folder.id, laidOut.get(each.id))),
+      probes: each.lines,
+      row: { arm: ARM, round: ROUND, group: "remark", language, case: each.id },
+    });
+  }
+  const rows = await checkAll(core, language, notes);
+  const { spent } = await core.getCostSummary();
+  core.close();
+  return { rows, spent };
+}
+
+/**
  * Each held-out sentence through the bare claim check, as a Meeting's fill and a Comparison's
  * cells ask it (#3022): its own core, with the pair's Document alone in the Library.
  */
@@ -1462,7 +1542,16 @@ async function wholeNoteRound(language: Language) {
   }
   const { client, mindId } = await noteOf(core, "Everyday", cases, null, folder.id);
   const started = performance.now();
+  // When the first sentence shows a verdict: what the User waits for after starting the check.
+  let firstMarkSeconds: number | null = null;
+  const watching = setInterval(() => {
+    if (claimSpans(readMind(client)).some((span) => span.check.state !== "checking")) {
+      firstMarkSeconds = (performance.now() - started) / 1000;
+      clearInterval(watching);
+    }
+  }, 50);
   const run = await core.checkMind({ requestId: `${ARM}-${ROUND}-note`, mindId, mode: "all" });
+  clearInterval(watching);
   await client.settled();
   const seconds = (performance.now() - started) / 1000;
   const spans = claimSpans(readMind(client));
@@ -1484,6 +1573,7 @@ async function wholeNoteRound(language: Language) {
         run: run.kind,
         sentences: cases.length,
         seconds,
+        firstMarkSeconds,
         states,
       },
     ],
@@ -1532,6 +1622,11 @@ describe("the #3088 gate", () => {
             write(round.rows);
             spent.push(round.spent);
           }
+          if (GROUPS.includes("remark")) {
+            const round = await remarkRound(language);
+            write(round.rows);
+            spent.push(round.spent);
+          }
           if (GROUPS.includes("note")) {
             const round = await wholeNoteRound(language);
             write(round.rows);
@@ -1557,10 +1652,12 @@ describe("the #3088 gate", () => {
                 (GROUPS.includes("everyday") ? 2 : 0) +
                 (GROUPS.includes("duty") ? 2 : 0) +
                 (GROUPS.includes("field") ? 2 : 0) +
+                (GROUPS.includes("remark") ? 2 : 0) +
                 (GROUPS.includes("note") ? 2 : 0) +
                 (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,
             refused: heard.refused,
+            statuses: heard.statuses,
             failed: heard.failed,
             timedOut: heard.timedOut,
             inputTokens: heard.inputTokens,

@@ -16,12 +16,12 @@ import {
   checkWithParts,
   coverageCount,
   figuresByPart,
+  partsToCheck,
   partWithResult,
   pendingPart,
   readClaimParts,
   readPartPlans,
   resultFromParts,
-  withFigureFacts,
 } from "../../src/shared/claimParts";
 import {
   beginFigureCheck,
@@ -95,6 +95,31 @@ describe("ordered claim part codec", () => {
     const read = readClaimParts(JSON.parse(JSON.stringify([kept])), "Revenue rose.");
     expect(read).toEqual([kept]);
     expect(read?.[0]).toMatchObject({ evidence: [{ quotedWords: evidence.quotedWords }] });
+  });
+
+  // protects=the writer's own view beside a fact never decides its sentence: a supported fact keeps the sentence Supported, a fact not found keeps it Not found whichever part comes first, and only a sentence whose every judged part is an own view reads as one (#3322); fails if an own view hides an unsupported fact, or turns a supported sentence into a view
+  test("an own view beside a fact leaves the sentence its fact's result", () => {
+    const view = partWithResult(
+      { span: { start: 13, end: 30 }, kind: "opinion" },
+      {
+        ...result("unsupported"),
+        unsupported: { reason: "Nothing on it.", covered: null, uncovered: null, word: "own-view" },
+      },
+    );
+    const stated = partWithResult(plan, result());
+    const absent = partWithResult(plan, {
+      ...result("unsupported"),
+      unsupported: { reason: "Not stated.", covered: null, uncovered: null, word: "not-found" },
+    });
+    expect(resultFromParts([view, stated]).verdict).toBe("supported");
+    expect(resultFromParts([view, absent])).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { word: "not-found" },
+    });
+    expect(resultFromParts([view])).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { word: "own-view" },
+    });
   });
 
   // protects=a supported part keeps the card's line naming the Document clause that says which dollar it is, through the mark's codec and into the sentence's result (#2226); fails_when=the line is dropped or read from a non-string; no_claim=the card's wording.
@@ -1226,6 +1251,20 @@ describe("a figure the sort leaves outside a fact", () => {
   const words = (sentence: string, plans: readonly ClaimPartPlan[]) =>
     plans.map(({ kind, span }) => [kind, sentence.slice(span.start, span.end)]);
 
+  // protects=a sentence the sort calls all opinion goes to the check as one fact, so the check's model says what the Documents hold on it (#3322), while words about the text itself and a sentence that asserts nothing stay left out; fails if an opinion with no figure is left unread, or a remark about the Note is sent
+  test.each(["We should hire before the summer.", "我们应该在夏天之前招人。"])(
+    "a sentence the sort calls an opinion is checked whole: %s",
+    (sentence) => {
+      const whole = { start: 0, end: sentence.length };
+      expect(
+        words(sentence, partsToCheck(sentence, [{ kind: "opinion", span: whole }], [])),
+      ).toEqual([["fact", sentence]]);
+      const about: ClaimPartPlan[] = [{ kind: "opinion", itself: true, span: whole }];
+      expect(partsToCheck(sentence, about, [])).toEqual(about);
+      expect(partsToCheck(sentence, [], [])).toEqual([]);
+    },
+  );
+
   test.each([
     ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
     ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
@@ -1235,7 +1274,7 @@ describe("a figure the sort leaves outside a fact", () => {
       expect(
         words(
           sentence,
-          withFigureFacts(
+          partsToCheck(
             sentence,
             [{ kind: "opinion", span: span(sentence, sentence.slice(0, -1)) }],
             [figure(sentence, a), figure(sentence, b)],
@@ -1254,7 +1293,7 @@ describe("a figure the sort leaves outside a fact", () => {
     (sentence, a, b) => {
       const fact = sentence.startsWith("Revenue") ? "Revenue rose" : "收入增长了";
       const opinion = sentence.slice(sentence.search(/sadly|可惜/), -1);
-      const plans = withFigureFacts(
+      const plans = partsToCheck(
         sentence,
         [
           { kind: "fact", span: span(sentence, fact) },
@@ -1278,9 +1317,7 @@ describe("a figure the sort leaves outside a fact", () => {
           plain(sentence),
         )?.map((owned) => owned.map(({ reading }) => reading.chars)),
       ).toEqual([[], [], [a], [b]]);
-      expect(withFigureFacts(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(
-        plans,
-      );
+      expect(partsToCheck(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(plans);
     },
   );
 
@@ -1293,7 +1330,7 @@ describe("a figure the sort leaves outside a fact", () => {
     expect(
       words(
         sentence,
-        withFigureFacts(
+        partsToCheck(
           sentence,
           [{ kind: "opinion", span: span(sentence, opinion) }],
           [figure(sentence, a), figure(sentence, b)],
@@ -1318,7 +1355,7 @@ describe("a figure the sort leaves outside a fact", () => {
       expect(
         words(
           sentence,
-          withFigureFacts(
+          partsToCheck(
             sentence,
             [{ kind: "opinion", span: span(sentence, sentence.slice(0, -1)) }],
             [figure(sentence, number)],
@@ -1336,14 +1373,14 @@ describe("a figure the sort leaves outside a fact", () => {
       { kind: "opinion", span: span(sentence, "we like it") },
     ];
     expect(
-      words(sentence, withFigureFacts(sentence, plans, [figure(sentence, "£5m")], plain(sentence))),
+      words(sentence, partsToCheck(sentence, plans, [figure(sentence, "£5m")], plain(sentence))),
     ).toEqual([
       ["fact", "Costs rose"],
       ["fact", "£5m"],
       ["opinion", "we like it"],
     ]);
     const whole: ClaimPartPlan[] = [{ kind: "fact", span: span(sentence, "Costs rose by £5m") }];
-    expect(withFigureFacts(sentence, whole, [figure(sentence, "£5m")], plain(sentence))).toEqual(
+    expect(partsToCheck(sentence, whole, [figure(sentence, "£5m")], plain(sentence))).toEqual(
       whole,
     );
   });
@@ -1366,10 +1403,7 @@ describe("a figure the sort leaves outside a fact", () => {
         { kind: "fact", span: span(sentence, fact) },
       ];
       expect(
-        words(
-          sentence,
-          withFigureFacts(sentence, plans, [figure(sentence, number)], plain(sentence)),
-        ),
+        words(sentence, partsToCheck(sentence, plans, [figure(sentence, number)], plain(sentence))),
       ).toEqual([
         ["opinion", kept],
         ["fact", checked],
@@ -1382,14 +1416,14 @@ describe("a figure the sort leaves outside a fact", () => {
     const opinion: ClaimPartPlan[] = [
       { kind: "opinion", span: span(sentence, "We think the £5m rise is impressive") },
     ];
-    expect(withFigureFacts(sentence, opinion, [figure(sentence, "£5m")])).toEqual([
+    expect(partsToCheck(sentence, opinion, [figure(sentence, "£5m")])).toEqual([
       { kind: "fact", span: { start: 0, end: sentence.length } },
     ]);
     const mixed: ClaimPartPlan[] = [
       { kind: "opinion", span: span(sentence, "We think") },
       { kind: "fact", span: span(sentence, "the £5m rise is impressive") },
     ];
-    expect(withFigureFacts(sentence, mixed, [figure(sentence, "£5m")])).toEqual(mixed);
+    expect(partsToCheck(sentence, mixed, [figure(sentence, "£5m")])).toEqual(mixed);
   });
 
   test("only a fact may sit inside the opinion before it, shorter than it and apart from the others", () => {

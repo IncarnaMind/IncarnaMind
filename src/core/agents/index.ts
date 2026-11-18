@@ -44,6 +44,7 @@ import {
   type AgentAccessDeps,
   AgentRefusedError,
   createAgentAccess,
+  createCheckRuns,
 } from "./access";
 import { createAgentCitations } from "./citations";
 import type { ServedConnection } from "./mcp";
@@ -98,7 +99,15 @@ export interface AgentsOptions {
   /** What the calls read (see ./access). */
   access: Omit<
     AgentAccessDeps,
-    "admit" | "record" | "citations" | "clock" | "now" | "newId" | "reportError"
+    | "admit"
+    | "record"
+    | "notesWrittenSince"
+    | "checkRuns"
+    | "citations"
+    | "clock"
+    | "now"
+    | "newId"
+    | "reportError"
   >;
   /** Whether this agent has IncarnaMind's Skill installed (see ./setup). */
   skillInstalled(client: string | null): boolean;
@@ -408,10 +417,22 @@ export function createAgents(options: AgentsOptions) {
     options.called({ ...activity, id, at });
   };
 
+  /** Counted from the calls kept, those the activity list has let go too. */
+  const notesWrittenSince = (pairingId: string, since: string): number => {
+    const row = db.get<{ written: number | bigint }>(
+      `SELECT COUNT(*) AS written FROM agent_activity
+       WHERE pairing_id = ? AND tool = 'create_mind' AND outcome = 'done' AND created_at >= ?`,
+      [pairingId, since],
+    );
+    return Number(row?.written ?? 0);
+  };
+
   const accessDeps: AgentAccessDeps = {
     ...options.access,
     admit,
     record,
+    notesWrittenSince,
+    checkRuns: createCheckRuns(),
     citations,
     clock: options.clock,
     now: options.now,

@@ -2,7 +2,8 @@
  * Checks of the User's own sentences in the editor (#96): the mark that
  * holds a sentence's result (`CLAIM_CHECK_MARK`), where each check is now,
  * how it shows (`claimCheckShown`), and the wash behind a sentence found
- * unsupported or contradicted.
+ * unsupported or contradicted, or the quiet line under one that is its
+ * writer's own view (#3322).
  */
 import { Extension, Mark } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -37,6 +38,7 @@ import {
   type NoteFooting,
   readClaimCheck,
   showsPartRows,
+  workedOutOf,
 } from "../../../shared/claimChecks";
 import { firstReadingOf } from "../../../shared/claimParts";
 import { type InlineTextPiece, inlineRange, projectInlineText } from "../../../shared/inlineText";
@@ -480,11 +482,26 @@ export function claimsOf(
             holdsWithItsText.state === "supported" ||
             holdsWithItsText.state === "unsupported" ||
             holdsWithItsText.state === "contradicted" ||
+            holdsWithItsText.state === "own-view" ||
             holdsWithItsText.state === "kept",
         }),
       });
   }
   return { claims, kept };
+}
+
+/**
+ * What a checked sentence takes in the Note: a wash where it needs a look, and a quiet dotted line
+ * under a Supported verdict the check worked out from the Documents (#3322). Null for a sentence the
+ * Documents state and for its writer's own view, which only the margin marks: a judgement is not
+ * a kind of working.
+ */
+export function claimWash(
+  shown: ClaimCheckShown,
+  check: Pick<ClaimCheckAttributes, "parts">,
+): string | null {
+  if (shown.state === "unsupported" || shown.state === "contradicted") return shown.state;
+  return shown.state === "supported" && (check.parts ?? []).some(workedOutOf) ? "worked-out" : null;
 }
 
 function stateOf(
@@ -494,15 +511,12 @@ function stateOf(
   rooms: ReadonlyMap<string, number> = NO_ROOMS,
 ): ClaimState {
   const { claims, kept } = claimsOf(doc, context);
-  const washes = claims.flatMap(({ shown, from, to, kind }) =>
-    shown.state === "unsupported" || shown.state === "contradicted"
-      ? [
-          kind === "chart"
-            ? Decoration.node(from, to, { class: `claim-wash claim-wash--${shown.state}` })
-            : Decoration.inline(from, to, { class: `claim-wash claim-wash--${shown.state}` }),
-        ]
-      : [],
-  );
+  const washes = claims.flatMap(({ shown, check, from, to, kind }) => {
+    const wash = claimWash(shown, check);
+    if (!wash) return [];
+    const look = { class: `claim-wash claim-wash--${wash}` };
+    return [kind === "chart" ? Decoration.node(from, to, look) : Decoration.inline(from, to, look)];
+  });
   // A folded Mind draws each mark at its sentence's end, in the text, so the fold's 40px gutter
   // stays the text's: the sentence's last word or Citation marker keeps the mark's room in its own
   // box, exactly its own width plus 4px, so the room never makes a line of its own.

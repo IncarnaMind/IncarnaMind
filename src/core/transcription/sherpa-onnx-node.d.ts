@@ -112,7 +112,7 @@ declare module "sherpa-onnx-node" {
     createStream(): OnlineStream;
     isReady(stream: OnlineStream): boolean;
     decode(stream: OnlineStream): void;
-    getResult(stream: OnlineStream): { text: string };
+    getResult(stream: OnlineStream): { text: string; tokens?: string[]; timestamps?: number[] };
     handle: unknown;
   }
 

@@ -217,6 +217,21 @@ export function readClaimCalculation(value: unknown): ClaimCalculation | null {
   };
 }
 
+/**
+ * Whether a check found the sentence to be its writer's own view (#3322): a result of its own,
+ * never a fault to look at.
+ */
+export const isOwnView = (result: {
+  verdict?: unknown;
+  unsupported?: Pick<UnsupportedReason, "word"> | null;
+}): boolean => result.verdict === "unsupported" && result.unsupported?.word === "own-view";
+
+/** A verdict's one line of working, as a mark keeps it; null when it holds none. */
+const readWorkedOut = (value: unknown): string | null =>
+  typeof value === "string" && value.trim() !== ""
+    ? cutQuote(value, CHECK_QUOTE_CHARS_AT_MOST)
+    : null;
+
 /** A check's working over a data file's rows, as a mark keeps it; null when it can't be read. */
 export function readCheckWorking(value: unknown): CheckWorking | null {
   if (!isRecord(value) || typeof value.title !== "string" || typeof value.code !== "string")
@@ -250,7 +265,8 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
     }),
     ...((value.word === "overstated" ||
       value.word === "partly-supported" ||
-      value.word === "not-found") && { word: value.word }),
+      value.word === "not-found" ||
+      value.word === "own-view") && { word: value.word }),
     reason: text(value.reason),
     covered: text(value.covered),
     uncovered: text(value.uncovered),
@@ -426,7 +442,7 @@ export function boundedCheck(check: ClaimCheckBasis): ClaimCheckBasis {
 
 /**
  * The parts of `sentence`, in order and apart, but for a fact inside the opinion before it: a
- * number the writer's view surrounds (`withFigureFacts`). Null when they aren't parts of it.
+ * number the writer's view surrounds (`partsToCheck`). Null when they aren't parts of it.
  */
 const ITSELF = { itself: true } as const;
 
@@ -537,17 +553,24 @@ export function figuresByPart(
  * digits' Supported stood for the sentence (#2184), unless `selected`: an opinion the User picked to
  * check alone keeps its row and its figure as a fact inside it. One the sort says asserts nothing
  * (a heading, a question) stays so: its numbers say nothing either.
+ *
+ * A sentence the sort calls all opinion is one fact too (#3322): the check's model, which reads the
+ * Documents, says whether they give it or it is the writer's own view, and what they hold for and
+ * against it. Words about the text they are in stay left out.
  */
-export function withFigureFacts(
+export function partsToCheck(
   sentence: string,
   plans: readonly ClaimPartPlan[],
   figures: readonly CheckFigure[],
   projection?: InlineTextProjection,
   selected = false,
 ): readonly ClaimPartPlan[] {
-  if (figures.length === 0 || plans.length === 0) return plans;
+  if (plans.length === 0) return plans;
   const whole: ClaimPartPlan[] = [{ kind: "fact", span: { start: 0, end: sentence.length } }];
-  if (!selected && !plans.some((plan) => plan.kind === "fact")) return whole;
+  const opinion = plans.some((plan) => plan.kind === "opinion" && !plan.itself);
+  if (!selected && !plans.some((plan) => plan.kind === "fact") && (figures.length > 0 || opinion))
+    return whole;
+  if (figures.length === 0) return plans;
   const spans: ClaimPartSpan[] = [];
   for (const figure of figures) {
     const span =
@@ -691,6 +714,7 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
   const unsupported = readUnsupportedReason(value.unsupported);
   const calculation = readClaimCalculation(value.calculation);
   const working = readCheckWorking(value.working);
+  const workedOut = readWorkedOut(value.workedOut);
   const correction = verdict === "contradicted" ? readClaimCorrection(value.correction) : null;
   if (
     !verdict ||
@@ -719,6 +743,7 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
     unsupported,
     calculation,
     ...(working && { working }),
+    ...(workedOut && { workedOut }),
     citedCaseUnchecked: value.citedCaseUnchecked,
     citedCaseFound: value.citedCaseFound,
   };
@@ -833,6 +858,7 @@ export function readClaimParts(
     const unsupported = readUnsupportedReason(each.unsupported);
     const calculation = readClaimCalculation(each.calculation);
     const working = readCheckWorking(each.working);
+    const workedOut = readWorkedOut(each.workedOut);
     if (
       (each.unsupported !== null && unsupported === null) ||
       (each.calculation !== null && calculation === null)
@@ -899,6 +925,7 @@ export function readClaimParts(
       unsupported,
       calculation,
       ...(working && { working }),
+      ...(workedOut && { workedOut }),
       reason,
       detail: text(each.detail),
       versions,
@@ -1025,6 +1052,9 @@ export function partWithResult(
           unsupported: result.unsupported,
           calculation: result.calculation,
           ...(result.working && { working: result.working }),
+          ...(result.workedOut && {
+            workedOut: cutQuote(result.workedOut, CHECK_QUOTE_CHARS_AT_MOST),
+          }),
           citedCaseUnchecked: result.citedCaseUnchecked,
           citedCaseFound: result.citedCaseFound,
         }),
@@ -1296,7 +1326,11 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     detail,
   });
   if (new Set(native.map((figure) => figure.id)).size !== native.length) return failed("malformed");
-  const checked = outcomes.filter(({ part }) => part.verdict !== null && !part.kept);
+  const judged = outcomes.filter(({ part }) => part.verdict !== null && !part.kept);
+  // The writer's own view beside a fact is no fault of the sentence, which takes its facts' result;
+  // a sentence is an own view only when every part judged is one (#3322).
+  const facts = judged.filter(({ part }) => !isOwnView(part));
+  const checked = facts.length > 0 ? facts : judged;
   if (checked.length === 0)
     return outcomes.some(({ part }) => part.kept)
       ? {
@@ -1376,6 +1410,7 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     unsupported,
     calculation: outcome.part.calculation,
     ...(outcome.part.working && { working: outcome.part.working }),
+    ...(outcome.part.workedOut && { workedOut: outcome.part.workedOut }),
     citedCaseUnchecked: checked.some(({ part }) => part.citedCaseUnchecked),
     citedCaseFound: checked.some(({ part }) => part.citedCaseFound),
   };

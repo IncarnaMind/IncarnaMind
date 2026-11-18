@@ -34,6 +34,23 @@ describe("When a Transcript's words were said (#138)", () => {
     ]);
   });
 
+  test("a draft that missed a repeated word does not time either occurrence", () => {
+    expect(
+      alignWords(
+        "Let's go. Go now.",
+        [
+          { text: "Let's", ms: 800 },
+          { text: "go", ms: 1600 },
+          { text: "now", ms: 1900 },
+        ],
+        true,
+      ),
+    ).toEqual([
+      { at: 0, ms: 800 },
+      { at: 13, ms: 1900 },
+    ]);
+  });
+
   // protects=a word is placed where the line has it even after a letter whose lower case is longer ("İ") or an emoji, so every later word keeps its place; fails_when=places after "İ" or an emoji shift by a character; no_claim=a word written in another script, which is left out.
   test('words after "İ" or an emoji keep their places', () => {
     const text = "İstanbul is far. 🎉Party time";

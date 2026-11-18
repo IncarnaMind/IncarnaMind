@@ -18,8 +18,13 @@ import {
   type QuotedWordsOnPage,
   shownDocumentName,
 } from "../../../shared/citations";
-import { checkedScope, namedReason, partFoundNothing } from "../../../shared/claimChecks";
-import { coverageCount } from "../../../shared/claimParts";
+import {
+  checkedScope,
+  namedReason,
+  partFoundNothing,
+  workedOutOf,
+} from "../../../shared/claimChecks";
+import { coverageCount, isOwnView } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
@@ -147,10 +152,21 @@ export function cardParts({
   });
 }
 
+/** A row's quotes: an own view's are the facts the Documents hold on it, the first kept apart (#3322). */
+export const partQuotes = (part: ClaimCheckPart): readonly CitationAttributes[] =>
+  isOwnView(part) && part.unsupported?.quoted
+    ? [part.unsupported.quoted, ...part.evidence]
+    : part.evidence;
+
+/** Whether a row shows every quote at once: what an own view or a worked-out verdict rests on (#3322). */
+export const showsEveryQuote = (part: ClaimCheckPart): boolean =>
+  isOwnView(part) || workedOutOf(part) !== null;
+
 /** The colours a row takes: its verdict's, and the quiet ones while its check is to be read again. */
 export function partTone(row: CardPart, stale: boolean): string {
   if (stale || row.part.verdict === "checking") return "checking";
   if (row.waiting) return "cant-check";
+  if (isOwnView(row.part)) return "own-view";
   switch (row.part.verdict) {
     case "supported":
       return "found";
@@ -179,6 +195,7 @@ export function partVerdictText(t: Translate, row: CardPart, stale: boolean): st
     case "not-checked":
       return t("claim.state.not-checked");
     default: {
+      if (isOwnView(part)) return t("claim.state.own-view");
       const named = namedReason(part.unsupported);
       if (named) return t(`claim.why.${named}`);
       return partFoundNothing(part)
@@ -216,6 +233,11 @@ export function partReason(
     return part.reason ? reasonText(t, language, part.reason, part.detail) : null;
   if (part.verdict === "contradicted") return part.says;
   if (part.verdict !== "unsupported") return null;
+  if (isOwnView(part))
+    return (
+      part.unsupported?.reason ||
+      (partQuotes(part).length === 0 ? t("claim.ownView.nothing") : null)
+    );
   if (part.unsupported?.kind === "forecast-certainty") return t("claim.forecast");
   if (part.unsupported?.kind === "unbacked-cause") return t("claim.unbackedCause");
   if (part.unsupported?.unconfirmed)
@@ -448,7 +470,8 @@ function PartQuote({
 
 /**
  * A row of the card: why it needs the User, in one sentence, and one quote with its Location, the
- * rest behind a count (#2869). Its words aren't written again: the sentence marks them, and only a
+ * rest behind a count (#2869); an own view and a verdict worked out show every quote, the working
+ * line before them (#3322). Its words aren't written again: the sentence marks them, and only a
  * row whose words can't be marked there, or a member of a quantified part, starts with them.
  */
 export function PartBlock({
@@ -527,7 +550,9 @@ export function PartBlock({
       ? part.evidence.find((citation) => citationLocation(citation) !== null)
       : undefined;
   const heldAt = held ? citationLocation(held) : null;
-  const quotes = allQuotes ? part.evidence : part.evidence.slice(0, 1);
+  const quoted = partQuotes(part);
+  const quotes = allQuotes || showsEveryQuote(part) ? quoted : quoted.slice(0, 1);
+  const workedOut = workedOutOf(part);
   const decisionOf = (citation: CitationAttributes) =>
     row.decisions.find((each) => each.evidence === citation)?.decision;
   // One Add, Widen or Replace a row, on its first quote that offers it, as the row had one button.
@@ -540,7 +565,9 @@ export function PartBlock({
       className={`claim-part citation-card--${partTone(row, stale)}`}
       data-testid="claim-part"
       data-kind={part.kind}
-      data-verdict={stale ? "needs-recheck" : (part.verdict ?? "opinion")}
+      data-verdict={
+        stale ? "needs-recheck" : isOwnView(part) ? "own-view" : (part.verdict ?? "opinion")
+      }
       data-fold={row.fold ?? undefined}
       {...menu.rowProps}
     >
@@ -586,6 +613,11 @@ export function PartBlock({
       {part.verdict === "supported" && part.currencyClause && (
         <p data-testid="claim-part-currency-clause" className="citation-card-note">
           {part.currencyClause}
+        </p>
+      )}
+      {workedOut && (
+        <p data-testid="claim-worked-out" className="claim-worked-out">
+          {workedOut}
         </p>
       )}
       {quotes.map((citation, index) => {

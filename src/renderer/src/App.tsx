@@ -38,6 +38,7 @@ import { SidebarControlContext } from "./components/SidebarToggle";
 import { SortMenu } from "./components/SortMenu";
 import { TagsDialog } from "./components/TagsDialog";
 import { WordImportDialog } from "./components/WordImportDialog";
+import { WorkbookSheetDialog } from "./components/WorkbookSheetDialog";
 import { files } from "./core";
 import { useDragState } from "./dragDrop";
 import { useEscapeToDismiss } from "./escapeDismiss";
@@ -357,6 +358,7 @@ function Workspace() {
           <AddWebPageDialog />
           <FeedbackDialog />
           <WordImportDialog />
+          <WorkbookSheetDialog />
           <ChatGptWelcomeDialog />
           <CitationStylePickerHost />
           <MindStyleHost />

@@ -53,6 +53,7 @@ import { useOpinionChecks } from "./opinionChecks";
 import { ReferencesLine } from "./ReferencesLine";
 import { UncoveredLine } from "./UncoveredLine";
 import { useVerificationBrief, VerifyBrief } from "./VerifyBrief";
+import { VerifyFormulas } from "./VerifyFormulas";
 import { shownPhase } from "./verifyPhase";
 import { wordPlaceAt } from "./WordOrigin";
 
@@ -73,6 +74,7 @@ const VERIFY_ROWS = [
   "recheck",
   "supported",
   "notYetCited",
+  "ownViews",
 ] as const;
 type VerifyRow = (typeof VERIFY_ROWS)[number];
 
@@ -81,6 +83,7 @@ const ROW_OF: Partial<Record<ShownClaim["shown"]["state"], VerifyRow>> = {
   unsupported: "unsupported",
   "needs-recheck": "recheck",
   supported: "supported",
+  "own-view": "ownViews",
 };
 
 /**
@@ -106,6 +109,7 @@ function claimMarks(editor: Editor, verified: (blockId: string) => boolean) {
     recheck: [],
     supported: [],
     notYetCited: [],
+    ownViews: [],
   };
   for (const claim of shownClaims(editor.state)) {
     const id: unknown = doc.resolve(claim.from).parent.attrs.id;
@@ -199,6 +203,7 @@ const VERIFY_MARKS: Record<Exclude<VerifyRow, "notYetCited">, ClaimMarkState> = 
   notChecked: "not-checked",
   recheck: "needs-recheck",
   supported: "supported",
+  ownViews: "own-view",
 };
 
 /** The question "Check these against your Documents?" with its estimate and its press. */
@@ -404,7 +409,11 @@ export function VerifyCard({
       <VerifyAsk mindId={mindId} doc={doc} total={total} estimate={estimate} onNotNow={onNotNow} />
     );
   } else {
-    const look = marks.rows.contradicted.length + marks.rows.unsupported.length;
+    // A formula whose saved result differs needs a look as a claim with no source does (#3278).
+    const look =
+      marks.rows.contradicted.length +
+      marks.rows.unsupported.length +
+      (verification.workbook?.differs.length ?? 0);
     const notChecked = marks.rows.notChecked.length;
     const stopped = outcome?.kind === "checked" ? outcome.stop : null;
     const summary =
@@ -479,7 +488,9 @@ export function VerifyCard({
                 ? t("verify.notChecked", shown)
                 : row === "recheck"
                   ? t(count === 1 ? "verify.recheck.one" : "verify.recheck", shown)
-                  : t(`verify.row.${row}`, shown);
+                  : row === "ownViews"
+                    ? t(count === 1 ? "checks.row.ownViews.one" : "checks.row.ownViews", shown)
+                    : t(`verify.row.${row}`, shown);
             return (
               <button
                 key={row}
@@ -520,6 +531,9 @@ export function VerifyCard({
           running={running !== null}
           goTo={goTo}
         />
+      )}
+      {verification.workbook && (
+        <VerifyFormulas editor={editor} workbook={verification.workbook} goTo={goTo} />
       )}
       {body}
       <UnreadFilesLine files={unread} testId="verify-unread" className="mind-unread" />

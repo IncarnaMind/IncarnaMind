@@ -203,7 +203,10 @@ const sure = ({ sentence, passage }: Asked): Answer => ({
 
 async function startDecisionHost() {
   const asked: { model: unknown; state: State; questions: string[] }[] = [];
+  /** The states of the requests that ask whether a sentence needs a check (#3334). */
+  const sorted: State[] = [];
   let answer: (asked: Asked) => Answer | Promise<Answer> = sure;
+  let sort: (sentence: string) => number | { status: number } = () => 0.95;
   const server = createServer(async (request, response) => {
     let text = "";
     for await (const chunk of request) text += chunk;
@@ -214,6 +217,16 @@ async function startDecisionHost() {
     if (request.method === "GET") return send(200, { data: [] });
     const body = JSON.parse(text) as { model: unknown; state: State; questions: object };
     const questions = Object.keys(body.questions);
+    if (questions.join() === "S") {
+      sorted.push(body.state);
+      const given = sort(body.state.sentence);
+      if (typeof given !== "number") return send(given.status, { error: { message: "Refused." } });
+      return send(200, {
+        model: body.model,
+        answers: { S: { type: "noul", noul: given } },
+        usage: { input_tokens: 10, output_tokens: 0 },
+      });
+    }
     asked.push({ model: body.model, state: body.state, questions });
     const answers: Record<string, { type: "noul"; noul: number }> = {};
     for (const question of questions) {
@@ -241,8 +254,13 @@ async function startDecisionHost() {
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     asked,
+    sorted,
     answers(next: typeof answer) {
       answer = next;
+    },
+    /** How sure the host is, from now on, that a sentence needs a check. */
+    sorts(next: typeof sort) {
+      sort = next;
     },
   };
 }
@@ -268,13 +286,20 @@ async function setUp(
   const host = await startDecisionHost();
   const checks: ModelCall[] = [];
   let held: Promise<void> | null = null;
+  let sortsByAiModel = 0;
+  const generate = checkGenerate(PLANS);
   const model = scriptedModel(
     (call) => {
       checks.push(call);
       const reply = checkReply(call, PLANS);
       return held && isCheckRun(call) ? { ...reply, pause: { after: 0, until: held } } : reply;
     },
-    { generate: checkGenerate(PLANS) },
+    {
+      generate: (call) => {
+        if (call.question === "find-claims") sortsByAiModel += 1;
+        return generate(call);
+      },
+    },
   );
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -338,6 +363,8 @@ async function setUp(
     sentToAiModel,
     shownBySearch,
     aiRequests: () => checks.length,
+    /** How often the AI model was asked to sort the Note's sentences. */
+    sortsByAiModel: () => sortsByAiModel,
     holdAiModel,
     aiModelId: AI_MODEL,
     providerId: provider.id,
@@ -1158,6 +1185,64 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect((await core.getSettings()).device.checkDecisionModel).toEqual(DECIDER);
     await choose(core, null);
     expect((await core.getSettings()).device.checkDecisionModel).toBeNull();
+  });
+});
+
+const SOURCE_LINE = "These lines come from the Tides file alone.";
+
+describe("The decision model sorts the Note's sentences (#3334)", { timeout: 30_000 }, () => {
+  const leavesOut =
+    (...left: string[]) =>
+    (sentence: string) =>
+      left.includes(sentence) ? 0.02 : 0.95;
+
+  // protects=with a decision model in use the Note's sentences are sorted by it, each sent whole and alone, and one it says needs no check gets no Mark; fails_when=the AI model is still asked to sort, a sentence about the Note itself gets a Mark, or a sort request holds more of the Note than its one sentence.
+  test("it decides which sentences need a check, each asked alone, and the AI model is not asked to sort", async () => {
+    const { core, client, host, run, sortsByAiModel } = await setUp([MOON, SOURCE_LINE]);
+    host.sorts(leavesOut(SOURCE_LINE));
+    await choose(core);
+
+    expect(await core.checkMind(run())).toMatchObject({ kind: "checked", checked: 1 });
+
+    expect(Object.keys(await marks(client))).toEqual([MOON]);
+    expect(sortsByAiModel()).toBe(0);
+    expect(host.sorted).toHaveLength(2);
+    expect(host.sorted).toEqual(
+      expect.arrayContaining([{ sentence: MOON }, { sentence: SOURCE_LINE }]),
+    );
+  });
+
+  // protects=a sentence that writes a figure is checked whatever the sort says of it, as with the AI model's sort; fails_when=a low score leaves a figure in the Note unchecked.
+  test("a sentence with a figure is checked even where it says none is needed", async () => {
+    const { core, client, host, run } = await setUp([MOON, TONNES]);
+    host.sorts(leavesOut(TONNES));
+    await choose(core);
+
+    await core.checkMind(run());
+
+    expect(Object.keys(await marks(client)).sort()).toEqual([MOON, TONNES].sort());
+  });
+
+  // protects=a host that can't be asked leaves the sort to the AI model, and every sentence still gets its Mark; fails_when=a refused sort request ends the check or leaves sentences unsorted.
+  test("a host that refuses the sort leaves it to the AI model", async () => {
+    const { core, client, host, run, sortsByAiModel } = await setUp([MOON, PENGUINS]);
+    host.sorts(() => ({ status: 500 }));
+    await choose(core);
+
+    expect(await core.checkMind(run())).toMatchObject({ kind: "checked", checked: 2 });
+
+    expect(sortsByAiModel()).toBe(1);
+    expect(Object.keys(await marks(client)).sort()).toEqual([MOON, PENGUINS].sort());
+  });
+
+  // protects=with no decision model the AI model sorts as before; fails_when=the sort is skipped or sent anywhere else without one.
+  test("with no decision model the AI model sorts", async () => {
+    const { core, host, run, sortsByAiModel } = await setUp([MOON, PENGUINS]);
+
+    await core.checkMind(run());
+
+    expect(sortsByAiModel()).toBe(1);
+    expect(host.sorted).toEqual([]);
   });
 });
 

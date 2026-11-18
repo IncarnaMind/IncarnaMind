@@ -43,6 +43,8 @@ export const SERVER_INSTRUCTIONS = [
   "`ask` is for when you want IncarnaMind's whole Answer, with checked Citations, in one call (it can take a minute): pass its answer on with its tokens.",
   "When the User wants to see a source, `show_citation` opens it in IncarnaMind.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`: your changes wait for the User to accept or reject, and never apply by themselves.",
+  "To hand the User a new document, `create_mind` writes it as a Note of its own, which they see at once.",
+  "Then `check_mind` on that Note: IncarnaMind checks every claim in it against the User's Documents, cited or not, and lists each that needs a look. Tell the User what it found.",
 ].join("\n");
 
 const passageId = z.string().describe("A passageId from search or read_passages.");
@@ -61,6 +63,15 @@ const passageOut = z.object({
   quote: z.string().nullable(),
   cite: z.string().nullable(),
   text: z.string(),
+});
+
+const checkedCitationOut = z.object({
+  cite: z.string(),
+  check: z.enum(["found", "not-found", "cant-check", "unknown"]),
+  document: z.string().nullable(),
+  location,
+  quote: z.string().nullable(),
+  changed: z.boolean(),
 });
 
 const READ_ONLY = {
@@ -312,16 +323,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       outputSchema: z.object({
         mindId: z.string(),
         waiting: z.number(),
-        citations: z.array(
-          z.object({
-            cite: z.string(),
-            check: z.enum(["found", "not-found", "cant-check", "unknown"]),
-            document: z.string().nullable(),
-            location,
-            quote: z.string().nullable(),
-            changed: z.boolean(),
-          }),
-        ),
+        citations: z.array(checkedCitationOut),
         uncited: z.array(z.string()),
       }),
       // It writes only Proposals, which change the Note once the User accepts them.
@@ -333,6 +335,90 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       },
     },
     (input) => answer(() => access.proposeChanges(input)),
+  );
+
+  server.registerTool(
+    tool("create_mind"),
+    {
+      title: "Write a new Note",
+      description:
+        "Write a new Note in one of the User's Folders: a report, a summary, a draft. It is there at once, marked as yours, and changes no Note there is. Write Markdown; cite each claim from the User's Documents with its [cite:…] token, exactly as given. Returns how each Citation checks now and the sentences with none. Refused unless the User let this agent write.",
+      inputSchema: z.object({
+        title: z.string().describe("The Note's name."),
+        markdown: z.string().describe("Its text."),
+        folderId: z
+          .string()
+          .optional()
+          .describe("A Folder id from list_minds; may be left out when one Folder is shared."),
+      }),
+      outputSchema: z.object({
+        mindId: z.string(),
+        title: z.string(),
+        folder: z.string(),
+        citations: z.array(checkedCitationOut),
+        uncited: z.array(z.string()),
+      }),
+      // It adds a Note and changes none: the User deletes it like any other.
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    (input) => answer(() => access.createMind(input)),
+  );
+
+  server.registerTool(
+    tool("check_mind"),
+    {
+      title: "Check a Note you wrote",
+      description:
+        "Check a Note you wrote with create_mind: every claim in it, cited or not, against the User's Documents, on their own AI model. They see the marks in the Note. Returns each claim that needs a look, with what the Document says. When status is running, call again. Tell the User what needs a look.",
+      inputSchema: z.object({ mindId: z.string() }),
+      outputSchema: z.object({
+        mindId: z.string(),
+        title: z.string(),
+        status: z.enum(["checked", "running", "stopped"]),
+        stopped: z.string().nullable(),
+        models: z.array(z.string()),
+        supported: z.number(),
+        needLook: z.number(),
+        ownViews: z.number(),
+        claims: z.array(
+          z.object({
+            sentence: z.string(),
+            result: z.enum([
+              "unsupported",
+              "contradicted",
+              "not-found",
+              "not-checked",
+              "needs-recheck",
+              "changed",
+            ]),
+            reason: z
+              .string()
+              .nullable()
+              .describe(
+                "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
+              ),
+            says: z.string().nullable(),
+            document: z.string().nullable(),
+            location,
+            quote: z.string().nullable(),
+            cite: z.string().nullable(),
+          }),
+        ),
+      }),
+      // It marks the Note's claims and changes none of its words; its sentences go to the User's AI model.
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    (input) => answer(() => access.checkMind(input)),
   );
 
   return server;

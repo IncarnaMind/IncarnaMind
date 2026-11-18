@@ -19,6 +19,7 @@ const SHAPES: Readonly<Record<Result, string>> = {
   "not-checked": BANG,
   contradicted: '<path d="M6 9.5h12M6 14.5h12M15 5l-6 14"/>',
   "cant-check": '<path d="M7 12h10"/>',
+  ownView: '<path d="M7 12h10"/>',
   notChecked: '<circle cx="12" cy="12" r="6.5"/>',
   needsRecheck: '<path d="M18.5 12a6.5 6.5 0 1 1-1.9-4.6M17.5 3.5v4h-4"/>',
   changed: '<path d="M18.5 12a6.5 6.5 0 1 1-1.9-4.6M17.5 3.5v4h-4"/>',

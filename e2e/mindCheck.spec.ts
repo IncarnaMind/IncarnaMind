@@ -78,7 +78,7 @@ const TIDES = buildPdf([
   },
 ]);
 
-/** Fifteen claims, three questions and two opinions: twenty sentences. */
+/** Fifteen claims, three questions and two remarks about the note: twenty sentences. */
 const CLAIMS = [
   "Harbours publish the times of high water every 6 months.",
   "Spring tides come at new moon and at full moon.",
@@ -101,9 +101,9 @@ const QUESTIONS = [
   "Who looks after the lighthouse now?",
   "Can visitors walk on the sea wall?",
 ];
-const OPINIONS = [
-  "We think the harbour is at its best in spring.",
-  "I believe the new marina was worth building.",
+const ASIDES = [
+  "This note lists what the harbour office told us.",
+  "This note leaves the ferry timetable out.",
 ];
 
 let dataDir: string;
@@ -121,10 +121,10 @@ test.afterEach(async () => {
 async function harbourNotes(window: Page) {
   await mindWrittenBefore(window, "Harbour notes", [
     { heading: "The harbour" },
-    { note: `${CLAIMS.slice(0, 5).join(" ")} ${QUESTIONS[0]} ${OPINIONS[0]}` },
+    { note: `${CLAIMS.slice(0, 5).join(" ")} ${QUESTIONS[0]} ${ASIDES[0]}` },
     { heading: "Ships and boats" },
     { note: `${CLAIMS.slice(5, 10).join(" ")} ${QUESTIONS[1]}` },
-    { note: `${CLAIMS.slice(10).join(" ")} ${QUESTIONS[2]} ${OPINIONS[1]}` },
+    { note: `${CLAIMS.slice(10).join(" ")} ${QUESTIONS[2]} ${ASIDES[1]}` },
   ]);
   await window.getByTestId("mind-list-item").filter({ hasText: "Harbour notes" }).click();
   await expect(window.getByTestId("mind-editor")).toContainText(CLAIMS[0] ?? "");
@@ -272,7 +272,7 @@ const modelRequests = (window: Page) =>
     return providers.reduce((sum, each) => sum + each.requests, 0);
   });
 
-test("The card's one Check: the price line first on a cloud model under a cap, then one press checks, every claim marked, the headings, questions and opinions not; an edited claim is checked again alone", async () => {
+test("The card's one Check: the price line first on a cloud model under a cap, then one press checks, every claim marked, the headings, questions and remarks about the note not; an edited claim is checked again alone", async () => {
   await writeFile(join(sources, "Tides.pdf"), TIDES);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
@@ -855,7 +855,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   // Right of its last line: the caret goes to the paragraph's end.
   await last.click({ position: { x: box.width - 2, y: box.height - 4 } });
   await window.keyboard.type(" The harbour office opens at nine in the morning.");
-  await expect(last).toContainText("worth building. The harbour office opens");
+  await expect(last).toContainText("timetable out. The harbour office opens");
   const all = (await checkCard(window)).getByTestId("badge-check-mind");
   await expect(all).toHaveText("核对");
   await expect(all).toHaveAttribute("title", "1 句待核对");
@@ -925,7 +925,10 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   // The action is the line's own button, reached from the keyboard, and checks every sentence for real.
   const every = unchanged.getByTestId("mind-check-every");
   await expect(every).toHaveText("Check every sentence again");
-  // The price line's own stops, its tip and Pricing ↗, lie between the line and Check (#1257).
+  // The price line's own stops, its tip and Pricing ↗, lie between the line and the card's
+  // actions, Check and the correction its contradicted sentence offers (#1257).
+  await window.keyboard.press("Shift+Tab");
+  await expect(card.getByTestId("badge-correct-contradictions")).toBeFocused();
   await window.keyboard.press("Shift+Tab");
   await expect(card.getByTestId("estimate-pricing")).toBeFocused();
   await window.keyboard.press("Shift+Tab");
