@@ -4,13 +4,20 @@
  * look goes through, and the court decisions the sentence cites.
  */
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import type { AnalysisRuntime } from "../../adapters";
 import { analysisTool } from "../../analysis/tool";
-import type { AnswerAnalysis, CheckWorking, Citation, ClaimCheckResult } from "../../api";
+import type {
+  AnswerAnalysis,
+  CheckWorking,
+  Citation,
+  ClaimCheckResult,
+  LibraryListName,
+} from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
-import { isLibraryList, type LibraryLists } from "../../library/lists";
+import { isLibraryList, type LibraryLists, libraryVersion } from "../../library/lists";
 import { answerLanguage, createCalculationSession, givenList } from "../calculations";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import type { AnswerTools } from "../engine";
@@ -56,6 +63,39 @@ export function citedSources(
     found.set(source.passageId, source);
   }
   return [...found.values()];
+}
+
+/** What a run read of the Library's own lists: what its working keeps, and what its verdict rests on. */
+export interface LibraryRead {
+  read: NonNullable<CheckWorking["library"]>;
+  citation: Citation;
+}
+
+/**
+ * The Library's lists a run counted, as a check's card shows them: the row names the Library and
+ * how many Documents the Note's check saw, which is no Document's text. Its version is of all its
+ * lists, so a change to the Library puts the sentence back to needs re-check.
+ */
+function libraryRead(lists: LibraryLists, names: readonly LibraryListName[]): LibraryRead {
+  const read = names.map((list) => ({ list, count: lists[list].rows.length }));
+  const first = read[0]?.list ?? "documents";
+  const count = lists[first].rows.length;
+  const version = libraryVersion(lists);
+  return {
+    read: { source: lists.source, lists: read },
+    citation: {
+      passageId: version,
+      documentId: LIBRARY_FACTS,
+      documentName: LIBRARY_FACTS,
+      contentHash: version,
+      pageFrom: null,
+      pageTo: null,
+      location: { kind: "library", source: lists.source, fact: { kind: first, count } },
+      quote: `${first}: ${count}`,
+      check: "found",
+      checkReason: null,
+    },
+  };
 }
 
 export const asPassage = (source: CitationSource): WindowedPassage => ({
@@ -212,7 +252,7 @@ export function setUpRun(
   // The Library's lists are read once, when a run first asks for one: every run of this check
   // counts the same rows.
   let lists: LibraryLists | null = null;
-  const listsRead = new Map<AnswerAnalysis, CheckWorking["library"]>();
+  const listsRead = new Map<AnswerAnalysis, LibraryRead>();
   const analysis = runtime
     ? analysisTool({
         runtime,
@@ -237,15 +277,11 @@ export function setUpRun(
             return isLibraryList(list) ? (lists?.[list] ?? null) : null;
           },
           readLibrary(run, read) {
-            const from = lists;
-            if (!from || read.length === 0) return;
-            listsRead.set(run, {
-              source: from.source,
-              lists: [...new Set(read)].filter(isLibraryList).map((list) => ({
-                list,
-                count: from[list].rows.length,
-              })),
-            });
+            const names = [...new Set(read)].filter(isLibraryList);
+            if (!lists || names.length === 0) return;
+            const found = libraryRead(lists, names);
+            results.readVersion(found.citation.documentId, found.citation.contentHash);
+            listsRead.set(run, found);
           },
         }),
       })
@@ -275,12 +311,13 @@ export function setUpRun(
     decisions,
     citedShown,
     searches: () => searches,
-    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
-    looked: () => searches > 0 || citedShown !== null,
+    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked;
+    // so has one whose code counted the Library's own lists.
+    looked: () => searches > 0 || citedShown !== null || listsRead.size > 0,
     /** The Analyses the model ran, in order: a failed one too. */
     workings: (): readonly AnswerAnalysis[] => workings,
     /** The Library's lists a run read; none for a run over a data file's rows alone. */
-    libraryRead: (run: AnswerAnalysis): CheckWorking["library"] => listsRead.get(run),
+    libraryRead: (run: AnswerAnalysis): LibraryRead | undefined => listsRead.get(run),
     tools,
   };
 }

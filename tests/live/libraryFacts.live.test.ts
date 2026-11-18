@@ -8,12 +8,16 @@
  * is INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by default), and makes no request without one.
  * With INCARNAMIND_LIVE_PROVIDER=deepseek it runs on DeepSeek instead (DEEPSEEK_API_KEY;
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL, "deepseek-flash" by default).
- * INCARNAMIND_LIVE_REPORT keeps what each check said. These cases are held out: none is an example
+ * INCARNAMIND_LIVE_REPORT keeps what each check said, INCARNAMIND_LIVE_REPLIES each reply of the
+ * model with its Tool calls, and INCARNAMIND_LIVE_CASES runs only the cases whose sentence holds
+ * one of its comma-separated words. These cases are held out: none is an example
  * in the check's or the sort's instructions, or in its search Tool. The test uses only what main
  * has too, so the same cases run against main.
  */
 import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
 import { type AnalysisRuntime, type Core, createAiSdkChatModel } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
@@ -71,6 +75,52 @@ const WALLED = [
   { name: "Client A lease.docx", contents: docxOf([{ text: "The lease runs for five years." }]) },
   { name: "Client A brief.txt", contents: "Brief for Client A: the claim is worth £2.1m." },
 ];
+
+/** Where each reply of the model is kept, with the Tool calls it made and the results it was given. */
+const REPLIES = process.env.INCARNAMIND_LIVE_REPLIES;
+
+const heard = (prompt: unknown, text: string, calls: unknown[]) => {
+  if (!REPLIES || (text === "" && calls.length === 0)) return;
+  const results = (Array.isArray(prompt) ? prompt : [])
+    .filter((message: { role?: string }) => message.role === "tool")
+    .at(-1);
+  appendFileSync(REPLIES, `${JSON.stringify({ text, calls, results })}\n`);
+};
+
+const recorded: typeof createAiSdkChatModel = (spec) =>
+  wrapLanguageModel({
+    model: createAiSdkChatModel(spec),
+    middleware: {
+      specificationVersion: "v4",
+      wrapGenerate: async ({ doGenerate, params }) => {
+        const result = await doGenerate();
+        heard(
+          params.prompt,
+          result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
+          result.content.filter((part) => part.type === "tool-call"),
+        );
+        return result;
+      },
+      wrapStream: async ({ doStream, params }) => {
+        const result = await doStream();
+        let text = "";
+        const calls: unknown[] = [];
+        const stream = result.stream.pipeThrough(
+          new TransformStream({
+            transform(part, controller) {
+              if (part.type === "text-delta") text += part.delta;
+              if (part.type === "tool-call") calls.push(part);
+              controller.enqueue(part);
+            },
+            flush() {
+              heard(params.prompt, text, calls);
+            },
+          }),
+        );
+        return { ...result, stream };
+      },
+    },
+  });
 
 type Outcome = "supported" | "unsupported" | "contradicted" | "not-checked" | "left-out";
 
@@ -252,7 +302,7 @@ async function libraryFor(
   analysisRuntime: AnalysisRuntime,
 ) {
   const core = startCore(await createTempDataFolder(), {
-    createChatModel: createAiSdkChatModel,
+    createChatModel: recorded,
     analysisRuntime,
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
@@ -346,7 +396,11 @@ describe.each(["en", "zh-CN"] as const)("sentences about the Library, live (%s)"
       let right = 0;
       const spent: unknown[] = [];
       const analysisRuntime = await pyodideAnalysisRuntime();
-      for (const each of CASES[language]) {
+      const only = process.env.INCARNAMIND_LIVE_CASES?.split(",");
+      const cases = CASES[language].filter(
+        (each) => only?.some((word) => each.sentence.includes(word)) ?? true,
+      );
+      for (const each of cases) {
         const { core, folderId } = await libraryFor(each.library, language, analysisRuntime);
         const result = await checkedAsNote(core, folderId, each.sentence);
         const byLibrary = result.evidence.some((line) => line.startsWith("library "));
@@ -366,7 +420,7 @@ describe.each(["en", "zh-CN"] as const)("sentences about the Library, live (%s)"
         spent.push((await core.getCostSummary()).spent);
       }
       lines.push(
-        `Right: ${right} of ${CASES[language].length}. False Supported: ${falseSupported.length}.`,
+        `Right: ${right} of ${cases.length}. False Supported: ${falseSupported.length}.`,
         `Spent, each case: ${JSON.stringify(spent)}`,
         "",
       );

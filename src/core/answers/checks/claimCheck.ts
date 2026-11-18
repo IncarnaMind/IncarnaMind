@@ -13,7 +13,6 @@
  * sentence it leaves undecided comes here.
  */
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
-import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import type { AnalysisRuntime } from "../../adapters";
 import type {
@@ -153,36 +152,6 @@ const endedAs = ({ end }: AnswerAnalysis): ClaimCheckFailure =>
     : end.kind === "unavailable"
       ? "rows-unavailable"
       : "rows-run-failed";
-
-/**
- * What a verdict worked out from the Library's own lists rests on, as its card's row says it: how
- * many Documents the Note's check saw, which is no Document's text.
- */
-const libraryCitation = ({ source, lists }: NonNullable<CheckWorking["library"]>): Citation => {
-  const [first] = lists;
-  const count = first?.count ?? 0;
-  return {
-    passageId: LIBRARY_FACTS,
-    documentId: LIBRARY_FACTS,
-    documentName: "",
-    contentHash: "",
-    pageFrom: null,
-    pageTo: null,
-    location: {
-      kind: "library",
-      source,
-      fact:
-        first?.list === "folders"
-          ? { kind: "folders", count }
-          : first?.list === "notes"
-            ? { kind: "notes", count }
-            : { kind: "documents", count },
-    },
-    quote: "",
-    check: "found",
-    checkReason: null,
-  };
-};
 
 /** The most of a working's code, in characters, that a check keeps for its card. */
 const CODE_KEPT = 4_000;
@@ -422,10 +391,9 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     if (rowsOf(worked).some((rows) => rows.cut)) return notChecked("rows-cut", file);
   }
   const lists = worked && libraryRead(worked);
-  const working = worked && { ...workingOf(worked), ...(lists && { library: lists }) };
+  const working = worked && { ...workingOf(worked), ...(lists && { library: lists.read }) };
   const evidence =
-    quoted ??
-    (worked ? (rowsOf(worked)[0]?.citation ?? (lists && libraryCitation(lists))) : undefined);
+    quoted ?? (worked ? (rowsOf(worked)[0]?.citation ?? lists?.citation) : undefined);
   const result = ((): Judged => {
     if (read.verdict === "unsupported")
       return {

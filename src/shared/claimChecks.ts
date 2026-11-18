@@ -47,7 +47,7 @@ import {
 } from "./claimParts";
 import { aggregateFigureStates, figureProblem, readFigureFinding } from "./figureChecks";
 import type { MessageKey } from "./i18n";
-import { readLibraryVersion } from "./libraryFacts";
+import { LIBRARY_FACTS, readLibraryVersion } from "./libraryFacts";
 import { parseLocation } from "./locations";
 import { folderScope, hasSearchScope, sameScope } from "./searchScope";
 import { comparableCheckSentence, comparableSentence, isClaim } from "./sentences";
@@ -703,7 +703,14 @@ function staleVersions(
   if (!now.versions) return null;
   const restsOnIds = new Set(relied().map((each) => each.documentId));
   for (const version of versions) {
-    // A check no longer reads the Library's facts, so one resting on them can't be compared now.
+    // The Library's own lists a check counted (#2525) are no Document: they are compared once
+    // their version now is known.
+    if (version.documentId === LIBRARY_FACTS) {
+      const current = now.versions.get(LIBRARY_FACTS);
+      if (current !== undefined && current !== version.contentHash) return "library";
+      continue;
+    }
+    // A fact of the Library as an earlier check kept it can't be compared now.
     if (readLibraryVersion(version.documentId)) return "library";
     const current = now.versions.get(version.documentId);
     // A Document only read, gone, takes nothing from the result: an example's, swapped for the interface language, among them (#962).

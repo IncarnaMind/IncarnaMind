@@ -3,6 +3,7 @@
  * check may see them. No Document's text says how many Documents the Library holds or what they
  * are called, so a check's model counts these rows in code instead of searching for a Passage.
  */
+import { createHash } from "node:crypto";
 import type { AnalysisCell } from "../../shared/analysis";
 import type { Document, LibraryListName, LibrarySource } from "../api";
 import type { LibraryGroup } from "./types";
@@ -29,6 +30,13 @@ export interface LibrarySeen {
   tagNames: ReadonlyMap<string, string>;
   notes: readonly { name: string; folderId: string | null }[];
 }
+
+/** A value that differs whenever any of the lists does: what a check that counted them rests on. */
+export const libraryVersion = ({ documents, folders, notes }: LibraryLists): string =>
+  createHash("sha256")
+    .update(JSON.stringify([documents.rows, folders.rows, notes.rows]))
+    .digest("base64url")
+    .slice(0, 22);
 
 export function libraryLists(seen: LibrarySeen): LibraryLists {
   const folderName = new Map(seen.folders.map((folder) => [folder.id, folder.name]));
