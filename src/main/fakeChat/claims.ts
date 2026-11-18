@@ -14,6 +14,9 @@ const FIND_CLAIMS =
 /** The words by which the fake model takes a sentence for its writer's own view. */
 export const SAYS_A_VIEW = /\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i;
 
+/** The words by which it takes a sentence to be about the note it is in, which no check reads. */
+const ABOUT_THE_NOTE = /^This note\b|^这份笔记/;
+
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
 
@@ -65,7 +68,10 @@ export function fakeClaims(
     !Array.isArray(input.sentences)
   )
     return null;
-  const sentences: { number: number; parts: { kind: "fact" | "opinion"; text: string }[] }[] = [];
+  const sentences: {
+    number: number;
+    parts: { kind: "fact" | "opinion" | "about-this-text"; text: string }[];
+  }[] = [];
   for (const sentence of input.sentences as unknown[]) {
     if (
       typeof sentence !== "object" ||
@@ -95,7 +101,11 @@ export function fakeClaims(
       });
       continue;
     }
-    const kind = SAYS_A_VIEW.test(text) ? "opinion" : "fact";
+    const kind = SAYS_A_VIEW.test(text)
+      ? "opinion"
+      : ABOUT_THE_NOTE.test(text)
+        ? "about-this-text"
+        : "fact";
     sentences.push({ number, parts: [{ kind, text }] });
   }
   return JSON.stringify({ sentences: undecidedLast ? sentences.slice(0, -1) : sentences });
