@@ -217,6 +217,15 @@ export function readClaimCalculation(value: unknown): ClaimCalculation | null {
   };
 }
 
+/**
+ * Whether a check found the sentence to be its writer's own view (#3322): a result of its own,
+ * never a fault to look at.
+ */
+export const isOwnView = (result: {
+  verdict?: unknown;
+  unsupported?: Pick<UnsupportedReason, "word"> | null;
+}): boolean => result.verdict === "unsupported" && result.unsupported?.word === "own-view";
+
 /** A verdict's one line of working, as a mark keeps it; null when it holds none. */
 const readWorkedOut = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== ""

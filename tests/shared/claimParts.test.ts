@@ -16,12 +16,12 @@ import {
   checkWithParts,
   coverageCount,
   figuresByPart,
+  partsToCheck,
   partWithResult,
   pendingPart,
   readClaimParts,
   readPartPlans,
   resultFromParts,
-  partsToCheck,
 } from "../../src/shared/claimParts";
 import {
   beginFigureCheck,
@@ -1226,6 +1226,20 @@ describe("a figure the sort leaves outside a fact", () => {
   const words = (sentence: string, plans: readonly ClaimPartPlan[]) =>
     plans.map(({ kind, span }) => [kind, sentence.slice(span.start, span.end)]);
 
+  // protects=a sentence the sort calls all opinion goes to the check as one fact, so the check's model says what the Documents hold on it (#3322), while words about the text itself and a sentence that asserts nothing stay left out; fails if an opinion with no figure is left unread, or a remark about the Note is sent
+  test.each(["We should hire before the summer.", "我们应该在夏天之前招人。"])(
+    "a sentence the sort calls an opinion is checked whole: %s",
+    (sentence) => {
+      const whole = { start: 0, end: sentence.length };
+      expect(
+        words(sentence, partsToCheck(sentence, [{ kind: "opinion", span: whole }], [])),
+      ).toEqual([["fact", sentence]]);
+      const about: ClaimPartPlan[] = [{ kind: "opinion", itself: true, span: whole }];
+      expect(partsToCheck(sentence, about, [])).toEqual(about);
+      expect(partsToCheck(sentence, [], [])).toEqual([]);
+    },
+  );
+
   test.each([
     ["Sadly the £5m and £6m deals are a disaster.", "£5m", "£6m"],
     ["可惜500万英镑和600万英镑的交易是一场灾难。", "500万英镑", "600万英镑"],
@@ -1278,9 +1292,7 @@ describe("a figure the sort leaves outside a fact", () => {
           plain(sentence),
         )?.map((owned) => owned.map(({ reading }) => reading.chars)),
       ).toEqual([[], [], [a], [b]]);
-      expect(partsToCheck(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(
-        plans,
-      );
+      expect(partsToCheck(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(plans);
     },
   );
 
@@ -1366,10 +1378,7 @@ describe("a figure the sort leaves outside a fact", () => {
         { kind: "fact", span: span(sentence, fact) },
       ];
       expect(
-        words(
-          sentence,
-          partsToCheck(sentence, plans, [figure(sentence, number)], plain(sentence)),
-        ),
+        words(sentence, partsToCheck(sentence, plans, [figure(sentence, number)], plain(sentence))),
       ).toEqual([
         ["opinion", kept],
         ["fact", checked],

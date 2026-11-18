@@ -292,9 +292,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
     .map((line) => line.trim())
     .filter((line) => line !== "");
   const field = (of: RegExp) => of.exec(lines.findLast((line) => of.test(line)) ?? "")?.[1];
-  const given =
-    lines.map((line) => verdictIn(VERDICT.exec(line)?.[1])).findLast((said) => said !== null) ??
-    verdictIn(BARE.exec(lines[0] ?? "")?.[1]);
+  const given = verdictIn(field(VERDICT)) ?? verdictIn(BARE.exec(lines[0] ?? "")?.[1]);
   if (!given) return jsonVerdict(withoutThinking(reply));
   const { verdict } = given;
   const evidence = field(EVIDENCE);

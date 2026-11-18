@@ -82,7 +82,7 @@ const RAW_PLANS: Record<string, Plan> = {
   [asChecked(FAILING)]: { reply: { error: { status: 500, message: "The service broke." } } },
   [asChecked(OWN_VIEW)]: {
     reply: {
-      text: "Verdict: own view\nExplanation: This is the writer's own advice.\nEvidence: []",
+      text: "Verdict: own view\nExplanation: The Documents hold nothing on the quay wall's height.\nEvidence: []",
     },
   },
   [TWO_CITED_ZH.replaceAll("[^1]", INLINE_NODE)]: {
@@ -715,16 +715,18 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     });
   });
 
-  // protects=a written sentence its check's model calls the writer's own view lands with no Mark and is counted as left out, as an opinion the sort names is (#3322); fails_when=it lands marked Unsupported, or the card counts it as a sentence to look at; no_claim=which sentences a real model calls the writer's own view
-  test("a sentence the check's model calls the writer's own view lands unmarked, left out as an opinion", async () => {
+  // protects=a written sentence its check's model calls the writer's own view lands with a mark that says so and is counted as checked, never as one that needs a look or one left out (#3322); fails if the view lands with no mark, or the reply's line counts it as a fault
+  test("a sentence the check's model calls the writer's own view lands as a view, not as one that needs a look", async () => {
     const { change, client } = await write({
       content: `## Tides\n\n${OWN_VIEW} [^1].`,
     });
 
-    expect(claimSpans(readMind(client))).toEqual([]);
-    expect(change?.selfCheck).toMatchObject({ leftOut: 1, failed: 0, look: 0 });
-    await resolveChanges(client, "accept");
-    expect(claimSpans(readMind(client))).toEqual([]);
+    const [span] = claimSpans(readMind(client));
+    expect(span?.check.unsupported).toMatchObject({
+      word: "own-view",
+      reason: "The Documents hold nothing on the quay wall's height.",
+    });
+    expect(change?.selfCheck).toMatchObject({ checked: 1, leftOut: 0, failed: 0, look: 0 });
   });
 
   // protects=a check that fails lands its sentence marked not checked, with why, and the card's line counts it, while the reply is told nothing of it; fails_when=it lands unmarked, which reads as supported, or the reply is told to say so; no_claim=the words of the line.
