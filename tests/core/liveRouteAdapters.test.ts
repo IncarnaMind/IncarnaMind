@@ -319,7 +319,7 @@ describe("AssemblyAI's real-time transcription, in the messages its reference sh
     order: number,
     transcript: string,
     end: boolean,
-    words: [string, number, number][],
+    words: [string, number, number, string?][],
   ) => ({
     type: "Turn",
     turn_order: order,
@@ -328,12 +328,13 @@ describe("AssemblyAI's real-time transcription, in the messages its reference sh
     transcript,
     end_of_turn_confidence: end ? 0.93 : 0.21,
     ...(end && { speaker_label: order % 2 === 0 ? "A" : "B" }),
-    words: words.map(([text, start, endMs]) => ({
+    words: words.map(([text, start, endMs, speaker]) => ({
       text,
       start,
       end: endMs,
       confidence: 0.96,
       word_is_final: true,
+      ...(speaker && { speaker }),
     })),
   });
 
@@ -412,6 +413,101 @@ describe("AssemblyAI's real-time transcription, in the messages its reference sh
       ]),
     );
     expect(heard.finals()[0]).toMatchObject({ text: "预算下周三再确认。", speaker: "B" });
+  });
+
+  test("keeps word-level speakers when a final turn contains an interruption", async () => {
+    const { service, heard, stream } = connect();
+    service.open();
+    service.say({ type: "Begin", id: "s1", expires_at: 1_793_000_000 });
+    service.say(
+      turn(0, "We'll confirm", false, [
+        ["We'll", 400, 650],
+        ["confirm", 650, 940],
+      ]),
+    );
+    service.say(
+      turn(0, "We'll confirm. 明天？ Yes.", true, [
+        ["We'll", 400, 650, "A"],
+        ["confirm", 650, 940, "A"],
+        ["明天", 900, 1220, "B"],
+        ["Yes", 1250, 1500, "A"],
+      ]),
+    );
+    const partial = heard.segments[0];
+    const final = heard.finals();
+    expect(final).toMatchObject([
+      { id: partial?.id, speaker: "A", text: "We'll confirm.", startMs: 400, endMs: 940 },
+      {
+        speaker: "B",
+        text: "明天？",
+        startMs: 900,
+        endMs: 1220,
+        words: [{ text: "明天", ms: 900 }],
+      },
+      { speaker: "A", text: "Yes.", startMs: 1250, endMs: 1500 },
+    ]);
+    expect(new Set(final.map((segment) => segment.id)).size).toBe(3);
+    expect(heard.progress.at(-1)).toEqual([1500, 1500]);
+    const finished = stream.finish();
+    service.say({ type: "Termination", audio_duration_seconds: 2, session_duration_seconds: 2 });
+    await finished;
+    expect(heard.finals()).toEqual(final);
+  });
+
+  test("keeps the complete turn when formatted text and speaker boundaries do not align", () => {
+    const { service, heard } = connect();
+    service.open();
+    service.say({ type: "Begin", id: "s1", expires_at: 1_793_000_000 });
+    service.say(
+      turn(0, "Pay $200 next week.", true, [
+        ["Pay", 100, 300, "A"],
+        ["two hundred dollars", 350, 800, "B"],
+        ["next week", 850, 1300, "A"],
+      ]),
+    );
+    expect(heard.finals()).toMatchObject([
+      { speaker: "A", text: "Pay $200 next week.", startMs: 100, endMs: 1300 },
+    ]);
+  });
+
+  test("keeps the complete turn when a word only matches inside unrelated text", () => {
+    const { service, heard } = connect();
+    service.open();
+    service.say({ type: "Begin", id: "s1", expires_at: 1_793_000_000 });
+    service.say(
+      turn(0, "The wall. All right.", true, [
+        ["The", 100, 300, "A"],
+        ["All", 480, 800, "B"],
+        ["right", 850, 1300, "B"],
+      ]),
+    );
+    expect(heard.finals()).toMatchObject([{ speaker: "A", text: "The wall. All right." }]);
+  });
+
+  test("unresolved words keep the source label and omitted words fall back to the turn's speaker", () => {
+    const { service, heard } = connect();
+    service.open();
+    service.say({ type: "Begin", id: "s1", expires_at: 1_793_000_000 });
+    service.say(
+      turn(0, "We can. Yes. Tomorrow. Great.", true, [
+        ["We", 100, 300, "A"],
+        ["can.", 300, 600, "A"],
+        ["Yes.", 600, 1000, "PENDING"],
+        ["Tomorrow.", 1000, 1600, "B"],
+        ["Great.", 1600, 1950],
+      ]),
+    );
+    service.say({
+      ...turn(1, "Really?", true, [["Really?", 1980, 2300]]),
+      speaker_label: "PENDING",
+    });
+    expect(heard.finals().map(({ text, speaker }) => [text, speaker])).toEqual([
+      ["We can.", "A"],
+      ["Yes.", undefined],
+      ["Tomorrow.", "B"],
+      ["Great.", "A"],
+      ["Really?", undefined],
+    ]);
   });
 
   test("its Error message names a 1008 close: an invalid key is refused, insufficient funds is out of credit, too many sessions is dropped; nothing more is reported", () => {
