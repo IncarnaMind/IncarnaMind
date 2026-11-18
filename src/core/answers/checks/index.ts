@@ -319,6 +319,7 @@ export interface ChecksOptions
   /** A Check this Note run's sentences checked before it marks them. */
   checkingEarly(event: MindCheckEarly): void;
   decision?: MindCheckOptions["decision"];
+  libraryLists?: ClaimCheckDependencies["libraryLists"];
   /** How far the check of what the assistant wrote is (./written). */
   writtenProgress: WrittenCheckOptions["progress"];
   engine: AnswerEngine;
@@ -1617,6 +1618,7 @@ export function createChecks(options: ChecksOptions) {
           cited: citedNow(parsed.cited),
           scope,
           model: ready.prepared,
+          ...(parsed.mindId !== null && { mindId: parsed.mindId }),
           // Reading the document being checked makes the Run third-party (#78).
           ...(checksDocument && { thirdParty: [{ via: "read", source: "checked-document" }] }),
           signal: ends,

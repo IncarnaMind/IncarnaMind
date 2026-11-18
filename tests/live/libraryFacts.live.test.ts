@@ -8,14 +8,17 @@
  * is INCARNAMIND_LIVE_ANTHROPIC_MODEL, Haiku 5.5 by default), and makes no request without one.
  * With INCARNAMIND_LIVE_PROVIDER=deepseek it runs on DeepSeek instead (DEEPSEEK_API_KEY;
  * INCARNAMIND_LIVE_DEEPSEEK_MODEL, "deepseek-flash" by default).
- * INCARNAMIND_LIVE_REPORT keeps what each check said. These cases are held out: none is an example
- * in the check's or the sort's instructions, or in its search Tool. The test uses only what main
- * has too, so the same cases run against main.
+ * INCARNAMIND_LIVE_REPORT keeps what each check said, INCARNAMIND_LIVE_REPLIES each reply of the
+ * model with its Tool calls, and INCARNAMIND_LIVE_CASES runs only the cases whose sentence holds
+ * one of its comma-separated words. With an OpenRouter key in INCARNAMIND_LIVE_DECISION_KEY the
+ * checks run with the decision model in use.
  */
 import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
+import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
-import { type Core, createAiSdkChatModel } from "../../src/core";
+import { type AnalysisRuntime, type Core, createAiSdkChatModel } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readOpinionSentences } from "../../src/shared/opinions";
@@ -24,6 +27,12 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { docxOf, xlsxOf } from "../helpers/office";
+import { pyodideAnalysisRuntime } from "../helpers/pyodideAnalysis";
+import {
+  LIBRARY_CASES as CASES,
+  type LibraryCase as Case,
+  type Outcome,
+} from "./libraryFacts.cases";
 
 const DEEPSEEK = process.env.INCARNAMIND_LIVE_PROVIDER === "deepseek";
 const KIND = DEEPSEEK ? "deepseek" : "anthropic";
@@ -71,167 +80,53 @@ const WALLED = [
   { name: "Client A brief.txt", contents: "Brief for Client A: the claim is worth £2.1m." },
 ];
 
-type Outcome = "supported" | "unsupported" | "contradicted" | "not-checked" | "left-out";
+/** Where each reply of the model is kept, with the Tool calls it made and the results it was given. */
+const REPLIES = process.env.INCARNAMIND_LIVE_REPLIES;
+/** An OpenRouter key: with it the checks run with the decision model in use, as a User may have it. */
+const DECISION_KEY = process.env.INCARNAMIND_LIVE_DECISION_KEY;
 
-interface Case {
-  sentence: string;
-  /** What reads right; the first is what it should read. */
-  expected: readonly Outcome[];
-  /** The Library it is checked in, and where its note is. */
-  library: "open" | "walled-outside" | "walled-inside";
-  /** For a Supported sentence about the Library: the evidence must be the Library's own facts. */
-  aboutLibrary?: true;
-}
-
-const NOT_SUPPORTED = ["contradicted", "unsupported"] as const;
-
-const CASES: Record<"en" | "zh-CN", Case[]> = {
-  en: [
-    {
-      sentence: "Your Library holds 7 Documents.",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    { sentence: "Your Library holds 9 Documents.", expected: NOT_SUPPORTED, library: "open" },
-    {
-      sentence: "Kestrel plan shows up twice among your files.",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    // Decoy: a name that appears only once.
-    {
-      sentence: "Harbour survey shows up twice among your files.",
-      expected: NOT_SUPPORTED,
-      library: "open",
-    },
-    // Decoy: a name that isn't there.
-    {
-      sentence: "One of your Documents is called Ferry timetable.",
-      expected: NOT_SUPPORTED,
-      library: "open",
-    },
-    {
-      sentence: "The Research Folder contains 2 Documents.",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    {
-      sentence: "The Research Folder contains 4 Documents.",
-      expected: NOT_SUPPORTED,
-      library: "open",
-    },
-    {
-      sentence: "Exactly one of your Documents is a Word file.",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    {
-      sentence: "Three of your Documents are Excel workbooks.",
-      expected: NOT_SUPPORTED,
-      library: "open",
-    },
-    {
-      sentence: "You keep 2 other notes in IncarnaMind.",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    // A description the facts can't settle: a reading of the names.
-    {
-      sentence: "Most of the files concern harbour maintenance work.",
-      expected: ["not-checked"],
-      library: "open",
-    },
-    // About the note itself.
-    {
-      sentence: "The Documents are described one by one further down.",
-      expected: ["left-out"],
-      library: "open",
-    },
-    {
-      sentence: "This rundown is ordered alphabetically by file name.",
-      expected: ["left-out"],
-      library: "open",
-    },
-    // A fact and words about the note: the fact is checked, the rest left out.
-    {
-      sentence: "You also keep 2 other notes, which appear in the next section.",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    // A Document's own figure, which no Library fact decides.
-    { sentence: "The Kestrel plan budget is £40,000.", expected: ["supported"], library: "open" },
-    // Decoy: the walled Folder's Documents counted from outside it.
-    {
-      sentence: "Your Library holds 9 Documents.",
-      expected: NOT_SUPPORTED,
-      library: "walled-outside",
-    },
-    {
-      sentence: "Your Library holds 7 Documents.",
-      expected: ["supported"],
-      library: "walled-outside",
-      aboutLibrary: true,
-    },
-    {
-      sentence: "This Folder holds 2 Documents.",
-      expected: ["supported"],
-      library: "walled-inside",
-      aboutLibrary: true,
-    },
-    {
-      sentence: "This Folder holds 9 Documents.",
-      expected: NOT_SUPPORTED,
-      library: "walled-inside",
-    },
-  ],
-  "zh-CN": [
-    {
-      sentence: "你的资料库里有 7 个文档。",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    { sentence: "你的资料库里有 10 个文档。", expected: NOT_SUPPORTED, library: "open" },
-    {
-      sentence: "Kestrel plan 在你的文件中出现了两次。",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    {
-      sentence: "Harbour survey 在你的文件中出现了两次。",
-      expected: NOT_SUPPORTED,
-      library: "open",
-    },
-    {
-      sentence: "“Research”文件夹里有 2 个文档。",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    {
-      sentence: "你另外还保存了 2 篇笔记。",
-      expected: ["supported"],
-      library: "open",
-      aboutLibrary: true,
-    },
-    { sentence: "这些文件大多与港口维修有关。", expected: ["not-checked"], library: "open" },
-    { sentence: "后文逐一列出了这些文档。", expected: ["left-out"], library: "open" },
-    { sentence: "你的资料库里有 9 个文档。", expected: NOT_SUPPORTED, library: "walled-outside" },
-    {
-      sentence: "这个文件夹里有 2 个文档。",
-      expected: ["supported"],
-      library: "walled-inside",
-      aboutLibrary: true,
-    },
-  ],
+const heard = (prompt: unknown, text: string, calls: unknown[]) => {
+  if (!REPLIES || (text === "" && calls.length === 0)) return;
+  const results = (Array.isArray(prompt) ? prompt : [])
+    .filter((message: { role?: string }) => message.role === "tool")
+    .at(-1);
+  appendFileSync(REPLIES, `${JSON.stringify({ text, calls, results })}\n`);
 };
+
+const recorded: typeof createAiSdkChatModel = (spec) =>
+  wrapLanguageModel({
+    model: createAiSdkChatModel(spec),
+    middleware: {
+      specificationVersion: "v4",
+      wrapGenerate: async ({ doGenerate, params }) => {
+        const result = await doGenerate();
+        heard(
+          params.prompt,
+          result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
+          result.content.filter((part) => part.type === "tool-call"),
+        );
+        return result;
+      },
+      wrapStream: async ({ doStream, params }) => {
+        const result = await doStream();
+        let text = "";
+        const calls: unknown[] = [];
+        const stream = result.stream.pipeThrough(
+          new TransformStream({
+            transform(part, controller) {
+              if (part.type === "text-delta") text += part.delta;
+              if (part.type === "tool-call") calls.push(part);
+              controller.enqueue(part);
+            },
+            flush() {
+              heard(params.prompt, text, calls);
+            },
+          }),
+        );
+        return { ...result, stream };
+      },
+    },
+  });
 
 interface Checked {
   outcome: Outcome | "no mark";
@@ -243,11 +138,31 @@ interface Checked {
 }
 
 /** A Library of its own for one case, with its note in the place the case names. */
-async function libraryFor(library: Case["library"], language: "en" | "zh-CN") {
-  const core = startCore(await createTempDataFolder(), { createChatModel: createAiSdkChatModel });
+async function libraryFor(
+  library: Case["library"],
+  language: "en" | "zh-CN",
+  analysisRuntime: AnalysisRuntime,
+) {
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: recorded,
+    analysisRuntime,
+  });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.saveChatProvider({ kind: KIND, apiKey: KEY ?? "", modelId: MODEL });
   await core.updateSettings({ user: { language } });
+  if (DECISION_KEY) {
+    await core.saveChatProvider({
+      kind: "openrouter",
+      apiKey: DECISION_KEY,
+      modelId: "anthropic/claude-haiku-5.5",
+      keepDefault: true,
+    });
+    await core.updateSettings({
+      device: {
+        checkDecisionModel: { host: "openrouter", modelId: "perplexity/pplx-decider-v1.2" },
+      },
+    });
+  }
   const sources = await createTempDataFolder();
   const files = library === "open" ? OPEN : [...OPEN, ...WALLED];
   const paths = await Promise.all(
@@ -335,8 +250,13 @@ describe.each(["en", "zh-CN"] as const)("sentences about the Library, live (%s)"
       const falseSupported: string[] = [];
       let right = 0;
       const spent: unknown[] = [];
-      for (const each of CASES[language]) {
-        const { core, folderId } = await libraryFor(each.library, language);
+      const analysisRuntime = await pyodideAnalysisRuntime();
+      const only = process.env.INCARNAMIND_LIVE_CASES?.split(",");
+      const cases = CASES[language].filter(
+        (each) => only?.some((word) => each.sentence.includes(word)) ?? true,
+      );
+      for (const each of cases) {
+        const { core, folderId } = await libraryFor(each.library, language, analysisRuntime);
         const result = await checkedAsNote(core, folderId, each.sentence);
         const byLibrary = result.evidence.some((line) => line.startsWith("library "));
         const holds =
@@ -355,7 +275,7 @@ describe.each(["en", "zh-CN"] as const)("sentences about the Library, live (%s)"
         spent.push((await core.getCostSummary()).spent);
       }
       lines.push(
-        `Right: ${right} of ${CASES[language].length}. False Supported: ${falseSupported.length}.`,
+        `Right: ${right} of ${cases.length}. False Supported: ${falseSupported.length}.`,
         `Spent, each case: ${JSON.stringify(spent)}`,
         "",
       );

@@ -4,12 +4,20 @@
  * look goes through, and the court decisions the sentence cites.
  */
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import type { AnalysisRuntime } from "../../adapters";
 import { analysisTool } from "../../analysis/tool";
-import type { AnswerAnalysis, Citation, ClaimCheckResult } from "../../api";
+import type {
+  AnswerAnalysis,
+  CheckWorking,
+  Citation,
+  ClaimCheckResult,
+  LibraryListName,
+} from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
+import { isLibraryList, type LibraryLists, libraryVersion } from "../../library/lists";
 import { answerLanguage, createCalculationSession, givenList } from "../calculations";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import type { AnswerTools } from "../engine";
@@ -55,6 +63,48 @@ export function citedSources(
     found.set(source.passageId, source);
   }
   return [...found.values()];
+}
+
+/**
+ * The Library's lists a sentence's check may count (#2525): none in a check an outside agent
+ * started, whose verdicts would tell the agent the names and counts of what it may not read.
+ */
+export const listsFor = (
+  deps: Pick<ClaimCheckDependencies, "libraryLists">,
+  request: Pick<ClaimCheckRequest, "outside">,
+): ClaimCheckDependencies["libraryLists"] => (request.outside ? undefined : deps.libraryLists);
+
+/** What a run read of the Library's own lists: what its working keeps, and what its verdict rests on. */
+export interface LibraryRead {
+  read: NonNullable<CheckWorking["library"]>;
+  citation: Citation;
+}
+
+/**
+ * The Library's lists a run counted, as a check's card shows them: the row names the Library and
+ * how many Documents the Note's check saw, which is no Document's text. Its version is of all its
+ * lists, so a change to the Library puts the sentence back to needs re-check.
+ */
+function libraryRead(lists: LibraryLists, names: readonly LibraryListName[]): LibraryRead {
+  const read = names.map((list) => ({ list, count: lists[list].rows.length }));
+  const first = read[0]?.list ?? "documents";
+  const count = lists[first].rows.length;
+  const version = libraryVersion(lists);
+  return {
+    read: { source: lists.source, lists: read },
+    citation: {
+      passageId: version,
+      documentId: LIBRARY_FACTS,
+      documentName: LIBRARY_FACTS,
+      contentHash: version,
+      pageFrom: null,
+      pageTo: null,
+      location: { kind: "library", source: lists.source, fact: { kind: first, count } },
+      quote: `${first}: ${count}`,
+      check: "found",
+      checkReason: null,
+    },
+  };
 }
 
 export const asPassage = (source: CitationSource): WindowedPassage => ({
@@ -138,8 +188,11 @@ export function withoutDocumentLeftOut(result: ClaimCheckResult, name: string): 
 }
 
 export function setUpRun(
-  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark">,
-  request: Pick<ClaimCheckRequest, "claim" | "cited" | "scope" | "about" | "callIn">,
+  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark" | "libraryLists">,
+  request: Pick<
+    ClaimCheckRequest,
+    "claim" | "cited" | "scope" | "about" | "callIn" | "mindId" | "outside"
+  >,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
   /** The model is offered `calculate`, the calculator Answers use (ADR-0021). */
   calculates = false,
@@ -208,6 +261,11 @@ export function setUpRun(
   // whole sheet those Passages are of, on this computer. What the result means is the model's to say.
   const workings: AnswerAnalysis[] = [];
   let figures = 0;
+  // The Library's lists are read once, when a run first asks for one: every run of this check
+  // counts the same rows.
+  let lists: LibraryLists | null = null;
+  const libraryLists = listsFor(deps, request);
+  const listsRead = new Map<AnswerAnalysis, LibraryRead>();
   const analysis = runtime
     ? analysisTool({
         runtime,
@@ -226,6 +284,19 @@ export function setUpRun(
         language: answerLanguage(request.claim),
         now: () => new Date(),
         ran: (_call, run) => workings.push(run),
+        ...(libraryLists && {
+          library(list) {
+            lists ??= libraryLists(request.mindId ?? null);
+            return isLibraryList(list) ? (lists?.[list] ?? null) : null;
+          },
+          readLibrary(run, read) {
+            const names = [...new Set(read)].filter(isLibraryList);
+            if (!lists || names.length === 0) return;
+            const found = libraryRead(lists, names);
+            results.readVersion(found.citation.documentId, found.citation.contentHash);
+            listsRead.set(run, found);
+          },
+        }),
       })
     : null;
   const tools: AnswerTools = {
@@ -253,10 +324,13 @@ export function setUpRun(
     decisions,
     citedShown,
     searches: () => searches,
-    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
-    looked: () => searches > 0 || citedShown !== null,
+    // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked;
+    // so has one whose code counted the Library's own lists.
+    looked: () => searches > 0 || citedShown !== null || listsRead.size > 0,
     /** The Analyses the model ran, in order: a failed one too. */
     workings: (): readonly AnswerAnalysis[] => workings,
+    /** The Library's lists a run read; none for a run over a data file's rows alone. */
+    libraryRead: (run: AnswerAnalysis): LibraryRead | undefined => listsRead.get(run),
     tools,
   };
 }

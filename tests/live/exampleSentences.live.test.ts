@@ -15,7 +15,12 @@ import type { LanguageModelV4CallOptions, LanguageModelV4Usage } from "@ai-sdk/p
 import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
-import { type Core, createAiSdkChatModel, type Document } from "../../src/core";
+import {
+  type AnalysisRuntime,
+  type Core,
+  createAiSdkChatModel,
+  type Document,
+} from "../../src/core";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { costOf, inCurrency } from "../../src/core/cost/price";
 import type { Language } from "../../src/core/language";
@@ -30,6 +35,7 @@ import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/d
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { scriptedModel, scriptedModels } from "../helpers/models";
+import { pyodideAnalysisRuntime } from "../helpers/pyodideAnalysis";
 import { ADVICE, DUTY_PAIRS } from "./dutySentences.cases";
 import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
 import { FIELD_PAIRS } from "./fieldSentences.cases";
@@ -46,6 +52,14 @@ const KEY =
 const DRY = process.env.INCARNAMIND_LIVE_GATE_DRY === "1";
 /** With an OpenRouter key here, the measured decision model reads each sentence first (#3118). */
 const DECISION_KEY = process.env.INCARNAMIND_LIVE_DECISION_KEY;
+/** "1": Python can run, as in the packaged app, so a check may be offered the Analysis Tool. */
+const PYTHON = process.env.INCARNAMIND_LIVE_PYTHON === "1";
+let python: Promise<AnalysisRuntime> | undefined;
+/** One Python for the whole run: loading it takes seconds. */
+function pythonRuntime(): Promise<AnalysisRuntime> {
+  python ??= pyodideAnalysisRuntime();
+  return python;
+}
 /** Saved replies files, comma apart: the round is answered from them and nothing is sent. */
 const REPLAY = process.env.INCARNAMIND_LIVE_GATE_REPLAY?.split(",").filter(Boolean);
 const OUT = process.env.INCARNAMIND_LIVE_GATE_OUT;
@@ -1163,6 +1177,7 @@ async function coreIn(language: Language): Promise<Core> {
       : REPLAY
         ? scriptedModels(replayModel).createChatModel
         : realModel,
+    ...(PYTHON && { analysisRuntime: await pythonRuntime() }),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language, monthlyCap: { amount: 5, currency: "USD" } } });

@@ -26,6 +26,7 @@ import type {
   EvidenceExclusion,
   FigureCheckResult,
   LeftOutDocument,
+  LibraryListName,
   UnsupportedReason,
 } from "../core/api";
 import { claimCheckActions } from "../core/api";
@@ -34,6 +35,7 @@ import { citationAttributesOf, parseQuotedWordsCheck } from "./citations";
 import { aggregateFigureResults, readFigureFinding } from "./figureChecks";
 import { graphemeBoundary } from "./graphemes";
 import { type InlineTextProjection, inlineRange, inlineSpan } from "./inlineText";
+import { parseLibrarySource } from "./libraryFacts";
 import { parseLocation } from "./locations";
 import { hasSearchScope, storedSearchScope } from "./searchScope";
 
@@ -246,12 +248,33 @@ export function readCheckWorking(value: unknown): CheckWorking | null {
     if (typeof each.count !== "number") return null;
     rows.push({ citation, range: each.range, count: each.count });
   }
+  const library = readLibraryRead(value.library);
   return {
     title: value.title,
     code: value.code,
     rows,
+    ...(library && { library }),
     ranAt: typeof value.ranAt === "string" ? value.ranAt : "",
   };
+}
+
+/** The Library's own lists a working read, as a mark keeps them; null when it holds none it can read. */
+function readLibraryRead(value: unknown): CheckWorking["library"] | null {
+  if (!isRecord(value) || !Array.isArray(value.lists)) return null;
+  const source = parseLibrarySource(value.source);
+  const lists = (value.lists as unknown[]).flatMap(
+    (each): { list: LibraryListName; count: number }[] => {
+      if (!isRecord(each)) return [];
+      const { list, count } = each;
+      return (list === "documents" || list === "folders" || list === "notes") &&
+        typeof count === "number" &&
+        Number.isInteger(count) &&
+        count >= 0
+        ? [{ list, count }]
+        : [];
+    },
+  );
+  return source && lists.length > 0 ? { source, lists } : null;
 }
 
 export function readUnsupportedReason(value: unknown): UnsupportedReason | null {

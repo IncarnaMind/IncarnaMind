@@ -7456,8 +7456,13 @@ export interface CheckWorking {
   code: string;
   /** Each sheet or CSV file it read: its rows as a Citation, and how many. */
   rows: { citation: Citation; range: string; count: number }[];
+  /** The Library's own lists it read (#2525), as the Note's check saw them, and how many rows of each. */
+  library?: { source: LibrarySource; lists: { list: LibraryListName; count: number }[] };
   ranAt: string;
 }
+
+/** A list the Library keeps of itself, which a check's code may count (#2525). */
+export type LibraryListName = "documents" | "folders" | "notes";
 
 /** What a claim check found (CONTEXT.md: supported, unsupported, contradicted). */
 export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
@@ -14075,6 +14080,11 @@ export interface CoreApi {
    * the run in the Mind (`MindCheckRun`). `cancelCheck` stops it.
    */
   checkMind(input: CheckMindInput): Promise<CheckMindResult>;
+  /**
+   * The version of the Library's own lists as the Note's check counts them (#2525): what the
+   * window compares with the version a check that counted them kept. Sends nothing.
+   */
+  libraryListsVersion(mindId: string): Promise<string>;
   /** The current Note’s figures, projected from its one Check and saved evidence. */
   getFigureSchedule(mindId: string): Promise<FigureSchedule>;
   /**
@@ -15443,6 +15453,7 @@ const methods: Record<CoreApiMethod, true> = {
   holdMindCheck: true,
   findMindClaims: true,
   checkMind: true,
+  libraryListsVersion: true,
   getFigureSchedule: true,
   getFigureScheduleChange: true,
   saveFigureScheduleExport: true,

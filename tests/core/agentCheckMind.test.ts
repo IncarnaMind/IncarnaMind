@@ -5,10 +5,12 @@
  * that needs a look with what the Document says.
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
-import { checkingModel, type Plan } from "../helpers/checks";
+import { checkingModel, isCheckRun, type Plan } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
@@ -83,8 +85,11 @@ const check = (agent: Agent, mindId: string) =>
   agent.callTool({ name: "check_mind", arguments: { mindId } });
 
 /** A core with agents on, Tides in "Coast" and an agent that may write there. */
-async function paired({ propose = true, calls = [] as ModelCall[] } = {}) {
-  const started = await startAgentsCore(checkingModel(PLANS, calls));
+async function paired({ propose = true, calls = [] as ModelCall[], python = false } = {}) {
+  const started = await startAgentsCore(
+    checkingModel(PLANS, calls),
+    python ? { analysisRuntime: createFakeAnalysisRuntime() } : {},
+  );
   const { core } = started;
   const sources = await createSourceFolder();
   const [tides] = await addAndProcess(core, [await writeSourceFile(sources, "Tides.md", TIDES)]);
@@ -115,6 +120,29 @@ describe("an outside agent has its Note checked (#3317)", () => {
   beforeAll(async () => {
     await buildAgentShim();
   }, 60_000);
+
+  // protects=a check an outside agent started counts none of the Library's own lists, which follow the Note's Folder walls and not what the agent may read: its verdicts would tell the agent the names and counts of Documents outside its Folders (#2525); the User's own Check of the same Note may count them; fails_when=an agent can ask "is there a Document called X" of the whole Library through check_mind.
+  it("is offered no count of the Library's own lists, which the User's own Check is", async () => {
+    const calls: ModelCall[] = [];
+    const { core, agent } = await paired({ calls, python: true });
+    // A model that can run code, on a service the User allowed checks to send to.
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("checks", saved.service.id);
+    const mindId = await written(agent);
+    const countsLists = () =>
+      calls.some((call) => isCheckRun(call) && call.tools.includes(ANALYSIS_TOOLS.run));
+
+    await check(agent, mindId);
+    expect(calls.some(isCheckRun)).toBe(true);
+    expect(countsLists()).toBe(false);
+
+    await core.checkMind({ requestId: "own", mindId, mode: "all" });
+    expect(countsLists()).toBe(true);
+  });
 
   // protects=an agent learns which of the claims it wrote the User's Documents don't support, and the User sees the same marks in the Note; fails_when=the Tool checks only Citations, returns nothing of what the Document says, or leaves the Note unmarked
   it("checks every claim against the Folder's Documents, marks the Note and lists what needs a look", async () => {

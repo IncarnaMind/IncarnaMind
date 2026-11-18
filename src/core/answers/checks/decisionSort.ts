@@ -6,6 +6,7 @@
 import type { ClaimPartPlan } from "../../api";
 import type { JevNoulQuestion } from "../../providers/jev";
 import type { DecisionReader } from "./decisionFirst";
+import { libraryScore } from "./decisionLibrary";
 import type { ClaimsFound } from "./findClaims";
 
 const SAYS = "S";
@@ -31,6 +32,26 @@ export const sortScore = async (
   (await reader.ask({ sentence }, { [SAYS]: SORT_QUESTION }, signal))?.[SAYS] ?? null;
 
 /**
+ * Whether `sentence` goes to its check: null where the model couldn't be asked. One the first
+ * question would leave out is asked about once more, whether it is about the Library itself
+ * (#2525): that reads like words about the Note, yet the Library's own lists can confirm or
+ * contradict it.
+ */
+export async function sortsIntoCheck(
+  reader: Pick<DecisionReader, "ask">,
+  lines: { sort: number; library?: number },
+  sentence: string,
+  signal: AbortSignal,
+): Promise<boolean | null> {
+  const score = await sortScore(reader, sentence, signal);
+  if (score === null) return null;
+  if (score >= lines.sort) return true;
+  if (lines.library === undefined) return false;
+  const about = await libraryScore(reader, sentence, signal);
+  return about === null ? null : about >= lines.library;
+}
+
+/**
  * Which of `texts` need a check, as `claimsAmong` gives it, each named to `named` as soon as its
  * answer is in. Null where the model doesn't sort this run, and the AI model does: it has no
  * measured line, or a request failed.
@@ -45,13 +66,13 @@ export async function sortedByDecision(
   if (line === undefined) return null;
   const sorted = await Promise.all(
     texts.map(async ({ text }, index) => {
-      const score = await sortScore(reader, text, signal);
-      if (score === null) return null;
+      const checked = await sortsIntoCheck(reader, { ...reader.lines, sort: line }, text, signal);
+      if (checked === null) return null;
       const span = { start: 0, end: text.length };
       // Left out as words about the Note itself are (#2525), so one that writes a figure is
       // checked all the same.
       const parts: ClaimPartPlan[] = [
-        score >= line ? { kind: "fact", span } : { kind: "opinion", itself: true, span },
+        checked ? { kind: "fact", span } : { kind: "opinion", itself: true, span },
       ];
       named?.(index, parts);
       return parts;

@@ -749,6 +749,7 @@ export function createMindCheck(options: MindCheckOptions) {
       requestId,
       scope: scope.scope,
       prepared: width.prepared,
+      ...(reach && { outside: true }),
       ...(decision &&
         options.firstReading && {
           readFirst: readingsFirst(options.firstReading, decision, mindId),
