@@ -129,10 +129,13 @@ export async function addTranscriptionCredit(route: CloudTranscriptionRoute): Pr
  * Where a Meeting's recording stays and for how long, said so it holds with a cloud route chosen
  * too: a day, or until the User deletes it with "Keep a meeting's audio" on (#687).
  */
-export function useAudioKeptKey(): MessageKey {
+export function useAudioKeptKey(picked?: "cloud" | "local"): MessageKey {
   const route = useAppStore((state) => state.settings?.device.transcriptionRoute);
   const kept = useAppStore((state) => state.settings?.device.keepMeetingAudio === true);
-  const cloud = route !== undefined && route !== null && route !== "local";
+  const cloud =
+    picked === undefined
+      ? route !== undefined && route !== null && route !== "local"
+      : picked === "cloud";
   if (kept) return cloud ? "meetings.audio.keptToDeleteCloud" : "meetings.audio.keptToDelete";
   return cloud ? "meetings.audio.keptCloud" : "meetings.audio.kept";
 }

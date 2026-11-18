@@ -12,6 +12,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  transcribeHere,
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
@@ -158,6 +159,7 @@ for (const [language, width] of [
       await expect(notice).toContainText(words.microphone);
       await expect(notice).not.toContainText(words.tell);
       expect(await memosOf(window)).toEqual([]);
+      await transcribeHere(notice);
       await pointAndClick(window, notice.getByTestId("meeting-notice-start"));
       await expect(notice).toBeHidden();
 
