@@ -1,14 +1,20 @@
 /**
  * Verify (#97), the window's side. "Check someone else’s file…"
- * (the + menu, ⌘K) takes a PDF or a Word file (#110), whose Mind opens with
- * the file beside it and has its claims found. The check badge's card then
- * checks them (editor/VerifyLine).
+ * (the + menu, ⌘K) takes a PDF or a Word file (#110), or a workbook's sheet
+ * or range (#3278), whose Mind opens with the file beside it and has its
+ * claims found. The check badge's card then checks them (editor/VerifyLine).
  * One run goes at a time: asking again while one runs shows its Mind.
  */
 
 import type * as Y from "yjs";
 import { create } from "zustand";
-import type { DocumentPlace, FindClaimsResult, VerifyClaimsResult } from "../../core/api";
+import type {
+  DocumentPlace,
+  FindClaimsResult,
+  VerifyClaimsResult,
+  VerifyDocumentResult,
+  WorkbookSheetChoice,
+} from "../../core/api";
 import { core, files } from "./core";
 import type { VerifyPhase } from "./editor/verifyPhase";
 import { translateNow } from "./i18n";
@@ -24,14 +30,35 @@ export type VerifyOutcome =
   /** Worded when shown, so it reads in the interface language even after a switch (#627). */
   | { kind: "error"; error: unknown };
 
+/** Why a workbook's chosen sheet or range was not taken, said in the chooser. */
+export type WorkbookProblem =
+  | { kind: "range" }
+  | { kind: "too-many"; typed: number; most: number }
+  | { kind: "no-numbers" };
+
+/** A workbook picked, whose sheet is still to be chosen. */
+export interface WorkbookChoice {
+  path: string;
+  folderId: string | null;
+  sheets: readonly WorkbookSheetChoice[];
+  problem: WorkbookProblem | null;
+  /** The sheet is being read. */
+  reading: boolean;
+}
+
 interface VerifyState {
   /** The run going: in which Mind, and whether it finds or checks the claims. */
   running: { mindId: string; requestId: string; phase: VerifyPhase } | null;
   /** By Mind: how its last run ended. */
   outcomes: Readonly<Record<string, VerifyOutcome>>;
+  choosing: WorkbookChoice | null;
 }
 
-export const useVerify = create<VerifyState>()(() => ({ running: null, outcomes: {} }));
+export const useVerify = create<VerifyState>()(() => ({
+  running: null,
+  outcomes: {},
+  choosing: null,
+}));
 
 function settle(mindId: string, outcome: VerifyOutcome | null) {
   useVerify.setState((state) => {
@@ -113,11 +140,67 @@ export function openDocumentBeside(documentId: string, place: DocumentPlace = {}
   );
 }
 
+/** What a file that wasn't taken says, in the words for its kind. */
+const refusalOf = (path: string, made: Extract<VerifyDocumentResult, { ok: false }>): string => {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  if (made.reason === "word") return translateNow(refusalKey(made.refusal), { name });
+  if (/\.xlsx$/i.test(path)) return translateNow("verify.refused.workbook");
+  if (made.reason === "unreadable" || made.reason === "no-text") {
+    return translateNow(`verify.refused.${made.reason}`);
+  }
+  return translateNow("verify.refused.unreadable");
+};
+
+/** The Mind a file made opens with the file beside it, and has its claims found. */
+async function openMade(made: Extract<VerifyDocumentResult, { ok: true }>): Promise<void> {
+  await useAppStore.getState().showNewMind(made.mind);
+  openDocumentBeside(made.documentId);
+  // A new Mind follows the default model.
+  await findClaims(made.mind.id, null);
+}
+
+/** The chooser is closed: nothing was made. */
+export const closeWorkbookChoice = () => useVerify.setState({ choosing: null });
+
+/** Checks the sheet, or the range of it, the User chose in the chooser. */
+export async function checkWorkbook(sheet: string, range: string): Promise<void> {
+  const choosing = useVerify.getState().choosing;
+  if (!choosing || choosing.reading) return;
+  const taken = (problem: WorkbookProblem | null, reading: boolean) =>
+    useVerify.setState({ choosing: { ...choosing, problem, reading } });
+  taken(null, true);
+  try {
+    const made = await core.verifyDocument({
+      path: choosing.path,
+      folderId: choosing.folderId,
+      sheet,
+      ...(range.trim() !== "" && { range: range.trim() }),
+    });
+    if (made.ok) {
+      closeWorkbookChoice();
+      await openMade(made);
+      return;
+    }
+    if (made.reason === "range") taken({ kind: "range" }, false);
+    else if (made.reason === "too-many") {
+      taken({ kind: "too-many", typed: made.typed, most: made.most }, false);
+    } else if (made.reason === "no-text") taken({ kind: "no-numbers" }, false);
+    else {
+      closeWorkbookChoice();
+      useAppStore.getState().reportError(new Error(refusalOf(choosing.path, made)));
+    }
+  } catch (error) {
+    closeWorkbookChoice();
+    useAppStore.getState().reportError(error);
+  }
+}
+
 /**
  * "Check someone else’s file…": the file the User picks becomes a
  * Mind in the Folder of the Mind in front, once its text is read; the Mind
- * opens with the file beside it, and its claims are found. While a run goes,
- * its Mind is shown instead.
+ * opens with the file beside it, and its claims are found. A workbook asks
+ * first for its sheet, and a range of it. While a run goes, its Mind is
+ * shown instead.
  */
 export async function verifyDocument(): Promise<void> {
   const going = useVerify.getState().running;
@@ -127,26 +210,22 @@ export async function verifyDocument(): Promise<void> {
   }
   const path = await files.pickFileToVerify();
   if (!path) return;
-  const { layout, minds, reportError, showNewMind } = useAppStore.getState();
+  const { layout, minds, reportError } = useAppStore.getState();
   const inFront = currentMindIdOf(layout);
   const folderId = minds.find((each) => each.id === inFront)?.folderId ?? null;
   try {
     const made = await core.verifyDocument({ path, folderId });
     if (!made.ok) {
-      const name = path.split(/[\\/]/).pop() ?? path;
-      reportError(
-        new Error(
-          made.reason === "word"
-            ? translateNow(refusalKey(made.refusal), { name })
-            : translateNow(`verify.refused.${made.reason}`),
-        ),
-      );
+      if (made.reason === "choose-sheet") {
+        useVerify.setState({
+          choosing: { path, folderId, sheets: made.sheets, problem: null, reading: false },
+        });
+        return;
+      }
+      reportError(new Error(refusalOf(path, made)));
       return;
     }
-    await showNewMind(made.mind);
-    openDocumentBeside(made.documentId);
-    // A new Mind follows the default model.
-    await findClaims(made.mind.id, null);
+    await openMade(made);
   } catch (error) {
     reportError(error);
   }

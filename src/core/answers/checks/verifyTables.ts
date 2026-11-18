@@ -4,7 +4,7 @@
  * over the page carrying its headings on, and each row one claim, said with its columns' headings.
  */
 import * as Y from "yjs";
-import type { DocumentText, ScannedText } from "../../api";
+import { BLOCK_ID_ATTRIBUTE, type DocumentText, type ScannedText } from "../../api";
 import type { PagePart } from "../../documents/extract";
 import { findTables, scannedRows, type TableGrid } from "../../documents/tables";
 import type { NodeJSON } from "../blocks";
@@ -121,10 +121,23 @@ function tableNode({ headings, rows, numeric }: TableGrid): NodeJSON {
   };
 }
 
-const cellsOf = (row: Y.XmlElement) =>
+/** The paragraph ids of the cells in a row whose numbers are a workbook's own working (#3278). */
+export type FormulaBlocks = ReadonlySet<string>;
+
+const paragraphOf = (cell: unknown): Y.XmlElement | null => {
+  const paragraph = cell instanceof Y.XmlElement ? cell.toArray()[0] : null;
+  return paragraph instanceof Y.XmlElement ? paragraph : null;
+};
+
+const isFormula = (cell: unknown, formulas: FormulaBlocks | undefined): boolean => {
+  const id = formulas && paragraphOf(cell)?.getAttribute(BLOCK_ID_ATTRIBUTE);
+  return typeof id === "string" && formulas?.has(id) === true;
+};
+
+const cellsOf = (row: Y.XmlElement, formulas?: FormulaBlocks) =>
   row.toArray().map((each) => {
-    const paragraph = each instanceof Y.XmlElement ? each.toArray()[0] : null;
-    return paragraph instanceof Y.XmlElement ? wordsOf(paragraph).trim() : "";
+    const paragraph = isFormula(each, formulas) ? null : paragraphOf(each);
+    return paragraph ? wordsOf(paragraph).trim() : "";
   });
 
 const isSection = (texts: readonly string[]) =>
@@ -137,13 +150,14 @@ const isSection = (texts: readonly string[]) =>
  */
 export function tableClaim(
   sentence: SelectedSentence,
+  formulas?: FormulaBlocks,
 ): { claim: string; context: string } | "not-a-claim" | null {
   const cell = sentence.element.parent;
   const row = cell instanceof Y.XmlElement ? cell.parent : null;
   const table = row instanceof Y.XmlElement ? row.parent : null;
   if (!(cell instanceof Y.XmlElement && row instanceof Y.XmlElement)) return null;
   if (!(table instanceof Y.XmlElement && table.nodeName === "table")) return null;
-  const texts = cellsOf(row);
+  const texts = cellsOf(row, formulas);
   const anchor = texts.findIndex((text) => text !== "");
   if (cell.nodeName === "tableHeader" || row.toArray().indexOf(cell) !== anchor) {
     return "not-a-claim";
@@ -163,7 +177,11 @@ export function tableClaim(
     return [heading ? `${heading}: ${text}` : text];
   });
   if (values.length === 0) return "not-a-claim";
-  const section = rows.slice(0, rows.indexOf(row)).reverse().map(cellsOf).find(isSection)?.[0];
+  const section = rows
+    .slice(0, rows.indexOf(row))
+    .reverse()
+    .map((each) => cellsOf(each, formulas))
+    .find(isSection)?.[0];
   const before = table.prevSibling;
   const caption =
     before instanceof Y.XmlElement && before.nodeName !== "table" ? wordsOf(before).trim() : "";
