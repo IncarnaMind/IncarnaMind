@@ -6,6 +6,7 @@ import { useT } from "../i18n";
 import { useAppStore } from "../store";
 import { ViewerMessage } from "../viewer/ViewerMessage";
 import { quietButtonClass } from "./library/LibrarySection";
+import { actionParts, MetaLine } from "./MetaLine";
 import type { ProblemAction } from "./ProblemLine";
 
 /**
@@ -84,19 +85,21 @@ export function DocumentFix({
     <div data-testid="library-fix" className="pl-6 text-[13px] leading-5 text-ink-meta">
       <p data-testid="library-fix-reason">{t(fix.reason)}</p>
       {actions.length > 0 && (
-        <p className="flex flex-wrap gap-x-4">
-          {actions.map((action) => (
-            <button
-              key={action.testId}
-              type="button"
-              data-testid={action.testId}
-              onClick={action.onClick}
-              className={quietButtonClass}
-            >
-              {action.label}
-            </button>
-          ))}
-        </p>
+        <MetaLine
+          parts={actionParts(
+            actions.map((action) => (
+              <button
+                key={action.testId}
+                type="button"
+                data-testid={action.testId}
+                onClick={action.onClick}
+                className={quietButtonClass}
+              >
+                {action.label}
+              </button>
+            )),
+          )}
+        />
       )}
     </div>
   );
