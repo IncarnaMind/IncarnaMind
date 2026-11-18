@@ -65,6 +65,10 @@ async function recording() {
   const bar = await startRecording(window, await recordMeeting(window), { notice: true });
   await firstTranscriptLine(window);
   const panel = await panelOf(app);
+  // The field starts in Ask: these tests are of a note.
+  const modes = panel.getByTestId("field-mode");
+  await pointAndClick(panel, modes.locator("label").filter({ hasText: "Note" }));
+  await expect(panel.getByTestId("field-mode-note")).toBeChecked();
   const meetingApp = await openMeetingApp(app);
   await expect.poll(() => meetingAppFocused(app, meetingApp)).toBe(true);
   return { app, window, bar, panel, meetingApp };
@@ -360,6 +364,8 @@ test('quick note: closing the panel with a line in the field puts it in the Note
   await window.keyboard.type("Show the call help panel");
   await window.keyboard.press("Enter");
   const again = await panelOf(app);
+  // Note, once chosen, is kept for the Meeting through a closed panel.
+  await expect(again.getByTestId("field-mode-note")).toBeChecked();
   await pointAndClick(again, fieldOf(again));
   await again.keyboard.type("/su");
   await pointAndClick(window, bar.getByTestId("meeting-stop"));
