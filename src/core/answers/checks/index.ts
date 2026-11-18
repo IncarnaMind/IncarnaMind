@@ -101,7 +101,6 @@ import type { PreparedChatModel } from "../../providers/chat";
 import { type RecordCiteSource, recordCiteLibrary } from "../../recordCites/documents";
 import { parseRecordCite, recordCiteTokens } from "../../recordCites/parser";
 import { recordCiteChoiceAlias, resolveChosenRecordCite } from "../../recordCites/resolver";
-import { asCheckWork } from "../../reranking/order";
 import type { RepliesOut } from "../../runs/replies";
 import { parseSearchScope } from "../../scope";
 import type { AnswerEngine } from "../engine";
@@ -278,7 +277,6 @@ export interface ChecksOptions
   callMark?(callIn: string | null, documentId: string): BatchCall | null;
   /** Which written sentences take the fast paths, instead of the list beside the catalog. */
   checkPaths?: CheckPathsOverride;
-  warmReranker?: VerifyOptions["warmReranker"];
   consent: Consent;
   /** Local mode: only models on this computer. */
   localOnly(): boolean;
@@ -736,12 +734,11 @@ export function createChecks(options: ChecksOptions) {
   };
   const withCites = (check: ReturnType<typeof createClaimCheck>) =>
     withRecordCites(check, { language: options.language, documents: recordCiteDocuments });
-  // Every check is one piece of rerank work, whichever flow asks for it (../../reranking/order).
   // Every request a check makes is told apart by its sentence (./checkedText).
   const asCheck =
     (check: (request: ClaimCheckRequest) => Promise<ClaimCheckResult>) =>
     (request: ClaimCheckRequest) =>
-      inCheck({ sentence: request.claim, part: null }, () => asCheckWork(() => check(request)));
+      inCheck({ sentence: request.claim, part: null }, () => check(request));
   const firstReading = createFirstReading(options);
   const readers = new WeakMap<PreparedChatModel, Promise<DecisionReader | null>>();
   /**

@@ -134,7 +134,6 @@ export interface MindCheckOptions extends RunChecksOptions {
   evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
   /** The Folder the Mind is in; null for none. */
   mindFolder(mindId: string): string | null;
-  warmReranker?: VerifyOptions["warmReranker"];
   /** What the Citations quote, each Document named as it is now. */
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** Each live Document's version now, for which checks need a re-check. */
@@ -691,7 +690,6 @@ export function createMindCheck(options: MindCheckOptions) {
     const ready = await options.prepare(input.model ?? modelOf(mindId));
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
-    options.warmReranker?.();
     const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
     const found = await sort(mindId, fresh, ready.prepared, decision, signal);
     if (found.kind !== "found") return found;
@@ -737,8 +735,6 @@ export function createMindCheck(options: MindCheckOptions) {
       : await options.prepare(input.model ?? modelOf(mindId));
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
-    // The first sentence's search would otherwise start the reranker and wait for its model.
-    options.warmReranker?.();
 
     const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
     const atOnce = claimsAtOnce(ready.prepared);

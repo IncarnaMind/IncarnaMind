@@ -46,7 +46,6 @@ import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { asCheckWork } from "../../reranking/order";
 import { currentTask } from "../../runs/current";
 import type { ClaimCheckRequest } from "./claimCheck";
 import {
@@ -368,10 +367,8 @@ export function createContradictionWatch(options: WatchOptions) {
     const { stop, outcomeError } = await runClaimChecks(
       ready.claims,
       (claim, attempt) =>
-        asCheckWork(() =>
-          currentTask.run({ id: runId }, () =>
-            attempt(checkOf(claim), requestOf(claim, mindId, prepared, signal)),
-          ),
+        currentTask.run({ id: runId }, () =>
+          attempt(checkOf(claim), requestOf(claim, mindId, prepared, signal)),
         ),
       {
         ...checkRunOf(options, prepared, signal, mindId),

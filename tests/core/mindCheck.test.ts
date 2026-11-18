@@ -19,7 +19,6 @@ import {
   MIND_SETTINGS_FIELD,
 } from "../../src/core/api";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
-import { createRerankQueue } from "../../src/core/reranking/order";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { mindCheckOf, sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
@@ -291,15 +290,11 @@ test.each([
   expect(most).toBe(atOnce);
 });
 
-// protects=Check this Note loads the built-in reranker before it asks for the claims, so the first sentence's search finds the load under way or done instead of starting it (#2532), and loads nothing with reranking off; fails_when=the reranker loads only when a check's first search asks it to rerank, or loads with reranking off; no_claim=that a search during the load shares it, which tests/core/reranking.test.ts covers.
-test.each([
-  ["loads the reranker before it asks for the claims", true],
-  ["loads no reranker with reranking off", false],
-] as const)("Check this note %s", async (_, reranking) => {
+// protects=Check this Note never loads the built-in reranking model: its searches aren't reranked, so the 136 MB model isn't read into memory for it (#3326); fails_when=a check loads the reranking model, before the claims are named or at its first search; no_claim=a search a person reads, which still loads it.
+test("Check this note loads no reranking model", async () => {
   const sentence = "Spring tides come at new moon.";
   const plans: Record<string, Plan> = { [sentence]: { verdict: "supported", quote: MOON } };
   const events: string[] = [];
-  const loaded = Promise.withResolvers<void>();
   const fake = createFakeCrossEncoder();
   const model = scriptedModel(
     (call) => {
@@ -308,11 +303,7 @@ test.each([
     },
     {
       generate: (call) => {
-        if (call.question === "find-claims") {
-          events.push("claims asked");
-          // The load ends while the claims are named, as a real one would.
-          loaded.resolve();
-        }
+        if (call.question === "find-claims") events.push("claims asked");
         return checkGenerate(plans)(call);
       },
     },
@@ -323,7 +314,6 @@ test.each([
       ...fake,
       load: async (files) => {
         events.push("reranker loads");
-        await loaded.promise;
         return fake.load(files);
       },
     },
@@ -335,7 +325,6 @@ test.each([
     modelId: "claude-haiku-5-5",
   });
   if (provider.service) await core.allowDataFlow("checks", provider.service.id);
-  if (!reranking) await core.removeRerankSettings();
   const sources = await createTempDataFolder();
   await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
   const mind = await core.createMind({ title: "Tide notes" });
@@ -347,46 +336,7 @@ test.each([
   const result = await core.checkMind(request(mind.id, "all"));
 
   expect(result).toMatchObject({ kind: "checked", sentences: 1 });
-  if (!reranking) {
-    expect(events).not.toContain("reranker loads");
-    return;
-  }
-  expect(events.slice(0, 2)).toEqual(["reranker loads", "claims asked"]);
-});
-
-// protects=the Note's claims step on its own (the estimate before a run) loads the reranker before it asks for the claims too (#2532); fails_when=only the run loads it; no_claim=how long a real model takes to load.
-test("Check this note's claims step loads the reranker before it asks for the claims", async () => {
-  const sentence = "Spring tides come at new moon.";
-  const plans: Record<string, Plan> = { [sentence]: { verdict: "supported", quote: MOON } };
-  const events: string[] = [];
-  const fake = createFakeCrossEncoder();
-  const model = scriptedModel((call) => checkReply(call, plans), {
-    generate: (call) => {
-      if (call.question === "find-claims") events.push("claims asked");
-      return checkGenerate(plans)(call);
-    },
-  });
-  const core = startCore(await createTempDataFolder(), {
-    createChatModel: scriptedModels(model).createChatModel,
-    crossEncoder: {
-      ...fake,
-      load: async (files) => {
-        events.push("reranker loads");
-        return fake.load(files);
-      },
-    },
-  });
-  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-  const sources = await createTempDataFolder();
-  await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
-  const mind = await core.createMind({ title: "Tide notes" });
-  const client = await connectToMind(core, mind.id);
-  writeMind(client, [{ type: "paragraph", attrs: { id: "tide" }, content: [text(sentence)] }]);
-  await client.settled();
-  events.length = 0;
-
-  expect(await core.findMindClaims(request(mind.id, "all"))).toMatchObject({ kind: "found" });
-  expect(events.slice(0, 2)).toEqual(["reranker loads", "claims asked"]);
+  expect(events).toEqual(["claims asked", "check asks"]);
 });
 
 describe("Check this note", () => {
@@ -1690,23 +1640,21 @@ describe("Check this note starts each sentence's check once its claims are named
   );
 });
 
-// protects=a check's searches wait behind a search the User asked for, from whichever flow the check comes (here the public checkClaim), while the searches outside any check go by when they are asked (#2532); fails_when=a check from some flow isn't counted as a check, so its search goes before a Cite… search asked after it; no_claim=how long a search takes.
-test("a check's search, from any flow, waits behind a Cite… search asked after it", async () => {
-  const inTurn = createRerankQueue();
-  const asked: string[] = [];
+// protects=a check's searches aren't scored by the reranking model, from whichever flow the check comes (here the public checkClaim): its model reads the Passages as search ranks them, while a search a person reads (Cite…) is still scored (#3326); fails_when=a check's search reaches the reranking model again; no_claim=which Passages a search hands the check.
+test("a check's search isn't scored by the reranking model; a Cite… search is", async () => {
   const scored: string[] = [];
-  const held = Promise.withResolvers<void>();
-  const reranker: Reranker = (query, candidates) => {
-    asked.push(query);
-    return inTurn(async () => {
-      scored.push(query);
-      if (scored.length === 1) await held.promise;
-      return [...candidates];
-    });
+  const reranker: Reranker = async (query, candidates) => {
+    scored.push(query);
+    return [...candidates];
   };
-  const model = scriptedModel((call) => checkReply(call, PLANS), {
-    generate: checkGenerate(PLANS),
-  });
+  const calls: ModelCall[] = [];
+  const model = scriptedModel(
+    (call) => {
+      calls.push(call);
+      return checkReply(call, PLANS);
+    },
+    { generate: checkGenerate(PLANS) },
+  );
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
     reranker,
@@ -1715,16 +1663,14 @@ test("a check's search, from any flow, waits behind a Cite… search asked after
   const sources = await createTempDataFolder();
   await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
 
-  const first = core.findPassages({ text: "spring tides", mindId: null, scope: null });
-  await vi.waitFor(() => expect(scored).toEqual(["spring tides"]));
-  const checked = core.checkClaim({ claim: MOON });
-  await vi.waitFor(() => expect(asked).toHaveLength(2));
-  const second = core.findPassages({ text: "full moon", mindId: null, scope: null });
-  await vi.waitFor(() => expect(asked).toHaveLength(3));
-  held.resolve();
-  await Promise.all([first, second, checked]);
+  const checked = await core.checkClaim({ claim: MOON });
+  await core.findPassages({ text: "spring tides", mindId: null, scope: null });
 
-  expect(scored.slice(0, 3)).toEqual(["spring tides", "full moon", asked[1]]);
+  expect(checked.verdict).toBe("supported");
+  expect(
+    calls.some((call) => call.results.some((result) => result.tool === "search_documents")),
+  ).toBe(true);
+  expect(scored).toEqual(["spring tides"]);
   core.close();
 });
 

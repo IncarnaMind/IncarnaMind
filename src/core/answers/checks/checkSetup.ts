@@ -15,7 +15,7 @@ import type {
   LibraryListName,
 } from "../../api";
 import type { CitationSource } from "../../documents";
-import type { EvidenceScope } from "../../documents/evidence";
+import { type EvidenceScope, NOT_READ } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import { isLibraryList, type LibraryLists, libraryVersion } from "../../library/lists";
 import { answerLanguage, createCalculationSession, givenList } from "../calculations";
@@ -217,7 +217,9 @@ export function setUpRun(
         query,
         within ? { ...scope, documentIds: [...within] } : scope,
         searchSignal,
-        request.about,
+        // The check's model reads every Passage a search hands it and searches again in other
+        // words, as an Answer's does, so no reranking model orders them first (#3326).
+        request.about ?? NOT_READ,
       );
       // A web search's result never settles a citation of a court decision.
       const passages = found.passages.filter(

@@ -30,22 +30,26 @@ import type {
 } from "../api";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
+import { PASSAGE_PARAMETERS } from "./passages";
 import type { WindowedPassage } from "./search";
 import type { Reranker, SearchToolOptions, SearchToolParameters } from "./searchTool";
 import type { TextCopies, TextVersion } from "./textCopies";
 
+const EXCLUDED_DOCUMENTS = 4;
+
 /**
  * How much a search looks at the Documents left out, to say where they
  * matched: as many Documents as the evidence can come from, each at its best
- * Passage, so it costs the reranker little.
+ * window, from few candidates. Room for every Document's whole window, so the
+ * first two never keep the others from being named.
  */
 const EXCLUDED_PARAMETERS: Partial<SearchToolParameters> = {
   candidates: 12,
   rerankPerList: 6,
   keywordRerankCandidates: 12,
-  maxDocuments: 4,
+  maxDocuments: EXCLUDED_DOCUMENTS,
   maxWindowsPerDocument: 1,
-  maxPassages: 4,
+  maxPassages: EXCLUDED_DOCUMENTS * PASSAGE_PARAMETERS.windowSize,
 };
 
 interface PassageRow {
@@ -129,7 +133,10 @@ const orderedByReading =
       })
       .sort((a, b) => b.score - a.score);
 
-const AS_SEARCH_RANKS = orderedByReading(new Map());
+/** No Passage read ahead of a search: its hits stay as search ranks them. */
+export const NOT_READ: ReadonlyMap<string, number> = new Map();
+
+const AS_SEARCH_RANKS = orderedByReading(NOT_READ);
 
 const inList = (column: string) => `${column} IN (SELECT value FROM json_each(?))`;
 
@@ -362,9 +369,10 @@ export function createEvidence(deps: EvidenceDependencies) {
      * One of a check's searches: the search Tool over its scope, then, if
      * any Documents are left out, a small search of those, for where they matched.
      *
-     * `about` is the Passages a decision model that read the sentence found to be about it, each
-     * with how surely: given, they come first, the surest first, the rest follow as search ranks
-     * them, and the reranking model isn't asked (#2532).
+     * `about` is how the search's hits are ordered without the reranking model: the Passages a
+     * decision model that read the sentence found to be about it, each with how surely, come
+     * first, the surest first, and the rest follow as search ranks them (#2532). Absent, the
+     * reranking model orders them, for a person who reads the best few.
      */
     async search(
       query: string,
