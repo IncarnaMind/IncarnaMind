@@ -8260,7 +8260,7 @@ export const en = {
     "This agent has written {max} notes in the last hour, which is the most it may. Try again later.",
   // An outside agent has a note it wrote checked (#3317).
   "agents.check.notYours":
-    "check_mind checks a note this agent wrote with create_mind. It didn’t write this one.",
+    "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
   "agents.check.noDocuments": "The note’s Folder has no Documents to check it against.",
   "agents.check.beyondReach":
     "This note is checked against Documents outside the Folders shared with this agent, so it can’t be checked for it. The User can check it in IncarnaMind.",
@@ -8274,6 +8274,12 @@ export const en = {
   "agents.check.stopped.user": "It was stopped in IncarnaMind before it finished.",
   "agents.check.stopped.cost-cap": "It stopped at the monthly spending cap set in IncarnaMind.",
   "agents.check.stopped.plan-limit": "It stopped at the limit of the AI model’s plan.",
+  // An outside agent checks a note it wrote with its own model (#3342).
+  "agents.check.taskChanged":
+    "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
+  "agents.check.results": "Give results: one result for each sentence, {max} at most.",
+  "agents.check.reportAgain":
+    "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite that IncarnaMind can confirm.",
   // An outside agent writes a new note (#3306).
   "agents.note.writtenBy": "Written by {name}, {when}",
   "agents.create.text": "the text",
@@ -8368,6 +8374,8 @@ export const en = {
   "agents.activity.propose_changes": "Proposed changes to “{text}”",
   "agents.activity.create_mind": "Wrote the note “{text}”",
   "agents.activity.check_mind": "Had the note “{text}” checked",
+  "agents.activity.check_mind_yourself": "Read the note “{text}” to check it",
+  "agents.activity.report_check": "Checked the note “{text}” itself",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",

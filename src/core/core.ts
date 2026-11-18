@@ -5633,6 +5633,9 @@ export function createCore(adapters: CoreAdapters): Core {
         answers.answerOutside(question, documentIds, signal),
       checkNote: (mindId, documentIds) =>
         inFlow("check-mind", () => checks.checkMindOutside(mindId, new Set(documentIds))),
+      checkTask: (mindId, documentIds) => checks.checkTaskOutside(mindId, documentIds),
+      landJudged: (mindId, documentIds, agent, task, judged) =>
+        checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId) => checkRecord.build(mindId),
       show: (place) => events.emit("agents.citationShown", place),
     },
