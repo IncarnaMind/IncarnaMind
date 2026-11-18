@@ -202,6 +202,7 @@ export interface ChecksOptions
     | "document"
     | "onStatus"
     | "readText"
+    | "readUnits"
     | "readTables"
     | "readSlides"
     | "readScanned"

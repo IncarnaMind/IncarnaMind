@@ -4,8 +4,8 @@
  * charts' text and its speaker notes, which count as part of the slide (ADR-0011). A slide with
  * no text makes no Block.
  */
-import { looksLikeFigure } from "../../documents/formats/grid";
 import type { SlideOutline } from "../../documents/formats/pptx";
+import { headingRowsOf, isFigure, join } from "../../documents/tableCells";
 import type { TableGrid } from "../../documents/tables";
 import type { NodeJSON } from "../blocks";
 import { type DocumentBlock, tableNode } from "./verifyTables";
@@ -21,22 +21,30 @@ const paragraph = (text: string): NodeJSON => ({
   content: [{ type: "text", text }],
 });
 
-/** A slide's table as the Mind keeps one: its first row the headings, unless that row holds figures. */
-function gridOf(table: readonly string[][]): TableGrid | null {
+const cellsOf = (table: readonly string[][]): string[][] => {
   const width = Math.max(0, ...table.map((row) => row.length));
-  const rows = table
+  return table
     .map((row) => Array.from({ length: width }, (_, column) => (row[column] ?? "").trim()))
     .filter((row) => row.some((cell) => cell !== ""));
-  const [first, ...rest] = rows;
-  if (!first) return null;
-  const headed = rest.length > 0 && !first.some(looksLikeFigure);
-  const body = headed ? rest : rows;
+};
+
+/**
+ * A slide's table as the Mind keeps one, headed as a Word file's is (../../documents/tableCells):
+ * the rows above the first that holds a figure. A table of words alone has no heading row, so
+ * every row of it is checked.
+ */
+function gridOf(rows: readonly string[][]): TableGrid {
+  const headingCount = headingRowsOf(rows);
+  const body = rows.slice(headingCount);
+  const columns = rows[0] ?? [];
   return {
-    headings: headed ? first : first.map(() => ""),
+    headings: columns.map((_, column) =>
+      rows.slice(0, headingCount).reduce((said, row) => join(said, row[column] ?? ""), ""),
+    ),
     rows: body.map((cells) => ({ cells, section: false })),
-    numeric: first.map((_, column) => {
+    numeric: columns.map((_, column) => {
       const filled = body.map((cells) => cells[column] ?? "").filter((cell) => cell !== "");
-      return filled.length > 0 && filled.every(looksLikeFigure);
+      return filled.length > 0 && filled.every(isFigure);
     }),
   };
 }
@@ -57,8 +65,13 @@ export function slideBlocks(slides: readonly SlideOutline[]): DocumentBlock[] {
       blocks.push({ node: paragraph(line), pages: [page] });
     }
     for (const table of slide.tables) {
-      const grid = gridOf(table);
-      if (!grid) continue;
+      const rows = cellsOf(table);
+      // One column is a list set in a table: a row of one cell has nothing said about it to check.
+      if ((rows[0]?.length ?? 0) < 2) {
+        for (const [line] of rows) if (line) blocks.push({ node: paragraph(line), pages: [page] });
+        continue;
+      }
+      const grid = gridOf(rows);
       const headed = grid.headings.some((heading) => heading !== "");
       blocks.push({
         node: tableNode(grid),

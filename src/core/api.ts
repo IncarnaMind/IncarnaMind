@@ -8461,12 +8461,33 @@ export interface VerifyDocumentInput {
   path: string;
   /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
+  /** A workbook's sheet to check, by its name (#3278); without it the sheets are listed (`choose-sheet`). */
+  sheet?: string;
+  /** A range of that sheet, "B2:M40"; the whole sheet when left out. */
+  range?: string;
+}
+
+/** What a workbook's sheet holds, for choosing what to check (#3278). */
+export interface WorkbookSheetChoice {
+  name: string;
+  /** Rows with anything in them. */
+  rows: number;
+  /** Numbers typed into its cells. */
+  typed: number;
+  /** Its cells with a formula. */
+  formulas: number;
 }
 
 /** What `verifyDocument` did. */
 export type VerifyDocumentResult =
   /** The Mind holds the document's text, a paragraph to a Block: its claims can be found. */
   | { ok: true; mind: Mind; documentId: string }
+  /** A workbook: its sheets, to choose one (and a range) to check (#3278); nothing was made. */
+  | { ok: false; reason: "choose-sheet"; documentId: string; sheets: WorkbookSheetChoice[] }
+  /** A workbook's sheet or range holds more typed-in numbers than one check takes (#3278). */
+  | { ok: false; reason: "too-many"; typed: number; most: number }
+  /** The range isn't one ("B2:M40"), or the sheet isn't in the workbook (#3278). */
+  | { ok: false; reason: "range" }
   /**
    * No Mind was made: the file can't be read, needs a password, or holds no text (a scan nothing
    * could read, a deck of pictures).

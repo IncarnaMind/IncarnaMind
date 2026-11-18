@@ -403,7 +403,7 @@ export function serveFileActions(
   );
   // The core adds it to the Library and makes a Mind of its text (#97), or of the Word file (#110).
   handle(FILES_CHANNELS.pickFileToVerify, (event) =>
-    pickOneFile(event, "verify.pick.title", "verify.pick.filter", ["pdf", "docx", "pptx"]),
+    pickOneFile(event, "verify.pick.title", "verify.pick.filter", ["pdf", "docx", "xlsx", "pptx"]),
   );
 
   // Only a folder the User linked: its path comes from the core's list, never from the page.
