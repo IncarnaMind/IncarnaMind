@@ -1012,6 +1012,33 @@ describe("No stretch of a call is missing from its notes without the User being 
     }
   });
 
+  // protects=a part asked again for its few notes whose second request then meets a failure that may pass by itself (the service failing, a rate limit), once, keeps its first reply's notes, is told with its times as possibly incomplete, and the parts after it are still read: the failure wasn't met twice running (#3287); fails_when=the one failure ends the sending and the later part gets no notes, or the first reply's notes are dropped; no_claim=the same failure met by both requests of a part, which stops the sending.
+  test.each([
+    { status: 500, failure: "the service failing" },
+    { status: 429, failure: "a rate limit" },
+  ])(
+    "a short reply whose second request meets $failure keeps its notes, and the part after it is still read",
+    async ({ status }) => {
+      const model = modelFor((part) =>
+        part === 3 ? { text: "", error: status } : { text: notesOf(part), unsaid: part === 2 },
+      );
+      const captured = await capture(model, true);
+      try {
+        const fill = await settledFill(captured.core, captured.meeting);
+        expect(fill).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+        expectRequests(model, [2, 2, 1, 2], true);
+        expect(stretchesOf(fill)).toEqual([
+          { from: startOf(model, 2), to: expect.any(Number), notes: "thin" },
+        ]);
+        const shown = readMind(captured.client).textContent;
+        expect(shown.split(`${OVERVIEW} in part 2`)).toHaveLength(2);
+        expect(shown.split(`${OVERVIEW} in part 4`)).toHaveLength(2);
+      } finally {
+        captured.core.close();
+      }
+    },
+  );
+
   // protects=a part whose reply can't be read as notes (prose, no fact and no overview) is asked once more; unreadable twice, its stretch is told with its times as having no notes, the part after it is still read and its notes kept (#3287); fails_when=the prose reply is kept as an empty one with nothing told, or the fill stops there; no_claim=why a real model answers in prose.
   test("a part unreadable as notes twice is told with its times, and the part after it is still read", async () => {
     const model = modelFor((part) =>

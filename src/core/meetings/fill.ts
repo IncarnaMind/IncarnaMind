@@ -653,16 +653,21 @@ function stretchesOf(
   return stretches.map(({ from, to, notes }) => ({ from, to, notes }));
 }
 
-/** `queue` with each run of parts not yet sent split again, at `size` tokens. */
-function resized(queue: readonly CallPart[], size: number): CallPart[] {
-  const next: CallPart[] = [];
+/**
+ * `queue` with each run of parts never asked split again, at `size` tokens. A part waiting to be
+ * asked once more stays whole: split, it would lose its first reply.
+ */
+export function resized<
+  Part extends { passages: WindowedPassage[]; size: number; out?: unknown; first?: unknown },
+>(queue: readonly Part[], size: number): (Part | { passages: WindowedPassage[]; size: number })[] {
+  const next: (Part | { passages: WindowedPassage[]; size: number })[] = [];
   let run: WindowedPassage[] = [];
   const split = () => {
     next.push(...transcriptParts(run, size).map((passages) => ({ passages, size })));
     run = [];
   };
   for (const part of queue) {
-    if (!part.out) {
+    if (!part.out && !part.first) {
       run.push(...part.passages);
       continue;
     }
@@ -958,6 +963,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
         },
         part.passages.reduce((sum, passage) => sum + estimateTokens(passage.text), 0),
       );
+    const failsOf = (answer: CellAnswer) =>
+      answer.status === "failed" ? FAILS[answer.error?.kind ?? "unknown"] : null;
     /**
      * What becomes of a part whose reply is in (#3287). "halved": cut, it is asked again as two.
      * "again": refused, unreadable as notes, or short for its length without saying its stretch
@@ -974,8 +981,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
       if (!ended && (cutShort(answer) || parsed.cut) && halved(part.passages) !== null) {
         return "halved";
       }
-      const fails = answer.status === "failed" ? FAILS[answer.error?.kind ?? "unknown"] : null;
-      if (fails === "every" || (fails === "every-twice" && first)) return "ends";
+      const fails = failsOf(answer);
+      // Twice running: a part asked again for its few notes that then meets the failure once
+      // keeps its first reply, and the parts after it are still sent.
+      const twice = fails === "every-twice" && first && failsOf(first.answer) === "every-twice";
+      if (fails === "every" || twice) return "ends";
       if (ended || first) return "kept";
       return fails !== null || parsed.cut || lacks(reply, part) !== null ? "again" : "kept";
     };
