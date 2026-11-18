@@ -8250,6 +8250,22 @@ export const en = {
   "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
   "agents.problem.too-many":
     "This agent has written {max} notes in the last hour, which is the most it may. Try again later.",
+  // An outside agent has a note it wrote checked (#3317).
+  "agents.check.notYours":
+    "check_mind checks a note this agent wrote with create_mind. It didn’t write this one.",
+  "agents.check.noDocuments": "The note’s Folder has no Documents to check it against.",
+  "agents.check.beyondReach":
+    "This note is checked against Documents outside the Folders shared with this agent, so it can’t be checked for it. The User can check it in IncarnaMind.",
+  "agents.check.notReady":
+    "No AI model is ready in IncarnaMind to check with. Set one up in Settings › AI.",
+  "agents.check.consent":
+    "IncarnaMind’s AI model isn’t allowed to check yet. Check a note in IncarnaMind to allow it.",
+  "agents.check.failed": "IncarnaMind couldn’t check the note: {message}",
+  "agents.check.tooMany":
+    "This agent has started {max} checks in the last hour, which is the most it may. Try again later.",
+  "agents.check.stopped.user": "It was stopped in IncarnaMind before it finished.",
+  "agents.check.stopped.cost-cap": "It stopped at the monthly spending cap set in IncarnaMind.",
+  "agents.check.stopped.plan-limit": "It stopped at the limit of the AI model’s plan.",
   // An outside agent writes a new note (#3306).
   "agents.note.writtenBy": "Written by {name}, {when}",
   "agents.create.text": "the text",
@@ -8343,6 +8359,7 @@ export const en = {
   "agents.activity.ask": "Asked “{text}”",
   "agents.activity.propose_changes": "Proposed changes to “{text}”",
   "agents.activity.create_mind": "Wrote the note “{text}”",
+  "agents.activity.check_mind": "Had the note “{text}” checked",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",
@@ -8362,7 +8379,7 @@ export const en = {
   "agents.reason.read-only": "it may only read",
   "agents.reason.changed": "the note had changed since it read it",
   "agents.reason.waiting": "a paragraph had changes waiting",
-  "agents.reason.too-many": "it had written too many notes in an hour",
+  "agents.reason.too-many": "it had reached its limit for the hour",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
     "It can read your chosen Folders and the notes in them. Listing them sends each Folder’s name, internal id and Document count, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
@@ -8375,7 +8392,8 @@ export const en = {
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
-  "agents.propose.hint": "Its notes appear at once. Its changes wait for you.",
+  "agents.propose.hint":
+    "Its notes appear at once, and it can have them checked on your AI model. Its changes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",

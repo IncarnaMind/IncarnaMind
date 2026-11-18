@@ -24,9 +24,10 @@ import * as Y from "yjs";
 import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
-import { recordNoteWriter } from "../../shared/noteWriter";
+import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
 import { setTextOrigin } from "../../shared/textOrigins";
 import type { OutsideAnswer } from "../answers";
+import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
 import {
@@ -42,6 +43,7 @@ import {
   type Mind,
   NOT_IN_A_FOLDER_ID,
 } from "../api";
+import type { CheckRecord } from "../checkRecord";
 import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
@@ -248,6 +250,54 @@ export interface AgentCreated {
   uncited: string[];
 }
 
+export interface AgentCheckMindInput {
+  /** A Note the agent wrote with `create_mind`. */
+  mindId: string;
+}
+
+/** A claim of a checked Note that needs a look. */
+export interface AgentCheckedClaim {
+  sentence: string;
+  result:
+    | "unsupported"
+    | "contradicted"
+    | "not-found"
+    | "not-checked"
+    | "needs-recheck"
+    | "changed";
+  /**
+   * Why a "not-checked" claim shows no verdict, as the check names it ("rate-limit", "cost-cap"),
+   * or "beyond-reach": the User had it checked against Documents this agent may not read.
+   */
+  reason: string | null;
+  /** What the Document says, in the check's words; null when it gave none. */
+  says: string | null;
+  /** The Passage it was judged on: its Document, Location and quote; null when none backs it. */
+  document: string | null;
+  location: string | null;
+  quote: string | null;
+  /** A token to cite that quote by, when it is found in its Document now. */
+  cite: string | null;
+}
+
+export interface AgentMindCheck {
+  mindId: string;
+  title: string;
+  /**
+   * "running": the check goes on, and the same call again gives its result.
+   * "stopped": it ended early, and `stopped` says why.
+   */
+  status: "checked" | "running" | "stopped";
+  stopped: string | null;
+  /** The models that judged, as the Note's check record names them. */
+  models: string[];
+  /** How many claims the check found supported. */
+  supported: number;
+  /** How many need a look; `claims` lists the first `MAX_CHECKED_CLAIMS` of them. */
+  needLook: number;
+  claims: AgentCheckedClaim[];
+}
+
 export interface AgentAskInput {
   question: string;
   /** Only these of the pairing's Folders; all of them when absent. */
@@ -279,6 +329,8 @@ export interface AgentAccess {
   proposeChanges(input: AgentProposeInput): Promise<AgentProposed>;
   /** Writes a new Note in one of the pairing's Folders (#3306): there at once, as the agent's text. */
   createMind(input: AgentCreateInput): Promise<AgentCreated>;
+  /** Has a Note the agent wrote checked claim by claim against its Folder's Documents (#3317). */
+  checkMind(input: AgentCheckMindInput): Promise<AgentMindCheck>;
 }
 
 /** Why a call was refused or failed, in the interface language, for the agent to pass on. */
@@ -321,6 +373,15 @@ const MAX_CHANGE_CHARS = 20_000;
 const MAX_TITLE_CHARS = 200;
 /** The most Notes one pairing writes in an hour. */
 export const MAX_NOTES_AN_HOUR = 20;
+/** The most checks of its Notes one pairing starts in an hour. */
+export const MAX_CHECKS_AN_HOUR = 20;
+/** The most claims `check_mind` lists as needing a look. */
+export const MAX_CHECKED_CLAIMS = 60;
+/**
+ * How long `check_mind` waits for the check before it answers "running": under the shortest Tool
+ * time limit of the agents there are (a minute).
+ */
+export const CHECK_WAIT_MS = 45_000;
 const HOUR_MS = 3_600_000;
 /** The longest summary kept of a call for the activity list. */
 const SUMMARY_CHARS = 300;
@@ -391,6 +452,17 @@ export interface AgentAccessDeps {
   notesWrittenSince(pairingId: string, since: string): number;
   /** IncarnaMind's Answer to a Question from these Documents, on the default chat model. */
   answer(question: string, documentIds: string[], signal: AbortSignal): Promise<OutsideAnswer>;
+  /**
+   * A Note's Check of what it hasn't checked yet, on the Note's model, asking the User nothing and
+   * searching none but `documentIds`, the Documents the agent may read.
+   */
+  checkNote(mindId: string, documentIds: readonly string[]): Promise<OutsideCheck>;
+  /** What a Note's checks found, sentence by sentence, as its check record lists them. */
+  checkRecord(mindId: string): Promise<Pick<CheckRecord, "models" | "sentences">>;
+  /** The Checks agents started, shared by every connection (`createCheckRuns`). */
+  checkRuns: CheckRuns;
+  /** `CHECK_WAIT_MS`, unless a test waits less. */
+  checkWaitMs?: number;
   citations: AgentCitations;
   /** Keeps a call for the pairing's activity list. */
   record(activity: Omit<AgentActivity, "id" | "at">): void;
@@ -405,8 +477,45 @@ export interface AgentAccessDeps {
   reportError(error: unknown): void;
 }
 
+/**
+ * The Checks agents started (#3317): each Note's until a call has had its end, so a second call
+ * joins it and one that stopped waiting still learns how it ended, and when each pairing started
+ * one, by `clock`, for the hour's limit.
+ */
+export interface CheckRuns {
+  running: Map<string, Promise<OutsideCheck>>;
+  started: Map<string, number[]>;
+}
+
+export const createCheckRuns = (): CheckRuns => ({ running: new Map(), started: new Map() });
+
 // ---------------------------------------------------------------------------
 // Helpers
+
+/** What `run` gives, or null once `ms` have passed with it still going. */
+async function within<T>(run: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([run, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** How a Check that sent something to the AI model ended. */
+const SENT: ReadonlySet<string> = new Set(["checked", "failed", "cancelled"]);
+
+const CLAIM_RESULTS = {
+  unsupported: "unsupported",
+  contradicted: "contradicted",
+  notFound: "not-found",
+  notChecked: "not-checked",
+  needsRecheck: "needs-recheck",
+  changed: "changed",
+} as const satisfies Record<string, AgentCheckedClaim["result"]>;
 
 const READ_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 
@@ -818,6 +927,61 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
     }
     return mind;
+  };
+
+  /**
+   * The Check of a Note going now, started if none an agent started is: its sentences go to the
+   * User's AI model, so a pairing starts `MAX_CHECKS_AN_HOUR` at most. Joining one is free, and so
+   * is one that sent nothing: not allowed, held by the window's own Check, or with nothing new.
+   */
+  const checkOf = (pairing: AdmittedPairing, mindId: string): Promise<OutsideCheck> => {
+    const { running, started } = deps.checkRuns;
+    const going = running.get(mindId);
+    if (going) return going;
+    const now = deps.clock();
+    const lately = (started.get(pairing.id) ?? []).filter((at) => at > now - HOUR_MS);
+    if (lately.length >= MAX_CHECKS_AN_HOUR) {
+      throw new AgentRefusedError(
+        "too-many",
+        t("agents.check.tooMany", { max: MAX_CHECKS_AN_HOUR }),
+      );
+    }
+    started.set(pairing.id, [...lately, now]);
+    const run = deps.checkNote(mindId, scopeOf(pairing, undefined));
+    run.then(
+      (outcome) => {
+        if (outcome.asked && SENT.has(outcome.result.kind)) return;
+        const times = started.get(pairing.id) ?? [];
+        const counted = times.indexOf(now);
+        started.set(
+          pairing.id,
+          times.filter((_, index) => index !== counted),
+        );
+      },
+      // A call that stopped waiting leaves it running: its failure is still said somewhere.
+      (error: unknown) => {
+        if (running.get(mindId) === run) running.delete(mindId);
+        deps.reportError(error);
+      },
+    );
+    running.set(mindId, run);
+    return run;
+  };
+
+  /** Why a Check sent nothing, in plain words. */
+  const notAsked = (reason: NotAskedReason): AgentRefusedError => {
+    switch (reason) {
+      case "local-mode":
+        return new AgentRefusedError("local-mode", t("agents.problem.local-mode"));
+      case "beyond-reach":
+        return new AgentRefusedError("outside-scope", t("agents.check.beyondReach"));
+      case "no-documents":
+        return new AgentRefusedError("invalid", t("agents.check.noDocuments"));
+      case "consent-needed":
+        return new AgentRefusedError("chat-not-ready", t("agents.check.consent"));
+      case "not-ready":
+        return new AgentRefusedError("chat-not-ready", t("agents.check.notReady"));
+    }
   };
 
   /** The Folder a new Note goes in: the one named, of the pairing's, or its only one. */
@@ -1438,6 +1602,112 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             each.cited ? [each.cited.minted.documentId] : [],
           ),
           effects: [READ_DOCUMENTS, { action: "write", scope: { kind: "mind", mindId: mind.id } }],
+        };
+      });
+    },
+
+    checkMind(input) {
+      const mindId = typeof input?.mindId === "string" ? input.mindId : "";
+      const known = deps.minds().find((mind) => mind.id === mindId);
+      // Its marks are written into the Note, and its sentences go to the User's AI model.
+      const effects: Effect[] = [
+        READ_DOCUMENTS,
+        { action: "write", scope: { kind: "mind", mindId } },
+      ];
+      return call("check_mind", known ? mindName(known) : "", effects, async (pairing) => {
+        if (!pairing.propose) {
+          throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+        }
+        const mind = mindInScope(pairing, text(input?.mindId, "mindId", 200));
+        const writer = deps.mindBlocks(mind.id, (blocks) =>
+          blocks.doc ? noteWriterOf(blocks.doc) : null,
+        );
+        if (writer?.pairingId !== pairing.id) {
+          throw new AgentRefusedError("invalid", t("agents.check.notYours"));
+        }
+        const { running } = deps.checkRuns;
+        const run = checkOf(pairing, mind.id);
+        const outcome = await within(run, deps.checkWaitMs ?? CHECK_WAIT_MS);
+        // Its end is told once: the call after starts a Check of what changed since.
+        if (outcome && running.get(mind.id) === run) running.delete(mind.id);
+        if (outcome && !outcome.asked) throw notAsked(outcome.reason);
+        const result = outcome?.result ?? null;
+        if (result?.kind === "not-ready") throw notAsked("not-ready");
+        if (result?.kind === "local-mode") throw notAsked("local-mode");
+        if (result?.kind === "failed") {
+          throw new AgentRefusedError(
+            "failed",
+            t("agents.check.failed", { message: result.error.message }),
+          );
+        }
+        if (result?.kind === "no-documents") {
+          throw new AgentRefusedError("invalid", t("agents.check.noDocuments"));
+        }
+        const stopped =
+          result?.kind === "cancelled"
+            ? t("agents.check.stopped.user")
+            : result?.kind === "checked" && result.stop
+              ? t(`agents.check.stopped.${result.stop.reason}`)
+              : null;
+        const record = await deps.checkRecord(mind.id);
+        // What the agent reaches may have changed while the Check ran.
+        const granted = deps.admit(pairingId);
+        mindInScope(granted, mind.id);
+        const inScope = new Set(scopeOf(granted, undefined));
+        const read = new Set<string>();
+        // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
+        const beyond = (item: (typeof record.sentences)[number]) =>
+          item.check !== null && (item.check.scope.widened || item.check.scope.chosen != null);
+        const needLook = record.sentences.filter(
+          (item) => item.result !== "supported" || beyond(item),
+        );
+        const claims = needLook.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
+          const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
+          const sentence = clip(item.text, READY_QUOTE_CHARS);
+          if (beyond(item)) {
+            return { sentence, result: "not-checked", reason: "beyond-reach", ...unsaid };
+          }
+          const claim = {
+            sentence,
+            result: CLAIM_RESULTS[item.result as keyof typeof CLAIM_RESULTS],
+            reason: item.reason,
+          };
+          const judgedOn = item.judgedOn ? citationOf(item.judgedOn) : null;
+          // What a Document outside the pairing's Folders says stays there.
+          if (!judgedOn || !item.evidence || !inScope.has(judgedOn.documentId)) {
+            return { ...claim, ...unsaid };
+          }
+          read.add(judgedOn.documentId);
+          const { quote } = item.evidence;
+          const found =
+            quote !== null &&
+            judgedOn.quote !== "" &&
+            judgedOn.passageId !== "" &&
+            !deps.notCited(judgedOn.passageId) &&
+            deps.recheck(judgedOn).check === "found";
+          return {
+            ...claim,
+            says: item.says,
+            document: item.evidence.name,
+            location: item.evidence.location,
+            quote,
+            cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
+          };
+        });
+        return {
+          result: {
+            mindId: mind.id,
+            title: mindName(mind),
+            status:
+              !result || result.kind === "running" ? "running" : stopped ? "stopped" : "checked",
+            stopped,
+            models: record.models,
+            supported: record.sentences.length - needLook.length,
+            needLook: needLook.length,
+            claims,
+          },
+          count: needLook.length,
+          documentIds: [...read],
         };
       });
     },

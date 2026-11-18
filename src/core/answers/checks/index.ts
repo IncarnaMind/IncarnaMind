@@ -116,7 +116,7 @@ import {
 } from "./claimCheck";
 import { createFirstReading, type DecisionReader } from "./decisionFirst";
 import { createFastPaths } from "./fastPaths";
-import { createMindCheck, type MindCheckOptions } from "./mindCheck";
+import { createMindCheck, type MindCheckOptions, type NotAskedReason } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import {
   judgeResolvedRecordCites,
@@ -1259,6 +1259,20 @@ export function createChecks(options: ChecksOptions) {
     }
   }
 
+  /** The model, prepared with nothing asked of the User (`prepareQuietly`), or why it can't be. */
+  async function prepareUnasked(
+    choice: ChatModelChoice | null,
+  ): Promise<PreparedChatModel | NotAskedReason> {
+    const readiness = await chat.readiness(choice ?? undefined, "checks");
+    if (!readiness.ready) return "not-ready";
+    const { service } = readiness.provider;
+    if (service && options.localOnly()) return "local-mode";
+    if (service && !options.consent.covers("checks", service, CHECKS_FLOW_SENDS)) {
+      return "consent-needed";
+    }
+    return (await prepareQuietly(choice)) ?? "not-ready";
+  }
+
   const evidenceReady = (stop: AbortSignal, mindId: string) =>
     options.evidence.ready(stop, () => leftOutOf(mindId));
 
@@ -1307,6 +1321,7 @@ export function createChecks(options: ChecksOptions) {
     ...options,
     documentVersions: options.watch.documentVersions,
     prepare,
+    prepareUnasked,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     evidenceReady,
     citedNow,
@@ -1539,6 +1554,8 @@ export function createChecks(options: ChecksOptions) {
 
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),
+    checkMindOutside: (mindId: string, reach: ReadonlySet<string>) =>
+      mindCheck.checkOutside(mindId, reach),
     documentsAddedSinceChecks: (mindId: unknown) => mindCheck.documentsAddedSinceChecks(mindId),
 
     /** A Document's status changed: a new version has its Folder's Minds checked for contradictions. */

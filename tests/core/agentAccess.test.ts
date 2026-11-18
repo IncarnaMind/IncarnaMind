@@ -6,14 +6,22 @@
  */
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import * as Y from "yjs";
-import { type AgentAccessDeps, createAgentAccess } from "../../src/core/agents/access";
+import {
+  type AgentAccessDeps,
+  AgentRefusedError,
+  createAgentAccess,
+  createCheckRuns,
+  MAX_CHECKS_AN_HOUR,
+} from "../../src/core/agents/access";
 import type { AgentCitation } from "../../src/core/agents/citations";
 import type { OutsideAnswer } from "../../src/core/answers";
 import { createElement } from "../../src/core/answers/blocks";
+import type { OutsideCheck } from "../../src/core/answers/checks/mindCheck";
 import { recheckCitation } from "../../src/core/answers/citations";
 import { type CitationLocation, MIND_CONTENT_FIELD } from "../../src/core/api";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
 import { translate } from "../../src/shared/i18n";
+import { recordNoteWriter } from "../../src/shared/noteWriter";
 
 function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessDeps> = {}) {
   const deps: AgentAccessDeps = {
@@ -45,6 +53,11 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     },
     notesWrittenSince: () => 0,
     answer: async () => outcome,
+    checkNote: () => {
+      throw new Error("Not called.");
+    },
+    checkRecord: async () => ({ models: [], sentences: [] }),
+    checkRuns: createCheckRuns(),
     citations: {
       find: () => null,
       mint: () => {
@@ -76,6 +89,213 @@ describe("ask, when IncarnaMind's Answer isn't written", () => {
     await expect(
       accessAnswering({ asked: false, reason: "consent-needed" }).ask({ question: "When?" }),
     ).rejects.toMatchObject({ problem: "chat-not-ready", message: /isn’t allowed yet/ });
+  });
+});
+
+/** An agent that may write, with one Note of its own in its Folder, whose Check `checkNote` runs. */
+function accessChecking(
+  checkNote: AgentAccessDeps["checkNote"],
+  clock: () => number = () => 0,
+  overrides: Partial<AgentAccessDeps> = {},
+) {
+  const doc = new Y.Doc();
+  recordNoteWriter(doc, {
+    source: "outside-agent",
+    agent: "Codex",
+    pairingId: "pairing",
+    createdAt: "2026-11-01T09:00:00.000Z",
+  });
+  const mind = { id: "note", title: "Tide notes", folderId: "coast" };
+  return accessAnswering(
+    { asked: false, reason: "not-ready" },
+    {
+      admit: (pairingId) => ({ id: pairingId, name: "Codex", folderIds: ["coast"], propose: true }),
+      minds: () => [mind] as ReturnType<AgentAccessDeps["minds"]>,
+      mindBlocks: (_mindId, look) => look(doc.getXmlFragment(MIND_CONTENT_FIELD)),
+      checkNote,
+      checkWaitMs: 20,
+      clock,
+      ...overrides,
+    },
+  );
+}
+
+const CHECKED: OutsideCheck = {
+  asked: true,
+  result: { kind: "checked", sentences: 3, checked: 3, smallModel: false, stop: null },
+};
+
+describe("check_mind, on a Note the agent wrote (#3317)", () => {
+  // protects=a long Note's check outlasts an agent's Tool time limit without a second check being started or paid for; fails_when=a call still waiting blocks past the bound, or a second call starts another check
+  it("answers running while the check goes on, and a second call joins it", async () => {
+    let finish: (outcome: OutsideCheck) => void = () => undefined;
+    const checkNote = vi.fn(
+      () =>
+        new Promise<OutsideCheck>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const access = accessChecking(checkNote);
+    expect(await access.checkMind({ mindId: "note" })).toMatchObject({ status: "running" });
+    const second = access.checkMind({ mindId: "note" });
+    finish(CHECKED);
+    expect(await second).toMatchObject({ status: "checked", stopped: null });
+    expect(checkNote).toHaveBeenCalledTimes(1);
+    // Once it has ended, the next call starts a check of what changed since.
+    await access.checkMind({ mindId: "note" });
+    expect(checkNote).toHaveBeenCalledTimes(2);
+  });
+
+  // protects=an agent that stopped waiting still learns the User stopped the check, and doesn't start it again by asking; fails_when=a check that ended between two calls is forgotten and the next call runs a new one
+  it("tells how a check ended to the call after it, once", async () => {
+    let finish: (outcome: OutsideCheck) => void = () => undefined;
+    const checkNote = vi.fn(
+      () =>
+        new Promise<OutsideCheck>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const access = accessChecking(checkNote);
+    expect(await access.checkMind({ mindId: "note" })).toMatchObject({ status: "running" });
+    finish({ asked: true, result: { kind: "cancelled" } });
+    expect(await access.checkMind({ mindId: "note" })).toMatchObject({
+      status: "stopped",
+      stopped: "It was stopped in IncarnaMind before it finished.",
+    });
+    expect(checkNote).toHaveBeenCalledTimes(1);
+    void access.checkMind({ mindId: "note" });
+    expect(checkNote).toHaveBeenCalledTimes(2);
+  });
+
+  // protects=what the User took from an agent while a check ran isn't handed to it when the check ends, and a verdict from the User's own wider check says nothing of Documents the agent can't read; fails_when=the reply is built on the grant as it was before the wait, or lists a widened mark's verdict
+  it("gives back only what the agent may read when the check ends", async () => {
+    let admitted = 0;
+    const gone = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        admit: (pairingId) => {
+          if (admitted++ > 0)
+            throw new AgentRefusedError("unpaired", "This agent isn’t connected.");
+          return { id: pairingId, name: "Codex", folderIds: ["coast"], propose: true };
+        },
+      },
+    );
+    await expect(gone.checkMind({ mindId: "note" })).rejects.toMatchObject({ problem: "unpaired" });
+
+    const item = {
+      kind: "sentence" as const,
+      text: "Spring tides come twice a month.",
+      origin: "other" as const,
+      reason: null,
+      says: "Rivers says so.",
+      evidence: null,
+      judgedOn: null,
+    };
+    const checkedAt = { model: null, at: "2026-11-01T09:00:00.000Z" };
+    const wider = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        checkRecord: async () => ({
+          models: [],
+          sentences: [
+            {
+              ...item,
+              result: "supported",
+              check: { ...checkedAt, scope: { folderId: "coast", widened: true } },
+            },
+            {
+              ...item,
+              result: "supported",
+              check: { ...checkedAt, scope: { folderId: "coast", widened: false } },
+            },
+          ],
+        }),
+      },
+    );
+    expect(await wider.checkMind({ mindId: "note" })).toMatchObject({
+      supported: 1,
+      needLook: 1,
+      claims: [
+        {
+          sentence: "Spring tides come twice a month.",
+          result: "not-checked",
+          reason: "beyond-reach",
+          says: null,
+          cite: null,
+        },
+      ],
+    });
+  });
+
+  // protects=a check an agent starts never raises a dialog, and what stopped it is said in plain words; fails_when=a model not allowed yet is asked about, or a stop at the cap reads as a finished check
+  it("says why nothing was sent, and why a check stopped early", async () => {
+    const refusedWith = (outcome: OutsideCheck) =>
+      accessChecking(async () => outcome).checkMind({ mindId: "note" });
+    await expect(refusedWith({ asked: false, reason: "consent-needed" })).rejects.toMatchObject({
+      problem: "chat-not-ready",
+      message: /isn’t allowed to check yet/,
+    });
+    await expect(refusedWith({ asked: false, reason: "not-ready" })).rejects.toMatchObject({
+      problem: "chat-not-ready",
+    });
+    await expect(refusedWith({ asked: false, reason: "local-mode" })).rejects.toMatchObject({
+      problem: "local-mode",
+    });
+    await expect(
+      refusedWith({ asked: true, result: { kind: "no-documents", folderId: "coast" } }),
+    ).rejects.toMatchObject({ message: "The note’s Folder has no Documents to check it against." });
+    await expect(refusedWith({ asked: false, reason: "no-documents" })).rejects.toMatchObject({
+      message: "The note’s Folder has no Documents to check it against.",
+    });
+    await expect(refusedWith({ asked: false, reason: "beyond-reach" })).rejects.toMatchObject({
+      problem: "outside-scope",
+      message: /outside the Folders shared with this agent/,
+    });
+    expect(
+      await refusedWith({
+        asked: true,
+        result: {
+          kind: "checked",
+          sentences: 3,
+          checked: 1,
+          smallModel: false,
+          stop: { reason: "cost-cap" },
+        },
+      }),
+    ).toMatchObject({
+      status: "stopped",
+      stopped: "It stopped at the monthly spending cap set in IncarnaMind.",
+    });
+    expect(await refusedWith({ asked: true, result: { kind: "cancelled" } })).toMatchObject({
+      status: "stopped",
+      stopped: "It was stopped in IncarnaMind before it finished.",
+    });
+  });
+
+  // protects=a connected agent can't run the User's model without end; fails_when=more checks than the hour's limit are started
+  it("starts no more checks in an hour than the limit, and again an hour on", async () => {
+    let now = 0;
+    const access = accessChecking(
+      async () => CHECKED,
+      () => now,
+    );
+    for (let started = 0; started < MAX_CHECKS_AN_HOUR; started++) {
+      await access.checkMind({ mindId: "note" });
+    }
+    await expect(access.checkMind({ mindId: "note" })).rejects.toMatchObject({
+      problem: "too-many",
+      message: `This agent has started ${MAX_CHECKS_AN_HOUR} checks in the last hour, which is the most it may. Try again later.`,
+    });
+    now = 3_600_001;
+    expect(await access.checkMind({ mindId: "note" })).toMatchObject({ status: "checked" });
+
+    // A call that sent nothing, as while the window's own Check holds the Note, isn't counted.
+    const waiting = accessChecking(async () => ({ asked: true, result: { kind: "running" } }));
+    for (let asked = 0; asked <= MAX_CHECKS_AN_HOUR; asked++) {
+      expect(await waiting.checkMind({ mindId: "note" })).toMatchObject({ status: "running" });
+    }
   });
 });
 

@@ -44,6 +44,7 @@ import {
   type AgentAccessDeps,
   AgentRefusedError,
   createAgentAccess,
+  createCheckRuns,
 } from "./access";
 import { createAgentCitations } from "./citations";
 import type { ServedConnection } from "./mcp";
@@ -101,6 +102,7 @@ export interface AgentsOptions {
     | "admit"
     | "record"
     | "notesWrittenSince"
+    | "checkRuns"
     | "citations"
     | "clock"
     | "now"
@@ -430,6 +432,7 @@ export function createAgents(options: AgentsOptions) {
     admit,
     record,
     notesWrittenSince,
+    checkRuns: createCheckRuns(),
     citations,
     clock: options.clock,
     now: options.now,

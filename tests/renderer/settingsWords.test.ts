@@ -82,6 +82,8 @@ const ERROR =
 const CONSENT_FACTS = [
   "agents.connect.allUnfiled",
   "agents.connect.body",
+  // What the leave to write allows: a check of its notes goes to the User's AI model (#3317).
+  "agents.propose.hint",
   "connectors.directory.where.body",
   "connectors.form.sends",
   "connectors.import.sends",

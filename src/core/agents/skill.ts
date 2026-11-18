@@ -40,4 +40,6 @@ IncarnaMind holds the User's own Documents and Notes, limited to the Folders the
 \`show_citation\` opens a \`[cite:…]\` in IncarnaMind, at its quote, when the User wants to see a source. \`list_minds\` and \`read_mind\` read the User's Notes.
 
 When the User asks for a document of their own (a report, a summary, a draft), \`create_mind\` writes it as a new Note in IncarnaMind, with a token after each claim: they see it there at once, each Citation checked. It is refused unless they let you write.
+
+Then \`check_mind\` on that Note. IncarnaMind checks every claim in it against the User's Documents, cited or not, and lists each one that is unsupported or contradicted, with what the Document says. When it answers "running", call it again. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
 `;
