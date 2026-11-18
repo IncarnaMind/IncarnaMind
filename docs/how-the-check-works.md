@@ -42,18 +42,18 @@ A sentence can give a figure that no Passage states because it is worked out ove
 - The same value is `Supported`, and another value is `Needs a look · Contradicted`, with the value the rows give. The card's `Show how it was worked out` opens the rows read and the code.
 - IncarnaMind confirms one thing itself: that the code finished, on the whole file. A run that failed, took longer than a minute or couldn't start leaves the sentence `Not checked` with the reason, and so does a file with more rows than a check reads (20,000). It is never a ✓.
 - It rests on the code the model wrote. The check doesn't judge whether that is the right way to work the figure out, so open the code where the figure matters.
-- A check that runs by itself, such as the contradiction check after a new version of a Document, never runs code.
+- A check that runs by itself, such as the check of what the assistant writes or the contradiction check after a new version of a Document, never works a figure out over a file's rows.
 
 ### A sentence about the Library itself
 
-No Document says how many Documents your Library holds, what they are called or where they are filed. In a check you start, the model counts it. It writes code, IncarnaMind runs that code on this computer over its own lists of your Documents (name, kind, Folder, Tags), your Folders and your other Notes, and the model compares the count with the sentence.
+No Document says how many Documents your Library holds, what they are called or where they are filed. In a check you start, and in the check that runs by itself on what the assistant writes, the model counts it. It writes code, IncarnaMind runs that code on this computer over its own lists of your Documents (name, kind, Folder, Tags), your Folders and your other Notes, and the model compares the count with the sentence.
 
 - The same count is `Supported`, and another is `Needs a look · Contradicted`. The card names your Library and what was counted, and `Show how it was worked out` shows the code.
 - The lists stay on this computer: the model gets back only the numbers its code gives.
 - A Folder that keeps its work inside it is counted only for a Note in that Folder.
 - When your Library changes afterwards, the sentence reads `Needs a look · Needs re-check`.
 - The lists hold names, kinds, Folders and Tags only. They settle no sentence about what a Document says.
-- A check that runs by itself never runs code, and some models can't. There such a sentence reads `Needs a look · Not found`.
+- The contradiction check after a new version of a Document doesn't count it, and neither can a model that can't run code or a computer without Python. There such a sentence reads `Needs a look · Not found`.
 
 ### A table or figure from an Analysis
 

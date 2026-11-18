@@ -119,7 +119,8 @@ export interface ClaimCheckRequest {
    * What of the checks flow this check may send, the consent it was prepared on; all of it when
    * left out. Without "worked-figures" (the contradiction watch's), how its figures were worked
    * out stays on this computer, and the sentence is judged from the Passages alone. Without
-   * "analysis-results" (a check the User didn't start), no code runs over a data file's rows.
+   * "analysis-results" (a check the User didn't start), no code runs over a data file's rows;
+   * without "library-counts", none counts the Library's own lists.
    */
   sends?: readonly DataKind[];
   /** The Run reads the document being checked (#97): it is third-party from its start. */
@@ -249,18 +250,20 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const sends = (kind: DataKind) => request.sends === undefined || request.sends.includes(kind);
   // A figure over a data file's rows is worked out again where the model can run code, the User
   // started the check, and a sheet or a CSV file is there to read (#3282); a sentence about the
-  // Library itself is worked out from the Library's own lists (#2525).
+  // Library itself is worked out from the Library's own lists (#2525), in a check that runs by
+  // itself too (#3357).
   const sheets = deps.documents.searchableHasSheets?.(request.scope.documentIds) === true;
+  const rows = sends("analysis-results");
+  const libraryLists = sends("library-counts") ? listsFor(deps, request) : undefined;
   const runtime =
     model.support === "tools" &&
     offersAnalysis(model.capabilities) &&
-    sends("analysis-results") &&
     deps.analysisRuntime?.languages.some((each) => each.language === "python") &&
-    (sheets || listsFor(deps, request) !== undefined)
+    ((rows && sheets) || libraryLists !== undefined)
       ? deps.analysisRuntime
       : undefined;
   const { scoped, session, decisions, citedShown, looked, searches, tools, workings, libraryRead } =
-    setUpRun(deps, request, results, calculates, runtime);
+    setUpRun(deps, request, results, calculates, runtime && { runtime, rows, lists: libraryLists });
   let court: Awaited<ReturnType<typeof courtDecisions>>;
   try {
     court = await courtDecisions(decisions, scoped, signal);
@@ -311,7 +314,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     },
   ];
   const language = deps.language();
-  const countsLibrary = runtime !== undefined && listsFor(deps, request) !== undefined;
+  const countsLibrary = runtime !== undefined && libraryLists !== undefined;
   let reply = "";
   let setAside: readonly string[] = [];
   let failed: ProviderError | null = null;
@@ -324,7 +327,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         options?.passages,
         request.callIn !== undefined,
         calculates,
-        runtime !== undefined && sheets,
+        runtime !== undefined && rows && sheets,
         countsLibrary,
       ),
     messages: [

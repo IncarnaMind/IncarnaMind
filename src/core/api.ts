@@ -9892,6 +9892,7 @@ export const dataKinds = [
   "calendar-request",
   "checked-sentences",
   "worked-figures",
+  "library-counts",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];

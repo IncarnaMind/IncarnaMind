@@ -8,12 +8,16 @@ import {
   MIND_SETTINGS_FIELD,
   type WrittenCheckProgress,
 } from "../../src/core";
+import type { AnalysisRuntime } from "../../src/core/adapters";
+import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { CLAIM_TIME_LIMIT_MS } from "../../src/core/answers/checks/runCheck";
 import { OLLAMA_CLOUD } from "../../src/core/providers/ollamaCloud";
+import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { reasonText } from "../../src/renderer/src/cost";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
+import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { INLINE_NODE } from "../../src/shared/sentences";
 import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import {
@@ -138,6 +142,8 @@ interface Writing {
   sortTimeLimit?: () => AbortSignal;
   /** Hears the model call its writing Tool. */
   writes?: () => void;
+  /** Where a check's code runs: absent, no Python on this computer. */
+  analysisRuntime?: AnalysisRuntime;
 }
 
 const RECORD_FILE: NonNullable<Writing["record"]> = {
@@ -389,6 +395,8 @@ async function write(
     writing.record,
     writing.untitled,
     writing.sortTimeLimit,
+    undefined,
+    writing.analysisRuntime && { analysisRuntime: writing.analysisRuntime },
   );
   started = core;
   await onStart?.({ core, client, mindId, service, calls });
@@ -3320,5 +3328,222 @@ describe("What the assistant writes waits for the User's Check, unless they have
 
     expect(change).toBeDefined();
     expect(change).not.toHaveProperty("selfCheck");
+  });
+});
+
+/** A second Document, in a Folder of its own, whose name no request of the tests below needs. */
+const PILOTAGE = {
+  name: "Pilotage tariff.md",
+  folder: "Port dues",
+  contents: "# Pilotage\n\nPilotage is compulsory above 80 metres.\n",
+};
+const LEDGER = {
+  name: "Quay ledger.csv",
+  contents: "Region,Month,Amount\nNorth,2026-01,120\nNorth,2026-02,150\nSouth,2026-01,80",
+};
+const LIBRARY_RIGHT = "Your Library holds two Documents.";
+const LIBRARY_WRONG = "Your Library holds five Documents.";
+const ORDERS_TOTAL = "North's orders came to 270 in 2026.";
+const COUNT_CODE = 'result("documents", len(inputs["files"]))';
+const COUNTED_REPLIES: Record<string, string> = {
+  [LIBRARY_RIGHT]:
+    "Verdict: supported\nExplanation: The Library's list of Documents has two rows.\nEvidence: []\nWorking: Counted the rows of the Documents list, giving 2.",
+  [LIBRARY_WRONG]:
+    "Verdict: contradicted\nExplanation: The Library's list of Documents has two rows, not five.\nEvidence: []\nWorking: Counted the rows of the Documents list, giving 2.\nChange 1: five\nTo 1: two",
+};
+const libraryFigure = (name: string, value: number) =>
+  ({ kind: "figure", name, label: name, unit: null, value }) as const;
+/** The count the code names, then one whose name it worked out from a row, and what it printed. */
+const countedTo = (value: number): FakeAnswer => ({
+  output: {
+    results: [libraryFigure("documents", value), libraryFigure("Pilotage tariff", 1)],
+    printed: `Pilotage tariff\n${PILOTAGE.folder}\n`,
+  },
+});
+
+/**
+ * A check of a sentence `replies` names: it counts the Library's Documents list where it is offered
+ * code, else searches; then replies as `replies` says. Any other sentence: as `PLANS` says.
+ */
+const countsLibrary =
+  (replies: Record<string, string>) =>
+  (call: ModelCall): ScriptedReply | null => {
+    const reply = replies[sentenceOf(call)];
+    if (reply === undefined) return null;
+    const offered = call.tools.includes(ANALYSIS_TOOLS.run);
+    const ran = call.results.some((result) => result.tool === ANALYSIS_TOOLS.run);
+    const searched = call.results.some((result) => result.tool === "search_documents");
+    if (offered && !ran) {
+      const inputs = [{ name: "files", library: "documents" }];
+      return {
+        calls: [
+          { tool: ANALYSIS_TOOLS.run, input: { title: "Documents", inputs, code: COUNT_CODE } },
+        ],
+      };
+    }
+    if (!offered && !searched)
+      return { calls: [{ tool: "search_documents", input: { query: "Library Documents" } }] };
+    return { text: reply };
+  };
+
+/**
+ * Adds the pilotage tariff, in its own Folder, and the ledger beside the tides line, where the
+ * write's check searches, before the write.
+ */
+async function addPilotageAndLedger({ core }: { core: Core }) {
+  const sources = await createTempDataFolder();
+  const [pilotage, ledger] = await addAndProcess(core, [
+    await writeSourceFile(sources, PILOTAGE.name, PILOTAGE.contents),
+    await writeSourceFile(sources, LEDGER.name, LEDGER.contents),
+  ]);
+  const dues = await core.createLibraryGroup({ name: PILOTAGE.folder, description: "" });
+  if (pilotage) await core.moveToFolder({ documentIds: [pilotage.id], folderId: dues.id });
+  const coast = (await core.getLibrary()).groups.find((group) => group.name === "Coast");
+  if (ledger && coast) await core.moveToFolder({ documentIds: [ledger.id], folderId: coast.id });
+}
+
+/** What the check of a write told its model, every request of it. */
+const sentToChecks = (calls: readonly ModelCall[]) =>
+  JSON.stringify(calls.filter(isCheckRun).map((call) => call.options));
+
+const CLAUDE = { kind: "anthropic", modelId: "claude-haiku-5-5" } as const;
+const COUNTS_LISTS = "count the lists before you search";
+const WORKS_OUT_ROWS = "is not stated by the few rows a Passage shows";
+
+describe("A sentence about the Library that the assistant writes is counted as it lands (#3357)", {
+  timeout: 30_000,
+}, () => {
+  // protects=a count of the Library the assistant wrote gets its mark with no Check pressed: the check that runs by itself counts the Library's own lists in code, the right number is Supported and the wrong one Contradicted, each resting on the Library's row; fails_when=such a sentence reads Not found, Partly supported or Overstated for want of a Passage, or its mark waits for a Check; no_claim=that a real model writes the right code, which the real-model run measures.
+  test("a count it wrote is worked out from the lists: the right one Supported, the wrong one Contradicted", async () => {
+    const runtime = createFakeAnalysisRuntime({ answer: () => countedTo(3) });
+    const { core, client } = await write(
+      {
+        content: `## Library\n\n${LIBRARY_RIGHT} ${LIBRARY_WRONG}`,
+        cloud: CLAUDE,
+        analysisRuntime: runtime,
+        check: countsLibrary(COUNTED_REPLIES),
+      },
+      addPilotageAndLedger,
+    );
+
+    expect(
+      (await marksIn(core, client)).map(({ sentence, check }) => [
+        sentence,
+        check.state,
+        check.evidence?.documentId,
+      ]),
+    ).toEqual([
+      [LIBRARY_RIGHT, "supported", LIBRARY_FACTS],
+      [LIBRARY_WRONG, "contradicted", LIBRARY_FACTS],
+    ]);
+    expect(runtime.jobs).toHaveLength(2);
+    expect(runtime.jobs[0]?.inputs[0]).toMatchObject({
+      name: "files",
+      rows: expect.arrayContaining([expect.arrayContaining(["Pilotage tariff", PILOTAGE.folder])]),
+    });
+  });
+
+  // protects=the lists stay on this computer in the check that runs by itself, as in one the User starts: its model is told only the numbers its code named, never a row, a Document's or a Folder's name, what the code printed or a name the code worked out from a row; fails_when=a request of the automatic check holds a list's row, name or Folder; no_claim=what the check of a Passage sends, which is as before.
+  test("no row, name or Folder of the lists reaches the check's model", async () => {
+    const { calls } = await write(
+      {
+        content: `## Library\n\n${LIBRARY_RIGHT}`,
+        cloud: CLAUDE,
+        analysisRuntime: createFakeAnalysisRuntime({ answer: () => countedTo(3) }),
+        check: countsLibrary(COUNTED_REPLIES),
+      },
+      addPilotageAndLedger,
+    );
+
+    const sent = sentToChecks(calls);
+    expect(sent).toContain("- documents: 3");
+    for (const listed of ["Pilotage", PILOTAGE.folder, "Quay ledger"]) {
+      expect(sent).not.toContain(listed);
+    }
+  });
+
+  // protects=working a figure out over a data file's rows stays in checks the User starts: the check that runs by itself is told nothing of rows, and a Passage given to its code is refused in words the model can act on, with nothing run; fails_when=the automatic check's code reads a sheet or CSV file, or its model is told to; no_claim=the verdict the model then gives.
+  test("its code reads no data file's rows, and says so to the model", async () => {
+    const runtime = createFakeAnalysisRuntime({ answer: () => countedTo(3) });
+    const { calls } = await write(
+      {
+        content: `## Orders\n\n${ORDERS_TOTAL}`,
+        cloud: CLAUDE,
+        analysisRuntime: runtime,
+        check: (call) => {
+          if (sentenceOf(call) !== ORDERS_TOTAL) return null;
+          const search = call.results.find((result) => result.tool === "search_documents");
+          if (!search)
+            return { calls: [{ tool: "search_documents", input: { query: "North orders" } }] };
+          const orders = shownPassages(search.text).find((each) => each.text.includes("North"));
+          if (!call.results.some((result) => result.tool === ANALYSIS_TOOLS.run)) {
+            const inputs = [{ name: "orders", passage: orders?.id }];
+            const code = 'result("north", inputs["orders"]["Amount"].sum())';
+            return {
+              calls: [{ tool: ANALYSIS_TOOLS.run, input: { title: "North", inputs, code } }],
+            };
+          }
+          return {
+            text: "Verdict: not found\nExplanation: No Passage gives the total.\nEvidence: []",
+          };
+        },
+      },
+      addPilotageAndLedger,
+    );
+
+    const checks = calls.filter(isCheckRun);
+    expect(checks[0]?.tools).toContain(ANALYSIS_TOOLS.run);
+    expect(checks[0]?.system).toContain(COUNTS_LISTS);
+    expect(checks[0]?.system).not.toContain(WORKS_OUT_ROWS);
+    const told = checks.flatMap((call) => call.results).find((r) => r.tool === ANALYSIS_TOOLS.run);
+    expect(told?.text).toContain("Nothing ran");
+    expect(told?.text).toContain("only a check the User starts");
+    expect(runtime.jobs).toEqual([]);
+  });
+
+  // protects=a User who allowed checks before they counted the Library's lists isn't asked as the assistant writes, and nothing is sent: the write waits, saying why, and the next Check they start asks for the counts alone, as a new kind of data asks (ADR-0022); fails_when=the write is checked on the earlier consent, asks in the background, or the Check asks for something else; no_claim=the consent dialog's words.
+  test("allowed before checks counted the Library's lists, the write waits and a Check asks for the counts", async () => {
+    const asked: string[][] = [];
+    const { core, calls, change, client } = await write(
+      {
+        content: `## Library\n\n${LIBRARY_RIGHT}`,
+        cloud: CLAUDE,
+        analysisRuntime: createFakeAnalysisRuntime({ answer: () => countedTo(2) }),
+        check: countsLibrary(COUNTED_REPLIES),
+      },
+      async ({ core: started, service }) => {
+        const checks = started.dataFlows.get("checks");
+        if (!service || !checks) throw new Error("The checks flow to the model isn't set up.");
+        await started.revokeConsent("checks", service);
+        started.dataFlows.register({
+          ...checks,
+          sends: checks.sends.filter((kind) => kind !== "library-counts"),
+        });
+        await started.allowDataFlow("checks", service);
+        started.dataFlows.register(checks);
+        started.on("consent.requested", (request) => asked.push([...request.newKinds]));
+      },
+    );
+
+    expect(asked).toEqual([]);
+    expect(calls.some(isCheckRun)).toBe(false);
+    expect((await marksIn(core, client)).map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "consent-widened"],
+    ]);
+    expect(change?.selfCheck).toMatchObject({ blocked: { reason: "consent-widened", count: 1 } });
+
+    const paragraph = change?.selfCheck?.blocks?.[1];
+    if (!paragraph || !change) throw new Error("The write has no paragraph.");
+    await resolveChanges(client, "accept");
+    await core.checkSentences({
+      requestId: "review-consent",
+      mindId: change.mindId,
+      action: "check-against-documents",
+      from: { blockId: paragraph, offset: 0 },
+      to: { blockId: paragraph, offset: paragraphText(client, 1).length },
+    });
+
+    expect(asked).toEqual([["library-counts"]]);
+    expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual(["supported"]);
   });
 });

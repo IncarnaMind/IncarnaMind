@@ -33,8 +33,11 @@ const ANALYSIS_PROVIDER: ToolProviderInfo = { kind: "analysis", id: "analysis", 
 
 export interface AnalysisToolOptions {
   runtime: AnalysisRuntime;
-  /** A Passage the model was given, by its id ("P3"), and the Units of the Document version it is of. */
-  passage(id: string): { source: CitationSource; units: UnitText[] } | null;
+  /**
+   * A Passage the model was given, by its id ("P3"), and the Units of the Document version it is
+   * of; or why its rows can't be read here.
+   */
+  passage(id: string): { source: CitationSource; units: UnitText[] } | { problem: string } | null;
   /** A number in a quote, read as `calculate` reads an input; or why it can't be. */
   number(given: unknown): { input: FigureInput } | { problem: string };
   /** Records a figure the Analysis gave as one of the Answer's calculated figures: its marker. */
@@ -229,6 +232,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     const found = options.passage(passageId);
     if (!found)
       return { ok: false, problem: `${passageId || "passage"} isn't a Passage you were given` };
+    if ("problem" in found) return { ok: false, problem: found.problem };
     const { source, units } = found;
     const parsed = parseRange(text(given.range) || undefined);
     if (!parsed.ok) return { ok: false, problem: parsed.problem };
