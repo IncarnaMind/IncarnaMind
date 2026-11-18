@@ -57,10 +57,12 @@ import {
 } from "./checkCardHold";
 import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
+import { EveryResultSwitch } from "./EveryResultSwitch";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
+import { useEveryCheckResult } from "./useEveryCheckResult";
 import { useVerificationBrief } from "./VerifyBrief";
 import { useVerifyState, VerifyAsk, VerifyCard, verifyDone } from "./VerifyLine";
 import { shownPhase } from "./verifyPhase";
@@ -141,6 +143,7 @@ function MindBadge({
     [unexaminedKeys],
   );
   const health = useHealth(editor, skipped, unexamined, doc);
+  const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
@@ -197,6 +200,13 @@ function MindBadge({
       <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
       <ContradictionLine doc={doc} mindId={mindId} />
       <CheckFasterLine status={checkDecision} />
+      {editor.isEditable &&
+        (everyResult ||
+          health.supported > 0 ||
+          health.ownViews.length > 0 ||
+          health.notYetCited.length > 0) && (
+          <EveryResultSwitch doc={doc} testId="checks-every-result" />
+        )}
     </BadgeFrame>
   );
 }
@@ -735,7 +745,7 @@ function BadgePill({
           </span>
         )}
         {state.kind === "not-yet-cited" && (
-          <span className="check-badge-short">{format(state.notYetCited)}</span>
+          <span className="check-badge-short">{format(state.canBeCited)}</span>
         )}
         {state.kind === "checked" && state.checkedAt !== null && (
           <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>

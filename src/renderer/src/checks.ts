@@ -28,9 +28,10 @@ import {
   quotedWordsAt,
 } from "../../shared/citations";
 import { core } from "./core";
-import { citationDecision, partDecisions } from "./editor/alreadyCited";
+import { citationDecision, citationsOf, partDecisions } from "./editor/alreadyCited";
 import type { NumberedCitation } from "./editor/citationNumbers";
 import {
+  canBeCited,
   claimSpans,
   foundElsewhere,
   placeInSentence,
@@ -512,21 +513,31 @@ export function addPartCitations(
 }
 
 /**
- * The Passages of the Note's sentences that are Supported, not yet cited, each where its part's row
- * would add it: what the panel's row adds all together (#3019).
+ * The Passages of the Note's sentences that can be cited, each where its part's row would add it:
+ * what the panel's row adds all together. Those of a sentence Supported, not yet cited (#3019), and
+ * those of a supported one that no Citation of it is on yet (#3358).
  */
 export function foundCitationInserts(state: EditorState): CitationInserts {
   return shownClaims(state).flatMap((claim) => {
-    if (claim.kind === "chart" || !foundElsewhere(claim)) return [];
-    const inserts = partCitationInserts(state, claim, [...waitingParts(claim)]);
+    if (claim.kind === "chart") return [];
+    const parts = foundElsewhere(claim)
+      ? [...waitingParts(claim)]
+      : canBeCited(
+            claim,
+            citationsOf(state, claim).map((each) => each.attributes),
+          )
+        ? (claim.check.parts ?? []).filter((part) => part.verdict === "supported")
+        : [];
+    if (parts.length === 0) return [];
+    const inserts = partCitationInserts(state, claim, parts);
     return inserts === "changed" ? [] : inserts;
   });
 }
 
 /**
- * Adds every Passage of the Note's sentences that are Supported, not yet cited, as one step of Undo
- * (#3019): their ✓ shows at once, with no new request. A sentence edited since its check reads
- * needs re-check, so it is left as it is; one deleted has no mark.
+ * Adds every Passage of the Note's sentences that can be cited, as one step of Undo (#3019, #3358):
+ * each sentence keeps its check, so its ✓ shows at once, with no new request. A sentence edited
+ * since its check reads needs re-check, so it is left as it is; one deleted has no mark.
  */
 export function addFoundCitations(editor: Editor): number {
   const inserts = foundCitationInserts(editor.state);

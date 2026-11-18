@@ -1,10 +1,9 @@
 /*
- * A Passage the check of what the assistant wrote finds goes into the Note only inside the write's
- * own change, while that change still waits for the User (#3019). This check runs after the
- * reply (#2830), and the window applies a reply's changes as its Answer ends: by the time a
- * verdict lands, the change is usually the User's, so the check writes nothing and the sentence
- * reads Supported, not yet cited, for Add as Citation or Add all. A change the rule for asked
- * changes holds back still waits, and the Passage rides in it.
+ * A Passage the check of what the assistant wrote finds goes into the Note as that sentence's
+ * Citation (#3019, #3358). This check runs after the reply (#2830), and the window applies a
+ * reply's changes as its Answer ends: by the time a verdict lands, the change is usually applied,
+ * and the Passage goes into the assistant's own words, as if it had cited it. A change the rule
+ * for asked changes holds back still waits, and the Passage rides in it.
  *
  * The window applies them when "conversation.message" brings the ended Answer: for a Note open
  * in no editor, with `core.applyAskedChanges` and each changed Note's requests from
@@ -63,7 +62,6 @@ const PLANS: Record<string, Plan> = {
   [EARLY]: { verdict: "supported", quote: DAWN, says: DAWN, judgement: "same" },
 };
 const WRITTEN = `## Harbour\n\n${SENTENCE.slice(0, -1)}[^1]. ${EARLY.slice(0, -1)}[^1].`;
-const NOT_YET_CITED = { state: "not-checked", reason: "found-elsewhere" };
 
 /**
  * The assistant cites the closing line and writes both sentences into the Note in front; with
@@ -230,33 +228,21 @@ async function writtenThenApplied(takesOut: boolean) {
 describe("A Passage the check finds once the reply's changes are the User's", {
   timeout: 30_000,
 }, () => {
-  // protects=with the reply's changes applied as the window applies them when the Answer ends, the check that lands after writes nothing into the Note: each sentence reads Supported, not yet cited; Add as Citation cites one, and Add all every one of that check, each with one Undo (#3019, #2830); fails_when=the check writes a Citation into words that are the User's, a sentence reads ✓ with no Citation that says it, or Add and its Undo don't round-trip; no_claim=how the card draws it.
-  test("applied when the Answer ends, the check writes nothing; Add as Citation and Add all cite, each with one Undo", async () => {
+  // protects=with the reply's changes applied as the window applies them when the Answer ends, the check that lands after puts each Passage it found in the assistant's own words as that sentence's Citation, after the one the assistant gave it, with no waiting change, so each sentence reads Supported and nothing is left to add (#3358, #3019, #2830); fails_when=the check writes nothing, writes a waiting change, a sentence reads Supported, not yet cited, or a second Citation goes on words already cited; no_claim=how the card draws it.
+  test("applied when the Answer ends, the check cites in the assistant's own words", async () => {
     const { client, held, editor } = await writtenThenApplied(false);
 
     expect(held).toEqual([false]);
     expect(pendingProposals(client.blocks)).toEqual([]);
     expect(citationsIn(editor).map((each) => [each.quote, each.foundByCheck ?? null])).toEqual([
       [OTHER, null],
+      [expect.stringContaining(LINE), true],
       [OTHER, null],
+      [expect.stringContaining(DAWN), true],
     ]);
-    expect(shownIn(editor)).toEqual([NOT_YET_CITED, NOT_YET_CITED]);
-
-    const [first] = shownClaims(editor.state);
-    if (!first) throw new Error("The first sentence has no check.");
-    expect(addAsCitation(editor, first)).toBe(true);
-    expect(shownIn(editor)).toEqual([{ state: "supported" }, NOT_YET_CITED]);
-    expect(foundIn(editor)).toEqual([expect.stringContaining(LINE)]);
-    editor.commands.undo();
-    expect(shownIn(editor)).toEqual([NOT_YET_CITED, NOT_YET_CITED]);
-    expect(foundIn(editor)).toEqual([]);
-
-    expect(addFoundCitations(editor)).toBe(2);
     expect(shownIn(editor)).toEqual([{ state: "supported" }, { state: "supported" }]);
-    expect(foundIn(editor)).toEqual([expect.stringContaining(LINE), expect.stringContaining(DAWN)]);
-    editor.commands.undo();
-    expect(shownIn(editor)).toEqual([NOT_YET_CITED, NOT_YET_CITED]);
-    expect(foundIn(editor)).toEqual([]);
+    expect(addFoundCitations(editor)).toBe(0);
+    expect(shownClaims(editor.state).every((claim) => !addAsCitation(editor, claim))).toBe(true);
   });
 
   // protects=a change the rule for asked changes holds back, here a removal in the same turn said to only take text out that does more, still waits when the check lands, and the found Passages ride in it as each part's Citation: rejecting the change takes them with it (#3019); fails_when=a found Passage is left out of the waiting change or lands outside it; no_claim=whether the rule should hold this reply.

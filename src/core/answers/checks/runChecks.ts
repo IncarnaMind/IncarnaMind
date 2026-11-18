@@ -66,6 +66,8 @@ export interface RunChecksOptions extends CheckRuns {
   withResult: WithResult;
   /** Keeps the text of the evidence the Mind's checks show (#79). */
   retainEvidence(mindId: string): void;
+  /** What a landed check's sentence becomes besides its mark: the Passages it found cited (#3358). */
+  landed?(blocks: Y.XmlFragment, checkId: string): void;
 }
 
 type WithResult = (
@@ -344,11 +346,14 @@ export async function runChecks(
   const write = (
     id: string,
     change: (check: ClaimCheckAttributes, blocks: Y.XmlFragment) => ClaimCheckAttributes,
+    then?: (blocks: Y.XmlFragment) => void,
   ) => {
     if (signal.aborted) return false;
-    const kept = options.content.edit(mindId, (blocks) =>
-      updateCheck(blocks, id, (check) => change(check, blocks)),
-    );
+    const kept = options.content.edit(mindId, (blocks) => {
+      const changed = updateCheck(blocks, id, (check) => change(check, blocks));
+      if (changed) then?.(blocks);
+      return changed;
+    });
     if (kept) options.retainEvidence(mindId);
     return kept;
   };
@@ -362,20 +367,24 @@ export async function runChecks(
   const land = (claim: QueuedClaim, result: ClaimCheckResult) => {
     const at = options.now().toISOString();
     const first = leaning.get(claim);
-    const landed = write(claim.id, (each, blocks) => {
-      const mark = options.withResult(
-        each,
-        result,
-        at,
-        blocks,
-        mindId,
-        claim.claim,
-        claim.priorParts,
-        null,
-        claim.previous,
-      );
-      return first ? withFirstReading(mark, first) : mark;
-    });
+    const landed = write(
+      claim.id,
+      (each, blocks) => {
+        const mark = options.withResult(
+          each,
+          result,
+          at,
+          blocks,
+          mindId,
+          claim.claim,
+          claim.priorParts,
+          null,
+          claim.previous,
+        );
+        return first ? withFirstReading(mark, first) : mark;
+      },
+      (blocks) => options.landed?.(blocks, claim.id),
+    );
     if (landed && result.verdict !== "not-checked") checked++;
   };
   const written = (change: () => void) => {

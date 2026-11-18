@@ -1,4 +1,5 @@
 import { allOrigins, conversationOrigin } from "../../../shared/blockOrigins";
+import { everyCheckResultOf, setEveryCheckResult } from "../../../shared/everyCheckResult";
 import { countShownOf, setCountShown } from "../../../shared/mindWordCount";
 import { openOrigin } from "../editor/originActions";
 import { useShownPages } from "../shownPages";
@@ -43,6 +44,26 @@ export const pageCommands: readonly Command[] = [
     run: (ctx) => {
       const doc = pageShown(ctx);
       if (doc) setCountShown(doc, !countShownOf(doc));
+    },
+  },
+  {
+    id: "mind.everyCheckResult",
+    label: (ctx, t) => {
+      const doc = pageShown(ctx);
+      return t(
+        doc && everyCheckResultOf(doc)
+          ? "checks.everyResult.hide.command"
+          : "checks.everyResult.show.command",
+      );
+    },
+    keywords: ["checks.everyResult.keywords"],
+    group: "main",
+    // Run again, it switches back; the Note's text doesn't change.
+    reversible: true,
+    when: (ctx) => onlyOne(ctx) && pageShown(ctx) !== null,
+    run: (ctx) => {
+      const doc = pageShown(ctx);
+      if (doc) setEveryCheckResult(doc, !everyCheckResultOf(doc));
     },
   },
 ];

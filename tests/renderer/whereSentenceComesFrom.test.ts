@@ -358,8 +358,8 @@ describe.each(["en", "zh-CN"] as const)("a verdict worked out (%s)", (language) 
   });
 });
 
-// protects=in the Note, a Supported verdict the check worked out carries a quiet dotted line; a sentence the Documents state and a writer's own view carry nothing, and a contradiction keeps its wash however it was reached (#3322); fails if a worked-out sentence looks the same as a stated one, or a view looks like a kind of working
-test("the Note's line says which Supported sentences were worked out", () => {
+// protects=with every result shown, a Supported verdict the check worked out carries a quiet dotted line, and by default nothing, as a Supported sentence shows nothing (#3358); a sentence the Documents state and a writer's own view carry nothing, and a contradiction keeps its wash however it was reached (#3322); fails if a worked-out sentence looks the same as a stated one with every result shown, carries a line by default, or a view looks like a kind of working
+test("the Note's line says which Supported sentences were worked out, with every result shown", () => {
   const { worked, working, workedQuotes, wrong } = EXAMPLES.en;
   const stated = checkOf(worked, wholePart(worked, { evidence: workedQuotes.map(passage) }));
   const reached = checkOf(
@@ -374,9 +374,10 @@ test("the Note's line says which Supported sentences were worked out", () => {
       workedOut: working,
     }),
   );
-  expect(claimWash({ state: "supported" }, stated)).toBeNull();
-  expect(claimWash({ state: "supported" }, reached)).toBe("worked-out");
+  expect(claimWash({ state: "supported" }, stated, true)).toBeNull();
+  expect(claimWash({ state: "supported" }, reached, true)).toBe("worked-out");
+  expect(claimWash({ state: "supported" }, reached)).toBeNull();
   expect(claimWash({ state: "contradicted" }, refuted)).toBe("contradicted");
-  expect(claimWash({ state: "own-view" }, stated)).toBeNull();
-  expect(claimWash({ state: "needs-recheck", why: "edited" }, reached)).toBeNull();
+  expect(claimWash({ state: "own-view" }, stated, true)).toBeNull();
+  expect(claimWash({ state: "needs-recheck", why: "edited" }, reached, true)).toBeNull();
 });

@@ -33,7 +33,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
-import { restsElsewhere } from "../../../shared/citedNow";
+import { passageToAdd } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";
 import { isOwnView, partsWrittenBy, planOf } from "../../../shared/claimParts";
 import { readTableBinding } from "../../../shared/figureRuns";
@@ -97,6 +97,7 @@ import {
 } from "./runCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
+  checkedSentences,
   checkText,
   citedQuoteOf,
   figuresByBlock,
@@ -392,18 +393,18 @@ interface FoundCitation {
 }
 
 /**
- * The Passages a check of a sentence the assistant wrote found for its Supported parts that its
- * Citations don't hold (#3019): each becomes that part's Citation inside the assistant's own change,
- * in its number series, accepted or rejected with the rest. The verdict stays the model's.
+ * The Passages a check of a sentence the assistant wrote found for its Supported parts that no
+ * Citation of it is on yet (#3019, #3358): each becomes that part's Citation, in its number series,
+ * as if the assistant had cited it, inside its own change while that waits. The verdict stays the
+ * model's.
  */
 function foundCitations(
-  sentence: Sentence,
+  citations: readonly Partial<CitationAttributes>[],
   claim: string,
-  result: ClaimCheckResult,
+  parts: ClaimCheckResult["parts"],
 ): FoundCitation[] {
-  return (result.parts ?? []).flatMap((part) => {
-    if (!restsElsewhere(part, sentence.citations, claim)) return [];
-    const evidence = part.evidence[part.decidingEvidence ?? 0];
+  return (parts ?? []).flatMap((part) => {
+    const evidence = part.verdict === "supported" ? passageToAdd(part, citations) : null;
     return evidence
       ? [
           {
@@ -435,18 +436,18 @@ function waitingBlock(element: Y.XmlElement, change: string): boolean {
 
 /**
  * The sentence `from`..`to` of a paragraph's content as the Note holds it, each found Passage's
- * Citation after its part's words (`at`, in the paragraph's offsets), and how many went in. One
- * goes in only inside the write's change while it still waits, as part of it: after words that
- * change inserts (the nearest words before it, past any Citation), or in a Block it adds. After
- * words the User accepted, or their own, a check writes nothing (#3019); the sentence reads found
- * elsewhere, with Add as Citation on its card.
+ * Citation after its part's words (`at`, in the paragraph's offsets), and how many went in. Inside
+ * the write's change while it still waits, one goes in as part of it: after words that change
+ * inserts (the nearest words before it, past any Citation), or in a Block it adds. Elsewhere one
+ * goes in only where the words are the assistant's own (`assistant`, #3358): in the User's words a
+ * check writes nothing (#3019), and the card and the Note's foot line offer the Citation instead.
  */
 function withFound(
   content: readonly NodeJSON[],
   from: number,
   to: number,
   found: readonly { at: number; citation: CitationAttributes }[],
-  change: { request: string; block: boolean },
+  change: { request: string; block: boolean; assistant: boolean },
 ): { nodes: NodeJSON[]; added: number } {
   const out: NodeJSON[] = [];
   let added = 0;
@@ -457,7 +458,7 @@ function withFound(
     if (!points.has(at) || cited.has(at)) return;
     cited.add(at);
     const ref = waitingInsert(beside, change.request);
-    if (!ref && !change.block) return;
+    if (!ref && !change.block && !change.assistant) return;
     for (const each of found.filter((one) => one.at === at)) {
       added++;
       out.push({
@@ -638,16 +639,15 @@ function land(
     recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
     return true;
   }
-  const mark = landing.mark(
-    blocks,
-    writtenByAssistant(blocks, { element, from: place.from, to: place.to }),
-  );
+  const assistant = writtenByAssistant(blocks, { element, from: place.from, to: place.to });
+  const mark = landing.mark(blocks, assistant);
   const found = place.same ? foundPlaces(blocks, element, place, landing.found ?? []) : [];
   if (found.length > 0) {
     const content = inlineOf(element);
     const cited = withFound(content, place.from, place.to, found, {
       request: change,
       block: waitingBlock(element, change),
+      assistant,
     });
     if (cited.added > 0) {
       syncContent(element, replaced(content, place.from, place.to, withMark(cited.nodes, mark)));
@@ -679,6 +679,34 @@ function foundPlaces(
     if (end === undefined) return [];
     return [{ at: end - citationClosingLength(text.slice(place.from, end)), citation }];
   });
+}
+
+/**
+ * Once a check has landed on a sentence the assistant wrote, puts the Passages its Supported parts
+ * rest on that no Citation of it is on yet as their Citations, after each part's words, as if the
+ * assistant had cited them (#3358). Words the User typed or made theirs, and words a change still
+ * waits on, are left as they are.
+ */
+export function citeFoundPassages(blocks: Y.XmlFragment, checkId: string): void {
+  const held = checkedSentences(blocks).find((each) => each.check.id === checkId);
+  if (!held || held.element.nodeName !== "paragraph") return;
+  const { element, check, sentences } = held;
+  if (pendingProposals(element).length > 0 || !writtenByAssistant(blocks, held)) return;
+  const found = foundPlaces(
+    blocks,
+    element,
+    sentences,
+    foundCitations(held.citations, check.text, check.parts),
+  );
+  if (found.length === 0) return;
+  const content = inlineOf(element);
+  const cited = withFound(content, sentences.from, sentences.to, found, {
+    request: "",
+    block: false,
+    assistant: true,
+  });
+  if (cited.added > 0)
+    syncContent(element, replaced(content, sentences.from, sentences.to, cited.nodes));
 }
 
 interface Run {
@@ -1290,7 +1318,11 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           mindId,
           reads.get(sentence)?.claim,
         );
-      const found = foundCitations(sentence, reads.get(sentence)?.claim ?? sentence.text, result);
+      const found = foundCitations(
+        sentence.citations,
+        reads.get(sentence)?.claim ?? sentence.text,
+        result.parts,
+      );
       landNow(
         { sentence, mark, found },
         (result.verdict === "unsupported" && !isOwnView(result)) ||

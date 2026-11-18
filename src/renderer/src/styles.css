@@ -2041,6 +2041,27 @@
     margin: 0;
     padding: 0 8px 6px;
   }
+  /* "Show every check result" (#3358), the card's last line: its words in the rows' column. */
+  .check-card-switch {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 32px;
+    padding: 0 8px;
+    border-radius: 6px;
+    text-align: start;
+    outline: none;
+
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+    }
+  }
   /* The line about the decision model, last in the card's text column (#3118). */
   .check-card-faster {
     padding: 2px 4px 2px 8px;
@@ -5982,11 +6003,9 @@
     height: 11px;
     flex-shrink: 0;
   }
-  /* An unchecked sentence has no mark on the page (#1941): its button stays as its card's anchor,
-     keeping its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order.
-     One whose ✓ waits on the Passage its check found becoming a Citation shows, to add it (#3019),
-     and so does one a decision model read first, whose reading nothing confirmed (#3118). */
-  .margin-check[data-check="not-checked"]:not([data-waiting], [data-leaning]) {
+  /* A mark that doesn't show (`markShown`, #3358): its button stays as its card's anchor, keeping
+     its box and place, but draws nothing, takes no pointer or focus, and leaves the tab order. */
+  .margin-check[data-quiet] {
     visibility: hidden;
   }
   /* Each check's colours: on its mark, and on its card's state line and quote. */

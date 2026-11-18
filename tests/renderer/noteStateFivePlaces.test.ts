@@ -45,6 +45,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   ownNotes: [],
   supportedAt: [],
   notYetCited: [],
+  citable: [],
   ownViews: [],
   checkable: 0,
   supported: 0,

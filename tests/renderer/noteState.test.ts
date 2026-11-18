@@ -56,6 +56,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   ownNotes: [],
   supportedAt: [],
   notYetCited: [],
+  citable: [],
   ownViews: [],
   checkable: 0,
   supported: 0,
@@ -148,7 +149,9 @@ describe("A note's state (D266)", () => {
       notRecalculated: 0,
       needsCheck: 0,
       notYetCited: 0,
+      canBeCited: 0,
       toCheck: 0,
+      notChecked: 0,
     });
   });
 
@@ -276,6 +279,48 @@ describe("A note's state (D266)", () => {
     const unread = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3, 3) ?? fail();
     expect(en(unread)).toBe("3 files couldn’t be read");
     expect(zh(unread)).toBe("3 个文件未能读取");
+  });
+
+  // protects=the Note's foot line keeps "N need a look" first and also says what wasn't checked and what can be cited, the sentences Supported, not yet cited and the supported ones with a Passage to add counted together, in English and Chinese; a Note with nothing to look at is still Checked, naming what can be cited (#3358); fails_when=the line drops a count, counts a sentence twice, or turns a Note whose ✓ only lacks a Citation away from Checked; no_claim=the badge's look.
+  test("says what needs a look, what wasn't checked and what can be cited (#3358)", () => {
+    const now = new Date("2026-10-20T18:00:00.000Z");
+    const words = (state: Parameters<typeof noteStateParts>[0], language: "en" | "zh-CN") =>
+      noteStateParts(state, (key, params) => translate(language, key, params), language, now);
+    const look =
+      noteStateOf(
+        health({
+          checkable: 9,
+          unsupported: [0, 6],
+          lookClaims: [0, 6],
+          toCheck: [12],
+          failed: [12],
+          notYetCited: [18],
+          citable: [24, 30],
+          supported: 3,
+          supportedAt: [24, 30, 36],
+          checkedAt: CHECKED_AT,
+        }),
+      ) ?? fail();
+    expect(look).toMatchObject({ kind: "needs-look", look: 2, notChecked: 1, canBeCited: 3 });
+    expect(words(look, "en")).toEqual(["2 need a look", "1 not checked", "3 can be cited"]);
+    expect(words(look, "zh-CN")).toEqual(["需要留意 2 处", "1 句未核对", "3 句可添加引用"]);
+    const citable =
+      noteStateOf(
+        health({
+          checkable: 2,
+          citable: [0],
+          supported: 2,
+          supportedAt: [0, 6],
+          checkedAt: CHECKED_AT,
+        }),
+      ) ?? fail();
+    expect(citable).toMatchObject({ kind: "checked", tone: "success", canBeCited: 1 });
+    const when = formatDateTime(CHECKED_AT, "en", { now });
+    expect(words(citable, "en")).toEqual([`Checked ${when}`, "1 can be cited"]);
+    expect(words(citable, "zh-CN")).toEqual([
+      `已核对 ${formatDateTime(CHECKED_AT, "zh-CN", { now })}`,
+      "1 句可添加引用",
+    ]);
   });
 });
 

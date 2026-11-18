@@ -1,12 +1,12 @@
 /**
- * A Passage the check of the assistant's own sentence found rides in that change only while the
- * change still waits there for the User (#3019). Accepted, rejected or edited while its check
- * runs, the sentence is the User's, and the check writes nothing into it: an accepted one reads
- * found elsewhere, and Add as Citation then shows its ✓ with no request.
+ * A Passage the check of the assistant's own sentence found rides in that change while the change
+ * still waits there for the User (#3019), and goes into the assistant's words as their Citation
+ * once it is accepted (#3358). Rejected, nothing is left; edited while its check runs, the sentence
+ * is the User's, and the check writes nothing into it.
  */
 import type { JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   CITATION_NODE,
@@ -15,15 +15,13 @@ import {
   GENERATED_MARK,
 } from "../../src/core";
 import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
-import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
-import { ClaimChecks, claimsOf, shownClaims } from "../../src/renderer/src/editor/claimChecks";
+import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant } from "../helpers/assistant";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { boundEditor } from "../helpers/editor";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 import {
@@ -33,15 +31,6 @@ import {
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
-
-vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
-vi.mock("../../src/renderer/src/editWithAi", () => ({ resolveProposalsIn: vi.fn() }));
-vi.mock("../../src/renderer/src/modelInUse", () => ({ modelInUseOf: vi.fn() }));
-vi.mock("../../src/renderer/src/store", () => ({
-  useAppStore: { getState: () => ({ documents: [], minds: [], settings: { language: "en" } }) },
-}));
-
-const { addAsCitation } = await import("../../src/renderer/src/checks");
 
 const LINE = "The tide turns twice a day.";
 const OTHER = "The harbour closes at dusk.";
@@ -207,31 +196,21 @@ async function heldWrite(
 }
 
 describe("The assistant's change resolved while its check runs", { timeout: 30_000 }, () => {
-  // protects=a change the User accepts while its check runs leaves the sentence as they accepted it: the check's found Passage is not written into it, the sentence reads found elsewhere, and Add as Citation then shows its ✓ with no request, in English and Chinese (#3019); fails_when=the check puts its Passage into the accepted text by itself, or the ✓ shows without the User's click; no_claim=the card's look.
+  // protects=a change the User accepts while its check runs keeps the assistant's words, so the check puts the Passage it found in as their Citation, after the assistant's own, with no waiting change and no further request, and the sentence reads Supported, in English and Chinese (#3358, #3019); fails_when=the check writes nothing, writes a waiting change, or the ✓ needs another request; no_claim=the card's look.
   test.each([
     [SENTENCE, OTHER, LINE],
     [SENTENCE_ZH, OTHER_ZH, LINE_ZH],
   ])("accepted: %s", async (sentence, writerQuote, found) => {
-    const { client, calls } = await heldWrite(sentence, writerQuote, (note) =>
+    const { client } = await heldWrite(sentence, writerQuote, (note) =>
       resolveChanges(note, "accept"),
     );
     expect(pendingProposals(client.blocks)).toEqual([]);
-    expect(textOf(readMind(client))).toEqual([
-      `${sentence.slice(0, -1)}[${writerQuote}]${sentence.slice(-1)}`,
+    expect(citationsIn(client).map((each) => [each.quote, each.foundByCheck ?? null])).toEqual([
+      [writerQuote, null],
+      [expect.stringContaining(found), true],
     ]);
-    expect(shownIn(client).map((claim) => claim.shown)).toEqual([
-      { state: "not-checked", reason: "found-elsewhere" },
-    ]);
-
-    const asked = calls.length;
-    const editor = boundEditor(client, [CitationNumbers, ClaimChecks]);
-    const [claim] = shownClaims(editor.state);
-    if (!claim) throw new Error("The sentence has no check.");
-    expect(addAsCitation(editor, claim)).toBe(true);
-    expect(shownClaims(editor.state)[0]?.shown).toEqual({ state: "supported" });
-    expect(citationsIn(client).at(-1)?.quote).toContain(found);
-    expect(citationsIn(client).at(-1)?.foundByCheck).toBe(true);
-    expect(calls.length).toBe(asked);
+    expect(textOf(readMind(client))[0]?.endsWith(sentence.slice(-1))).toBe(true);
+    expect(shownIn(client).map((claim) => claim.shown)).toEqual([{ state: "supported" }]);
   });
 
   // protects=a change the User rejects while its check runs leaves nothing behind when the check lands: no sentence, no Citation, no mark (#3019); fails_when=the check writes its Passage or its mark back into the Note; no_claim=none.

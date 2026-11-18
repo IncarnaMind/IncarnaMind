@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test } from "vitest";
+import * as Y from "yjs";
 import {
   CITATION_NODE,
   type CitationAttributes,
@@ -21,10 +22,10 @@ import { editMind, readMind, resolveChanges, writeMind } from "../helpers/minds"
 import { judgesNothing, type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 /*
- * A Passage a check finds that the sentence's Citations don't hold becomes a Citation in three
- * ways only (#3019): inside the assistant's own change, in an Answer, or by the User's click. A
- * check of a sentence in the Note writes nothing into its text and leaves no waiting change; its
- * mark keeps the model's own verdict, which the Note reads against its Citations as they stand.
+ * A Passage a check finds that the sentence's Citations don't hold becomes a Citation in the
+ * assistant's own words, in an Answer, or by the User's click (#3019, #3358). A check of the User's
+ * own sentence writes nothing into its text and leaves no waiting change; its mark keeps the
+ * model's own verdict, which the Note reads against its Citations as they stand.
  */
 
 const LINE = "The tide turns twice a day.";
@@ -103,19 +104,18 @@ async function checkParagraph(core: Core, mindId: string, id: string, length: nu
   });
 }
 
-describe("A check of a sentence in the Note writes nothing into it", { timeout: 30_000 }, () => {
-  // protects=a check that finds a Passage the sentence's Citation doesn't hold changes nothing in the Note's text and leaves no waiting change, for the User's own sentence and for one the assistant wrote that the User accepted, in English and Chinese; its mark keeps the model's Supported with that Passage and reads Not checked, found elsewhere, until the Passage is a Citation (#3019); fails_when=the check adds the Citation, proposes it as a change, stores Not checked in place of the model's verdict, or shows a ✓ beside the Citation whose words don't say it; no_claim=how the card draws it.
+describe("A check of the User's own sentence writes nothing into it", { timeout: 30_000 }, () => {
+  // protects=a check that finds a Passage the User's own sentence's Citation doesn't hold changes nothing in the Note's text and leaves no waiting change, in English and Chinese; its mark keeps the model's Supported with that Passage and reads Not checked, found elsewhere, until the Passage is a Citation (#3019, #3358); fails_when=the check adds the Citation to the User's words, proposes it as a change, stores Not checked in place of the model's verdict, or shows a ✓ beside the Citation whose words don't say it; no_claim=how the card draws it.
   test.each([
-    ["the User's own sentence", SENTENCE, OTHER, []],
-    ["the User's own sentence, in Chinese", SENTENCE_ZH, OTHER_ZH, []],
-    ["a sentence the assistant wrote, accepted", SENTENCE, OTHER, [{ type: GENERATED_MARK }]],
-  ] as const)("%s", async (_kind, sentence, writerQuote, marks) => {
+    ["the User's own sentence", SENTENCE, OTHER],
+    ["the User's own sentence, in Chinese", SENTENCE_ZH, OTHER_ZH],
+  ] as const)("%s", async (_kind, sentence, writerQuote) => {
     const { core, client, mind, documents } = await setUpWithDocuments(checkingModel(PLANS), [
       TIDES,
     ]);
     const [tides] = documents;
     if (!tides) throw new Error("Tides.md wasn't added.");
-    writeMind(client, [cited("s", sentence, citationOf(tides, writerQuote), [...marks])]);
+    writeMind(client, [cited("s", sentence, citationOf(tides, writerQuote))]);
     await client.settled();
     const before = textOf(readMind(client));
 
@@ -182,6 +182,80 @@ describe("A check of a sentence in the Note writes nothing into it", { timeout: 
     const [now] = shownIn(client);
     expect(now?.check.state).toBe("supported");
     expect(now && foundElsewhere(now)).toBe(true);
+  });
+});
+
+const GENERATED = [{ type: GENERATED_MARK }];
+
+/** A paragraph holding `sentence` with no Citation, in the assistant's words. */
+const written = (id: string, sentence: string): JSONContent => ({
+  type: "paragraph",
+  attrs: { id },
+  content: [{ type: "text", text: sentence, marks: GENERATED }],
+});
+
+describe("In words the assistant wrote, the Passage a check rests on becomes its Citation", {
+  timeout: 30_000,
+}, () => {
+  // protects=when a check lands Supported on a sentence the assistant wrote, with no Citation or with one that doesn't hold the Passage, that Passage goes in as its Citation before the stop, said to be the check's, with no waiting change, and the sentence reads Supported, in English and Chinese; Undo of the write takes the Citation away with the sentence (#3358); fails_when=no Citation goes in, it goes in as a waiting change, a second Citation goes on words already cited, the sentence reads Not checked or found elsewhere, or the Citation outlives the write's Undo; no_claim=the window's look.
+  test.each([
+    ["with no Citation", (_tides: Document) => written("s", SENTENCE), [LINE]],
+    ["in Chinese, with no Citation", (_tides: Document) => written("s", SENTENCE_ZH), [LINE_ZH]],
+    [
+      "with a Citation that doesn't hold it",
+      (tides: Document) => cited("s", SENTENCE, citationOf(tides, OTHER), GENERATED),
+      [OTHER, LINE],
+    ],
+  ] as const)("%s", async (_kind, paragraph, quotes) => {
+    const { core, client, mind, documents } = await setUpWithDocuments(checkingModel(PLANS), [
+      TIDES,
+    ]);
+    const [tides] = documents;
+    if (!tides) throw new Error("Tides.md wasn't added.");
+    const history = new Y.UndoManager(client.blocks);
+    writeMind(client, [paragraph(tides)]);
+    await client.settled();
+    const sentence = textOf(readMind(client))[0] ?? "";
+
+    await checkParagraph(core, mind.id, "s", sentence.length);
+    await client.settled();
+
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    const cites = citationsIn(client);
+    expect(cites.map((each) => each.quote)).toEqual(
+      quotes.map((quote) => expect.stringContaining(quote)),
+    );
+    const found = cites.at(-1);
+    expect(found).toMatchObject({ documentId: tides.id, check: "found", foundByCheck: true });
+    // Before the sentence's stop, after any Citation the assistant gave it.
+    expect(textOf(readMind(client))[0]).toMatch(/[^\]](\[[^\]]+\])+[.。]$/);
+    expect(shownIn(client).map((claim) => claim.shown)).toEqual([{ state: "supported" }]);
+
+    history.undo();
+    await client.settled();
+    expect(citationsIn(client)).toEqual([]);
+    expect(shownIn(client)).toEqual([]);
+  });
+
+  // protects=Check this Note puts the Passage a Supported sentence the assistant wrote rests on as its Citation as the check lands, and leaves the User's own Supported sentence as written, offering its Passage instead (#3358); fails_when=Check this Note cites nothing in the assistant's words, or writes into the User's; no_claim=the single-sentence check, held above.
+  test("Check this Note cites in the assistant's words and not in the User's", async () => {
+    const { core, client, mind } = await setUpWithDocuments(checkingModel(PLANS), [TIDES]);
+    writeMind(client, [
+      written("ai", SENTENCE),
+      { type: "paragraph", attrs: { id: "mine" }, content: [{ type: "text", text: SENTENCE_ZH }] },
+    ]);
+    await client.settled();
+
+    await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "changed" });
+    await client.settled();
+
+    const [ai, mine] = textOf(readMind(client));
+    expect(ai).toMatch(/^Tides turn twice in a day here\[[^\]]*The tide turns twice a day\.?\]\.$/);
+    expect(mine).toBe(SENTENCE_ZH);
+    expect(shownIn(client).map((claim) => claim.shown)).toEqual([
+      { state: "supported" },
+      { state: "supported" },
+    ]);
   });
 });
 

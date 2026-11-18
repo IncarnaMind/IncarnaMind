@@ -1,9 +1,8 @@
 /**
  * Checks of the User's own sentences in the editor (#96): the mark that
  * holds a sentence's result (`CLAIM_CHECK_MARK`), where each check is now,
- * how it shows (`claimCheckShown`), and the wash behind a sentence found
- * unsupported or contradicted, or the quiet line under one that is its
- * writer's own view (#3322).
+ * how it shows (`claimCheckShown`), whether its mark shows (`markShown`), and
+ * the wash behind a sentence found unsupported or contradicted.
  */
 import { Extension, Mark } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -27,7 +26,7 @@ import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/re
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import { citationAttributesOf } from "../../../shared/citations";
-import { asCitedNow } from "../../../shared/citedNow";
+import { asCitedNow, type HeldCitation, passageToAdd } from "../../../shared/citedNow";
 import {
   analysisFigureShown,
   type ClaimCheckShown,
@@ -395,6 +394,8 @@ interface ClaimState {
   inline: boolean;
   /** Each mark's own width, by its check's id, for the room it takes at its sentence's end. */
   rooms: ReadonlyMap<string, number>;
+  /** Whether the Note shows every result (`setClaimEveryResult`, #3358). */
+  everyResult: boolean;
   decorations: DecorationSet;
 }
 
@@ -406,6 +407,8 @@ const CONTEXT = "claimContext";
 const INLINE = "claimInline";
 /** A transaction with this meta says how wide each mark is, for the room it takes (`setClaimRooms`). */
 const ROOMS = "claimRooms";
+/** A transaction with this meta shows every result, or only what needs the reader (`setClaimEveryResult`). */
+const EVERY = "claimEveryResult";
 
 const NO_ROOMS: ReadonlyMap<string, number> = new Map();
 
@@ -491,17 +494,20 @@ export function claimsOf(
 }
 
 /**
- * What a checked sentence takes in the Note: a wash where it needs a look, and a quiet dotted line
- * under a Supported verdict the check worked out from the Documents (#3322). Null for a sentence the
- * Documents state and for its writer's own view, which only the margin marks: a judgement is not
- * a kind of working.
+ * What a checked sentence takes in the Note: a wash where it needs a look, and, with every result
+ * shown (#3358), a quiet dotted line under a Supported verdict the check worked out from the
+ * Documents (#3322). Null for a sentence the Documents state and for its writer's own view, which
+ * only the margin marks: a judgement is not a kind of working.
  */
 export function claimWash(
   shown: ClaimCheckShown,
   check: Pick<ClaimCheckAttributes, "parts">,
+  everyResult = false,
 ): string | null {
   if (shown.state === "unsupported" || shown.state === "contradicted") return shown.state;
-  return shown.state === "supported" && (check.parts ?? []).some(workedOutOf) ? "worked-out" : null;
+  return everyResult && shown.state === "supported" && (check.parts ?? []).some(workedOutOf)
+    ? "worked-out"
+    : null;
 }
 
 function stateOf(
@@ -509,10 +515,11 @@ function stateOf(
   context: ClaimContext,
   inline = false,
   rooms: ReadonlyMap<string, number> = NO_ROOMS,
+  everyResult = false,
 ): ClaimState {
   const { claims, kept } = claimsOf(doc, context);
   const washes = claims.flatMap(({ shown, check, from, to, kind }) => {
-    const wash = claimWash(shown, check);
+    const wash = claimWash(shown, check, everyResult);
     if (!wash) return [];
     const look = { class: `claim-wash claim-wash--${wash}` };
     return [kind === "chart" ? Decoration.node(from, to, look) : Decoration.inline(from, to, look)];
@@ -521,13 +528,13 @@ function stateOf(
   // stays the text's: the sentence's last word or Citation marker keeps the mark's room in its own
   // box, exactly its own width plus 4px, so the room never makes a line of its own.
   const roomsOf = inline
-    ? claims.flatMap(({ check, sentence, shown }) =>
-        shown.state === "not-checked" && !foundElsewhere({ shown, check })
+    ? claims.flatMap((claim) =>
+        !markShown(claim, everyResult)
           ? []
           : [
-              Decoration.inline(sentence.to - 1, sentence.to, {
+              Decoration.inline(claim.sentence.to - 1, claim.sentence.to, {
                 class: INLINE_ROOM,
-                style: `padding-right: ${(rooms.get(check.id) ?? 0) + INLINE_GAP}px`,
+                style: `padding-right: ${(rooms.get(claim.check.id) ?? 0) + INLINE_GAP}px`,
               }),
             ],
       )
@@ -538,6 +545,7 @@ function stateOf(
     kept,
     inline,
     rooms,
+    everyResult,
     decorations: DecorationSet.create(doc, [...washes, ...roomsOf]),
   };
 }
@@ -597,6 +605,37 @@ export const sameCoverage = (a: Coverage, b: Coverage | null | undefined): boole
 
 /** What a check's margin glyph shows (`claimMarkState`). */
 export const markOf = (claim: ShownClaim) => claimMarkState(claim.shown.state, claim.check);
+
+/**
+ * Whether a check's mark shows on the page (#3358): what needs a look, what wasn't checked, a check
+ * still running and a first reading always do, so a sentence with no mark beside it is one a check
+ * found Supported. A Supported sentence, its writer's own view and one that can be cited show their
+ * marks only with every result shown, as each did before.
+ */
+export function markShown(claim: ShownClaim, everyResult: boolean): boolean {
+  if (firstReadingShown(claim)) return true;
+  const mark = markOf(claim);
+  if (mark === "not-checked") return everyResult || !foundElsewhere(claim);
+  return everyResult || (mark !== "supported" && mark !== "own-view");
+}
+
+/**
+ * Whether a sentence the check found Supported has a Passage it can still cite, one no Citation of
+ * it is on yet (#3358): what the Note's foot line counts and Add all adds, beside the sentences
+ * Supported, not yet cited. Only a check with parts says where its Passages go.
+ */
+export function canBeCited(
+  claim: Pick<ShownClaim, "kind" | "shown" | "check">,
+  citations: readonly HeldCitation[],
+): boolean {
+  return (
+    claim.kind !== "chart" &&
+    claimMarkState(claim.shown.state, claim.check) === "supported" &&
+    (claim.check.parts ?? []).some(
+      (part) => part.verdict === "supported" && passageToAdd(part, citations) !== null,
+    )
+  );
+}
 
 /**
  * Whether it is Supported, not yet cited (#3019): the model's ✓, which shows once the Passage its
@@ -750,6 +789,17 @@ export function setClaimRooms(view: EditorView, rooms: ReadonlyMap<string, numbe
   view.dispatch(view.state.tr.setMeta(ROOMS, rooms).setMeta("addToHistory", false));
 }
 
+/** Shows every result's mark and line, or only what needs the reader (`markShown`, #3358). */
+export function setClaimEveryResult(view: EditorView, everyResult: boolean): void {
+  if ((claimsKey.getState(view.state)?.everyResult ?? false) === everyResult) return;
+  view.dispatch(view.state.tr.setMeta(EVERY, everyResult).setMeta("addToHistory", false));
+}
+
+/** Whether the editor shows every result (`setClaimEveryResult`). */
+export function everyResultShown(state: EditorState): boolean {
+  return claimsKey.getState(state)?.everyResult ?? false;
+}
+
 /** Keeps the checks, how they show, and the washes behind sentences found unsupported or contradicted. */
 export const ClaimChecks = Extension.create({
   name: "claimChecks",
@@ -764,12 +814,19 @@ export const ClaimChecks = Extension.create({
             const context = tr.getMeta(CONTEXT) as ClaimContext | undefined;
             const inline = tr.getMeta(INLINE) as boolean | undefined;
             const rooms = tr.getMeta(ROOMS) as ReadonlyMap<string, number> | undefined;
-            if (context || rooms || (inline !== undefined && inline !== claims.inline))
+            const every = tr.getMeta(EVERY) as boolean | undefined;
+            if (
+              context ||
+              rooms ||
+              (inline !== undefined && inline !== claims.inline) ||
+              (every !== undefined && every !== claims.everyResult)
+            )
               return stateOf(
                 tr.doc,
                 context ?? claims.context,
                 inline ?? claims.inline,
                 rooms ?? claims.rooms,
+                every ?? claims.everyResult,
               );
             return tr.docChanged
               ? stateOf(
@@ -777,6 +834,7 @@ export const ClaimChecks = Extension.create({
                   { ...claims.context, figureContexts: null },
                   claims.inline,
                   claims.rooms,
+                  claims.everyResult,
                 )
               : claims;
           },

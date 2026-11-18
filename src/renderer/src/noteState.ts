@@ -1,10 +1,11 @@
 /**
  * Whether a note is done (#1915), one rule for the corner badge, Home's Recent row and
  * the Export menu: "Claims not checked" while a claim has no check (none yet, or one this Note has
- * never had checked), "{n} need a look" while a check found a problem, "{n} not yet cited" while
- * nothing more pressing is left but sentences Supported, not yet cited (#3019), and "Checked
- * {time}" once every claim is covered, naming the files the checks couldn't read and the
- * sentences a check couldn't settle or a change made need one. It reads `noteHealth`, the one count
+ * never had checked), "{n} need a look" while a check found a problem, then what wasn't checked
+ * and what can be cited (#3358), "{n} can be cited" while nothing more pressing is left but
+ * sentences Supported, not yet cited (#3019), and "Checked {time}" once every claim is covered,
+ * naming what can be cited, the files the checks couldn't read and the sentences a check couldn't
+ * settle or a change made need one. It reads `noteHealth`, the one count
  * (#1909). A sentence kept as the User's view counts as handled and is named in the card.
  */
 
@@ -32,7 +33,7 @@ import { mindCheckOf } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
 import { checkUnreadOf } from "../../shared/unreadFiles";
 import { claimsOf, figurePlacesOf, type ShownClaim } from "./editor/claimChecks";
-import { type NoteHealth, noteHealth } from "./editor/healthCounts";
+import { checkRows, type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
 import { opinionSentenceRanges } from "./editor/opinionLocations";
 import { keptInsideName } from "./walls";
@@ -75,8 +76,12 @@ export interface NoteState {
   needsCheck: number;
   /** Sentences Supported, not yet cited (#3019): with nothing more pressing, the state names them. */
   notYetCited: number;
+  /** Those and the supported sentences with a Passage to add (#3358): what the state says can be cited. */
+  canBeCited: number;
   /** The sentences no check has covered yet: the count a bare "Not checked" gives (#3212). */
   toCheck: number;
+  /** The sentences the card's not-checked row counts, which a Note that needs a look names too (#3358). */
+  notChecked: number;
 }
 
 /**
@@ -104,7 +109,9 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     notRecalculated: 0,
     needsCheck: 0,
     notYetCited: health.notYetCited.length,
+    canBeCited: health.notYetCited.length + health.citable.length,
     toCheck: health.toCheck.length,
+    notChecked: checkRows(health).find((each) => each.row === "toCheck")?.places.length ?? 0,
   };
   // Never the green while a sentence is Supported, not yet cited: the state names them (#3019).
   const rested = (state: NoteState): NoteState =>
@@ -244,6 +251,14 @@ export function noteStateParts(
 ): readonly string[] {
   const count = (value: number) => new Intl.NumberFormat(language).format(value);
   const unread = noteStateShowsUnread(state) ? noteStateUnreadWords(state, t, language) : null;
+  const citable =
+    state.canBeCited > 0
+      ? [
+          t(state.canBeCited === 1 ? "health.state.canBeCited.one" : "health.state.canBeCited", {
+            count: count(state.canBeCited),
+          }),
+        ]
+      : [];
   if (state.kind === "not-checked")
     return [
       state.notRecalculated > 0
@@ -258,6 +273,7 @@ export function noteStateParts(
               count: count(state.toCheck),
             })
           : t("health.state.notChecked"),
+      ...citable,
     ];
   if (state.kind === "needs-look") {
     const parts: string[] = [];
@@ -267,6 +283,13 @@ export function noteStateParts(
           count: count(state.look),
         }),
       );
+      if (state.notChecked > 0)
+        parts.push(
+          t(state.notChecked === 1 ? "checks.row.notChecked.one" : "checks.row.notChecked", {
+            count: count(state.notChecked),
+          }),
+        );
+      parts.push(...citable);
     }
     if (unread !== null) parts.push(unread);
     return parts;
@@ -275,14 +298,13 @@ export function noteStateParts(
     state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language, now ? { now } : {});
   const said =
     state.kind === "not-yet-cited"
-      ? t(state.notYetCited === 1 ? "health.state.notYetCited.one" : "health.state.notYetCited", {
-          count: count(state.notYetCited),
-        })
-      : time === ""
-        ? t("health.state.checked.noTime")
-        : t("health.state.checked", { time });
+      ? citable
+      : [
+          time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time }),
+          ...citable,
+        ];
   return [
-    said,
+    ...said,
     ...(unread === null ? [] : [unread]),
     ...(state.cantCheck > 0
       ? [
