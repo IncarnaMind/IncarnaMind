@@ -12,7 +12,7 @@ import {
   sentenceOf,
 } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
-import { readMind, writeMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const CV = "58.com — Senior Design Manager (Apr 2016–Jul 2025). Led the homepage redesign.";
@@ -202,6 +202,45 @@ test("a sentence the check's model calls the writer's own view is left out as an
     verdict: "unsupported",
     word: "own-view",
   });
+});
+
+// protects=words the User changed while their check ran are never left out as an opinion on the old words' answer: the changed sentence keeps its Mark, which shows it needs checking again (#3322); fails_when=the new words, which may state a fact, lose their Mark and are skipped by later checks; no_claim=what the changed sentence's next check finds
+test("a sentence changed while its check ran is not left out on the old words' answer", async () => {
+  const advice = "My suggestion is 2 coats of paint, before 14 March.";
+  const changed = "The lease asks for 2 coats of paint, before 14 March.";
+  const holder: { client?: Parameters<typeof editMind>[0] } = {};
+  const plans: Record<string, Plan> = {
+    [advice]: {
+      reply: () => {
+        if (holder.client)
+          editMind(holder.client, (blocks) =>
+            blocks.map((block) => ({
+              ...block,
+              content: block.content?.map((node) =>
+                node.text === advice ? { ...node, text: changed } : node,
+              ),
+            })),
+          );
+        return { text: "Verdict: own view\nExplanation: The writer's own advice.\nEvidence: []" };
+      },
+    },
+  };
+  const { core, client, mind } = await setUpWithDocuments(checkingModel(plans), [
+    { name: "Lease.md", contents: LEASE },
+  ]);
+  holder.client = client;
+  writeMind(client, [
+    { type: "paragraph", attrs: { id: "p0" }, content: [{ type: "text", text: advice }] },
+  ]);
+  await client.settled();
+  await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+  await client.settled();
+  const marks = claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check.text]);
+  const leftOut = readOpinionSentences(client.doc).map((sentence) => sentence.text);
+  core.close();
+
+  expect(marks).toEqual([[changed, advice]]);
+  expect(leftOut).toEqual([]);
 });
 
 // protects=a sentence whose sort gives parts that aren't its own words, the second time it is asked too, is checked whole (#3262): it gets its Mark; fails_when=such a sentence is left with no Mark at all; no_claim=how often a model rewrites a part

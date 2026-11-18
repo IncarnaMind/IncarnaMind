@@ -27,7 +27,8 @@ export const isOwnView = (result: ClaimCheckResult): boolean =>
 
 /**
  * Leaves the sentence of check `id` out as an opinion, its mark gone. False when its mark doesn't
- * cover one sentence as the Note has it now, so its check's result is written as any other.
+ * cover one sentence with the words that were checked, so its check's result is written as any
+ * other: words the User changed meanwhile are not left out on the old words' answer.
  */
 export function leaveOutOwnView(blocks: Y.XmlFragment, id: string): boolean {
   const marked = markedSentences(blocks).find((each) => each.check.id === id);
@@ -35,7 +36,10 @@ export function leaveOutOwnView(blocks: Y.XmlFragment, id: string): boolean {
     marked &&
     everySentence(blocks).find(
       (each) =>
-        each.element === marked.element && each.from === marked.from && each.to === marked.to,
+        each.element === marked.element &&
+        each.from === marked.from &&
+        each.to === marked.to &&
+        each.text === marked.check.text,
     );
   if (!sentence) return false;
   const whole = { start: 0, end: sentence.text.length };
