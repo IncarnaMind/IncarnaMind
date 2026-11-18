@@ -77,6 +77,7 @@ const NO_HEALTH: Health = {
   ownNotes: [],
   supportedAt: [],
   notYetCited: [],
+  ownViews: [],
   checkable: 0,
   supported: 0,
   checkedAt: null,
@@ -194,6 +195,7 @@ const ROW_WORDS = {
   supported: "checks.row.supported",
   ownNotes: "checks.row.ownNotes",
   notYetCited: "checks.row.notYetCited",
+  ownViews: "checks.row.ownViews",
   checking: "checks.row.checking",
   toCheck: "checks.row.notChecked",
 } as const;
@@ -208,6 +210,8 @@ function RowMark({ row }: { row: CheckRow }) {
       return <ClaimMarkIcon state="supported" ownNoteOnly className="mind-health-icon" />;
     case "notYetCited":
       return <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />;
+    case "ownViews":
+      return <ClaimMarkIcon state="own-view" className="mind-health-icon" />;
     case "checking":
       return <ClaimMarkIcon state="checking" className="mind-health-icon" />;
     case "toCheck":

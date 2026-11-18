@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { isOwnView } from "../../src/shared/claimParts";
+import { readOpinionSentences } from "../../src/shared/opinions";
 import {
   checkGenerate,
   checkingModel,
@@ -157,6 +159,83 @@ test("an unsupported sentence keeps the word its model gave for it", async () =>
     verdict: "unsupported",
     says: null,
     evidence: [],
+  });
+});
+
+// protects=a sentence its check's model calls the writer's own view (advice, a judgement) keeps a mark that says so, with the model's words on what the Documents hold and the quote of the fact it names, and is never Unsupported's fault or left out unread (#3322); fails if such a sentence gets no mark, or its mark loses the word, the reason or the quote
+test("a sentence the check's model calls the writer's own view keeps a mark that says so, with what the Documents hold on it", async () => {
+  const advice = "My advice: the Tenant should repaint the unit with 2 coats before 14 March.";
+  const holds =
+    "The lease lets the Tenant repaint once the Landlord agrees, and names no number of coats.";
+  const plans: Record<string, Plan> = {
+    [LEASE]: { verdict: "supported", quote: LEASE, says: "The lease says so." },
+    [advice]: { verdict: "own view", quote: LEASE, says: holds },
+  };
+  const { core, client, mind } = await setUpWithDocuments(checkingModel(plans), [
+    { name: "Lease.md", contents: LEASE },
+  ]);
+  writeMind(
+    client,
+    [LEASE, advice].map((sentence, at) => ({
+      type: "paragraph",
+      attrs: { id: `p${at}` },
+      content: [{ type: "text", text: sentence }],
+    })),
+  );
+  await client.settled();
+  const ran = await core.checkMind({
+    requestId: crypto.randomUUID(),
+    mindId: mind.id,
+    mode: "all",
+  });
+  await client.settled();
+  const view = claimSpans(readMind(client)).find((span) => span.sentence.text === advice);
+  core.close();
+
+  expect(ran).toMatchObject({ kind: "checked", sentences: 2, checked: 2 });
+  expect(view?.check.state).toBe("unsupported");
+  expect(
+    view && isOwnView({ verdict: view.check.state, unsupported: view.check.unsupported }),
+  ).toBe(true);
+  expect(view?.check.unsupported).toMatchObject({ reason: holds, quoted: { quote: LEASE } });
+  expect(readOpinionSentences(client.doc)).toEqual([]);
+});
+
+// protects=a verdict the check's model worked out from the Documents keeps its one line of working on the sentence's mark, and a reply that says "Working: none" keeps none (#3322); fails if the working is dropped on the way to the mark, or "none" is stored as a working
+test("a verdict worked out from the Documents keeps its line of working", async () => {
+  const total = "So the Tenant can't repaint before the Landlord agrees.";
+  const working = "repainting needs the agreement first, so not before it";
+  const plans: Record<string, Plan> = {
+    [total]: { verdict: "supported", quote: LEASE, says: "The lease sets the order.", working },
+  };
+  const { core, client, mind } = await setUpWithDocuments(checkingModel(plans), [
+    { name: "Lease.md", contents: LEASE },
+  ]);
+  writeMind(client, [
+    { type: "paragraph", attrs: { id: "p0" }, content: [{ type: "text", text: total }] },
+  ]);
+  await client.settled();
+  await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+  await client.settled();
+  const [span] = claimSpans(readMind(client));
+  core.close();
+
+  expect(span?.check.state).toBe("supported");
+  expect(span?.check.parts?.[0]?.workedOut).toBe(working);
+  expect(readVerdict(`Verdict: supported\nEvidence: [1]\nWorking: ${working}`)?.working).toBe(
+    working,
+  );
+  expect(readVerdict("Verdict: supported\nEvidence: [1]\nWorking: none")?.working).toBeUndefined();
+  expect(readVerdict("Verdict: supported\nEvidence: [1]\nWorking: 无")?.working).toBeUndefined();
+});
+
+// protects=a Chinese explanation that holds a label's word before a colon ("这是作者的判断：…") is read whole, with the verdict the reply gave (#3322); fails if such a reply reads as no verdict, or its explanation is cut at the colon
+test("a Chinese explanation with a label's word inside it is read whole", () => {
+  const says = "这是作者的判断：文档没有给出结论：只写了工单量会增长。";
+  expect(readVerdict(`Verdict: own view\nExplanation: ${says}\nEvidence: []`)).toMatchObject({
+    verdict: "unsupported",
+    word: "own-view",
+    says,
   });
 });
 

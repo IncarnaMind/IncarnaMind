@@ -14,13 +14,13 @@ import { scriptedModel } from "../helpers/models";
 const CASES = [
   {
     language: "en",
-    pure: "We think this is risky.",
+    pure: "This note is a first draft.",
     quote: "Costs rose 40%.",
     reworded: "Costs rose by 40%.",
   },
   {
     language: "zh-CN",
-    pure: "我们认为这有风险。",
+    pure: "这份笔记只是初稿。",
     quote: "成本上涨了40%。",
     reworded: "成本的涨幅为40%。",
   },
@@ -40,7 +40,7 @@ async function setUpParts(example: (typeof CASES)[number]) {
     [example.pure]: { verdict: "unsupported" },
   };
   const inventories = new Map<string, ClaimPartPlan[]>([
-    [example.pure, [part(example.pure, example.pure, "opinion")]],
+    [example.pure, [{ ...part(example.pure, example.pure, "opinion"), itself: true }]],
     [example.quote, [part(example.quote, example.quote, "fact")]],
     [example.reworded, [part(example.reworded, example.reworded, "fact")]],
   ]);
@@ -55,7 +55,7 @@ async function setUpParts(example: (typeof CASES)[number]) {
           {
             number,
             parts: parts.map((plan) => ({
-              kind: plan.kind,
+              kind: plan.itself ? "about-this-text" : plan.kind,
               text: text.slice(plan.span.start, plan.span.end),
             })),
           },
@@ -132,7 +132,7 @@ for (const example of CASES)
       ).toEqual(ids);
     });
 
-    test("two identical pure opinions survive reopen without marks, then an edit is sorted again", async () => {
+    test("two identical remarks about the note survive reopen without marks, then an edit is sorted again", async () => {
       const setup = await setUpParts(example);
       setup.write(`${example.pure} ${example.pure}`);
       await setup.client.settled();
@@ -162,7 +162,7 @@ for (const example of CASES)
       expect(opinionsIn(readMind(setup.client), setup.client.doc)).toHaveLength(0);
     });
 
-    test("editing a checked fact into an opinion removes the old mark after sorting", async () => {
+    test("editing a checked fact into a remark about the note removes the old mark after sorting", async () => {
       const setup = await setUpParts(example);
       setup.write(example.quote);
       await setup.client.settled();
@@ -185,7 +185,7 @@ for (const example of CASES)
       expect(opinionsIn(readMind(setup.client), setup.client.doc)).toHaveLength(1);
     });
 
-    test("Verify re-sorts an edited opinion, then reuses the unchanged inventory", async () => {
+    test("Verify re-sorts an edited remark about the note, then reuses the unchanged inventory", async () => {
       const setup = await setUpParts(example);
       const file = await writeSourceFile(
         await createTempDataFolder(),

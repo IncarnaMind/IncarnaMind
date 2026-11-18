@@ -29,6 +29,11 @@ const claims = [
   "Pilots guide large ships into the channel.",
   "The marina has berths for sixty yachts.",
 ];
+// An opinion is checked as a fact is: its check says whether it is the writer's own view (#3322).
+const VIEWS = [
+  "We think the harbour is at its best in spring.",
+  "I believe the new marina was worth building.",
+] as const;
 const paragraph = (value: string): JSONContent => ({
   type: "paragraph",
   attrs: { id: randomUUID() },
@@ -88,7 +93,7 @@ describe("Check after the scoped Document changes", () => {
     writeMind(client, [
       { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "The harbour" }] },
       paragraph(
-        `${claims.slice(0, 5).join(" ")} Does high water come at noon on Sundays? We think the harbour is at its best in spring.`,
+        `${claims.slice(0, 5).join(" ")} Does high water come at noon on Sundays? ${VIEWS[0]}`,
       ),
       {
         type: "heading",
@@ -96,9 +101,7 @@ describe("Check after the scoped Document changes", () => {
         content: [{ type: "text", text: "Ships and boats" }],
       },
       paragraph(`${claims.slice(5, 10).join(" ")} Who looks after the lighthouse now?`),
-      paragraph(
-        `${claims.slice(10).join(" ")} Can visitors walk on the sea wall? I believe the new marina was worth building.`,
-      ),
+      paragraph(`${claims.slice(10).join(" ")} Can visitors walk on the sea wall? ${VIEWS[1]}`),
     ]);
     await client.settled();
     expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({
@@ -113,10 +116,14 @@ describe("Check after the scoped Document changes", () => {
       await client.settled();
       return result;
     };
-    expect(await check("initial")).toMatchObject({ kind: "checked", checked: 15, stop: null });
+    expect(await check("initial")).toMatchObject({ kind: "checked", checked: 17, stop: null });
     const before = claimSpans(readMind(client));
-    expect(before).toHaveLength(15);
-    expect(before.map((span) => span.sentence.text.trim())).toEqual(claims);
+    expect(before.map((span) => span.sentence.text.trim())).toEqual([
+      ...claims.slice(0, 5),
+      VIEWS[0],
+      ...claims.slice(5),
+      VIEWS[1],
+    ]);
     expect(await core.planMindCheck(mind.id, "changed")).toMatchObject({ kind: "unchanged" });
     expect(mindCheckOf(client.doc)?.unexamined).toEqual([]);
     const sent = calls.length;

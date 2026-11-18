@@ -23,17 +23,20 @@ import {
 
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
-  /** The verdict word it writes: one of the five a check asks for, or the older "unsupported". */
+  /** The verdict word it writes: one of the six a check asks for, or the older "unsupported". */
   verdict?:
     | "supported"
     | "unsupported"
     | "contradicted"
     | "overstated"
     | "partly supported"
-    | "not found";
+    | "not found"
+    | "own view";
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   says?: string;
+  /** The line of working it gives for a verdict it worked out. */
+  working?: string;
   /** For a contradiction: the sentence's words the Document gives another value for, and the Document's. */
   change?: { from: string; to: string };
   /** What it writes when asked for its explanation again in the interface's language (#2081). */
@@ -108,6 +111,7 @@ export function checkReply(call: ModelCall, plans: Record<string, Plan>): Script
       `Verdict: ${plan.verdict ?? "unsupported"}`,
       ...(plan.says ? [`Explanation: ${plan.says}${quote ? " [^1]" : ""}`] : []),
       `Evidence: ${quote ? "[1]" : "[]"}`,
+      ...(plan.working ? [`Working: ${plan.working}`] : []),
       ...(plan.change ? [`Change 1: ${plan.change.from}`, `To 1: ${plan.change.to} [^1]`] : []),
     ].join("\n"),
   };

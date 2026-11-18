@@ -33,6 +33,7 @@ import { scriptedModel, scriptedModels } from "../helpers/models";
 import { ADVICE, DUTY_PAIRS } from "./dutySentences.cases";
 import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
 import { FIELD_PAIRS } from "./fieldSentences.cases";
+import { JUDGEMENT_NOTES } from "./judgementSentences.cases";
 import { REMARK_NOTES } from "./remarkSentences.cases";
 
 const PROVIDER =
@@ -843,6 +844,8 @@ const DUTY: readonly HeldOut[] = [
 const heard = {
   requests: 0,
   refused: 0,
+  /** How many refused requests ended with each HTTP status. */
+  statuses: {} as Record<number, number>,
   failed: 0,
   timedOut: 0,
   inputTokens: 0,
@@ -936,8 +939,10 @@ function heardFailure(error: unknown): never {
       : null;
   const name = error instanceof Error ? error.name : "";
   if (name === "AbortError" || name === "TimeoutError") heard.timedOut++;
-  else if (status !== null && status >= 400) heard.refused++;
-  else heard.failed++;
+  else if (status !== null && status >= 400) {
+    heard.refused++;
+    heard.statuses[status] = (heard.statuses[status] ?? 0) + 1;
+  } else heard.failed++;
   throw error;
 }
 
@@ -1286,6 +1291,7 @@ async function checkAll(core: Core, language: Language, notes: readonly Written[
             text: probe.sentence.slice(each.span.start, each.span.end),
             verdict: each.verdict,
             reason: each.verdict === "not-checked" ? each.reason : null,
+            ...(each.workedOut && { workedOut: each.workedOut }),
           }));
           const part = probe.part ? parts.find((each) => each.text === probe.part) : undefined;
           rows.push({
@@ -1407,18 +1413,23 @@ async function heldOutRound(
  * a check reads, and the writer's own remarks about the Note, which it leaves without a mark.
  */
 async function remarkRound(language: Language) {
-  const cases = REMARK_NOTES.filter(
+  const cases = [...REMARK_NOTES, ...JUDGEMENT_NOTES].filter(
     (each) =>
       each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
   );
   const core = await coreIn(language);
   const sources = await createSourceFolder();
   const notes: Written[] = [];
+  const added = new Set<string>();
   for (const each of cases) {
     const [file] = await addAndProcess(core, [
       await writeSourceFile(sources, `${each.name}.md`, `# ${each.name}\n\n${each.document}\n`),
     ]);
     if (!file) throw new Error(`${each.id}'s Document didn't process.`);
+    // Two Notes with one file name share one Document: the second move empties the first's Folder,
+    // and a Note in an empty Folder is checked against every Document.
+    if (added.has(file.id)) throw new Error(`${each.id}'s Document is another Note's.`);
+    added.add(file.id);
     const folder = await core.createLibraryGroup({ name: each.id, description: "" });
     await core.moveToFolder({ documentIds: [file.id], folderId: folder.id });
     notes.push({
@@ -1599,6 +1610,7 @@ describe("the #3088 gate", () => {
                 (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,
             refused: heard.refused,
+            statuses: heard.statuses,
             failed: heard.failed,
             timedOut: heard.timedOut,
             inputTokens: heard.inputTokens,

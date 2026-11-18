@@ -30,7 +30,7 @@ import {
   claimCheckShown,
   type NoteFooting,
 } from "../../../shared/claimChecks";
-import { withFigureFacts } from "../../../shared/claimParts";
+import { partsToCheck } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindModelOf } from "../../../shared/mindModel";
@@ -304,7 +304,7 @@ export function createMindCheck(options: MindCheckOptions) {
       // it, as Verify's is.
       return said.length === 0 && inValueCell(sentence.figures)
         ? [{ kind: "fact" as const, span: { start: 0, end: claim.length } }]
-        : withFigureFacts(claim, said, sentence.figures ?? [], sentence.projection);
+        : partsToCheck(claim, said, sentence.figures ?? [], sentence.projection);
     };
     if (unsorted.length > 0) {
       const grids = new Map<Y.XmlElement, TableLayout>();

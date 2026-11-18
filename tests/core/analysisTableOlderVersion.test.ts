@@ -83,7 +83,7 @@ const tableOf = (state: Uint8Array): Y.XmlElement | undefined =>
     );
 
 test("a Mind written before Analysis tables opens to edit, its table typed, and opening it rewrites nothing", async () => {
-  expect(CONTENT_SCHEMA_VERSION).toBe(60);
+  expect(CONTENT_SCHEMA_VERSION).toBe(61);
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
@@ -99,7 +99,7 @@ test("a Mind written before Analysis tables opens to edit, its table typed, and 
   core.close();
 });
 
-test("a change to a Mind written before Analysis tables records the current version, 60", async () => {
+test("a change to a Mind written before Analysis tables records the current version, 61", async () => {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const mind = await core.createMind({ title: "Older" });
@@ -116,7 +116,7 @@ test("a change to a Mind written before Analysis tables records the current vers
   if (!update) throw new Error("The edit made no update.");
   await core.applyMindUpdate(mind.id, update);
   const stored = await core.openMind(mind.id);
-  expect(versionOf(stored.state)).toBe(60);
+  expect(versionOf(stored.state)).toBe(61);
   expect(tableOf(stored.state)?.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)).toBeUndefined();
   core.close();
 });

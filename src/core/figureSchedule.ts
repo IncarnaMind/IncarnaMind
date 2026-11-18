@@ -1161,6 +1161,7 @@ export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
       notChecked: rows.filter((row) => row.shown.state === "not-checked").length,
       checking: rows.filter((row) => row.shown.state === "checking").length,
       kept: rows.filter((row) => row.shown.state === "kept").length,
+      ownViews: rows.filter((row) => row.shown.state === "own-view").length,
     },
     checkedAt: latest?.checkedAt ?? null,
     model: latest?.model ?? null,

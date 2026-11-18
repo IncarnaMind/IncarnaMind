@@ -432,8 +432,12 @@ export interface CreateMindInput {
  *   hasn't confirmed is never a verdict. An older version would write the part again without them
  *   and show the line as the Mark's quote, so it opens these Notes read-only. Older content is
  *   version 59 content as it is: a part without them shows its quote and was never a first reading.
+ * - 61: a part of a check may be its writer's own view, with the Documents' facts for and against
+ *   it, and a verdict worked out from the Documents keeps its line of working (#3322). An older
+ *   version reads the view as Not found and writes the part again without the working, so it
+ *   opens these Notes read-only. Older content is version 60 content as it is.
  */
-export const CONTENT_SCHEMA_VERSION = 60;
+export const CONTENT_SCHEMA_VERSION = 61;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -7610,10 +7614,13 @@ export interface UnsupportedReason {
   kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
   /**
    * Which way the check's model said the sentence goes unsupported: the Documents say less than
-   * it does, state only some of it, or don't state it. Absent when it gave only "unsupported", and
-   * on checks made before it was asked.
+   * it does, state only some of it, or don't state it; or the sentence is only its writer's own
+   * view (advice, a plan, a judgement, a forecast), which the check doesn't rule on: `reason` says
+   * what the Documents hold for and against it, and `quoted` and the result's `more` are the
+   * quotes of those facts (#3322). Absent when it gave only "unsupported", and on checks made
+   * before it was asked.
    */
-  word?: "overstated" | "partly-supported" | "not-found";
+  word?: "overstated" | "partly-supported" | "not-found" | "own-view";
   /**
    * The check read a contradiction its confirmation didn't uphold (#2184): `reason` is the check's
    * own explanation, and `quoted` the quote it rested on.
@@ -7793,6 +7800,11 @@ export interface ClaimCheckPart
    * part's own words.
    */
   correction?: ClaimCorrection;
+  /**
+   * For "supported" and "contradicted": the check's one line of working, where no Passage states
+   * the part as it stands and it follows from what they state (#3322). Absent when one states it.
+   */
+  workedOut?: string;
 }
 
 export type ClaimPartJudgment = (
@@ -7896,6 +7908,12 @@ export type ClaimJudgment =
       calculation: ClaimCalculation | null;
       /** The working it rests on, where the check worked its figure out over a data file's rows. */
       working?: CheckWorking;
+      /**
+       * For "supported" and "contradicted": the check's one line of working, where no Passage
+       * states the sentence as it stands and it follows from what they state (a sum, a comparison,
+       * a step of plain logic). Absent when a Passage states it (#3322).
+       */
+      workedOut?: string;
       /**
        * The sentence cites a court decision that none of the Documents holds: the citation itself
        * isn't checked, whatever else backs the sentence.
@@ -8045,6 +8063,7 @@ export interface FigureSchedule {
     notChecked: number;
     checking: number;
     kept: number;
+    ownViews: number;
   };
   checkedAt: string | null;
   model: ChatModelChoice | null;

@@ -31,6 +31,7 @@ export function CheckedByLine({
     shown === "supported" ||
     shown === "unsupported" ||
     shown === "contradicted" ||
+    shown === "own-view" ||
     shown === "needs-recheck"
       ? checkedWith(check)
       : null;

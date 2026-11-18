@@ -111,6 +111,8 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
 | Part (of a sentence) | 处 | A fact or opinion piece of a sentence a check keeps on its own row. Counted with 处, for the rows and the opinions alike: "正在核对这一处…", "另外 3 处", "1 处观点未纳入核对". Not 条, which counts Claims (说法). |
 | Opinion left out | 视为观点，未纳入核对 | A row's result; the line under a check says "{count} 处观点未纳入核对 · 查看". Not 未核对, which is a claim whose check failed. |
+| Writer's own view | 作者的判断 | A sentence's result when it is wholly its writer's advice, view or forecast: "1 句作者的判断". Counted with 句, as a whole sentence. Not 观点, which is the part of a sentence a check leaves out, and never 无依据. |
+| Worked out | 推算得出 | A Supported sentence no Document states as it stands: "有依据 · 推算得出". Not 计算, which is a figure worked out again over a data file's rows. |
 | Check anyway | 仍然核对 | Checks one opinion part alone. |
 | Covers (a quantified part) | 覆盖 {total} 项中的 {covered} 项 | No unit: its measure word would change with the unit, and the rows name each member. Counted with 项, never a fixed 个. |
 | Not examined | 未能判断是否需要核对 | A sentence the model said nothing of when the check named the claims: "1 句未能判断是否需要核对". Not 未核对, which is a claim whose check failed or hasn't run. |

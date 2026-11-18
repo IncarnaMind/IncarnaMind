@@ -23,7 +23,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { withFigureFacts } from "../../../shared/claimParts";
+import { partsToCheck } from "../../../shared/claimParts";
 import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import type { UnitText } from "../../../shared/units";
@@ -323,7 +323,7 @@ export function createVerify(options: VerifyOptions) {
       const plans = found.parts.get(index);
       return plans === undefined || sentence.said !== sentence.text
         ? plans
-        : withFigureFacts(sentence.said, plans, sentence.figures ?? [], sentence.projection);
+        : partsToCheck(sentence.said, plans, sentence.figures ?? [], sentence.projection);
     };
     const claims = sentences.flatMap((sentence, index) => {
       const plans = sorted(sentence, index);

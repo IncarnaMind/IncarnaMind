@@ -100,6 +100,7 @@ export interface SentenceCounts {
   unsupported: number;
   notFound: number;
   contradicted: number;
+  ownView: number;
   needsRecheck: number;
   notChecked: number;
 }
@@ -333,6 +334,7 @@ export function readFigures(sources: FigureSources): AiUseFigures {
     unsupported: 0,
     notFound: 0,
     contradicted: 0,
+    ownView: 0,
     needsRecheck: 0,
     notChecked: 0,
   });

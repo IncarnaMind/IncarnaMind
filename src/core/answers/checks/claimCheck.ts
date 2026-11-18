@@ -406,6 +406,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         ...(working && { working }),
         ...court.citedCase(null),
         ...facts(),
+        ...(read.word === "own-view" && more.length > 0 && { more }),
         excluded: [...facts().excluded, ...results.ownWorkings()],
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
@@ -421,6 +422,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       unsupported: null,
       calculation: null,
       ...(working && { working }),
+      ...(read.working && { workedOut: read.working }),
       ...court.citedCase(evidence ?? null),
       ...facts(),
       ...(more.length > 0 && { more }),

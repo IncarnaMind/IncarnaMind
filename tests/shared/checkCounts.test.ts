@@ -47,6 +47,11 @@ describe("The one count of sentences to check (#1909)", () => {
       expect(state(CLAIM, { state: verdict })).toEqual({ kind: "covered" });
   });
 
+  // protects=the writer's own view is a result that holds: its sentence is checked, never to check again (#3322); fails_when=an own view counts as a claim to check; no_claim=how it shows.
+  test("the writer's own view covers its sentence (#3322)", () => {
+    expect(state(CLAIM, { state: "own-view" })).toEqual({ kind: "covered" });
+  });
+
   test("a check still running is not to check", () => {
     expect(state(CLAIM, { state: "checking" })).toEqual({ kind: "checking" });
   });
