@@ -1180,6 +1180,7 @@ export const zhCN = {
   "figures.look.one": "1 个需要留意",
   "figures.notChecked": "{count} 个未核对",
   "figures.yourView": "{count} 个是你的观点",
+  "figures.ownView": "{count} 个是作者的判断",
   "figures.progress": "正在核对 {done}/{total} 个数字…",
   "figures.partial": "已核对 {done}/{total} 个数字",
   "figures.stop": "停止",

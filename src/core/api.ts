@@ -8063,6 +8063,7 @@ export interface FigureSchedule {
     notChecked: number;
     checking: number;
     kept: number;
+    ownViews: number;
   };
   checkedAt: string | null;
   model: ChatModelChoice | null;

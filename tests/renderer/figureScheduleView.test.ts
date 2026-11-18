@@ -121,7 +121,15 @@ function schedule(rows: FigureScheduleRow[]): FigureSchedule {
     basis: "basis",
     rows,
     analyses: [],
-    counts: { total: 47, supported: 21, needsLook: 13, notChecked: 10, checking: 2, kept: 1 },
+    counts: {
+      total: 47,
+      supported: 20,
+      needsLook: 13,
+      notChecked: 10,
+      checking: 2,
+      kept: 1,
+      ownViews: 1,
+    },
     checkedAt: "2026-10-27T12:00:00.000Z",
     model: { providerId: "provider", modelId: "model" },
     progress: null,
@@ -366,10 +374,11 @@ test.each(["en", "zh-CN"] as const)(
     expect(container.querySelector('[data-testid="figure-counts"]')?.textContent).toBe(
       [
         t("figures.count", { count: 47 }),
-        t("figures.supported", { count: 21 }),
+        t("figures.supported", { count: 20 }),
         t("figures.look", { count: 13 }),
         t("figures.notChecked", { count: 12 }),
         t("figures.yourView", { count: 1 }),
+        t("figures.ownView", { count: 1 }),
       ].join(" · "),
     );
     await click(button(t("figures.filter.look")));

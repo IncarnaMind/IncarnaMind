@@ -1216,6 +1216,7 @@ export const en = {
   "figures.look.one": "1 needs a look",
   "figures.notChecked": "{count} not checked",
   "figures.yourView": "{count} your view",
+  "figures.ownView": "{count} writer’s own view",
   "figures.progress": "Checking {done} of {total} figures…",
   "figures.partial": "{done} of {total} figures checked",
   "figures.stop": "Stop",

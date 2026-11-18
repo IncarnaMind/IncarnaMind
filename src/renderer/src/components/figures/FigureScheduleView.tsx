@@ -309,6 +309,7 @@ export function FigureScheduleView(props: FigureScheduleViewProps) {
     look === 1 ? t("figures.look.one") : t("figures.look", { count: look }),
     t("figures.notChecked", { count: counts.notChecked + counts.checking }),
     ...(counts.kept > 0 ? [t("figures.yourView", { count: counts.kept })] : []),
+    ...(counts.ownViews > 0 ? [t("figures.ownView", { count: counts.ownViews })] : []),
   ].join(" · ");
   return (
     <section
