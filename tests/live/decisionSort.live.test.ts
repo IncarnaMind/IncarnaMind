@@ -15,7 +15,7 @@ import { writeFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { libraryScore } from "../../src/core/answers/checks/decisionLibrary";
 import { decisionLinesFor } from "../../src/core/answers/checks/decisionLines";
-import { sortScore } from "../../src/core/answers/checks/decisionSort";
+import { sortScore, sortsIntoCheck } from "../../src/core/answers/checks/decisionSort";
 import { decisionEndpoint } from "../../src/core/providers/catalog/decisions";
 import { askJev } from "../../src/core/providers/jev";
 import { slots } from "../../src/core/runs/stop";
@@ -133,10 +133,12 @@ test.skipIf(!KEY)(
       ...ASKED,
       ...ABOUT_LIBRARY.map((sentence) => ({ set: "about the Library", sentence, fact: true })),
     ];
+    const lines = { sort: line, library: decisionLinesFor(HOST, MODEL)?.library };
     const scored = await Promise.all(
       asked.map(async (each) => ({
         ...each,
         score: await sortScore(reader, each.sentence, stop.signal),
+        checked: await sortsIntoCheck(reader, lines, each.sentence, stop.signal),
       })),
     );
     const seconds = (Date.now() - started) / 1000;
@@ -144,7 +146,7 @@ test.skipIf(!KEY)(
       const of = scored.filter((each) => each.set === set);
       const facts = of.filter((each) => each.fact);
       const others = of.filter((each) => !each.fact);
-      const under = (all: typeof of) => all.filter((each) => (each.score ?? 1) < line).length;
+      const under = (all: typeof of) => all.filter((each) => each.checked === false).length;
       return {
         set,
         facts: facts.length,

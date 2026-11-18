@@ -79,6 +79,9 @@ export const MEASURED_DECISION_MODELS: readonly [
       // Of 166 facts none scored under 0.43, and 17 of 18 sentences about their own Note scored
       // under 0.16; a score moved by 0.05 at most between two runs (#3334).
       sort: 0.2,
+      // All 31 sentences about a Library scored over 0.99, and 13 of 452 other sentences scored
+      // at or over 0.5 (#2525).
+      library: 0.5,
     },
   },
 ];
