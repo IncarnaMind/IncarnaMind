@@ -3071,9 +3071,11 @@ export function createCore(adapters: CoreAdapters): Core {
     scopeDocuments,
     unread: unreadIn,
     evidence,
+    ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
+      searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),

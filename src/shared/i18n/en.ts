@@ -1300,6 +1300,10 @@ export const en = {
   "claim.why.contradicted": "Contradicted",
   "claim.why.needs-recheck": "Needs re-check",
   "claim.why.notFound": "Not found",
+  "claim.working.show": "Show how it was worked out",
+  "claim.working.rows.one": "Worked out on this computer from {count} row of “{name}” ({range}).",
+  "claim.working.rows.other":
+    "Worked out on this computer from {count} rows of “{name}” ({range}).",
   "claim.why.overstated": "Overstated",
   "claim.why.partly-supported": "Partly supported",
   "claim.why.quoteNotFound": "Quote not found",
@@ -1549,6 +1553,14 @@ export const en = {
     "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.outside-scope": "“{detail}” is outside this note’s Search scope.",
+  "claim.reason.rows-run-failed":
+    "Not checked: the code that works this out from “{detail}” failed. Check again to try once more.",
+  "claim.reason.rows-run-timed-out":
+    "Not checked: working this out from “{detail}” took longer than a minute.",
+  "claim.reason.rows-unavailable":
+    "Not checked: Python couldn’t run on this computer, so this wasn’t worked out from “{detail}”.",
+  "claim.reason.rows-cut":
+    "Not checked: “{detail}” has more rows than a check reads, and a figure is never judged from part of a file.",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
   "claim.reason.workbook-differs":
@@ -3312,7 +3324,7 @@ export const en = {
   "providers.sends.chat":
     "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages, or that checks what the assistant’s reply says it changed, the reply, the Question it answers and the record of what its Tools did",
   "providers.sends.checks":
-    "each sentence you check, with its paragraph and figures, and for a figure an Answer worked out, how it was worked out: its label, formula and inputs with their quotes and Document names (for a workbook’s figure, the cells and formulas it was worked out through), or an Analysis’s label and unit, the columns and rows it read and the heading above it; the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; the claims of a document you verify, once more with their numbers and pages, to write what it concludes; the heading above a sentence the assistant wrote; and after a new version of a Document, the cited sentences of the notes in its Folder, without how their figures were worked out",
+    "each sentence you check, with its paragraph and figures, and for a figure an Answer worked out, how it was worked out: its label, formula and inputs with their quotes and Document names (for a workbook’s figure, the cells and formulas it was worked out through), or an Analysis’s label and unit, the columns and rows it read and the heading above it; the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; for a figure a check you start works out again over a sheet or a CSV file, the capped report of the code that worked it out (the file’s name and size, the figures and table rows it gave, what it printed, its warnings and errors); every sentence of a note or file you check whole, to find its claims; the claims of a document you verify, once more with their numbers and pages, to write what it concludes; the heading above a sentence the assistant wrote; and after a new version of a Document, the cited sentences of the notes in its Folder, without how their figures were worked out",
   "providers.sends.suggestions":
     "the paragraph you pause on and up to 8 matching passages, each with its Document name and location, for writing suggestions",
   "providers.sends.edits":
@@ -3607,7 +3619,7 @@ export const en = {
   "consent.data.skill-files":
     "The names and descriptions of the Skills that are on, and the instructions and files of the Skills an Answer loads",
   "consent.data.analysis-results":
-    "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
+    "The capped report of each Analysis an Answer runs, or a check you start runs to work a figure out again: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
   "consent.flow.tagging": "Automatic Tags",
   "consent.flow.tagging.purpose": "tag your Documents automatically",
   "consent.data.tags": "The kinds of Document and the names and descriptions of your own Tags",

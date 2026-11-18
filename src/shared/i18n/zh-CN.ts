@@ -1264,6 +1264,9 @@ export const zhCN = {
   "claim.why.contradicted": "与文档矛盾",
   "claim.why.needs-recheck": "需重新核对",
   "claim.why.notFound": "未找到",
+  "claim.working.show": "查看重算过程",
+  "claim.working.rows.one": "在这台电脑上根据“{name}”的 {count} 行（{range}）重算。",
+  "claim.working.rows.other": "在这台电脑上根据“{name}”的 {count} 行（{range}）重算。",
   "claim.why.overstated": "夸大",
   "claim.why.partly-supported": "部分有依据",
   "claim.why.quoteNotFound": "未找到引文",
@@ -1497,6 +1500,13 @@ export const zhCN = {
   "claim.absenceBesideFact": "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.outside-scope": "“{detail}”不在这篇笔记的搜索范围内。",
+  "claim.reason.rows-run-failed":
+    "未核对：根据“{detail}”重算这个数字的代码运行失败。重新核对可再试一次。",
+  "claim.reason.rows-run-timed-out": "未核对：根据“{detail}”重算这个数字超过了 1 分钟。",
+  "claim.reason.rows-unavailable":
+    "未核对：这台电脑上无法运行 Python，未能根据“{detail}”重算这个数字。",
+  "claim.reason.rows-cut":
+    "未核对：“{detail}”的行数超过一次核对读取的上限，不会只凭文件的一部分下结论。",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
   "claim.reason.workbook-differs":
@@ -3157,7 +3167,7 @@ export const zhCN = {
   "providers.sends.chat":
     "你的问题、此前的问答、当前笔记或你指定的笔记、最近修改的最多 30 篇笔记的名称（标出由回答写成的）、匹配的段落及其文档名称和页码、问题或命令找到的文档和笔记（最多 50 个）的名称、文件夹和标签、会议的转写稿、你在笔记中选中提问的图片、已开启技能的名称和描述、回答加载的技能的说明和文件，以及回答运行的数据分析报告（有上限）；快速任务模型为回答中的引用找出对应引文时，该回答及其段落；核对助手的回答中说做了的改动时，该回答、它回答的问题，以及工具实际做了什么的记录",
   "providers.sends.checks":
-    "你核对的每一句话及其所在段落和数字；句中由回答算出的数字的算法：标签、公式及其输入的引文和文档名称（工作簿中的数字为其经过的单元格和公式），或数据分析的标签和单位、读取的列和行以及上方的标题；以及用于核对的段落、其文档名称、页码或位置和工作簿中哪些行的数值由公式算出；整篇核对笔记或文件时，其中每一句话（用于找出说法）；核对别人的文件时，找出的说法再带着编号和页码发送一次（用于写出文件的结论）；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子（不含其中数字的算法）",
+    "你核对的每一句话及其所在段落和数字；句中由回答算出的数字的算法：标签、公式及其输入的引文和文档名称（工作簿中的数字为其经过的单元格和公式），或数据分析的标签和单位、读取的列和行以及上方的标题；以及用于核对的段落、其文档名称、页码或位置和工作簿中哪些行的数值由公式算出；你发起的核对根据表格或 CSV 文件重算数字时，重算代码的报告（有上限）：文件名称和大小、算出的数字和表格行、打印的结果、警告和错误；整篇核对笔记或文件时，其中每一句话（用于找出说法）；核对别人的文件时，找出的说法再带着编号和页码发送一次（用于写出文件的结论）；助手所写句子上方的标题；文档有新版本后，所在文件夹中笔记里带引用的句子（不含其中数字的算法）",
   "providers.sends.suggestions":
     "写作建议时你停下的那一段，以及最多 8 个匹配的段落（含文档名称和位置）",
   "providers.sends.edits":
@@ -3431,7 +3441,7 @@ export const zhCN = {
   "consent.data.tool-results": "回答所用连接器和技能脚本返回的结果",
   "consent.data.skill-files": "已开启技能的名称和描述，以及回答加载的技能的说明和文件",
   "consent.data.analysis-results":
-    "回答每次运行的数据分析的报告（有上限）：输入的名称和大小、行数和列数、警告和错误（含读不成数字的单元格文字）、它算出的数字和表格行、图表和图片的标题、代码中写出的数字、打印的结果，以及文本文件的摘录",
+    "回答每次运行的数据分析，或你发起的核对为重算数字而运行的数据分析，其报告（有上限）：输入的名称和大小、行数和列数、警告和错误（含读不成数字的单元格文字）、它算出的数字和表格行、图表和图片的标题、代码中写出的数字、打印的结果，以及文本文件的摘录",
   "consent.flow.tagging": "自动打标签",
   "consent.flow.tagging.purpose": "自动为你的文档打标签",
   "consent.data.tags": "文档类别以及你自己的标签的名称和描述",

@@ -152,8 +152,10 @@ import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 /**
  * What the "checks" flow sends: the sentences checked, with their paragraphs,
  * the Passages found, a verified document's sentences, to find its claims
- * (#97), a Mind's sentences when the whole Mind is checked (#737), and how a
- * figure an Answer worked out was worked out, which its check is told.
+ * (#97), a Mind's sentences when the whole Mind is checked (#737), how a
+ * figure an Answer worked out was worked out, which its check is told, and
+ * what the code came to where a check worked a figure out over a data file's
+ * rows (#3282).
  */
 export const CHECKS_FLOW_SENDS = [
   "selection",
@@ -162,6 +164,7 @@ export const CHECKS_FLOW_SENDS = [
   "blocks",
   "watched-sentences",
   "worked-figures",
+  "analysis-results",
 ] as const;
 
 /**
@@ -170,9 +173,12 @@ export const CHECKS_FLOW_SENDS = [
  */
 const WATCH_SENDS: readonly DataKind[] = ["selection", "passages", "watched-sentences"];
 
-/** What checking the assistant's write may send: all the checks flow does but the watch's sentences. */
+/**
+ * What checking the assistant's write may send: all the checks flow does but the watch's
+ * sentences, and no code's results: only a check the User starts runs code over a data file.
+ */
 const WRITTEN_SENDS: readonly DataKind[] = CHECKS_FLOW_SENDS.filter(
-  (kind) => kind !== "watched-sentences",
+  (kind) => kind !== "watched-sentences" && kind !== "analysis-results",
 );
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */
@@ -764,6 +770,10 @@ export function createChecks(options: ChecksOptions) {
     };
   const checkByAiModel = asCheck(withCites(createClaimCheck(options)));
   const claimCheck = asCheck(readFirst(withCites(createClaimCheck(options))));
+  // A check that starts by itself (of what the assistant wrote, of an Answer's own sentences)
+  // sends what the written check may: no code runs over a data file unless the User asked.
+  const unaskedCheck: typeof claimCheck = (request) =>
+    claimCheck({ ...request, sends: request.sends ?? WRITTEN_SENDS });
 
   const services = async () => {
     const service = chat.defaultService();
@@ -1350,7 +1360,7 @@ export function createChecks(options: ChecksOptions) {
     widened: ({ provider: { service } }) => waitsFor(service, WRITTEN_SENDS),
     quickModel: quickModelOf,
     firstLook,
-    claimCheck,
+    claimCheck: unaskedCheck,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     evidenceReady,
     citedNow,
@@ -1434,7 +1444,7 @@ export function createChecks(options: ChecksOptions) {
     capLeft: () => options.capLeft(),
     look: async ({ sentence, context, citations, cited, scope, mindId, callIn, model, signal }) => {
       const outcome = await runCheck(
-        claimCheck,
+        unaskedCheck,
         {
           claim: sentence,
           context,

@@ -62,6 +62,7 @@ const QUOTES: readonly DocQuote[] = [
   { page: "check", key: "verify.command" },
   { page: "check", key: "mindCheck.command" },
   { page: "check", key: "claim.state.supported" },
+  { page: "check", key: "claim.working.show" },
   { page: "check", key: "claim.state.overstated" },
   { page: "check", key: "claim.state.partly-supported" },
   { page: "check", key: "claim.state.unsupported" },
