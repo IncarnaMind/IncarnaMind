@@ -105,7 +105,7 @@ const SORT_INPUT =
 const NUMBERS =
   "Decide every supplied sentence, each alone, and give each one word. A batch can hold one sentence or many, and its numbers need not start at 1.";
 
-// The words the decision model's sort was measured with (#3334), so both sorts draw one line.
+// The line the decision model's sort draws (#3334), so a sentence is sorted alike by either.
 const CLAIM =
   '"claim": the sentence says something about its subject that documents could confirm or contradict: a fact, a figure, an event, a comparison, what someone said, what a contract, a policy or a rule requires, or the writer\'s judgement, forecast, advice or plan about it.';
 
