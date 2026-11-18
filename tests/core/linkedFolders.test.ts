@@ -16,7 +16,7 @@ import {
 } from "../../src/core";
 import { suggestLayout } from "../../src/core/documents/library";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, startCore, watchFoldersForReal } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -29,6 +29,8 @@ import {
 } from "../helpers/documents";
 import { turnOnEmbeddings } from "../helpers/embedding";
 import { buildPdf } from "../helpers/pdf";
+
+watchFoldersForReal();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

@@ -19,6 +19,7 @@ import {
   type SaveChatProviderInput,
   type SecretProtection,
 } from "../../src/core";
+import type { WatchFolder } from "../../src/core/documents/watcher";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { scriptedLocalServers } from "../../src/core/providers/localServers";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
@@ -139,11 +140,23 @@ export function createMemoryKeychain(protection: SecretProtection = "os"): Memor
 /** Adapters a test overrides; the paths it leaves out keep `startCore`'s. */
 export type TestAdapters = Omit<Partial<CoreAdapters>, "paths"> & { paths?: Partial<Paths> };
 
+const unwatched: WatchFolder = () => ({ close() {} });
+let watching = false;
+
+/**
+ * For a test file about what changes on disk by itself: its cores watch their folders for real.
+ * The others don't, because closing a real watch takes a third of a second on macOS, and seconds
+ * on a busy one, each time a core that holds a Document closes.
+ */
+export function watchFoldersForReal(): void {
+  watching = true;
+}
+
 /**
  * Starts the core on `dataDir` with test adapters: an English OS, an in-memory
  * keychain, no browser, shell or processes, the deterministic fake embedding
- * and reranking models, which have no files to download, Linked folders that settle quickly,
- * and no lookups of models in Ollama. Closed when the current test finishes; call `close()` yourself to
+ * and reranking models, which have no files to download, Linked folders that settle quickly
+ * and are watched only after `watchFoldersForReal()`, and no lookups of models in Ollama. Closed when the current test finishes; call `close()` yourself to
  * simulate quitting the app.
  */
 export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
@@ -217,7 +230,12 @@ export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
       Object.getOwnPropertyDescriptors(paths ?? {}),
     ),
     // Linked folders settle and retry quickly in tests.
-    linkedFolders: { settleMs: 30, retryMs: 300, ...overrides.linkedFolders },
+    linkedFolders: {
+      settleMs: 30,
+      retryMs: 300,
+      ...(!watching && { watch: unwatched }),
+      ...overrides.linkedFolders,
+    },
   });
   onTestFinished(() => core.close());
   return core;
