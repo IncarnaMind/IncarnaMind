@@ -36,6 +36,11 @@ const SOUTH = "South quay — Boats: 17; Fee (£): 830";
 // A row of a table with no headings, said as one claim: its label, then what the row says of it.
 const OFFICE_ROW = `Harbour office — ${OFFICE}`;
 const CLIFFS_ROW = `Cliffs — ${PENGUINS}`;
+const KEY_FACT_ROWS = [
+  "Year founded — 2019",
+  "Head office — Port Ellery",
+  "Staff on payroll — 240",
+];
 
 const PLANS: Record<string, Plan> = {
   [SPRING]: {
@@ -61,6 +66,7 @@ const PLANS: Record<string, Plan> = {
   },
   [OFFICE_ROW]: { verdict: "unsupported" },
   [CLIFFS_ROW]: { verdict: "unsupported" },
+  ...Object.fromEntries(KEY_FACT_ROWS.map((row) => [row, { verdict: "unsupported" } as const])),
 };
 
 /** The deck someone sent: a title slide, claims as bullets, a slide of nothing, a table, speaker notes. */
@@ -233,6 +239,47 @@ describe("Verify a deck", () => {
       [SPRING, 2],
       [PENGUINS, 2],
     ]);
+  });
+
+  // protects=a deck's table of labels and values with a year in its first row has no heading row: every row is a claim, said with its own cells only (#3318); fails_when=its first row is read as the columns' headings, so its claim is never asked and the rows below are said under its cells
+  test("a table of labels and values with a year in its first row has every row checked, said without headings", async () => {
+    const calls: ModelCall[] = [];
+    const { core, sources } = await setUp(calls);
+    const deck = plainDeck([
+      {
+        title: "Key facts",
+        table: [
+          ["Year founded", "2019"],
+          ["Head office", "Port Ellery"],
+          ["Staff on payroll", "240"],
+        ],
+      },
+    ]);
+    const result = await core.verifyDocument({
+      path: await writeSourceFile(sources, "Key facts.pptx", deck),
+    });
+    if (!result.ok) throw new Error(`The deck wasn't verified: ${result.reason}`);
+    const client = await connectToMind(core, result.mind.id);
+    await client.settled();
+
+    const blocks: JSONContent[] = readMind(client).toJSON().content ?? [];
+    expect(
+      (blocks[1]?.content ?? []).map((row) => (row.content ?? []).map((cell) => cell.type)),
+    ).toEqual([
+      ["tableCell", "tableCell"],
+      ["tableCell", "tableCell"],
+      ["tableCell", "tableCell"],
+    ]);
+
+    expect(await core.findClaims(request(result.mind.id))).toEqual({ kind: "found", claims: 3 });
+    await client.settled();
+    expect(verificationOf(client.doc)?.claims?.map((claim) => claim.text)).toEqual([
+      "Year founded",
+      "Head office",
+      "Staff on payroll",
+    ]);
+    await core.verifyClaims(request(result.mind.id));
+    expect(new Set(calls.filter(isCheckRun).map(sentenceOf))).toEqual(new Set(KEY_FACT_ROWS));
   });
 
   // protects=a deck that can't be checked says why in plain words and leaves no Mind (#3275); fails_when=a deck of nothing but pictures, a broken one or one saved with a password makes an empty Mind or a wrong reason
