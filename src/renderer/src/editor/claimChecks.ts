@@ -492,15 +492,15 @@ export function claimsOf(
 
 /**
  * What a checked sentence takes in the Note: a wash where it needs a look, and a quiet dotted line
- * where its words aren't the Documents' own: grey for its writer's own view, green for a Supported
- * verdict the check worked out from them (#3322). Null for a sentence the Documents state.
+ * under a Supported verdict the check worked out from the Documents (#3322). Null for a sentence the
+ * Documents state and for its writer's own view, which only the margin marks: a judgement is not
+ * a kind of working.
  */
 export function claimWash(
   shown: ClaimCheckShown,
   check: Pick<ClaimCheckAttributes, "parts">,
 ): string | null {
-  if (shown.state === "unsupported" || shown.state === "contradicted" || shown.state === "own-view")
-    return shown.state;
+  if (shown.state === "unsupported" || shown.state === "contradicted") return shown.state;
   return shown.state === "supported" && (check.parts ?? []).some(workedOutOf) ? "worked-out" : null;
 }
 

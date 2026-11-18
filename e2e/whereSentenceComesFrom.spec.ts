@@ -236,11 +236,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(markOf(window, "worked")).toHaveAttribute("data-check", "supported");
       await expect(markOf(window, "wrong")).toHaveAttribute("data-check", "contradicted");
       await expect(markOf(window, "view")).toHaveAttribute("data-check", "own-view");
-      // The Note: a dotted line under the two sentences that aren't the Document's own words.
+      // The Note: a dotted line under the sentence worked out, a wash on the contradiction, and
+      // nothing on the view, which only the margin marks.
       await expect.poll(() => washed(window, "worked-out")).toBe(words.worked);
-      expect(await washed(window, "own-view")).toBe(words.view);
       expect(await washed(window, "contradicted")).toBe(words.wrong);
-      expect(await washed(window)).toBe(words.worked + words.wrong + words.view);
+      expect(await washed(window)).toBe(words.worked + words.wrong);
       await screenshot(window, `where-from-note-${language}`);
 
       const card = window.getByTestId("claim-card");
@@ -291,7 +291,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
       const typed = window.locator('[data-testid="claim-mark"][data-check="own-view"]');
       await expect(typed).toHaveCount(1, { timeout: 30_000 });
-      expect(await washed(window, "own-view")).toBe(words.typed);
+      expect(await washed(window)).toBe("");
       await pointAndClick(window, typed);
       await expect(card.getByTestId("claim-badge")).toHaveText(
         translate(language, "claim.state.own-view"),

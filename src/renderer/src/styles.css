@@ -6301,11 +6301,6 @@
   .claim-wash--contradicted {
     background: var(--color-danger-wash);
   }
-  /* A sentence that is its writer's own view (#3322) is no fault: no wash, a quiet dotted line. */
-  .claim-wash--own-view {
-    text-decoration: underline dotted var(--color-ink-meta);
-    text-underline-offset: 5px;
-  }
   /* Supported, but worked out from what the Documents state, not their own words (#3322). */
   .claim-wash--worked-out {
     text-decoration: underline dotted var(--color-success);
