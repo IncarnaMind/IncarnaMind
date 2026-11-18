@@ -952,6 +952,12 @@ def _run_job(job):
             inputs = _Inputs(values)
             module = sys.modules[__name__]
             namespace = {
+                # Models write an input by its bare name as often as inputs["name"].
+                **{
+                    name: inputs[name]
+                    for name in values
+                    if name.isidentifier() and not hasattr(builtins, name)
+                },
                 "__name__": "__main__",
                 "__builtins__": builtins,
                 "inputs": inputs,

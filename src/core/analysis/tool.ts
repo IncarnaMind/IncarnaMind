@@ -58,7 +58,7 @@ export interface AnalysisToolOptions {
 }
 
 /** How the model is told to read the Library's lists, where a Run offers them. */
-const LIBRARY_INPUT = ` An input can also be one of the lists IncarnaMind keeps of the User's Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, tags; kind is one of ${Object.keys(DOCUMENT_KINDS).join(", ")}, and tags are joined with ", "), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder). Their rows stay on the User's computer and are never shown to you: count or look up in the code what you need and give each number with result(). Nothing the code prints and no table comes back from such a run.`;
+const LIBRARY_INPUT = ` An input can also be one of the lists IncarnaMind keeps of the User's Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, tags; kind is one of ${Object.keys(DOCUMENT_KINDS).join(", ")}, and tags are joined with ", "), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder). The code reads each by the name you gave it, as inputs["files"], a DataFrame with those columns. Their rows stay on the User's computer and are never shown to you: count or look up in the code what you need and give each number with result(). Nothing the code prints and no table comes back from such a run.`;
 
 /**
  * A run that read the Library's lists, as its model is told of it: the numbers its code gave and
@@ -394,7 +394,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       const lists = ok.flatMap(({ library, job }) =>
         library && job.kind === "table"
           ? [
-              `${job.name}: the Library's ${library}: ${job.rows.length} rows × ${job.columns.length} columns (${job.columns.join(", ")}), never shown: only the numbers result() gives come back`,
+              `inputs["${job.name}"]: the Library's ${library}: ${job.rows.length} rows × ${job.columns.length} columns (${job.columns.join(", ")}), never shown: only the numbers result() gives come back`,
             ]
           : [],
       );
