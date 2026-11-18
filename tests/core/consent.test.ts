@@ -101,6 +101,7 @@ describe("Choosing a service is the consent (ADR-0022)", () => {
         "blocks",
         "watched-sentences",
         "worked-figures",
+        "analysis-results",
       ]),
       // Tagging and sorting Documents aren't what choosing a provider allows: the User turns them on.
       {
@@ -263,6 +264,7 @@ describe("Decisions made before choosing was the consent", () => {
         "blocks",
         "watched-sentences",
         "worked-figures",
+        "analysis-results",
       ]);
       decided("edits", "declined", []);
     } finally {
@@ -283,6 +285,7 @@ describe("Decisions made before choosing was the consent", () => {
           "blocks",
           "watched-sentences",
           "worked-figures",
+          "analysis-results",
         ],
       },
       consent: "accepted",
@@ -456,6 +459,7 @@ describe("Data-flow consent", () => {
         "blocks",
         "watched-sentences",
         "worked-figures",
+        "analysis-results",
       ]),
       notAsked("tagging", ["tags", "document-excerpts"]),
     ]);

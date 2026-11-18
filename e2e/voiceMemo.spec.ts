@@ -12,6 +12,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  transcribeHere,
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
@@ -149,7 +150,6 @@ for (const [language, width] of [
     await useOutputLocation(window, sources);
     try {
       await pointAndClick(window, window.getByTestId("plus-menu"));
-      await pointAndClick(window, window.getByTestId("plus-more"));
       const item = window.getByTestId("plus-record-memo");
       await expect(item).toHaveText(words.menu);
       await pointAndClick(window, item);
@@ -159,6 +159,7 @@ for (const [language, width] of [
       await expect(notice).toContainText(words.microphone);
       await expect(notice).not.toContainText(words.tell);
       expect(await memosOf(window)).toEqual([]);
+      await transcribeHere(notice);
       await pointAndClick(window, notice.getByTestId("meeting-notice-start"));
       await expect(notice).toBeHidden();
 
@@ -259,7 +260,6 @@ test("with no model, Stop writes the Transcript in as it is, under a dated title
     await readNotice(window);
 
     await pointAndClick(window, window.getByTestId("plus-menu"));
-    await pointAndClick(window, window.getByTestId("plus-more"));
     await pointAndClick(window, window.getByTestId("plus-record-memo"));
     const bar = window.getByTestId("meeting-bar");
     await expect(bar).toHaveAttribute("data-status", "recording");

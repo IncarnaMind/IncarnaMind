@@ -1,8 +1,9 @@
 /**
  * What each model measured to use `calculate` is offered beside it (ADR-0021, #441): Claude and
- * OpenAI's models get `calculate`, the workbook Tools, the Analysis Tool and `calculate` in claim
- * checks; DeepSeek Flash gets `calculate` in Answers only, since only that was measured; DeepSeek
- * V4 Pro, never measured, gets none of them. Through the core's public interface, in English
+ * OpenAI's models get `calculate`, the workbook Tools and the Analysis Tool, and in claim checks
+ * `calculate` and, with a sheet among the Documents, the Analysis Tool (#3282); DeepSeek Flash gets
+ * `calculate` in Answers only, since only that was measured; DeepSeek V4 Pro, never measured, gets
+ * none of them. Through the core's public interface, in English
  * and in Chinese, with a scripted model that only answers.
  */
 import { describe, expect, test } from "vitest";
@@ -74,8 +75,8 @@ describe.each([
   ["zh", "North区域2025年销售了多少？", "North区域2025年销售了150。"],
 ])("Tools beside calculate, in %s", (_, question, claim) => {
   test.each([
-    ["Claude Haiku 5.5", WATCHED, ["calculate"]],
-    ["GPT-6 Luna", WATCHED, ["calculate"]],
+    ["Claude Haiku 5.5", WATCHED, ["calculate", ANALYSIS_TOOLS.run]],
+    ["GPT-6 Luna", WATCHED, ["calculate", ANALYSIS_TOOLS.run]],
     ["DeepSeek Flash", ["calculate"], []],
     ["DeepSeek V4 Pro", [], []],
   ])("%s: an Answer is offered %j, a claim check %j", async (name, inAnswers, inChecks) => {

@@ -31,6 +31,7 @@ import {
   setWindowSize,
   showSettingsPage,
   startRecording,
+  transcribeHere,
   transcriptSaved,
   turnOf,
   useLocalChatModel,
@@ -118,6 +119,7 @@ test("a meeting records from the + menu, after the one-time notice: the bar, ⌘
   // The first recording on this device shows the notice once; Cancel records nothing.
   await start.getByTestId("meeting-start-record").click();
   const notice = window.getByTestId("meeting-notice");
+  await transcribeHere(notice);
   await expect(notice).toContainText(
     "Tell everyone you’re recording: in many places it’s the law.",
   );

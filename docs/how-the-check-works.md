@@ -35,6 +35,15 @@ In a table, the model judges a cell with its row's label and its column's headin
 
 A sentence is judged as one: it has one result, not one for each of its parts or numbers. A record cite inside a sentence has its own result, as in `Needs a look · Record cite`.
 
+### A figure over a data file's rows
+
+A sentence can give a figure that no Passage states because it is worked out over many rows of a sheet or a CSV file: a total, an average, a count, a share, a change. In a check you start, the model works it out again. It writes code, IncarnaMind runs that code on this computer over the whole file, and the model compares the result with the sentence.
+
+- The same value is `Supported`, and another value is `Needs a look · Contradicted`, with the value the rows give. The card's `Show how it was worked out` opens the rows read and the code.
+- IncarnaMind confirms one thing itself: that the code finished, on the whole file. A run that failed, took longer than a minute or couldn't start leaves the sentence `Not checked` with the reason, and so does a file with more rows than a check reads (20,000). It is never a ✓.
+- It rests on the code the model wrote. The check doesn't judge whether that is the right way to work the figure out, so open the code where the figure matters.
+- A check that runs by itself, such as the contradiction check after a new version of a Document, never runs code.
+
 ### A table or figure from an Analysis
 
 - A table an Analysis made is never checked against your Documents: its cells are the Analysis's. The marker at the end of its caption opens how each column was worked out.

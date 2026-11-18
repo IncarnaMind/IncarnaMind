@@ -1300,6 +1300,10 @@ export const en = {
   "claim.why.contradicted": "Contradicted",
   "claim.why.needs-recheck": "Needs re-check",
   "claim.why.notFound": "Not found",
+  "claim.working.show": "Show how it was worked out",
+  "claim.working.rows.one": "Worked out on this computer from {count} row of “{name}” ({range}).",
+  "claim.working.rows.other":
+    "Worked out on this computer from {count} rows of “{name}” ({range}).",
   "claim.why.overstated": "Overstated",
   "claim.why.partly-supported": "Partly supported",
   "claim.why.quoteNotFound": "Quote not found",
@@ -1549,6 +1553,14 @@ export const en = {
     "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.outside-scope": "“{detail}” is outside this note’s Search scope.",
+  "claim.reason.rows-run-failed":
+    "Not checked: the code that works this out from “{detail}” failed. Check again to try once more.",
+  "claim.reason.rows-run-timed-out":
+    "Not checked: working this out from “{detail}” took longer than a minute.",
+  "claim.reason.rows-unavailable":
+    "Not checked: Python couldn’t run on this computer, so this wasn’t worked out from “{detail}”.",
+  "claim.reason.rows-cut":
+    "Not checked: “{detail}” has more rows than a check reads, and a figure is never judged from part of a file.",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
   "claim.reason.workbook-differs":
@@ -2921,7 +2933,6 @@ export const en = {
   "tags.picker.on": "on this Document",
   "tags.picker.some": "on {count} of {total}",
   "tags.picker.remove": "Remove {tag}",
-  "tags.picker.automatic": "automatic",
   "tags.dialog.count": "{count} Documents",
   "tags.dialog.count.one": "1 Document",
   "tags.dialog.descriptionNote":
@@ -2967,8 +2978,6 @@ export const en = {
     "Notes or minutes of a meeting, a call, an interview or a debrief.",
   "tags.kind.letter": "Letter",
   "tags.kind.letter.description": "A letter or a formal notice addressed to someone.",
-  "tags.chip.automatic": "{tag}: added automatically",
-  "tags.chip.user": "{tag}: added by you",
   "tags.menu.open": "Tags of {name}",
   "tags.menu.retag": "Re-tag automatically",
   "tags.menu.manage": "Manage Tags…",
@@ -3000,7 +3009,6 @@ export const en = {
 
   "jev.waiting.notice": "Tags come once you choose an AI model.",
   "jev.waiting.permission": "Tags wait until you allow Document text to go to {service}.",
-  "jev.chip.likely": "{tag}: added automatically, {percent}% likely",
   "jev.settings.title": "TypeSafe Jev",
   "jev.settings.setUp": "Use TypeSafe Jev…",
   "jev.setUp.line": "TypeSafe’s model for sorting and meeting hints, with your key",
@@ -3211,7 +3219,7 @@ export const en = {
   "setupPage.work.research": "Research and study",
   "setupPage.work.research.line": "Papers, theses, reviews",
   "setupPage.work.reports": "Reports for clients",
-  "setupPage.work.reports.line": "Due diligence and expert reports",
+  "setupPage.work.reports.line": "Due diligence, expert reports",
   "setupPage.work.meetings": "Meetings and calls",
   "setupPage.work.meetings.line": "Notes and follow-ups",
   "setupPage.work.other": "Something else",
@@ -3312,7 +3320,7 @@ export const en = {
   "providers.sends.chat":
     "your Questions, earlier Questions and Answers, the note you’re in or one you name, the names of up to 30 of your most recently changed notes, noting which an Answer wrote, matching passages with their Document names and pages, the names, Folders and Tags of the Documents and notes a Question or a command finds (up to 50), a Meeting’s Transcript, a picture you select in a note to ask about, the names and descriptions of Skills that are on and the instructions and files of Skills an Answer loads, and the capped reports of Analyses it runs; and, for a quick-tasks model that finds the quotes behind an Answer’s Citations, the Answer and its passages, or that checks what the assistant’s reply says it changed, the reply, the Question it answers and the record of what its Tools did",
   "providers.sends.checks":
-    "each sentence you check, with its paragraph and figures, and for a figure an Answer worked out, how it was worked out: its label, formula and inputs with their quotes and Document names (for a workbook’s figure, the cells and formulas it was worked out through), or an Analysis’s label and unit, the columns and rows it read and the heading above it; the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; every sentence of a note or file you check whole, to find its claims; the claims of a document you verify, once more with their numbers and pages, to write what it concludes; the heading above a sentence the assistant wrote; and after a new version of a Document, the cited sentences of the notes in its Folder, without how their figures were worked out",
+    "each sentence you check, with its paragraph and figures, and for a figure an Answer worked out, how it was worked out: its label, formula and inputs with their quotes and Document names (for a workbook’s figure, the cells and formulas it was worked out through), or an Analysis’s label and unit, the columns and rows it read and the heading above it; the passages it’s checked against with their Document names, pages or locations and which of a workbook’s rows hold values its formulas worked out; for a figure a check you start works out again over a sheet or a CSV file, the capped report of the code that worked it out (the file’s name and size, the figures and table rows it gave, what it printed, its warnings and errors); every sentence of a note or file you check whole, to find its claims; the claims of a document you verify, once more with their numbers and pages, to write what it concludes; the heading above a sentence the assistant wrote; and after a new version of a Document, the cited sentences of the notes in its Folder, without how their figures were worked out",
   "providers.sends.suggestions":
     "the paragraph you pause on and up to 8 matching passages, each with its Document name and location, for writing suggestions",
   "providers.sends.edits":
@@ -3442,6 +3450,7 @@ export const en = {
   "chatgpt.signingIn": "Finish signing in in your browser…",
   "chatgpt.cancel": "Cancel",
   "chatgpt.reopen": "Open the sign-in page again",
+  "chatgpt.trouble": "Trouble signing in?",
   "chatgpt.nothingExtra": "OpenAI may ask you to allow IncarnaMind.",
   "chatgpt.late": "Didn’t finish? Open the sign-in page again.",
   "chatgpt.signOut": "Sign out",
@@ -3607,7 +3616,7 @@ export const en = {
   "consent.data.skill-files":
     "The names and descriptions of the Skills that are on, and the instructions and files of the Skills an Answer loads",
   "consent.data.analysis-results":
-    "The capped report of each Analysis an Answer runs: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
+    "The capped report of each Analysis an Answer runs, or a check you start runs to work a figure out again: the names and sizes of its inputs, row and column counts, warnings and errors with the text of any cell it couldn’t read as a number, the figures and table rows it works out, its chart and picture titles, the numbers written in its code, printed results and text-file excerpts",
   "consent.flow.tagging": "Automatic Tags",
   "consent.flow.tagging.purpose": "tag your Documents automatically",
   "consent.data.tags": "The kinds of Document and the names and descriptions of your own Tags",
@@ -5388,11 +5397,11 @@ export const en = {
   "export.unmarked.unsupported": "{count} Unsupported",
   "export.unmarked.recheck": "{count} Needs re-check",
   "export.unmarked.word": "Export as Word instead",
-  "export.word.review.one": "1 thing in the Word file can’t be kept",
-  "export.word.review.other": "{count} things in the Word file can’t be kept",
-  "export.word.anyway": "Export anyway",
-  "export.word.review.spoken": ": {items}",
-  "export.word.review.separator": "; ",
+  "export.word.notKept.one": "1 thing in the Word file couldn’t be kept",
+  "export.word.notKept.other": "{count} things in the Word file couldn’t be kept",
+  "export.word.notKept.show": "Show",
+  "export.word.notKept.spoken": ": {items}",
+  "export.word.notKept.separator": "; ",
   "export.word.comment": "{author}’s comment “{text}” is on text you deleted",
   "export.word.comment.anonymous": "The comment “{text}” is on text you deleted",
   "export.word.change": "{author}’s tracked change “{text}” is in text you deleted",
@@ -5904,7 +5913,7 @@ export const en = {
   "error.commands.undoGone":
     "These changes can’t be undone any more: IncarnaMind has restarted since.",
   "error.commands.wordLoses":
-    "A Word file can’t keep everything in this note. Export it from the note’s menu to see what first.",
+    "A Word file can’t keep everything in this note. Export it from the note’s menu, which lists what isn’t kept.",
   "error.commands.exportDenied": "Nothing was saved: you didn’t allow the new file list.",
   "error.commands.noFolderId": "There is no Folder with the id {id}.",
   "error.commands.noTagId": "There is no Tag with the id {id}.",

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import appIcon from "../../../../../build/icon/png/128x128.png";
 import type { WorkKind } from "../../../../core/api";
 import { useAppStore } from "../../store";
 import { ConsentDialog } from "../ConsentDialog";
@@ -83,7 +84,11 @@ export function SetupPage({ workOrder, picksSent }: { workOrder: WorkKind[]; pic
     >
       {/* The window's top moves it, as the app's band does. */}
       <div aria-hidden="true" className="title-bar absolute inset-x-0 top-0 h-11" />
-      <main className="flex flex-1 items-start justify-center px-4 pt-11 pb-10">
+      <main className="flex flex-1 flex-col items-center gap-6 px-4 pt-[clamp(3rem,9vh,6.5rem)] pb-10">
+        <p className="flex items-center gap-2.5 text-[15px] leading-6 font-semibold text-ink">
+          <img src={appIcon} alt="" className="size-9" />
+          IncarnaMind
+        </p>
         <SetupSteps
           steps={FIRST_RUN}
           first={{ workOrder, picksSent }}

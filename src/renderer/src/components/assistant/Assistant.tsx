@@ -16,7 +16,12 @@ import { newChat } from "../../commands/assistant";
 import { assistantHandle, readMindHandle, useHandle } from "../../commands/handles";
 import { shortcutLabel } from "../../commands/keymap";
 import { useComposer } from "../../composer";
-import { conversationLabel, useOpenConversation } from "../../conversations";
+import {
+  answerBeingWritten,
+  conversationLabel,
+  stopWriting,
+  useOpenConversation,
+} from "../../conversations";
 import { files } from "../../core";
 import { Composer } from "../../editor/Composer";
 import { AssistantFoldedContext } from "../../editor/mindContext";
@@ -126,7 +131,9 @@ export function Assistant({
   const openHistory = (from: HTMLElement) => setHistory((open) => (open ? null : from));
 
   // Esc with the focus in it and nothing in it open goes back to the Mind, where its cursor was,
-  // and leaves the assistant as it is: only its chevron folds it. Heard on the window, after
+  // and leaves the assistant as it is: only its chevron folds it. While a reply is being written
+  // that Esc stops the reply instead, wherever in the assistant the focus is (#3305), as it does
+  // from the composer's box. Heard on the window, after
   // everything in it (the composer is drawn here from its Mind, so React's own bubbling never
   // reaches here): a picker, a menu or History closes first, by its own Esc, wherever it floats
   // over the assistant (the Tasks chip's popover grows from the band). Whether one was open is
@@ -145,7 +152,8 @@ export function Assistant({
       const element = aside.current;
       if (!element || !(event.target instanceof Node) || !element.contains(event.target)) return;
       event.preventDefault();
-      readMindHandle.current?.returnToNote();
+      if (answerBeingWritten() !== null) stopWriting();
+      else readMindHandle.current?.returnToNote();
     };
     window.addEventListener("keydown", before, true);
     window.addEventListener("keydown", onKey);

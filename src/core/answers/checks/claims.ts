@@ -104,7 +104,7 @@ export const CLAIM_BATCH = 12;
 
 /** How a sentence splits into parts a reader can check separately: the sorter's rules, and a check's own when it has no sorted parts. */
 export const PART_RULES = [
-  "A fact is an assertion Documents could support or contradict. A statement attributed to another person, including their opinion or forecast, is a fact about who said what. The writer's own or unattributed opinions, advice and interpretations are opinion parts, even in a document someone else wrote.",
+  'A fact is an assertion Documents could support or contradict. A statement attributed to another person, including their opinion or forecast, is a fact about who said what. What a contract, a policy, a rule or a guideline requires, allows or forbids of someone (must, shall, may, may not; 应, 须, 应当, 必须, 不得, 可) is a fact about that source, which a Document states or doesn\'t. The writer\'s own or unattributed opinions, advice and interpretations are opinion parts, even in a document someone else wrote: what the writer themselves thinks ought to be done ("we should renew soon", "我们应尽快续约"). A sentence that could be either is a fact: checking it costs little, and a wrong sentence left unchecked costs its reader more.',
   "A mixed sentence keeps its factual parts even when an opinion comes before or after them. Each separate opinion prefix or suffix is one opinion part. Do not label a whole mixed sentence opinion and lose the fact between its opinions.",
   "Keep each fact's subject, negation, scope, comparison, certainty and qualification. Keep a causal assertion together with the events and causal link; two separate true events do not establish the cause. Keep conditions with their outcomes, and all/every/always/most, consecutive periods and superlative comparison domains with the assertion they qualify. Do not split these into simpler statements that lose their relationship.",
   'For "Costs rose, so profit fell" or "成本上涨，因此利润下降", keep the causal assertion and both events together as one factual part. Do not return "therefore", "因此", or a pronoun-only cause clause as a separate fact detached from the events it relates. Independent facts without an asserted relationship remain separate parts.',
@@ -201,11 +201,13 @@ export function readClaimDecisions(
 export function claimPartsOf(
   value: unknown,
   sentences: readonly { number: number; text: string }[],
+  /** A sentence whose parts aren't its own words is read whole by their kinds: for a reply asked for again. */
+  whole = false,
 ): Map<number, readonly ClaimPartPlan[]> | null {
   const parsed = fieldsOf(value, { sentences: list });
   if (!parsed) return null;
   const found = new Map<number, readonly ClaimPartPlan[]>();
-  const records = parsed.sentences.flatMap((value) => recordOf(value, sentences) ?? []);
+  const records = parsed.sentences.flatMap((value) => recordOf(value, sentences, whole) ?? []);
   for (const [number, record] of byKey(records, (each) => each.number)) {
     if (record.parts !== null) found.set(number, record.parts);
   }
@@ -222,11 +224,34 @@ export const readClaimParts = (
 function recordOf(
   value: unknown,
   sentences: readonly { number: number; text: string }[],
+  whole = false,
 ): { number: number; parts: readonly ClaimPartPlan[] | null } | null {
   if (typeof value !== "object" || value === null) return null;
   const { number, parts } = value as Record<string, unknown>;
   const sentence = sentences.find((each) => each.number === number);
-  return sentence ? { number: sentence.number, parts: literalParts(parts, sentence.text) } : null;
+  if (!sentence) return null;
+  const literal = literalParts(parts, sentence.text);
+  return {
+    number: sentence.number,
+    parts: literal ?? (whole ? wholeByKind(parts, sentence.text) : null),
+  };
+}
+
+/**
+ * The sentence as one part, by the kinds a reply gave its parts where their words aren't the
+ * sentence's own (#3262): a fact when any is one, so a sentence the model rewrote is checked whole
+ * and never left without a mark. Null when the reply names no kind.
+ */
+function wholeByKind(value: unknown, sentence: string): readonly ClaimPartPlan[] | null {
+  if (!Array.isArray(value) || sentence.trim() === "") return null;
+  const kinds = value.map((part) =>
+    typeof part === "object" && part !== null ? (part as Record<string, unknown>).kind : null,
+  );
+  const span = { start: 0, end: sentence.length };
+  if (kinds.includes("fact")) return [{ kind: "fact", span }];
+  return kinds.length > 0 && kinds.every((kind) => kind === "opinion" || kind === ABOUT_ITSELF)
+    ? [{ kind: "opinion", span }]
+    : null;
 }
 
 /**

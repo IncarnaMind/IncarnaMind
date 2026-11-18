@@ -2348,8 +2348,8 @@ export interface WordSource {
 }
 
 /**
- * Something exporting a Mind back into its Word file can't keep (#105), said
- * before the file is saved:
+ * Something exporting a Mind back into its Word file couldn't keep (#105), listed with the saved
+ * file (#3305):
  * - "comment": someone's comment on text the User deleted;
  * - "change": someone's tracked change in text the User deleted;
  * - "copy": a copy of something kept from Word, written as its text;
@@ -2369,7 +2369,7 @@ export interface WordExportLoss {
 
 /** What exporting a Mind imported from a Word file does with the original (#105). */
 export interface WordExportReport {
-  /** What can't be kept: the User sees it before the file is saved. */
+  /** What couldn't be kept: the Saved line lists it. */
   notKept: WordExportLoss[];
   /** Parts of the package IncarnaMind doesn't know, kept as they are. */
   unknownParts: string[];
@@ -7438,6 +7438,18 @@ export const claimCheckActions = [
 ] as const;
 export type ClaimCheckAction = (typeof claimCheckActions)[number];
 
+/**
+ * How a check worked a sentence's figure out again over a data file's rows (#3282): the code its
+ * model wrote and the rows it read. What the check's card opens.
+ */
+export interface CheckWorking {
+  title: string;
+  code: string;
+  /** Each sheet or CSV file it read: its rows as a Citation, and how many. */
+  rows: { citation: Citation; range: string; count: number }[];
+  ranAt: string;
+}
+
 /** What a claim check found (CONTEXT.md: supported, unsupported, contradicted). */
 export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
 
@@ -7501,6 +7513,11 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   a sign and a scale both unsettled (#3088); its detail is the figure as the sentence writes it.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
  *   reading of its Documents' names (#2525). No check can change that.
+ * - "rows-run-failed", "rows-run-timed-out", "rows-unavailable": the sentence's figure is one over
+ *   a data file's rows, and the code that works it out again failed, ran past its time limit, or
+ *   couldn't run on this computer (#3282); `detail` is the data file's name where one was read.
+ * - "rows-cut": the data file has more rows than a check reads, and a figure is never judged from
+ *   part of a file (#3282); `detail` is its name.
  * - "working-not-sent": a figure an Answer worked out, in a check whose consent doesn't cover how
  *   it was worked out (the contradiction watch's), so the model wasn't sent that; a Check the User
  *   runs checks it.
@@ -7535,6 +7552,10 @@ export type ClaimCheckFailure =
   | "found-elsewhere"
   | "kept-inside"
   | "outside-scope"
+  | "rows-run-failed"
+  | "rows-run-timed-out"
+  | "rows-unavailable"
+  | "rows-cut"
   | "cut-short"
   | "read-budget"
   | "workbook-changed"
@@ -7746,6 +7767,8 @@ export interface ClaimCheckPart
   says: string | null;
   unsupported: UnsupportedReason | null;
   calculation: ClaimCalculation | null;
+  /** The working its verdict rests on, where the check worked its figure out over a data file's rows. */
+  working?: CheckWorking;
   reason: ClaimCheckFailure | null;
   detail: string | null;
   versions: CheckedVersion[];
@@ -7866,6 +7889,8 @@ export type ClaimJudgment =
       unsupported: UnsupportedReason | null;
       /** A figure worked out that decided it; null when a Passage did. */
       calculation: ClaimCalculation | null;
+      /** The working it rests on, where the check worked its figure out over a data file's rows. */
+      working?: CheckWorking;
       /**
        * The sentence cites a court decision that none of the Documents holds: the citation itself
        * isn't checked, whatever else backs the sentence.
@@ -11313,12 +11338,6 @@ export interface ExportMindOptions {
    */
   includeQuestions?: boolean;
   /**
-   * For a Mind imported from a Word file, exported to Word (#105): the keys of
-   * what can't be kept (`WordExportLoss.key`) that the User has seen and
-   * exports anyway. `saveMindExport` saves nothing while anything else can't be kept.
-   */
-  accept?: string[];
-  /**
    * Word only (#107): for a Mind imported from a Word file, the User's edits
    * since the import go in as tracked changes under their name
    * (`Settings.author`). Changes still waiting to be accepted always go into
@@ -11504,11 +11523,6 @@ export type SavedMindExport =
         | "markAiText"
         | "footnotes"
       >)
-  /**
-   * Not saved: a Mind imported from Word can't keep something in its file
-   * (`WordExportReport.notKept`) the User hasn't accepted (`ExportMindOptions.accept`).
-   */
-  | { status: "review"; word: WordExportReport }
   | Exclude<SavedExport, { status: "saved" }>;
 
 /** What `rewriteMindExport` did: as `saveMindExport` says, and once saved, the step its Undo names. */
