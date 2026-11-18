@@ -1521,7 +1521,7 @@ describe("Blocks added, deleted and moved", () => {
 });
 
 describe("what can't be kept", () => {
-  test("someone's comment on a paragraph the User deleted is said before saving, and goes only once they say so", async () => {
+  test("someone's comment on a paragraph the User deleted is listed with the saved file, which is written at once", async () => {
     const { inline, comment } = commented(
       5,
       "Lars Eklund",
@@ -1537,9 +1537,10 @@ describe("what can't be kept", () => {
     editMind(client, (blocks) => blocks.slice(0, 1));
     await client.settled();
 
-    const review = await core.saveMindExport(mindId, { format: "docx" });
-    expect(review).toEqual({
-      status: "review",
+    const saved = await core.saveMindExport(mindId, { format: "docx" });
+    expect(saved).toMatchObject({
+      status: "saved",
+      file: { name: "Memo.docx" },
       word: {
         notKept: [
           {
@@ -1553,14 +1554,7 @@ describe("what can't be kept", () => {
         keptFurniture: [],
       },
     });
-    expect(await readdir(output)).toEqual([]);
-
-    if (review.status !== "review") throw new Error("Not a review.");
-    const saved = await core.saveMindExport(mindId, {
-      format: "docx",
-      accept: review.word.notKept.map((loss) => loss.key),
-    });
-    expect(saved).toMatchObject({ status: "saved", file: { name: "Memo.docx" } });
+    expect(await readdir(output)).toEqual(["Memo.docx"]);
     const { document } = await exported(core, mindId);
     expect(document).not.toContain("comment");
   });

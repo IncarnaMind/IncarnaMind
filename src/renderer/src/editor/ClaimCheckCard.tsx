@@ -1268,7 +1268,7 @@ export function ClaimCard({
       differs && {
         key: "fix",
         testId: "claim-fix",
-        label: t("claim.fixSentence"),
+        label: t("claim.useDocumentWording"),
         onClick: onFix,
       },
       searchesAll && {

@@ -1448,7 +1448,6 @@ export const en = {
   "claim.courtDecision.held":
     "Quote found in your copy of the opinion ({document}, {location}). Not checked whether it was overruled or changed. Check it in your legal research service before you rely on it.",
   "claim.unsupported.ownWorkings": "Only your own working file says this.",
-  "claim.fixSentence": "Fix the sentence",
   "claim.findSources": "Find sources",
   "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",
@@ -2921,7 +2920,6 @@ export const en = {
   "tags.picker.on": "on this Document",
   "tags.picker.some": "on {count} of {total}",
   "tags.picker.remove": "Remove {tag}",
-  "tags.picker.automatic": "automatic",
   "tags.dialog.count": "{count} Documents",
   "tags.dialog.count.one": "1 Document",
   "tags.dialog.descriptionNote":
@@ -2967,8 +2965,6 @@ export const en = {
     "Notes or minutes of a meeting, a call, an interview or a debrief.",
   "tags.kind.letter": "Letter",
   "tags.kind.letter.description": "A letter or a formal notice addressed to someone.",
-  "tags.chip.automatic": "{tag}: added automatically",
-  "tags.chip.user": "{tag}: added by you",
   "tags.menu.open": "Tags of {name}",
   "tags.menu.retag": "Re-tag automatically",
   "tags.menu.manage": "Manage Tags…",
@@ -3000,7 +2996,6 @@ export const en = {
 
   "jev.waiting.notice": "Tags come once you choose an AI model.",
   "jev.waiting.permission": "Tags wait until you allow Document text to go to {service}.",
-  "jev.chip.likely": "{tag}: added automatically, {percent}% likely",
   "jev.settings.title": "TypeSafe Jev",
   "jev.settings.setUp": "Use TypeSafe Jev…",
   "jev.setUp.line": "TypeSafe’s model for sorting and meeting hints, with your key",
@@ -5388,11 +5383,11 @@ export const en = {
   "export.unmarked.unsupported": "{count} Unsupported",
   "export.unmarked.recheck": "{count} Needs re-check",
   "export.unmarked.word": "Export as Word instead",
-  "export.word.review.one": "1 thing in the Word file can’t be kept",
-  "export.word.review.other": "{count} things in the Word file can’t be kept",
-  "export.word.anyway": "Export anyway",
-  "export.word.review.spoken": ": {items}",
-  "export.word.review.separator": "; ",
+  "export.word.notKept.one": "1 thing in the Word file couldn’t be kept",
+  "export.word.notKept.other": "{count} things in the Word file couldn’t be kept",
+  "export.word.notKept.show": "Show",
+  "export.word.notKept.spoken": ": {items}",
+  "export.word.notKept.separator": "; ",
   "export.word.comment": "{author}’s comment “{text}” is on text you deleted",
   "export.word.comment.anonymous": "The comment “{text}” is on text you deleted",
   "export.word.change": "{author}’s tracked change “{text}” is in text you deleted",
@@ -5904,7 +5899,7 @@ export const en = {
   "error.commands.undoGone":
     "These changes can’t be undone any more: IncarnaMind has restarted since.",
   "error.commands.wordLoses":
-    "A Word file can’t keep everything in this note. Export it from the note’s menu to see what first.",
+    "A Word file can’t keep everything in this note. Export it from the note’s menu, which lists what isn’t kept.",
   "error.commands.exportDenied": "Nothing was saved: you didn’t allow the new file list.",
   "error.commands.noFolderId": "There is no Folder with the id {id}.",
   "error.commands.noTagId": "There is no Tag with the id {id}.",

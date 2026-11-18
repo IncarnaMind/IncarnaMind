@@ -43,7 +43,7 @@ import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";
 import { CloseLineIcon, ExportLineIcon } from "./lineIcons";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
-import { WordExportReview } from "./WordExportReview";
+import { WordExportLosses } from "./WordExportLosses";
 
 /** How long a plain "Saved …" stays, unless the pointer or the focus is on it. */
 const SAVED_SHOWN_MS = 10_000;
@@ -64,6 +64,7 @@ const isPlainSaved = (result: SavedResult, t: ReturnType<typeof useT>): boolean 
   result.unverified === 0 &&
   result.needsDetails.length === 0 &&
   result.kept.length === 0 &&
+  result.notKept.length === 0 &&
   result.failures.length === 0 &&
   result.sentKept &&
   (result.myComments === 0 || result.myCommentsShown) &&
@@ -313,6 +314,7 @@ function ResultBody({
                     )}
               </ProblemLine>
             )}
+            {result.notKept.length > 0 && <WordExportLosses notKept={result.notKept} />}
             {!result.sentKept && (
               <ProblemLine role="status" testId="export-sent-not-kept">
                 {t("export.sentNotKept")}
@@ -329,8 +331,6 @@ function ResultBody({
           <ProblemLine testId="export-problem" className="py-1">
             {t("export.pack.empty")}
           </ProblemLine>
-        ) : result.state === "review" ? (
-          <WordExportReview result={result} />
         ) : result.state === "not-laid-out" ? (
           <ProblemLine testId="export-problem" action={fix()} className="py-1">
             {t("export.notLaidOut")}

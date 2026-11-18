@@ -2340,8 +2340,8 @@ export interface WordSource {
 }
 
 /**
- * Something exporting a Mind back into its Word file can't keep (#105), said
- * before the file is saved:
+ * Something exporting a Mind back into its Word file couldn't keep (#105), listed with the saved
+ * file (#3305):
  * - "comment": someone's comment on text the User deleted;
  * - "change": someone's tracked change in text the User deleted;
  * - "copy": a copy of something kept from Word, written as its text;
@@ -2361,7 +2361,7 @@ export interface WordExportLoss {
 
 /** What exporting a Mind imported from a Word file does with the original (#105). */
 export interface WordExportReport {
-  /** What can't be kept: the User sees it before the file is saved. */
+  /** What couldn't be kept: the Saved line lists it. */
   notKept: WordExportLoss[];
   /** Parts of the package IncarnaMind doesn't know, kept as they are. */
   unknownParts: string[];
@@ -11305,12 +11305,6 @@ export interface ExportMindOptions {
    */
   includeQuestions?: boolean;
   /**
-   * For a Mind imported from a Word file, exported to Word (#105): the keys of
-   * what can't be kept (`WordExportLoss.key`) that the User has seen and
-   * exports anyway. `saveMindExport` saves nothing while anything else can't be kept.
-   */
-  accept?: string[];
-  /**
    * Word only (#107): for a Mind imported from a Word file, the User's edits
    * since the import go in as tracked changes under their name
    * (`Settings.author`). Changes still waiting to be accepted always go into
@@ -11496,11 +11490,6 @@ export type SavedMindExport =
         | "markAiText"
         | "footnotes"
       >)
-  /**
-   * Not saved: a Mind imported from Word can't keep something in its file
-   * (`WordExportReport.notKept`) the User hasn't accepted (`ExportMindOptions.accept`).
-   */
-  | { status: "review"; word: WordExportReport }
   | Exclude<SavedExport, { status: "saved" }>;
 
 /** What `rewriteMindExport` did: as `saveMindExport` says, and once saved, the step its Undo names. */

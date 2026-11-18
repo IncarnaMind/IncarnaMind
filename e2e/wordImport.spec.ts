@@ -527,42 +527,43 @@ test("Export writes back into the Word file: the User's edits tracked under thei
   expect(tracked).toContain('<w:commentRangeStart w:id="0"/>');
   await pointAndClick(window, result.getByTestId("export-dismiss"));
 
-  // Untracked, the file can't keep the comment: that is said before anything is saved.
+  // Untracked, the file can't keep the comment: it is written at once, and its Saved line counts
+  // what couldn't be kept and lists it on Show (#3305).
   await openExportOptions(window);
   await track.click();
   await expect(track).not.toBeChecked();
   await sheet.getByTestId("export-save").click();
   await expect(sheet).toBeHidden();
   await exportFromMenu(window);
-  await expect(result.getByTestId("export-review")).toHaveText(
-    "1 thing in the Word file can’t be kept: Marcus Hale’s comment “Is spring realistic?” is on text you deleted · Export anyway",
+  await expect(result.getByTestId("export-done")).toContainText(savedLine("Memo 2.docx", output));
+  expect((await readdir(output)).sort()).toEqual(["Memo 2.docx", "Memo.docx"]);
+  const notKept = result.getByTestId("export-not-kept");
+  await expect(notKept).toHaveText(
+    "1 thing in the Word file couldn’t be kept: Marcus Hale’s comment “Is spring realistic?” is on text you deleted · Show",
   );
-  await expect(result.getByTestId("export-review-items")).toHaveText(
+  await expect(result.getByTestId("export-not-kept-items")).toHaveCount(0);
+  await pointAndClick(window, result.getByTestId("export-not-kept-show"));
+  await expect(result.getByTestId("export-not-kept-items")).toHaveText(
     "Marcus Hale’s comment “Is spring realistic?” is on text you deleted",
   );
-  expect(await readdir(output)).toEqual(["Memo.docx"]);
+  await expect(result.getByTestId("export-not-kept-show")).toHaveCount(0);
   await motionSettled(window);
-  await screenshot(window, "word-export-review");
+  await screenshot(window, "word-export-not-kept");
   // A narrow window: the line and its list wrap by word, inside the tab.
   await setWindowSize(app, window, 900, 660);
   await motionSettled(window);
   const line = await result.boundingBox();
   const pane = await window.getByTestId("mind-pane").boundingBox();
   expect(line && pane && line.x >= pane.x && line.x + line.width <= pane.x + pane.width).toBe(true);
-  await screenshot(window, "word-export-review-narrow");
+  await screenshot(window, "word-export-not-kept-narrow");
   await setWindowSize(app, window, 1600, 660);
   await setLanguage(window, "zh-CN");
-  await expect(result.getByTestId("export-review")).toContainText("Word 文件中有 1 处无法保留");
-  await expect(result.getByTestId("export-anyway")).toHaveText("仍然导出");
+  await expect(notKept).toContainText("Word 文件中有 1 处未能保留");
   await motionSettled(window);
-  await screenshot(window, "word-export-review-zh");
+  await screenshot(window, "word-export-not-kept-zh");
   await setLanguage(window, "en");
 
-  // Export anyway: saved, the paragraph kept byte for byte, the comment's marks gone with its text.
-  await result.getByTestId("export-anyway").click();
-  await expect(result.getByTestId("export-done")).toContainText(savedLine("Memo 2.docx", output));
-  await motionSettled(window);
-  await screenshot(window, "word-export-saved");
+  // The file holds the paragraph kept byte for byte, and the comment's marks are gone with its text.
   const document =
     unzip(await readFile(join(output, "Memo 2.docx")))
       .get("word/document.xml")
