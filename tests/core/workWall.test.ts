@@ -175,15 +175,6 @@ describe("what a place reads", () => {
     ]);
   });
 
-  test("a pick covers only what the Note's search sees", () => {
-    const { wall } = wallOver();
-    expect(wall.pickedDocuments(scope({ documentIds: ["a1", "o1"] }), "noteOpen")).toEqual(["o1"]);
-    expect(sorted(wall.pickedDocuments(scope({ folderIds: ["clientA"] }), "noteA"))).toEqual([
-      "a1",
-      "a2",
-    ]);
-  });
-
   test("Folders named for a search: one wall alone stays, a wall among others goes", () => {
     const { wall } = wallOver();
     expect(wall.folderIdsInScope(["clientA"])).toEqual(["clientA"]);

@@ -2208,10 +2208,6 @@
   .viewer-pane[data-foot-line] :is(.viewer-backdrop, .viewer-grid-scroll) {
     padding-bottom: var(--viewer-foot-room);
   }
-  /* Continue starts its own line, so it stands in one place however long the words are, in either language (#1554). */
-  .claim-stop-line > .meta-part:last-child {
-    flex-basis: 100%;
-  }
   .check-card-ask-actions {
     display: flex;
     align-items: center;

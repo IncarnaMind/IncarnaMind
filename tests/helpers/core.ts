@@ -1,4 +1,5 @@
-import { mkdtempSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,10 +19,11 @@ import {
   type SaveChatProviderInput,
   type SecretProtection,
 } from "../../src/core";
+import type { WatchFolder } from "../../src/core/documents/watcher";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { scriptedLocalServers } from "../../src/core/providers/localServers";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
-import { openDatabase, type SqlValue } from "../../src/core/storage";
+import { migrate, migrations, openDatabase, type SqlValue } from "../../src/core/storage";
 
 /** The citation-style engine, styles and locales the app ships (ADR-0016). */
 export const CITATION_STYLES = fileURLToPath(
@@ -50,6 +52,34 @@ export async function createTempDataFolder(): Promise<string> {
   const dataDir = await mkdtemp(join(tmpdir(), "incarnamind-test-"));
   onTestFinished(() => rm(dataDir, { recursive: true, force: true }));
   return dataDir;
+}
+
+let migrated: string | undefined;
+
+/**
+ * A database with every migration applied, built once for these migrations and kept in the
+ * system's temporary folder. A core that starts in an empty data folder takes about 130 ms to
+ * apply them, and 9 ms from a copy of this; nearly every test starts one.
+ */
+function migratedDatabase(): string {
+  if (migrated) return migrated;
+  const version = createHash("sha256").update(JSON.stringify(migrations)).digest("hex");
+  const file = join(tmpdir(), `incarnamind-test-migrated-${version.slice(0, 16)}.db`);
+  if (!existsSync(file)) {
+    const folder = mkdtempSync(join(tmpdir(), "incarnamind-test-migrating-"));
+    const building = join(folder, DATABASE_FILE);
+    const db = openDatabase(building);
+    try {
+      migrate(db);
+    } finally {
+      db.close();
+    }
+    // Built aside and moved into place: a test file that starts meanwhile finds it whole or not at all.
+    renameSync(building, file);
+    rmSync(folder, { recursive: true, force: true });
+  }
+  migrated = file;
+  return file;
 }
 
 /**
@@ -110,15 +140,32 @@ export function createMemoryKeychain(protection: SecretProtection = "os"): Memor
 /** Adapters a test overrides; the paths it leaves out keep `startCore`'s. */
 export type TestAdapters = Omit<Partial<CoreAdapters>, "paths"> & { paths?: Partial<Paths> };
 
+const unwatched: WatchFolder = () => ({ close() {} });
+let watching = false;
+
+/**
+ * For a test file about what changes on disk by itself: its cores watch their folders for real.
+ * The others don't, because closing a real watch takes a third of a second on macOS, and seconds
+ * on a busy one, each time a core that holds a Document closes.
+ */
+export function watchFoldersForReal(): void {
+  watching = true;
+}
+
 /**
  * Starts the core on `dataDir` with test adapters: an English OS, an in-memory
  * keychain, no browser, shell or processes, the deterministic fake embedding
- * and reranking models, which have no files to download, Linked folders that settle quickly,
- * and no lookups of models in Ollama. Closed when the current test finishes; call `close()` yourself to
+ * and reranking models, which have no files to download, Linked folders that settle quickly
+ * and are watched only after `watchFoldersForReal()`, and no lookups of models in Ollama. Closed when the current test finishes; call `close()` yourself to
  * simulate quitting the app.
  */
 export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
   const { paths, ...rest } = overrides;
+  const database = join(dataDir, DATABASE_FILE);
+  if (!existsSync(database)) {
+    mkdirSync(dataDir, { recursive: true });
+    copyFileSync(migratedDatabase(), database);
+  }
   const core = createCore({
     systemLanguages: () => ["en-US"],
     systemUserName: () => "Priya Raman",
@@ -183,7 +230,12 @@ export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
       Object.getOwnPropertyDescriptors(paths ?? {}),
     ),
     // Linked folders settle and retry quickly in tests.
-    linkedFolders: { settleMs: 30, retryMs: 300, ...overrides.linkedFolders },
+    linkedFolders: {
+      settleMs: 30,
+      retryMs: 300,
+      ...(!watching && { watch: unwatched }),
+      ...overrides.linkedFolders,
+    },
   });
   onTestFinished(() => core.close());
   return core;

@@ -19,7 +19,6 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { writeContradictionWatch } from "../../../shared/contradictionWatch";
-import { beginFigureCheck } from "../../../shared/figureChecks";
 import { mindModelOf } from "../../../shared/mindModel";
 import { comparableSentence, isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
@@ -62,6 +61,7 @@ import {
 } from "./runCheck";
 import { claimsAtOnce } from "./runChecks";
 import {
+  checkText,
   everySentence,
   keptAsView,
   markedSentences,
@@ -151,8 +151,9 @@ interface Claim {
   noteText: string;
   context: string;
   scope: EvidenceScope;
+  /** The sentence's words as its check reads them, an inline node's words in their place. */
+  said?: string;
   figures?: CheckFigure[];
-  projection?: ClaimCheckRequest["projection"];
 }
 
 type Plan =
@@ -163,6 +164,12 @@ const citedIdsOf = (sentence: SelectedSentence) => [
   ...new Set(sentence.cited.flatMap((each) => (each.documentId ? [each.documentId] : []))),
 ];
 
+/** The sentence's figures its check is told of: those IncarnaMind worked out itself. */
+const checkedFigures = (sentence: SelectedSentence): { figures?: CheckFigure[] } => {
+  const { figures } = checkText(sentence);
+  return figures ? { figures } : {};
+};
+
 const requestOf = (
   claim: Claim,
   mindId: string,
@@ -170,8 +177,7 @@ const requestOf = (
   signal: AbortSignal,
   sends?: readonly DataKind[],
 ): ClaimCheckRequest => ({
-  claim: claim.projection?.text ?? comparableSentence(claim.text),
-  ...(claim.projection && { projection: claim.projection }),
+  claim: claim.said ?? comparableSentence(claim.text),
   ...(claim.figures && { figures: claim.figures }),
   recordClaim: claim.noteText,
   context: claim.context,
@@ -257,8 +263,8 @@ export function createContradictionWatch(options: WatchOptions) {
           noteText: noteTextOf(sentence),
           context: sentence.context,
           scope,
-          ...(sentence.figures?.length && { figures: sentence.figures }),
-          ...(sentence.projection && { projection: sentence.projection }),
+          ...checkedFigures(sentence),
+          ...(sentence.projection && { said: sentence.projection.text }),
         },
       ];
     });
@@ -330,10 +336,7 @@ export function createContradictionWatch(options: WatchOptions) {
         excluded: [],
         checkedAt: at,
       };
-      // Each figure keeps its own result, as the one Check gives it.
-      const pending = sentence.figures?.length
-        ? beginFigureCheck(null, check, sentence.figures, null, sentence.projection)
-        : check;
+      const pending = check;
       markSentence(
         sentence.element,
         sentence.from,

@@ -12,6 +12,7 @@ import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { ChatLanguageModel } from "../../providers/models";
 import { statedRoom } from "../../providers/statedRoom";
+import { wrappedWhenUsed } from "../../providers/wrappedWhenUsed";
 import type { Slots } from "../../runs/stop";
 
 export const WIDE_CLAIMS_AT_ONCE = 12;
@@ -82,16 +83,10 @@ export function widerRun(
         },
       },
     });
-  let wrapped: ChatLanguageModel | null = null;
   return {
-    prepared: {
-      ...prepared,
-      // Wrapped when a request first asks for it, as a check's own listener is (./runCheck).
-      get model() {
-        wrapped ??= reading(prepared.model);
-        return wrapped;
-      },
-    },
+    // Wrapped when a request first asks for it, as a check's own listener is (./runCheck), the
+    // model asked to think too: the step that judges is the one whose replies state the room.
+    prepared: wrappedWhenUsed(prepared, reading),
     wider(resizeTo) {
       resizeRun = resizeTo;
       if (width !== atOnce) resizeTo(width);

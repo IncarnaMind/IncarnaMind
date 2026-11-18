@@ -25,10 +25,25 @@
 
 import { QUOTE_WHAT_GOES, withoutNames } from "../../core/edits/prompt";
 import { appliedEditReply } from "./appliedEdits";
-import { PARTLY } from "./checks";
 import { type Prompt, SHORTEN, SLOWLY, type StreamPart, USAGE } from "./prompt";
 
 const HOLDING = /\bforever\b/i;
+
+/** Sentences whose unsupported part Cut the unsupported part takes out, as the sentence cut. */
+const PARTLY = [
+  {
+    when: /scaling constraint/,
+    cut: "Harbours publish the times of high water every 12 months.",
+  },
+  {
+    when: /memory needs/,
+    cut: "Experiments usually show quasi-Newton methods are faster than gradient descent, and first-order methods are slower.",
+  },
+  {
+    when: /内存需求/,
+    cut: "已有实验通常显示，拟牛顿方法比梯度下降更快，一阶优化方法速度较慢。",
+  },
+];
 
 const FILLER = /(?:\b(?:very|really|truly|quite|actually|basically)\s+|非常|真的|其实|十分)/giu;
 

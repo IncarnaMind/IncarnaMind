@@ -260,13 +260,7 @@ export function recordCorrections(
   core.recordAiUse(entries).catch((error: unknown) => useNotices.getState().showError(error));
 }
 
-function apply(
-  editor: Editor,
-  mindId: string,
-  doc: Y.Doc,
-  plans: CorrectionPlan[],
-  showCard?: (checkId: string) => void,
-): number {
+function apply(editor: Editor, mindId: string, doc: Y.Doc, plans: CorrectionPlan[]): number {
   const edits = plans.flatMap((plan) => plan.edits);
   const tr = editor.state.tr;
   if (!writeCorrections(tr, plans)) return 0;
@@ -282,7 +276,7 @@ function apply(
         const again = shownClaims(editor.state).find(
           (each) => each.check.id === plan.claim.check.id,
         );
-        if (again) await checkAgain(editor, mindId, doc, again, undefined, showCard);
+        if (again) await checkAgain(editor, mindId, doc, again);
       }
     })();
   };
@@ -314,28 +308,22 @@ export function applyCorrection(
   doc: Y.Doc,
   claim: ShownClaim,
   span?: ClaimPartSpan | null,
-  showCard?: (checkId: string) => void,
 ): boolean {
   if (!fixesFree(mindId)) return false;
   const plan = editor.isEditable ? planCorrection(editor.state, claim, span) : null;
-  if (plan && apply(editor, mindId, doc, [plan], showCard) > 0) return true;
+  if (plan && apply(editor, mindId, doc, [plan]) > 0) return true;
   useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
   return false;
 }
 
 /** Changes every contradicted part the Documents correct, in one transaction and one Undo, and checks each sentence again. */
-export function correctContradictions(
-  editor: Editor,
-  mindId: string,
-  doc: Y.Doc,
-  showCard?: (checkId: string) => void,
-): number {
+export function correctContradictions(editor: Editor, mindId: string, doc: Y.Doc): number {
   if (!fixesFree(mindId)) return 0;
   const plans = shownClaims(editor.state).flatMap((claim) => {
     const plan = editor.isEditable ? planCorrection(editor.state, claim) : null;
     return plan ? [plan] : [];
   });
-  const corrected = apply(editor, mindId, doc, plans, showCard);
+  const corrected = apply(editor, mindId, doc, plans);
   if (plans.length > 0 && corrected === 0)
     useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
   return corrected;

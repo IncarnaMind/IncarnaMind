@@ -375,6 +375,45 @@ describe("Scanned pages are read on this computer (#397)", { timeout: 60_000 }, 
     expect(found).toMatchObject({ documentId: document.id, pageFrom: 1 });
   });
 
+  // protects=a Document added before a page with its own text stopped being read from its picture gets that text back by itself; fails_when=PDFs read by version 28 are not read again at the next start (#3289)
+  test("a page version 28 read from its picture although it has its own text gets that text back at the next start", async () => {
+    const dataDir = await createTempDataFolder();
+    const lines = [
+      "The harbour authority approved the dredging plan for the north berth.",
+      "Work starts in March and the berth reopens before the summer season.",
+    ];
+    const first = countingRecognizer({ pages: {} });
+    const before = startCore(dataDir, scanning(first.recognizer));
+    const document = await addPdf(
+      before,
+      "Deck.pdf",
+      buildPdf([{ scan: picture("en-clean"), lines }]),
+    );
+    expect(first.read).toEqual([]);
+    before.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `UPDATE document_pages SET text = 'Tne harbonr anthority', label = json_object('scan', json_object('reader', ?))
+         WHERE document_id = ?`,
+        [READER, document.id],
+      );
+      db.run("UPDATE documents SET processing_version = 28 WHERE id = ?", [document.id]);
+    } finally {
+      db.close();
+    }
+
+    const second = countingRecognizer({ pages: {} });
+    const after = startCore(dataDir, scanning(second.recognizer));
+    const [reread] = await waitForReady(after, [document.id]);
+    expect(reread?.status).toBe("ready");
+    expect(second.read).toEqual([]);
+    const [unit] = unitsOf(dataDir, document);
+    expect(unit?.text).toContain("approved the dredging plan");
+    expect(JSON.parse(unit?.label ?? "null")?.scan).toBeUndefined();
+    after.close();
+  });
+
   test("a scanned page keeps its rows on the first read and on a re-read", async () => {
     const dataDir = await createTempDataFolder();
     const lines = ["华东 1,286 1,452", "月起配送费率调整", "华南 974 1,031"];

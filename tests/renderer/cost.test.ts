@@ -8,7 +8,6 @@ import {
   formatTokens,
   notCheckedKey,
   perHundredAnswers,
-  readRestText,
   reasonText,
   runStopParts,
   runStopText,
@@ -97,12 +96,8 @@ describe("Cost in words", () => {
 
   test("in Chinese, an amount under a cent sits in its sentence with no space between Chinese words", () => {
     const under = formatMoney({ amount: 0.0048, currency: "USD" }, "zh-CN");
-    const most = formatMoney({ amount: 0.5, currency: "USD" }, "zh-CN");
     expect(translate("zh-CN", "claim.reason.read-budget", { spent: under })).toBe(
       "已停止 · 已花费不到 $0.01",
-    );
-    expect(translate("zh-CN", "claim.readBudget.readRest", { most })).toBe(
-      "读取其余部分 · 最多 $0.50",
     );
     expect(translate("zh-CN", "cost.provider.thisMonth", { spent: under })).toBe(
       "本月已花不到 $0.01",
@@ -117,20 +112,15 @@ describe("Cost in words", () => {
   });
 
   test.each([
-    ["en", "Stopped · Under $0.01 spent", "Read the rest · up to $0.50"],
-    ["zh-CN", "已停止 · 已花费不到 $0.01", "读取其余部分 · 最多 $0.50"],
-  ] as const)(
-    "a stopped read says what it spent, and the action that reads the rest the most it may (%s)",
-    (language, line, action) => {
-      const detail = JSON.stringify({
-        most: { amount: 0.5, currency: "USD" },
-        spent: { amount: 0.0048, currency: "USD" },
-        judgesAbsence: false,
-      });
-      expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
-      expect(readRestText(t(language), language, detail)).toBe(action);
-    },
-  );
+    ["en", "Stopped · Under $0.01 spent"],
+    ["zh-CN", "已停止 · 已花费不到 $0.01"],
+  ] as const)("a stopped read says what it spent (%s)", (language, line) => {
+    const detail = JSON.stringify({
+      most: { amount: 0.5, currency: "USD" },
+      spent: { amount: 0.0048, currency: "USD" },
+    });
+    expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
+  });
 
   test("a line that begins with an amount under a cent begins with a capital", () => {
     const under = { amount: 0.004, currency: "USD" as const };
@@ -409,23 +399,15 @@ test.each([
 
 describe("A whole read stopped at the most it may spend", () => {
   test.each([
-    ["en", "Stopped · $0.38 spent", "Read the rest · up to $0.41"],
-    ["zh-CN", "已停止 · 已花费 $0.38", "读取其余部分 · 最多 $0.41"],
-  ] as const)(
-    "says what it spent, and its most on Read the rest (%s)",
-    (language, line, action) => {
-      const detail = JSON.stringify({
-        most: { amount: 0.41, currency: "USD" },
-        spent: { amount: 0.38, currency: "USD" },
-        judgesAbsence: false,
-      });
-      expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
-      expect(readRestText(t(language), language, detail)).toBe(action);
-      expect(readRestText(t(language), language, "not money")).toBe(
-        language === "en" ? "Read the rest" : "读取其余部分",
-      );
-    },
-  );
+    ["en", "Stopped · $0.38 spent"],
+    ["zh-CN", "已停止 · 已花费 $0.38"],
+  ] as const)("says what it spent (%s)", (language, line) => {
+    const detail = JSON.stringify({
+      most: { amount: 0.41, currency: "USD" },
+      spent: { amount: 0.38, currency: "USD" },
+    });
+    expect(reasonText(t(language), language, "read-budget", detail)).toBe(line);
+  });
 
   test.each([
     ["en", "Stopped at the most this read may spend."],

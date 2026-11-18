@@ -46,7 +46,6 @@ import { type SentencePlace, sentencesToCheck } from "./editor/healthCounts";
 import { mindEditor, whenMindEditor } from "./editor/openEditors";
 import { opinionSentenceRanges } from "./editor/opinionLocations";
 import { editorDoc } from "./editor/proposalReview";
-import { noteBusy } from "./editWithAi";
 import { languageNow, translateNow } from "./i18n";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
 import { modelInUseOf } from "./modelInUse";
@@ -165,8 +164,7 @@ async function releaseHold(requestId: string): Promise<void> {
 
 /** How a Check the window started ended: its result, a failure, or the question it asked. */
 type CheckEnd = CheckMindResult | { kind: "threw"; error: unknown };
-/** "busy": a rewrite works in the Note, which says so; nothing was planned. */
-type CheckOutcome = CheckEnd | { kind: "asked"; requestId: string } | { kind: "busy" } | null;
+type CheckOutcome = CheckEnd | { kind: "asked"; requestId: string } | null;
 type CheckAnswer = CheckEnd | { kind: "declined" } | { kind: "closed" };
 
 /** What each Check that asked a question comes to, by the request it asked for. */
@@ -374,11 +372,6 @@ async function start(
   if (useChecks.getState().running[mindId]) {
     showCheckCard(mindId);
     return { kind: "running" };
-  }
-  // A rewrite writes its reply only into a Note nothing else started on meanwhile.
-  if (useChecks.getState().rewriting[mindId]) {
-    noteBusy(mindId);
-    return { kind: "busy" };
   }
   // An earlier question about this Note, and the Note with it, gives way first.
   await freeAskedNote(mindId);
@@ -638,8 +631,6 @@ export async function checkFromAssistant(
     endAs(await answerOf(outcome.requestId));
     return;
   }
-  // The Note already says it is busy; the assistant is told in the same words.
-  if (outcome?.kind === "busy") throw new TranslatableError({ key: "edit.problem.busy" });
   endAs(outcome ?? null);
 }
 

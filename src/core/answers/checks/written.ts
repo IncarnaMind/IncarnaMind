@@ -36,7 +36,6 @@ import { citationAttributesOf, citationClosingLength } from "../../../shared/cit
 import { restsElsewhere } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";
 import { partsWrittenBy, planOf } from "../../../shared/claimParts";
-import { beginFigureCheck } from "../../../shared/figureChecks";
 import { readTableBinding } from "../../../shared/figureRuns";
 import {
   type InlineTextProjection,
@@ -81,7 +80,7 @@ import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
 import type { RepliesOut } from "../../runs/replies";
-import { type Slots, slots } from "../../runs/stop";
+import { slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
 import { marksOfRun, type NodeJSON, syncContent, topLevelBlocks } from "../blocks";
 import type { CheckedCitation, ClaimCheckRequest } from "./claimCheck";
@@ -858,20 +857,16 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     mindId: string,
     scope: CheckScope,
     prepared: PreparedChatModel,
-    limit: Slots,
     signal: AbortSignal,
   ): ClaimCheckRequest {
     return {
       ...read,
       cited: options.citedNow(sentence.cited),
       scope: scope.scope,
-      searched: scope.wanted,
       model: prepared,
       mindId,
       recordClaim: sentence.rawText,
       cacheKey: mindId,
-      opinionsLeftOut: true,
-      slots: limit,
       signal,
     };
   }
@@ -1015,18 +1010,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       excluded: [],
       checkedAt: startedAt,
     });
-    const begun = (sentence: Sentence, by: PreparedChatModel): ClaimCheckAttributes => {
-      const figures = reads.get(sentence)?.figures;
-      return figures?.length
-        ? beginFigureCheck(
-            null,
-            markOf(sentence, by),
-            figures,
-            null,
-            reads.get(sentence)?.projection,
-          )
-        : markOf(sentence, by);
-    };
+    const begun = (sentence: Sentence, by: PreparedChatModel): ClaimCheckAttributes =>
+      markOf(sentence, by);
     // A Note a newer version wrote refuses every edit, so once one is refused the rest aren't tried.
     let refused = false;
     /**
@@ -1380,8 +1365,8 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         if (first) looked.set(sentence, first);
         checks.set(sentence, { by: prepared });
         return attempt(
-          options.claimCheck,
-          requestOf(sentence, read, mindId, scope, sending, limit, ended),
+          (request) => limit.run(() => options.claimCheck(request)),
+          requestOf(sentence, read, mindId, scope, sending, ended),
         );
       });
     const checkAll = (items: readonly Sentence[]) =>

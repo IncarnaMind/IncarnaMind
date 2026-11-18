@@ -1,11 +1,9 @@
 /**
- * The Library's own facts as a check cites them (#2525): how a row names the fact that decided a
- * sentence, and how a check's result keeps, beside its Documents' versions, each fact it rests on,
- * so a change to the Library puts the sentence back to needs re-check. Shared by the core, which
- * writes them, and the renderer, which shows and compares them.
+ * The Library's own facts as a check cited them (#2525): how a row names the fact that decided a
+ * sentence, and how a stored check's result keeps, beside its Documents' versions, each fact it
+ * rests on. Checks no longer read the Library's facts, so such a mark needs a re-check.
  */
 import type {
-  CheckedVersion,
   CitationAttributes,
   CitationLocation,
   DocumentKind,
@@ -95,43 +93,6 @@ export function parseLibraryFact(value: unknown): LibraryFact | null {
       return null;
   }
 }
-
-/** What names one fact across checks: a count of the same thing is the same fact. */
-export function factKey(fact: LibraryFact): string {
-  switch (fact.kind) {
-    case "folder":
-    case "name":
-    case "tag":
-    case "note":
-      return `${fact.kind}\n${fact.name}`;
-    case "format":
-      return `format\n${fact.format}`;
-    default:
-      return fact.kind;
-  }
-}
-
-/** What a fact says, as a version of it: its count, or that a named note is there. */
-export const factValue = (fact: LibraryFact): string =>
-  fact.kind === "note" ? "1" : String(fact.count);
-
-/**
- * The version a check keeps of a fact it rests on, as the scope it searched (`searched`) sees it:
- * its id names the scope and the fact, its "content" is what the fact said.
- */
-export const factVersion = (
-  searched: SearchScope | null,
-  key: string,
-  value: string,
-): CheckedVersion => ({
-  documentId: `${VERSION}${JSON.stringify([searched, key])}`,
-  contentHash: value,
-});
-
-/** The version of where the facts came from: a wall turned on changes it. */
-export const SOURCE_KEY = "source";
-
-export const sourceValue = (source: LibrarySource): string => JSON.stringify(source);
 
 /** The scope and fact a version of the Library keeps; null for a Document's version. */
 export function readLibraryVersion(
@@ -227,15 +188,3 @@ export const libraryRow = (location: LibraryLocation, t: Translate, language: La
     source: sourceWords(location.source, t, language),
     fact: factWords(location.fact, t, language),
   });
-
-/** The ids of every Library fact version a stored check keeps, in its parts and figures too. */
-export function libraryVersionIds(value: unknown, into = new Set<string>()): Set<string> {
-  if (Array.isArray(value)) {
-    for (const each of value) libraryVersionIds(each, into);
-  } else if (isRecord(value)) {
-    const { documentId } = value;
-    if (typeof documentId === "string" && readLibraryVersion(documentId)) into.add(documentId);
-    for (const each of Object.values(value)) libraryVersionIds(each, into);
-  }
-  return into;
-}

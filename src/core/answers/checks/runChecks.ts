@@ -7,15 +7,13 @@ import { settleFigureCheck } from "../../../shared/figureChecks";
  * plan's limit stops the run, and the claims left say why they weren't checked.
  */
 
-import { pendingPart, resultFromParts, withFirstReading } from "../../../shared/claimParts";
+import { resultFromParts, withFirstReading } from "../../../shared/claimParts";
 import type {
   ClaimCheckAttributes,
   ClaimCheckFailure,
   ClaimCheckPart,
   ClaimCheckResult,
   ClaimFirstReading,
-  ClaimPartPlan,
-  ClaimPartSpan,
   RunStop,
   ThirdPartyReason,
 } from "../../api";
@@ -23,7 +21,7 @@ import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import { asCheckWork } from "../../reranking/order";
-import { type Slots, slots } from "../../runs/stop";
+import type { Slots } from "../../runs/stop";
 import type { ClaimCheckRequest } from "./claimCheck";
 import type { DecisionReader, FirstReading } from "./decisionFirst";
 import {
@@ -39,24 +37,6 @@ import { updateCheck } from "./sentences";
 import { waitLine } from "./waitLine";
 import type { WiderRun } from "./widerRun";
 
-export function pendingParts(
-  plans: readonly ClaimPartPlan[],
-  previous: readonly ClaimCheckPart[] = [],
-): ClaimCheckPart[] {
-  return plans.map((plan) => {
-    const part = pendingPart(plan);
-    const prior = previous.find(
-      (each) =>
-        each.kind === plan.kind &&
-        each.span.start === plan.span.start &&
-        each.span.end === plan.span.end,
-    );
-    return plan.kind === "opinion" && prior?.verdict != null
-      ? { ...part, verdict: "checking" }
-      : part;
-  });
-}
-
 // Six checked 12 sentences in about half the time three took on Claude and Kimi, with no rate-limit
 // answer; eight saved little more (#1618).
 const CLOUD_CLAIMS_AT_ONCE = 6;
@@ -69,8 +49,6 @@ export const claimsAtOnce = (prepared: PreparedChatModel): number =>
 export interface QueuedClaim {
   id: string;
   claim: string;
-  projection?: ClaimCheckRequest["projection"];
-  figureIds?: readonly string[];
   context: string;
   cited?: ClaimCheckRequest["cited"];
   figures?: ClaimCheckRequest["figures"];
@@ -79,10 +57,6 @@ export interface QueuedClaim {
   place?: RecordCitePlace;
   /** Where it is checked, when not where the run's other claims are. */
   scope?: ClaimCheckRequest["scope"];
-  /** The Search scope `scope` was resolved from, when it isn't the run's. */
-  searched?: ClaimCheckRequest["searched"];
-  parts?: readonly ClaimPartPlan[];
-  only?: ClaimPartSpan;
   previous?: readonly ClaimCheckPart[];
   priorParts?: readonly ClaimCheckPart[];
 }
@@ -144,7 +118,6 @@ export interface ChecksRun {
   /** The check's request, whose line says when it waits on a rate limit (#2944). */
   requestId?: string;
   scope: ClaimCheckRequest["scope"];
-  searched?: ClaimCheckRequest["searched"];
   prepared: PreparedChatModel;
   /** Each sentence's reading by the decision model the User chose for checks (`readingsFirst`). */
   readFirst?: ReadFirst;
@@ -156,30 +129,20 @@ export interface ChecksRun {
 export function checkRequestOf(
   claim: QueuedClaim,
   run: ChecksRun,
-  limit: Slots,
   signal: AbortSignal,
 ): ClaimCheckRequest {
   return {
     claim: claim.claim,
-    ...(claim.projection && { projection: claim.projection }),
-    ...(claim.figureIds && { figureIds: claim.figureIds }),
     context: claim.context,
     ...(claim.cited && { cited: claim.cited }),
-    ...(claim.parts && { parts: claim.parts }),
-    ...(claim.only && { only: claim.only }),
-    ...(claim.previous && { previous: claim.previous }),
     ...(claim.figures && { figures: claim.figures }),
     scope: claim.scope ?? run.scope,
-    ...((claim.searched ?? run.searched) !== undefined && {
-      searched: claim.searched ?? run.searched,
-    }),
     model: run.prepared,
     ...(run.thirdParty && { thirdParty: run.thirdParty }),
     mindId: run.mindId,
     ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),
     ...(claim.place && { place: claim.place }),
     cacheKey: run.mindId,
-    slots: limit,
     signal,
   };
 }
@@ -191,16 +154,10 @@ export const checkClaim = (
 ): Promise<ClaimCheckResult> => asCheckWork(() => claimCheck(request));
 
 /**
- * A request as a key: what it sends, without its signal, its run's limit and its model (the run's
- * own), and without what its reading found, which the rest of it decides.
+ * A request as a key: what it sends, without its signal and its model (the run's own), and
+ * without what its reading found, which the rest of it decides.
  */
-function requestKey({
-  signal: _signal,
-  slots: _slots,
-  model: _model,
-  about: _about,
-  ...sent
-}: ClaimCheckRequest) {
+function requestKey({ signal: _signal, model: _model, about: _about, ...sent }: ClaimCheckRequest) {
   return JSON.stringify(sent, (_key, value: unknown) =>
     value instanceof Map ? [...value] : value instanceof Set ? [...value] : value,
   );
@@ -286,6 +243,8 @@ export function earlyChecks(
     /** Tells the run that took the check that a model replied to it. */
     taken: (() => void) | null;
   }
+  // Each check takes one of the run's places as it starts, after its sentence's reading.
+  const placed: RunChecksOptions["claimCheck"] = (request) => limit.run(() => claimCheck(request));
   const started = new Map<string, Early[]>();
   // A check waiting for its sentence's reading has no place yet and takes one once it is read, so
   // it counts as one taken: else every claim named would start a check (#3118).
@@ -311,7 +270,6 @@ export function earlyChecks(
       const request = checkRequestOf(
         claim,
         { ...run, prepared: heard.prepared },
-        limit,
         AbortSignal.any([run.signal, stop.signal]),
       );
       const key = requestKey(request);
@@ -321,7 +279,7 @@ export function earlyChecks(
         void reading.then(() => beingRead--);
       }
       const early: Early = {
-        result: checkClaim(behindReading(run, claimCheck), request),
+        result: checkClaim(behindReading(run, placed), request),
         stop,
         read: readNow(),
         readNow,
@@ -340,7 +298,7 @@ export function earlyChecks(
     keep(queued: readonly QueuedClaim[]): void {
       const wanted = new Map<string, number>();
       for (const claim of queued) {
-        const key = requestKey(checkRequestOf(claim, run, limit, run.signal));
+        const key = requestKey(checkRequestOf(claim, run, run.signal));
         wanted.set(key, (wanted.get(key) ?? 0) + 1);
       }
       for (const [key, all] of started) {
@@ -357,7 +315,7 @@ export function earlyChecks(
     /** The run's claim check: an early one that sends the same, or a new one. */
     claimCheck(request: ClaimCheckRequest): Promise<ClaimCheckResult> {
       const early = started.size === 0 ? undefined : started.get(requestKey(request))?.shift();
-      if (!early) return claimCheck(request);
+      if (!early) return placed(request);
       // The run's time limit stops it as it would the check the run sends.
       request.signal.addEventListener("abort", () => early.stop.abort(), { once: true });
       // A reply is the run's as it comes, not as the check settles: a run stopped or timed out
@@ -401,8 +359,7 @@ export async function runChecks(
 
   let checked = 0;
   const atOnce = claimsAtOnce(prepared);
-  const limit = run.slots ?? slots(atOnce);
-  const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, run, limit, signal);
+  const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, run, signal);
   /** What the decision model's reading left a sentence: its Mark, or only what it leans to. */
   const marked = new Set<QueuedClaim>();
   const leaning = new Map<QueuedClaim, ClaimFirstReading>();
