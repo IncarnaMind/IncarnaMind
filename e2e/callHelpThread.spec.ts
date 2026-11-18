@@ -44,6 +44,7 @@ const CALLS = {
     question: "How much is the Enterprise plan per seat?",
     reply: "$45 per seat",
     ask: "Ask",
+    note: "Note",
     placeholder: "Ask about this call…",
   },
   zh: {
@@ -53,6 +54,7 @@ const CALLS = {
     question: "Enterprise plan 每个席位多少钱？",
     reply: "每个席位每月 45 美元",
     ask: "追问",
+    note: "笔记",
     placeholder: "问问这场通话…",
   },
 } as const;
@@ -123,13 +125,16 @@ async function askInPanel(panel: Page, question: string): Promise<Locator> {
 
 for (const language of ["en", "zh"] as const) {
   const said = CALLS[language];
-  test(`typed question (${language}): a prompt, then a question in Ask, cited to the price sheet, its quote found; the prompt is one line that opens on click; Ask is kept through a collapse and a closed panel, and "/" asks a prompt in it`, async () => {
+  test(`typed question (${language}): a prompt, then a question in Ask, cited to the price sheet, its quote found; the prompt is one line that opens on click; the field starts in Ask and is in Ask after a collapse and a closed panel, and "/" asks a prompt in it`, async () => {
     test.skip(LINUX, NO_FIELD);
     test.setTimeout(120_000);
     const { app, window, panel } = await recording(language);
     const field = panel.getByTestId("quick-note-field");
 
     await pressHelp(panel, said.answer);
+    // The field starts in Ask; Note and back are two clicks.
+    await expect(panel.getByTestId("field-mode-ask")).toBeChecked();
+    await chooseMode(panel, said.note);
     await expect(panel.getByTestId("field-mode-note")).toBeChecked();
     await chooseMode(panel, said.ask);
     await expect(panel.getByTestId("field-mode-ask")).toBeChecked();
@@ -158,7 +163,7 @@ for (const language of ["en", "zh"] as const) {
     await expect(earlierLines(panel)).toHaveCount(1);
     await expect(earlierLines(panel)).toContainText(said.question);
 
-    // Ask stays chosen through a collapse, and a panel closed and shown again, with its thread.
+    // Still Ask after a collapse, and a panel closed and shown again, with its thread.
     await panel.keyboard.press("Escape");
     await pointAndClick(panel, panel.getByTestId("panel-collapse"));
     await pointAndClick(panel, panel.getByTestId("panel-expand"));

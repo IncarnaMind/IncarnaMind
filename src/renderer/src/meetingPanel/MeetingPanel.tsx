@@ -78,7 +78,7 @@ export function MeetingPanel() {
   const drafts = useRef(new Map<string, Draft>());
   const meetingId = meeting?.id;
   const [modes, setModes] = useState<Readonly<Record<string, FieldMode>>>({});
-  const saved = useMemo(() => (meetingId ? savedFieldMode(meetingId) : "note"), [meetingId]);
+  const saved = useMemo(() => (meetingId ? savedFieldMode(meetingId) : "ask"), [meetingId]);
   const mode = (meetingId && modes[meetingId]) || saved;
   const chooseMode = useCallback(
     (chosen: FieldMode) => {
