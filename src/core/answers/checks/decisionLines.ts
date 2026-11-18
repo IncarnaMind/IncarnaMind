@@ -38,6 +38,13 @@ export interface DecisionLines {
    * model the question wasn't measured with, whose Notes the AI model sorts.
    */
   sort?: number;
+  /**
+   * The line for the question in ./decisionLibrary, asked before a sentence reads Unsupported: a
+   * score at or over it leaves the sentence to its own check, which may count the Library's lists.
+   * Absent for a model the question wasn't measured with, which calls no sentence Unsupported
+   * where that check can count them.
+   */
+  library?: number;
 }
 
 interface MeasuredDecisionModel {

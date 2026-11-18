@@ -47,6 +47,7 @@ import { sentencesOfLines } from "../wholeSentences";
 import { createCheckResults } from "./checkResults";
 import { asPassage, citedOutsideScope, citedSources, keptInside } from "./checkSetup";
 import { type ClaimCheckDependencies, type ClaimCheckRequest, lineLocation } from "./claimCheck";
+import { aboutLibrary } from "./decisionLibrary";
 import {
   type DecisionLines,
   limitsKept,
@@ -340,7 +341,7 @@ function readsPassages(deps: ClaimCheckDependencies, request: ClaimCheckRequest)
   );
 }
 
-/** Whether the sentence's check may run code over a data file's rows: one the User started, where Python runs. */
+/** Whether the sentence's check may run code, over a data file's rows or the Library's lists: one the User started, where Python runs. */
 const worksOutRows = (deps: ClaimCheckDependencies, request: ClaimCheckRequest): boolean =>
   deps.analysisRuntime !== undefined &&
   (request.sends === undefined || request.sends.includes("analysis-results"));
@@ -500,7 +501,15 @@ export function createFirstReading(deps: Dependencies) {
       const asOne = await scoresAlone(reader, request, together(passages, scores), signal);
       const joined = asOne && readingOf([{ passageId: "", ...asOne }], reader.lines);
       if (!joined) return unsettled(null);
-      if (joined.verdict === "unsupported") return verdictOf("unsupported", null);
+      if (joined.verdict === "unsupported") {
+        // No Passage states what the Library holds: a sentence about the Library is left to its
+        // own check where that can count the Library's lists (#2525).
+        const counted =
+          worksOutRows(deps, request) &&
+          deps.libraryLists !== undefined &&
+          (await aboutLibrary(reader, request.claim, signal));
+        return counted ? unsettled(null) : verdictOf("unsupported", null);
+      }
       // No one Passage holds what several say together, and a verdict quotes one.
       return unsettled({ verdict: joined.verdict, ...reader.model });
     }
