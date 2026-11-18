@@ -78,7 +78,6 @@ import {
 import { MindReadOnlyError } from "../../errors";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { asCheckWork } from "../../reranking/order";
 import type { RepliesOut } from "../../runs/replies";
 import { slots } from "../../runs/stop";
 import { inStep } from "../../timing/flows";
@@ -1316,60 +1315,61 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     });
     const checkOne = (sentence: Sentence, attempt: CheckTry): Promise<ClaimCheckResult> =>
       sentencesAtOnce.run(() => checkSentence(sentence, attempt));
-    const checkSentence = (sentence: Sentence, attempt: CheckTry): Promise<ClaimCheckResult> =>
-      asCheckWork(async () => {
-        const own = new AbortController();
-        stops.set(sentence, own);
-        if (left.has(sentence)) own.abort();
-        const ended = AbortSignal.any([signal, own.signal]);
-        // A newer write took it over before its check began: nothing was sent, nothing failed.
+    const checkSentence = async (
+      sentence: Sentence,
+      attempt: CheckTry,
+    ): Promise<ClaimCheckResult> => {
+      const own = new AbortController();
+      stops.set(sentence, own);
+      if (left.has(sentence)) own.abort();
+      const ended = AbortSignal.any([signal, own.signal]);
+      // A newer write took it over before its check began: nothing was sent, nothing failed.
+      if (own.signal.aborted) return takenOver();
+      signal.throwIfAborted();
+      // A write that looks gone may be undone: nothing more is sent until `mindChanged` knows.
+      if (writeGone(mindId, shape)) {
+        await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
         if (own.signal.aborted) return takenOver();
         signal.throwIfAborted();
-        // A write that looks gone may be undone: nothing more is sent until `mindChanged` knows.
-        if (writeGone(mindId, shape)) {
-          await new Promise((resolve) => setTimeout(resolve, UNDONE_SETTLE_MS));
-          if (own.signal.aborted) return takenOver();
-          signal.throwIfAborted();
-        }
-        // Behind a reply out on its provider before its clock starts, so its time limit never runs
-        // while its first request waits.
-        await behind.before(sending, ended);
-        if (own.signal.aborted) return takenOver();
-        signal.throwIfAborted();
-        const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
-        const first =
-          looked.get(sentence) ??
-          (quick &&
-            (await options.firstLook({
-              claim: read.claim,
-              figures: read.figures?.length ?? 0,
-              inCell: sentence.inCell,
-              place:
-                sentence.place.after.kind === "start" && beforeWrite
-                  ? { ...sentence.place, after: beforeWrite }
-                  : sentence.place,
-              paragraph: sentence.context,
-              citations: sentence.citations,
-              scope: scope.scope,
-              ask: (asked, until) =>
-                limit.run(() => quickLook(quickSending ?? quick, asked, until)),
-              signal: AbortSignal.any([
-                ended,
-                behind.timeout(run.timeLimitMs * FIRST_LOOK_SHARE, ended),
-              ]),
-            })));
-        if (quick && first?.result) {
-          recordCheck(run.record, quick, first.result);
-          checks.set(sentence, { by: quick });
-          return first.result;
-        }
-        if (first) looked.set(sentence, first);
-        checks.set(sentence, { by: prepared });
-        return attempt(
-          (request) => limit.run(() => options.claimCheck(request)),
-          requestOf(sentence, read, mindId, scope, sending, ended),
-        );
-      });
+      }
+      // Behind a reply out on its provider before its clock starts, so its time limit never runs
+      // while its first request waits.
+      await behind.before(sending, ended);
+      if (own.signal.aborted) return takenOver();
+      signal.throwIfAborted();
+      const read = reads.get(sentence) ?? { claim: sentence.text, context: sentence.context };
+      const first =
+        looked.get(sentence) ??
+        (quick &&
+          (await options.firstLook({
+            claim: read.claim,
+            figures: read.figures?.length ?? 0,
+            inCell: sentence.inCell,
+            place:
+              sentence.place.after.kind === "start" && beforeWrite
+                ? { ...sentence.place, after: beforeWrite }
+                : sentence.place,
+            paragraph: sentence.context,
+            citations: sentence.citations,
+            scope: scope.scope,
+            ask: (asked, until) => limit.run(() => quickLook(quickSending ?? quick, asked, until)),
+            signal: AbortSignal.any([
+              ended,
+              behind.timeout(run.timeLimitMs * FIRST_LOOK_SHARE, ended),
+            ]),
+          })));
+      if (quick && first?.result) {
+        recordCheck(run.record, quick, first.result);
+        checks.set(sentence, { by: quick });
+        return first.result;
+      }
+      if (first) looked.set(sentence, first);
+      checks.set(sentence, { by: prepared });
+      return attempt(
+        (request) => limit.run(() => options.claimCheck(request)),
+        requestOf(sentence, read, mindId, scope, sending, ended),
+      );
+    };
     const checkAll = (items: readonly Sentence[]) =>
       runClaimChecks(items, checkOne, {
         ...run,

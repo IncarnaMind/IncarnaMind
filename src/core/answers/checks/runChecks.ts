@@ -20,7 +20,6 @@ import type {
 import type { MindContent } from "../../mindContent";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { asCheckWork } from "../../reranking/order";
 import type { Slots } from "../../runs/stop";
 import type { ClaimCheckRequest } from "./claimCheck";
 import type { DecisionReader, FirstReading } from "./decisionFirst";
@@ -150,12 +149,6 @@ export function checkRequestOf(
   };
 }
 
-/** A claim's check, as one piece of work: its searches are reranked before those of checks started after it. */
-export const checkClaim = (
-  claimCheck: RunChecksOptions["claimCheck"],
-  request: ClaimCheckRequest,
-): Promise<ClaimCheckResult> => asCheckWork(() => claimCheck(request));
-
 /**
  * A request as a key: what it sends, without its signal and its model (the run's own), and
  * without what its reading found, which the rest of it decides.
@@ -282,7 +275,7 @@ export function earlyChecks(
         void reading.then(() => beingRead--);
       }
       const early: Early = {
-        result: checkClaim(behindReading(run, placed), request),
+        result: behindReading(run, placed)(request),
         stop,
         read: readNow(),
         readNow,
@@ -421,7 +414,7 @@ export async function runChecks(
     run.queued,
     async (claim, check) => {
       await readings.get(claim);
-      return check((request) => checkClaim(claimCheck, request), requestOf(claim));
+      return check(claimCheck, requestOf(claim));
     },
     {
       ...ran,

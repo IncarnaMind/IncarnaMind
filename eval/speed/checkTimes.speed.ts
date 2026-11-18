@@ -14,7 +14,7 @@
  * INCARNAMIND_EVAL_SPEED_THINKING ("summary" or "off") sets how every model thinks, which only an
  * Answer's batches feel; and
  * INCARNAMIND_EVAL_SPEED_LIBRARY=mixed adds the mixed sample set to the Library, so a search
- * reranks as many Passages as it would in a real one.
+ * ranks as many Passages as it would in a real one.
  * INCARNAMIND_EVAL_SPEED_ANSWER_SENTENCES (as `1,2,3`) has `answer` write Answers of so many
  * sentences instead, each run the set's next ones, so each is judged in one batch of that size; and
  * INCARNAMIND_EVAL_SPEED_BATCH_ROOM gives every batch that many output tokens instead of its own
@@ -607,7 +607,7 @@ timedChecks("where a check's time goes, on each model and language", async () =>
       id: language === "en" ? "en" : "zh",
       language,
     });
-    // The mixed sample set beside them, for searches that rerank as many Passages as a real Library's.
+    // The mixed sample set beside them, for searches that rank as many Passages as a real Library's.
     if (env("LIBRARY") === "mixed") documents.push(...(await reports()));
     const gating = flows.includes("asked") ? loadEvaluationSet(ROOT) : null;
     if (gating) documents.push(...gating.documents);

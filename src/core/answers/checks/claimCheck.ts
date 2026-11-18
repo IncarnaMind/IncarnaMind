@@ -138,7 +138,7 @@ export interface ClaimCheckRequest {
   cacheKey?: string;
   /**
    * The Passages the run's decision model found to be about the sentence, each with how surely
-   * (./decisionFirst). Given, they order each search's hits, and no reranking model runs.
+   * (./decisionFirst). Given, they come first in each search's hits.
    */
   about?: ReadonlyMap<string, number>;
   signal: AbortSignal;

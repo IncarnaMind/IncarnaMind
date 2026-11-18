@@ -972,7 +972,7 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     expect(sentToAiModel(third)).toEqual(plain);
   });
 
-  // protects=a sentence the decision model read and left to the AI model is checked without the reranking model: each of its searches shows first the Document whose Passage the reading found to be about the sentence, whichever that is, while a sentence the decision model didn't read is reranked as before (#2532); fails_when=the reranking model is asked about a read sentence's search, the AI model is shown the Documents in search's own order, or an unread sentence's search is no longer reranked; no_claim=which order serves a real model better, which the real-model comparison measures.
+  // protects=a sentence the decision model read and left to the AI model is checked in the reading's order: each of its searches shows first the Document whose Passage the reading found to be about the sentence, whichever that is, and no check's search reaches the reranking model, read by the decision model or not (#3326); fails_when=the reading's Passages aren't put first, or a check's search is scored by the reranking model; no_claim=which Passages keyword search ranks first.
   test("a sentence it read is checked in the reading's order, with no reranking model", async () => {
     const reranked: string[] = [];
     const { core, host, run, shownBySearch } = await setUp([BOTH], {
@@ -982,7 +982,6 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
       },
     });
     await core.checkMind(run("no decision model"));
-    expect(reranked).toEqual([BOTH]);
     expect(shownBySearch().sort()).toEqual(["Harbour office", "Tides"]);
 
     await choose(core);
@@ -991,11 +990,10 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
       await core.checkMind(run(`leans on ${about}`));
       expect(shownBySearch()[0]).toBe(about);
     }
-    expect(reranked).toEqual([BOTH]);
 
     host.answers(() => ({ status: 500 }));
     await core.checkMind(run("unread"));
-    expect(reranked).toEqual([BOTH, BOTH]);
+    expect(reranked).toEqual([]);
   });
 
   // protects=the Passages a sentence cites are read by the decision model with those its search finds, once each, and a sentence that cites one is never Unsupported on the decision model's word: what its own Citation fails to say is its check's to explain; fails_when=a cited Passage isn't sent, is sent twice, or a citing sentence nothing leans to is marked without the AI model; no_claim=what the AI model's check does with a Citation.
