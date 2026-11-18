@@ -257,17 +257,17 @@ export function transcriptUnits(transcript: Transcript): TextUnit[] {
   const units: TextUnit[] = [];
   let builder = new UnitBuilder();
   let first: Cue | null = null;
-  let last: Cue | null = null;
+  let endMs = 0;
   let count = 0;
   let speakers: (string | null)[] = [];
   const flush = () => {
-    if (!first || !last || builder.empty) return;
+    if (!first || builder.empty) return;
     units.push({
       page: units.length + 1,
       kind: "cues",
       label: {
         from: first.startMs,
-        to: last.endMs,
+        to: endMs,
         ...(speakers.some((speaker) => speaker !== null) && { speakers }),
       },
       text: builder.text,
@@ -275,6 +275,7 @@ export function transcriptUnits(transcript: Transcript): TextUnit[] {
     });
     builder = new UnitBuilder();
     first = null;
+    endMs = 0;
     count = 0;
     speakers = [];
   };
@@ -286,7 +287,7 @@ export function transcriptUnits(transcript: Transcript): TextUnit[] {
       flush();
     }
     first ??= cue;
-    last = cue;
+    endMs = Math.max(endMs, cue.endMs);
     builder.add(cue.text, cueTarget(cue.startMs, cue.endMs));
     speakers.push(cue.speaker);
     count++;

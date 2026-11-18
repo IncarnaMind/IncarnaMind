@@ -264,7 +264,13 @@ export function locateQuote(
   quote: string,
   matching: Matching = {},
 ): PageRange | null {
-  const ranges = quoteInUnits(units, quote, { ...matching, unique: true });
+  return rangeOfQuote(units, quoteInUnits(units, quote, { ...matching, unique: true }));
+}
+
+function rangeOfQuote(
+  units: readonly PageText[],
+  ranges: readonly TextRange[] | null,
+): PageRange | null {
   if (!ranges) return null;
   const { starts } = joinUnits(units);
   const covered = units.filter((unit, index) => {
@@ -2431,6 +2437,22 @@ export function createCitationSession(
       result: null,
       speakers: read !== undefined ? read : lastShown(found.handle, source),
     };
+    if (
+      time &&
+      range.pageFrom !== null &&
+      range.pageTo !== null &&
+      range.pageTo - range.pageFrom + 1 > MAX_CITED_PAGES
+    ) {
+      const units = citedText(taken);
+      const ranges = quoteInCues(
+        units,
+        quote,
+        time,
+        { ...matchingFor(source), unique: true },
+        speakersFor(taken),
+      );
+      taken.range = rangeOfQuote(units, ranges) ?? range;
+    }
     let record: Accepted = { ...taken, location: locationFor(taken) };
     // A quote that isn't where it names is cited where it uniquely occurs in its Passage,
     // never outside it, and the check still reads it there.
