@@ -50,7 +50,7 @@ export function createFirstRun(options: {
 
   const picks = (work: unknown): WorkKind[] => {
     const picked = pickedWork(work);
-    if (!picked) throw new InvalidInputError("Those aren't kinds of work the setup asks about.");
+    if (!picked) throw new InvalidInputError({ key: "error.firstRun.work" });
     return picked;
   };
 
@@ -70,7 +70,7 @@ export function createFirstRun(options: {
 
     sendPicks(work: unknown): boolean {
       const picked = picks(work);
-      if (picked.length === 0) throw new InvalidInputError("There are no picks to send.");
+      if (picked.length === 0) throw new InvalidInputError({ key: "error.firstRun.noPicks" });
       return options.usageData.sendWorkPicked(picked);
     },
   };

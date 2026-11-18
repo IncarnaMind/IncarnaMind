@@ -110,7 +110,7 @@ export const settingsPageCommands: readonly Command[] = [
     id: "settings.setUpStepByStep",
     assistant: { never: "keys" },
     label: "setupPage.again.command",
-    keywords: ["settings.title", "settings.pages.ai", "setupPage.again.keywords"],
+    keywords: ["setupPage.again.keywords"],
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openSetup(),
