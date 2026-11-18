@@ -454,4 +454,93 @@ export const REMARK_NOTES: readonly RemarkNote[] = [
       { sentence: "1月份留出2天时间，比较3家经销商的租赁报价。", expected: "none" },
     ],
   },
+  {
+    id: "en-j4",
+    language: "en",
+    name: "Office energy audit",
+    document:
+      "The office used 412,000 kWh of electricity in 2026, down from 455,000 kWh in 2025. Heating accounts for 38% of the total. The auditor, Brackenhall Energy, says the boiler is 19 years old. The solar panels on the roof produced 61,000 kWh in 2026.",
+    lines: [
+      {
+        sentence:
+          "The office used 412,000 kWh of electricity in 2026, which strikes me as a lot for a building this size.",
+        expected: "right",
+        part: "The office used 412,000 kWh of electricity in 2026",
+      },
+      {
+        sentence:
+          "The office used 512,000 kWh of electricity in 2026, which strikes me as a lot for a building this size.",
+        expected: "wrong",
+        part: "The office used 512,000 kWh of electricity in 2026",
+      },
+      {
+        sentence: "Heating accounts for 38% of the total, the first thing I would look at.",
+        expected: "right",
+        part: "Heating accounts for 38% of the total",
+      },
+      {
+        sentence: "The boiler is 19 years old, and in my opinion that is past the point of repair.",
+        expected: "right",
+        part: "The boiler is 19 years old",
+      },
+      {
+        sentence: "The boiler is 9 years old, and in my opinion that is past the point of repair.",
+        expected: "wrong",
+        part: "The boiler is 9 years old",
+      },
+      {
+        sentence: "The solar panels produced 61,000 kWh in 2026, a better result than I expected.",
+        expected: "right",
+        part: "The solar panels produced 61,000 kWh in 2026",
+      },
+      { sentence: "I left the 2024 figures out of this note to keep it short.", expected: "none" },
+      {
+        sentence: "The 500,000 kWh you quoted in your email is not the figure used in this note.",
+        expected: "none",
+      },
+      { sentence: "A 10% cut by 2028 looks realistic to me.", expected: "none" },
+    ],
+  },
+  {
+    id: "zh-j4",
+    language: "zh-CN",
+    name: "办公室能耗审计",
+    document:
+      "办公室2026年用电412,000千瓦时，低于2025年的455,000千瓦时。供暖占总用电量的38%。审计方柏岭能源表示，锅炉已使用19年。屋顶太阳能板2026年发电61,000千瓦时。",
+    lines: [
+      {
+        sentence: "办公室2026年用电412,000千瓦时，在我看来对这种规模的楼来说偏多。",
+        expected: "right",
+        part: "办公室2026年用电412,000千瓦时",
+      },
+      {
+        sentence: "办公室2026年用电512,000千瓦时，在我看来对这种规模的楼来说偏多。",
+        expected: "wrong",
+        part: "办公室2026年用电512,000千瓦时",
+      },
+      {
+        sentence: "供暖占总用电量的38%，这是我会最先着手的地方。",
+        expected: "right",
+        part: "供暖占总用电量的38%",
+      },
+      {
+        sentence: "锅炉已使用19年，我认为已经不值得再修。",
+        expected: "right",
+        part: "锅炉已使用19年",
+      },
+      {
+        sentence: "锅炉已使用9年，我认为已经不值得再修。",
+        expected: "wrong",
+        part: "锅炉已使用9年",
+      },
+      {
+        sentence: "屋顶太阳能板2026年发电61,000千瓦时，比我预想的要好。",
+        expected: "right",
+        part: "屋顶太阳能板2026年发电61,000千瓦时",
+      },
+      { sentence: "为了简短，这份笔记没有列出2024年的数据。", expected: "none" },
+      { sentence: "你邮件里提到的500,000千瓦时，不是这份笔记采用的数字。", expected: "none" },
+      { sentence: "到2028年减少10%，在我看来是可行的。", expected: "none" },
+    ],
+  },
 ];
