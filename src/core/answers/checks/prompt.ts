@@ -31,6 +31,7 @@ const rules = (calls: boolean) => [
   "- A number inside a name (58.com, Boeing 737, 3M) is part of that name, not an amount.",
   '- An amount is its number together with its unit, currency and scale. A table\'s caption, heading row or unit line gives them to its cells ("in thousands", "(£m)", "单位：万元"). The same amount written another way is the same amount: 1.2 million and 1,200,000; 5% and five per cent; 3.5亿 and 350 million. A sentence that writes a cell\'s digits without the scale its table gives them, or with another unit or currency, states another amount.',
   "- A word for which way something went or which is more (up, down, rose, fell, more than, 上升, 下降) is part of what the sentence states: work out which way the Document's own figures go.",
+  "- The writer's own advice (what ought to be done, what is worth checking) and words about the Note itself (where its content came from, how it was made) are not for a Document to state: leave them out of the verdict and judge what the sentence states as fact. A conclusion or a reason the sentence draws is a statement, not advice.",
   "- Every Passage is from one of the User's Documents, never from the Note the sentence is in: one in the sentence's own words is the Document saying it. A Passage that states the sentence, word for word or in other words, supports it and needs no second source.",
   "",
   "Decide one verdict:",
