@@ -6,7 +6,7 @@ A check of a sentence had grown into layers of code between the model's verdict 
 
 A check is one judgement of the whole sentence by a model, and nothing in code changes its verdict.
 
-- **The sentence goes to a model whole**, in its paragraph and under the heading above it, with the Passages its own Citations quote. A table cell goes with its row and column headings, and a chart as its title, series and values.
+- **The sentence goes to a model whole**, in its paragraph, under the headings above it and after its section's lines so far (#3332), with the Passages its own Citations quote. A table cell goes with its row and column headings, and a chart as its title, series and values.
 - **A decision model reads it first**, where the User's checks use one. A sentence it leaves undecided goes to the User's AI model, which may search the Documents for more, records each quote that decides the sentence with `cite`, and gives one verdict: supported, contradicted, or one of three ways the Documents don't back the sentence (overstated, partly supported, not found). The three are kept as Unsupported with the model's word, so a count, a filter and a colour still read three results, and the card names the way. The step that judges is sent to that model asked to think.
 - **Code confirms one thing**: a Supported or Contradicted verdict rests on a quote that its Document holds, by the Citation check. A verdict with no such quote is Not checked, never a ✓.
 - **No rule in code overturns the verdict.** The check may ask the model once more for something its reply lacks (a search before a verdict, a second search before "unsupported", the quote it rests on). It never reads the sentence's numbers, units, parties or conditions itself.

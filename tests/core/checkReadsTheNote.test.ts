@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { createElement, type NodeJSON } from "../../src/core/answers/blocks";
 import { claimPrompt } from "../../src/core/answers/checks/prompt";
 import { checkText, everySentence } from "../../src/core/answers/checks/sentences";
-import { MIND_CONTENT_FIELD } from "../../src/core/api";
+import { ANSWER_BLOCK, MIND_CONTENT_FIELD } from "../../src/core/api";
 
 const words = (text: string): NodeJSON[] => [{ type: "text", text }];
 const heading = (level: number, text: string): NodeJSON => ({
@@ -76,13 +76,71 @@ test("a sibling section's lines and a table above are left out", () => {
   expect(place).not.toContain("Vans in thousands");
 });
 
-// protects=a list item is read with what is above its list; fails_when=an item goes to its check without its list's heading and the lines that lead into the list.
-test("a list item goes with what is above its list", () => {
-  expect(placeOf(NOTE, "Do it in two batches.").split("\n\n").slice(-3)).toEqual([
+// protects=a list item is read with what is above its list and with the items before it; fails_when=an item goes to its check without its list's heading, the lines that lead into the list, or the item above that says what it is about.
+test("a list item goes with what is above its list and the items before it", () => {
+  expect(placeOf(NOTE, "Do it in two batches.").split("\n\n").slice(-4)).toEqual([
     "Recommendation",
     "Diesel is a fifth of delivery costs.",
+    "Order before the offer runs out.",
     "Do it in two batches.",
   ]);
+});
+
+// protects=a sentence of an Answer is read with the Answer's own heading and earlier paragraphs, and with what is above the Answer; fails_when=an Answer's later line goes to its check without the lines of the same Answer that say what it is about.
+test("a line of an Answer goes with the Answer's lines before it", () => {
+  const answer: NodeJSON = {
+    type: ANSWER_BLOCK,
+    content: [
+      heading(2, "Recommendation"),
+      paragraph("Four vans are more than ten years old."),
+      paragraph("We should start replacing them now."),
+    ],
+  };
+  expect(
+    placeOf(
+      [heading(1, "Harbour Dairy fleet"), paragraph("It runs 9 vans."), answer],
+      "We should start replacing them now.",
+    ).split("\n\n"),
+  ).toEqual([
+    "Harbour Dairy fleet",
+    "It runs 9 vans.",
+    "Recommendation",
+    "Four vans are more than ten years old.",
+    "We should start replacing them now.",
+  ]);
+});
+
+// protects=a Block the User left out of what a model is sent stays out of a check's lines above, as it stays out of a Question's (ADR-0022); fails_when=checking a sentence sends an excluded Block above it.
+test("a Block the User left out is not read above", () => {
+  const place = placeOf(
+    [
+      heading(1, "Harbour Dairy fleet"),
+      { ...paragraph("The owner's private note on prices."), attrs: { includeInContext: false } },
+      paragraph("It runs 9 vans."),
+      paragraph("We should start replacing them now."),
+    ],
+    "We should start replacing them now.",
+  );
+  expect(place).toContain("It runs 9 vans.");
+  expect(place).not.toContain("private note");
+});
+
+// protects=a table cell is read as a cell is, by its row and column, and the table adds no lines above it; fails_when=a cell's check is sent the cells before it as the Note's lines above.
+test("a table cell reads nothing of its table as lines above", () => {
+  const row = (text: string): NodeJSON => ({
+    type: "tableRow",
+    content: [{ type: "tableCell", content: [paragraph(text)] }],
+  });
+  const place = placeOf(
+    [
+      heading(1, "Fleet"),
+      { type: "table", content: [row("Cost"), row("Vans cost 40."), row("Fuel costs 9.")] },
+    ],
+    "Fuel costs 9.",
+  );
+  // The heading, then the cell as a table's cell is read: by its own row and column, nothing more above.
+  expect(place.split("\n\n")).toHaveLength(2);
+  expect(place.startsWith("Fleet\n\n")).toBe(true);
 });
 
 // protects=a Note with no headings is read from its top; fails_when=a plain Note's later lines go to their checks without its opening lines.
