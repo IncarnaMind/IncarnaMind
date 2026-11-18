@@ -1222,12 +1222,9 @@ test("with a cloud model and no Folder, the footer asks before the first Documen
         modelId: "gpt-6-luna",
       });
     });
-    const add = async (name: string, text: string) => {
-      const path = join(sources, name);
-      await writeFile(path, text);
-      await addDocuments(window, [path]);
-    };
-    await add("Research notes.txt", "Research report about membrane separation and filtration.");
+    const first = join(sources, "Research notes.txt");
+    await writeFile(first, "Research report about membrane separation and filtration.");
+    await addDocuments(window, [first]);
 
     const row = window.getByTestId("sort-consent");
     const allow = row.getByTestId("sort-consent-allow");
@@ -1247,7 +1244,9 @@ test("with a cloud model and no Folder, the footer asks before the first Documen
     // The no: the switch is off, and a Document added after waits with nothing asking.
     await pointAndClick(window, no);
     await expect(row).toHaveCount(0);
-    await add("Field notes.txt", "Field notes on the pilot plant's second filtration stage.");
+    const second = join(sources, "Field notes.txt");
+    await writeFile(second, "Field notes on the pilot plant's second filtration stage.");
+    await window.getByTestId("add-documents-input").setInputFiles([second]);
     await expectReadyDocuments(window, 2);
     await expect(row).toHaveCount(0);
     const settings = await openSettings(window, "ai");
