@@ -164,7 +164,12 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
         });
       }
       const open = line?.tokens[0];
-      report.progress(open ? Math.min(open.start, finalMs) : finalMs);
+      const doneMs = open ? Math.min(open.start, finalMs) : finalMs;
+      const processedMs = message.total_audio_proc_ms;
+      report.progress(
+        doneMs,
+        typeof processedMs === "number" ? Math.max(doneMs, processedMs) : doneMs,
+      );
       if (message.finished === true) {
         close();
         link.complete();

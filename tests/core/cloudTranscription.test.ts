@@ -453,6 +453,61 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     expect(onlyCitation(client, answerId).location).not.toMatchObject({ speaker: "Me" });
   });
 
+  test("Soniox keeps transcribing live while it processes audio without finalizing its words", async () => {
+    let processedMs = 0;
+    const text = "Let’s review the budget.";
+    const cloud: CloudConnect = (_url, _key, events) => {
+      const say = (isFinal: boolean) =>
+        events.message(
+          JSON.stringify({
+            tokens: [{ text, start_ms: 100, end_ms: processedMs, is_final: isFinal }],
+            final_audio_proc_ms: isFinal ? processedMs : 0,
+            total_audio_proc_ms: processedMs,
+            ...(isFinal && { finished: true }),
+          }),
+        );
+      queueMicrotask(() => events.open());
+      return {
+        send(data) {
+          if (data === "") say(true);
+          else if (typeof data !== "string") {
+            processedMs += data.byteLength / 32;
+            say(false);
+          }
+        },
+        close() {},
+      };
+    };
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, {
+      cloud,
+      capture: { microphone: "denied" },
+    });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    await until(core, meeting.id, (transcript) => transcript.cloud === "soniox");
+
+    for (let elapsed = 4 * SECOND; elapsed <= 44 * SECOND; elapsed += 4 * SECOND) {
+      record(4 * SECOND, ["system"]);
+      const live = await until(
+        core,
+        meeting.id,
+        (transcript) =>
+          transcript.state === "behind" ||
+          (processedMs >= elapsed - SECOND && transcript.partials.length > 0),
+      );
+      expect(live).toMatchObject({ state: "live", cloud: "soniox", lines: 0 });
+    }
+
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    if (!saved.savedPath) throw new Error("The Transcript was not saved.");
+    const { cues, gaps } = readVtt(readFileSync(saved.savedPath, "utf8"));
+    expect(gaps).toEqual([]);
+    expect(cues.map((cue) => cue.text)).toEqual([text]);
+  });
+
   test("the connection dropping hands the live audio to this computer: the gap is marked, the bar says when, and Stop fills it in", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record } = await transcribingCore(dataDir, {
