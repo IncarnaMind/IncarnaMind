@@ -88,10 +88,6 @@ const checked = (id: string, text: string, parts: ClaimCheckPart[]): ClaimCheckA
   checkedAt: CHECKED_AT,
 });
 
-/** A part kept when another part is checked keeps the model and time of the check that judged it (#1667). */
-const keptAsJudged = (part: ClaimCheckPart | undefined) =>
-  part && { ...part, providerId: null, modelId: null, checkedAt: CHECKED_AT };
-
 async function setContent(window: Page, content: JSONContent[]) {
   await window.getByTestId("mind-editor").evaluate((dom, blocks) => {
     const editor = (dom as unknown as { editor: Editor }).editor;
@@ -170,6 +166,21 @@ async function terminalPart(window: Page, id: string, index: number) {
   await expect
     .poll(async () => (await partsOfCheck(window, id))?.[index]?.verdict ?? "omitted")
     .toMatch(/^(supported|unsupported|contradicted|not-checked)$/);
+}
+
+/** Check anyway judges the sentence whole (#3081): its check ends as one part with a verdict. */
+async function judgedWhole(window: Page, id: string, sentence: string) {
+  await expect
+    .poll(async () =>
+      (await partsOfCheck(window, id))?.map((each) => [
+        each.span.start,
+        each.span.end,
+        each.verdict,
+      ]),
+    )
+    .toEqual([
+      [0, sentence.length, expect.stringMatching(/^(supported|unsupported|contradicted)$/)],
+    ]);
 }
 
 async function allRowsVisible(window: Page, count: number) {
@@ -482,12 +493,8 @@ for (const language of ["en", "zh-CN"] as const) {
           await window.keyboard.press("ArrowLeft");
           await expect.poll(() => selectedWords(window)).toBe("");
           await runCommand(window, "check.anyway", words.anyway);
-          await terminalPart(window, "mixed-check", 1);
+          await judgedWhole(window, "mixed-check", mixed);
           await expect(card).toBeVisible();
-          expect(await selectedWords(window)).toBe(words.opinion);
-          expect((await partsOfCheck(window, "mixed-check"))?.[0]).toEqual(
-            keptAsJudged(factBefore),
-          );
           const completed = await checkCard(window);
           await expect(completed.getByTestId("opinions-line")).toHaveCount(0);
           await window.keyboard.press("Escape");
@@ -501,7 +508,6 @@ for (const language of ["en", "zh-CN"] as const) {
               ]),
             ),
           ]);
-          const menuFactBefore = (await partsOfCheck(window, "menu-check"))?.[0];
           await rightClickWords(window, "mixed", words.fact.trim());
           await expect(window.getByTestId("opinion-context-actions")).toBeHidden();
           await window.keyboard.press("Escape");
@@ -513,12 +519,8 @@ for (const language of ["en", "zh-CN"] as const) {
               .getByTestId("opinion-context-actions")
               .getByRole("menuitem", { name: words.anyway, exact: true }),
           );
-          await terminalPart(window, "menu-check", 1);
+          await judgedWhole(window, "menu-check", mixed);
           await expect(card).toBeVisible();
-          expect(await selectedWords(window)).toBe(words.opinion);
-          expect((await partsOfCheck(window, "menu-check"))?.[0]).toEqual(
-            keptAsJudged(menuFactBefore),
-          );
           const menuDone = await checkCard(window);
           await expect(menuDone.getByTestId("opinions-line")).toHaveCount(0);
           await window.keyboard.press("Escape");
