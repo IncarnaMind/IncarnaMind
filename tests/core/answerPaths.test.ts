@@ -4,7 +4,11 @@
  * it (./unlistedRequests.test.ts).
  */
 import { describe, expect, test } from "vitest";
-import { retrievesFirst, writesThenCites } from "../../src/core/providers/catalog/answerPaths";
+import {
+  answersInOneReply,
+  retrievesFirst,
+  writesThenCites,
+} from "../../src/core/providers/catalog/answerPaths";
 import {
   askAndFinish,
   citationsIn,
@@ -31,6 +35,24 @@ async function systemFor(writes: boolean | undefined) {
 }
 
 describe("The Answer paths beside the catalog", { timeout: 30_000 }, () => {
+  // protects=only the models whose gate passed answer call help in one reply, and only in call help (#3354); fails_when=Claude Haiku 5.5 or Sonnet 5.5, which missed it, are listed, Sol answers any other flow in one reply, or a dated model id isn't read as its model; no_claim=the gate's numbers, in eval/speed/gates/call-help-one-reply.md.
+  test("GPT-6.1 Sol answers call help in one reply, on OpenAI and OpenRouter; the Claude models and other flows don't", () => {
+    for (const sol of [
+      { catalogId: "openai", modelId: "gpt-6.1-sol" },
+      { catalogId: "openai", modelId: "gpt-6.1-sol-2026-09-30" },
+      { catalogId: "openrouter", modelId: "openai/gpt-6.1-sol" },
+    ]) {
+      expect(answersInOneReply(sol, "call-help")).toBe(true);
+      for (const flow of ["question", "outside-agent", "task-answer", "check"] as const) {
+        expect(answersInOneReply(sol, flow)).toBe(false);
+      }
+    }
+    for (const modelId of ["claude-haiku-5-5", "claude-sonnet-5-5"]) {
+      expect(answersInOneReply({ catalogId: "anthropic", modelId }, "call-help")).toBe(false);
+    }
+    expect(answersInOneReply({ catalogId: null, modelId: "gpt-6.1-sol" }, "call-help")).toBe(false);
+  });
+
   test("no model writes then cites by the list, in any flow, Claude Haiku 5.5 included", () => {
     for (const flow of [
       "question",
