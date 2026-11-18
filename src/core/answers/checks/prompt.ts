@@ -46,6 +46,9 @@ const rules = (calls: boolean) => [
   ...(calls ? [CALL_MARKS] : []),
 ];
 
+/** The rules alone, for a judge that is told elsewhere how to gather evidence and reply (#3342). */
+export const judgingRules = (): string => rules(false).join("\n");
+
 const QUOTE =
   "a short quote copied exactly from the Passage, the words that decide it, as one unbroken stretch without an ellipsis";
 

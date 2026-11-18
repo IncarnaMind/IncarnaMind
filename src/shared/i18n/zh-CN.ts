@@ -7799,7 +7799,7 @@ export const zhCN = {
   "agents.problem.waiting": "{paragraph} 已有修订待处理。先在 IncarnaMind 中接受或拒绝。",
   "agents.problem.busy": "IncarnaMind 正在写入 {paragraph}。写完后再试。",
   "agents.problem.too-many": "这个智能体在过去一小时内已新建 {max} 篇笔记，达到上限。稍后再试。",
-  "agents.check.notYours": "check_mind 只核对这个智能体用 create_mind 写的笔记，这篇不是它写的。",
+  "agents.check.notYours": "只能核对这个智能体用 create_mind 写的笔记，这篇不是它写的。",
   "agents.check.noDocuments": "这篇笔记所在的文件夹里没有可对照的文档。",
   "agents.check.beyondReach":
     "这篇笔记的核对范围包含未与这个智能体共享的文件夹中的文档，因此不能为它核对。用户可以在 IncarnaMind 中核对。",
@@ -7811,6 +7811,11 @@ export const zhCN = {
   "agents.check.stopped.user": "核对在完成前已在 IncarnaMind 中被停止。",
   "agents.check.stopped.cost-cap": "核对因达到 IncarnaMind 中设置的每月花费上限而停止。",
   "agents.check.stopped.plan-limit": "核对因达到 AI 模型套餐的限额而停止。",
+  "agents.check.taskChanged":
+    "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
+  "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
+  "agents.check.reportAgain":
+    "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用。",
   "agents.note.writtenBy": "{name} 写入，{when}",
   "agents.create.text": "正文",
   "agents.create.folder": "给出 folderId：list_minds 列出的文件夹之一。",
@@ -7898,6 +7903,8 @@ export const zhCN = {
   "agents.activity.propose_changes": "对“{text}”提出了修改",
   "agents.activity.create_mind": "新建了笔记“{text}”",
   "agents.activity.check_mind": "核对了笔记“{text}”",
+  "agents.activity.check_mind_yourself": "读取了笔记“{text}”，准备核对",
+  "agents.activity.report_check": "自己核对了笔记“{text}”",
   "agents.activity.count.one": "1 条结果",
   "agents.activity.count.other": "{count} 条结果",
   "agents.activity.changes.one": "1 处修订待你处理",

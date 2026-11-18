@@ -30,6 +30,7 @@ import {
   MAX_CITES,
   MAX_SEARCH_PAGE,
 } from "./access";
+import { OWN_VERDICT_WORDS } from "./ownCheck";
 
 /** How the server names itself to agents. */
 export const SERVER_NAME = "incarnamind";
@@ -44,7 +45,8 @@ export const SERVER_INSTRUCTIONS = [
   "When the User wants to see a source, `show_citation` opens it in IncarnaMind.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`: your changes wait for the User to accept or reject, and never apply by themselves.",
   "To hand the User a new document, `create_mind` writes it as a Note of its own, which they see at once.",
-  "Then `check_mind` on that Note: IncarnaMind checks every claim in it against the User's Documents, cited or not, and lists each that needs a look. Tell the User what it found.",
+  "To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with `check_mind_yourself`, not with a search of your own: it gives the Note's sentences and how to judge them. Judge each from the Documents and hand your results back with `report_check`, which marks the Note for the User. Tell them what needs a look.",
+  "`check_mind` is IncarnaMind's own check, on the User's AI model there: only when they ask for it.",
 ].join("\n");
 
 const passageId = z.string().describe("A passageId from search or read_passages.");
@@ -419,6 +421,71 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       },
     },
     (input) => answer(() => access.checkMind(input)),
+  );
+
+  server.registerTool(
+    tool("check_mind_yourself"),
+    {
+      title: "Check a Note you wrote, with your own model",
+      description:
+        "Call this first when the User asks you to check or verify a Note you wrote with create_mind, or right after you write one. Returns its sentences that have no result yet and how to judge them with your own model. Then hand your results back with report_check.",
+      inputSchema: z.object({ mindId: z.string() }),
+      outputSchema: z.object({
+        mindId: z.string(),
+        title: z.string(),
+        task: z.string().describe("Pass it to report_check."),
+        how: z.string().describe("How to judge the sentences and hand the results back."),
+        sentences: z.array(
+          z.object({
+            n: z.number(),
+            text: z.string(),
+            row: z.string().optional().describe("A table cell's row label."),
+            column: z.string().optional().describe("A table cell's column heading."),
+          }),
+        ),
+      }),
+      annotations: READ_ONLY,
+    },
+    (input) => answer(() => access.checkMindYourself(input)),
+  );
+
+  server.registerTool(
+    tool("report_check"),
+    {
+      title: "Hand back your check of a Note",
+      description:
+        "Hand back your result for each sentence check_mind_yourself gave. IncarnaMind confirms each Citation and marks the Note for the User; a supported or contradicted result with no Citation it can confirm is marked Not checked.",
+      inputSchema: z.object({
+        mindId: z.string(),
+        task: z.string().describe("The task check_mind_yourself gave."),
+        results: z.array(
+          z.object({
+            n: z.number().int(),
+            verdict: z.enum(OWN_VERDICT_WORDS),
+            cites: z.array(z.string()).optional().describe("The [cite:…] it rests on."),
+            explanation: z.string().optional(),
+          }),
+        ),
+      }),
+      outputSchema: z.object({
+        mindId: z.string(),
+        title: z.string(),
+        marked: z.number(),
+        unconfirmed: z
+          .array(z.number())
+          .describe("Supported or contradicted on no Citation IncarnaMind could confirm."),
+        unreported: z.array(z.number()),
+        next: z.string().nullable(),
+      }),
+      // It marks the Note's sentences and changes none of its words; nothing goes to a model.
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    (input) => answer(() => access.reportCheck(input)),
   );
 
   return server;

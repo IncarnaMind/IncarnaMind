@@ -12451,6 +12451,8 @@ export const AGENT_TOOLS = [
   "propose_changes",
   "create_mind",
   "check_mind",
+  "check_mind_yourself",
+  "report_check",
 ] as const;
 
 /**

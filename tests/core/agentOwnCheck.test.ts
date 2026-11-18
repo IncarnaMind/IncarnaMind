@@ -1,0 +1,273 @@
+/**
+ * An outside agent checks the Note it wrote with its own model (#3342): through the shim the app
+ * ships, it takes the Note's sentences with `check_mind_yourself`, and hands its results back with
+ * `report_check`. IncarnaMind sends nothing to a model, confirms each Citation in its Document and
+ * marks the Note, where the User sees the marks.
+ */
+import { beforeAll, describe, expect, it } from "vitest";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
+import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
+import { checkingModel } from "../helpers/checks";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
+import type { ModelCall } from "../helpers/models";
+
+const TIDES = [
+  "# Tides",
+  "",
+  "Spring tides happen twice a month, at new moon and full moon.",
+  "",
+  "The range of a spring tide is the largest of the month.",
+].join("\n");
+
+const SPRING = "Spring tides come twice in every month.";
+const NEAP = "Neap tides have the largest range of the month.";
+const PENGUINS = "Penguins nest on the cliffs above the harbour.";
+const SOURCES = "These notes were drawn from the files in the Coast folder.";
+const NOTE = [SPRING, NEAP, PENGUINS, SOURCES].join("\n\n");
+
+type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
+
+interface Task {
+  mindId: string;
+  title: string;
+  task: string;
+  how: string;
+  sentences: { n: number; text: string }[];
+}
+
+interface Reported {
+  marked: number;
+  unconfirmed: number[];
+  unreported: number[];
+  next: string | null;
+}
+
+function structured<T>(result: unknown): T {
+  const { isError, structuredContent, content } = result as {
+    isError?: boolean;
+    structuredContent?: unknown;
+    content?: { text?: string }[];
+  };
+  expect(isError ?? false, content?.[0]?.text).toBe(false);
+  return structuredContent as T;
+}
+
+function refusal(result: unknown): string {
+  const { isError, content } = result as { isError?: boolean; content?: { text?: string }[] };
+  expect(isError).toBe(true);
+  return content?.[0]?.text ?? "";
+}
+
+/** A core with agents on, Tides in "Coast" and an agent that may write there. */
+async function paired() {
+  const calls: ModelCall[] = [];
+  const started = await startAgentsCore(checkingModel({}, calls));
+  const { core } = started;
+  const sources = await createSourceFolder();
+  const [tides] = await addAndProcess(core, [await writeSourceFile(sources, "Tides.md", TIDES)]);
+  if (!tides) throw new Error("Tides wasn't added.");
+  const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
+  await core.assignDocumentGroup(tides.id, coast.id);
+  await core.setAgentsEnabled(true);
+  const { launch } = await core.connectAgent({
+    name: "Claude Code",
+    folderIds: [coast.id],
+    propose: true,
+  });
+  const agent = await connectLegacyAgent(launch);
+  const { mindId } = structured<{ mindId: string }>(
+    await agent.callTool({
+      name: "create_mind",
+      arguments: { title: "Tide notes", markdown: NOTE },
+    }),
+  );
+  return { ...started, core, coast, agent, mindId, calls };
+}
+
+const task = async (agent: Agent, mindId: string) =>
+  structured<Task>(await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }));
+
+const report = (agent: Agent, mindId: string, given: string, results: unknown[]) =>
+  agent.callTool({ name: "report_check", arguments: { mindId, task: given, results } });
+
+/** A Citation of `quote`, which Tides holds word for word. */
+async function cited(agent: Agent, quote: string): Promise<string> {
+  const { passages: results } = structured<{ passages: { passageId: string }[] }>(
+    await agent.callTool({ name: "search", arguments: { query: "spring tides range" } }),
+  );
+  const { citations } = structured<{ citations: { cite: string | null }[] }>(
+    await agent.callTool({
+      name: "cite",
+      arguments: {
+        citations: results.map(({ passageId }) => ({ passageId, quote })),
+      },
+    }),
+  );
+  const found = citations.find((each) => each.cite !== null)?.cite;
+  if (!found) throw new Error(`No Passage holds “${quote}”.`);
+  return found;
+}
+
+async function marks(
+  core: Awaited<ReturnType<typeof paired>>["core"],
+  mindId: string,
+  folderId: string,
+) {
+  const client = await connectToMind(core, mindId);
+  await client.settled();
+  const versions = new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash]));
+  return claimSpans(readMind(client)).map((span) => ({
+    text: span.sentence.text,
+    state: claimCheckShown(span.check, {
+      footing: "not-yet-known",
+      text: span.sentence.text,
+      versions,
+      folderId,
+      scope: null,
+    }).state,
+    by: checkedWith(span.check)?.models.map((model) => model.modelId) ?? [],
+    quote: span.check.parts?.[0]?.evidence[0]?.quote ?? null,
+  }));
+}
+
+describe("an outside agent checks its Note with its own model (#3342)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=a User whose agent wrote a Note sees which of its sentences their Documents back, without setting up a model in IncarnaMind; fails_when=the Tools don't mark the Note, or a verdict stands on a quote IncarnaMind didn't find
+  it("marks the Note with the agent's results, each on a Citation IncarnaMind found, and sends nothing to a model", async () => {
+    const { core, agent, mindId, coast, calls } = await paired();
+
+    const given = await task(agent, mindId);
+    expect(given.title).toBe("Tide notes");
+    expect(given.sentences).toEqual([
+      { n: 1, text: SPRING },
+      { n: 2, text: NEAP },
+      { n: 3, text: PENGUINS },
+      { n: 4, text: SOURCES },
+    ]);
+    expect(given.how).toContain("report_check");
+    expect(given.how).toContain(coast.id);
+
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice], explanation: "Tides says twice a month." },
+        {
+          n: 2,
+          verdict: "contradicted",
+          cites: [largest],
+          explanation: "Tides says the spring tide's range is the largest.",
+        },
+        { n: 3, verdict: "not found", cites: [], explanation: "Tides says nothing of penguins." },
+        { n: 4, verdict: "nothing to check" },
+      ]),
+    );
+    expect(reported).toMatchObject({ marked: 3, unconfirmed: [], unreported: [], next: null });
+
+    expect(await marks(core, mindId, coast.id)).toEqual([
+      {
+        text: SPRING,
+        state: "supported",
+        by: ["Claude Code"],
+        quote: "Spring tides happen twice a month",
+      },
+      {
+        text: NEAP,
+        state: "contradicted",
+        by: ["Claude Code"],
+        quote: "The range of a spring tide is the largest of the month.",
+      },
+      { text: PENGUINS, state: "unsupported", by: ["Claude Code"], quote: null },
+    ]);
+    expect(calls).toEqual([]);
+    // Every sentence has its result: there is nothing left to judge.
+    expect((await task(agent, mindId)).sentences).toEqual([]);
+  });
+
+  // protects=a ✓ in the User's Note always rests on words that are in their Document; fails_when=an agent's supported with no Citation, or with one it made up, is marked Supported
+  it("marks Not checked a supported or contradicted result with no Citation it can confirm, and gives it out again", async () => {
+    const { core, agent, mindId, coast } = await paired();
+    const given = await task(agent, mindId);
+
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [], explanation: "It is well known." },
+        { n: 2, verdict: "contradicted", cites: ["[cite:made-up]"], explanation: "Not so." },
+      ]),
+    );
+    expect(reported).toMatchObject({ marked: 2, unconfirmed: [1, 2], unreported: [3, 4] });
+    expect(reported.next).toContain("check_mind_yourself");
+    expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
+      [SPRING, "not-checked"],
+      [NEAP, "not-checked"],
+    ]);
+
+    const again = await task(agent, mindId);
+    expect(again.sentences.map((each) => each.text)).toEqual([SPRING, NEAP, PENGUINS, SOURCES]);
+    expect(again.task).toBe(given.task);
+  });
+
+  // protects=a figure in a table is judged as what its row and column say it is; fails_when=a cell reaches the agent as a bare number
+  it("gives a table's cell with its row and column headings, and marks the cell", async () => {
+    const { core, agent, coast } = await paired();
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Tide table",
+          markdown: ["| Tide | Times a month |", "| --- | --- |", "| Spring | 2 |"].join("\n"),
+        },
+      }),
+    );
+
+    const given = await task(agent, mindId);
+    const cell = given.sentences.find((each) => each.text === "2");
+    expect(cell).toMatchObject({ row: "Spring", column: "Times a month" });
+
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: cell?.n, verdict: "supported", cites: [twice], explanation: "Twice a month." },
+      ]),
+    );
+    expect(reported).toMatchObject({ marked: 1, unconfirmed: [] });
+    expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
+      ["2", "supported"],
+    ]);
+  });
+
+  // protects=a result is never laid on words the agent didn't judge; fails_when=results for an earlier state of the Note mark it as it is now
+  it("refuses results for a Note that changed since its sentences were given", async () => {
+    const { agent, mindId } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    structured<Reported>(
+      await report(agent, mindId, given.task, [{ n: 1, verdict: "supported", cites: [twice] }]),
+    );
+
+    expect(refusal(await report(agent, mindId, given.task, [{ n: 1, verdict: "not found" }]))).toBe(
+      "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
+    );
+  });
+
+  // protects=an agent marks only the Notes it wrote; fails_when=it can lay results on a Note of the User's
+  it("refuses a Note the agent didn't write", async () => {
+    const { core, agent, coast } = await paired();
+    const own = await core.createMind({ title: "My own", folderId: coast.id });
+
+    for (const call of [
+      agent.callTool({ name: "check_mind_yourself", arguments: { mindId: own.id } }),
+      report(agent, own.id, "any", []),
+    ]) {
+      expect(refusal(await call)).toBe(
+        "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
+      );
+    }
+  });
+});

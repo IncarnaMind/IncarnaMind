@@ -57,6 +57,12 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       throw new Error("Not called.");
     },
     checkRecord: async () => ({ models: [], sentences: [] }),
+    checkTask: () => {
+      throw new Error("Not called.");
+    },
+    landJudged: () => {
+      throw new Error("Not called.");
+    },
     checkRuns: createCheckRuns(),
     citations: {
       find: () => null,
