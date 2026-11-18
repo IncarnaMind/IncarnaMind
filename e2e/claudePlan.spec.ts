@@ -305,7 +305,7 @@ test("⌘K: Sign in with Claude opens the words in Settings › AI, before anyth
   }
 });
 
-test("in Chinese: the row waits under Other ways after a model on this computer, and follows the plan with the usage limits first", async () => {
+test("in Chinese: the row waits under Other ways, before a model on this computer, and follows the plan with the usage limits first", async () => {
   const { app, window } = await launchApp(dataDir, { claude: fake.origin });
   try {
     await setWindowSize(app, window, 1100, 660);
@@ -317,8 +317,8 @@ test("in Chinese: the row waits under Other ways after a model on this computer,
     await expect(card.getByTestId("way-claude")).toBeHidden();
     await card.getByTestId("setup-other").click();
     const ways = card.locator('[data-testid="way-claude"], [data-testid="way-local"]');
-    await expect(ways.first()).toHaveAttribute("data-testid", "way-local");
-    await expect(ways.last()).toHaveAttribute("data-testid", "way-claude");
+    await expect(ways.first()).toHaveAttribute("data-testid", "way-claude");
+    await expect(ways.last()).toHaveAttribute("data-testid", "way-local");
 
     const row = card.getByTestId("way-claude");
     await expect(row).toContainText("使用我的 Claude 订阅");

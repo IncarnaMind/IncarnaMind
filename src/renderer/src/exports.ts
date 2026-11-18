@@ -12,7 +12,7 @@ import {
   type SavedExport,
   type SavedMindExport,
   type SentenceChecksExported,
-  type WordExportReport,
+  type WordExportLoss,
 } from "../../core/api";
 import {
   type CitedCount,
@@ -124,6 +124,8 @@ export type ExportResult = { tableId?: string } & (
       tracked: number;
       /** The header and footer kept in a Word file though deleted from the Mind (#105). */
       kept: ("header" | "footer")[];
+      /** What a Word file couldn't keep (#105), which the line lists. */
+      notKept: WordExportLoss[];
       /** The Documents whose entries are too thin to cite, marked so in the file. */
       needsDetails: string[];
       /** Whether History kept the Note as it was sent (#1933): false says it couldn't. */
@@ -147,8 +149,6 @@ export type ExportResult = { tableId?: string } & (
       /** Open: the choices that made this file, to change and export again (#1945). */
       changing?: ExportChanging;
     }
-  /** Not saved yet: what a Word file can't keep, for the User to see first (#105). */
-  | { mindId: string; state: "review"; format: ExportFormat; word: WordExportReport }
   | { mindId: string; state: "failed"; format: ExportKind; message: string }
   /** A PDF that couldn't be laid out: nothing was saved, and the Output location is fine. */
   | { mindId: string; state: "not-laid-out"; format: ExportKind }
@@ -300,12 +300,7 @@ export async function answerCheckComments(mindId: string, answer: boolean): Prom
   // The core keeps the choice once the file holds it; a file the User changed gets one beside it.
   const write = async () => {
     const saved = await core.rewriteMindExport(mindId, wordOptions(mindId), result.path, answer);
-    useExports.setState({
-      result:
-        saved.status === "review"
-          ? { mindId, state: "review", format: "docx", word: saved.word }
-          : savedResult(mindId, "docx", saved),
-    });
+    useExports.setState({ result: savedResult(mindId, "docx", saved) });
     return saved.status === "saved" ? saved : null;
   };
   try {
@@ -367,12 +362,7 @@ export async function includeMyComments(mindId: string): Promise<void> {
   const options: ExportMindOptions = { ...wordOptions(mindId), includeMyComments: true };
   const write = async () => {
     const saved = await core.rewriteMindExport(mindId, options, result.path);
-    useExports.setState({
-      result:
-        saved.status === "review"
-          ? { mindId, state: "review", format: "docx", word: saved.word }
-          : savedResult(mindId, "docx", saved),
-    });
+    useExports.setState({ result: savedResult(mindId, "docx", saved) });
     return saved.status === "saved" ? saved : null;
   };
   try {
@@ -437,11 +427,7 @@ const NO_CHECKS: SentenceChecksExported = {
 function savedResult(
   mindId: string,
   format: ExportKind,
-  saved:
-    | Exclude<SavedMindExport, { status: "review" }>
-    | SavedExport
-    | SavedCheckRecord
-    | SavedComparisonExport,
+  saved: SavedMindExport | SavedExport | SavedCheckRecord | SavedComparisonExport,
 ): ExportResult | null {
   if (saved.status === "saved") {
     return {
@@ -468,6 +454,7 @@ function savedResult(
       checks: "sentenceChecks" in saved ? saved.sentenceChecks : NO_CHECKS,
       tracked: "trackedChanges" in saved ? saved.trackedChanges : 0,
       kept: "word" in saved ? (saved.word?.keptFurniture ?? []) : [],
+      notKept: "word" in saved ? (saved.word?.notKept ?? []) : [],
       needsDetails: "needsDetails" in saved ? saved.needsDetails : [],
       sentKept: "sentKept" in saved ? saved.sentKept : true,
       defaulted: saved.file.defaulted,
@@ -498,7 +485,6 @@ function savedResult(
  * Exports a Mind into the Output location (the first save asks where that is), in `format` or
  * the last one, which it becomes; the result line says how it went. `first` fixes what stopped
  * the last try (another Output location, allowing a Linked folder), unless it returns false.
- * `accept` is what a Word file can't keep that the User has seen and exports anyway (#105).
  * It asks nothing first (#1945): Word marks the text IncarnaMind wrote and Citations are
  * footnotes until the User changes either, in Export options or in the Saved line's Change.
  */
@@ -506,7 +492,6 @@ export async function exportMind(
   mindId: string,
   format?: ExportFormat,
   first?: () => Promise<boolean>,
-  accept?: readonly string[],
 ): Promise<void> {
   const preferences = exportPreferences();
   const chosen = format ?? preferences.format;
@@ -533,15 +518,8 @@ export async function exportMind(
       settle(null);
       return;
     }
-    const saved = await core.saveMindExport(mindId, {
-      ...options,
-      ...(accept && { accept: [...accept] }),
-    });
-    settle(
-      saved.status === "review"
-        ? { mindId, state: "review", format: chosen, word: saved.word }
-        : savedResult(mindId, chosen, saved),
-    );
+    const saved = await core.saveMindExport(mindId, options);
+    settle(savedResult(mindId, chosen, saved));
     const store = useAppStore.getState();
     if (saved.status === "saved" && ownMindsOf(store).some((mind) => mind.id === mindId)) {
       store.updateGettingStarted({ exported: true });

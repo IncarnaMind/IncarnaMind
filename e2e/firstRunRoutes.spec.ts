@@ -197,14 +197,15 @@ for (const { language, width, height } of COMBINATIONS) {
         );
       if (language === "en") {
         await expect(card.getByTestId("way-claude")).toBeVisible();
-        expect(await ways()).toEqual(["setup-chatgpt", "way-claude", "way-local", "setup-other"]);
+        // A model on this computer is the last way in, after every cloud one (#3305).
+        expect(await ways()).toEqual(["setup-chatgpt", "way-claude", "setup-other", "way-local"]);
       } else {
         // Neither plan can be bought in mainland China: they wait under Other ways, and no line
         // says they aren't available (#2865).
         await expect(card.getByTestId("way-local")).toBeVisible();
         await expect(card.getByTestId("setup-chatgpt")).toBeHidden();
         await expect(card.getByTestId("way-claude")).toBeHidden();
-        expect(await ways()).toEqual(["way-local", "setup-other", "setup-chatgpt", "way-claude"]);
+        expect(await ways()).toEqual(["setup-other", "setup-chatgpt", "way-claude", "way-local"]);
         await setupWay(window, card, "setup-chatgpt");
         await expect(card.getByTestId("way-claude")).toBeVisible();
         await expect(card.getByTestId("setup-chatgpt-line")).toHaveText(
