@@ -349,7 +349,7 @@ test("the Examples heading's ⋯ and the keyboard open the examples' menu, and t
     await example.getByTestId("example-section-heading").hover();
     await pointAndClick(window, button);
     await expect(menu).toBeVisible();
-    await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
+    await expect(menu.getByTestId("example-more-link")).toHaveCount(4);
     await expect(menu.getByTestId("examples-remove")).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
@@ -358,7 +358,7 @@ test("the Examples heading's ⋯ and the keyboard open the examples' menu, and t
     await button.focus();
     await window.keyboard.press("Enter");
     await expect(menu).toBeVisible();
-    await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
+    await expect(menu.getByTestId("example-more-link")).toHaveCount(4);
     await window.keyboard.press("Escape");
     await expect(menu).toBeHidden();
 
@@ -726,7 +726,7 @@ test("the Welcome card has no subtitle and no footer; its Examples row's ⋯ off
   const menu = row.getByTestId("examples-actions");
   await expect(menu).toBeVisible();
   const groups = menu.getByTestId("example-more-link");
-  await expect(groups).toHaveCount(3);
+  await expect(groups).toHaveCount(4);
   await pointAndClick(window, groups.first());
   await expect(window.getByTestId("mind-list-item")).toHaveCount(2);
 
@@ -763,7 +763,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     await pointAndClick(window, examples);
     const menu = await openPageMenu(window);
-    await expect(menu.getByTestId("example-more-link")).toHaveCount(3);
+    await expect(menu.getByTestId("example-more-link")).toHaveCount(4);
     await expect(menu).toContainText(WORDS[language].more);
     const remove = menu.getByTestId("examples-remove");
     await expect(remove).toHaveText(WORDS[language].remove);

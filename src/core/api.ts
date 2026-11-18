@@ -2340,8 +2340,8 @@ export interface WordSource {
 }
 
 /**
- * Something exporting a Mind back into its Word file can't keep (#105), said
- * before the file is saved:
+ * Something exporting a Mind back into its Word file couldn't keep (#105), listed with the saved
+ * file (#3305):
  * - "comment": someone's comment on text the User deleted;
  * - "change": someone's tracked change in text the User deleted;
  * - "copy": a copy of something kept from Word, written as its text;
@@ -2361,7 +2361,7 @@ export interface WordExportLoss {
 
 /** What exporting a Mind imported from a Word file does with the original (#105). */
 export interface WordExportReport {
-  /** What can't be kept: the User sees it before the file is saved. */
+  /** What couldn't be kept: the Saved line lists it. */
   notKept: WordExportLoss[];
   /** Parts of the package IncarnaMind doesn't know, kept as they are. */
   unknownParts: string[];
@@ -3635,6 +3635,10 @@ export interface GettingStarted {
   hidden: boolean;
   /** The first-run card was shown on this device: an empty note keeps no second guide after that (#1940). */
   seen: boolean;
+  /** The User recorded a Meeting of their own: the meetings card's first step (#3296). */
+  recorded: boolean;
+  /** A Meeting's notes were written from its Transcript: the meetings card's second step (#3296). */
+  notesWritten: boolean;
 }
 
 /** A decision model on a host, as the User chose it for checks. */
@@ -3673,6 +3677,13 @@ export interface DeviceSettings {
   openedBefore: boolean;
   /** The "Get started" checklist's progress on this device (see `GettingStarted`). */
   gettingStarted: GettingStarted;
+  /**
+   * What the User works on, as the first run's setup asked it (#3296), first pick first: it
+   * chooses the example the window opens on and Get started's words. Empty: not said.
+   */
+  work: WorkKind[];
+  /** The first run's setup was finished or skipped through on this device: it never shows again. */
+  setupFinished: boolean;
   /**
    * Skill scripts may run on this device: on by default, and each run still
    * asks first unless the Skill's scripts always run. Off, Answers aren't
@@ -5563,6 +5574,22 @@ export const EXAMPLE_GROUPS = ["credit", "papers", "reports", "contracts", "meet
 export type ExampleGroup = (typeof EXAMPLE_GROUPS)[number];
 
 /**
+ * What the User works on, as the first run's setup asks it (#3296): several may be picked, and
+ * "other" (Something else) stands alone. Each leads to an example (src/core/workKinds.ts).
+ */
+export const WORK_KINDS = ["finance", "legal", "research", "reports", "meetings", "other"] as const;
+export type WorkKind = (typeof WORK_KINDS)[number];
+
+/**
+ * Whether the window opens on the first run's setup (#3296), and, when it does, the order its
+ * kinds of work are shown in: picked once per install, Something else last. `picksSent`: this
+ * install has sent the picks already, which go once per install.
+ */
+export type FirstRunSetup =
+  | { show: false }
+  | { show: true; workOrder: WorkKind[]; picksSent: boolean };
+
+/**
  * An example Mind (onboarding, see src/core/examples.ts): "Draft: credit
  * committee paper", or one of a group, with its example Documents in their own
  * Linked folder, written in advance so it works before any chat model is set up.
@@ -7403,6 +7430,18 @@ export const claimCheckActions = [
 ] as const;
 export type ClaimCheckAction = (typeof claimCheckActions)[number];
 
+/**
+ * How a check worked a sentence's figure out again over a data file's rows (#3282): the code its
+ * model wrote and the rows it read. What the check's card opens.
+ */
+export interface CheckWorking {
+  title: string;
+  code: string;
+  /** Each sheet or CSV file it read: its rows as a Citation, and how many. */
+  rows: { citation: Citation; range: string; count: number }[];
+  ranAt: string;
+}
+
 /** What a claim check found (CONTEXT.md: supported, unsupported, contradicted). */
 export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
 
@@ -7466,6 +7505,11 @@ export type ClaimVerdict = "supported" | "unsupported" | "contradicted";
  *   a sign and a scale both unsettled (#3088); its detail is the figure as the sentence writes it.
  * - "library-unsettled": a sentence about the Library that its facts can't settle, such as a
  *   reading of its Documents' names (#2525). No check can change that.
+ * - "rows-run-failed", "rows-run-timed-out", "rows-unavailable": the sentence's figure is one over
+ *   a data file's rows, and the code that works it out again failed, ran past its time limit, or
+ *   couldn't run on this computer (#3282); `detail` is the data file's name where one was read.
+ * - "rows-cut": the data file has more rows than a check reads, and a figure is never judged from
+ *   part of a file (#3282); `detail` is its name.
  * - "working-not-sent": a figure an Answer worked out, in a check whose consent doesn't cover how
  *   it was worked out (the contradiction watch's), so the model wasn't sent that; a Check the User
  *   runs checks it.
@@ -7500,6 +7544,10 @@ export type ClaimCheckFailure =
   | "found-elsewhere"
   | "kept-inside"
   | "outside-scope"
+  | "rows-run-failed"
+  | "rows-run-timed-out"
+  | "rows-unavailable"
+  | "rows-cut"
   | "cut-short"
   | "read-budget"
   | "workbook-changed"
@@ -7547,6 +7595,12 @@ export interface UnsupportedReason {
    * "units": a figure written as bare digits differs from its source only by a unit (#2864).
    */
   kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
+  /**
+   * Which way the check's model said the sentence goes unsupported: the Documents say less than
+   * it does, state only some of it, or don't state it. Absent when it gave only "unsupported", and
+   * on checks made before it was asked.
+   */
+  word?: "overstated" | "partly-supported" | "not-found";
   /**
    * The check read a contradiction its confirmation didn't uphold (#2184): `reason` is the check's
    * own explanation, and `quoted` the quote it rested on.
@@ -7705,6 +7759,8 @@ export interface ClaimCheckPart
   says: string | null;
   unsupported: UnsupportedReason | null;
   calculation: ClaimCalculation | null;
+  /** The working its verdict rests on, where the check worked its figure out over a data file's rows. */
+  working?: CheckWorking;
   reason: ClaimCheckFailure | null;
   detail: string | null;
   versions: CheckedVersion[];
@@ -7825,6 +7881,8 @@ export type ClaimJudgment =
       unsupported: UnsupportedReason | null;
       /** A figure worked out that decided it; null when a Passage did. */
       calculation: ClaimCalculation | null;
+      /** The working it rests on, where the check worked its figure out over a data file's rows. */
+      working?: CheckWorking;
       /**
        * The sentence cites a court decision that none of the Documents holds: the citation itself
        * isn't checked, whatever else backs the sentence.
@@ -7930,7 +7988,9 @@ export type FigureScheduleReason =
   | "needs-recheck"
   | "doesnt-add-up"
   | "differs-from-analysis"
-  | "units-may-differ";
+  | "units-may-differ"
+  | "overstated"
+  | "partly-supported";
 
 export interface FigureScheduleRow extends FigureFinding {
   number: number;
@@ -11294,12 +11354,6 @@ export interface ExportMindOptions {
    */
   includeQuestions?: boolean;
   /**
-   * For a Mind imported from a Word file, exported to Word (#105): the keys of
-   * what can't be kept (`WordExportLoss.key`) that the User has seen and
-   * exports anyway. `saveMindExport` saves nothing while anything else can't be kept.
-   */
-  accept?: string[];
-  /**
    * Word only (#107): for a Mind imported from a Word file, the User's edits
    * since the import go in as tracked changes under their name
    * (`Settings.author`). Changes still waiting to be accepted always go into
@@ -11485,11 +11539,6 @@ export type SavedMindExport =
         | "markAiText"
         | "footnotes"
       >)
-  /**
-   * Not saved: a Mind imported from Word can't keep something in its file
-   * (`WordExportReport.notKept`) the User hasn't accepted (`ExportMindOptions.accept`).
-   */
-  | { status: "review"; word: WordExportReport }
   | Exclude<SavedExport, { status: "saved" }>;
 
 /** What `rewriteMindExport` did: as `saveMindExport` says, and once saved, the step its Undo names. */
@@ -11826,6 +11875,17 @@ export interface Meeting {
   updatedAt: string;
 }
 
+/** A stretch of a call its notes lack (#3287), by the call's clock, in ms from its start. */
+export interface MeetingFillStretch {
+  from: number;
+  to: number;
+  /**
+   * "none": no notes of it could be made, asked for twice. "thin": its notes are few for its
+   * length and the model didn't say little was said there, so they may be incomplete.
+   */
+  notes: "none" | "thin";
+}
+
 /**
  * The Mind's notes filled in from the Transcript after Stop (#142), with no question first:
  * under each of the User's lines, or, with none, in sections. Every addition is AI text citing
@@ -11859,6 +11919,8 @@ export interface MeetingFill {
   omitted?: number;
   /** Transcript parts not finished when a request failed; absent on older fills. */
   unfinishedParts?: number;
+  /** The stretches of the call the notes lack, in its order; absent when none, and on older fills. */
+  stretches?: MeetingFillStretch[];
   /** How many of its claims are being checked against the Documents now; 0 or absent when none. */
   checking?: number;
   /**
@@ -13416,6 +13478,26 @@ export interface CoreApi {
    * examples, once. Returns them, or null when nothing was made.
    */
   offerExamples(): Promise<Examples | null>;
+  /**
+   * Whether the window opens on the first run's setup (#3296): on a fresh profile only (the
+   * examples ship and were never offered, no Note, never opened before, the setup never finished),
+   * where the host offers it. Asking consumes nothing: a setup left halfway shows again.
+   */
+  firstRunSetup(): Promise<FirstRunSetup>;
+  /**
+   * Ends the first run's setup, finished or skipped through (#3296): keeps what the User works on
+   * (`DeviceSettings.work`), never shows the setup again, and makes the example of each pick, the
+   * first pick's first, which it returns (null when this copy ships none). Nothing picked makes
+   * the credit paper, as Something else does.
+   */
+  finishFirstRunSetup(work: readonly WorkKind[]): Promise<Examples | null>;
+  /**
+   * Sends the first run's picks as one usage event, `work_picked` (#3296): the User pressed "Send
+   * and continue", which allows this event alone, so it goes even while usage data is off and turns
+   * nothing on. Never in Local mode, and never from a copy that can't send usage data. Resolves to
+   * whether it was sent.
+   */
+  sendWorkPicked(work: readonly WorkKind[]): Promise<boolean>;
   /**
    * Makes the example Mind and its Documents (copies of the shipped files in
    * the data folder, linked), or returns them if they exist. Its Citations
@@ -15437,6 +15519,9 @@ const methods: Record<CoreApiMethod, true> = {
   readyQuestion: true,
   isExampleDocument: true,
   offerExamples: true,
+  firstRunSetup: true,
+  finishFirstRunSetup: true,
+  sendWorkPicked: true,
   createExamples: true,
   removeExamples: true,
   restoreExamples: true,

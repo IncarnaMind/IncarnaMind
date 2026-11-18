@@ -6,25 +6,37 @@ import {
   useRef,
   useState,
 } from "react";
+import type { WorkKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { fitName } from "../../../shared/naming";
 import { type AskBlock, useAnswers } from "../answers";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
+import { commands } from "../commands/registry";
 import { composerKey } from "../composer";
 import { askReadyQuestion, stopReadyAsk, useConversations, useReadyAsk } from "../conversations";
 import { AskProblem } from "../editor/AskProblem";
 import { goToCitation } from "../editor/citationMark";
 import { goToMistake } from "../editor/mistakeMark";
 import { useLanguage, useT } from "../i18n";
+import { useMeetings } from "../meetings";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
 import { readyRowOf } from "../readyRow";
 import { useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
+import { CardTail } from "./firstRun/CardTail";
+import { type CardStep, cardStepsOf, type StepWords, stepWords } from "./firstRun/cardWords";
 import { ExampleBanner } from "./GettingStarted";
-import { ChatLineIcon, CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
+import {
+  ChatLineIcon,
+  CheckLineIcon,
+  CloseLineIcon,
+  MicLineIcon,
+  NoteLineIcon,
+  PlusLineIcon,
+} from "./lineIcons";
 import { LineAction } from "./ProblemLine";
 import { SkippedFilesLine } from "./SkippedFilesLine";
 import { SLOT, Slotted } from "./Slotted";
@@ -32,23 +44,25 @@ import { STEP_BUTTON_CLASS, StepNumber, type StepState } from "./StepNumber";
 import { UnreadFilesLine } from "./UnreadFilesLine";
 import { buttonStyle } from "./ui";
 
-type StepKey = "citation" | "question" | "files";
-
-const STEPS: readonly StepKey[] = ["files", "question", "citation"];
+type StepKey = CardStep;
 
 // Each state the card can be in. They are laid out unseen in the live card's cell, so the tallest
 // sets its height at whatever width the page has, and the page doesn't move as the steps tick.
-const STATES: readonly { current: StepKey | undefined; modelReady: boolean }[] = [
-  { current: "citation", modelReady: false },
-  { current: "question", modelReady: false },
-  { current: "files", modelReady: false },
+const statesOf = (
+  steps: readonly StepKey[],
+): readonly { current: StepKey | undefined; modelReady: boolean }[] => [
+  ...steps.map((current) => ({ current, modelReady: false })),
   { current: undefined, modelReady: false },
   { current: undefined, modelReady: true },
 ];
 
-const stateAt = (current: StepKey | undefined, key: StepKey): StepState => {
+const stateAt = (
+  steps: readonly StepKey[],
+  current: StepKey | undefined,
+  key: StepKey,
+): StepState => {
   if (current === undefined) return "done";
-  const after = STEPS.indexOf(key) - STEPS.indexOf(current);
+  const after = steps.indexOf(key) - steps.indexOf(current);
   return after < 0 ? "done" : after === 0 ? "open" : "later";
 };
 
@@ -56,12 +70,22 @@ const DO_ICONS: Record<StepKey, typeof PlusLineIcon> = {
   citation: CheckLineIcon,
   question: ChatLineIcon,
   files: PlusLineIcon,
+  record: MicLineIcon,
+  notes: NoteLineIcon,
 };
+
+const NO_WORK: readonly WorkKind[] = [];
+
+const startRecording = () =>
+  void commands
+    .run("meeting.record")
+    .catch((error: unknown) => useAppStore.getState().reportError(error));
 
 const CARD_PADDING = "px-3.5 pt-3.5 pb-2.5";
 
 function Step({
   step,
+  words,
   number,
   state,
   live,
@@ -69,6 +93,7 @@ function Step({
   children,
 }: {
   step: StepKey;
+  words: StepWords;
   number: number;
   state: StepState;
   live: boolean;
@@ -77,7 +102,7 @@ function Step({
 }) {
   const t = useT();
   const DoIcon = DO_ICONS[step];
-  const action = t(`firstOpen.step.${step}.title`);
+  const action = t(words.title);
   const tone = state === "open" ? "font-semibold text-ink" : "text-ink-meta";
   const marks = live
     ? { "data-testid": "first-open-step", "data-step": step, "data-state": state }
@@ -96,7 +121,7 @@ function Step({
         >
           <StepNumber number={number} state={state} />
           <span className={`${tone} group-hover:text-ink`}>
-            {t(`firstOpen.step.${step}.${state === "done" ? "done" : "title"}`)}
+            {t(state === "done" ? words.done : words.title)}
           </span>
           <DoIcon
             data-testid={live ? "first-open-step-icon" : undefined}
@@ -129,6 +154,14 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   // The core names the newest of the User's own Documents still being read with the ready
   // Question: the row says so while it waits, with no second read here (#2127).
   const reading = useAppStore((state) => state.readyReading);
+  const work = useAppStore((state) => state.settings?.device.work) ?? NO_WORK;
+  const setupFinished = useAppStore((state) => state.settings?.device.setupFinished === true);
+  const credit = useAppStore(
+    (state) => state.examples?.group === "credit" || state.examples?.group === "tea",
+  );
+  const meetings = useMeetings((state) => state.meetings);
+  const lead = work[0];
+  const steps = cardStepsOf(lead);
   const addFiles = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLElement>(null);
   // The ready Question's button goes once it is asked: the focus moves on to the next step.
@@ -146,6 +179,14 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
         );
     next?.focus();
   }, [filesOpen, citationOpen]);
+  // The meetings card's first two steps tick once a Meeting of the User's own was recorded and its
+  // notes written: every Meeting listed is one the User recorded.
+  useEffect(() => {
+    if (meetings.some((each) => each.startedAt !== null)) updateGettingStarted({ recorded: true });
+    if (meetings.some((each) => each.fill?.state === "filled")) {
+      updateGettingStarted({ notesWritten: true });
+    }
+  }, [meetings, updateGettingStarted]);
   // Shown, it has been seen: an empty note of the User's own keeps no second guide after that (#1940).
   useEffect(() => {
     if (progress && !progress.seen) updateGettingStarted({ seen: true });
@@ -156,20 +197,127 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
     files: progress.indexed,
     question: progress.askedOwn || progress.askedReady,
     citation: progress.citationChecked,
+    record: progress.recorded,
+    notes: progress.notesWritten,
   };
-  const current = STEPS.find((key) => !done[key]);
+  const current = steps.find((key) => !done[key]);
   const liveState = (key: StepKey): StepState =>
     done[key] ? "done" : key === current ? "open" : "later";
   const chooseModel = () => {
     openModelSetup();
     revealAssistant();
   };
+  // The example's wrong figure is the credit paper's; another example shows one of its Citations.
+  const showExample = () => {
+    if (credit && card.current) goToMistake(card.current);
+    else goToCitation();
+  };
+  const openNotes = () => {
+    const newest = meetings.at(-1);
+    if (newest) useAppStore.getState().openMind(newest.mindId);
+    else startRecording();
+  };
 
   const layer = (stateOf: (key: StepKey) => StepState, hasModel: boolean, live: boolean) => {
-    const allDone = STEPS.every((key) => stateOf(key) === "done");
+    const allDone = steps.every((key) => stateOf(key) === "done");
     // Done means a first checked Answer of one's own can come: the ready Question needs no model (#1027).
     const setUp = allDone && hasModel;
     const only = (testId: string) => (live ? testId : undefined);
+    const body = (key: StepKey) => {
+      const words = stepWords(lead, key).body;
+      return words && <p className="text-[13px] leading-5 text-ink-secondary">{t(words)}</p>;
+    };
+    const content: Record<StepKey, ReactNode> = {
+      files: (
+        <>
+          {live && unread.length > 0 ? (
+            <UnreadFilesLine files={unread} testId="first-open-unread" />
+          ) : (
+            body("files")
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              ref={live ? addFiles : undefined}
+              type="button"
+              data-testid={only("first-open-add-files")}
+              onClick={() => void pickDocuments()}
+              className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
+            >
+              {t("startGuide.documents.addFiles")}
+            </button>
+            <button
+              type="button"
+              data-testid={only("first-open-link-folder")}
+              onClick={() => void addLinkedFolder()}
+              className={buttonStyle("secondary", "sm")}
+            >
+              {t("startGuide.documents.linkFolder")}
+            </button>
+          </div>
+          {live && skipped.length > 0 && (
+            <SkippedFilesLine files={skipped} testId="first-open-skipped" />
+          )}
+        </>
+      ),
+      question: (
+        <>
+          {body("question")}
+          <ReadyLine
+            question={ready?.question ?? null}
+            waitingFor={ready?.waitingFor ?? null}
+            pressedFor={askingReady ? readyWaiting : null}
+            asking={live && askingReady}
+            reading={reading}
+            unread={unread}
+            testId={only("first-open-ready")}
+            problem={live ? problem : undefined}
+            busy={asking || writing}
+            onAsk={() => {
+              if (!ready) return;
+              focusNext.current = true;
+              revealAssistant();
+              void askReadyQuestion(ready);
+            }}
+          />
+        </>
+      ),
+      citation: (
+        <>
+          {body("citation")}
+          <button
+            type="button"
+            data-testid={only("first-open-example")}
+            onClick={showExample}
+            className="w-fit rounded-sm text-left text-[13px] leading-5 text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+          >
+            {t(stepWords(lead, "citation").example ?? "firstOpen.step.citation.example")}
+          </button>
+        </>
+      ),
+      record: (
+        <>
+          {body("record")}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid={only("first-open-record")}
+              onClick={startRecording}
+              className={buttonStyle(stateOf("record") === "open" ? "primary" : "secondary", "sm")}
+            >
+              {t("firstOpen.work.meetings.record.do")}
+            </button>
+          </div>
+        </>
+      ),
+      notes: body("notes"),
+    };
+    const onDo: Record<StepKey, () => void> = {
+      files: () => void pickDocuments(),
+      question: focusComposer,
+      citation: () => goToCitation(),
+      record: startRecording,
+      notes: openNotes,
+    };
     return (
       <>
         <div className="flex items-start justify-between gap-2">
@@ -191,92 +339,21 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
           </button>
         </div>
         <ol className={`flex flex-col gap-3 ${allDone ? "pt-2" : ""}`}>
-          <Step
-            step="files"
-            number={1}
-            state={stateOf("files")}
-            live={live}
-            onDo={() => void pickDocuments()}
-          >
-            {live && unread.length > 0 ? (
-              <UnreadFilesLine files={unread} testId="first-open-unread" />
-            ) : (
-              <p className="text-[13px] leading-5 text-ink-secondary">
-                {t("firstOpen.step.files.body")}
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <button
-                ref={live ? addFiles : undefined}
-                type="button"
-                data-testid={only("first-open-add-files")}
-                onClick={() => void pickDocuments()}
-                className={buttonStyle(stateOf("files") === "open" ? "primary" : "secondary", "sm")}
-              >
-                {t("startGuide.documents.addFiles")}
-              </button>
-              <button
-                type="button"
-                data-testid={only("first-open-link-folder")}
-                onClick={() => void addLinkedFolder()}
-                className={buttonStyle("secondary", "sm")}
-              >
-                {t("startGuide.documents.linkFolder")}
-              </button>
-            </div>
-            {live && skipped.length > 0 && (
-              <SkippedFilesLine files={skipped} testId="first-open-skipped" />
-            )}
-          </Step>
-          <Step
-            step="question"
-            number={2}
-            state={stateOf("question")}
-            live={live}
-            onDo={focusComposer}
-          >
-            <p className="text-[13px] leading-5 text-ink-secondary">
-              {t("firstOpen.step.question.body")}
-            </p>
-            <ReadyLine
-              question={ready?.question ?? null}
-              waitingFor={ready?.waitingFor ?? null}
-              pressedFor={askingReady ? readyWaiting : null}
-              asking={live && askingReady}
-              reading={reading}
-              unread={unread}
-              testId={only("first-open-ready")}
-              problem={live ? problem : undefined}
-              busy={asking || writing}
-              onAsk={() => {
-                if (!ready) return;
-                focusNext.current = true;
-                revealAssistant();
-                void askReadyQuestion(ready);
-              }}
-            />
-          </Step>
-          <Step
-            step="citation"
-            number={3}
-            state={stateOf("citation")}
-            live={live}
-            onDo={() => goToCitation()}
-          >
-            <p className="text-[13px] leading-5 text-ink-secondary">
-              {t("firstOpen.step.citation.body")}
-            </p>
-            <button
-              type="button"
-              data-testid={only("first-open-example")}
-              onClick={() => card.current && goToMistake(card.current)}
-              className="w-fit rounded-sm text-left text-[13px] leading-5 text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+          {steps.map((key, index) => (
+            <Step
+              key={key}
+              step={key}
+              words={stepWords(lead, key)}
+              number={index + 1}
+              state={stateOf(key)}
+              live={live}
+              onDo={onDo[key]}
             >
-              {t("firstOpen.step.citation.example")}
-            </button>
-          </Step>
+              {content[key]}
+            </Step>
+          ))}
         </ol>
-        {allDone && !hasModel && (
+        {allDone && !hasModel && !setupFinished && (
           <div className="flex flex-col items-start gap-2 pt-3">
             <p className="text-[13px] leading-5 text-ink-secondary">{t("firstOpen.model.body")}</p>
             <button
@@ -289,6 +366,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </button>
           </div>
         )}
+        {setupFinished && <CardTail work={work} mindId={mindId} live={live} done={allDone} />}
       </>
     );
   };
@@ -303,13 +381,13 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
       >
         {layer(liveState, modelReady, true)}
       </section>
-      {STATES.map(({ current: at, modelReady: hasModel }) => (
+      {statesOf(steps).map(({ current: at, modelReady: hasModel }) => (
         <div
           key={`${at}-${hasModel}`}
           aria-hidden="true"
           className={`pointer-events-none invisible col-start-1 row-start-1 ${CARD_PADDING}`}
         >
-          {layer((key) => stateAt(at, key), hasModel, false)}
+          {layer((key) => stateAt(steps, at, key), hasModel, false)}
         </div>
       ))}
     </div>

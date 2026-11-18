@@ -575,6 +575,16 @@ export function showsPartRows(check: Pick<ClaimCheckAttributes, "parts">): boole
 }
 
 /**
+ * The reason a check's model named for an unsupported result, where the card, its rows and the
+ * Figure schedule have a word of its own for it. "not-found" has none here: whether a card says
+ * Not found is `saysNotFound`'s to tell, from what the check found.
+ */
+export const namedReason = (
+  why: UnsupportedReason | null | undefined,
+): "overstated" | "partly-supported" | null =>
+  why?.word === "overstated" || why?.word === "partly-supported" ? why.word : null;
+
+/**
  * Whether one part's own check found nothing (#2313): no quoted Passage, no Passage read and
  * judged, no court decision, none of the User's own workings, and no covered quote.
  */

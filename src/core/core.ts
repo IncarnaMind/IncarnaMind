@@ -98,6 +98,7 @@ import {
 } from "./answers/citedVersions";
 import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
+import { saidBetween } from "./answers/cueMarks";
 import { withoutOverlap } from "./answers/documentText";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
@@ -248,6 +249,7 @@ import { writeXlsx } from "./exports/xlsx";
 import { figureSchedule, noteFooting } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
+import { createFirstRun } from "./firstRun";
 import { createFolders } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -420,6 +422,7 @@ import { addedCounts, trackUsage } from "./usageTracking";
 import { createWindowCommands } from "./windowCommands";
 import { createWindowPresence, type HostWindow } from "./windowPresence";
 import { createWordImports } from "./wordImports";
+import { leadGroupOf } from "./workKinds";
 import { ensureWorkspace } from "./workspace";
 import { createWorkWall } from "./workWall";
 
@@ -2011,7 +2014,8 @@ export function createCore(adapters: CoreAdapters): Core {
         };
       }
       const exported = await mindExports.export(mindId, written);
-      // The window shows first what a Word file can't keep (#105); the assistant can't.
+      // The window's Saved line lists what a Word file couldn't keep (#105); the assistant has no
+      // such line, so it sends the User there.
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
@@ -3068,9 +3072,11 @@ export function createCore(adapters: CoreAdapters): Core {
     scopeDocuments,
     unread: unreadIn,
     evidence,
+    ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
+      searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
@@ -4688,11 +4694,21 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("document.status", () => examples.documentChanged());
   isExampleDocument = (documentId) => examples.made().documentIds.includes(documentId);
+  const firstRun = createFirstRun({
+    settings,
+    examples,
+    usageData,
+    hasMinds: () => minds.list().length > 0,
+    offered: adapters.setupOnFirstRun !== false,
+    settingsChanged,
+  });
   const readyQuestionNow = (): FirstOpenQuestion => {
     const exampleDocuments = new Set(examples.made().documentIds);
+    // The credit paper's ready Question is the card's only while that example leads (#3296).
+    const credit = leadGroupOf(settings.get().device.work) === "credit";
     return readyQuestionOf({
       own: documents.rows().filter((each) => !exampleDocuments.has(each.id)),
-      example: examples.readyQuestion(),
+      example: credit ? examples.readyQuestion() : null,
       language: settings.get().language,
     });
   };
@@ -5188,6 +5204,8 @@ export function createCore(adapters: CoreAdapters): Core {
       // Passages overlap for search: sent whole, the model read two lines in five twice (#3151).
       return adapters.notesLinesRepeated?.() ? passages : withoutOverlap(passages);
     },
+    said: ({ documentId, contentHash, pageFrom, pageTo, text }) =>
+      saidBetween(text, documents.pageTexts(documentId, contentHash, pageFrom, pageTo)),
     async route(mindId) {
       const language = settings.get().language;
       // Filling in never picks a cloud service for a Note whose own model, on this computer, is gone (#2853).
@@ -6268,6 +6286,9 @@ export function createCore(adapters: CoreAdapters): Core {
     readyQuestion: async () => readyQuestionNow(),
     isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
+    firstRunSetup: async () => firstRun.status(),
+    finishFirstRunSetup: (work) => firstRun.finish(work),
+    sendWorkPicked: async (work) => firstRun.sendPicks(work),
     createExamples: async (group) => examples.create(group),
     removeExamples: async (group) => examples.remove(group),
     restoreExamples: async (group) => examples.restore(group),
@@ -7393,9 +7414,6 @@ export function createCore(adapters: CoreAdapters): Core {
           files,
           ...counts
         } = await mindExports.export(known.mindId, options, checkComments);
-        const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
-        if (word?.notKept.some((loss) => !accepted.has(loss.key)))
-          return { status: "review", word };
         // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
         // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
         await saveExportFiles(files, dirname(known.path), known.mindId);
@@ -7437,9 +7455,6 @@ export function createCore(adapters: CoreAdapters): Core {
         files,
         ...counts
       } = await mindExports.export(mindId, options);
-      // What a Word file can't keep is said before anything is saved (#105).
-      const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
-      if (word?.notKept.some((loss) => !accepted.has(loss.key))) return { status: "review", word };
       const saved = await saveExport(
         fileName,
         data,

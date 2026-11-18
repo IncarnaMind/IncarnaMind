@@ -870,7 +870,8 @@ function addedLine(listed: number, library: number, scoped: boolean): string {
  * `calculate` Tool (or `calculations` in its JSON), and steered to it. `keeps`: the
  * Question context shows Citations with ids, or a Mind read may. `writeFirst`: a model in the
  * Tool loop writes the Answer, then cites it; `minds`: it is offered the Tools that write into Minds.
- * `library`: the Library's own count, when it holds more than `listed` (#1333).
+ * `library`: the Library's own count, when it holds more than `listed` (#1333). `given`: the
+ * request holds the Passages to read and offers no search.
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -883,7 +884,8 @@ export function documentInstructions(
     writeFirst = false,
     minds = false,
     library = { total: listed.total },
-  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments } = {},
+    given = false,
+  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments; given?: boolean } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
   const notes = [
@@ -900,7 +902,9 @@ export function documentInstructions(
       return "";
     case "tools":
       return [
-        `${added} Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.`,
+        given
+          ? `${added} The Passages to read are in the last message, whole: there is nothing to search.`
+          : `${added} Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.`,
         documentNames(listed),
         ...rest,
         "",

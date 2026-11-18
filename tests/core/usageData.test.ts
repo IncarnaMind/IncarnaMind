@@ -43,6 +43,8 @@ const root = join(__dirname, "../..");
 function fakeSender({ testerBuild = false } = {}) {
   const switched: boolean[] = [];
   const sent: UsageEventMessage[] = [];
+  /** Sent once by themselves, while sending was off. */
+  const once: UsageEventMessage[] = [];
   const sender: UsageDataSender = {
     service: { id: "https://analytics.example.com", name: "PostHog (analytics.example.com)" },
     testerBuild,
@@ -53,8 +55,11 @@ function fakeSender({ testerBuild = false } = {}) {
     capture: (message) => {
       sent.push(message);
     },
+    captureOnce: (message) => {
+      once.push(message);
+    },
   };
-  return { sender, switched, sent };
+  return { sender, switched, sent, once };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;

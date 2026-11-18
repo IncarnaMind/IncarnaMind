@@ -3,7 +3,7 @@
  * whole against the Passages its Citations quote and the ones it searches for, records the quotes
  * that decide it with `cite`, and gives one verdict. Nothing here judges the sentence.
  */
-import type { CheckFigure, CitationSupport, ClaimVerdict } from "../../api";
+import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asData, type PromptTag, tagged } from "../../promptData";
 import { declines, parseJson, withoutThinking } from "../judge";
@@ -19,8 +19,6 @@ export const CHECK_TAGS: readonly PromptTag[] = [
   "whole-sentence",
 ];
 
-const VERDICTS: readonly ClaimVerdict[] = ["supported", "unsupported", "contradicted"];
-
 /** What the marks of a call's Transcript mean, for a check of an Answer asked in a call (#3005). */
 const CALL_MARKS =
   'A Passage that is a call\'s Transcript is marked call="this" for the call the Answer was asked in, or call="earlier" with that call\'s Note and when it started. A sentence that says someone said, asked or agreed something, with no word of when, is about this call: only a call="this" Passage states it, and the same words in a call="earlier" Passage don\'t. A sentence that says when (last time, before, the earlier call, a date) is stated by the line of the call it names.';
@@ -33,14 +31,16 @@ const rules = (calls: boolean) => [
   "- A number inside a name (58.com, Boeing 737, 3M) is part of that name, not an amount.",
   '- An amount is its number together with its unit, currency and scale. A table\'s caption, heading row or unit line gives them to its cells ("in thousands", "(£m)", "单位：万元"). The same amount written another way is the same amount: 1.2 million and 1,200,000; 5% and five per cent; 3.5亿 and 350 million. A sentence that writes a cell\'s digits without the scale its table gives them, or with another unit or currency, states another amount.',
   "- A word for which way something went or which is more (up, down, rose, fell, more than, 上升, 下降) is part of what the sentence states: work out which way the Document's own figures go.",
-  "- A Passage that states the sentence, in the same words or others, supports it: it needs no second source.",
+  "- Every Passage is from one of the User's Documents, never from the Note the sentence is in: one in the sentence's own words is the Document saying it. A Passage that states the sentence, word for word or in other words, supports it and needs no second source.",
   "",
   "Decide one verdict:",
   "- supported: the Passages state what the sentence says, all of it. Several Passages may state it together. A table's numbers are read by its row and column headings. A figure the sentence gives that the Passages' own numbers work out to (a sum, a difference, a change, a share) is stated by them: work it out with care.",
   "- contradicted: a Passage gives another value for the very thing the sentence states: the same subject and the same detail (its figure, date, party, place, direction or outcome, the parties the other way round, or may for must), so the Document and the sentence can't both be true.",
-  "- unsupported: no Passage states it either way, or the Passages state only part of it. A vaguer or partial match isn't support.",
+  "- overstated: the Passages state the same thing, but less of it than the sentence does: weaker, narrower or less sure. The sentence drops a condition they set; states as certain or done what they give as possible, expected, planned or forecast; says of the whole what they say of a part; gives a ceiling or a floor as the figure; or makes one thing the cause of another where they only say both happened. A sentence that only says less than the Passages is supported: it may leave out a detail of theirs, or a qualifier that its own paragraph or the Document's subject already supplies (which agreement, which period, which study), without claiming more.",
+  "- partly supported: the sentence states more than one thing, the Passages state at least one of them in full, and they say nothing of another: a detail, a name, a date or a reason they don't give.",
+  "- not found: no Passage states it either way. A Passage about another item, period, site or person, or one that says something else happened without saying the sentence is false, doesn't state it.",
   "",
-  "A near miss is unsupported, not contradicted: a Passage about another item, period, site or person; one that says something else happened without saying the sentence is false; a sentence that adds a detail, a condition or a cause the Passages don't give, or leaves out a condition they set. A forecast doesn't state that something will happen, and two events don't state that one caused the other.",
+  "A vaguer or partial match isn't support. Where the Document and the sentence could both be true, the verdict is never contradicted: it is overstated, partly supported or not found.",
   ...(calls ? [CALL_MARKS] : []),
 ];
 
@@ -53,8 +53,8 @@ const reply = (language: Language) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     'Details: what the sentence states, one thing after another (each figure with its unit and scale, each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
-    "Verdict: supported, unsupported or contradicted",
-    `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the quotes that decide it at its end ("… [^1]"); for contradicted, name the thing, and give the Document's value and the sentence's. For unsupported, say what the Documents don't say. Never mention the search, the Passages or how you found it.`,
+    "Verdict: supported, overstated, partly supported, not found or contradicted",
+    `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the quotes that decide it at its end ("… [^1]"); for contradicted, name the thing, and give the Document's value and the sentence's. For overstated, say what the Document says and how the sentence goes further; for partly supported, say which part the Documents don't state; for not found, say what the Documents don't say. Never mention the search, the Passages or how you found it.`,
     "Evidence: [1, 2] naming the cite markers of the quotes that decide it, or Evidence: [] when no quote does.",
     'For contradicted only, add on lines of their own "Change 1: " and only the words of the sentence that the Document gives another value for, copied exactly (the figure, date, name or the few words that differ, never the whole sentence), then "To 1: " and the Document\'s words for that same thing, as they would read in their place, with the marker of the quote that holds them at its end.',
     "Write nothing else.",
@@ -63,10 +63,13 @@ const reply = (language: Language) =>
 const CALCULATE =
   "A figure the sentence gives that no Passage states but their numbers give (a sum, a difference, a change, a ratio, a share): a simple one you may work out in your head. For one with several steps, many inputs or large numbers, call calculate with its inputs, each a number quoted from a Passage, and a formula: IncarnaMind works it out and tells you the result. An input keeps its sign as the Passage writes it, and comes in base units with its unit line's scale applied, so never convert a scale in the formula. What the result means for the sentence is yours to say; record the quotes its inputs come from with cite as well.";
 
+const ROWS =
+  "A figure the sentence gives over the rows of a data file (a sheet or a CSV file: a total, an average, a count, a share, a change over many rows) is not stated by the few rows a Passage shows. Work it out with run_analysis: give the file's Passage as its input, which reads the whole sheet, and write code that works out the quantity the sentence names (its rows, its column, its period, its group, its measure) without using the sentence's own number, giving it with result(). Then compare the result with the sentence's figure at the precision the sentence writes it: the same value is supported; another value is contradicted, and your explanation says the value the rows give; where the file has no such rows or column, it is not found. Such a verdict rests on the run and needs no quote: write Evidence: []. For contradicted, \"To 1:\" is only the value the rows give, written the way the sentence writes its figure, with no marker and nothing after it. A run that fails may be mended and run once more.";
+
 /**
  * The instructions of a check's Run, for a way of citing; `passages`: what the one search found,
  * for a model without Tools; `calls`: the sentence is from an Answer asked in a call; `calculate`:
- * the model is offered the calculator.
+ * the model is offered the calculator; `rows`: it is offered the Analysis Tool.
  */
 export function checkInstructions(
   mode: CitationSupport | "no-documents",
@@ -74,6 +77,7 @@ export function checkInstructions(
   passages = "",
   calls = false,
   calculate = false,
+  rows = false,
 ): string {
   const REPLY = reply(language);
   switch (mode) {
@@ -82,8 +86,9 @@ export function checkInstructions(
         ...rules(calls),
         "",
         "The Passages the sentence's own Citations quote are given with it: read them first. Search the Documents with search_documents when they don't decide it, or when the sentence has none, in the Documents' language; search again with other words if the Passages don't decide it, three searches at most.",
-        `Before you reply, call cite with every quote that decides the sentence, each under its own marker: ${RECORD}. A supported or contradicted verdict needs one.`,
+        `Before you reply, call cite with every quote that decides the sentence, each under its own marker: ${RECORD}. A supported or contradicted verdict needs one; for overstated or partly supported, record the quote of what the Passages do state.`,
         ...(calculate ? [CALCULATE] : []),
+        ...(rows ? [ROWS] : []),
         "",
         REPLY,
       ].join("\n");
@@ -203,6 +208,8 @@ export interface ReadCorrection {
 /** What a reply says: its verdict, its one sentence, and the markers of the quotes it rests on. */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
+  /** Which of the three ways a sentence goes unsupported the reply named; absent when it named none. */
+  word?: Finer;
   says: string | null;
   /** The markers its Evidence line names; null when it gives no line that reads. */
   evidence: number[] | null;
@@ -217,14 +224,25 @@ const EXPLANATION = label("explanation|说明|解释");
 const EVIDENCE = label("evidence|证据");
 const CHANGE = label("change\\s*1?");
 const TO = label("to\\s*1?");
-const BARE = /^[\s>*_#`"'“”-]*(supported|unsupported|contradicted)\b/i;
+const WORD =
+  "supported|contradicted|unsupported|overstated|part(?:ly|ially)[ -]supported|not[ -]found";
+const BARE = new RegExp(`^[\\s>*_#\`"'“”-]*((?:${WORD})\\b.*)`, "i");
 /** Where a field's label stands after other words on its line. */
 const FIELD_START =
   /(?<=\S)[ \t]*(?=(?:Details|Verdict|Explanation|Evidence|Change 1|To 1|结论|判断|说明|解释|证据)[ \t]*[:：])/g;
 
-const verdictIn = (words: string | undefined): ClaimVerdict | null => {
-  const word = /^(supported|unsupported|contradicted)\b/i.exec(words ?? "")?.[1]?.toLowerCase();
-  return VERDICTS.find((each) => each === word) ?? null;
+type Finer = NonNullable<UnsupportedReason["word"]>;
+
+/** A reply's verdict word: one of the five it is asked for, or "unsupported" as older replies say. */
+const verdictIn = (words: string | undefined): Pick<ReadVerdict, "verdict" | "word"> | null => {
+  const said = new RegExp(`^(${WORD})\\b`, "i").exec(words ?? "")?.[1]?.toLowerCase();
+  if (said === undefined) return null;
+  if (said === "supported" || said === "contradicted" || said === "unsupported")
+    return { verdict: said };
+  return {
+    verdict: "unsupported",
+    word: said === "overstated" ? said : said.startsWith("part") ? "partly-supported" : "not-found",
+  };
 };
 
 const clean = (words: string | undefined): string | null => {
@@ -257,15 +275,16 @@ export function readVerdict(reply: string): ReadVerdict | null {
     .map((line) => line.trim())
     .filter((line) => line !== "");
   const field = (of: RegExp) => of.exec(lines.findLast((line) => of.test(line)) ?? "")?.[1];
-  const verdict = verdictIn(field(VERDICT)) ?? verdictIn(BARE.exec(lines[0] ?? "")?.[1]);
-  if (!verdict) return jsonVerdict(withoutThinking(reply));
+  const given = verdictIn(field(VERDICT)) ?? verdictIn(BARE.exec(lines[0] ?? "")?.[1]);
+  if (!given) return jsonVerdict(withoutThinking(reply));
+  const { verdict } = given;
   const evidence = field(EVIDENCE);
   const from = clean(field(CHANGE));
   const to = field(TO);
   const wording = clean(to);
   const marker = /\[[\^=]?(\d{1,4})\]\s*$/.exec(to ?? "")?.[1];
   return {
-    verdict,
+    ...given,
     says: clean(field(EXPLANATION)),
     evidence: evidence === undefined ? null : markersOf(parseJson(evidence)?.value),
     ...(verdict === "contradicted" &&
@@ -290,7 +309,7 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   const known = verdictIn(typeof verdict === "string" ? verdict : undefined);
   return (
     known && {
-      verdict: known,
+      ...known,
       says: typeof says === "string" ? clean(says) : null,
       evidence: markersOf(evidence),
     }

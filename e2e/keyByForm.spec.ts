@@ -146,7 +146,7 @@ test("in English, a key typed and sent with Enter, then another pasted, asks eac
         ),
       ].map((each) => each.getAttribute("data-testid")),
     );
-    expect(order).toEqual(["setup-chatgpt", "way-local", "setup-other"]);
+    expect(order).toEqual(["setup-chatgpt", "setup-other", "way-local"]);
     await expect(card.getByTestId("setup-chatgpt")).toBeVisible();
 
     // Typed, then Enter: the line asks, and nothing is sent.

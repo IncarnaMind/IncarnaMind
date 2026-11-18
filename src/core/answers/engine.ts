@@ -331,6 +331,12 @@ export interface AnswerTools {
   calculate?(figures: readonly unknown[], options?: CiteOptions): string;
   calculationFailed?(): void;
   /**
+   * The Run's own Analysis Tool (ADR-0023), which works a figure out over a data file's rows in
+   * the sandbox: offered as the Documents' Tools are, in a check Run too, since it reads rows and
+   * can neither write nor send. Absent: the Run offers none of its own.
+   */
+  analysis?: Tool;
+  /**
    * The figures structured output gave that couldn't be worked out: what its
    * one request to fix them asks about (see ./figureRetry).
    */
@@ -405,9 +411,9 @@ export interface GatedCall extends RunToolCall {
  * - "answer": an ordinary Answer's: the Documents' search and `cite`, and
  *   every other Tool the request brings (Skills, Connectors, Find sources);
  * - "check": a check Run's (check against documents, verify, a comparison
- *   table's cells, contradiction watch): the Documents' search and `cite` only,
- *   whatever the request brings, so the text it checks can't steer a write or
- *   a send;
+ *   table's cells, contradiction watch): the Documents' search and `cite`, and
+ *   the Run's own `calculate` and Analysis where it has them, whatever the
+ *   request brings, so the text it checks can't steer a write or a send;
  * - "documents": the Documents' Tools as an Answer has them, and nothing the
  *   request brings: help during a call, which reads a transcript
  *   someone else spoke.
@@ -486,6 +492,8 @@ export interface AnswerRequest {
   outputKind?: ModelCallKind;
   /** Framed Meeting facts with missing Citations are omitted, never repaired (#2306). */
   meetingFacts?: true;
+  /** The request holds every Passage it needs, whole: no search of the Documents is offered. */
+  given?: true;
   /** What a search says of the Answer's language after its Passages (see `DocumentToolsHooks`). */
   languageNote?(): string | null;
   /**
@@ -1720,7 +1728,7 @@ export function documentTools(
   documents: AnswerTools,
   hooks: DocumentToolsHooks,
   toolSet: ToolSet = "answer",
-): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null } {
+): { search: Tool; read: Tool | null; cite: Tool; calculate: Tool | null; analysis: Tool | null } {
   const own = (name: string) => ({ name, provider: DOCUMENTS_PROVIDER, providerTool: name });
   const checking = toolSet === "check";
   const properties = checking && documents.fileProperties === true;
@@ -1898,6 +1906,7 @@ export function documentTools(
           },
         }
       : null,
+    analysis: documents.analysis ?? null,
   };
 }
 
@@ -1964,17 +1973,24 @@ function presearchMessages(
   ];
 }
 
-/** The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours. */
+/**
+ * The Tools a Run offers, by the name the model calls them; never a Connector's with one of ours.
+ * Without `search`, the Documents' search isn't among them.
+ */
 function offeredWith(
   documents: ReturnType<typeof documentTools> | null,
   others: readonly Tool[],
+  search = true,
 ): Tool[] {
   const offered = new Map(
     offeredTools([
       ...(documents
-        ? [documents.search, documents.read, documents.cite].filter((tool) => tool !== null)
+        ? [search ? documents.search : null, documents.read, documents.cite].filter(
+            (tool) => tool !== null,
+          )
         : []),
       ...(documents?.calculate ? [documents.calculate] : []),
+      ...(documents?.analysis ? [documents.analysis] : []),
       ...others,
     ]).map((each) => [each.name, each]),
   );
@@ -2055,7 +2071,7 @@ async function* toolLoop(
           request.toolSet,
         )
       : null;
-  const search = documents?.search ?? null;
+  const search = request.given ? null : (documents?.search ?? null);
   const read = documents?.read ?? null;
   const cite = documents?.cite ?? null;
   const calculate = documents?.calculate ?? null;
@@ -2133,7 +2149,9 @@ async function* toolLoop(
     },
   });
   /** The Tools offered, by the name the model calls them. */
-  const offered = new Map(offeredWith(documents, request.tools).map((each) => [each.name, each]));
+  const offered = new Map(
+    offeredWith(documents, request.tools, search !== null).map((each) => [each.name, each]),
+  );
   const tools = [...offered.values()];
   const maxSteps =
     stepLimit + (tools.some((each) => each.provider.kind === "analysis") ? ANALYSIS_STEPS : 0);

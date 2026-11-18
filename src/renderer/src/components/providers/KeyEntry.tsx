@@ -1,19 +1,15 @@
-import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import type { ChatProvider, ProviderError } from "../../../../core/api";
 import { formOfKey, type KeyTarget } from "../../../../core/providers/catalog/keyForms";
-import {
-  billingUrlOf,
-  catalogProvider,
-  kindOfCatalogId,
-} from "../../../../core/providers/catalog/providers";
+import { billingUrlOf, catalogProvider } from "../../../../core/providers/catalog/providers";
 import { checkApiKey } from "../../../../shared/apiKey";
 import type { MessageKey } from "../../../../shared/i18n";
-import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { KeyCharacterLine } from "../KeyCharacterLine";
 import { ProblemLine } from "../ProblemLine";
 import { hintClass, inputClass } from "../ui";
+import { testAndSaveKey } from "./saveKey";
 import { defaultRegion, shortProviderName, testErrorKey } from "./shared";
 
 type Problem =
@@ -49,6 +45,9 @@ export function KeyEntry({
   testId = "setup-key",
   autoFocus = false,
   inputRef,
+  label = "setup.key.useOwn",
+  placeholder = "setup.key.placeholder",
+  below,
 }: {
   /** The saved provider, and the model it was saved with, for the work that waited on it. */
   onSaved(provider: ChatProvider, model: { providerId: string; modelId: string }): void;
@@ -61,6 +60,13 @@ export function KeyEntry({
   autoFocus?: boolean;
   /** Where another way in can lead the User: the field itself. */
   inputRef?: RefObject<HTMLInputElement | null>;
+  label?: MessageKey;
+  placeholder?: MessageKey;
+  /**
+   * Shown right under the field, in place of the line naming the services a key is recognised
+   * from, which the placeholder then names (the first run's setup page, #3296).
+   */
+  below?: ReactNode;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -83,33 +89,23 @@ export function KeyEntry({
   const send = async (key: string, target: KeyTarget, others: readonly KeyTarget[] | null) => {
     if (busy) return;
     const named = target.service;
-    const catalog = catalogProvider(named);
-    const modelId = catalog?.roles.answers;
-    if (!catalog || !modelId) {
-      setProblem({ kind: "unrecognised" });
-      return;
-    }
     const region = target.region ?? defaultRegion(named, language);
     const endpoint = region === "" ? null : region;
     setProblem(null);
     setBusy(true);
     try {
-      const request = {
-        kind: kindOfCatalogId(named),
-        catalogId: named,
-        modelId,
-        apiKey: key,
-        ...(endpoint !== null && { endpoint }),
-      };
-      const result = await core.testChatConnection(request);
-      if (!result.ok) {
+      const result = await testAndSaveKey({ service: named, key, endpoint });
+      if (result.kind === "unknown") {
+        setProblem({ kind: "unrecognised" });
+        return;
+      }
+      if (result.kind === "refused") {
         setProblem({ kind: "refused", error: result.error, catalogId: named, endpoint, others });
         return;
       }
-      const provider = await core.saveChatProvider(request);
       setValue("");
       setProblem(null);
-      onSaved(provider, { providerId: provider.id, modelId });
+      onSaved(result.provider, { providerId: result.provider.id, modelId: result.modelId });
     } catch (failure) {
       reportError(failure);
     } finally {
@@ -158,7 +154,7 @@ export function KeyEntry({
         htmlFor={`${id}-key`}
         className="text-[13px] leading-5 font-semibold text-ink-secondary"
       >
-        {t("setup.key.useOwn")}
+        {t(label)}
       </label>
       <input
         ref={field}
@@ -169,7 +165,7 @@ export function KeyEntry({
         aria-describedby={`${id}-line`}
         autoComplete="off"
         spellCheck={false}
-        placeholder={t("setup.key.placeholder")}
+        placeholder={t(placeholder)}
         data-testid={testId}
         onChange={(event) => {
           setValue(event.target.value);
@@ -189,6 +185,7 @@ export function KeyEntry({
         }}
         className={inputClass}
       />
+      {below}
       {/* What pasting a key is the consent for, said before it is pasted (#2883). */}
       <p data-testid={`${testId}-sends`} className={hintClass}>
         {t("setup.key.sends")}
@@ -214,7 +211,7 @@ export function KeyEntry({
         </div>
       ) : (
         <p id={`${id}-line`} data-testid={`${testId}-line`} className={hintClass}>
-          {busy ? t("setup.key.checking") : t("setup.key.recognised")}
+          {busy ? t("setup.key.checking") : below === undefined && t("setup.key.recognised")}
         </p>
       )}
       {problem?.kind === "stray" && (

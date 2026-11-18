@@ -164,6 +164,20 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+test("Esc stops the reply with the focus elsewhere in the assistant, and leaves the focus there", async () => {
+  test.setTimeout(120_000);
+  const page = await start("en");
+  const { app, window, answers } = page;
+  await askSlowly(window, WORDS.en, page);
+
+  const newChat = window.getByTestId("assistant-new-chat");
+  await newChat.focus();
+  await window.keyboard.press("Escape");
+  await expect(answers.first()).toHaveAttribute("data-status", "stopped");
+  await expect(newChat).toBeFocused();
+  await app.close();
+});
+
 test("Esc stops the reply, and the waiting Question is asked next", async () => {
   test.setTimeout(120_000);
   const words = WORDS.en;

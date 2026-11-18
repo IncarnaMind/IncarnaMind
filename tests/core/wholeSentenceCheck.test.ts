@@ -1,10 +1,18 @@
 import { expect, test } from "vitest";
 import { readVerdict } from "../../src/core/answers/checks/prompt";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  isCheckRun,
+  listedSentences,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { readMind, writeMind } from "../helpers/minds";
-import type { ModelCall } from "../helpers/models";
+import { type ModelCall, scriptedModel } from "../helpers/models";
 
 const CV = "58.com — Senior Design Manager (Apr 2016–Jul 2025). Led the homepage redesign.";
 const JOB = "58.com — Senior Design Manager (Apr 2016–Jul 2025).";
@@ -107,6 +115,87 @@ test("a contradiction keeps its correction, and an unsupported sentence its reas
   expect(marks[1]?.parts?.[0]?.unsupported?.reason).toBe(
     "The lease doesn't say who pays for the paint.",
   );
+});
+
+// protects=the way a check's model says a sentence goes beyond its Documents (overstated, partly supported, not found) stays on its result: the sentence reads Unsupported with that word, and keeps the quote of what the Document does say; a reply that says only "unsupported" carries no word; fails_when=the word is lost or changed, such a sentence reads anything but Unsupported, or the quote of what the Document says is dropped; no_claim=that a model picks the right word
+test("an unsupported sentence keeps the word its model gave for it", async () => {
+  const stronger = "The Tenant may repaint the unit.";
+  const more = "The Tenant may repaint the unit in any colour.";
+  const absent = "The Tenant pays for the paint.";
+  const { marks } = await checked(
+    [{ name: "Lease.md", contents: LEASE }],
+    [{ text: stronger }, { text: more }, { text: absent }],
+    {
+      [stronger]: {
+        verdict: "overstated",
+        quote: LEASE,
+        says: "The lease lets the Tenant repaint only once the Landlord has agreed in writing.",
+      },
+      [more]: {
+        verdict: "partly supported",
+        quote: LEASE,
+        says: "The lease doesn't say which colour.",
+      },
+      [absent]: { verdict: "not found", says: "The lease doesn't say who pays for the paint." },
+    },
+  );
+
+  expect(marks.map((mark) => [mark.state, mark.unsupported?.word])).toEqual([
+    ["unsupported", "overstated"],
+    ["unsupported", "partly-supported"],
+    ["unsupported", "not-found"],
+  ]);
+  expect(marks.map((mark) => mark.unsupported?.quoted?.quote ?? null)).toEqual([
+    LEASE,
+    LEASE,
+    null,
+  ]);
+  expect(marks[0]?.unsupported?.reason).toBe(
+    "The lease lets the Tenant repaint only once the Landlord has agreed in writing.",
+  );
+  expect(readVerdict("Verdict: unsupported\nEvidence: []")).toEqual({
+    verdict: "unsupported",
+    says: null,
+    evidence: [],
+  });
+});
+
+// protects=a sentence whose sort gives parts that aren't its own words, the second time it is asked too, is checked whole (#3262): it gets its Mark; fails_when=such a sentence is left with no Mark at all; no_claim=how often a model rewrites a part
+test("a sentence the sort rewrote twice is still checked, whole", async () => {
+  const sentence = "The Tenant may repaint the unit and the hall.";
+  const plans: Record<string, Plan> = {
+    [sentence]: { verdict: "not found", says: "The lease doesn't mention the hall." },
+  };
+  let sorts = 0;
+  const model = scriptedModel((call) => checkReply(call, plans), {
+    generate(call) {
+      if (call.question !== "find-claims") return checkGenerate(plans)(call);
+      sorts++;
+      const parts = [
+        { kind: "fact", text: "The Tenant may repaint the unit" },
+        { kind: "fact", text: "The Tenant may repaint the hall" },
+      ];
+      return {
+        text: JSON.stringify({
+          sentences: listedSentences(call.prompt).map(({ number }) => ({ number, parts })),
+        }),
+      };
+    },
+  });
+  const { core, client, mind } = await setUpWithDocuments(model, [
+    { name: "Lease.md", contents: LEASE },
+  ]);
+  writeMind(client, [
+    { type: "paragraph", attrs: { id: "p0" }, content: [{ type: "text", text: sentence }] },
+  ]);
+  await client.settled();
+  await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+  await client.settled();
+  const marks = claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check.state]);
+  core.close();
+
+  expect(sorts).toBe(2);
+  expect(marks).toEqual([[sentence, "unsupported"]]);
 });
 
 // protects=a check's reply is read wherever its fields stand: after a turn's own words with no line break, several on one line, or labelled in Chinese; a reply with no verdict reads as none; fails_when=a reply that gives its verdict is read as none (its sentence would be Not checked), or one that gives none is read as a verdict; no_claim=which fields a model writes.

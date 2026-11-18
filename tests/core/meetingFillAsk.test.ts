@@ -632,7 +632,7 @@ describe("the ask for a fill's records (#3099)", () => {
     }
   });
 
-  // protects=only the ask stays with the fill's model: on a model that can't call Tools, a fill's search rewrite goes to the User's quick-tasks model, as on main (#3099); fails_when=it goes to the fill's model; no_claim=whether that fill fills, or a translation, which an English call with English lines doesn't make.
+  // protects=only the ask stays with the fill's model: on a model that can't call Tools, a fill's search rewrite goes to the User's quick-tasks model, as on main (#3099); fails_when=it goes to the fill's model; no_claim=whether that fill fills, or a translation, which an English call with English lines doesn't make. The scripted reply holds no notes, so the call is asked for twice (#3287), each with its own rewrite.
   test("sends a fill's search rewrite on a model without Tools to the quick-tasks model", async () => {
     const model = scriptedModel(() => ({ text: "{}" }), {
       generate: (call) => ({ text: call.question === undefined ? "review date" : "{}" }),
@@ -652,7 +652,13 @@ describe("the ask for a fill's records (#3099)", () => {
     try {
       expect(
         small.map(({ question, spec: { modelId, thinking } }) => ({ question, modelId, thinking })),
-      ).toEqual([{ question: "search-rewrite", modelId: "claude-haiku-5-5", thinking: "off" }]);
+      ).toEqual(
+        Array.from({ length: 2 }, () => ({
+          question: "search-rewrite",
+          modelId: "claude-haiku-5-5",
+          thinking: "off",
+        })),
+      );
     } finally {
       core.close();
     }

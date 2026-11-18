@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { Document, DocumentTag, Tag } from "../../../core/api";
+import type { Document } from "../../../core/api";
 import { pressesShortcut } from "../commands/keymap";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
@@ -18,7 +18,7 @@ import { type Box, enterFrom, exitToward } from "../motion";
 import { useAppStore } from "../store";
 import { actionFor, pickerOptions, type TagOnDocuments, tagsOnDocuments } from "../tagEditing";
 import { useUndo } from "../undo";
-import { CheckLineIcon, CloseLineIcon, PlusLineIcon, SparkLineIcon } from "./lineIcons";
+import { CheckLineIcon, CloseLineIcon, PlusLineIcon } from "./lineIcons";
 import { ProblemMark } from "./ProblemLine";
 import { TagDot, tagChipColour } from "./TagColour";
 import { TypingTextarea } from "./TypingTextarea";
@@ -152,30 +152,6 @@ export const tagPopoverClass =
 /** A chip's shape in the picker's field and on a row: 20px, radius 4. Its colours are its Tag's. */
 export const chipClass =
   "inline-flex h-5 max-w-[10rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-[12px] leading-5";
-
-/**
- * A Tag's tooltip on one Document: who added it and, when automatic tagging
- * said, how likely it is.
- */
-export function chipTitle(
-  link: Pick<DocumentTag, "source" | "confidence">,
-  tag: Pick<Tag, "name">,
-  t: ReturnType<typeof useT>,
-): string {
-  const percent = link.confidence === null ? null : Math.round(link.confidence * 100);
-  if (link.source === "user") return t("tags.chip.user", { tag: tag.name });
-  return percent === null
-    ? t("tags.chip.automatic", { tag: tag.name })
-    : t("jev.chip.likely", { tag: tag.name, percent });
-}
-
-/** The tooltip of a Tag in the picker's field, on one Document. */
-const stateTitle = (state: TagOnDocuments, t: ReturnType<typeof useT>) =>
-  chipTitle(
-    { source: state.automatic ? "automatic" : "user", confidence: state.confidence },
-    state.tag,
-    t,
-  );
 
 const undoStepOf = (event: KeyboardEvent) =>
   pressesShortcut("edit.undo", event.nativeEvent)
@@ -355,14 +331,11 @@ export function TagPicker({
             data-tag-id={state.tag.id}
             data-colour={state.tag.colour}
             data-source={state.automatic ? "automatic" : "user"}
-            title={single ? stateTitle(state, t) : state.tag.description || undefined}
+            title={state.tag.description || state.tag.name}
             className={`${chipClass} ${tagChipColour(state.tag.colour)} pr-0.5 ${
               picked === state.tag.id ? "shadow-[inset_0_0_0_1px_currentColor]" : ""
             }`}
           >
-            {state.automatic && (
-              <SparkLineIcon aria-hidden="true" className="size-2.5 shrink-0 opacity-70" />
-            )}
             <span className="truncate">{state.tag.name}</span>
             <button
               type="button"
@@ -478,7 +451,7 @@ export function TagPicker({
   );
 }
 
-/** One Tag in the list: a mark for on all, some or none; its name; automatic; its description. */
+/** One Tag in the list: a mark for on all, some or none; its name; its description. */
 function TagOption({
   id,
   state,
@@ -496,7 +469,6 @@ function TagOption({
 }) {
   const t = useT();
   const { tag, coverage } = state;
-  const automatic = state.automatic && coverage !== "none";
   const markTitle =
     coverage === "all"
       ? t(single ? "tags.picker.on" : "tags.picker.all", { total: state.total })
@@ -504,7 +476,6 @@ function TagOption({
         ? t("tags.picker.some", { count: state.count, total: state.total })
         : undefined;
   const notes = [
-    automatic ? t("tags.picker.automatic") : null,
     coverage === "some" ? t("tags.picker.some", { count: state.count, total: state.total }) : null,
     tag.description || null,
   ].filter((note): note is string => note !== null);
@@ -537,15 +508,6 @@ function TagOption({
       </span>
       <TagDot colour={tag.colour} />
       <span className="min-w-0 truncate">{tag.name}</span>
-      {automatic && (
-        <span
-          aria-hidden="true"
-          title={t("tags.picker.automatic")}
-          className="flex shrink-0 text-ink-meta"
-        >
-          <SparkLineIcon className="size-2.5" />
-        </span>
-      )}
     </div>
   );
 }

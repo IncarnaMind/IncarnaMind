@@ -21,7 +21,9 @@ The model reads the sentence whole, in its paragraph and under the heading above
 `Check against Documents`, `Check someone else’s file…`, and the Note's `Check` ask the model for one result:
 
 - `Supported`: the checked Passages together establish what the sentence says, down to each figure, date, name and outcome, who does it and to whom, and must where it says must, may where it says may. It means your Documents state it, not that it is true.
-- `Needs a look · Unsupported`: no Passage states it either way. A near miss is unsupported, not contradicted: a Passage about another party, period or detail, one that states only part of the sentence, a forecast the Document does not say will happen, or two events stated without the causal link the sentence asserts. It is not a finding that the sentence is wrong.
+- `Needs a look · Overstated`: the Documents state the same thing, but less of it than the sentence does. The sentence drops a condition they set, states as certain or done what they give as possible, expected or forecast, says of the whole what they say of a part, gives a ceiling as the figure, or makes one thing the cause of another where they only say both happened. The card says what the Document says and how the sentence goes further. A sentence that only says less than its Document is not overstated.
+- `Needs a look · Partly supported`: the sentence states more than one thing, and the Documents state at least one of them and say nothing of another. The card says which part they don't state.
+- `Needs a look · Unsupported`: no Passage states it either way: a Passage the sentence cites, or one the check found, is about another party, period or detail, or says something else happened without saying the sentence is false. It is not a finding that the sentence is wrong.
 - `Needs a look · Not found`: the sentence has no Citation and nothing in the check's search was about it, after one more search with other words. The card says where it looked: `I didn’t find this in “Leases”.` It is a fact about the search, never a finding that the sentence is wrong, and not the same as `Quote not found`.
 - `Needs a look · Contradicted`: a Passage gives another value for the very thing the sentence states (the same subject and detail with a different figure, date, party, place or outcome, the parties the other way round, or may for must), so the Document and the sentence can't both be true. It says the two disagree, not which is right, and it is not the same as unsupported.
 - `Not checked`: there is no result to show. The card says why: `The model declined to check it.`, `The model’s reply couldn’t be read.`, `Verdict hidden: the model’s quote isn’t in that Document.`, `The model didn’t reply within 180 seconds.`, a monthly cap, a plan's limit or the provider's credit stopped it, `Not checked: you turned off sending to this service.`, or `Not checked: everything stays on this computer.` A service that asks for fewer requests is waited out first: the sentence is sent again after 1, 2, 4, 8 and 16 seconds, and says `The model’s service is busy for now. Check again in a moment.` only if it is still busy then. A monthly cap or a plan's limit stops the whole check: nothing more is sent, and every sentence it hadn't checked yet says why.
@@ -32,6 +34,15 @@ When the model can't tell whether a sentence makes a claim, a sentence with a fi
 In a table, the model judges a cell with its row's label and its column's heading. A cell after its row's label, or the only filled cell of its row, that gives a figure is checked whatever the model said. A figure in a row's first cell, beside other filled cells, is read as part of the row's label: it is checked only when the model finds a claim in it, or says nothing of it.
 
 A sentence is judged as one: it has one result, not one for each of its parts or numbers. A record cite inside a sentence has its own result, as in `Needs a look · Record cite`.
+
+### A figure over a data file's rows
+
+A sentence can give a figure that no Passage states because it is worked out over many rows of a sheet or a CSV file: a total, an average, a count, a share, a change. In a check you start, the model works it out again. It writes code, IncarnaMind runs that code on this computer over the whole file, and the model compares the result with the sentence.
+
+- The same value is `Supported`, and another value is `Needs a look · Contradicted`, with the value the rows give. The card's `Show how it was worked out` opens the rows read and the code.
+- IncarnaMind confirms one thing itself: that the code finished, on the whole file. A run that failed, took longer than a minute or couldn't start leaves the sentence `Not checked` with the reason, and so does a file with more rows than a check reads (20,000). It is never a ✓.
+- It rests on the code the model wrote. The check doesn't judge whether that is the right way to work the figure out, so open the code where the figure matters.
+- A check that runs by itself, such as the contradiction check after a new version of a Document, never runs code.
 
 ### A table or figure from an Analysis
 

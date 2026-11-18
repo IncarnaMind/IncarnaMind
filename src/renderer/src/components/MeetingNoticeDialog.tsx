@@ -1,10 +1,14 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { core } from "../core";
 import { useGap, useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { offersCanTurnOn, onMac } from "../platformOffers";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
+import {
+  FirstTranscriptionChoiceFields,
+  useFirstTranscriptionChoice,
+} from "./meetings/FirstTranscriptionChoice";
 import { TranscriptionRouteChoice } from "./meetings/TranscriptionRouteChoice";
 import {
   buttonClass,
@@ -17,6 +21,8 @@ import {
 } from "./ui";
 import { useModal } from "./useModal";
 
+type NoticeFor = NonNullable<ReturnType<typeof useMeetings.getState>["noticeFor"]>;
+
 /**
  * The one-time recording notice: the first "Start recording" on this device
  * says what is recorded and where it stays, reminds the User to tell the
@@ -25,24 +31,102 @@ import { useModal } from "./useModal";
  * and there is no one else to tell.
  */
 export function MeetingNoticeDialog() {
-  const t = useT();
-  const gap = useGap();
   const waiting = useMeetings((state) => state.noticeFor);
-  const { acceptNotice, cancelNotice } = useMeetings.getState();
+  const { cancelNotice } = useMeetings.getState();
   const dialog = useModal(waiting !== null);
-  const memo = waiting !== null && "memo" in waiting;
-  const microphoneOnly = waiting !== null && ("memo" in waiting || !waiting.systemAudio);
-  const recording = t(microphoneOnly ? "meetings.notice.microphone" : "meetings.notice.both");
-  const kept = t(useAudioKeptKey());
+  return (
+    <dialog
+      ref={dialog}
+      data-testid="meeting-notice"
+      aria-labelledby="meeting-notice-title"
+      aria-describedby="meeting-notice-body"
+      onClose={cancelNotice}
+      className={`${dialogClass} w-[32.5rem]`}
+    >
+      {/* Mounted as the sheet opens, so it reads the keys and the choice as they are now. */}
+      {waiting && <Notice waiting={waiting} />}
+    </dialog>
+  );
+}
+
+function Notice({ waiting }: { waiting: NoticeFor }) {
+  // Whether where it is transcribed was never chosen, as the sheet opened: choosing here must
+  // not swap the sheet for another under the User's hands.
+  const [asks] = useState(() => {
+    const { settings, embedding } = useAppStore.getState();
+    return settings?.device.transcriptionRoute == null && embedding?.localOnly !== true;
+  });
+  return asks ? <FirstNotice waiting={waiting} /> : <ChosenNotice waiting={waiting} />;
+}
+
+/**
+ * The sheet of a User who never chose where meetings are transcribed (#3305): first run's two
+ * choices, a cloud service first. Nothing is chosen, and no audio can go anywhere, until Start.
+ */
+function FirstNotice({ waiting }: { waiting: NoticeFor }) {
+  const { acceptNotice } = useMeetings.getState();
+  const setup = useFirstTranscriptionChoice();
+  const start = async () => {
+    if (await setup.finish()) await acceptNotice();
+  };
+  return (
+    <NoticeSheet
+      waiting={waiting}
+      transcribedHere={setup.shown === "local"}
+      picked={setup.shown}
+      ready={setup.ready && !setup.busy}
+      onStart={() => void start()}
+    >
+      <FirstTranscriptionChoiceFields setup={setup} onEnter={() => void start()} />
+    </NoticeSheet>
+  );
+}
+
+function ChosenNotice({ waiting }: { waiting: NoticeFor }) {
+  const { acceptNotice } = useMeetings.getState();
   const transcribedHere = useAppStore(
     (state) =>
       (state.settings?.device.transcriptionRoute ?? "local") === "local" ||
       state.embedding?.localOnly === true,
   );
+  return (
+    <NoticeSheet
+      waiting={waiting}
+      transcribedHere={transcribedHere}
+      ready
+      onStart={() => void acceptNotice()}
+    >
+      <TranscriptionRouteChoice />
+    </NoticeSheet>
+  );
+}
+
+function NoticeSheet({
+  waiting,
+  transcribedHere,
+  picked,
+  ready,
+  onStart,
+  children,
+}: {
+  waiting: NoticeFor;
+  transcribedHere: boolean;
+  /** What the sheet's own choice is on, before Start keeps it; absent once a choice is kept. */
+  picked?: "cloud" | "local";
+  ready: boolean;
+  onStart(): void;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const gap = useGap();
+  const { cancelNotice } = useMeetings.getState();
+  const memo = "memo" in waiting;
+  const microphoneOnly = memo || !waiting.systemAudio;
+  const recording = t(microphoneOnly ? "meetings.notice.microphone" : "meetings.notice.both");
+  const kept = t(useAudioKeptKey(picked));
   /** Whether the speech model is already here; null until its state has been read. */
   const [modelHere, setModelHere] = useState<boolean | null>(null);
   useEffect(() => {
-    if (waiting === null) return;
     let live = true;
     core.getTranscriptionModel().then(
       (model) => {
@@ -56,58 +140,49 @@ export function MeetingNoticeDialog() {
     return () => {
       live = false;
     };
-  }, [waiting]);
+  }, []);
   // Only while it isn't here: "Download and start" is wrong once it is (#763).
   const downloads = transcribedHere && modelHere === false;
 
   return (
-    <dialog
-      ref={dialog}
-      data-testid="meeting-notice"
-      aria-labelledby="meeting-notice-title"
-      aria-describedby="meeting-notice-body"
-      onClose={cancelNotice}
-      className={`${dialogClass} w-[32.5rem]`}
-    >
-      <div className={dialogBodyClass}>
-        <h2 id="meeting-notice-title" className={dialogTitleClass}>
-          {t("meetings.notice.title")}
-        </h2>
-        <div id="meeting-notice-body" className="flex flex-col gap-2">
-          <p className={dialogTextClass}>
-            {recording}
-            {gap(recording, kept)}
-            {kept}
+    <div className={dialogBodyClass}>
+      <h2 id="meeting-notice-title" className={dialogTitleClass}>
+        {t("meetings.notice.title")}
+      </h2>
+      <div id="meeting-notice-body" className="flex flex-col gap-2">
+        <p className={dialogTextClass}>
+          {recording}
+          {gap(recording, kept)}
+          {kept}
+        </p>
+        {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
+        {!memo && offersCanTurnOn() && (
+          <p data-testid="meeting-notice-background" className={dialogTextClass}>
+            {t(onMac() ? "meetings.notice.background.mac" : "meetings.notice.background.other")}
           </p>
-          {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
-          {!memo && offersCanTurnOn() && (
-            <p data-testid="meeting-notice-background" className={dialogTextClass}>
-              {t(onMac() ? "meetings.notice.background.mac" : "meetings.notice.background.other")}
-            </p>
-          )}
-          {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
-          {downloads && (
-            <p data-testid="meeting-notice-model-size" className={dialogTextClass}>
-              {t("meetings.notice.modelSize")}
-            </p>
-          )}
-        </div>
-        {/* Mounted as the sheet opens, so it reads the keys as they are now. */}
-        {waiting && <TranscriptionRouteChoice />}
-        <div className={dialogActionsClass}>
-          <button type="button" onClick={cancelNotice} className={buttonClass}>
-            {t("meetings.notice.cancel")}
-          </button>
-          <button
-            type="button"
-            data-testid="meeting-notice-start"
-            onClick={() => void acceptNotice()}
-            className={primaryButtonClass}
-          >
-            {t(downloads ? "meetings.start.downloadAndStart" : "meetings.start.record")}
-          </button>
-        </div>
+        )}
+        {transcribedHere && <p className={dialogTextClass}>{t("meetings.notice.model")}</p>}
+        {downloads && (
+          <p data-testid="meeting-notice-model-size" className={dialogTextClass}>
+            {t("meetings.notice.modelSize")}
+          </p>
+        )}
       </div>
-    </dialog>
+      {children}
+      <div className={dialogActionsClass}>
+        <button type="button" onClick={cancelNotice} className={buttonClass}>
+          {t("meetings.notice.cancel")}
+        </button>
+        <button
+          type="button"
+          data-testid="meeting-notice-start"
+          disabled={!ready}
+          onClick={onStart}
+          className={primaryButtonClass}
+        >
+          {t(downloads ? "meetings.start.downloadAndStart" : "meetings.start.record")}
+        </button>
+      </div>
+    </div>
   );
 }

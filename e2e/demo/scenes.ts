@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
-import { assistantAnswers, leaveText, openDocumentAt, openSteps } from "../app";
+import { assistantAnswers, leaveText, openDocumentAt, openSteps, transcribeHere } from "../app";
 import { say } from "./call";
 import type { Film, Hand } from "./film";
 import { SCENE_TABLE } from "./sceneTable";
@@ -445,6 +445,7 @@ async function call(take: Take): Promise<void> {
     await expect(notice).toBeVisible();
   }, PARK);
   await hand.hold(250);
+  await transcribeHere(notice);
   await hand.click(notice.getByTestId("meeting-notice-start"));
   const bar = window.getByTestId("meeting-bar");
   await expect(bar).toHaveAttribute("data-status", "recording");

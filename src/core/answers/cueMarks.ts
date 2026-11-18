@@ -62,6 +62,38 @@ function runAt(
   return { starts, fit: next >= text.length ? 2 : 0 };
 }
 
+/** The run of `cues` that `text`'s lines are: its first cue, and where each starts in `text`. */
+function cueRun(text: string, cues: readonly SaidCue[]): { first: number; starts: number[] } {
+  let found = { first: 0, starts: [] as number[], fit: 0 };
+  for (
+    let at = 0;
+    found.fit === 0 && at >= 0 && at < text.length;
+    at = text.indexOf("\n", at) + 1 || -1
+  ) {
+    for (let first = 0; first < cues.length && found.fit < 2; first++) {
+      const run = runAt(text, cues, first, at);
+      if (run.fit > found.fit || (run.fit === found.fit && run.starts.length > found.starts.length))
+        found = { first, ...run };
+    }
+  }
+  return found;
+}
+
+/**
+ * When a Transcript Passage's lines were said, in ms from the call's start: from its first cue's
+ * start to its last one's end. Null for any other Passage.
+ */
+export function saidBetween(
+  text: string,
+  units: readonly PageText[],
+): { from: number; to: number } | null {
+  const cues = cuesOf(units);
+  const { first, starts } = cueRun(text, cues);
+  const from = cues[first];
+  const to = cues[first + starts.length - 1];
+  return starts.length > 0 && from && to ? { from: from.startMs, to: to.endMs } : null;
+}
+
 /**
  * A Transcript's Passage with each cue's time, and who said it where known,
  * before it ("[14:26 Dana] …"), so the model can say when something was said
@@ -80,18 +112,7 @@ export function withCueMarks(
   speakers: TranscriptSpeakers | null = null,
 ): string {
   const cues = cuesOf(units);
-  let found = { first: 0, starts: [] as number[], fit: 0 };
-  for (
-    let at = 0;
-    found.fit === 0 && at >= 0 && at < text.length;
-    at = text.indexOf("\n", at) + 1 || -1
-  ) {
-    for (let first = 0; first < cues.length && found.fit < 2; first++) {
-      const run = runAt(text, cues, first, at);
-      if (run.fit > found.fit || (run.fit === found.fit && run.starts.length > found.starts.length))
-        found = { first, ...run };
-    }
-  }
+  const found = cueRun(text, cues);
   let marked = "";
   let from = 0;
   for (const [index, at] of found.starts.entries()) {

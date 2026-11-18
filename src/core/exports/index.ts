@@ -1051,7 +1051,7 @@ async function withPictures(
 
 function parseExportOptions(input: unknown): ParsedExportOptions {
   if (!isRecord(input)) throw new InvalidInputError("Export options must be an object.");
-  const { format, includeQuestions, accept, theirChanges, citationPlace } = input;
+  const { format, includeQuestions, theirChanges, citationPlace } = input;
   const choice = (
     name: "trackChanges" | "markAiText" | "commentFailedChecks" | "citationCards" | "checkedLine",
     absent = false,
@@ -1083,17 +1083,10 @@ function parseExportOptions(input: unknown): ParsedExportOptions {
   if (citationPlace !== undefined && place === undefined) {
     throw new InvalidInputError({ key: "error.export.citationPlace" });
   }
-  if (
-    accept !== undefined &&
-    !(Array.isArray(accept) && accept.every((key) => typeof key === "string"))
-  ) {
-    throw new InvalidInputError("accept must be a list of what can't be kept.");
-  }
   // Markdown is an archive, so it keeps Questions; the others are deliverables, so they don't.
   return {
     format: format as ExportFormat,
     includeQuestions: includeQuestions ?? format === "markdown",
-    accept: accept ?? [],
     trackChanges: choice("trackChanges"),
     markAiText: choice("markAiText"),
     commentFailedChecks: choice("commentFailedChecks"),

@@ -70,7 +70,8 @@ async function settledFill(core: Core, meeting: Meeting): Promise<MeetingFill> {
  * `stopsInFrame`: the first reply with room for its part stops inside its second fact. `cloud`: the
  * model is a service's, not one on this computer, which reads the call as even parts from the
  * start; with `held`, the first answered part's notes wait until a part is sent after them, with
- * `refused`, the request of the answered part of that number is, with `limited`, the service's
+ * `refused`, the request of the answered part of that number is, each time it is asked, with the
+ * HTTP status `refusedWith`, with `limited`, the service's
  * rate limit refuses the two parts out beside the first answered one, once, and with `firstCut`,
  * the reply to the call's first part has no room, whatever its size. `first`: only that many
  * lines of the call are said. `typed`: the lines the User typed before the call, and
@@ -83,6 +84,7 @@ async function filledCall(
     cloud = false,
     held = false,
     refused = 0,
+    refusedWith = 400,
     limited = false,
     firstCut = false,
     first,
@@ -93,6 +95,7 @@ async function filledCall(
     cloud?: boolean;
     held?: boolean;
     refused?: number;
+    refusedWith?: number;
     limited?: boolean;
     firstCut?: boolean;
     first?: number;
@@ -116,6 +119,8 @@ async function filledCall(
   let release: (() => void) | null = null;
   let released = false;
   let answeredAsks = 0;
+  /** The refused part, by its first line. */
+  let refusedLine: string | null = null;
   /** Which answered part each part number is, in the order their requests came. */
   const answeredAs = new Map<number, number>();
   /** The parts the service's rate limit has refused, by their first line. */
@@ -169,7 +174,10 @@ async function filledCall(
       return {
         ...(pause && { pause }),
         text: [
-          ...(unanswered ? [unanswered(answeredAs.get(part) ?? 0), ""] : []),
+          ...(unanswered ? [unanswered(answeredAs.get(part) ?? 0)] : []),
+          // One fact for a part of any length: said to be all there was, it is kept as it is.
+          "QUIET: YES",
+          "",
           `### FACT P${part}_F1`,
           "```json",
           JSON.stringify({
@@ -202,12 +210,15 @@ async function filledCall(
     if (stops) stopped = part;
     asks.push({ part, lines, cut, ...(stops && { stopped: true }) });
     if (cut) return { text: "", cutOff: true };
-    answeredAsks += 1;
-    if (refused === answeredAsks) {
-      asks.pop();
-      return { error: { status: 400, message: "The scripted provider refused the request." } };
-    }
     const [first = ""] = lines;
+    if (first !== refusedLine) answeredAsks += 1;
+    if (refused === answeredAsks && refusedLine === null) refusedLine = first;
+    if (first === refusedLine) {
+      asks.pop();
+      return {
+        error: { status: refusedWith, message: "The scripted provider refused the request." },
+      };
+    }
     if (limited && answeredAsks > 1 && limits.size < 2 && !limits.has(first)) {
       asks.pop();
       limits.add(first);
@@ -456,24 +467,34 @@ test("a service's model is asked for up to three parts at once, and the notes ke
   }
 });
 
-// protects=when one of the parts asked side by side is refused, no new part is sent, the parts already out are kept, and the note says how many parts got no notes: the refused one and each never sent (#2839); fails_when=the answered parts' notes are dropped with the refused one, parts go on being sent to a service that refuses, or the count misses a part; no_claim=which of a service's failures come back refused.
-test("a part refused beside others leaves the answered parts' notes and counts the rest", async () => {
-  const { call, asks, summaries, shown, settled, note } = await filledCall(null, {
-    cloud: true,
-    refused: 2,
-  });
-  const answered = inCallOrder(call, asks);
-  expect(answered.length).toBeGreaterThan(1);
-  const lines = answered.reduce((sum, ask) => sum + ask.lines.length, 0);
-  expect(lines).toBeLessThan(call.length);
-  expect(settled).toMatchObject({ state: "filled", problem: { kind: "model" } });
-  expect(settled.unfinishedParts).toBe((shown.at(-1)?.of ?? 0) - answered.length);
-  expect(settled.unfinishedParts).toBeGreaterThan(1);
-  expect(summaries).toEqual([]);
-  for (const { part } of answered) {
-    expect(note.split(`Point ${part} of the rollout was agreed`)).toHaveLength(2);
-  }
-});
+// protects=a part of a call asked side by side whose request is refused, as that request alone would be, is asked once more by itself; refused again, it is the one part without notes, and every part after it is still sent and kept (#3287). When the refusal is one every request would get (a refused key), no part is asked again and no new part is sent, the parts already out are kept, and the note says how many parts got no notes: the refused one and each never sent (#2839); fails_when=the answered parts' notes are dropped with the refused one, one part's refusal stops the parts after it, parts go on being sent to a service that refuses its key, or a part without notes isn't counted; no_claim=the line's words, which tests/renderer/meetingFillLine.test.ts covers.
+test.each([
+  { refusedWith: 400, sent: "every other part" },
+  { refusedWith: 401, sent: "no new part" },
+] as const)(
+  "a part refused beside others with $refusedWith leaves the answered parts' notes, and $sent is sent",
+  async ({ refusedWith }) => {
+    const { call, asks, summaries, shown, settled, note } = await filledCall(null, {
+      cloud: true,
+      refused: 2,
+      refusedWith,
+    });
+    const answered = inCallOrder(call, asks);
+    expect(answered.length).toBeGreaterThan(1);
+    const lines = answered.reduce((sum, ask) => sum + ask.lines.length, 0);
+    expect(lines).toBeLessThan(call.length);
+    expect(settled).toMatchObject({ state: "filled", problem: { kind: "model" } });
+    expect(settled.unfinishedParts).toBe((shown.at(-1)?.of ?? 0) - answered.length);
+    if (refusedWith === 400) {
+      expect(settled.unfinishedParts).toBe(1);
+      expect(answered.at(-1)?.lines.at(-1)).toBe(call.at(-1));
+    } else expect(settled.unfinishedParts).toBeGreaterThan(1);
+    expect(summaries).toEqual([]);
+    for (const { part } of answered) {
+      expect(note.split(`Point ${part} of the rollout was agreed`)).toHaveLength(2);
+    }
+  },
+);
 
 // protects=a key whose rate limit refuses parts asked side by side still gets the whole call's notes: both parts it refuses of the ones out together are asked again, one at a time, with no problem shown and every line answered once (#2839); fails_when=a refusal ends the fill with parts left without notes, only the first refused part of those out together is asked again, or a refused part's lines are never answered; no_claim=which services' limits a fill of three parts at once meets.
 test("a rate limit that refuses a part beside others has it asked again, the rest one at a time", async () => {
@@ -496,12 +517,13 @@ test("a rate limit that refuses a part beside others has it asked again, the res
   }
 });
 
-// protects=a part refused while an earlier part waits to be asked again as two doesn't cost that part its notes: the halves before the refused part in the call are still asked and kept, and the refused part and each part never sent are the ones counted without notes (#2839); fails_when=the refusal stops the earlier part's halves from being sent, so the call's start has no notes or the fill fails whole; no_claim=what a service refuses.
+// protects=a part refused, as every request would be (a refused key), while an earlier part waits to be asked again as two doesn't cost that part its notes: the halves before the refused part in the call are still asked and kept, and the refused part and each part never sent are the ones counted without notes (#2839); fails_when=the refusal stops the earlier part's halves from being sent, so the call's start has no notes or the fill fails whole; no_claim=what a service refuses.
 test("a part refused out of turn still lets the parts before it be asked", async () => {
   const { call, asks, shown, settled, note } = await filledCall(null, {
     cloud: true,
     firstCut: true,
     refused: 2,
+    refusedWith: 401,
   });
   expect(settled).toMatchObject({ state: "filled", problem: { kind: "model" } });
   expect(asks.filter((ask) => ask.cut)).toHaveLength(1);

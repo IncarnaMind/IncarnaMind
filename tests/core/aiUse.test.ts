@@ -361,6 +361,9 @@ describe("The record of AI use stays on this computer", () => {
       capture: (message) => {
         sent.push(message);
       },
+      captureOnce: (message) => {
+        sent.push(message);
+      },
     };
     const core = startCore(await createTempDataFolder(), { usageData: sender });
     const mind = await core.createMind();

@@ -23,6 +23,7 @@ import { access, cp, mkdir, realpath, rm } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import * as Y from "yjs";
 import { withCitations } from "../shared/blockJson";
+import { keptOrder } from "../shared/keptOrder";
 import { sentenceSpans } from "../shared/sentences";
 import {
   contentHash,
@@ -66,7 +67,7 @@ const LEGACY_VALUE = EXAMPLES_VALUE;
 const OFFERED_VALUE = "examplesOffered";
 const ORDER_VALUE = "examplesOrder";
 const DEFAULT_GROUP: ExampleGroup = "credit";
-const OFFERED_GROUPS: readonly ExampleGroup[] = ["papers", "contracts", "meetings"];
+const OFFERED_GROUPS: readonly ExampleGroup[] = ["papers", "reports", "contracts", "meetings"];
 
 const GROUPS = Object.keys(EXAMPLE_SETS) as ExampleGroup[];
 const valueKey = (group: ExampleGroup) => `${EXAMPLES_VALUE}.${group}`;
@@ -206,17 +207,11 @@ export function createExamples(options: ExamplesOptions) {
   const order = (): ExampleGroup[] => {
     const kept = options.readValue(ORDER_VALUE);
     if (isOffered(kept)) return kept;
-    const random = options.random ?? Math.random;
-    const shuffled = [...OFFERED_GROUPS];
-    for (let index = shuffled.length - 1; index > 0; index--) {
-      const other = Math.floor(random() * (index + 1));
-      [shuffled[index], shuffled[other]] = [
-        shuffled[other] as ExampleGroup,
-        shuffled[index] as ExampleGroup,
-      ];
-    }
-    options.writeValue(ORDER_VALUE, shuffled);
-    return shuffled;
+    // An order kept before Reports was offered (#3296) keeps its places, so a banner the User has
+    // seen doesn't change its order.
+    const ordered = keptOrder(OFFERED_GROUPS, kept, options.random ?? Math.random);
+    options.writeValue(ORDER_VALUE, ordered);
+    return ordered;
   };
 
   /**
@@ -835,16 +830,30 @@ export function createExamples(options: ExamplesOptions) {
       }
     }),
 
+    /** Whether a first run could still offer the examples: this copy ships them, never offered. */
+    unoffered: (): boolean =>
+      options.source !== undefined && options.readValue(OFFERED_VALUE) !== true,
+
     /**
-     * On a first run (no Mind yet, examples never offered): makes the credit
-     * paper, once. Returns it, or null when nothing was made.
+     * On a first run (no Mind yet, examples never offered): makes each group's example, once, in
+     * order, the credit paper unless told others (#3296). Returns the first, or null when nothing
+     * was made.
      */
-    offer: inTurn(async (hasMinds: boolean): Promise<Examples | null> => {
-      if (options.source === undefined || options.readValue(OFFERED_VALUE) === true) return null;
-      options.writeValue(OFFERED_VALUE, true);
-      if (hasMinds) return null;
-      return create(DEFAULT_GROUP);
-    }),
+    offer: inTurn(
+      async (
+        hasMinds: boolean,
+        groups: readonly ExampleGroup[] = [DEFAULT_GROUP],
+      ): Promise<Examples | null> => {
+        if (options.source === undefined || options.readValue(OFFERED_VALUE) === true) return null;
+        options.writeValue(OFFERED_VALUE, true);
+        if (hasMinds) return null;
+        const [first, ...others] = groups;
+        if (!first) return null;
+        const made = await create(first);
+        for (const group of others) await create(group);
+        return made;
+      },
+    ),
 
     remove: inTurn(remove),
 

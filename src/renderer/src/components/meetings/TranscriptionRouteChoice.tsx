@@ -16,12 +16,13 @@ const linkClass =
   "shrink-0 text-[12px] leading-5 whitespace-nowrap text-accent underline-offset-2 hover:underline";
 
 /**
- * Where the first recording is transcribed, on its sheet (#141): one line, this computer, with a
- * quiet "Other ways…" that unfolds to the cloud services the User has keys for. Each has its own
- * button, and that click is the consent (ADR-0022); nothing is chosen for the User. Once one is
- * chosen, the line names it, with the way back. A choice made before the sheet opened (in
- * Settings) stands, so the sheet doesn't ask again. When this computer is known not to keep up,
- * the services show unfolded with the reason, or, with no key, a line says live text may lag.
+ * Where the first recording is transcribed, on the sheet of a User who has chosen already (#141;
+ * one who hasn't gets `FirstTranscriptionChoiceFields`): the choice stands, so the sheet doesn't ask
+ * again. A cloud service is named with the way back to this computer; this computer is one line,
+ * with a quiet "Other ways…" back to the cloud services the User has keys for when they left one
+ * on this sheet. Each has its own button, and that click is the consent (ADR-0022). When this
+ * computer is known not to keep up, the services show unfolded with the reason, or, with no key,
+ * a line says live text may lag.
  */
 export function TranscriptionRouteChoice() {
   const t = useT();

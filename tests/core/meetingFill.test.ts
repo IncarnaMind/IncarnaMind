@@ -25,6 +25,7 @@ import {
   FILL_PART_TOKENS,
   halved,
   orStopped,
+  resized,
   transcriptParts,
 } from "../../src/core/meetings/fill";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
@@ -3655,5 +3656,21 @@ describe("A long Transcript is read in parts", () => {
     expect(Math.abs(halves[0].length - halves[1].length)).toBeLessThanOrEqual(1);
     expect(halved(part.slice(0, 9))).toBeNull();
     expect(halved(part.slice(0, 1))).toBeNull();
+  });
+
+  // protects=when a reply with no room makes the parts not yet asked smaller, a part waiting to be asked once more stays whole with its first reply, whose notes are the ones kept if the second request fails; the parts never asked are split, every Passage once in order (#3287); fails_when=the waiting part is split with the others and its first reply's notes are lost; no_claim=a part whose request is out, which stays as it is as before.
+  test("parts never asked are split smaller, and a part waiting to be asked once more keeps its first reply", () => {
+    const passages = Array.from({ length: 24 }, (_, index) => passage(index, 120));
+    const out = { passages: passages.slice(0, 8), size: 1_000, out: Promise.resolve() };
+    const waiting = { passages: passages.slice(8, 16), size: 1_000, first: "its first reply" };
+    const unasked = { passages: passages.slice(16), size: 1_000 };
+    const queue = resized([out, waiting, unasked], 500);
+    expect(queue.slice(0, 2)).toEqual([out, waiting]);
+    const rest = queue.slice(2);
+    expect(rest.length).toBeGreaterThan(1);
+    expect(rest.every((part) => part.size === 500 && !("first" in part))).toBe(true);
+    expect(rest.flatMap((part) => part.passages.map((each) => each.seq))).toEqual(
+      unasked.passages.map((each) => each.seq),
+    );
   });
 });
