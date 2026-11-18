@@ -110,25 +110,30 @@ describe("A speaker change inside a timed Transcript line", () => {
       words: anchors.map((at, index) => ({ at, ms: [800, 1150, 1650, 1850][index] ?? 0 })),
     };
     const fileLine = { ...cue, label: cue.speaker };
-    const speakers = speakerLabels(
-      [cue],
-      [
-        { startMs: 100, endMs: 1400, voice: 3 },
-        { startMs: 1550, endMs: 3000, voice: 4 },
-      ],
-      false,
-    );
-    if (!speakers) throw new Error("No speaker labels");
-    expect(splitsHold(speakers, [fileLine])).toBe(true);
-    expect(
-      partsOf(speakers, fileLine).map((part) => [
-        part.text,
-        speakerOf(speakers, part.startMs, part.label),
-      ]),
-    ).toEqual([
-      [before, "Speaker 1"],
-      [after, "Speaker 2"],
-    ]);
+    for (const [firstEnds, secondStarts] of [
+      [1400, 1550],
+      [1550, 1400],
+    ] as const) {
+      const speakers = speakerLabels(
+        [cue],
+        [
+          { startMs: 100, endMs: firstEnds, voice: 3 },
+          { startMs: secondStarts, endMs: 3000, voice: 4 },
+        ],
+        false,
+      );
+      if (!speakers) throw new Error("No speaker labels");
+      expect(splitsHold(speakers, [fileLine])).toBe(true);
+      expect(
+        partsOf(speakers, fileLine).map((part) => [
+          part.text,
+          speakerOf(speakers, part.startMs, part.label),
+        ]),
+      ).toEqual([
+        [before, "Speaker 1"],
+        [after, "Speaker 2"],
+      ]);
+    }
 
     const overlapping = speakerLabels(
       [cue],
@@ -139,6 +144,37 @@ describe("A speaker change inside a timed Transcript line", () => {
       false,
     );
     expect(partsOf(overlapping, fileLine).map((part) => part.text)).toEqual([text]);
+  });
+
+  test("a later voice cannot take a part whose word timings support an earlier voice", () => {
+    const text = "Alpha left. Bravo goes on. Charlie speaks.";
+    const cue = {
+      startMs: 0,
+      endMs: 2000,
+      text,
+      speaker: "Speaker ?",
+      words: [
+        { at: 0, ms: 400 },
+        { at: 6, ms: 580 },
+        { at: 12, ms: 900 },
+        { at: 18, ms: 1020 },
+        { at: 23, ms: 1150 },
+        { at: 27, ms: 1800 },
+        { at: 35, ms: 1900 },
+      ],
+    };
+    const speakers = speakerLabels(
+      [cue],
+      [
+        { startMs: 0, endMs: 800, voice: 0 },
+        { startMs: 600, endMs: 1450, voice: 1 },
+        { startMs: 1200, endMs: 2000, voice: 2 },
+      ],
+      false,
+    );
+    expect(partsOf(speakers, { ...cue, label: cue.speaker }).map((part) => part.text)).toEqual([
+      text,
+    ]);
   });
 
   test("a clear handoff followed by an unaligned handoff leaves the line intact", () => {
