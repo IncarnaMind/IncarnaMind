@@ -844,6 +844,8 @@ const DUTY: readonly HeldOut[] = [
 const heard = {
   requests: 0,
   refused: 0,
+  /** How many refused requests ended with each HTTP status. */
+  statuses: {} as Record<number, number>,
   failed: 0,
   timedOut: 0,
   inputTokens: 0,
@@ -937,8 +939,10 @@ function heardFailure(error: unknown): never {
       : null;
   const name = error instanceof Error ? error.name : "";
   if (name === "AbortError" || name === "TimeoutError") heard.timedOut++;
-  else if (status !== null && status >= 400) heard.refused++;
-  else heard.failed++;
+  else if (status !== null && status >= 400) {
+    heard.refused++;
+    heard.statuses[status] = (heard.statuses[status] ?? 0) + 1;
+  } else heard.failed++;
   throw error;
 }
 
@@ -1600,6 +1604,7 @@ describe("the #3088 gate", () => {
                 (GROUPS.includes("claim") ? 2 : 0),
             requests: heard.requests,
             refused: heard.refused,
+            statuses: heard.statuses,
             failed: heard.failed,
             timedOut: heard.timedOut,
             inputTokens: heard.inputTokens,

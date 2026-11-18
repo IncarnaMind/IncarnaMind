@@ -21,7 +21,7 @@ import {
   readClaimParts,
   readPartPlans,
   resultFromParts,
-  withFigureFacts,
+  partsToCheck,
 } from "../../src/shared/claimParts";
 import {
   beginFigureCheck,
@@ -1235,7 +1235,7 @@ describe("a figure the sort leaves outside a fact", () => {
       expect(
         words(
           sentence,
-          withFigureFacts(
+          partsToCheck(
             sentence,
             [{ kind: "opinion", span: span(sentence, sentence.slice(0, -1)) }],
             [figure(sentence, a), figure(sentence, b)],
@@ -1254,7 +1254,7 @@ describe("a figure the sort leaves outside a fact", () => {
     (sentence, a, b) => {
       const fact = sentence.startsWith("Revenue") ? "Revenue rose" : "收入增长了";
       const opinion = sentence.slice(sentence.search(/sadly|可惜/), -1);
-      const plans = withFigureFacts(
+      const plans = partsToCheck(
         sentence,
         [
           { kind: "fact", span: span(sentence, fact) },
@@ -1278,7 +1278,7 @@ describe("a figure the sort leaves outside a fact", () => {
           plain(sentence),
         )?.map((owned) => owned.map(({ reading }) => reading.chars)),
       ).toEqual([[], [], [a], [b]]);
-      expect(withFigureFacts(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(
+      expect(partsToCheck(sentence, plans, [figure(sentence, a)], plain(sentence))).toEqual(
         plans,
       );
     },
@@ -1293,7 +1293,7 @@ describe("a figure the sort leaves outside a fact", () => {
     expect(
       words(
         sentence,
-        withFigureFacts(
+        partsToCheck(
           sentence,
           [{ kind: "opinion", span: span(sentence, opinion) }],
           [figure(sentence, a), figure(sentence, b)],
@@ -1318,7 +1318,7 @@ describe("a figure the sort leaves outside a fact", () => {
       expect(
         words(
           sentence,
-          withFigureFacts(
+          partsToCheck(
             sentence,
             [{ kind: "opinion", span: span(sentence, sentence.slice(0, -1)) }],
             [figure(sentence, number)],
@@ -1336,14 +1336,14 @@ describe("a figure the sort leaves outside a fact", () => {
       { kind: "opinion", span: span(sentence, "we like it") },
     ];
     expect(
-      words(sentence, withFigureFacts(sentence, plans, [figure(sentence, "£5m")], plain(sentence))),
+      words(sentence, partsToCheck(sentence, plans, [figure(sentence, "£5m")], plain(sentence))),
     ).toEqual([
       ["fact", "Costs rose"],
       ["fact", "£5m"],
       ["opinion", "we like it"],
     ]);
     const whole: ClaimPartPlan[] = [{ kind: "fact", span: span(sentence, "Costs rose by £5m") }];
-    expect(withFigureFacts(sentence, whole, [figure(sentence, "£5m")], plain(sentence))).toEqual(
+    expect(partsToCheck(sentence, whole, [figure(sentence, "£5m")], plain(sentence))).toEqual(
       whole,
     );
   });
@@ -1368,7 +1368,7 @@ describe("a figure the sort leaves outside a fact", () => {
       expect(
         words(
           sentence,
-          withFigureFacts(sentence, plans, [figure(sentence, number)], plain(sentence)),
+          partsToCheck(sentence, plans, [figure(sentence, number)], plain(sentence)),
         ),
       ).toEqual([
         ["opinion", kept],
@@ -1382,14 +1382,14 @@ describe("a figure the sort leaves outside a fact", () => {
     const opinion: ClaimPartPlan[] = [
       { kind: "opinion", span: span(sentence, "We think the £5m rise is impressive") },
     ];
-    expect(withFigureFacts(sentence, opinion, [figure(sentence, "£5m")])).toEqual([
+    expect(partsToCheck(sentence, opinion, [figure(sentence, "£5m")])).toEqual([
       { kind: "fact", span: { start: 0, end: sentence.length } },
     ]);
     const mixed: ClaimPartPlan[] = [
       { kind: "opinion", span: span(sentence, "We think") },
       { kind: "fact", span: span(sentence, "the £5m rise is impressive") },
     ];
-    expect(withFigureFacts(sentence, mixed, [figure(sentence, "£5m")])).toEqual(mixed);
+    expect(partsToCheck(sentence, mixed, [figure(sentence, "£5m")])).toEqual(mixed);
   });
 
   test("only a fact may sit inside the opinion before it, shorter than it and apart from the others", () => {

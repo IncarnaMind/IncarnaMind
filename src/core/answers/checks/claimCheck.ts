@@ -376,7 +376,8 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const named = found(read.evidence ?? []);
   const quotes =
     named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
-  const [quoted, ...more] = quotes;
+  // An own view's quotes are the facts the reply names for and against it, never every quote read.
+  const [quoted, ...more] = read.word === "own-view" ? named : quotes;
   // A verdict with no quote of its own rests on the working, where the model worked the figure
   // out over a data file's rows: IncarnaMind confirms that the code finished, on the whole file.
   const runs = workings();
@@ -406,6 +407,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         ...(working && { working }),
         ...court.citedCase(null),
         ...facts(),
+        ...(read.word === "own-view" && more.length > 0 && { more }),
         excluded: [...facts().excluded, ...results.ownWorkings()],
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
@@ -421,6 +423,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       unsupported: null,
       calculation: null,
       ...(working && { working }),
+      ...(read.working && { workedOut: read.working }),
       ...court.citedCase(evidence ?? null),
       ...facts(),
       ...(more.length > 0 && { more }),

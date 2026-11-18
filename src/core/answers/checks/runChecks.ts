@@ -24,7 +24,6 @@ import { asCheckWork } from "../../reranking/order";
 import type { Slots } from "../../runs/stop";
 import type { ClaimCheckRequest } from "./claimCheck";
 import type { DecisionReader, FirstReading } from "./decisionFirst";
-import { isOwnView, leaveOutOwnView } from "./opinions";
 import {
   type CheckRecord,
   type CheckRuns,
@@ -342,7 +341,7 @@ export async function runChecks(
     /** What changes how many of the run's checks go at once, with `slots` (./widerRun). */
     width?: Pick<WiderRun, "wider" | "onLimit">;
   },
-): Promise<{ checked: number; leftOut: number; stop: RunStop | null }> {
+): Promise<{ checked: number; stop: RunStop | null }> {
   const { mindId, prepared, signal } = run;
   const requestId = run.requestId ?? "";
   const ran = checkRunOf(options, prepared, signal, mindId);
@@ -359,21 +358,12 @@ export async function runChecks(
   };
 
   let checked = 0;
-  let leftOut = 0;
   const atOnce = claimsAtOnce(prepared);
   const requestOf = (claim: QueuedClaim) => checkRequestOf(claim, run, signal);
   /** What the decision model's reading left a sentence: its Mark, or only what it leans to. */
   const marked = new Set<QueuedClaim>();
   const leaning = new Map<QueuedClaim, ClaimFirstReading>();
   const land = (claim: QueuedClaim, result: ClaimCheckResult) => {
-    if (
-      isOwnView(result) &&
-      !signal.aborted &&
-      options.content.edit(mindId, (blocks) => leaveOutOwnView(blocks, claim.id))
-    ) {
-      leftOut++;
-      return;
-    }
     const at = options.now().toISOString();
     const first = leaning.get(claim);
     const landed = write(claim.id, (each, blocks) => {
@@ -455,5 +445,5 @@ export async function runChecks(
     console.error(`A mark for Note ${mindId} couldn't be written:`, outcomeError.error);
     throw outcomeError.error;
   }
-  return { checked, leftOut, stop };
+  return { checked, stop };
 }

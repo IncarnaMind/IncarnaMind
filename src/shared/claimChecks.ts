@@ -394,10 +394,15 @@ export type RecheckReason =
   /** A fact of the Library it rests on says otherwise now (#2525). */
   | "library";
 
-/** A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows nothing. */
+/**
+ * A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows
+ * nothing; "own-view": the check found the sentence to be its writer's own judgement, and its
+ * card gives what the Documents hold for and against it, with no warning (#3322).
+ */
 export type ClaimCheckShown =
   | { state: "checking" }
   | { state: ClaimVerdict }
+  | { state: "own-view" }
   | { state: "not-checked"; reason: ClaimCheckFailure }
   | { state: "needs-recheck"; why: RecheckReason }
   | { state: "kept" };
@@ -756,6 +761,8 @@ function basisShown(check: ClaimCheckBasis, now: Omit<ClaimCheckNow, "footing">)
   }
   if (check.state === "not-checked")
     return { state: "not-checked", reason: check.reason ?? "failed" };
+  if (check.state === "unsupported" && check.unsupported?.word === "own-view")
+    return { state: "own-view" };
   return { state: check.state };
 }
 
