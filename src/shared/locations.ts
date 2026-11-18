@@ -545,6 +545,15 @@ export interface RowsOrLines {
   to: number;
 }
 
+function transcriptUnitEnd(unit: UnitText): number {
+  let end = unit.label?.to ?? 0;
+  for (const anchor of anchorsOf(unit)) {
+    const cue = parseCueTarget(anchor.target);
+    if (cue) end = Math.max(end, cue.endMs);
+  }
+  return end;
+}
+
 /**
  * The Location of cited Units (consecutive, of one kind): with `ranges`
  * (where the quote was found in their joined text, see `joinUnits`), narrowed
@@ -632,10 +641,12 @@ export function locationOf(
           ...(speaker && { speaker }),
         };
       }
-      const whole = { from: first.label?.from ?? 0, to: last.label?.to ?? first.label?.to ?? 0 };
-      return requested
-        ? { kind: "time", from: requested.from, to: Math.max(requested.from, requested.to) }
-        : { kind: "time", ...whole };
+      if (requested) {
+        return { kind: "time", from: requested.from, to: Math.max(requested.from, requested.to) };
+      }
+      const from = first.label?.from ?? 0;
+      const to = units.reduce((end, unit) => Math.max(end, transcriptUnitEnd(unit)), from);
+      return { kind: "time", from, to };
     }
     case "lines": {
       const whole = { from: first.label?.from ?? 1, to: last.label?.to ?? first.label?.to ?? 1 };
@@ -783,7 +794,7 @@ export function resolveRequested(
       if (unit.kind !== "cues") return false;
       // A time is a moment: the block it falls in, or, between two, the one it starts.
       return (
-        requested.from <= (unit.label?.to ?? 0) && requested.to >= (unit.label?.from ?? 0) - 1000
+        requested.from <= transcriptUnitEnd(unit) && requested.to >= (unit.label?.from ?? 0) - 1000
       );
     }
     if (unit.kind !== requested.kind) return false;
