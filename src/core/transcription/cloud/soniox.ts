@@ -8,7 +8,7 @@
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
 import { CLOSES, endsAfter, endsBefore, startsWord } from "./lineEnds";
-import { createLiveStream, heldWords, pcmBytes } from "./live";
+import { createLiveStream, heldWords, type LiveLink, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -74,6 +74,12 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     });
   }
 
+  function interrupted(link: LiveLink, loss: CloudLoss): void {
+    close();
+    report.progress(finalMs);
+    link.lose(loss);
+  }
+
   function add(token: Token): void {
     const words = token.text.trim().length > 0;
     if (
@@ -126,7 +132,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
       if (typeof message.error_code === "number") {
         // A context it won't take is a bad request, its first answer.
         if (message.error_code === 400 && link.retryWithoutWords()) return;
-        link.lose(lossOf(message.error_code));
+        interrupted(link, lossOf(message.error_code));
         return;
       }
       const tokens = (Array.isArray(message.tokens) ? message.tokens : [])
@@ -172,13 +178,11 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
       link.send("");
     },
     late(link) {
-      close();
-      link.complete();
+      interrupted(link, "dropped");
     },
-    // Closed while finishing, what came is all there is; any other close is a dropped connection.
+    // A close before the service's "finished" leaves audio for the Meeting to replay.
     closed(_code, _reason, link) {
-      if (link.finishing) link.complete();
-      else link.lose("dropped");
+      interrupted(link, "dropped");
     },
   });
 }
