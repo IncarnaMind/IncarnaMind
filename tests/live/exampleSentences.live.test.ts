@@ -1542,7 +1542,16 @@ async function wholeNoteRound(language: Language) {
   }
   const { client, mindId } = await noteOf(core, "Everyday", cases, null, folder.id);
   const started = performance.now();
+  // When the first sentence shows a verdict: what the User waits for after starting the check.
+  let firstMarkSeconds: number | null = null;
+  const watching = setInterval(() => {
+    if (claimSpans(readMind(client)).some((span) => span.check.state !== "checking")) {
+      firstMarkSeconds = (performance.now() - started) / 1000;
+      clearInterval(watching);
+    }
+  }, 50);
   const run = await core.checkMind({ requestId: `${ARM}-${ROUND}-note`, mindId, mode: "all" });
+  clearInterval(watching);
   await client.settled();
   const seconds = (performance.now() - started) / 1000;
   const spans = claimSpans(readMind(client));
@@ -1564,6 +1573,7 @@ async function wholeNoteRound(language: Language) {
         run: run.kind,
         sentences: cases.length,
         seconds,
+        firstMarkSeconds,
         states,
       },
     ],

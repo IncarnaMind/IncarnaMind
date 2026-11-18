@@ -9957,9 +9957,10 @@ export type DataKind = (typeof dataKinds)[number];
  *   Calendar or Microsoft 365, every few minutes while the app runs (#190). The events come back
  *   and stay on this computer. Connecting the account allows it; background work, which never
  *   asks; none in local mode. The Mac's own calendar is read on this computer and isn't a flow.
- * - "decision-checks": while Check this Note runs (#3118), each sentence it checks, with its
- *   paragraph, and each Passage the check's search finds for it, with its Document's name and
- *   page, to the host of the decision model that reads first. Choosing the model, where its line
+ * - "decision-checks": while Check this Note runs (#3118), every sentence of the Note alone, to
+ *   sort it (#3334), then each sentence it checks, with its paragraph, and each Passage the
+ *   check's search finds for it, with its Document's name and page, to the host of the decision
+ *   model that reads first. Choosing the model, where its line
  *   says so, allows it; where one reads by default, the User's choice of that same service for
  *   their checks does (ADR-0022). None in local mode.
  */

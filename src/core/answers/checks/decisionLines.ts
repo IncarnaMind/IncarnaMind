@@ -32,6 +32,12 @@ export interface DecisionLines {
   };
   /** A score at or over these is a first reading, which the User's AI model confirms or changes. */
   firstReading: { supported: number; contradicted: number };
+  /**
+   * The line for the question in ./decisionSort, which sorts a Note's sentences: a score at or
+   * over it sends the sentence to its check, one under it leaves the sentence out. Absent for a
+   * model the question wasn't measured with, whose Notes the AI model sorts.
+   */
+  sort?: number;
 }
 
 interface MeasuredDecisionModel {
@@ -63,6 +69,9 @@ export const MEASURED_DECISION_MODELS: readonly [
         unsupported: 0.25,
       },
       firstReading: { supported: 0.8, contradicted: 0.5 },
+      // Of 166 facts none scored under 0.43, and 17 of 18 sentences about their own Note scored
+      // under 0.16; a score moved by 0.05 at most between two runs (#3334).
+      sort: 0.2,
     },
   },
 ];
