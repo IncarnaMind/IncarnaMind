@@ -64,7 +64,7 @@ async function setUp() {
     await writeSourceFile(sources, "Costs.md", "# Costs\n\nRent is 14,000 a year.\n"),
   ]);
   const path = await writeSourceFile(sources, "Budget.xlsx", planWorkbook().xlsx());
-  return { core, path, sorted };
+  return { core, path, sorted, sources };
 }
 
 async function tableOf(core: Core, mindId: string) {
@@ -161,6 +161,44 @@ describe("Verify a workbook", () => {
       reason: "range",
     });
     expect((await core.listMinds()).length).toBe(0);
+  });
+
+  test("a workbook that can't be read says so, and a sheet of formulas only is still checked", async () => {
+    const { core, sources } = await setUp();
+    const broken = await writeSourceFile(sources, "Broken.xlsx", "this is not a workbook");
+    expect(await core.verifyDocument({ path: broken })).toEqual({
+      ok: false,
+      reason: "unreadable",
+    });
+
+    const book = new WorkbookBuilder();
+    book.sheet("Calc").number("A1", 2).formula("B1", "A1*3", 7).formula("C1", "A1+1", 3);
+    const only = await writeSourceFile(sources, "Formulas.xlsx", book.xlsx());
+    const result = await core.verifyDocument({ path: only, sheet: "Calc" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client } = await tableOf(core, result.mind.id);
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({
+      checked: 2,
+      differs: [{ cell: "B1", saved: "7", worked: "6" }],
+    });
+  });
+
+  test("a range with more typed-in numbers than one check takes is refused with how many", async () => {
+    const { core, sources } = await setUp();
+    const book = new WorkbookBuilder();
+    const sheet = book.sheet("Log");
+    for (let row = 1; row <= 1001; row++)
+      sheet.text(`A${row}`, `Entry ${row}`).number(`B${row}`, row);
+    const path = await writeSourceFile(sources, "Log.xlsx", book.xlsx());
+
+    expect(await core.verifyDocument({ path, sheet: "Log" })).toEqual({
+      ok: false,
+      reason: "too-many",
+      typed: 1001,
+      most: 1000,
+    });
+    const smaller = await core.verifyDocument({ path, sheet: "Log", range: "A1:B50" });
+    expect(smaller.ok).toBe(true);
   });
 
   test("a sheet with nothing to check says so", async () => {

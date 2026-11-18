@@ -1778,7 +1778,7 @@ export const en = {
   "mindCheck.cancel": "Not now",
   "verify.command": "Check someone else’s file…",
   "verify.command.keywords":
-    "verify check PDF Word docx someone else’s claims fact-check received draft another person counterparty",
+    "verify check PDF Word docx Excel xlsx workbook spreadsheet someone else’s claims fact-check received draft another person counterparty",
   "verify.command.purpose": "Check the claims in a file someone else wrote",
   "verify.pick.title": "Check someone else’s file",
   "verify.pick.filter": "PDF, Word and Excel documents",

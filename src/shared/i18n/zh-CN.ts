@@ -1700,7 +1700,8 @@ export const zhCN = {
   "mindCheck.check": "核对",
   "mindCheck.cancel": "暂不",
   "verify.command": "核对别人的文件…",
-  "verify.command.keywords": "核对 核实 PDF Word docx 说法 事实 他人 别人 对方 收到 草稿",
+  "verify.command.keywords":
+    "核对 核实 PDF Word docx Excel xlsx 工作簿 表格 说法 事实 他人 别人 对方 收到 草稿",
   "verify.command.purpose": "核对别人所写文件中的说法",
   "verify.pick.title": "核对别人的文件",
   "verify.pick.filter": "PDF、Word 和 Excel 文档",

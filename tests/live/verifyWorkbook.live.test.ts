@@ -6,13 +6,19 @@
  * row's numbers are, say another number for it, or says nothing of it. Each workbook's second
  * total is saved wrong. Runs only with INCARNAMIND_LIVE_ANTHROPIC_KEY (Claude Haiku 5.5 by
  * default), or, with INCARNAMIND_LIVE_PROVIDER=deepseek, INCARNAMIND_LIVE_DEEPSEEK_KEY (DeepSeek
- * V4.1 Flash). Bars, written 2026-11-18 before any workbook was run:
+ * V4.1 Flash). Bars, written 2026-11-18 before any workbook was run (the counts of rows were
+ * mistaken in the first writing: the cases hold 9 differing, 15 matching and 8 no-source rows, and
+ * the thresholds below are unchanged):
  * - every request succeeds: a workbook whose claims weren't all found and checked makes the run void;
- * - a row whose Document gives another number never reads supported: 0 of its 12 rows;
- * - at least 80% of the rows whose Document gives the same numbers read supported (of 16);
+ * - a row whose Document gives another number never reads supported: 0 of its 9 rows;
+ * - at least 80% of the rows whose Document gives the same numbers read supported (of 15);
  * - at least 90% of the rows the Documents say nothing of don't read supported (of 8);
  * - the formulas are worked out again with no model: the wrong total is flagged in every workbook,
  *   and no other formula is.
+ * Result, DeepSeek V4.1 Flash (Claude Haiku 5.5 meant), 2026-11-18, three draws of the four
+ * workbooks: no run void; differing rows
+ * read supported 0 of 27; matching rows read supported 45 of 45; rows with no source read supported
+ * 0 of 24; the wrong total flagged 12 of 12, no other formula flagged. About a minute a draw.
  */
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";

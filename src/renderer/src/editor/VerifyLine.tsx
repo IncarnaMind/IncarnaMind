@@ -405,7 +405,11 @@ export function VerifyCard({
       <VerifyAsk mindId={mindId} doc={doc} total={total} estimate={estimate} onNotNow={onNotNow} />
     );
   } else {
-    const look = marks.rows.contradicted.length + marks.rows.unsupported.length;
+    // A formula whose saved result differs needs a look as a claim with no source does (#3278).
+    const look =
+      marks.rows.contradicted.length +
+      marks.rows.unsupported.length +
+      (verification.workbook?.differs.length ?? 0);
     const notChecked = marks.rows.notChecked.length;
     const stopped = outcome?.kind === "checked" ? outcome.stop : null;
     const summary =
@@ -522,10 +526,10 @@ export function VerifyCard({
           goTo={goTo}
         />
       )}
-      {body}
       {verification.workbook && (
         <VerifyFormulas editor={editor} workbook={verification.workbook} goTo={goTo} />
       )}
+      {body}
       <UnreadFilesLine files={unread} testId="verify-unread" className="mind-unread" />
       {running === null && marks.marked > 0 && marks.coverage.mostlyUncovered && (
         <UncoveredLine
