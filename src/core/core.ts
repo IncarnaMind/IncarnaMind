@@ -106,6 +106,7 @@ import {
 } from "./answers/citedVersions";
 import { createCiting } from "./answers/citing";
 import { readMind } from "./answers/context";
+import { saidBetween } from "./answers/cueMarks";
 import { withoutOverlap } from "./answers/documentText";
 import type { AnswerSearchOptions } from "./answers/engine";
 import type { LiveTranscript } from "./answers/liveTranscript";
@@ -5262,6 +5263,8 @@ export function createCore(adapters: CoreAdapters): Core {
       // Passages overlap for search: sent whole, the model read two lines in five twice (#3151).
       return adapters.notesLinesRepeated?.() ? passages : withoutOverlap(passages);
     },
+    said: ({ documentId, contentHash, pageFrom, pageTo, text }) =>
+      saidBetween(text, documents.pageTexts(documentId, contentHash, pageFrom, pageTo)),
     async route(mindId) {
       const language = settings.get().language;
       // Filling in never picks a cloud service for a Note whose own model, on this computer, is gone (#2853).

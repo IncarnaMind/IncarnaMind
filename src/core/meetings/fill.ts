@@ -22,6 +22,8 @@ import {
   GENERATED_MARK,
   type Meeting,
   type MeetingFillProblem,
+  type MeetingFillStretch,
+  type ProviderErrorKind,
 } from "../api";
 import type { WindowedPassage } from "../documents/search";
 import type { Language } from "../language";
@@ -50,7 +52,7 @@ import {
   summaryContext,
   textOf,
 } from "./fillPrompt";
-import { headingRoutes, unansweredLines } from "./headingRoutes";
+import { headingRoutes, saysQuiet, unansweredLines } from "./headingRoutes";
 import {
   asItIs,
   type MemoCue,
@@ -104,6 +106,69 @@ const CLAIMS_AT_ONCE = 4;
  */
 export const FILL_PARTS_AT_ONCE = 3;
 
+/**
+ * A reply is short for its part of the call when it holds under one fact for every 400 of the
+ * part's Transcript tokens, on a part of 1,200 tokens or more. Of 138 saved replies to such parts
+ * that ended as a reply should, the four that left most of their stretch out held under 1 fact for
+ * 400 tokens, and the thinnest whose notes were whole held 1.5 (#3287). The count only asks again:
+ * whether little was said there is the model's to say, asked for with the second request, and a
+ * short reply that says so is kept.
+ */
+const FILL_THIN_TOKENS_A_FACT = 400;
+const FILL_THIN_PART_TOKENS = 1_200;
+
+/**
+ * Whom a failed request's error fails (#3287): "every" request of the fill, so no more is sent;
+ * "every-twice", every one only when the part asked again by itself fails that way too; "own",
+ * that request alone. Keyed by every kind, so a new one fails to compile instead of being guessed.
+ */
+const FAILS: Record<ProviderErrorKind, "every" | "every-twice" | "own"> = {
+  auth: "every",
+  "api-key-unreadable": "every",
+  model: "every",
+  "rate-limit": "every-twice",
+  // A request that timed out is this kind too: the part asked again tells it from being offline.
+  network: "every-twice",
+  provider: "every-twice",
+  refused: "own",
+  "out-of-credit": "every",
+  region: "every",
+  "consent-declined": "every",
+  "consent-revoked": "every",
+  "local-mode": "every",
+  "ollama-not-running": "every",
+  "data-retention": "every",
+  "not-signed-in": "every",
+  "plan-limit": "every",
+  blocked: "every",
+  // Every part is the same size: one too long for the model's window means each is.
+  "too-long": "every",
+  "window-too-small": "every",
+  "cost-cap": "every",
+  "no-answer": "own",
+  // A reply out of room on a part too small to ask again as two: no smaller ask is left to help.
+  "cut-short": "every",
+  "cut-short-small-window": "every",
+  unknown: "every-twice",
+};
+
+/**
+ * What a reply leaves its part of the call without (#3287): "none" of its notes, with no fact and
+ * no overview; "thin" ones, of a failed reply or one short for the part's `tokens`. Null when
+ * they are whole, as are those of a reply that says its part held little to note. `facts` counts
+ * the ones it wrote: a fact left out because it couldn't be checked is told by the fill's count.
+ */
+export function lacking(
+  reply: { failed: boolean; facts: number; overview: boolean; quiet: boolean },
+  tokens: number,
+): MeetingFillStretch["notes"] | null {
+  const quiet = reply.quiet && !reply.failed;
+  if (reply.facts === 0 && !reply.overview) return quiet ? null : "none";
+  if (reply.failed) return "thin";
+  const short = tokens >= FILL_THIN_PART_TOKENS && reply.facts * FILL_THIN_TOKENS_A_FACT < tokens;
+  return short && !quiet ? "thin" : null;
+}
+
 export type FillRoute =
   | { model: ChatModelChoice; local: boolean; windowTokens: number | null }
   | { problem: MeetingFillProblem };
@@ -118,6 +183,7 @@ interface Written {
   parts: number;
   omitted?: number;
   unfinishedParts?: number;
+  stretches?: MeetingFillStretch[];
   place(blocks: Y.XmlFragment): string[];
 }
 
@@ -132,6 +198,8 @@ export interface MeetingFillOptions {
   };
   /** The Transcript's Passages, in reading order and each line once, once its newest version has them. */
   transcript(documentId: string): Promise<WindowedPassage[]>;
+  /** When a Transcript Passage's lines were said, in ms from the call's start; null with no times. */
+  said(passage: WindowedPassage): { from: number; to: number } | null;
   /** The model to fill with: the one the Mind uses (#1379), as Local mode and consent allow. */
   route(mindId: string): Promise<FillRoute>;
   /** The name the User set in Settings › General, never the computer's login name: null for none. */
@@ -520,7 +588,7 @@ interface CallPart {
   /** Sent while parts went side by side: one a rate limit refuses is asked again by itself. */
   beside?: boolean;
   reply?: PartReply | { error: unknown };
-  /** The reply that stopped inside a frame, of a part too small to halve that is asked once more. */
+  /** The first reply of a part that is asked once more, by itself: one of the two is kept. */
   first?: PartReply;
 }
 
@@ -530,14 +598,59 @@ interface PartReply {
 }
 
 /**
- * The one reply whose notes are kept, of a part asked a second time whole: the second, or the
- * first when the second failed, or stopped inside a frame too with fewer facts closed.
+ * The one reply whose notes are kept, of a part asked a second time whole: the one that didn't
+ * fail, then the second where the first stopped inside a frame and it didn't, then the one with
+ * more facts, the first of two alike.
  */
 function keptReply(second: PartReply, first: PartReply): PartReply {
-  if (second.answer.status === "failed") return first;
-  return second.parsed.cut && second.parsed.facts.length < first.parsed.facts.length
-    ? first
-    : second;
+  const failed = (reply: PartReply) => reply.answer.status === "failed";
+  if (failed(second) !== failed(first)) return failed(second) ? first : second;
+  if (!failed(second) && first.parsed.cut && !second.parsed.cut) return second;
+  return second.parsed.facts.length > first.parsed.facts.length ? second : first;
+}
+
+/** A part of the call the notes lack, and what of it. */
+interface Gap {
+  passages: readonly WindowedPassage[];
+  notes: MeetingFillStretch["notes"];
+}
+
+/**
+ * The stretches of the call to tell the User of, in the call's order, by when their lines were
+ * said; parts next to each other that lack the same are one stretch. One with no times is left
+ * out, and with it every stretch without notes: the count of parts then says them all.
+ */
+function stretchesOf(
+  gaps: readonly Gap[],
+  passages: readonly WindowedPassage[],
+  said: MeetingFillOptions["said"],
+): MeetingFillStretch[] {
+  const places = new Map(passages.map((passage, index) => [passage, index]));
+  const timed = gaps.map(({ passages: part, notes }) => {
+    const first = part[0];
+    const last = part.at(-1);
+    const from = first && said(first)?.from;
+    const to = last && said(last)?.to;
+    const at = first && places.get(first);
+    return from === undefined || to === undefined || at === undefined
+      ? { notes, span: null }
+      : { notes, span: { from, to, notes, at, next: at + part.length } };
+  });
+  const untold = timed.some(({ notes, span }) => notes === "none" && span === null);
+  const spans = timed
+    .flatMap(({ notes, span }) => (span === null || (untold && notes === "none") ? [] : [span]))
+    .sort((a, b) => a.at - b.at);
+  const stretches: (MeetingFillStretch & { next: number })[] = [];
+  for (const { from, to, notes, at, next } of spans) {
+    const before = stretches.at(-1);
+    if (before && before.next === at && before.notes === notes) {
+      before.to = to;
+      before.next = next;
+    } else {
+      stretches.push({ from, to, notes, next });
+    }
+  }
+  return stretches.map(({ from, to, notes }) => ({ from, to, notes }));
 }
 
 /** `queue` with each run of parts not yet sent split again, at `size` tokens. */
@@ -748,6 +861,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       problem: null,
       omitted: 0,
       unfinishedParts: 0,
+      stretches: undefined,
       checking: 0,
       part: undefined,
       blocks: [],
@@ -776,6 +890,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     const ledger = createFactLedger();
     const addresses = lines.map((line) => line.marker);
     let unfinishedParts = 0;
+    const gaps: Gap[] = [];
     let problem: MeetingFillProblem | null = null;
     let thrown: unknown;
     const destinations = new Map<FillSection, string>();
@@ -798,6 +913,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       place();
       const history = {
         part: asked,
+        again: part.first !== undefined,
         facts: ledger.facts.map((fact) => ({
           id: fact.id,
           topic: fact.topic,
@@ -826,28 +942,66 @@ export function createMeetingFill(options: MeetingFillOptions) {
     /** A reply that closed no fact and no overview: nothing of it is kept. */
     const bare = ({ parsed }: { parsed: FactReply }) =>
       parsed.facts.length === 0 && parsed.overview === null;
+    const quiet = ({ answer }: PartReply) =>
+      answer.status !== "failed" && saysQuiet(answer.markdown);
+    /** What `reply` leaves its part without, when neither of the part's replies called it quiet. */
+    const lacks = (reply: PartReply, part: CallPart) =>
+      lacking(
+        {
+          failed: reply.answer.status === "failed",
+          facts:
+            reply.parsed.facts.length + reply.parsed.omittedIds.length + reply.parsed.invalidFrames,
+          overview: reply.parsed.overview !== null,
+          quiet: [reply, part.first, part.reply].some(
+            (each) => each !== undefined && "answer" in each && quiet(each),
+          ),
+        },
+        part.passages.reduce((sum, passage) => sum + estimateTokens(passage.text), 0),
+      );
     /**
-     * A reply with nothing to keep whose part is asked again, as two after a cut or by itself after
-     * a rate limit refused it beside others: it needn't wait its turn in the call's order.
+     * What becomes of a part whose reply is in (#3287). "halved": cut, it is asked again as two.
+     * "again": refused, unreadable as notes, or short for its length without saying its stretch
+     * was quiet, it is asked once more by itself and the better reply is kept. "ends": its failure
+     * is every request's, so no part after it is sent. Otherwise it is "kept" as it is.
      */
-    const again = ({ reply, passages: asked, beside }: CallPart) =>
-      !ended &&
-      reply !== undefined &&
-      "answer" in reply &&
-      bare(reply) &&
-      (((cutShort(reply.answer) || reply.parsed.cut) && halved(asked) !== null) ||
-        (beside === true && reply.answer.error?.kind === "rate-limit"));
+    const next = (part: CallPart) => {
+      const { reply, first } = part;
+      if (reply === undefined) return "kept";
+      if ("error" in reply) return first ? "kept" : "ends";
+      const { answer, parsed } = reply;
+      // Once a part has ended the sending none is asked again: a cut reply is kept as it is, its
+      // open fact counted as left out.
+      if (!ended && (cutShort(answer) || parsed.cut) && halved(part.passages) !== null) {
+        return "halved";
+      }
+      const fails = answer.status === "failed" ? FAILS[answer.error?.kind ?? "unknown"] : null;
+      if (fails === "every" || (fails === "every-twice" && first)) return "ends";
+      if (ended || first) return "kept";
+      return fails !== null || parsed.cut || lacks(reply, part) !== null ? "again" : "kept";
+    };
+    /**
+     * A reply with nothing to keep in the call's order, whose part is asked again as two or by
+     * itself: it needn't wait its turn.
+     */
+    const again = (part: CallPart) => {
+      const step = next(part);
+      return (
+        step === "again" ||
+        (step === "halved" &&
+          part.reply !== undefined &&
+          "answer" in part.reply &&
+          bare(part.reply))
+      );
+    };
     /** A reply that ends the sending when its turn comes: no part after it is sent meanwhile. */
-    const failed = (part: CallPart) =>
-      part.reply !== undefined &&
-      !again(part) &&
-      ("error" in part.reply || part.reply.answer.status === "failed");
+    const failed = (part: CallPart) => part.reply !== undefined && next(part) === "ends";
     for (;;) {
       const [front] = queue;
       if (!front) break;
       if (ended && !front.out) {
         queue = queue.slice(1);
         unfinishedParts += 1;
+        gaps.push({ passages: front.passages, notes: "none" });
         continue;
       }
       // Replies are kept in the call's order, whatever order they come in: the facts, the parts'
@@ -883,48 +1037,37 @@ export function createMeetingFill(options: MeetingFillOptions) {
             : { kind: "model", message: alone("meetings.fill.problem.model") };
         ended = true;
         unfinishedParts += 1;
+        gaps.push({ passages: part.passages, notes: "none" });
         queue = queue.filter((each) => each !== part);
         continue;
       }
-      const { answer, parsed } = part.first ? keptReply(part.reply, part.first) : part.reply;
-      // A key whose limit refuses parts side by side may still take them one after another, as
-      // every fill went before: the refused part is asked again, and the rest one at a time.
-      if (part.beside && answer.error?.kind === "rate-limit" && bare(part.reply)) {
-        atOnce = 1;
+      const step = next(part);
+      if (step === "again") {
+        // A key whose limit refuses parts side by side may still take them one after another, as
+        // every fill went before: the rest go one at a time.
+        if (part.beside && part.reply.answer.error?.kind === "rate-limit" && atOnce > 1) {
+          atOnce = 1;
+          log.info("meeting.fillPartsOneAtATime", { meetingId: meeting.id });
+        }
+        // One reply's notes are kept, so nothing is written twice.
+        const first = part.reply;
         queue = queue.map((each) =>
-          each === part ? { passages: part.passages, size: part.size } : each,
+          each === part ? { passages: part.passages, size: part.size, first } : each,
         );
-        log.info("meeting.fillPartsOneAtATime", { meetingId: meeting.id });
+        log.info("meeting.fillPartAskedAgain", {
+          meetingId: meeting.id,
+          reason: first.answer.error?.kind ?? (first.parsed.cut ? "frame" : lacks(first, part)),
+        });
         continue;
       }
+      const kept = part.first ? keptReply(part.reply, part.first) : part.reply;
+      const { answer, parsed } = kept;
       // A part whose reply was cut is asked again as two, and the facts the reply did write are
       // kept: what it left out is read again, so it isn't counted as missing, and each half
       // writes the overview of its own lines (#3151). A reply that stopped inside a frame was cut
       // too, whatever its request reported: a model can end its turn part-way through its notes.
-      const outOfRoom = cutShort(answer);
-      // Once a part has failed none is asked again: a cut reply is kept as it is, its open fact
-      // counted as left out.
-      const halves = !ended && (outOfRoom || parsed.cut) ? halved(part.passages) : null;
-      // A part too small to halve can't be read again as two. Its reply that stopped inside a
-      // frame, with room left, is the model ending its turn early (a short call's notes stopped
-      // after two facts, #3145): the part is asked once more, whole, and one reply's notes are
-      // kept, so nothing is written twice.
-      if (
-        !halves &&
-        !ended &&
-        !part.first &&
-        parsed.cut &&
-        !outOfRoom &&
-        answer.status !== "failed"
-      ) {
-        queue = queue.map((each) =>
-          each === part
-            ? { passages: part.passages, size: part.size, first: { answer, parsed } }
-            : each,
-        );
-        log.info("meeting.fillPartAskedAgain", { meetingId: meeting.id });
-        continue;
-      }
+      const outOfRoom = cutShort(part.reply.answer);
+      const halves = step === "halved" ? halved(part.passages) : null;
       ledger.accept(
         halves
           ? { ...parsed, overview: null, omittedIds: [], invalidFrames: 0, overviewOmitted: null }
@@ -937,7 +1080,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
       ];
       // A section that no heading of the User's can take goes under its own title with every fact:
       // nothing is missing, so it isn't a problem (#3099).
-      unanswered.push(unansweredLines(answer.markdown, lines));
       const routed = headingRoutes(answer.markdown, markers, lines);
       if (routed === null) log.warn("meeting.fillRoutingFailed", { meetingId: meeting.id });
       for (const [section, heading] of routed ?? []) {
@@ -969,14 +1111,17 @@ export function createMeetingFill(options: MeetingFillOptions) {
       }
       read += 1;
       queue = queue.filter((each) => each !== part);
-      if (answer.status === "failed") {
-        ended = true;
-        unfinishedParts += 1;
-        problem ??= failure(answer, route);
-      } else {
-        place();
-      }
+      const lack = lacks(kept, part);
+      // The halves of a part asked again as two say it for that part, and a reply whose notes
+      // lack something says nothing sure of what its part of the call doesn't answer.
+      unanswered.push(lack === null ? unansweredLines(answer.markdown, lines) : null);
+      if (lack !== null) gaps.push({ passages: part.passages, notes: lack });
+      if (answer.status === "failed") problem ??= failure(answer, route);
+      if (answer.status === "failed" || lack === "none") unfinishedParts += 1;
+      if (step === "ends") ended = true;
+      else place();
     }
+    gaps.push(...queue.map(({ passages: left }) => ({ passages: left, notes: "none" as const })));
     unfinishedParts += queue.length;
     if (unfinishedParts > 0) {
       log.warn("meeting.fillPartFailed", { meetingId: meeting.id, parts: unfinishedParts });
@@ -1001,7 +1146,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
         ...ledger.omittedReasons(unfinishedParts === 0),
       });
     }
-    set(meeting.id, { omitted, unfinishedParts, part: undefined });
+    const stretches = stretchesOf(gaps, passages, options.said);
+    set(meeting.id, {
+      omitted,
+      unfinishedParts,
+      part: undefined,
+      ...(stretches.length > 0 && { stretches }),
+    });
     if (ledger.facts.length === 0 && overviews.length === 0) {
       throw new FillProblemError(
         problem ??

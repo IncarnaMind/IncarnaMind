@@ -100,6 +100,8 @@ export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   return {
     text: [
       ...(routes.length > 0 ? [`HEADINGS: ${routes.join(" ")}`] : []),
+      // One fact for a call of any length, said to be all there was to note: kept as it is (#3287).
+      "QUIET: YES",
       ...(fixture === "empty" ? [] : frame(1, topic, taken ? [1] : [], `${said}${cite}.`)),
       ...(fixture ? frame(2, "unrecorded detail", [99], unrecorded) : []),
       "### OVERVIEW",

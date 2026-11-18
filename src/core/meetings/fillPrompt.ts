@@ -51,6 +51,13 @@ export const lineMarker = (index: number) => `L${index + 1}`;
 
 export interface FillHistory {
   part: number;
+  /**
+   * The part is asked a second time, by itself: its first reply gave no notes, or few. Only this
+   * request differs from a first one: it offers no search, since a model offered one searched the
+   * lines it had and answered in prose, and it asks whether the part held little. With both in
+   * every request, Claude Haiku 5.5 kept about a tenth fewer facts of any call (#3287).
+   */
+  again?: boolean;
   facts: readonly {
     id: string;
     topic: string;
@@ -183,6 +190,13 @@ export function notesContext(
           "- Before the first frame, write one control line naming every ordinary L line that nothing in the transcript above answers: UNANSWERED: L2 L5 is an example of the format, not a list to copy, and UNANSWERED: NONE when each line has something said to it. List a line only when it asks for something and nobody in the transcript speaks to it at all. A line answered in part, or answered by someone saying it is not known or not yet decided, is answered: write that as its fact. Never list a heading, or a line that names the call as a whole. Write no fact saying that something was not said or not given: the app writes that under a listed line.",
         ]
       : []),
+    // Whether a part of a call held little is the model's to say: a count of its facts can't tell
+    // small talk from a reply that left the part out (#3287).
+    ...(history?.again
+      ? [
+          "- This part of the call is asked for a second time. Write its notes in full, as for any part. Only if the transcript above truly holds little to note, because it is small talk or waiting, write one control line before the first frame, QUIET: YES, and still write the few facts there are. Never write it for a transcript in which something was decided, promised, reported, asked or explained.",
+        ]
+      : []),
     "- Only a structural heading, never an ordinary paragraph, can host a section. A heading hosts the section its words ask for, in any wording or language, whether or not the User typed lines under it: SUMMARY for what the call was about overall, DECISIONS for final choices, ACTIONS for commitments and their owners, QUESTIONS for questions left open, CLAIMS for what was said that the User's Documents should be checked against. NONE is only for the Note's title or a heading that names a subject of the meeting (a topic, a person, an agenda item) rather than one of those kinds of content.",
     ...(lines.some((line) => line.heading)
       ? [
@@ -217,6 +231,7 @@ export function notesContext(
     messages: [{ role: "user", content: `${framing}\n\n${question}` }],
     question,
     meetingFacts: true,
+    ...(history?.again && { given: true as const }),
   };
 }
 

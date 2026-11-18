@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import { billingUrlOfProvider } from "../keyRefusals";
 import { useFillStep } from "../meetingFillSteps";
 import { useMeetings } from "../meetings";
+import { clockTime } from "../meetingTime";
 import { showMeetingNoteView } from "../meetingViews";
 import { useModelNames, useServiceName } from "../modelNames";
 import { answerProblem } from "../problems";
@@ -223,10 +224,11 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   }
   const omitted = fill.omitted ?? 0;
   const unfinishedParts = fill.unfinishedParts ?? 0;
+  const stretches = fill.stretches ?? [];
   if (
     meeting.kind === "meeting" &&
     ((fill.state === "filled" && isPartialMeetingFill(fill)) ||
-      (fill.state === "failed" && (omitted > 0 || unfinishedParts > 0)))
+      (fill.state === "failed" && (omitted > 0 || unfinishedParts > 0 || stretches.length > 0)))
   ) {
     const filled = fill.state === "filled";
     const documentId = meeting.transcript?.documentId;
@@ -246,7 +248,14 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
                 }),
               ]
             : []),
-          ...(unfinishedParts > 0
+          ...stretches.map(({ from, to, notes }) =>
+            t(notes === "none" ? "meetings.fill.stretch.none" : "meetings.fill.stretch.thin", {
+              from: clockTime(from),
+              to: clockTime(to),
+            }),
+          ),
+          // The stretches say which parts, with their times: the count is for a fill without them.
+          ...(unfinishedParts > 0 && !stretches.some(({ notes }) => notes === "none")
             ? [
                 t(
                   unfinishedParts === 1

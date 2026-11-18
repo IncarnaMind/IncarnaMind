@@ -50,6 +50,15 @@ export function unansweredLines(
   return entries.every((entry) => ordinary.has(entry)) ? new Set(entries) : null;
 }
 
+/** Whether a reply says its transcript holds little to note: its one QUIET control line, YES. */
+export function saysQuiet(markdown: string): boolean {
+  const declarations = declared(markdown, "QUIET");
+  const [declaration] = declarations;
+  if (declaration === undefined || declarations.length > 1) return false;
+  const entries = entriesOf(declaration);
+  return entries.length === 1 && entries[0]?.toUpperCase() === "YES";
+}
+
 /** Null rejects invalid or incomplete routing; an empty map keeps default section placement. */
 export function headingRoutes(
   markdown: string,

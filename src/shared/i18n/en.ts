@@ -7037,6 +7037,8 @@ export const en = {
   "meetings.fill.omitted": "{count} items couldn’t be added",
   "meetings.fill.unfinishedParts.one": "{count} Transcript part couldn’t be finished",
   "meetings.fill.unfinishedParts": "{count} Transcript parts couldn’t be finished",
+  "meetings.fill.stretch.none": "Notes for {from} to {to} couldn’t be made",
+  "meetings.fill.stretch.thin": "The notes from {from} to {to} may be incomplete",
   "meetings.fill.viewTranscript": "View Transcript",
   "meetings.views.label": "Meeting views",
   "meetings.views.notes": "Notes",
