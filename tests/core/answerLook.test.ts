@@ -72,13 +72,10 @@ async function asked(
     query = "kilns supplier 窑炉 供应商",
     says = "The Passage doesn't say it.",
     scope,
-    parts,
   }: {
     query?: string;
     says?: string;
     scope?: (core: Core) => Promise<string[]>;
-    /** A sentence's parts, each its own words, as the look's check sorts it. */
-    parts?: Record<string, readonly string[]>;
   } = {},
 ): Promise<Asked> {
   const calls: ModelCall[] = [];
@@ -95,7 +92,6 @@ async function asked(
         if (judging.failing) throw new Error("The model is unavailable.");
         return batchReply(call, unsupported);
       },
-      ...(parts && { parts }),
     }),
     files,
   );
@@ -419,88 +415,21 @@ function carriedChecks(answer: Asked["answer"], question = "Who supplies the kil
 describe("A sentence still Unsupported after the look says what the Documents don't state (#2809)", {
   timeout: 60_000,
 }, () => {
-  const LISTS = [
-    {
-      name: "English",
-      text: "The kilns are fourteen years old, are supplied by Hartwell Kilns and were built in Leeds[^1].",
-      sentence:
-        "The kilns are fourteen years old, are supplied by Hartwell Kilns and were built in Leeds.",
-      cites: AGE,
-      parts: [
-        ["The kilns are fourteen years old", AGE],
-        ["are supplied by Hartwell Kilns", SUPPLIER],
-        ["were built in Leeds", null],
-      ],
-    },
-    {
-      name: "Chinese",
-      text: "两台窑炉已经用了十四年，由哈特韦尔窑炉公司供应，产自利兹[^1]。",
-      sentence: "两台窑炉已经用了十四年，由哈特韦尔窑炉公司供应，产自利兹。",
-      cites: AGE_ZH,
-      parts: [
-        ["两台窑炉已经用了十四年", AGE_ZH],
-        ["由哈特韦尔窑炉公司供应", SUPPLIER_ZH],
-        ["产自利兹", null],
-      ],
-    },
-  ] as const;
+  const LIST = {
+    text: "The kilns are fourteen years old, are supplied by Hartwell Kilns and were built in Leeds[^1].",
+    sentence:
+      "The kilns are fourteen years old, are supplied by Hartwell Kilns and were built in Leeds.",
+    cites: AGE,
+  };
   const SAYS = "The quote gives the kilns' age only.";
-
-  const listed = (each: (typeof LISTS)[number]) =>
-    asked(
-      each.text,
-      [each.cites],
-      {
-        [each.sentence]: { verdict: "unsupported" },
-        ...Object.fromEntries(
-          each.parts.map(([words, quote]): [string, Plan] => [
-            words,
-            quote ? { verdict: "supported", quote, says: quote } : { verdict: "unsupported" },
-          ]),
-        ),
-      },
-      [kilns, supply(SUPPLIER, SUPPLIER_ZH)],
-      { says: SAYS, parts: { [each.sentence]: each.parts.map(([words]) => words) } },
-    );
-
-  // protects=a sentence that lists three things, two of them stated in the Answer's scope and one in no Document, stays Unsupported with its batch's line, gets no new Citation, and its Citation keeps the part no Passage states in the sentence's own words; the Note made from it carries a check that names that part, shows no Citation as what the Documents say instead, and says the scope was searched, in English and Chinese; fails_when=the sentence passes, a Citation is added under a sentence that still fails, the missing part is lost or reworded, or the carried check keeps the Citation as evidence so its card says the Documents say something different; no_claim=which words a real model names as the part, which the pull request's real-model run shows.
-  test.each(LISTS)(
-    "$name: the part no Document states is kept in the sentence's own words, into the Note",
-    async (each) => {
-      const { answer, looked } = await listed(each);
-      const absent = each.parts[2][0];
-
-      expect(looked).toEqual(expect.arrayContaining(each.parts.map(([words]) => words)));
-      expect(answer.text).toBe(each.text);
-      expect(answer.citations).toHaveLength(1);
-      expect(answer.citations[0]).toMatchObject({
-        marker: 1,
-        check: "unsupported",
-        verdict: SAYS,
-        searchedScope: true,
-        unstated: { missing: [absent] },
-      });
-      const [carried, ...others] = carriedChecks(answer);
-      expect(others).toEqual([]);
-      expect(carried).toMatchObject({
-        state: "unsupported",
-        evidence: null,
-        says: SAYS,
-        unsupported: { reason: SAYS, found: true, missing: [absent] },
-        fromAnswer: answer.id,
-      });
-      expect(carried).not.toHaveProperty("citedOnly");
-    },
-  );
 
   // protects=a sentence the look never read (its look failed) carries a check that says its judgement read only its Citations, with the batch's line as the reason and no part named, and no Citation as what the Documents say instead; fails_when=the carried check claims the scope was searched, names parts no check found, or keeps the Citation as evidence; no_claim=the card's wording, which the smoke spec shows.
   test("a sentence only its batch read carries a check of its Citations alone", async () => {
-    const [english] = LISTS;
     const { answer } = await asked(
-      english.text,
-      [english.cites],
+      LIST.text,
+      [LIST.cites],
       {
-        [english.sentence]: {
+        [LIST.sentence]: {
           reply: () => {
             throw new Error("The model is unavailable.");
           },

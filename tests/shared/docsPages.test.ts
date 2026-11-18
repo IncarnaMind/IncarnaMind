@@ -82,7 +82,6 @@ const QUOTES: readonly DocQuote[] = [
   },
   { page: "check", key: "claim.reason.rate-limit" },
   { page: "check", key: "claim.state.recordCite" },
-  { page: "check", key: "opinions.one" },
   { page: "check", key: "claim.reason.consent-revoked" },
   { page: "check", key: "claim.reason.local-mode" },
   { page: "check", key: "claim.recheck.edited" },

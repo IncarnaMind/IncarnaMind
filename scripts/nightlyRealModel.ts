@@ -1,5 +1,5 @@
 /**
- * `npm run nightly:real-model` (docs/agents/testing.md): the checks that ask real models, which
+ * `npm run nightly:real-model` (docs/agents/checks.md): the checks that ask real models, which
  * .github/workflows/nightly-real-model.yml runs every night on main. It runs, one after the other,
  *
  * - the live tests (tests/live) on Claude Haiku 5.5,

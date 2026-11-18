@@ -23,7 +23,6 @@ import {
 import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
 import { type Applying, appliedMessage, finishApplying, startApplying } from "./appliedEdits";
-import { useChecks } from "./checks";
 import { core } from "./core";
 
 import { appliedLineIn } from "./editor/appliedEditLine";
@@ -201,16 +200,6 @@ export const setMenuShows = (mindId: string, shown: boolean) =>
 export const noteBusy = (mindId: string, menu?: MenuEdit) =>
   set("problems", mindId, menu ? { kind: "busy", menu } : { kind: "busy" });
 
-/**
- * Whether a rewrite is at work in the Note, saying the Note is busy if so: it writes its reply only
- * into a Note nothing else started on meanwhile.
- */
-function rewriting(mindId: string): boolean {
-  if (!useChecks.getState().rewriting[mindId]) return false;
-  noteBusy(mindId);
-  return true;
-}
-
 /** Waits until the editor shows the request's Proposals; the first, or null after a while. */
 function whenShown(editor: Editor, request: string): Promise<PendingProposal | null> {
   const first = () => pendingIn(editor.state).find((each) => each.request === request) ?? null;
@@ -281,7 +270,6 @@ export async function requestEdit(
     }
     return false;
   }
-  if (rewriting(mindId)) return false;
   const requestId = crypto.randomUUID();
   set("problems", mindId, null);
   set("editing", mindId, null);
@@ -425,7 +413,7 @@ export async function regenerateChange(
   doc: Y.Doc,
   proposal: PendingProposal,
 ): Promise<void> {
-  if (editor.isDestroyed || useEdits.getState().pending[mindId] || rewriting(mindId)) return;
+  if (editor.isDestroyed || useEdits.getState().pending[mindId]) return;
   const made = proposalRequestOf(doc, proposal.request);
   if (made?.source === "answer") {
     const questionId = questionOfAnswer(editor, made.answerId);
@@ -521,7 +509,6 @@ export function editFromComposer(
     noteBusy(mindId);
     return false;
   }
-  if (rewriting(mindId)) return false;
   const target = editTarget(editor.state);
   set("editing", mindId, null);
   if (!target || instruction.trim() === "") {

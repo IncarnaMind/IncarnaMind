@@ -63,7 +63,6 @@ const FAILING = "The harbour floods at every spring tide";
 const RECORD_SOURCE = "ECF No. 41 at 3 states the deadline";
 const RECORD_NEXT = "Id. at 2 states another deadline";
 const TWO_CITED_ZH = "公司营收增长了5%[^1]，所有地区成本都大幅下降[^1]。";
-const POINTS = "The margin rose 6 percentage points";
 
 /** A sentence as a check reads it: the Citation after its words as U+FFFC. */
 const asChecked = (words: string) => `${words} ${INLINE_NODE}.`;
@@ -71,21 +70,17 @@ const asChecked = (words: string) => `${words} ${INLINE_NODE}.`;
 const RAW_PLANS: Record<string, Plan> = {
   [asChecked(OVERSTATED)]: {
     reply: {
-      text: "Verdict: unsupported\nNo Passage says the harbour floods every year.\nCovered: when spring tides come\nNot covered: the yearly floods",
+      text: "Verdict: unsupported\nExplanation: No Passage says the harbour floods every year.\nEvidence: []",
     },
   },
   [asChecked(UNBACKED)]: {
-    reply: { text: "Verdict: unsupported\nNo Passage compares the strength of the tides." },
+    reply: {
+      text: "Verdict: unsupported\nExplanation: No Passage compares the strength of the tides.\nEvidence: []",
+    },
   },
   [asChecked(FAILING)]: { reply: { error: { status: 500, message: "The service broke." } } },
-  // Its 5% is a figure, which the check asks about one by one.
   [TWO_CITED_ZH.replaceAll("[^1]", INLINE_NODE)]: {
-    reply: (call) => ({
-      text: unsupportedReply(
-        call,
-        "没有段落说两个数字都成立。\nCovered: 增长与成本\nNot covered: 两个数字",
-      ),
-    }),
+    reply: (call) => ({ text: unsupportedReply(call, "没有段落说两个数字都成立。") }),
   },
   [asChecked("Spring tides come at new and full moon")]: {
     verdict: "supported",
@@ -96,7 +91,6 @@ const RAW_PLANS: Record<string, Plan> = {
   [asChecked(RECORD_NEXT)]: { verdict: "unsupported", judgement: "same" },
   [`${RECORD_SOURCE}.`]: { verdict: "unsupported", judgement: "same" },
   [`${RECORD_NEXT}.`]: { verdict: "unsupported", judgement: "same" },
-  [asChecked("The margin rose 6%")]: { verdict: "supported", quote: POINTS, says: POINTS },
 };
 
 const PLANS: Record<string, Plan> = Object.fromEntries(
@@ -124,8 +118,6 @@ interface Writing {
   record?: { name: string; contents: string | Uint8Array; quote: string; query: string };
   /** Hears each request that isn't streamed, answered as `PLANS` says. */
   generated?: (call: GenerateCall) => void;
-  /** What a check is told decides a sentence when it asks for the Passage once more; none by default. */
-  evidence?: string;
   /** It writes before it cites: `cite` comes beside the write, after it, or in the step after. */
   citesAfter?: "beside" | "next-step";
   /** Its closing reply fails, so the Answer does. */
@@ -163,7 +155,6 @@ function writingModel(
     record,
     generated,
     generate,
-    evidence,
     citesAfter,
     replyFails = false,
     replyHeld,
@@ -220,7 +211,7 @@ function writingModel(
       ? {
           generate: (call: GenerateCall) => {
             generated?.(call);
-            return generate?.(call) ?? checkGenerate(PLANS, evidence)(call);
+            return generate?.(call) ?? checkGenerate(PLANS)(call);
           },
         }
       : { generate: judgesNothing },
@@ -675,7 +666,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     ]);
   });
 
-  // protects=a written sentence that overstates its Citations lands as written, its Citation kept, marked unsupported with what isn't covered, and is never cut after the reply (#2830); fails_when=its words change, the Citation goes, it lands unmarked, or a cut is asked for; no_claim=how well a real model judges the part.
+  // protects=a written sentence that overstates its Citations lands as written, its Citation kept, marked unsupported with the check's reason, and is never cut after the reply (#2830); fails_when=its words change, the Citation goes, it lands unmarked, or a cut is asked for; no_claim=how well a real model judges the part.
   test("a part its Citations don't support lands marked, its words and Citation as written", async () => {
     const { core, model, calls, change, client } = await write({
       content: `## Tides\n\n${OVERSTATED} [^1].`,
@@ -684,7 +675,9 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(shownWithChanges(client)).toEqual(["+ Tides", `+ ${OVERSTATED} ⟨found⟩.`]);
     const marks = await marksIn(core, client);
     expect(marks.map(({ check }) => check.state)).toEqual(["unsupported"]);
-    expect(marks[0]?.check.unsupported).toMatchObject({ uncovered: "the yearly floods" });
+    expect(marks[0]?.check.unsupported).toMatchObject({
+      reason: "No Passage says the harbour floods every year.",
+    });
     expect(calls.some((call) => CUT.test(call.prompt))).toBe(false);
     expect(change?.selfCheck).toMatchObject({ cited: 1, sent: 1, checked: 1, failed: 0, look: 1 });
     expect(lastResult(model)).toContain(CHECKED_AFTER);
@@ -726,29 +719,6 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     expect(mark?.check).toMatchObject({ state: "not-checked", reason: "failed" });
     expect(change?.selfCheck).toMatchObject({ cited: 1, sent: 1, checked: 0, failed: 1 });
     expect(lastResult(model)).not.toContain("couldn't be checked");
-  });
-
-  // protects=a written sentence giving a percent where its Citation gives percentage points never lands supported, though the model calls it supported: the written check's figure path leaves a figure bound to a number in another unit not checked (#2997); fails_when="The margin rose 6%." lands supported; no_claim=the line Check against Documents gives on its own path, which #2997's measured table holds.
-  test("a percent its Citation gives as percentage points never lands supported", async () => {
-    const { core, client } = await write({
-      content: "## Margins\n\nThe margin rose 6% [^1].",
-      record: {
-        name: "Margins.md",
-        contents: `# Margins\n\n${POINTS}.\n`,
-        quote: POINTS,
-        query: "margin rose",
-      },
-      evidence: JSON.stringify({ passage: "P1", location: null, quote: POINTS }),
-    });
-
-    const marks = await marksIn(core, client);
-    expect(
-      marks.map(({ sentence, check }) => ({
-        sentence,
-        state: check.state,
-        reason: check.unsupported?.reason ?? null,
-      })),
-    ).toEqual([{ sentence: "The margin rose 6% .", state: "not-checked", reason: null }]);
   });
 
   // protects=the spending cap reached during the check stops it: the sentences left land not checked for that reason, and the change says what stopped it, for the line that offers Change the cap; fails_when=they land unmarked, or the stop isn't kept; no_claim=the line's words.
@@ -865,13 +835,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       async ({ core: started, service }) => {
         const checks = started.dataFlows.get("checks");
         if (!service || !checks) throw new Error("The checks flow to the model isn't set up.");
-        const more = [
-          "library-counts",
-          "library-names",
-          "file-properties",
-          "absence-documents",
-          "watched-sentences",
-        ];
+        const more = ["watched-sentences", "worked-figures"];
         await started.revokeConsent("checks", service);
         started.dataFlows.register({
           ...checks,
@@ -911,20 +875,43 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       to: { blockId: paragraph, offset: paragraphText(client, 1).length },
     });
 
-    expect(asked).toEqual([
-      [
-        "library-counts",
-        "library-names",
-        "file-properties",
-        "absence-documents",
-        "watched-sentences",
-      ],
-    ]);
+    expect(asked).toEqual([["watched-sentences", "worked-figures"]]);
     expect(calls.some(isCheckRun)).toBe(true);
     expect((await marksIn(core, client)).map(({ check }) => check.state)).toEqual([
       "supported",
       "unsupported",
     ]);
+  });
+
+  // protects=a User who allowed checks before checks sent how a worked-out figure was worked out isn't asked as the assistant writes, nor is anything sent: the write waits for their OK, as for any kind checks added; fails_when=the write is checked on the earlier consent, or asks in the background.
+  test("allowed before checks sent figures' working, the write waits for the User's OK", async () => {
+    const asked: string[][] = [];
+    const { core, calls, change, client } = await write(
+      {
+        content: `## Tides\n\nSpring tides come at new and full moon [^1]. ${UNBACKED} [^1].`,
+        cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
+      },
+      async ({ core: started, service }) => {
+        const checks = started.dataFlows.get("checks");
+        if (!service || !checks) throw new Error("The checks flow to the model isn't set up.");
+        await started.revokeConsent("checks", service);
+        started.dataFlows.register({
+          ...checks,
+          sends: checks.sends.filter((kind) => kind !== "worked-figures"),
+        });
+        await started.allowDataFlow("checks", service);
+        started.dataFlows.register(checks);
+        started.on("consent.requested", (request) => asked.push([...request.newKinds]));
+      },
+    );
+
+    expect(asked).toEqual([]);
+    expect(calls.some(isCheckRun)).toBe(false);
+    expect((await marksIn(core, client)).map(({ check }) => [check.state, check.reason])).toEqual([
+      ["not-checked", "consent-widened"],
+      ["not-checked", "consent-widened"],
+    ]);
+    expect(change?.selfCheck).toMatchObject({ blocked: { reason: "consent-widened", count: 2 } });
   });
 
   // protects=every sentence a write holds is checked and gets its mark, past the twelve one check used to send (#2830's acceptance: 40 sentences); fails_when=a long write checks only its first sentences, or the rest land unmarked or not checked for being too many; no_claim=how long each check takes.

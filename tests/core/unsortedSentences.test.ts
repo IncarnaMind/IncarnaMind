@@ -48,12 +48,10 @@ interface Pack {
   plans: Record<string, Plan>;
 }
 
-const figurePlan = (verdict: "supported" | "contradicted", quote: string, number: string) => ({
+const figurePlan = (verdict: "supported" | "contradicted", quote: string): Plan => ({
   verdict,
   quote,
-  number,
   says: verdict === "supported" ? "It says so." : "It gives another figure.",
-  judgement: "conflict" as const,
 });
 
 const PACKS: Pack[] = [
@@ -86,15 +84,10 @@ const PACKS: Pack[] = [
       "The harbour employed 48 pilots in the quarter.": figurePlan(
         "contradicted",
         "The harbour employed 84 pilots in the quarter.",
-        "84",
       ),
       "The harbour office publishes the tide tables.": { verdict: "unsupported" },
-      "2,100": figurePlan(
-        "supported",
-        "Groceries and household revenue was 2,100 in Q3 2025.",
-        "2,100",
-      ),
-      "540": figurePlan("contradicted", "Fuel at depot 4 brought in 450 in Q3 2025.", "450"),
+      "2,100": figurePlan("supported", "Groceries and household revenue was 2,100 in Q3 2025."),
+      "540": figurePlan("contradicted", "Fuel at depot 4 brought in 450 in Q3 2025."),
     },
   },
   {
@@ -123,10 +116,10 @@ const PACKS: Pack[] = [
       ["4号油站燃油", "540"],
     ],
     plans: {
-      "本季度港口共有48名引航员。": figurePlan("contradicted", "本季度港口共有84名引航员。", "84"),
+      "本季度港口共有48名引航员。": figurePlan("contradicted", "本季度港口共有84名引航员。"),
       "港务处会公布潮汐表。": { verdict: "unsupported" },
-      "2,100": figurePlan("supported", "2025年第三季度日用食品及家居收入为2,100。", "2,100"),
-      "540": figurePlan("contradicted", "2025年第三季度4号油站燃油收入为450。", "450"),
+      "2,100": figurePlan("supported", "2025年第三季度日用食品及家居收入为2,100。"),
+      "540": figurePlan("contradicted", "2025年第三季度4号油站燃油收入为450。"),
     },
   },
 ];
@@ -191,12 +184,10 @@ async function checkedNote(
     (call) => {
       if (!isCheckRun(call) || call.results.length > 0) return checkReply(call, pack.plans);
       runs.push(call);
-      // A Run names its sentence's parts in its first turn, as its instructions ask, and searches
-      // with the words it will quote: a bare cell's own words find nothing.
+      // A Run searches with the words it will quote: a bare cell's own words find nothing.
       const sentence = sentenceOf(call);
-      const parts = JSON.stringify([{ kind: "fact", text: sentence }]);
       const query = pack.plans[sentence]?.quote ?? sentence;
-      return { text: `Parts: ${parts}`, calls: [{ tool: "search_documents", input: { query } }] };
+      return { calls: [{ tool: "search_documents", input: { query } }] };
     },
     {
       generate: (call) => {

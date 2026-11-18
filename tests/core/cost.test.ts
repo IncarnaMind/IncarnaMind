@@ -12,30 +12,21 @@ import type {
 } from "../../src/core";
 import { createAiSdkChatModel, InvalidInputError } from "../../src/core";
 import { DATABASE_FILE } from "../../src/core/core";
-import {
-  costOf,
-  inCurrency,
-  promptTokensOf,
-  rateAt,
-  reservationOf,
-} from "../../src/core/cost/price";
+import { costOf, inCurrency, promptTokensOf, rateAt } from "../../src/core/cost/price";
 import { catalogFacts } from "../../src/core/providers/catalog";
 import { ollamaCloudPrice } from "../../src/core/providers/catalog/billing";
 import type { Price } from "../../src/core/providers/catalog/types";
-import { outputTokens } from "../../src/core/providers/outputLimits";
 import { classifyProviderError } from "../../src/core/providers/providerErrors";
 import { searchWeb } from "../../src/core/providers/webSearch";
 import { currentTask } from "../../src/core/runs/current";
 import { runItems } from "../../src/core/runs/stop";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeBrowser, startFakeOpenAI } from "../helpers/chatgpt";
-import { checkGenerate, checkReply } from "../helpers/checks";
 import { answerEnded } from "../helpers/citations";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { answerIn, note, question, writeMind } from "../helpers/minds";
-import { scriptedModel } from "../helpers/models";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>;
 type StreamPart = StreamResult["stream"] extends ReadableStream<infer Part> ? Part : never;
@@ -1170,6 +1161,9 @@ describe("The estimate before a check run (#973)", () => {
       "The harbour office opens at nine.",
       "The ferry leaves twice a day.",
       "The lighthouse was built in 1867.",
+      "The pier is two hundred metres long.",
+      "Pilots board ships at the outer buoy.",
+      "The fish market closes at noon.",
     ].join(" ");
     const block = note(text);
     writeMind(client, [block]);
@@ -1182,7 +1176,7 @@ describe("The estimate before a check run (#973)", () => {
       from: { blockId, offset: 0 },
       to: { blockId, offset: text.length },
     });
-    expect(rows(dataDir).filter((row) => row.flow === "checks").length).toBeGreaterThanOrEqual(5);
+    expect(rows(dataDir).filter((row) => row.flow === "checks").length).toBeGreaterThanOrEqual(8);
 
     const estimate = await core.estimateRun({ items: 10, each: "check" });
 
@@ -1257,63 +1251,6 @@ describe("A Run's budget (#1554)", () => {
     for (const _ of [0, 1, 2]) await inRun(run, () => request(core, 100_000));
 
     expect(model.doStreamCalls).toHaveLength(3);
-  });
-});
-
-describe("What a whole read sets aside (#2275)", () => {
-  const AT = new Date("2026-10-12T09:00:00.000Z");
-  const CLAIM = "The lease has no break clause.";
-  const plans = { [CLAIM]: { verdict: "supported" as const, absence: true } };
-  const isWholeRead = (options: { prompt: readonly { role: string; content: unknown }[] }) =>
-    options.prompt.some(
-      (message) =>
-        message.role === "system" &&
-        typeof message.content === "string" &&
-        message.content.startsWith("Read the whole Documents"),
-    );
-
-  // protects=the money a request sets aside against the cap, the most it may cost, is its prompt and its call's output limit from the table, a whole read's too; fails_when=a call sets no limit and reserves the model's own most or the meter's 16,384 tokens; no_claim=what a real model writes.
-  test("each request of an absence check reserves its prompt and its call's limit, the whole read the table's", async () => {
-    const model = scriptedModel((call) => checkReply(call, plans), {
-      generate: (call) =>
-        call.question === "absence-read"
-          ? { text: JSON.stringify({ absent: "break clause", absence: "holds" }) }
-          : checkGenerate(plans)(call),
-    });
-    const { core, provider, dataDir } = await cloudCore(model);
-    if (provider.service) await core.allowDataFlow("checks", provider.service.id);
-    const sources = await createTempDataFolder();
-    await addAndProcess(core, [
-      await writeSourceFile(sources, "Lease.md", "# Lease\n\nThe lease runs for three years.\n"),
-    ]);
-
-    expect(await core.checkClaim({ claim: CLAIM })).toMatchObject({ verdict: "supported" });
-
-    const reserve = (
-      options: { prompt: Parameters<typeof promptTokensOf>[0]; tools?: readonly unknown[] },
-      outputTokens: number | undefined,
-    ) =>
-      reservationOf(
-        {
-          promptTokens: promptTokensOf(options.prompt, options.tools),
-          outputTokens: outputTokens ?? Number.NaN,
-          cacheWrites: true,
-          kind: "anthropic",
-        },
-        haikuPrice(),
-        AT,
-      );
-    const calls = [...model.doStreamCalls, ...model.doGenerateCalls];
-    const whole = model.doGenerateCalls.find(isWholeRead);
-    if (!whole) throw new Error("The absence wasn't read whole.");
-    const reserved = rows(dataDir).map((row) => row.reserved ?? 0);
-    expect(reserved).toContainEqual(
-      expect.closeTo(reserve(whole, outputTokens("absence-read")), 12),
-    );
-    const expected = calls.map((call) => reserve(call, call.maxOutputTokens));
-    expect(reserved.sort((a, b) => a - b)).toEqual(
-      expected.sort((a, b) => a - b).map((each) => expect.closeTo(each, 12)),
-    );
   });
 });
 

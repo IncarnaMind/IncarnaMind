@@ -17,9 +17,9 @@ export const UNSCRIPTED: string[] = [];
 /**
  * A judge for a test of something else, which names it rather than leave a judge's question
  * unscripted: it sorts each sentence as one fact, as a model with no script does, claims no change,
- * judges none of an Answer's sentences, and finds no nearest line different. Any other request is
- * refused, as a model that only streams refuses it. An explanation asked for again in the
- * interface's language comes back quoted inside one of that language's.
+ * and judges none of an Answer's sentences. Any other request is refused, as a model that only
+ * streams refuses it. An explanation asked for again in the interface's language comes back quoted
+ * inside one of that language's.
  */
 export function judgesNothing(call: GenerateCall): GeneratedReply {
   switch (call.question) {
@@ -32,8 +32,9 @@ export function judgesNothing(call: GenerateCall): GeneratedReply {
     }
     case "sentence-batch":
       return { text: JSON.stringify({ sentences: [] }) };
-    case "nearest":
-      return { text: "neither" };
+    // A document's brief for a test of something else: no conclusion, so none is kept (#3277).
+    case "verify-brief":
+      return { text: JSON.stringify({ conclusions: [], figures: [] }) };
     case "claimed-changes":
       return { text: JSON.stringify({ claims: [] }) };
     case "request-done":
@@ -63,10 +64,6 @@ export function restatedAsQuoted(call: Pick<GenerateCall, "prompt" | "system">):
 
 /** A judge's question that compares a sentence with one quote and its Passage. */
 export const comparesAQuote = (call: { question: JudgeQuestion | undefined }): boolean =>
-  call.question === "confirm" ||
-  call.question === "strict" ||
-  call.question === "strict-figure" ||
-  call.question === "nearest" ||
   call.question === "record-cite";
 
 /** Fails a request whose question no script answers, and keeps it for the test to fail. */

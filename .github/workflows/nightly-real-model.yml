@@ -4,7 +4,7 @@ name: Nightly real models
 # (eval/everyday) on Claude Haiku 5.5, and Kimi International for Chinese. Every night on main, and
 # by hand (workflow_dispatch). It costs money, so it is a file of its own: nightly.yml's jobs can
 # be run by hand without it. scripts/nightlyRealModel.ts says how it picks a key, what it writes
-# and what it needs; docs/agents/testing.md says how to run it and which secrets to set.
+# and what it needs; docs/agents/checks.md says how to run it and which secrets to set.
 
 on:
   schedule:

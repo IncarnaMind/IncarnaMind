@@ -15,7 +15,9 @@ import type { ChatLanguageModel, ContextWindow } from "./models";
 export const OUTPUT_LIMITS = {
   answer: { most: 8_000 },
   "answer-step": { most: 32_000 },
-  "check-step": { most: 8_000 },
+  // The step that judges a sentence thinks first (#3257), and its thinking is counted in this room:
+  // Claude Haiku 5.5 thought up to about 1,100 tokens a reply, and no reply was cut.
+  "check-step": { most: 16_000 },
   // A Meeting's notes: the User's lines filled out and the sections after them, with the thinking
   // before them, can pass an Answer's room (#2306). On a four-minute call Claude Haiku 5.5 thought
   // and wrote 16,850 tokens: a reply cut off while it thinks has nothing to keep, so the room is
@@ -38,6 +40,8 @@ export const OUTPUT_LIMITS = {
   placements: { most: 2_048, each: 40 },
   subfolders: { most: 4_000, each: 80 },
   "find-claims": { most: 4_000 },
+  // At most five lines and eight claim numbers, after a model's thinking.
+  "verify-brief": { most: 2_048 },
   "claimed-changes": { most: 2_048 },
   // One word, after the thinking of a model that thinks first, as "quick-check" has room for.
   "request-done": { most: 2_048 },
@@ -45,20 +49,9 @@ export const OUTPUT_LIMITS = {
   "unmarked-quotes": { most: 8_000, each: 150 },
   "quote-retry": { most: 600, each: 100 },
   "figure-retry": { most: 1_800, each: 300 },
-  evidence: { most: 4_000, each: 600 },
-  "covered-evidence": { most: 600 },
-  confirm: { most: 300 },
-  strict: { most: 300 },
-  "strict-figure": { most: 300 },
-  recheck: { most: 300 },
-  nearest: { most: 300 },
-  // Two phrases, which a record cite asks for too, as much room as its own judgement has.
+  // Two phrases a record cite asks for, as much room as its own judgement has.
   parts: { most: 400 },
-  presence: { most: 300 },
-  "strict-presence": { most: 300 },
-  rewrite: { most: 300 },
   "record-cite": { most: 400 },
-  "absence-read": { most: 400 },
   // A batch's records, up to about 120 tokens a sentence, after the thinking of a model that
   // thinks first, which comes once a request whatever its size: DeepSeek V4.1 Flash thought up to
   // 6,234 tokens before the records of 6 sentences, Claude Haiku 5.5 up to 1,579 (#2951).

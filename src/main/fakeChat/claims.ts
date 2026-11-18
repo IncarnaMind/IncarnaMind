@@ -14,6 +14,35 @@ const FIND_CLAIMS =
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
 
+/** The brief of a verified document (#3277), src/core/answers/checks/verifyBrief.ts. */
+const WRITE_BRIEF = /^You write a short brief for someone who reviews a document/m;
+
+/**
+ * The brief a scripted model writes: each of the first three claims is a conclusion, in the
+ * claim's own words, and the first three claims with a figure in them are the ones the conclusions
+ * rest on.
+ */
+export function fakeBrief(options: GenerateOptions): string | null {
+  if (!WRITE_BRIEF.test(systemOf(options.prompt))) return null;
+  let input: unknown;
+  try {
+    input = JSON.parse(lastUserText(options.prompt));
+  } catch {
+    return null;
+  }
+  const claims =
+    typeof input === "object" && input !== null && "claims" in input && Array.isArray(input.claims)
+      ? (input.claims as { number: number; text: string }[])
+      : [];
+  return JSON.stringify({
+    conclusions: claims.slice(0, 3).map(({ number, text }) => ({ line: text, claim: number })),
+    figures: claims
+      .filter(({ text }) => /\d/.test(text))
+      .slice(0, 3)
+      .map(({ number }) => number),
+  });
+}
+
 /** `undecidedLast` leaves the last listed sentence out of the reply, as a model that skips one does. */
 export function fakeClaims(
   options: GenerateOptions,

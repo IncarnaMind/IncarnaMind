@@ -2532,7 +2532,10 @@ async function* toolLoop(
               searched,
             });
           }
-          if (recorded && MARKER.test(keptText)) answered = true;
+          // For a reply with a form of its own (a check's), words beside a record are the reply
+          // only when they have that form: a sentence written beside `cite` isn't the verdict.
+          if (recorded && MARKER.test(keptText) && (request.isReply?.(keptText) ?? true))
+            answered = true;
         }
         stepText = "";
         stepTools = [];

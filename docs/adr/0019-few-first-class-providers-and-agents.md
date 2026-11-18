@@ -8,8 +8,8 @@ The catalog (ADR-0005) holds 13 chat providers plus the ChatGPT plan and Jev, an
 
 We support two tiers:
 
-- **First-class providers:** the ChatGPT plan (Sign in with ChatGPT, #122), Anthropic, OpenAI, Google, OpenRouter and Ollama (local models and Ollama's cloud models), and for mainland China DeepSeek, Qwen (Alibaba Cloud Model Studio) and SiliconFlow. They appear in the first-run model setup (#103), each has a plain-words key guide in English and Chinese where a key is needed, and each is tried by hand before a release.
-- **Best-effort providers:** Mistral, xAI, Kimi and GLM stay in the catalog and keep working for Users who have their keys, listed under "More providers" in Settings → Models, with no guide of their own and no release check. Any other service is reached as an OpenAI-compatible endpoint (MiniMax, Volcengine, Tencent and the rest), or through OpenRouter and SiliconFlow, which reach most models with one account.
+- **First-class providers:** the ChatGPT plan (Sign in with ChatGPT, #122), Anthropic, OpenAI, Google, OpenRouter and Ollama (local models and Ollama's cloud models), and for mainland China DeepSeek, Qwen (Alibaba Cloud Model Studio) and SiliconFlow. Each has a plain-words key guide in English and Chinese where a key is needed, and each is tried by hand before a release.
+- **Best-effort providers:** Mistral, xAI, Kimi and GLM stay in the catalog and keep working for Users who have their keys, with no guide of their own and no release check. Any other service is reached as an OpenAI-compatible endpoint (MiniMax, Volcengine, Tencent and the rest), or through OpenRouter and SiliconFlow, which reach most models with one account.
 - **First-class agents:** the Claude desktop app (every plan, Free included), Claude Code, the ChatGPT desktop app and Codex (one configuration; the ChatGPT app reaches local servers in its Work and Codex modes), Cursor, and Antigravity (the route for Google AI Pro and Ultra subscribers, since Gemini CLI no longer serves those plans' personal accounts); in China, Tencent's WorkBuddy, and the 豆包 desktop app once it has been tried by hand and its data terms read. Each is set up in one click or by IncarnaMind and tried before a release. Chat apps that only reach servers on the internet (ChatGPT and Claude on the web, Gemini, Le Chat, Grok and others) can't reach IncarnaMind, which serves only this computer.
 - **Other agents** connect as "Other agent": IncarnaMind shows a configuration to copy, and no longer writes into their files. Pairings made before this keep working.
 - **Plans.** Sign in with ChatGPT, Ollama's and OpenRouter's own sign-in, the Claude desktop app through the agent connection, and an Anthropic API key, with a short note that links to Anthropic's own pages instead of copying its steps. Google AI Pro and Ultra subscribers are pointed to Antigravity, where their plan pays, with only a link to Google's credit page, whose steps (three consoles, a card, prepaid billing) are too many to guide. No presets for coding or token plans.
@@ -17,55 +17,37 @@ We support two tiers:
 
 A provider or agent moves between tiers with a one-line change: a field in the catalog or the agent list. Promote one when Users ask for it; demote one that breaks often or loses its Users.
 
-## Considered options
+## Where the tiers show
 
-- **Every provider and agent first-class.** Rejected: the upkeep grows with each one, and most would be tested rarely, so a promise we keep for a few becomes one we break for many.
-- **Only aggregators (OpenRouter, SiliconFlow) and the ChatGPT plan.** Rejected: Users with an Anthropic, OpenAI or Google key, often a company key, expect to paste it, and each provider's data terms differ from the aggregator's.
-- **Removing the best-effort providers.** Rejected: a catalog row costs little to keep, and Users who set one up would lose it.
-- **Presets for the coding and token plans of Chinese vendors.** Rejected: most limit use to coding tools or listed tools, and at the usage of a notebook pay-as-you-go costs less than any of them.
+- **Settings → Agents** shows the first-class agents and "Other agent". The code that writes other agents' configuration files goes, except what Disconnect needs to remove an entry IncarnaMind wrote before.
+- **Settings → Models** ("Add a provider…", #179) opens a directory of every provider in groups that follow the interface language: Popular, International, China, On this computer and Other in English; 常用, 中国, 国际, 本机, 其他 in Chinese. Popular holds what most Users of that language set up first, whatever its tier: Anthropic, OpenAI, Google, Ollama and OpenRouter in English; DeepSeek, Qwen, Kimi, GLM, SiliconFlow and Ollama in Chinese, where the best-effort Kimi and GLM are among the most used. A provider a User already set up shows under their providers whatever its tier.
+- **First-run setup** (#103) offers the first-class providers, and also Kimi and GLM on its key form (#1375). In mainland China few first-class providers work (DeepSeek, Qwen and SiliconFlow), and Kimi and GLM are among the most used there; a first-run line that left them out sent those Users to Settings to find them. The key line names the providers that work for the language, DeepSeek, Qwen, Kimi and GLM in Chinese and OpenAI, Anthropic, Google, DeepSeek and Kimi in English, and each opens its key form in one step; the form's row of choices follows the language (in Chinese DeepSeek, Qwen, Kimi and GLM first). Kimi documents no form for its keys (#2865), so the Chinese line names only what the field recognises, without Kimi, and a Kimi key reaches Kimi through Another service.
+- **What the tiers still decide:** which providers have a key guide of their own, and which are tried by hand before a release. Kimi and GLM have neither.
+- **A best-effort provider can break for a while before anyone notices.** Its errors still reach the User in plain words, and a report moves it up the queue.
+- **Release checks.** `docs/agents/checks.md` ("Before a release, by hand") names the first-class providers and agents. The multi-provider rule for AI features stays as it is.
 
-## Consequences
+## Plans through a sign-in route
 
-- The catalog gains a support field per provider, and the agent list one per agent. The first-run setup lists only first-class providers. Settings → Models lists first-class ones first and the rest under "More providers". A provider a User already set up shows under their providers whatever its tier.
-- `docs/agents/testing.md` names the first-class providers and agents for release checks. The multi-provider rule for AI features stays as it is.
-- Settings → Agents shows the first-class agents and "Other agent". The code that writes other agents' configuration files goes, except what Disconnect needs to remove an entry IncarnaMind wrote before.
-- A best-effort provider can break for a while before anyone notices. Its errors still reach the User in plain words, and a report moves it up the queue.
+Under other ways, the User can sign in with a Claude plan or a GitHub Copilot plan. With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
 
-## Amendment: experimental sign-in routes
-
-A plan can also be reached through an experimental sign-in route, where the User signs in with their own account. Such a route:
+**An experimental sign-in route** (the Claude plan, and Copilot's editor profile) is one where the User signs in with their own account. Such a route:
 
 - is opt-in: listed under other ways, off until the User signs in, never preselected or recommended;
 - says before sign-in, in three sentences with focus on the safe choice, that the provider may refuse or block it, that the account is the User's own, and that it can be turned off at any time in Settings › Models;
 - names the provider in a plain line when it stops working, with a way back to an API key;
 - keeps its client profile in its provider's one configuration module, behind one build flag (`EXPERIMENTAL_SIGN_IN_ROUTES`, `src/core/buildFlags.ts`), so every such route leaves the bundle with a one-line change.
 
-## Amendment: plans through a sign-in route
+**The Copilot plan signs in through IncarnaMind's own GitHub app (#876).** This is the intended regular route, and it replaces the line in ADR-0013 that called its sign-in experimental.
 
-- Under other ways, the User can sign in with a Claude plan or a GitHub Copilot plan. The Claude plan is an experimental sign-in route as the amendment above sets out; the Copilot plan's own sign-in is the intended regular route, not yet tried with a real account (see the Copilot amendment below).
-- With either plan, the setup and Settings say that Answers count toward the plan's usage limits.
+- The User signs in with GitHub's device flow through IncarnaMind's own GitHub OAuth App: a public client ID, the `read:user` scope, no client secret, and requests that identify as IncarnaMind. In the app this route has no Experimental tag, and its notice has no "GitHub may block this sign-in" line. It opens with focus on Sign in, where the experimental routes' notice opens with focus on the safe choice. It is still opt-in, listed under other ways, off until the User signs in and never preselected, and its notice says first, before anything is sent, that Answers count toward the plan's usage limits and what goes to GitHub.
+- **What stays experimental:** the Claude plan, and Copilot's editor profile, which signs in with an editor's client and trades the GitHub token for a Copilot token. The editor profile stays behind `EXPERIMENTAL_SIGN_IN_ROUTES`, is not offered in the window, and leaves the bundle with the flag. When an account signed in with the editor profile, the Copilot row carries the Experimental tag, and it names the plan its token exchange returns.
+- **No plan tier on the own route.** GitHub documents no call that gives an individual's plan to an OAuth App's user token (its Copilot endpoints are for organizations and enterprises). Settings shows "Signed in to GitHub as {account}", which names GitHub and the account and never a plan, and never a tier taken from anywhere else; reading it waits for a documented call (#876). An account GitHub says has no Copilot plan is told so at sign-in, and nothing is kept.
+- **Not yet checked on a real account.** That Copilot's chat API accepts the own app's token, and that the sign-in renews, has been tried against a mock server only. Until a real account has tried it, the READMEs keep calling the Copilot sign-in experimental, that label comes off in its own small pull request once the check has run, and #876 stays open. A refusal shows "GitHub didn't let IncarnaMind use your Copilot plan" with its ways back, and an API key always works.
+- **Release check.** The own route is not one of the first-class providers, and it is tried by hand with a real GitHub account that has a Copilot plan before each release tag (`docs/agents/checks.md`).
 
-## Amendment: Add a provider (#179)
+## Considered options
 
-- Settings → Models no longer splits the key providers into the first-class ones and "More providers". "Add a provider…" opens a directory of every provider in groups that follow the interface language: Popular, International, China, On this computer and Other in English, and 常用, 中国, 国际, 本机, 其他 in Chinese.
-- Popular holds what most Users of that language set up first, whatever its tier: Anthropic, OpenAI, Google, Ollama and OpenRouter in English; DeepSeek, Qwen, Kimi, GLM, SiliconFlow and Ollama in Chinese, where the best-effort Kimi and GLM are among the most used.
-- The tiers still decide what the first-run setup offers, which providers have a key guide, and which are tried by hand before a release.
-
-## Amendment: Kimi and GLM on the first-run key form (#1375)
-
-This changes two earlier lines. Consequences says "The first-run setup lists only first-class providers", and the Add a provider amendment says "The tiers still decide what the first-run setup offers". Neither holds now: the first-run key form lists the first-class providers and Kimi and GLM, which the catalog marks with a `firstRun` field.
-
-- **Why.** In mainland China few first-class providers work (DeepSeek, Qwen and SiliconFlow), and Kimi and GLM are among the most used there. A first-run line that left them out sent those Users to Settings to find them.
-- **The line.** The first-run key line names the providers that work for the language: DeepSeek, Qwen, Kimi and GLM in Chinese; OpenAI, Anthropic, Google, DeepSeek and Kimi in English. Each named provider opens its key form in one step. The form's row of choices follows the language: in Chinese DeepSeek, Qwen, Kimi and GLM come first.
-- **What the tiers still decide.** Which providers have a key guide of their own, and which are tried by hand before a release. Kimi and GLM have neither.
-- **Kimi's keys aren't recognised (#2865).** Kimi documents no form for its keys, so the Chinese line names only what the field recognises, without Kimi, and a Kimi key reaches Kimi through Another service.
-
-## Amendment: the Copilot plan signs in through IncarnaMind's own GitHub app (#876)
-
-This changes the two amendments above for GitHub Copilot, and the line in ADR-0013 that called its sign-in experimental.
-
-- **The intended regular route.** The User signs in with GitHub's device flow through IncarnaMind's own GitHub OAuth App: a public client ID, the `read:user` scope, no client secret, and requests that identify as IncarnaMind. In the app this route has no Experimental tag, and its notice has no "GitHub may block this sign-in" line. It opens with focus on Sign in, where the experimental routes' notice opens with focus on the safe choice. It is still opt-in, listed under other ways, off until the User signs in and never preselected, and its notice says first, before anything is sent, that Answers count toward the plan's usage limits and what goes to GitHub.
-- **What stays experimental.** The Claude plan, and Copilot's editor profile, which signs in with an editor's client and trades the GitHub token for a Copilot token. The editor profile stays behind `EXPERIMENTAL_SIGN_IN_ROUTES`, is not offered in the window, and leaves the bundle with the flag. The experimental-route amendment applies to it as written. When an account signed in with the editor profile, the Copilot row carries the Experimental tag.
-- **The plan tier.** The own route does not read which Copilot plan the account has: GitHub documents no call that gives an individual's plan to an OAuth App's user token (its Copilot endpoints are for organizations and enterprises). Settings shows "Signed in to GitHub as {account}", which names GitHub and the account and never a plan, and never a tier taken from anywhere else; reading it waits for a documented call (#2481). An account GitHub says has no Copilot plan is told so at sign-in, and nothing is kept. The editor profile names the plan its token exchange returns.
-- **What is not yet checked.** The real GitHub/Copilot account check has not run yet. That Copilot's chat API accepts the own app's token, and that the sign-in renews, has been tried against a mock server only. Until a real account has tried it, the READMEs keep calling the Copilot sign-in experimental, that label comes off in its own small pull request once the check has run, and #876 stays open. A refusal shows "GitHub didn't let IncarnaMind use your Copilot plan" with its ways back, and an API key always works.
-- **Release check.** The own route is not one of the first-class providers, and it is tried by hand with a real GitHub account that has a Copilot plan before each release tag (`docs/agents/testing.md`).
+- **Every provider and agent first-class.** Rejected: the upkeep grows with each one, and most would be tested rarely, so a promise we keep for a few becomes one we break for many.
+- **Only aggregators (OpenRouter, SiliconFlow) and the ChatGPT plan.** Rejected: Users with an Anthropic, OpenAI or Google key, often a company key, expect to paste it, and each provider's data terms differ from the aggregator's.
+- **Removing the best-effort providers.** Rejected: a catalog row costs little to keep, and Users who set one up would lose it.
+- **Presets for the coding and token plans of Chinese vendors.** Rejected: most limit use to coding tools or listed tools, and at the usage of a notebook pay-as-you-go costs less than any of them.

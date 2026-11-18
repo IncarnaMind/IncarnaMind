@@ -13,25 +13,23 @@ npm run dist         # the installers for the current system; never published
 
 1. Set the version, commit it and tag it: `npm version 1.2.3`. This updates `package.json` and `package-lock.json`, commits, and creates the tag `v1.2.3`.
 2. Push the commit and the tag: `git push && git push origin v1.2.3`.
-3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It first runs CI on the tagged commit with every smoke spec (`ci.yml`), and builds nothing if a check fails. It checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
-   - for macOS, a dmg and a zip for Apple silicon. Macs with an Intel processor aren't supported (#2199): onnxruntime-node has no Intel macOS library, and the package check fails on any Intel app, installer or update file;
+3. The tag starts the **Release** workflow (`.github/workflows/release.yml`). It first runs CI on the tagged commit with every smoke spec, and builds nothing if a check fails. Then it checks that the tag matches `package.json`, creates a draft GitHub Release, builds, checks each package's contents and size (`npm run check:package`), and only then uploads:
+   - for macOS, a dmg and a zip for Apple silicon. Intel Macs aren't supported (#2199): onnxruntime-node has no Intel macOS library, and the package check fails on any Intel app, installer or update file;
    - for Windows, an NSIS installer, signed once SignPath is set up (see Windows signing);
    - for Linux, an AppImage and a .deb. The .deb is the one that runs with Chromium's sandbox on Ubuntu 24.04 and later. It can't update itself: like the unsigned macOS build, it tells the user a new version is out;
-   - the `latest*.yml` files that auto-update reads.
-   - for macOS and Linux, IncarnaMind's own Python for analyses of whole files, `python-runtime-darwin-arm64.tar.zst` and `python-runtime-linux-x64.tar.zst` (ADR-0025), built on the same runner from `scripts/pythonNative/lock.txt`. Its size and SHA-256 are written into that build's app, which downloads it from this release the first time an analysis runs Python: until the release is published, a tester's copy of a draft can't download it and runs its analyses in the app's own sandbox instead.
+   - the `latest*.yml` files that auto-update reads;
+   - for macOS and Linux, IncarnaMind's own Python for analyses of whole files (ADR-0025), `python-runtime-darwin-arm64.tar.zst` and `python-runtime-linux-x64.tar.zst`, built on the same runner from `scripts/pythonNative/lock.txt`. Its size and SHA-256 go into that build's app, which downloads it from this release the first time an analysis runs Python. Until the release is published, a tester's copy of the draft can't download it and runs its analyses in the app's own sandbox instead.
 
-   Before its upload, each build also loads every engine module in its app, the way the app runs them (`e2e/packaged/engines.packaged.ts`, #1239): the speech engine, OCR, embeddings, the reranker, ONNX Runtime, the OS sandbox and Python. A module that doesn't load fails that build, which names the module and uploads nothing. On macOS the packaged Apple silicon app also transcribes a meeting with its real speech engine (`npm run test:packaged`). A check that fails on one system leaves the other systems' uploads as they are. Never publish a draft without the files of all three: an engine that fails on one system is most likely broken on the others too.
-4. Review the draft, edit its notes (ending with the code signing policy line, see below), try the installers, and click **Publish release**. Installed apps only see an update once its release is published.
+   Before its upload, each build runs the packaged app's engine check ([checks.md](agents/checks.md#the-packaged-apps-engine-check)): a module that doesn't load fails that build, which uploads nothing. On macOS the app also transcribes a meeting with its real speech engine. A failure on one system leaves the other systems' uploads as they are. Never publish a draft without the files of all three: an engine that fails on one system is most likely broken on the others too.
+4. Review the draft, edit its notes (ending with the code signing policy line, below), try the installers, and click **Publish release**. Installed apps see an update only once its release is published.
 
    Every release's notes start with this line, right under the pre-release line, since an Intel Mac with an earlier build is sent to the release's page by its update dialog (#2199):
 
    > **The Mac app needs Apple silicon (M1 or later).** The build for Macs with an Intel processor couldn't search your Documents or read scanned pages, 0.1.0-alpha.5 included, so it's no longer made. On an Intel Mac, your Notes and Documents stay where they are.
 
-After the first release is published, follow the comment in `README.md` (and the one its Chinese counterpart mirrors): add the release badge.
-
 ## macOS signing and notarization
 
-The workflow signs and notarizes the macOS app when these repository secrets exist. Without `CSC_LINK`, it builds an unsigned (ad-hoc signed) app and still succeeds.
+The workflow signs and notarizes the macOS app when these repository secrets exist. Without `CSC_LINK`, it builds an unsigned (ad-hoc signed) app and still succeeds; that build can't update itself, so IncarnaMind tells the user a new version is out and offers its download page.
 
 | Secret | Value |
 | --- | --- |
@@ -40,22 +38,19 @@ The workflow signs and notarizes the macOS app when these repository secrets exi
 | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | To notarize with an Apple ID: the Apple ID, an [app-specific password](https://support.apple.com/102654) and the team ID |
 | `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | Or, to notarize with an App Store Connect API key: the contents of the `.p8` file, its key ID and the issuer ID |
 
-An unsigned macOS build can't update itself: IncarnaMind tells the user a new version is out and offers its download page.
-
 ## Windows signing (SignPath Foundation)
 
-When the `SIGNPATH_API_TOKEN` secret exists, the Release workflow has [SignPath](https://about.signpath.io) sign the Windows app, and then the installer built from it:
+When the `SIGNPATH_API_TOKEN` secret exists, the Release workflow has [SignPath](https://about.signpath.io) sign the Windows app, then the installer built from it:
 
-1. electron-builder packages the app and an installer, as it does without signing. The workflow uploads the app, `dist/win-unpacked`, as a workflow artifact and sends it to SignPath, which signs `IncarnaMind.exe` (artifact configuration `windows-app`).
-2. electron-builder builds the NSIS installer again, from the signed app (`--prepackaged`), and SignPath signs that installer (`windows-installer`). The first installer is built only because electron-builder writes the app's update settings (`resources/app-update.yml`) when it builds an installer, and not with `--dir`.
-3. `scripts/signedInstaller.ts` puts the signed installer in `dist/` and redoes what electron-builder worked out from the unsigned one: the blockmap, and the sha512 and size in `latest.yml`. Auto-update refuses an installer whose hash doesn't match.
-4. A step checks both files with `Get-AuthenticodeSignature`, and fails the job if either isn't signed and timestamped. The job's summary lists each file's signer.
+1. electron-builder packages the app and an installer, as it does without signing. The workflow uploads the app, `dist/win-unpacked`, as a workflow artifact and sends it to SignPath, which signs `IncarnaMind.exe` (artifact configuration `windows-app`). The first installer is built only because electron-builder writes the app's update settings (`resources/app-update.yml`) when it builds an installer, and not with `--dir`.
+2. electron-builder builds the NSIS installer again from the signed app (`--prepackaged`), and SignPath signs that installer (`windows-installer`).
+3. `scripts/signedInstaller.ts` puts the signed installer in `dist/` and redoes the blockmap, and the sha512 and size in `latest.yml`: auto-update refuses an installer whose hash doesn't match.
+4. A step checks both files with `Get-AuthenticodeSignature` and fails the job if either isn't signed and timestamped. The job's summary lists each file's signer.
 
-The artifact configurations in `.signpath/artifact-configurations/` list exactly what SignPath signs, and SignPath refuses a file whose product name isn't IncarnaMind or whose product version isn't the tag's. Electron's and the native modules' libraries are third-party and ship as their authors published them. The uninstaller isn't signed either: electron-builder generates it while it builds the installer, after SignPath has signed the app.
-
-SignPath signs only what this workflow built on GitHub's own runners, which it checks with GitHub. The workflow waits up to two hours for each signing request. With the `release-signing` policy an approver approves each request in SignPath, so a release asks twice: for the app, then a few minutes later for the installer. If a wait runs out, re-run the Windows job.
-
-Without the `SIGNPATH_API_TOKEN` secret, the workflow builds an unsigned installer, as before, warns and still succeeds. With the secret but a variable missing, the job fails and names the variable.
+- The artifact configurations in `.signpath/artifact-configurations/` list exactly what SignPath signs. SignPath refuses a file whose product name isn't IncarnaMind or whose product version isn't the tag's.
+- Electron's and the native modules' libraries are third-party and ship as their authors published them. The uninstaller isn't signed either: electron-builder generates it while it builds the installer, after SignPath has signed the app.
+- SignPath signs only what this workflow built on GitHub's own runners, which it checks with GitHub. The workflow waits up to two hours for each signing request. With the `release-signing` policy an approver approves each request in SignPath, so a release asks twice: for the app, then a few minutes later for the installer. If a wait runs out, re-run the Windows job.
+- Without the `SIGNPATH_API_TOKEN` secret, the workflow builds an unsigned installer, warns and still succeeds. With the secret but a variable missing, the job fails and names the variable.
 
 ### Setting it up
 
@@ -78,7 +73,7 @@ Then push a pre-release tag and read the Windows job's summary.
 
 ### The test certificate
 
-SignPath's test certificate is self-signed, so Windows doesn't trust it: SmartScreen still warns, as it does for an unsigned installer, and the signature check lets that one error pass with a warning. Auto-update still works. electron-builder signs nothing itself, so it writes no `publisherName` into the app's `app-update.yml`, and electron-updater installs an update without checking who signed it.
+SignPath's test certificate is self-signed, so Windows doesn't trust it: SmartScreen still warns, as it does for an unsigned installer, and the signature check lets that one error pass with a warning. Auto-update still works: electron-builder signs nothing itself, so it writes no `publisherName` into the app's `app-update.yml`, and electron-updater installs an update without checking who signed it.
 
 ### Switching to the SignPath Foundation certificate
 
@@ -104,9 +99,14 @@ Users can opt in to crash reports in **Settings → Privacy**; they go to Sentry
 
 ## Calendars
 
-Meetings read Google Calendar and Microsoft 365 with the build's own sign-in clients (#190). Only a build made with them offers those services; the Mac's own calendar needs none. Set `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_ID` and `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_SECRET` (Google's desktop client and its secret, which Google's token endpoint asks for and doesn't treat as confidential in an installed app) and `MAIN_VITE_MICROSOFT_CALENDAR_CLIENT_ID` (Microsoft's public client, which has no secret) when building. The release workflow passes the `GOOGLE_CALENDAR_CLIENT_ID` and `MICROSOFT_CALENDAR_CLIENT_ID` repository variables and the `GOOGLE_CALENDAR_CLIENT_SECRET` repository secret. Never commit the secret.
+Meetings read Google Calendar and Microsoft 365 with the build's own sign-in clients (#190); the Mac's own calendar needs none. Only a build made with them offers those services. Set these when building:
 
-The macOS app reads the Mac's calendar through a small helper of IncarnaMind's own (`native/calendar-helper`), which the packager builds with the Swift compiler of Xcode's command line tools after laying the app out and before signing it (`scripts/afterPack.mjs`), so it is signed and notarized with the app. A Mac that packages the app needs those tools (`xcode-select --install`); GitHub's macOS runners have them.
+- `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_ID` and `MAIN_VITE_GOOGLE_CALENDAR_CLIENT_SECRET`: Google's desktop client and its secret, which Google's token endpoint asks for and doesn't treat as confidential in an installed app.
+- `MAIN_VITE_MICROSOFT_CALENDAR_CLIENT_ID`: Microsoft's public client, which has no secret.
+
+The release workflow passes the `GOOGLE_CALENDAR_CLIENT_ID` and `MICROSOFT_CALENDAR_CLIENT_ID` repository variables and the `GOOGLE_CALENDAR_CLIENT_SECRET` repository secret. Never commit the secret.
+
+The macOS app reads the Mac's calendar through a small helper of IncarnaMind's own (`native/calendar-helper`). The packager builds it with the Swift compiler of Xcode's command line tools after laying the app out and before signing it (`scripts/afterPack.mjs`), so it is signed and notarized with the app. A Mac that packages the app needs those tools (`xcode-select --install`); GitHub's macOS runners have them.
 
 ## Usage data
 

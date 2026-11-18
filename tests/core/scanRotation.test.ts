@@ -127,9 +127,9 @@ describe("A scanned page's quarter-turn (#1819)", () => {
 
   test("a settled candidate does not displace a preferred earlier fallback", async () => {
     const result = await choose(0, [
-      [line("aa", 0.6)],
+      [line("aa", 0.6), line("bb", 0.6, true)],
       [line("aa", 0.95), line("bbb", 0.95, true)],
-      [line("a", 0.85), line("b", 0.85, true)],
+      [line("aa", 0.85), line("bb", 0.85, true)],
       [],
     ]);
 
@@ -142,9 +142,38 @@ describe("A scanned page's quarter-turn (#1819)", () => {
       upright,
       [line("abcde", 0.65)],
       [line("豎排文字上下閱讀", 0.98, true)],
-      [line("fghij", 0.65)],
     ]);
-    expect(result).toMatchObject({ turn: 0, passes: 4, lines: upright });
+    expect(result).toMatchObject({ turn: 0, passes: 3, lines: upright });
+  });
+
+  test("an upright page whose pictures add unsure text is read once (#3289)", async () => {
+    const page = [
+      line("Regional results for the third quarter", 0.97),
+      line("xk3 f9 qq lI1 0o", 0.55),
+      line("rn m vv w zz 1l", 0.6),
+      line("ii ll tt ff jj", 0.58),
+    ];
+    const result = await choose(0, [page]);
+    expect(result).toMatchObject({ turn: 0, passes: 1, lines: page });
+  });
+
+  test("a page of level lines the model can't read is read upside down too, and no other way (#3289)", async () => {
+    const page = [line("xk3 f9 qq lI1 0o", 0.6), line("rn m vv w zz 1l", 0.62)];
+    const result = await choose(0, [page, [line("o0 1Il pp 6j", 0.6)]]);
+    expect(result).toMatchObject({ turn: 0, passes: 2, lines: page });
+  });
+
+  test("a page nothing was read from is read at every turn (#3289)", async () => {
+    const result = await choose(0, [[], [], [], [line("Upright text", 0.98)]]);
+    expect(result).toMatchObject({ turn: 180, passes: 4 });
+  });
+
+  test("an upside-down page with a few sure characters is still turned (#3289)", async () => {
+    const result = await choose(0, [
+      [line("69", 0.95), line("pasdn umop uaddn", 0.6), line("ʇxǝʇ ǝɯos", 0.62)],
+      [line("upper down upside", 0.97), line("some text", 0.98), line("96", 0.95)],
+    ]);
+    expect(result).toMatchObject({ turn: 180, passes: 2 });
   });
 
   test.each([0, 90, 180, 270] as const)(

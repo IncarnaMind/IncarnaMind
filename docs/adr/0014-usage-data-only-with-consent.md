@@ -1,6 +1,6 @@
 # Usage data only with consent, through PostHog in the main process
 
-IncarnaMind sends anonymous usage data, such as "a Question was asked with a local model", only while the User agrees (#187). Until now it collected none. The alpha needs to show which features people use and where they get stuck, and asking testers doesn't scale to that. The events never hold the User's files or anything they wrote.
+IncarnaMind sends anonymous usage data, such as "a Question was asked with a local model", only while the User agrees (#187). The alpha needs to show which features people use and where they get stuck, and asking testers doesn't scale to that. The events never hold the User's files or anything they wrote.
 
 - **Consent.** A release build asks once, after the first Answer to a Question of the User's own, in a card in the sidebar with an example of what is sent; the default is no. A test build (for invited testers, `MAIN_VITE_TESTER_BUILD=1`) sends until the User says no, because testers agree to it when they join; its first run says so, in a notice in the same place, with the switch. The choice lives in Settings → Privacy. Local mode turns usage data off. Turning it off stops sending at once and drops the queue.
 - **One catalog.** Every event and field is declared in `src/core/usageEvents.ts`, and listed for people in `docs/privacy.md`. A field is a value from a closed list, a count or a flag: no field can hold free text. The core checks each event against the catalog before it leaves. A guard test keeps every other analytics package out of the dependency tree, and keeps the PostHog SDK out of every file but the sender.
@@ -9,7 +9,7 @@ IncarnaMind sends anonymous usage data, such as "a Question was asked with a loc
 
 ## Considered options
 
-- **Keep collecting nothing.** Rejected for the alpha: what testers do is what decides the next stage. Usage data stays off unless the User agrees, except in a test build whose testers agreed when they joined.
+- **Keep collecting nothing.** Rejected for the alpha: what testers do is what decides the next stage.
 - **posthog-js in the renderer.** Rejected. It brings autocapture, session replay, surveys and feature flags, which would all have to be turned off and kept off. It would also give the window network access, which nothing else in it has.
 - **Our own endpoint** (#164, planned for the onboarding picks). Not built: anything the first run would ask, such as which example was opened (`example_opened`, #123), is a usage event under the same consent, so no second endpoint is needed.
 - **Our own HTTP sender to PostHog's API.** Rejected in favour of the official SDK, which is open source (MIT) and maintained with the API.

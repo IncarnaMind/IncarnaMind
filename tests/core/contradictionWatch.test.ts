@@ -11,13 +11,16 @@ import { describe, expect, test, vi } from "vitest";
 import { type Core, createOllamaModels, type Document } from "../../src/core";
 import type { Logger } from "../../src/core/adapters";
 import {
+  type CalculatedFigure,
   CONTENT_SCHEMA_VERSION,
   CONTENT_SCHEMA_VERSION_KEY,
   MIND_SETTINGS_FIELD,
 } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { contradictionWatchOf } from "../../src/shared/contradictionWatch";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { setMindModel } from "../../src/shared/mindModel";
 import {
   checkGenerate,
@@ -63,7 +66,6 @@ const QUIET_OFFICE = "# Harbour office\n\nThe harbour office opens at nine in th
 const YEARLY = "Harbours publish the times of high water every year.";
 const MOON = "Spring tides come at new and full moon.";
 const UNCITED = "Penguins nest on the cliffs above the harbour.";
-const FERRY = "The ferry carries 120 cars a day.";
 
 const PLANS: Record<string, Plan> = {
   [YEARLY]: {
@@ -73,11 +75,6 @@ const PLANS: Record<string, Plan> = {
   },
   [MOON]: { verdict: "unsupported" },
   [UNCITED]: { verdict: "contradicted", quote: "opens at nine" },
-  [FERRY]: {
-    verdict: "contradicted",
-    quote: "The ferry carries 80 cars a day.",
-    says: "The harbour office says the ferry carries 80 cars a day.",
-  },
 };
 
 const text = (value: string): JSONContent => ({ type: "text", text: value });
@@ -97,6 +94,67 @@ const citation = (document: Document, quote: string): JSONContent => ({
     check: "found",
     checkReason: null,
   },
+});
+
+/** An Analysis's figure whose run the Note doesn't keep: its saved calculation is its working. */
+const analysisFigure: CalculatedFigure = {
+  label: "Tide tables printed",
+  formula: "",
+  inputs: [],
+  value: 10,
+  unit: { kind: "plain" },
+  approximate: false,
+  shown: "10",
+  show: { language: "en", as: "number", decimals: 0, scale: null },
+  literals: [],
+  engine: FORMULA_VERSION,
+  written: null,
+  analysis: { analysis: 1, result: "tables" },
+};
+
+/** A figure an Answer worked out from a number it quoted from `document`. */
+const formulaFigure = (document: Document): CalculatedFigure => ({
+  label: "Charts printed",
+  formula: "charts",
+  inputs: [
+    {
+      name: "charts",
+      label: "Charts printed",
+      citation: {
+        passageId: "passage-2",
+        documentId: document.id,
+        documentName: document.name,
+        contentHash: document.contentHash,
+        pageFrom: null,
+        pageTo: null,
+        location: null,
+        quote: "The office prints 12 charts.",
+        check: "found",
+        checkReason: null,
+      },
+      number: {
+        chars: "12",
+        at: 18,
+        value: 12,
+        scale: 1,
+        scaleWord: null,
+        unit: { kind: "plain" },
+        decimals: 0,
+        approximate: false,
+        reading: null,
+      },
+      cell: null,
+      unitStatement: null,
+    },
+  ],
+  value: 12,
+  unit: { kind: "plain" },
+  approximate: false,
+  shown: "12",
+  show: { language: "en", as: "number", decimals: 0, scale: null },
+  literals: [],
+  engine: FORMULA_VERSION,
+  written: null,
 });
 
 /**
@@ -219,29 +277,6 @@ describe("Check for contradictions", () => {
     });
     // The Document the claims cite is never searched, nor is the uncited sentence checked.
     expect(searched(calls)).toEqual(new Set([office.name]));
-  });
-
-  test("a contradicted figure keeps its own result, as the one Check gives it", async () => {
-    const { core, tides, folder } = await setUp({
-      office: "# Harbour office\n\nThe ferry carries 80 cars a day.\n",
-    });
-    const mind = await core.createMind({ title: "Ferry notes", folderId: folder.id });
-    const client = await connectToMind(core, mind.id);
-    writeMind(client, [
-      {
-        type: "paragraph",
-        attrs: { id: "ferry" },
-        content: [text(`${FERRY} `), citation(tides, YEARLY)],
-      },
-    ]);
-    await client.settled();
-
-    await core.checkContradictions({ requestId: "r1", mindId: mind.id });
-    const [check] = await shownChecks(core, client, folder.id);
-    expect(check?.shown).toEqual({ state: "contradicted" });
-    expect(check?.check.figures?.map((figure) => [figure.reading.chars, figure.state])).toEqual([
-      ["120 cars", "contradicted"],
-    ]);
   });
 
   test("Check again on its mark checks that sentence again, after a new version of its evidence", async () => {
@@ -727,13 +762,7 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
 });
 
 describe("A User who allowed checks before they sent more", { timeout: 30_000 }, () => {
-  const MORE = [
-    "library-counts",
-    "library-names",
-    "file-properties",
-    "absence-documents",
-    "watched-sentences",
-  ];
+  const MORE = ["watched-sentences"];
 
   /** A cloud model whose checks flow the User allowed before it sent `more`, and a note citing Tides in the Folder. */
   async function allowedBefore(more: readonly string[]) {
@@ -775,7 +804,7 @@ describe("A User who allowed checks before they sent more", { timeout: 30_000 },
       await core.reconcileDocuments();
       await waitForProcessing(core, [office.id]);
     };
-    return { core, calls, asked, folder, mind, client, newVersion };
+    return { core, calls, asked, tides, folder, mind, client, newVersion };
   }
 
   // protects=the watch never stops without a word: allowed before the checks flow named its sentences, a new version records that it waits, sends nothing and asks nothing; Review…'s check asks once, for what is new, then checks (#2525); fails_when=it sends on the earlier consent, asks in the background, or records nothing.
@@ -802,26 +831,53 @@ describe("A User who allowed checks before they sent more", { timeout: 30_000 },
     ]);
   });
 
-  // protects=the watch waits only on what it sends: allowed before checks sent the Library's counts and names, which the watch never sends, it runs on a new version without asking; fails_when=it waits, or asks in the background, for kinds it doesn't send.
-  test("the watch waits only on what it sends: the Library's facts missing, it still runs", async () => {
-    const { core, calls, asked, folder, client, newVersion } = await allowedBefore([
-      "library-counts",
-      "library-names",
+  // protects=the watch never sends how an Answer's figure was worked out, which its consent doesn't cover: allowed before the checks flow sent it, the watch still runs without asking and judges the figure's sentence from the Passages alone, beside the cited sentence; the Check the User runs asks for the working, then sends it; fails_when=a background request carries a figure's saved calculation or Analysis record, the watch asks in the background or stops, or the User's Check doesn't send the working.
+  test("the watch sends no figure's working: only a Check does", async () => {
+    const { core, calls, asked, tides, mind, client, newVersion } = await allowedBefore([
+      "worked-figures",
     ]);
-    await newVersion();
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "cited" },
+        content: [text(`${YEARLY} `), citation(tides, YEARLY)],
+      },
+      {
+        type: "paragraph",
+        attrs: { id: "worked" },
+        content: [
+          text("The harbour office prints "),
+          calculatedFigureNode(analysisFigure, "tables", "run"),
+          text(" tide tables and "),
+          calculatedFigureNode(formulaFigure(tides), "charts", null),
+          text(" charts a year. "),
+          citation(tides, YEARLY),
+        ],
+      },
+    ]);
+    await client.settled();
 
-    await vi.waitFor(
-      async () =>
-        expect((await shownChecks(core, client, folder.id)).map((each) => each.shown)).toEqual([
-          { state: "contradicted" },
-        ]),
-      { timeout: 10_000 },
-    );
+    await newVersion();
+    const worked = () => calls.filter((call) => sentenceOf(call).includes("tide tables"));
     await vi.waitFor(() =>
-      expect(contradictionWatchOf(client.doc)).toMatchObject({ checked: 2, stop: null }),
+      expect(contradictionWatchOf(client.doc)).toMatchObject({ claims: 2, checked: 2 }),
     );
     expect(asked).toEqual([]);
-    expect(calls.length).toBeGreaterThan(0);
+    expect(worked().length).toBeGreaterThan(0);
+    for (const call of worked()) {
+      expect(call.prompt).not.toContain('"saved"');
+      expect(call.prompt).not.toContain('"analysis"');
+      expect(call.prompt).not.toContain("Tide tables printed");
+    }
+
+    const before = worked().length;
+    await core.checkContradictions({ requestId: "review", mindId: mind.id });
+    expect(asked).toEqual([["worked-figures"]]);
+    expect(
+      worked()
+        .slice(before)
+        .some((call) => call.prompt.includes("Tide tables printed")),
+    ).toBe(true);
   });
 });
 

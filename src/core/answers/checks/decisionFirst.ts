@@ -6,8 +6,8 @@
  * search ranks it, since the decision model reads them all. One request asks the decision model
  * two questions of each: does it state the sentence, and does it say the opposite. A score clear
  * of that model's measured line (./decisionLines) is the sentence's verdict once its Passage,
- * asked about alone, scores clear of the line again, and a number the Passage writes another way
- * is the same amount. The verdict's quote is the sentence of that Passage the model scores highest
+ * asked about alone, scores clear of the line again, and the model says each number the sentence
+ * writes is the amount the Passage gives: in its unit, scale and period. The verdict's quote is the sentence of that Passage the model scores highest
  * on the verdict's question; a table's row is quoted whole. Where that line, asked about alone,
  * doesn't score clear of the quote's own line, or is longer than a check stores, the verdict rests
  * on its Passage and says no quote: the line only places it in the Document. A line the model
@@ -26,25 +26,18 @@
  * searches puts the Passages the decision model found to be about the sentence first, the surest
  * first, and no reranking model scores them again.
  *
- * A sentence the decision model can't read goes to its check unread: one of more than one part or
- * of none that is a fact, one checked in part, one whose check reads more than Passages (a record
- * cite, a court decision, a whole read), one whose Documents disagree, and one the decision model
- * couldn't be asked about.
+ * A sentence the decision model can't read goes to its check unread: one whose check reads more
+ * than Passages (a record cite, a court decision, a figure IncarnaMind worked out), one whose
+ * Citations a wall or its Search scope keeps from it, and one the decision model couldn't be
+ * asked about.
  */
 import { caseCitations } from "../../../shared/caseCitations";
 import {
   CHECK_QUOTE_CHARS_AT_MOST,
   partWithResult,
-  readPartPlans,
   resultFromParts,
 } from "../../../shared/claimParts";
-import type {
-  Citation,
-  ClaimCheckResult,
-  ClaimFirstReading,
-  ClaimPartPlan,
-  ClaimVerdict,
-} from "../../api";
+import type { Citation, ClaimCheckResult, ClaimFirstReading, ClaimVerdict } from "../../api";
 import type { Evidence } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import type { JevNoulQuestion } from "../../providers/jev";
@@ -66,7 +59,7 @@ import {
 } from "./decisionLines";
 import { quotableLines } from "./nearest";
 import { type CheckRuns, checkRunOf, recordCheck } from "./runCheck";
-import { numbersNotWritten } from "./writtenNumbers";
+import { numbersWritten } from "./writtenNumbers";
 
 /** A decision model chosen for checks, ready to be asked through one run. */
 export interface DecisionReader {
@@ -255,7 +248,7 @@ async function holdsAlone(
   ifLimitsKept: boolean,
   signal: AbortSignal,
 ): Promise<boolean> {
-  const amounts = side === "supported" ? numbersNotWritten(request.claim, passage.text) : [];
+  const amounts = side === "supported" ? numbersWritten(request.claim) : [];
   const [alone, amount] = await Promise.all([
     scoresAlone(reader, request, passage, signal),
     amounts.length > 0
@@ -333,27 +326,13 @@ async function mayQuote(
 }
 
 /**
- * The sentence's one part, when it is a fact and the whole sentence but for the spaces and
- * punctuation around it: what the lines were measured on.
- */
-function wholeFact({ parts, claim }: ClaimCheckRequest): ClaimPartPlan | null {
-  const [only, ...more] = (parts && readPartPlans(parts, claim)) ?? [];
-  if (!only || more.length > 0 || only.kind !== "fact") return null;
-  const around = claim.slice(0, only.span.start) + claim.slice(only.span.end);
-  return /^[\s\p{P}]*$/u.test(around) ? only : null;
-}
-
-/**
- * Whether the request is a check of its whole sentence that reads Passages, which a decision
- * model can read too. A figure IncarnaMind worked out rests on its calculation's record, which a
- * decision model is never given.
+ * Whether the sentence's check reads only Passages, which a decision model can read too. A figure
+ * IncarnaMind worked out rests on its calculation's record, which a decision model is never given.
  */
 function readsPassages(deps: ClaimCheckDependencies, request: ClaimCheckRequest): boolean {
   return (
-    request.only === undefined &&
-    request.figureIds === undefined &&
-    !request.figures?.some((figure) => figure.calculated !== null) &&
-    !request.window &&
+    request.claim.trim() !== "" &&
+    !request.figures?.length &&
     recordCiteSpans(request.claim).length === 0 &&
     caseCitations(request.claim).length === 0 &&
     keptInside(deps, request) === null &&
@@ -453,10 +432,10 @@ export function createFirstReading(deps: Dependencies) {
     reader: DecisionReader,
     leans?: (firstReading: ClaimFirstReading) => void,
   ): Promise<FirstReading> => {
-    const plan = wholeFact(request);
-    if (!plan || !readsPassages(deps, request)) return null;
+    if (!readsPassages(deps, request)) return null;
+    const plan = { kind: "fact" as const, span: { start: 0, end: request.claim.length } };
     const { signal } = request;
-    const results = createCheckResults(request);
+    const results = createCheckResults();
     const found = await deps.evidence.best(request.claim, request.scope, PASSAGES_READ, signal);
     const cited = citedSources(request.cited ?? [], request.scope, deps.documents).map(asPassage);
     const passages = [

@@ -85,9 +85,10 @@ import type { PictureProblem } from "./web/pictures";
  * bracket's currency and scale, and a heading that only looks like a scale
  * states none). 28: #2426 (a web page's merged cells fill every column they
  * span, and a sheet's rows keep their blank cells at the end up to its last
- * column, so a table's rows line up with its heading row).
+ * column, so a table's rows line up with its heading row). 29: #3289 (a PDF
+ * page larger than A4 with its own text is no longer read from its picture).
  */
-export const PROCESSING_VERSION = 28;
+export const PROCESSING_VERSION = 29;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -138,7 +139,9 @@ export const PROCESSING_VERSION = 28;
  * text, Passages and embeddings come out as they were. Version 28 only web
  * pages', workbooks' and CSVs', whose table rows keep their blank and merged
  * cells; a Word file's come out as they were, its reader having kept them
- * since version 23 (#2426).
+ * since version 23 (#2426). Version 29 only PDFs' pages larger than A4 that
+ * were read from their pictures although they had their own text, which
+ * `SCAN_CURRENT_SINCE` reads again (#3289).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 27,
@@ -198,14 +201,16 @@ export const NAME_INDEX_CURRENT_SINCE = 15;
  * For a PDF with a page that has little or no text (a scan, maybe), or a
  * page read from its picture, the oldest version that reads such pages as
  * this one would: since version 9 they are read from their pictures (#397),
- * and since version 12 a quarter-turned page is normalized first (#1819).
+ * since version 12 a quarter-turned page is normalized first (#1819), and
+ * since version 29 a page larger than A4 with its own text keeps that text
+ * (#3289): the pages still read from pictures are kept as they were read.
  * Such a PDF processed by an older version is processed again at startup;
  * its pages of text come out as they were. When how pages are read changes
  * (`TextRecognitionModelDefinition.reader`), bump this with the processing
  * version: the pages read before are read again, except those a Citation
  * quotes, which are kept as they were read (see `ScanJob.keep`).
  */
-export const SCAN_CURRENT_SINCE = 12;
+export const SCAN_CURRENT_SINCE = 29;
 
 /**
  * For a web page saved with its pictures, the oldest version that reads

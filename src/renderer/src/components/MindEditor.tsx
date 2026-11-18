@@ -1,5 +1,4 @@
 import { fingerprintOfMind } from "../../../shared/mindState";
-import { useLibraryFactsNow } from "../editor/libraryFactsNow";
 import { OpinionMenu } from "../editor/OpinionMenu";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import "katex/dist/katex.min.css";
@@ -799,16 +798,10 @@ function MindEditorView({
   const folderId = useAppStore(
     (state) => state.minds.find((each) => each.id === mindId)?.folderId ?? null,
   );
-  const libraryFacts = useLibraryFactsNow(editor, mindId);
   const versions = useMemo(
     () =>
-      documents
-        ? new Map([
-            ...documents.map((each) => [each.id, each.contentHash] as const),
-            ...libraryFacts,
-          ])
-        : null,
-    [documents, libraryFacts],
+      documents ? new Map(documents.map((each) => [each.id, each.contentHash] as const)) : null,
+    [documents],
   );
   const scope = useMindScope(doc);
   const schedule = useFigureSchedule(mindId, doc);

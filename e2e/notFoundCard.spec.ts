@@ -56,7 +56,6 @@ const LANGUAGES = {
     cut: "Cut it",
     keep: "Keep as my view",
     searchAll: "Search all Documents",
-    checkDocument: "Check against a Document…",
     chooseCitation: "Choose the Citation…",
     findSources: "Find sources…",
     findSourcesSearch: "find sources",
@@ -73,7 +72,6 @@ const LANGUAGES = {
     cut: "删除这句",
     keep: "保留为我的观点",
     searchAll: "搜索全部文档",
-    checkDocument: "对照指定文档核对…",
     chooseCitation: "选择引用…",
     findSources: "查找资料…",
     findSourcesSearch: "查找资料",
@@ -87,7 +85,6 @@ const LANGUAGES = {
 
 const IDS = {
   searchAll: "claim-search-all",
-  checkDocument: "claim-check-document",
   chooseCitation: "claim-choose-citation",
   cut: "claim-cut-sentence",
   keep: "claim-keep",
@@ -103,14 +100,7 @@ const BUTTONS = [IDS.searchAll, IDS.keep];
  * Every other action, under the card's one ⋯ in the order the card has always had them, then Find
  * sources…, the check's own command, after them as every object menu lists its kind's.
  */
-const IN_MENU = [
-  IDS.checkDocument,
-  IDS.chooseCitation,
-  IDS.cut,
-  IDS.searchWeb,
-  IDS.remove,
-  IDS.findSources,
-];
+const IN_MENU = [IDS.chooseCitation, IDS.cut, IDS.searchWeb, IDS.remove, IDS.findSources];
 
 /** How many lines a control's label takes. */
 const labelLines = (control: Locator) =>
@@ -273,7 +263,6 @@ for (const language of ["en", "zh-CN"] as const) {
         .locator('[role="menuitem"]:not([data-testid="claim-about-lines"])')
         .evaluateAll((all) => all.map((each) => each.getAttribute("data-testid")));
       expect(listed).toEqual(IN_MENU);
-      await expect(menu.getByTestId(IDS.checkDocument)).toHaveText(words.checkDocument);
       await expect(menu.getByTestId(IDS.chooseCitation)).toHaveText(words.chooseCitation);
       await expect(menu.getByTestId(IDS.cut)).toHaveText(words.cut);
       await expect(menu.getByTestId(IDS.findSources)).toHaveText(words.findSources);

@@ -1,6 +1,6 @@
 # IncarnaMind: how to work on it
 
-These rules are for everyone who changes this repository, people and coding agents alike (Claude Code, Codex, Cursor or any other). They are short; the detail lives in the files they point to. When you brief another agent, pass this file on.
+Rules for everyone who changes this repository, people and coding agents alike. The detail lives in the files they point to. When you brief another agent, pass this file on.
 
 ## Words and decisions
 
@@ -9,29 +9,18 @@ These rules are for everyone who changes this repository, people and coding agen
 
 ## Agent skills
 
-### Issue tracker
-
-Issues live in GitHub Issues on `IncarnaMind/IncarnaMind`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The default five labels: `needs-triage`, `needs-info`, `ready-to-build`, `needs-owner`, `wontfix`, and one of `priority:P0` to `priority:P3` on every triaged issue. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Issues are GitHub Issues on `IncarnaMind/IncarnaMind`, through the `gh` CLI ([`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md)). Their labels are in [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md), and the domain docs are `CONTEXT.md` and `docs/adr/` ([`docs/agents/domain.md`](docs/agents/domain.md)).
 
 ## Writing code
 
-1. **Read before you write.** Read the issue, the ADRs it touches and the code around the change. Use an existing module, helper or shared building block before adding one; when something is needed a second time, move it somewhere shared rather than copying it. When you take a work item (`docs/agents/issue-tracker.md`), read each member once and build them in one branch.
+1. **Read before you write.** Read the issue and the code around the change. Use an existing module, helper or shared building block before adding one; when something is needed a second time, move it somewhere shared rather than copying it.
 2. **Make the smallest change that fully does the job.** Don't add abstractions, options or flags that nothing needs yet. Don't take a shortcut that leaves the User a worse experience either. Plan it as a short list of the concrete changes, not as a planning document.
 3. **Respect the layers.**
    - `src/core` is the product and never imports Electron; Biome enforces this. Pass a capability in as an adapter instead.
-   - `src/main` is the Electron shell.
-   - The renderer reaches the core only through the bridge (`src/shared/bridge.ts`).
-   - Keep the core portable to other hosts and ready for sync ([`docs/agents/portability.md`](docs/agents/portability.md)). Node built-ins go through adapters, `fetch` is passed in, the core API stays structured-clone-safe, OAuth takes its redirect from the host, and secrets never sync.
+   - `src/main` is the Electron shell, and the renderer reaches the core only through the bridge (`src/shared/bridge.ts`).
+   - The core stays portable to other hosts and ready for sync. Read [`docs/agents/portability.md`](docs/agents/portability.md) before `src/core` gains a Node built-in, a storage feature, a model call, a sign-in or a change to its API.
 4. **Keep files focused.** Put a new feature in its own component, hook or core module rather than growing `App.tsx` or another long file.
-5. **Fix types; don't silence them.** TypeScript is strict. No `any`, no `@ts-ignore`, and no `!` assertion just to quiet the compiler.
+5. **Fix types; don't silence them.** No `any`, no `@ts-ignore`, and no `!` assertion just to quiet the compiler.
 6. **Never swallow an error.** A failure the User can act on becomes a problem in plain words, where it happened (`DESIGN.md`, Problems). Log the rest with enough context to find it.
 7. **Data changes are migrations** (`src/core/storage/migrations.ts`).
    - Take the next free number after the highest on `main`, and check it again after merging `main`.
@@ -50,50 +39,25 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
     - Don't change another checkout or the User's data folder, and don't drive the User's apps.
     - Use temporary data folders and a temporary home folder for anything you run.
     - Run `npm ci` in your own worktree before anything that rebuilds native modules, rather than rebuilding a shared `node_modules`.
-13. **Read your own diff before you open the pull request,** as a reviewer would, against the issue's acceptance criteria and these rules. Answer a reader's comments by fixing them or by saying why not. Of the automated reviewer's, only its Major and Critical comments need a reply, and a push that only fixes what a reader asked doesn't wait for its next review.
+13. **Read your own diff before you open the pull request,** as a reviewer would, against the issue's acceptance criteria and these rules.
 
 ## Tests and CI
 
-Read [`docs/agents/testing.md`](docs/agents/testing.md). Work is done when its pull request's CI is green, not when one test passes on your computer.
+Work is done when its pull request's CI is green, not when one test passes on your computer. Read [`docs/agents/testing.md`](docs/agents/testing.md) before you write or change a test: what runs where, tests that pass on any machine, AI features and the edge cases to try. [`docs/agents/checks.md`](docs/agents/checks.md) says how each check works, for when one fails or a workflow changes.
 
-- On your computer, run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed. CI runs the unit tests your changes reach and the smoke specs your pull request adds or changes; every test runs nightly and before a release. To check specs your change doesn't touch, run them on GitHub with `node scripts/run-specs.mjs`, not on your computer.
-- Try the edge cases in `docs/agents/testing.md` that apply (empty and huge input, Chinese, broken files, offline, failing models, quitting halfway, twice and Undo), and say which in the pull request.
-- Update or remove the tests for UI you changed.
-- A feature with a real engine (transcription, OCR, embeddings, the reranker, Python analysis) also needs a test that loads the real module the way the built app does. The fake engines are for everything else.
-- Tests must pass on any machine:
-  - launch through `e2e/app.ts` and set the window size;
-  - assert relations rather than exact pixels;
-  - wait for states rather than times;
-  - keep wall-clock limits out of unit tests.
+- On your computer, run `npm run typecheck`, `npm run lint` and the unit tests of the files you changed; CI runs the rest.
 - Test through the core's public interface, as the UI uses it, and assert what a User would see. Tests need no API keys and no network.
 - Automated tests use the scripted chat model. A change to AI behaviour (a prompt, a tool description, a model choice) is proven on a real model, Claude Haiku 5.5 (Sonnet 5.5 for a hard feature), and its pull request gives the numbers and the models. Where the change moves no check's verdict, one small run is enough: a dozen or so runs of everyday requests.
 
 ## UI
 
 - Read `DESIGN.md` before visual work: the fonts, colours, spacing and direction. Ask before departing from it, and flag code that doesn't match it.
-- Read [`docs/agents/interaction.md`](docs/agents/interaction.md) before building or changing any UI. The bar: easy to use and easy to pick up, not fewer features. In short:
-  - borrow familiar conventions;
-  - edit in place;
-  - every drag has a non-drag alternative;
-  - never replace the Note the User is in;
-  - Undo instead of confirmations;
-  - one right-click menu order and one selection model;
-  - the keyboard and ⌘K reach everything;
-  - feedback within 100 ms;
-  - motion only from the shared module (`src/renderer/src/motion.ts`), as `DESIGN.md` › Motion says, with no hand-written transitions;
-  - layouts that hold at every width, in English and Chinese.
-  - teach features where they live, not in onboarding, which only gets the User to a first checked Answer.
-- Build to the interactive prototype's behaviour, not to a still design board: a board fixes the looks only. Where the built screen behaves differently, fix it or say why in the pull request.
-- A UI pull request shows before and after screenshots, and a short recording of the built flow when its behaviour changed. One set covers every issue in a UI theme.
+- Read [`docs/agents/interaction.md`](docs/agents/interaction.md) before building or changing any UI. The bar: easy to use and easy to pick up, not fewer features, built to the interactive prototype's behaviour.
 
 ## Commits and pull requests
 
-- Sign off every commit (`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
-- One feature or theme per pull request, built whole, with no line limit. A theme is one screen or one flow the User sees; split only when a part is another screen or flow, or another priority tier. Never mix a P0 or P1 issue with a P2 or P3 one, and a P0 or P1 never waits for a batch to fill. A part of a request that is decided and finished ships at once as its own pull request; it doesn't wait for a part still to be decided.
-- Say what the User gets and why, in about ten lines. List each issue's acceptance criteria with ticks: "Closes #123" only when all are met, otherwise "Part of #123" with a line "What is left".
-- A bug you find in the screen or flow you are building is part of that pull request: fix it there and name it in the description. File an issue only when it is another screen or flow, needs a paid model run, a migration, a decision or a second reader the pull request wouldn't otherwise have, waits for unmerged work, or would hold up a P0 or P1. A reviewer asks for such a fix in the pull request under review.
-- File issues one per theme, as [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) › Filing an issue says.
-- Push when the feature is finished and fully tested, and open the pull request ready, so CI starts at once: one pull request for the whole feature, not a run of small ones, and as few pushes as you can. A fix for a broken `main` (a red check, or a regression a merge caused) doesn't wait: it lands at once, by itself. Merge `main` into your branch to resolve a conflict or to pick up something you need.
-- Watch CI with `gh pr checks <number> --watch --interval 300`. A pull request merges when its sign-off check and CI are green (about 10 minutes), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13).
-- There is no separate review round, except for a change to the User's data, privacy or consent, a check's verdict or a Citation, AI behaviour, the sandbox, CI's checks, a migration or a dependency: one other person reads that, once and in one round. Only a wrong mark, lost data or something sent without consent blocks it; the rest is fixed in place or noted, and a fix gets one line on what changed, not a new read.
-- The whole suite runs on `main` every night; a red night is fixed before new work.
+- Only the owner pushes to `main` directly. Everyone else, coding agents included, lands work through a pull request.
+- Sign off every commit in a pull request (`git commit -s`); see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- One pull request per feature, built whole: push when it is finished and fully tested, and open it ready, so CI starts at once. A part that is decided and finished ships at once as its own pull request, and so does a fix for a broken `main`.
+- A bug you find in the screen or flow you are building is fixed in that pull request and named in its description. File an issue only when it belongs to another screen or flow, or needs something the pull request doesn't have: a paid model run, a migration or a decision.
+- Merge your own pull request when its sign-off check and CI are green (`gh pr checks <number> --watch --interval 300`), or each red check is a known flaky spec named with its issue, and you have read your own diff (rule 13). Nothing waits for a reader, and of the automated reviewer's comments only Major and Critical ones need a reply.
