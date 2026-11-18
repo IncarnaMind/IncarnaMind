@@ -2,6 +2,7 @@ import type {
   CalculatedFigure,
   CheckedVersion,
   CheckFigure,
+  CheckWorking,
   Citation,
   CitationAttributes,
   CitationCheckReason,
@@ -60,6 +61,10 @@ const FAILURES: Record<ClaimCheckFailure, true> = {
   "consent-widened": true,
   "kept-inside": true,
   "outside-scope": true,
+  "rows-run-failed": true,
+  "rows-run-timed-out": true,
+  "rows-unavailable": true,
+  "rows-cut": true,
   analysis: true,
   "analysis-gone": true,
   "absence-read-limit": true,
@@ -209,6 +214,35 @@ export function readClaimCalculation(value: unknown): ClaimCalculation | null {
     ...((value.relation === "at most" || value.relation === "at least") && {
       relation: value.relation,
     }),
+  };
+}
+
+/** A check's working over a data file's rows, as a mark keeps it; null when it can't be read. */
+export function readCheckWorking(value: unknown): CheckWorking | null {
+  if (!isRecord(value) || typeof value.title !== "string" || typeof value.code !== "string")
+    return null;
+  if (!Array.isArray(value.rows) || !Array.isArray(value.figures)) return null;
+  const rows: CheckWorking["rows"] = [];
+  for (const each of value.rows as unknown[]) {
+    const citation = isRecord(each)
+      ? checkedCitation(citationOf(each.citation) ?? undefined)
+      : null;
+    if (!isRecord(each) || !citation || typeof each.range !== "string") return null;
+    if (typeof each.count !== "number") return null;
+    rows.push({ citation, range: each.range, count: each.count });
+  }
+  const figures: CheckWorking["figures"] = [];
+  for (const each of value.figures as unknown[]) {
+    if (!isRecord(each) || typeof each.label !== "string" || typeof each.value !== "number")
+      return null;
+    figures.push({ label: each.label, value: each.value, unit: text(each.unit) });
+  }
+  return {
+    title: value.title,
+    code: value.code,
+    rows,
+    figures,
+    ranAt: typeof value.ranAt === "string" ? value.ranAt : "",
   };
 }
 
@@ -663,6 +697,7 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
     value.evidence === null ? null : checkedCitation(citationOf(value.evidence) ?? undefined);
   const unsupported = readUnsupportedReason(value.unsupported);
   const calculation = readClaimCalculation(value.calculation);
+  const working = readCheckWorking(value.working);
   const correction = verdict === "contradicted" ? readClaimCorrection(value.correction) : null;
   if (
     !verdict ||
@@ -690,6 +725,7 @@ function judgmentOf(value: unknown): ClaimPartJudgment | null {
     says: text(value.says),
     unsupported,
     calculation,
+    ...(working && { working }),
     citedCaseUnchecked: value.citedCaseUnchecked,
     citedCaseFound: value.citedCaseFound,
   };
@@ -803,6 +839,7 @@ export function readClaimParts(
       return null;
     const unsupported = readUnsupportedReason(each.unsupported);
     const calculation = readClaimCalculation(each.calculation);
+    const working = readCheckWorking(each.working);
     if (
       (each.unsupported !== null && unsupported === null) ||
       (each.calculation !== null && calculation === null)
@@ -868,6 +905,7 @@ export function readClaimParts(
       says: text(each.says),
       unsupported,
       calculation,
+      ...(working && { working }),
       reason,
       detail: text(each.detail),
       versions,
@@ -993,6 +1031,7 @@ export function partWithResult(
           says: result.says,
           unsupported: result.unsupported,
           calculation: result.calculation,
+          ...(result.working && { working: result.working }),
           citedCaseUnchecked: result.citedCaseUnchecked,
           citedCaseFound: result.citedCaseFound,
         }),
@@ -1343,6 +1382,7 @@ export function resultFromParts(parts: readonly ClaimCheckPart[]): ClaimCheckRes
     says: outcome.part.says,
     unsupported,
     calculation: outcome.part.calculation,
+    ...(outcome.part.working && { working: outcome.part.working }),
     citedCaseUnchecked: checked.some(({ part }) => part.citedCaseUnchecked),
     citedCaseFound: checked.some(({ part }) => part.citedCaseFound),
   };

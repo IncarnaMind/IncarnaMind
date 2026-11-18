@@ -4,7 +4,9 @@
  * look goes through, and the court decisions the sentence cites.
  */
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
-import type { Citation, ClaimCheckResult } from "../../api";
+import type { AnalysisRuntime } from "../../adapters";
+import { analysisTool } from "../../analysis/tool";
+import type { AnswerAnalysis, Citation, ClaimCheckResult } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
@@ -141,6 +143,8 @@ export function setUpRun(
   results: Pick<CheckResults, "readVersion" | "leftOut">,
   /** The model is offered `calculate`, the calculator Answers use (ADR-0021). */
   calculates = false,
+  /** Given, the model is offered the Analysis Tool, to work a figure out over a data file's rows. */
+  runtime?: AnalysisRuntime,
 ) {
   const { scope } = request;
   let searches = 0;
@@ -200,6 +204,30 @@ export function setUpRun(
         language: answerLanguage(request.claim),
       })
     : null;
+  // What the model reads of a data file is the Passages a search shows it; the code reads the
+  // whole sheet those Passages are of, on this computer. What the result means is the model's to say.
+  const workings: AnswerAnalysis[] = [];
+  let figures = 0;
+  const analysis = runtime
+    ? analysisTool({
+        runtime,
+        passage(id) {
+          const named = id.trim().toLowerCase();
+          const shown = session.shownPassages().find((each) => each.id.toLowerCase() === named);
+          const source = shown ? scoped.citationSource(shown.passageId) : null;
+          return source && !source.documentDeleted
+            ? { source, units: scoped.pageTexts(source.documentId, source.contentHash, null, null) }
+            : null;
+        },
+        number: () => ({
+          problem: "a check's Analysis reads rows only: write a number a Passage gives in the code",
+        }),
+        figure: () => ++figures,
+        language: answerLanguage(request.claim),
+        now: () => new Date(),
+        ran: (_call, run) => workings.push(run),
+      })
+    : null;
   const tools: AnswerTools = {
     get documentCount() {
       return session.tools.documentCount;
@@ -217,6 +245,7 @@ export function setUpRun(
     ...(calculator && {
       calculate: (given, options) => calculator.calculate(givenList(given), options),
     }),
+    ...(analysis && { analysis }),
   };
   return {
     scoped,
@@ -226,6 +255,8 @@ export function setUpRun(
     searches: () => searches,
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked.
     looked: () => searches > 0 || citedShown !== null,
+    /** The Analyses the model ran, in order: a failed one too. */
+    workings: (): readonly AnswerAnalysis[] => workings,
     tools,
   };
 }

@@ -1497,6 +1497,13 @@ export const zhCN = {
   "claim.absenceBesideFact": "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.outside-scope": "“{detail}”不在这篇笔记的搜索范围内。",
+  "claim.reason.rows-run-failed":
+    "未核对：根据“{detail}”重算这个数字的代码运行失败。重新核对可再试一次。",
+  "claim.reason.rows-run-timed-out": "未核对：根据“{detail}”重算这个数字超过了 1 分钟。",
+  "claim.reason.rows-unavailable":
+    "未核对：这台电脑上无法运行 Python，未能根据“{detail}”重算这个数字。",
+  "claim.reason.rows-cut":
+    "未核对：“{detail}”的行数超过一次核对读取的上限，不会只凭文件的一部分下结论。",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
   "claim.reason.workbook-differs":

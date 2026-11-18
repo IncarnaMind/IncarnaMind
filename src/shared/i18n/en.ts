@@ -1549,6 +1549,14 @@ export const en = {
     "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.outside-scope": "“{detail}” is outside this note’s Search scope.",
+  "claim.reason.rows-run-failed":
+    "Not checked: the code that works this out from “{detail}” failed. Check again to try once more.",
+  "claim.reason.rows-run-timed-out":
+    "Not checked: working this out from “{detail}” took longer than a minute.",
+  "claim.reason.rows-unavailable":
+    "Not checked: Python couldn’t run on this computer, so this wasn’t worked out from “{detail}”.",
+  "claim.reason.rows-cut":
+    "Not checked: “{detail}” has more rows than a check reads, and a figure is never judged from part of a file.",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
   "claim.reason.workbook-differs":

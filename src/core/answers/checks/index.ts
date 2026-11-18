@@ -152,8 +152,10 @@ import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 /**
  * What the "checks" flow sends: the sentences checked, with their paragraphs,
  * the Passages found, a verified document's sentences, to find its claims
- * (#97), a Mind's sentences when the whole Mind is checked (#737), and how a
- * figure an Answer worked out was worked out, which its check is told.
+ * (#97), a Mind's sentences when the whole Mind is checked (#737), how a
+ * figure an Answer worked out was worked out, which its check is told, and
+ * what the code came to where a check worked a figure out over a data file's
+ * rows (#3282).
  */
 export const CHECKS_FLOW_SENDS = [
   "selection",
@@ -162,6 +164,7 @@ export const CHECKS_FLOW_SENDS = [
   "blocks",
   "watched-sentences",
   "worked-figures",
+  "analysis-results",
 ] as const;
 
 /**
@@ -170,9 +173,12 @@ export const CHECKS_FLOW_SENDS = [
  */
 const WATCH_SENDS: readonly DataKind[] = ["selection", "passages", "watched-sentences"];
 
-/** What checking the assistant's write may send: all the checks flow does but the watch's sentences. */
+/**
+ * What checking the assistant's write may send: all the checks flow does but the watch's
+ * sentences, and no code's results: only a check the User starts runs code over a data file.
+ */
 const WRITTEN_SENDS: readonly DataKind[] = CHECKS_FLOW_SENDS.filter(
-  (kind) => kind !== "watched-sentences",
+  (kind) => kind !== "watched-sentences" && kind !== "analysis-results",
 );
 
 /** The longest claim one check takes, in characters: a sentence, not a page. */

@@ -63,10 +63,13 @@ const reply = (language: Language) =>
 const CALCULATE =
   "A figure the sentence gives that no Passage states but their numbers give (a sum, a difference, a change, a ratio, a share): a simple one you may work out in your head. For one with several steps, many inputs or large numbers, call calculate with its inputs, each a number quoted from a Passage, and a formula: IncarnaMind works it out and tells you the result. An input keeps its sign as the Passage writes it, and comes in base units with its unit line's scale applied, so never convert a scale in the formula. What the result means for the sentence is yours to say; record the quotes its inputs come from with cite as well.";
 
+const ROWS =
+  "A figure the sentence gives over the rows of a data file (a sheet or a CSV file: a total, an average, a count, a share, a change over many rows) is not stated by the few rows a Passage shows. Work it out with run_analysis: give the file's Passage as its input, which reads the whole sheet, and write code that works out the quantity the sentence names (its rows, its column, its period, its group, its measure) without using the sentence's own number, giving it with result(). Then compare the result with the sentence's figure at the precision the sentence writes it: the same value is supported; another value is contradicted, and your explanation says the value the rows give; where the file has no such rows or column, it is not found. Such a verdict rests on the run and needs no quote: write Evidence: []. For contradicted, \"To 1:\" is the value the rows give, written the way the sentence writes its figure, with no marker. A run that fails may be mended and run once more.";
+
 /**
  * The instructions of a check's Run, for a way of citing; `passages`: what the one search found,
  * for a model without Tools; `calls`: the sentence is from an Answer asked in a call; `calculate`:
- * the model is offered the calculator.
+ * the model is offered the calculator; `rows`: it is offered the Analysis Tool.
  */
 export function checkInstructions(
   mode: CitationSupport | "no-documents",
@@ -74,6 +77,7 @@ export function checkInstructions(
   passages = "",
   calls = false,
   calculate = false,
+  rows = false,
 ): string {
   const REPLY = reply(language);
   switch (mode) {
@@ -84,6 +88,7 @@ export function checkInstructions(
         "The Passages the sentence's own Citations quote are given with it: read them first. Search the Documents with search_documents when they don't decide it, or when the sentence has none, in the Documents' language; search again with other words if the Passages don't decide it, three searches at most.",
         `Before you reply, call cite with every quote that decides the sentence, each under its own marker: ${RECORD}. A supported or contradicted verdict needs one; for overstated or partly supported, record the quote of what the Passages do state.`,
         ...(calculate ? [CALCULATE] : []),
+        ...(rows ? [ROWS] : []),
         "",
         REPLY,
       ].join("\n");

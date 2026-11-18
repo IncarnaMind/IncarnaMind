@@ -14,10 +14,14 @@
  */
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
+import type { AnalysisRuntime } from "../../adapters";
 import type {
+  AnswerAnalysis,
   CheckFigure,
+  CheckWorking,
   Citation,
   CitationLocation,
+  ClaimCheckFailure,
   ClaimCheckResult,
   ClaimCorrection,
   DataKind,
@@ -27,7 +31,11 @@ import type {
 } from "../../api";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
-import { checkCalculates, givesStructuredOutput } from "../../providers/capabilities";
+import {
+  checkCalculates,
+  givesStructuredOutput,
+  offersAnalysis,
+} from "../../providers/capabilities";
 import type { PreparedChatModel } from "../../providers/chat";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import type { AnswerDocuments, matchingOf } from "../citations";
@@ -73,7 +81,11 @@ export interface ClaimCheckDependencies {
     savedBySearch(documentId: string): boolean;
     getMany?(documentIds: readonly string[]): Document[];
     names?(): readonly import("../../../shared/citations").LiveDocument[];
+    /** Whether a sheet or a CSV file is among the Documents to search. */
+    searchableHasSheets?(documentIds: readonly string[] | null): boolean;
   };
+  /** Where a check's model works a figure out over a data file's rows (ADR-0023); absent: it can't. */
+  analysisRuntime?: AnalysisRuntime;
   /** The call a Transcript's Passage is from, for an Answer asked in the Note `callIn` holds a call of (#3005). */
   callMark?(callIn: string | null, documentId: string): BatchCall | null;
 }
@@ -100,7 +112,8 @@ export interface ClaimCheckRequest {
   /**
    * What of the checks flow this check may send, the consent it was prepared on; all of it when
    * left out. Without "worked-figures" (the contradiction watch's), how its figures were worked
-   * out stays on this computer, and the sentence is judged from the Passages alone.
+   * out stays on this computer, and the sentence is judged from the Passages alone. Without
+   * "analysis-results" (a check the User didn't start), no code runs over a data file's rows.
    */
   sends?: readonly DataKind[];
   /** The Run reads the document being checked (#97): it is third-party from its start. */
@@ -122,6 +135,34 @@ export interface ClaimCheckRequest {
   about?: ReadonlyMap<string, number>;
   signal: AbortSignal;
 }
+
+/** The rows of each sheet or CSV file an Analysis read. */
+const rowsOf = (run: AnswerAnalysis) =>
+  run.inputs.flatMap((input) => (input.kind === "range" ? [input] : []));
+
+/** Why a sentence whose working didn't finish isn't checked. */
+const endedAs = ({ end }: AnswerAnalysis): ClaimCheckFailure =>
+  end.kind === "timed-out"
+    ? "rows-run-timed-out"
+    : end.kind === "unavailable"
+      ? "rows-unavailable"
+      : "rows-run-failed";
+
+/** The most of a working's code, in characters, and of its figures, that a check keeps for its card. */
+const WORKING_KEPT = { code: 4_000, figures: 20 };
+
+/** What a check keeps of the Analysis its verdict rests on. */
+const workingOf = (run: AnswerAnalysis): CheckWorking => ({
+  title: run.title,
+  code: run.code.slice(0, WORKING_KEPT.code),
+  rows: rowsOf(run).map(({ citation, range, rows }) => ({ citation, range, count: rows })),
+  figures: run.output.results
+    .flatMap((value) =>
+      value.kind === "figure" ? [{ label: value.label, value: value.value, unit: value.unit }] : [],
+    )
+    .slice(0, WORKING_KEPT.figures),
+  ranAt: run.ranAt,
+});
 
 /**
  * Where `line` stands in `units`, from only the Units it covers: a page range never spans the whole
@@ -202,11 +243,23 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       excluded: [],
     };
   const calculates = model.support === "tools" && checkCalculates(model.capabilities);
-  const { scoped, session, decisions, citedShown, looked, searches, tools } = setUpRun(
+  const sends = (kind: DataKind) => request.sends === undefined || request.sends.includes(kind);
+  // A figure over a data file's rows is worked out again where the model can run code, the User
+  // started the check, and a sheet or a CSV file is there to read (#3282).
+  const runtime =
+    model.support === "tools" &&
+    offersAnalysis(model.capabilities) &&
+    sends("analysis-results") &&
+    deps.analysisRuntime?.languages.some((each) => each.language === "python") &&
+    deps.documents.searchableHasSheets?.(request.scope.documentIds)
+      ? deps.analysisRuntime
+      : undefined;
+  const { scoped, session, decisions, citedShown, looked, searches, tools, workings } = setUpRun(
     deps,
     request,
     results,
     calculates,
+    runtime,
   );
   let court: Awaited<ReturnType<typeof courtDecisions>>;
   try {
@@ -218,10 +271,8 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
 
   // A figure IncarnaMind worked out itself is backed by its own record, which the model is given:
   // a sentence that only names it as its label says is Supported with no quote from a Document.
-  const figures =
-    request.sends === undefined || request.sends.includes("worked-figures" satisfies DataKind)
-      ? (request.figures ?? [])
-      : [];
+  const figures = sends("worked-figures") ? (request.figures ?? []) : [];
+  const workedOut = () => workings().some((run) => run.end.kind === "done");
   const restsOnOwnFigure = (read: ReadVerdict) =>
     read.verdict === "supported" && figures.length > 0;
   const recorded = (read: ReadVerdict) =>
@@ -252,7 +303,8 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
           looked() &&
           read.verdict !== "unsupported" &&
           !recorded(read) &&
-          !restsOnOwnFigure(read)
+          !restsOnOwnFigure(read) &&
+          !workedOut()
           ? { claims: [], note: CITE_FIRST, requires: "cite" }
           : null;
       },
@@ -271,6 +323,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         options?.passages,
         request.callIn !== undefined,
         calculates,
+        runtime !== undefined,
       ),
     messages: [
       { role: "user", content: claimPrompt({ ...request, figures, citedShown, language }) },
@@ -328,7 +381,19 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const named = found(read.evidence ?? []);
   const quotes =
     named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
-  const [evidence, ...more] = quotes;
+  const [quoted, ...more] = quotes;
+  // A verdict with no quote of its own rests on the working, where the model worked the figure
+  // out over a data file's rows: IncarnaMind confirms that the code finished, on the whole file.
+  const runs = workings();
+  const worked = runs.findLast((run) => run.end.kind === "done");
+  if (!quoted && runs.length > 0) {
+    const last = worked ?? runs.at(-1);
+    const file = last ? (rowsOf(last)[0]?.citation.documentName ?? last.title) : null;
+    if (!worked) return notChecked(last ? endedAs(last) : "rows-run-failed", file);
+    if (rowsOf(worked).some((rows) => rows.cut)) return notChecked("rows-cut", file);
+  }
+  const working = worked && workingOf(worked);
+  const evidence = quoted ?? (worked ? rowsOf(worked)[0]?.citation : undefined);
   const result = ((): Judged => {
     if (read.verdict === "unsupported")
       return {
@@ -340,16 +405,19 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
           reason: read.says,
           covered: null,
           uncovered: null,
-          ...(evidence && { found: true as const, quoted: evidence }),
+          ...(quoted && { found: true as const, quoted }),
         },
         calculation: null,
+        ...(working && { working }),
         ...court.citedCase(null),
         ...facts(),
         excluded: [...facts().excluded, ...results.ownWorkings()],
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
     if (!evidence && !restsOnOwnFigure(read)) return notChecked("no-evidence");
-    const correction = read.correction && correctionOf(request.claim, read.correction, quotes);
+    const correction =
+      read.correction &&
+      correctionOf(request.claim, read.correction, quoted ? quotes : evidence ? [evidence] : []);
     return {
       verdict: read.verdict,
       evidence: evidence ?? null,
@@ -357,6 +425,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       says: read.says,
       unsupported: null,
       calculation: null,
+      ...(working && { working }),
       ...court.citedCase(evidence ?? null),
       ...facts(),
       ...(more.length > 0 && { more }),
