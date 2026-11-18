@@ -336,6 +336,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         evidence: null,
         says: null,
         unsupported: {
+          ...(read.word && { word: read.word }),
           reason: read.says,
           covered: null,
           uncovered: null,

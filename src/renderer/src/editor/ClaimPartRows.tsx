@@ -18,7 +18,7 @@ import {
   type QuotedWordsOnPage,
   shownDocumentName,
 } from "../../../shared/citations";
-import { checkedScope, partFoundNothing } from "../../../shared/claimChecks";
+import { checkedScope, namedReason, partFoundNothing } from "../../../shared/claimChecks";
 import { coverageCount } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
@@ -178,12 +178,15 @@ export function partVerdictText(t: Translate, row: CardPart, stale: boolean): st
       return t("claim.why.contradicted");
     case "not-checked":
       return t("claim.state.not-checked");
-    default:
+    default: {
+      const named = namedReason(part.unsupported);
+      if (named) return t(`claim.why.${named}`);
       return partFoundNothing(part)
         ? t("claim.why.notFound")
         : part.unsupported?.kind === "units"
           ? t("claim.why.unitsMayDiffer")
           : t("claim.why.unsupported");
+    }
   }
 }
 

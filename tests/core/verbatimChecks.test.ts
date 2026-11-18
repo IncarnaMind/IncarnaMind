@@ -97,13 +97,7 @@ const ZH: Language = {
 };
 
 /** A verdict the reader can't take, in each way a turn after a Supported one may give it. */
-const UNREAD_VERDICTS = [
-  "Verdict: not supported",
-  "结论：不支持",
-  "Verdict: partly supported",
-  "Verdict: no",
-  "结论：不成立",
-];
+const UNREAD_VERDICTS = ["Verdict: not supported", "结论：不支持", "Verdict: no", "结论：不成立"];
 
 /** The verdict lines Claude Haiku 5.5 wrote beside its `cite` call, with no marker. */
 const verdictLines = (says: string) =>
@@ -207,6 +201,15 @@ describe.each([
         );
         expect(decoyCheck, taken).toMatchObject({ state: "not-checked", reason: "malformed" });
       }
+      const { check: lowered } = await checkWith(
+        language,
+        decoy,
+        plainSplitting(sentence, `Verdict: partly supported\nThe Documents say: ${sentence} [^1]`),
+      );
+      expect(lowered).toMatchObject({
+        state: "unsupported",
+        unsupported: { word: "partly-supported" },
+      });
     });
 
     test("a refusal set aside after the verdict takes it back", async () => {

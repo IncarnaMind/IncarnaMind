@@ -23,7 +23,14 @@ import {
 
 /** How the scripted model checks a sentence: what it cites, and how it replies. */
 export interface Plan {
-  verdict?: "supported" | "unsupported" | "contradicted";
+  /** The verdict word it writes: one of the five a check asks for, or the older "unsupported". */
+  verdict?:
+    | "supported"
+    | "unsupported"
+    | "contradicted"
+    | "overstated"
+    | "partly supported"
+    | "not found";
   /** The line it cites, from the Passage that holds it. */
   quote?: string;
   says?: string;
