@@ -7755,7 +7755,7 @@ export const zhCN = {
   "agents.problem.waiting": "{paragraph} 已有修订待处理。先在 IncarnaMind 中接受或拒绝。",
   "agents.problem.busy": "IncarnaMind 正在写入 {paragraph}。写完后再试。",
   "agents.problem.too-many": "这个智能体在过去一小时内已新建 {max} 篇笔记，达到上限。稍后再试。",
-  "agents.note.writtenBy": "由“{name}”写入，{when}",
+  "agents.note.writtenBy": "{name} 写入，{when}",
   "agents.create.text": "正文",
   "agents.create.folder": "给出 folderId：list_minds 列出的文件夹之一。",
   "agents.mind.waiting": "（修订待处理）",

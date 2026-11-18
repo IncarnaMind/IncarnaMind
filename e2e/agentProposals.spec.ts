@@ -21,6 +21,7 @@ import {
   expectReadyDocuments,
   frontMind,
   launchApp,
+  motionSettled,
   nameMind,
   newMind,
   openPageMenu,
@@ -310,10 +311,12 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await expect(frontMind(window).getByTestId("mind-editor")).toContainText(NEAP);
     const writtenBy = async () => (await openPageMenu(window)).getByTestId("page-written-by");
     await expect(await writtenBy()).toContainText("Written by Research assistant agent, ");
+    await motionSettled(window);
     await shot(window, "agent-note-menu-en");
     await window.keyboard.press("Escape");
     await setLanguage(window, "zh-CN");
-    await expect(await writtenBy()).toContainText("由“Research assistant agent”写入，");
+    await expect(await writtenBy()).toContainText("Research assistant agent 写入，");
+    await motionSettled(window);
     await shot(window, "agent-note-menu-zh");
   } finally {
     await app.close();
