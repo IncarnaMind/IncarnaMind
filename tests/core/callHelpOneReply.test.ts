@@ -101,6 +101,41 @@ async function press(core: Core, meeting: Meeting) {
   return answer;
 }
 
+const BOTH_PRICES = "Team plan: $25 per seat a month; Enterprise plan: $45 per seat a month.";
+
+/**
+ * Answers in one reply with how much more Enterprise costs a seat than Team, the difference worked
+ * out by the app from the price sheet's two prices.
+ */
+function differenceOfPrices(calls: ModelCall[]) {
+  return scriptedModel(
+    (call) => {
+      calls.push(call);
+      const [found] = shownPassages(block(call.prompt, "found-in-documents") ?? "");
+      if (!call.json || !found) return { text: "" };
+      return {
+        text: JSON.stringify({
+          citations: [{ marker: 1, passage: found.id, quote: BOTH_PRICES }],
+          calculations: [
+            {
+              marker: 1,
+              label: "Enterprise over Team, per seat a month",
+              formula: "enterprise - team",
+              inputs: [
+                { name: "enterprise", label: "Enterprise per seat", citation: 1, number: "$45" },
+                { name: "team", label: "Team per seat", citation: 1, number: "$25" },
+              ],
+            },
+          ],
+          answer: "★ Enterprise is [=1] more a seat than Team [^1]\n→ answers at once",
+          more: "",
+        }),
+      };
+    },
+    { judgesItsAnswers: true },
+  );
+}
+
 /** What the other side says in a call long enough that its Transcript is in several Passages. */
 const LONG_CALL = Array.from(
   { length: 16 },
@@ -181,6 +216,45 @@ describe("A call-help press in one reply (#3354)", { timeout: 60_000 }, () => {
     expect(transcript[0]?.text).not.toContain(AUDIT);
     expect(answer?.kind === "answer" && answer.citations).toEqual([
       expect.objectContaining({ quote: AUDIT, check: "found" }),
+    ]);
+  });
+
+  // protects=on a model offered calculate (ADR-0021), a one-reply answer is asked for its calculations in its JSON and the app works its figure out from the cited numbers, as the loop's calculate does; fails_when=the one-reply form tells it there is no calculator, or the figure isn't worked out; no_claim=how often a model gives calculations.
+  test("on a model offered calculate, the one reply gives its calculations and the app works the figure out", async () => {
+    const calls: ModelCall[] = [];
+    const dataDir = await createTempDataFolder();
+    const models = scriptedModels(differenceOfPrices(calls));
+    const { core, record } = await transcribingCore(dataDir, {
+      createChatModel: models.createChatModel,
+      engine: { theirLines: ["How much more is Enterprise than Team per seat?"] },
+      answerPaths: { answersInOneReply: () => true },
+    });
+    const saved = await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-haiku-5-5",
+    });
+    if (saved.service) await core.allowDataFlow("chat", saved.service.id);
+    const sources = await createSourceFolder();
+    const added = await core.addDocuments([
+      await writeSourceFile(sources, "Price sheet.txt", `Price sheet 2026\n\n${BOTH_PRICES}`),
+    ]);
+    await waitForProcessing(
+      core,
+      added.documents.map((document) => document.id),
+    );
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    record(9_000);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 1);
+
+    const answer = await press(core, meeting);
+
+    expect(writing(calls)).toHaveLength(1);
+    expect(writing(calls)[0]?.system).toContain("- calculations: one for each number");
+    expect(writing(calls)[0]?.system).not.toContain("IncarnaMind has no calculation Tool");
+    expect(answer.figures).toEqual([
+      expect.objectContaining({ marker: 1, shown: expect.stringContaining("20") }),
     ]);
   });
 

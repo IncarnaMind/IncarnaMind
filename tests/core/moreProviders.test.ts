@@ -474,7 +474,17 @@ describe("Small calls skip thinking", () => {
     },
   );
 
-  test.each(["gpt-6.1-sol", "gpt-6-astra", "gpt-5", "gpt-5-nano", "gpt-5-2025-08-07"])(
+  // protects=GPT-6.1 Sol, which refuses "none", is asked for "low" on a small call, as OpenRouter asks for it (#3354), and an Answer keeps its default; fails_when=Sol's small call is sent no setting or "none", or its Answer is sent "low"; no_claim=the latency.
+  test("OpenAI's GPT-6.1 Sol thinks at low on a small call, as on OpenRouter, and at its default in an Answer", async () => {
+    expect(await bodyOf("openai", "gpt-6.1-sol", "off")).toMatchObject({
+      store: false,
+      reasoning: { effort: "low" },
+    });
+    afterEachStub();
+    expect((await bodyOf("openai", "gpt-6.1-sol")).reasoning?.effort).toBeUndefined();
+  });
+
+  test.each(["gpt-6-astra", "gpt-5", "gpt-5-nano", "gpt-5-2025-08-07"])(
     "OpenAI's %s refuses reasoning effort none, so it is not asked to",
     async (modelId) => {
       expect((await bodyOf("openai", modelId, "off")).reasoning).toBeUndefined();

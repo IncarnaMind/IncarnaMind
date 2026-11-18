@@ -932,13 +932,15 @@ export function documentInstructions(
           documentNames(listed),
           ...rest,
           "",
-          'Reply with one JSON object, its fields in this order: {"citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}], "answer": "…", "more": ""}.',
+          calculate
+            ? 'Reply with one JSON object, its fields in this order: {"citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}], "calculations": [{"marker": 1, "label": "…", "inputs": [{"name": "a", "label": "…", "citation": 1, "number": "…"}], "formula": "…"}], "answer": "…", "more": ""}.'
+            : 'Reply with one JSON object, its fields in this order: {"citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}], "answer": "…", "more": ""}.',
           `- citations: first, one record for each quote you will use: a marker number (1, 2, …), ${RECORD}.`,
           "- answer: the reply. Put the marker as [^1] right after each claim it supports. Use only markers you recorded, and add no list of sources.",
           "- more: empty. Only when the reply needs a fact of the User's Documents that the Passages in the last message don't hold, leave answer empty and give here the words to search the Documents for.",
           UNBROKEN_QUOTE,
           QUOTATION_MARKS,
-          NO_CALCULATE,
+          ...(calculate ? [CALCULATIONS] : [NO_CALCULATE]),
           notCovered(true),
           CITED_SAYS_ONLY_ITS_QUOTE,
           FIGURES_AS_STATED,

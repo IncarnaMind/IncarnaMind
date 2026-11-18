@@ -2378,9 +2378,11 @@ export function createCitationSession(
   }
 
   /**
-   * Structured output can't be told it named the wrong Passage (`CiteOptions`): a quote another
-   * Passage of the same Document it was given holds, at the time the record names where it names
-   * one (#2306), is cited there (#3354). Null when the named Passage holds it, or none does.
+   * Structured output can't be told it named the wrong Passage (`CiteOptions`): a Transcript's
+   * Passages are overlapping stretches of one call, so a quote another Passage of the same
+   * Transcript it was given holds, at the time the record names where it names one (#2306), is
+   * cited there (#3354). Any other Document's record stays in the Passage it names. Null when the
+   * named Passage holds the quote, or none does.
    */
   function inAnotherPassage(
     input: CitationRecordInput,
@@ -2388,6 +2390,7 @@ export function createCitationSession(
     options: CiteOptions,
     taken: Extract<Taken, { ok: true }>,
   ): Extract<Taken, { ok: true }> | null {
+    if (taken.source.documentKind !== "transcript") return null;
     if (check(taken.record).check !== "not-found") return null;
     for (const [passageId, handle] of handleOf) {
       if (passageId === taken.source.passageId) continue;

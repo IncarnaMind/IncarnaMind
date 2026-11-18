@@ -36,6 +36,19 @@ No reply on either arm of any run showed nothing or broke the form. Results: `ev
 - **What Sonnet still loses on its second run:** a quote whose time is not where the line was said, which the fallback leaves as named (#2306), and twice an option that leaves out the Document's price that today's path cites.
 - **Sol, over its two runs:** judged right 46 → 44 and cited 51 → 49 of 60, within main's own spread between two samples of the same path (25 and 22 judged right). On typed questions it was right once more often.
 
+## On screen, on the ChatGPT plan
+
+A development build in a kept test profile signed in to the plan, real speech through a fake microphone, live text on Soniox, 13 Documents, the ask bar's three prompts pressed twice; times from the click to the reply's end.
+
+| Build | A press's requests | Done (6 presses) |
+|---|---|---|
+| main | 2 | 7.3, 7.9, 7.7, 8.4, 9.4, 8.7 s |
+| one reply | 1 | 5.8, 5.2, 5.7, 7.6, 9.2, 9.6 s |
+| one reply, run again with `calculations` | 1 | 6.3, 7.0, 5.3, 10.3, 11.2, 9.3 s |
+| one reply, Sol at "low" on small calls | 1 | 4.1, 4.3, 5.1, 5.6, 5.8 s; the sixth failed with OpenAI's 503, "servers are currently overloaded" |
+
+One reply alone wasn't sooner on the plan: within its one request Sol was silent for 3–7 s and wrote 170–314 tokens. The plan sent no reasoning setting on a small call, so Sol thought at its default, while on OpenRouter, where this gate measured it, the catalog asks it for "low". The plan now thinks as OpenAI's API does, and Sol, which refuses "none", is asked for "low" on a small call on both, as on OpenRouter.
+
 ## Listed
 
-GPT-6.1 Sol, as `openai/gpt-6.1-sol` (an OpenAI key, and the ChatGPT plan, which serves OpenAI's models through the same API) and `openrouter/openai/gpt-6.1-sol`. Claude Haiku 5.5 and Claude Sonnet 5.5 stay on the loop. The plan route was timed on screen, not run through this set (#3354).
+GPT-6.1 Sol, as `openai/gpt-6.1-sol` (an OpenAI key, and the ChatGPT plan, which serves OpenAI's models through the same API) and `openrouter/openai/gpt-6.1-sol`. Claude Haiku 5.5 and Claude Sonnet 5.5 stay on the loop. The plan and the OpenAI key were not run through this set: the OpenAI key had no credit left, and the plan runs only in the app.

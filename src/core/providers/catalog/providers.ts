@@ -160,15 +160,14 @@ const PROVIDERS = [
     pricingUrl: "https://developers.openai.com/api/docs/pricing",
     // The Responses API keeps each request on OpenAI's servers unless it says not to. Small
     // calls run with reasoning off: on the Organize evaluation GPT-6 Luna tagged as well with it
-    // off, writing a quarter of the output tokens. These models refuse "none" (GPT-6.1 Sol and
-    // GPT-6 Astra start at "low", the 2025 GPT-5 models at "minimal"; o-series, Pro and Codex
-    // models aren't checked), so they keep their own.
+    // off, writing a quarter of the output tokens. These models refuse "none" (GPT-6 Astra starts
+    // at "low", the 2025 GPT-5 models at "minimal"; o-series, Pro and Codex models aren't checked),
+    // so they keep their own. GPT-6.1 Sol thinks at "low" instead (catalog/overrides.ts).
     request: {
       store: false,
       thinkingOff: {
         options: { openai: { reasoningEffort: "none" } },
         except: [
-          "gpt-6.1-sol",
           "gpt-6-astra",
           "gpt-5",
           "gpt-5-mini",

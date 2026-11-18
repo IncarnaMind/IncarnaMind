@@ -2735,6 +2735,7 @@ async function* structured(
               type: "object",
               properties: {
                 citations: citationsField,
+                ...(request.documents.calculate && { calculations: calculationsSchema }),
                 answer: answerField,
                 more: {
                   type: "string",

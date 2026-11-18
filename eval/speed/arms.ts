@@ -73,17 +73,17 @@ export const ARMS: readonly Arm[] = [
   {
     id: "cite-first",
     label: "the Tool loop's records first, then the Answer",
-    paths: { writesThenCites: false, retrievesFirst: false },
+    paths: { writesThenCites: false, retrievesFirst: false, answersInOneReply: false },
   },
   {
     id: "write-then-cite",
     label: "the Answer, then its records in the same reply (#489)",
-    paths: { writesThenCites: true, retrievesFirst: false },
+    paths: { writesThenCites: true, retrievesFirst: false, answersInOneReply: false },
   },
   {
     id: "loop",
     label: "the Tool loop from its first call, whatever the lists say",
-    paths: { retrievesFirst: false },
+    paths: { retrievesFirst: false, answersInOneReply: false },
   },
   {
     id: "one-reply",
