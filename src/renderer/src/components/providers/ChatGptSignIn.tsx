@@ -176,14 +176,56 @@ function useLate(waiting: boolean): boolean {
 export function ChatGptSignInState({
   sign,
   retry = false,
+  quiet = false,
 }: {
   sign: ReturnType<typeof useContinueWithChatGpt>;
   retry?: boolean;
+  /** While it waits: one line and Cancel, the ways out of trouble behind one more press. */
+  quiet?: boolean;
 }) {
   const t = useT();
   const late = useLate(sign.waiting);
+  const [troubleShown, setTroubleShown] = useState(false);
+  const link = "font-semibold text-accent underline-offset-2 hover:underline";
+  if (sign.waiting && quiet) {
+    return (
+      <div className="flex w-full flex-col gap-1 text-[13px] leading-5 text-ink-secondary">
+        <p className="flex flex-wrap items-center gap-x-2">
+          <span>{t("chatgpt.signingIn")}</span>
+          <button type="button" data-testid="chatgpt-cancel" onClick={sign.cancel} className={link}>
+            {t("chatgpt.cancel")}
+          </button>
+        </p>
+        {troubleShown || late ? (
+          <>
+            <p>
+              <button
+                type="button"
+                data-testid="chatgpt-reopen"
+                onClick={() => void core.reopenChatGptSignIn()}
+                className={link}
+              >
+                {t("chatgpt.reopen")}
+              </button>
+            </p>
+            <PasteSignInAddress />
+          </>
+        ) : (
+          <p>
+            <button
+              type="button"
+              data-testid="chatgpt-trouble"
+              onClick={() => setTroubleShown(true)}
+              className="text-ink-meta underline-offset-2 hover:text-ink hover:underline"
+            >
+              {t("chatgpt.trouble")}
+            </button>
+          </p>
+        )}
+      </div>
+    );
+  }
   if (sign.waiting) {
-    const link = "font-semibold text-accent underline-offset-2 hover:underline";
     return (
       <div className="flex w-full flex-col gap-1 text-[13px] leading-5 text-ink-secondary">
         <p className="flex flex-wrap items-center gap-x-2">

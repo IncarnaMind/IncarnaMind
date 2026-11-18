@@ -3,6 +3,14 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import {
+  BookmarkLineIcon,
+  CalculatorLineIcon,
+  FindSourcesLineIcon,
+  MicLineIcon,
+  SparkLineIcon,
+  TableLineIcon,
+} from "../lineIcons";
 import { buttonStyle } from "../ui";
 import { SetupChoice, SetupPanel, type StepPlace } from "./SetupPanel";
 
@@ -15,12 +23,17 @@ const WORK_WORDS: Record<WorkKind, { title: MessageKey; line: MessageKey }> = {
   other: { title: "setupPage.work.other", line: "setupPage.work.other.line" },
 };
 
+const WORK_ICONS: Record<WorkKind, typeof SparkLineIcon> = {
+  finance: CalculatorLineIcon,
+  legal: BookmarkLineIcon,
+  research: FindSourcesLineIcon,
+  reports: TableLineIcon,
+  meetings: MicLineIcon,
+  other: SparkLineIcon,
+};
+
 const toggled = (work: readonly WorkKind[], kind: WorkKind): WorkKind[] =>
-  work.includes(kind)
-    ? work.filter((each) => each !== kind)
-    : kind === "other"
-      ? ["other"]
-      : [...work.filter((each) => each !== "other"), kind];
+  work.includes(kind) ? work.filter((each) => each !== kind) : [...work, kind];
 
 /**
  * The setup's first step (#3296): what the User works on, several picks allowed, in an order kept
@@ -99,21 +112,25 @@ export function WorkStep({
         </>
       }
     >
-      <fieldset className="m-0 grid grid-cols-1 gap-2 border-0 p-0 min-[600px]:auto-rows-fr min-[600px]:grid-cols-2">
+      <fieldset className="m-0 grid grid-cols-1 gap-2.5 border-0 p-0 min-[600px]:auto-rows-fr min-[600px]:grid-cols-2">
         <legend className="sr-only">{t("setupPage.work.title")}</legend>
-        {order.map((kind) => (
-          <SetupChoice
-            key={kind}
-            type="checkbox"
-            name="work"
-            value={kind}
-            testId="setup-work"
-            checked={work.includes(kind)}
-            title={t(WORK_WORDS[kind].title)}
-            line={t(WORK_WORDS[kind].line)}
-            onChange={() => onWork(toggled(work, kind))}
-          />
-        ))}
+        {order.map((kind) => {
+          const Icon = WORK_ICONS[kind];
+          return (
+            <SetupChoice
+              key={kind}
+              icon={<Icon className="size-[18px]" />}
+              type="checkbox"
+              name="work"
+              value={kind}
+              testId="setup-work"
+              checked={work.includes(kind)}
+              title={t(WORK_WORDS[kind].title)}
+              line={t(WORK_WORDS[kind].line)}
+              onChange={() => onWork(toggled(work, kind))}
+            />
+          );
+        })}
       </fieldset>
       {canSend && (
         <p data-testid="setup-work-sent" className="text-[12px] leading-[18px] text-ink-meta">

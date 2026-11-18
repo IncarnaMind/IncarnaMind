@@ -157,7 +157,7 @@ export function AiStep({ place }: { place: StepPlace }) {
         expanded={open === "chatgpt" || sign.waiting}
         onClick={() => toggle("chatgpt")}
       >
-        <ChatGptPlanWay sign={sign} leads label="chatgpt.continue" />
+        <ChatGptPlanWay sign={sign} leads label="chatgpt.continue" quiet />
       </WayRow>
       {claudeOffered && (
         <WayRow
@@ -325,7 +325,7 @@ function ModelWorks() {
 // Ollama is asked about only once the User opens its row.
 function LocalPanel() {
   const ollama = useOllama(() => undefined, undefined, { localModeUnasked: true });
-  return <LocalWay ollama={ollama} />;
+  return <LocalWay ollama={ollama} quiet />;
 }
 
 function EntrySetUp({
@@ -349,7 +349,7 @@ function EntrySetUp({
   }, []);
   if (entry.kind === "plan") {
     if (entry.plan === "chatgpt")
-      return <ChatGptPlanWay sign={sign} leads label="chatgpt.continue" />;
+      return <ChatGptPlanWay sign={sign} leads label="chatgpt.continue" quiet />;
     if (entry.plan === "claude-account") {
       return <ClaudePlanSignIn onClose={onDone} onUseKey={onUseKey} />;
     }

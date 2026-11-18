@@ -3290,6 +3290,7 @@ export const zhCN = {
   "chatgpt.signingIn": "请在浏览器中完成登录…",
   "chatgpt.cancel": "取消",
   "chatgpt.reopen": "重新打开登录页面",
+  "chatgpt.trouble": "登录遇到问题？",
   "chatgpt.nothingExtra": "OpenAI 可能会请你允许 IncarnaMind。",
   "chatgpt.late": "没有完成？请重新打开登录页面。",
   "chatgpt.signOut": "退出登录",
