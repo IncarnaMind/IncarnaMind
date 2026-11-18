@@ -38,4 +38,6 @@ IncarnaMind holds the User's own Documents and Notes, limited to the Folders the
 \`ask\` is for when the User wants IncarnaMind's own Answer: it writes a whole Answer with checked Citations in one call, and can take a minute. Pass its answer on with its tokens as they are.
 
 \`show_citation\` opens a \`[cite:…]\` in IncarnaMind, at its quote, when the User wants to see a source. \`list_minds\` and \`read_mind\` read the User's Notes.
+
+When the User asks for a document of their own (a report, a summary, a draft), \`create_mind\` writes it as a new Note in IncarnaMind, with a token after each claim: they see it there at once, each Citation checked. It is refused unless they let you write.
 `;

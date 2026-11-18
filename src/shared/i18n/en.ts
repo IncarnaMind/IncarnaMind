@@ -8205,12 +8205,18 @@ export const en = {
   "agents.answer.cantCheck": "[can’t be checked]",
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
   "agents.problem.read-only":
-    "This agent may only read. To let it propose changes to your notes, allow it in Settings → Agents.",
+    "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":
     "This note changed after the agent read it. Read it again, then propose the changes again.",
   "agents.problem.waiting":
     "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
   "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
+  "agents.problem.too-many":
+    "This agent has written {max} notes in the last hour, which is the most it may. Try again later.",
+  // An outside agent writes a new note (#3306).
+  "agents.note.writtenBy": "Written by {name}, {when}",
+  "agents.create.text": "the text",
+  "agents.create.folder": "Give folderId: one of the Folders list_minds lists.",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
   "agents.mind.busy": "(being written)",
@@ -8271,7 +8277,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
-  "agents.pairing.proposes": "Can propose changes to notes there, which wait for you",
+  "agents.pairing.proposes": "Can write notes there; its changes wait for you",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
@@ -8299,6 +8305,7 @@ export const en = {
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
   "agents.activity.propose_changes": "Proposed changes to “{text}”",
+  "agents.activity.create_mind": "Wrote the note “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",
@@ -8318,6 +8325,7 @@ export const en = {
   "agents.reason.read-only": "it may only read",
   "agents.reason.changed": "the note had changed since it read it",
   "agents.reason.waiting": "a paragraph had changes waiting",
+  "agents.reason.too-many": "it had written too many notes in an hour",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
     "It can read your chosen Folders and the notes in them. Listing them sends each Folder’s name, internal id and Document count, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
@@ -8329,8 +8337,8 @@ export const en = {
   "agents.connect.empty.title": "Nothing to read yet",
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
-  "agents.propose.label": "Let it propose changes to the notes in these Folders",
-  "agents.propose.hint": "Its changes wait until you accept or reject them.",
+  "agents.propose.label": "Let it write notes and propose changes in these Folders",
+  "agents.propose.hint": "Its notes appear at once. Its changes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",

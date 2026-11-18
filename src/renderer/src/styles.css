@@ -1649,6 +1649,9 @@
   .page-menu-counts {
     margin: 0;
     padding: 2px 8px;
+    font-size: 12px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
   }
   .page-menu-switch {
     display: flex;

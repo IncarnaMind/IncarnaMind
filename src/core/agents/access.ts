@@ -9,7 +9,8 @@
  * Folder at the time of each call (never a Mind). Nothing here changes the
  * User's Documents, and a Mind only through `propose_changes`, which the User
  * allows per pairing and whose changes wait for them as Proposals (#352,
- * ./proposals).
+ * ./proposals). With the same leave `create_mind` writes a new Mind (#3306):
+ * it changes none there is, so it doesn't wait.
  *
  * Only IncarnaMind mints a Citation (./citations): a quote is checked first,
  * by the Citation check Answers use, and gets a token only once found. A
@@ -19,10 +20,12 @@
  * Citations as tokens. Every call is recorded for the pairing's activity list.
  */
 
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
+import { recordNoteWriter } from "../../shared/noteWriter";
+import { setTextOrigin } from "../../shared/textOrigins";
 import type { OutsideAnswer } from "../answers";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
@@ -31,6 +34,7 @@ import {
   type AgentCitationShown,
   type AgentProblem,
   type AgentToolName,
+  BLOCK_ID_ATTRIBUTE,
   type Citation,
   type CitationLocation,
   type CitationRecheck,
@@ -42,6 +46,7 @@ import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
 import { isRecord } from "../errors";
+import { insertBlocks } from "../noteAdding";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import {
   ChangeRefused,
@@ -49,6 +54,7 @@ import {
   HeldParagraph,
   type NamedChange,
   namedNote,
+  newBlocks,
   proposeNamed,
 } from "./proposals";
 
@@ -223,6 +229,25 @@ export interface AgentProposed {
   uncited: string[];
 }
 
+export interface AgentCreateInput {
+  /** The Note's name. */
+  title: string;
+  /** Its text, as Markdown, cited only with IncarnaMind's tokens. */
+  markdown: string;
+  /** The Folder to make it in, of the pairing's; may be left out when it has one. */
+  folderId?: string;
+}
+
+export interface AgentCreated {
+  mindId: string;
+  title: string;
+  folder: string;
+  /** Each token in the text, checked again against its Document as it is now. */
+  citations: AgentCheckedCitation[];
+  /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
+  uncited: string[];
+}
+
 export interface AgentAskInput {
   question: string;
   /** Only these of the pairing's Folders; all of them when absent. */
@@ -252,6 +277,8 @@ export interface AgentAccess {
   ask(input: AgentAskInput, signal?: AbortSignal): Promise<AgentAnswer>;
   /** Proposes changes to a Note, which wait for the User (#352); never applied by the agent. */
   proposeChanges(input: AgentProposeInput): Promise<AgentProposed>;
+  /** Writes a new Note in one of the pairing's Folders (#3306): there at once, as the agent's text. */
+  createMind(input: AgentCreateInput): Promise<AgentCreated>;
 }
 
 /** Why a call was refused or failed, in the interface language, for the agent to pass on. */
@@ -290,6 +317,11 @@ const MAX_DRAFT_CHARS = 100_000;
 export const MAX_CHANGES = 50;
 /** The longest text of one change, in characters. */
 const MAX_CHANGE_CHARS = 20_000;
+/** The longest name of a Note an agent writes. */
+const MAX_TITLE_CHARS = 200;
+/** The most Notes one pairing writes in an hour. */
+export const MAX_NOTES_AN_HOUR = 20;
+const HOUR_MS = 3_600_000;
 /** The longest summary kept of a call for the activity list. */
 const SUMMARY_CHARS = 300;
 /** The longest quote a ready Citation of a search result has. */
@@ -353,6 +385,10 @@ export interface AgentAccessDeps {
     mindId: string,
     footnote: (attributes: Record<string, unknown>) => { source: string; unverified: boolean },
   ): string;
+  /** A new Mind in a Folder; `headed`, its text starts with its name as a heading. */
+  createMind(title: string, folderId: string, headed: boolean): Mind;
+  /** How many Notes the pairing wrote since `since` (ISO 8601, UTC). */
+  notesWrittenSince(pairingId: string, since: string): number;
   /** IncarnaMind's Answer to a Question from these Documents, on the default chat model. */
   answer(question: string, documentIds: string[], signal: AbortSignal): Promise<OutsideAnswer>;
   citations: AgentCitations;
@@ -453,6 +489,8 @@ function whole(value: unknown, what: string, min: number, max: number, fallback:
  */
 function uncitedIn(texts: readonly string[], counts: (token: string) => boolean): string[] {
   const CITED = "\u0000";
+  // A token that doesn't count goes with the space before it, as the sentence reads without it.
+  const spacedToken = new RegExp(`[ \\t]*${CITATION_TOKEN.source}`, "g");
   return texts
     .flatMap((each) =>
       sentencesOf(
@@ -460,7 +498,7 @@ function uncitedIn(texts: readonly string[], counts: (token: string) => boolean)
           .replace(/^#{1,6}\s.*$/gm, "")
           .replace(/^\s*\|.*$/gm, "")
           .replace(/^\s*(?:>\s*)*(?:[-*+]|\d{1,9}[.)])?\s+/gm, "")
-          .replace(CITATION_TOKEN, (_whole, token: string) => (counts(token) ? CITED : "")),
+          .replace(spacedToken, (_whole, token: string) => (counts(token) ? CITED : "")),
       ),
     )
     .filter((sentence) => !sentence.includes(CITED) && makesAClaim(sentence))
@@ -780,6 +818,25 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
     }
     return mind;
+  };
+
+  /** The Folder a new Note goes in: the one named, of the pairing's, or its only one. */
+  const folderToWriteIn = (pairing: AdmittedPairing, folderId: unknown) => {
+    const shared = deps.foldersInScope(pairing.folderIds);
+    const folders = deps.folders().filter((folder) => shared.includes(folder.id));
+    if (folders.length === 0) {
+      throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
+    }
+    if (folderId === undefined) {
+      const [only, ...others] = folders;
+      if (!only || others.length > 0) {
+        throw new AgentRefusedError("invalid", t("agents.create.folder"));
+      }
+      return only;
+    }
+    const folder = folders.find((each) => each.id === folderId);
+    if (!folder) throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
+    return folder;
   };
 
   /** One page of a Mind's text from `offset`, ending at a paragraph's end where one is near. */
@@ -1310,6 +1367,77 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           documentIds: [...tokens.values()].flatMap((each) =>
             each.cited ? [each.cited.minted.documentId] : [],
           ),
+        };
+      });
+    },
+
+    createMind(input) {
+      const named = typeof input?.title === "string" ? input.title.trim() : "";
+      const unmade: Effect = { action: "write", scope: { kind: "mind", mindId: "" } };
+      return call("create_mind", named, [READ_DOCUMENTS, unmade], (pairing) => {
+        if (!pairing.propose) {
+          throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+        }
+        const title = text(input?.title, "title", MAX_TITLE_CHARS);
+        const written = text(input?.markdown, "markdown", MAX_DRAFT_CHARS);
+        const folder = folderToWriteIn(pairing, input?.folderId);
+        const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
+        if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
+          throw new AgentRefusedError(
+            "too-many",
+            t("agents.problem.too-many", { max: MAX_NOTES_AN_HOUR }),
+          );
+        }
+        const inScope = new Set(scopeOf(pairing, undefined));
+        const live = deps.liveDocuments();
+        const tokens = new Map<
+          string,
+          { cited: CitedToken | null; report: AgentCheckedCitation }
+        >();
+        for (const match of written.matchAll(CITATION_TOKEN)) {
+          const token = match[1] ?? "";
+          if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
+        }
+        let nodes: ReturnType<typeof newBlocks>["nodes"];
+        try {
+          nodes = newBlocks(written, t("agents.create.text"), {
+            cited: (token) => tokens.get(token)?.cited ?? null,
+            notFound: t("agents.answer.notFound"),
+          }).nodes;
+        } catch (error) {
+          if (!(error instanceof ChangeRefused)) throw error;
+          throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
+        }
+        // A text that begins with a heading of its own keeps that one alone.
+        const mind = deps.createMind(title, folder.id, !/^\s*#{1,6}\s/.test(written));
+        deps.editMind(mind.id, (blocks) => {
+          insertBlocks(blocks, nodes);
+          if (!blocks.doc) return;
+          const ids = blocks.toArray().flatMap((each) => {
+            const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+            return typeof id === "string" ? [id] : [];
+          });
+          setTextOrigin(blocks.doc, ids, "outside-agent");
+          recordNoteWriter(blocks.doc, {
+            source: "outside-agent",
+            agent: pairing.name,
+            pairingId: pairing.id,
+            createdAt: deps.now(),
+          });
+        });
+        return {
+          result: {
+            mindId: mind.id,
+            title: mindName(mind) || title,
+            folder: folder.name,
+            citations: [...tokens.values()].map((each) => each.report),
+            uncited: uncitedIn([written], (token) => tokens.get(token)?.cited?.citable === true),
+          },
+          count: 1,
+          documentIds: [...tokens.values()].flatMap((each) =>
+            each.cited ? [each.cited.minted.documentId] : [],
+          ),
+          effects: [READ_DOCUMENTS, { action: "write", scope: { kind: "mind", mindId: mind.id } }],
         };
       });
     },

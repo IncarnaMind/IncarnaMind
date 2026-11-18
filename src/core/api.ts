@@ -796,6 +796,13 @@ export interface OutsideAgentRequest {
   createdAt: string;
 }
 
+/**
+ * The name of the Y.Map, beside a Mind's Blocks, that says which outside agent wrote the Mind
+ * whole (#3306), as an `OutsideAgentRequest` under "agent". Absent for a Mind the User or
+ * IncarnaMind made. See src/shared/noteWriter.ts.
+ */
+export const MIND_WRITER_FIELD = "writer";
+
 /** The start of the id of someone's tracked change imported from a Word file (`WordChangeRequest`). */
 export const WORD_CHANGE_ID = "word:";
 
@@ -1079,7 +1086,8 @@ export const INCLUDE_IN_CONTEXT_ATTRIBUTE = "includeInContext";
  * - "web-page": a saved web page (#261): Passages a search found in one, or a
  *   quote added from one (#101);
  * - "checked-document": the document a check reads to check it (#97, #110);
- * - "outside-agent": text an outside agent proposed for a Note (#352).
+ * - "outside-agent": text an outside agent proposed for a Note (#352), or a Note it wrote
+ *   whole (#3306).
  */
 export type ThirdPartySource = "imported" | "web-page" | "checked-document" | "outside-agent";
 
@@ -12387,6 +12395,7 @@ export const AGENT_TOOLS = [
   "read_mind",
   "ask",
   "propose_changes",
+  "create_mind",
 ] as const;
 
 /**
@@ -12508,6 +12517,7 @@ export type AgentProblem =
   | "read-only"
   | "changed"
   | "waiting"
+  | "too-many"
   | "invalid"
   | "failed";
 
