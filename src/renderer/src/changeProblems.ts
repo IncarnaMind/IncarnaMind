@@ -116,6 +116,10 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
           name: problem.name,
         },
       );
+    case "no-words":
+      return t("mindCall.failed.noWords", { mind, words: problem.words });
+    case "several-words":
+      return t("mindCall.failed.severalWords", { mind, words: problem.words });
     case "no-text":
       return t("mindCall.failed.noText", { mind });
     case "too-long":
