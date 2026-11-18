@@ -137,7 +137,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await dialog.getByTestId("connect-agent-allow").click();
     const row = page.locator('[data-testid="agent-pairing"][data-name="Research assistant agent"]');
     await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
-      "Can write new notes there, and propose changes that wait for you",
+      "Can write notes there; its changes wait for you",
     );
     await shot(window, "agent-proposals-row");
     const settings = JSON.parse(await copied(window)) as {

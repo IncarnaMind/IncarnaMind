@@ -8277,7 +8277,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
-  "agents.pairing.proposes": "Can write new notes there, and propose changes that wait for you",
+  "agents.pairing.proposes": "Can write notes there; its changes wait for you",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
@@ -8338,8 +8338,7 @@ export const en = {
   "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
-  "agents.propose.hint":
-    "A note it writes is there at once, as a new note of its own. Its changes to your notes wait until you accept or reject them.",
+  "agents.propose.hint": "Its notes appear at once. Its changes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",

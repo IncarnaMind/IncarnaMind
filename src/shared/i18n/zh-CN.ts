@@ -7812,7 +7812,7 @@ export const zhCN = {
   "agents.sentence.other": "你的智能体",
   "agents.pairing.reads": "可读取：{folders}",
   "agents.pairing.readsNothing": "还没有可读取的文件夹",
-  "agents.pairing.proposes": "可在其中新建笔记；对笔记提出的修改会等你处理",
+  "agents.pairing.proposes": "可在其中新建笔记；它的修改等你处理",
   "agents.pairing.lastUsed": "上次使用：{when}",
   "agents.pairing.notUsed": "尚未使用",
   "agents.pairing.renameLabel": "{agent}的名称",
@@ -7873,8 +7873,7 @@ export const zhCN = {
   "agents.connect.empty.body": "添加要让{agent}读取的文档，它们会显示在这里。",
   "agents.connect.pickOne": "至少选择一个文件夹。",
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
-  "agents.propose.hint":
-    "新建的笔记会立即出现，是一篇单独的新笔记。对已有笔记的修改会等你接受或拒绝。",
+  "agents.propose.hint": "它新建的笔记立即出现；它的修改等你处理。",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
   "agents.connect.skill": "还会在 {path} 添加一个简短的技能。",
   "agents.connect.showChange": "显示添加的内容",
