@@ -32,13 +32,12 @@ import type { CheckLabel, FindSupportItem } from "../../eval/checks/lib/set";
 
 const request = (reply: string, calls: JudgeRequest["calls"] = []): JudgeRequest => ({
   kind: "check",
-  part: null,
-  calculateAsked: false,
   reply,
   calls,
 });
 
-const SUPPORTED = "Verdict: supported\nEvidence: [1]\nThe update gives net debt.";
+const SUPPORTED = "Verdict: supported\nExplanation: The update gives net debt. [^1]\nEvidence: [1]";
+const UNCITED = "Verdict: supported\nExplanation: The update gives net debt.\nEvidence: []";
 const NO_QUOTE = {
   tool: "cite",
   input: '{"citations":[{"marker":1,"quote":"Net debt fell"}]}',
@@ -58,12 +57,19 @@ const quoteNotFound: CheckOutcome = {
   evidence: null,
   judge: [request("", [NO_QUOTE]), request(SUPPORTED)],
 };
-const calculationNotMade: CheckOutcome = {
+const noQuote: CheckOutcome = {
   verdict: "not-checked",
   reason: "no-evidence",
   code: "no-evidence",
   evidence: null,
-  judge: [request("Verdict: supported\nCalculation: 1.3x")],
+  judge: [request(UNCITED)],
+};
+const refused: CheckOutcome = {
+  verdict: "not-checked",
+  reason: "refused",
+  code: "refused",
+  evidence: null,
+  judge: [request("I'm sorry, I can't help with that.")],
 };
 const malformed: CheckOutcome = {
   verdict: "not-checked",
@@ -127,14 +133,13 @@ function reportOf(commit: string, results: ReportedSentence[]): ChecksReport {
 const RUN = reportOf("a1b2c3d", [
   sentence("fs-001", "supported", found([request(SUPPORTED)])),
   sentence("fs-002", "supported", quoteNotFound),
-  sentence("fs-003", "supported", calculationNotMade),
+  sentence("fs-003", "supported", refused),
   sentence("fs-004", "unsupported", malformed),
 ]);
 
 describe("A run's report", () => {
   test("counts the Not checked by cause, in the report and the summary", () => {
-    const counts =
-      "3 (no evidence 2: quote not found 1, calculation not made 1; malformed reply 1; other 0)";
+    const counts = "3 (quote not found 1; malformed reply 1; other 1)";
     expect(markdownReport(RUN)).toContain(`- Not checked: ${counts}.`);
     expect(summaryLines(RUN, "results/run")).toContain(`  Find support not checked: ${counts}`);
     expect(summaryLines(RUN, "results/run")).toContain(
@@ -157,7 +162,7 @@ describe("A run's report", () => {
     expect(caseOf("fs-002")).toContain("The app answered:");
     expect(caseOf("fs-002")).toContain("the quote isn't word for word");
     expect(caseOf("fs-002")).toContain(`Reply:\n\n\`\`\`text\n${SUPPORTED}\n\`\`\``);
-    expect(caseOf("fs-003")).toContain("calculation not made");
+    expect(caseOf("fs-003")).toContain("other (refused)");
     expect(caseOf("fs-004")).toContain("malformed reply (malformed)");
     expect(caseOf("fs-004")).toContain("It reads well to me.");
     expect(caseOf("fs-001")).toContain("the check said supported.");
@@ -209,7 +214,7 @@ describe("Two arms compared", () => {
       report: reportOf(`${name}${index + 1}`, results),
     })),
   });
-  const lost = request("Verdict: supported\nCalculation: none");
+  const lost = request(SUPPORTED);
 
   const main = arm(
     "main",
@@ -229,13 +234,13 @@ describe("Two arms compared", () => {
   const pr = arm(
     "pr",
     [
-      sentence("fs-050", "supported", calculationNotMade),
+      sentence("fs-050", "supported", noQuote),
       sentence("fs-056", "supported", quoteNotFound),
       sentence("fs-008", "supported", found([request("pr run 1 on fs-008")])),
       sentence("fs-140", "unsupported", malformed),
     ],
     [
-      sentence("fs-050", "supported", calculationNotMade),
+      sentence("fs-050", "supported", noQuote),
       sentence("fs-056", "supported", quoteNotFound),
       sentence("fs-008", "supported", found([request("pr run 2 on fs-008")])),
       sentence("fs-140", "unsupported", unsupported([request("pr run 2 on fs-140")])),
@@ -263,12 +268,11 @@ describe("Two arms compared", () => {
     expect(markdown).toContain("#### fs-050\n\nSentence fs-050.\n\nLabelled supported.");
     expect(markdown).toContain("##### main, run 1: supported");
     expect(markdown).toContain("##### main, run 2: supported");
-    expect(markdown).toContain("##### pr, run 1: not checked, calculation not made (no-evidence)");
-    expect(markdown).toContain("##### pr, run 2: not checked, calculation not made (no-evidence)");
-    expect(markdown).toContain("Every reply: eval/results/pr-2/replies.md#fs-050");
-    expect(markdown).toContain("Calculation: none");
-    expect(markdown).toContain("Calculation: 1.3x");
     expect(markdown).toContain("##### pr, run 1: not checked, quote not found (no-evidence)");
+    expect(markdown).toContain("##### pr, run 2: not checked, quote not found (no-evidence)");
+    expect(markdown).toContain("Every reply: eval/results/pr-2/replies.md#fs-050");
+    expect(markdown).toContain(SUPPORTED);
+    expect(markdown).toContain(UNCITED);
     expect(markdown).toContain("Fix these with another cite call");
   });
 
@@ -282,17 +286,17 @@ describe("Two arms compared", () => {
       "- pr: 2 runs at pr1, pr2 with anthropic/claude-haiku-5-5. Correct Supported 1 + 1 = 2;",
     );
     expect(markdown).toContain(
-      "- main, over its runs: 1 (no evidence 1: quote not found 1, calculation not made 0; malformed reply 0; other 0).",
+      "- main, over its runs: 1 (quote not found 1; malformed reply 0; other 0).",
     );
     expect(markdown).toContain(
-      "- pr, over its runs: 5 (no evidence 4: quote not found 2, calculation not made 2; malformed reply 1; other 0).",
+      "- pr, over its runs: 5 (quote not found 4; malformed reply 1; other 0).",
     );
   });
 
   test("says when each arm has one run, whose flips may be the run-to-run spread", () => {
     const one = comparisonMarkdown(
       arm("main", [sentence("fs-050", "supported", found([lost]))]),
-      arm("pr", [sentence("fs-050", "supported", calculationNotMade)]),
+      arm("pr", [sentence("fs-050", "supported", noQuote)]),
     );
 
     expect(one).toContain("Each arm has one run, so a flip here may be the run-to-run spread.");
@@ -327,7 +331,7 @@ describe("The comparison command", () => {
     const kept = (name: string, ...results: ReportedSentence[]) =>
       writeChecksReport(reportOf(name, results), join(folder, name));
     const lost = sentence("fs-050", "supported", found([request("Verdict: supported")]));
-    const missed = sentence("fs-050", "supported", calculationNotMade);
+    const missed = sentence("fs-050", "supported", noQuote);
 
     const printed = await run([
       "--arm",
@@ -342,7 +346,7 @@ describe("The comparison command", () => {
 
     expect(printed).toContain("# Checks evaluation: main against pr (#2910)");
     expect(printed).toContain("### Supported in main, Not checked in pr: 1");
-    expect(printed).toContain("Calculation: 1.3x");
+    expect(printed).toContain(UNCITED);
   });
 
   test("says how it is used when there aren't two arms with runs", async () => {

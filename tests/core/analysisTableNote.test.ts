@@ -2,12 +2,11 @@
  * The 11-04 walk's Analysis flow (#2378), through the core as the app drives it: Orders.csv, the
  * request, the Note the Answer writes, the User's Accept, then Check. The Analysis's own table is
  * one calculated object, judged from the run the Note keeps and never against the Documents' text;
- * a sentence whose figure the Analysis gave is judged by that figure's run; the chart keeps the
- * Analysis's values and inputs once the write is checked; and the table goes in once.
+ * the chart keeps the Analysis's values and inputs once the write is checked; and the table goes in
+ * once.
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
@@ -17,12 +16,11 @@ import { createElement, nodeOf, topLevelBlocks } from "../../src/core/answers/bl
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
-  CALCULATED_FIGURE_NODE,
   CHART_NODE,
   CLAIM_CHECK_MARK,
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
-import { homeReading, noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
+import { homeReading, readNoteState } from "../../src/renderer/src/noteState";
 import { wallsOf } from "../../src/renderer/src/walls";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
@@ -37,7 +35,6 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
-  requestedFigures,
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
@@ -49,7 +46,6 @@ import { resolveChanges } from "../helpers/minds";
 import {
   type GenerateCall,
   type ModelCall,
-  type ScriptedReply,
   scriptedModel,
   scriptedModels,
 } from "../helpers/models";
@@ -123,7 +119,6 @@ const WORDS = {
     slope: "A linear fit of amount against order date gives a slope of [=1] per day.",
     chart: "Total amount by region",
     note: "Calculated by the Analysis “Orders by region” from 40 rows of Orders.",
-    notRecalculated: "1 figure not recalculated",
     column: "amount: sum of 40 rows, by region · recalculated",
     differs: "North: 9,999 in the note, 9,450 in the Analysis",
     footed: "The rows above add to 35,550",
@@ -137,7 +132,6 @@ const WORDS = {
     slope: "金额对下单日期的线性拟合斜率为每天 [=1]。",
     chart: "各地区金额合计",
     note: "由数据分析“按地区汇总订单”根据“Orders”的 40 行计算得出。",
-    notRecalculated: "1 个数字未重新计算",
     column: "amount：按 region 计算 40 行的合计 · 已重新计算",
     differs: "North：笔记中为 9,999，数据分析中为 9,450",
     footed: "上面各行相加为 35,550",
@@ -153,7 +147,6 @@ function writingModel(
   language: Language,
   content: string | readonly string[],
   sent: string[],
-  offered: Map<string, readonly string[]>,
   asksChart: boolean,
   again: string | null,
   rewrite: { part: string; content: string } | null,
@@ -163,10 +156,8 @@ function writingModel(
   return scriptedModel(
     (call: ModelCall) => {
       if (isCheckRun(call)) {
-        if (!call.results.some((result) => result.tool === "search_documents")) {
+        if (!call.results.some((result) => result.tool === "search_documents"))
           sent.push(sentenceOf(call));
-          offered.set(sentenceOf(call), call.tools);
-        }
         const planned = plan(sentenceOf(call));
         return checkReply(call, planned ? { [sentenceOf(call)]: planned } : {});
       }
@@ -247,8 +238,7 @@ async function walked(
   plan: (sentence: string) => Plan | undefined = () => undefined,
 ) {
   const sent: string[] = [];
-  const offered = new Map<string, readonly string[]>();
-  const model = writingModel(language, content, sent, offered, asksChart, again, rewrite, plan);
+  const model = writingModel(language, content, sent, asksChart, again, rewrite, plan);
   const printer = fakePrinter();
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
@@ -278,7 +268,7 @@ async function walked(
   const client = await connectToMind(core, madeId);
   await client.settled();
   await resolveChanges(client, "accept");
-  return { core, answer, madeId, client, sent, offered, printer };
+  return { core, answer, madeId, client, sent, printer };
 }
 
 const blocksOf = (client: MindClient): NodeJSON[] => topLevelBlocks(client.blocks).map(nodeOf);
@@ -321,6 +311,10 @@ const cellTexts = (table: NodeJSON | undefined) =>
 
 const CONTENT = (language: Language) =>
   [`# ${WORDS[language].title}`, "", "[=table 1]", "", WORDS[language].slope].join("\n");
+
+/** The Note with the Analysis's table and nothing else for a Check to judge. */
+const TABLE_ALONE = (language: Language) =>
+  [`# ${WORDS[language].title}`, "", "[=table 1]"].join("\n");
 
 describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", (language) => {
   test("the table arrives as one calculated object, under its caption and marker, with no Citation per heading", async () => {
@@ -481,7 +475,7 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
   });
 
   test("with its chart beside it, a table with every row deleted, or deleted, leaves the badge with no ✓", async () => {
-    const { core, madeId, client } = await walked(language, CONTENT(language));
+    const { core, madeId, client } = await walked(language, TABLE_ALONE(language));
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
     const state = async () =>
@@ -612,35 +606,6 @@ describe.each(["en", "zh-CN"] as const)("%s: the walk's Analysis Note (#2378)", 
       ),
     ).toEqual([WORDS[language].differs]);
     expect(schedule.counts.needsLook).toBe(1);
-    core.close();
-  });
-
-  test("the slope sentence is judged by its figure's run, never Unsupported against the text", async () => {
-    const { core, madeId, client } = await walked(language, CONTENT(language));
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    const slope = marks(client).filter((mark) => mark.text.length > 6);
-    expect(slope.length).toBeGreaterThan(0);
-    expect(slope.map((mark) => mark.state)).not.toContain("unsupported");
-    expect(new Set(slope.map((mark) => mark.state))).toEqual(new Set(["not-checked"]));
-    // No check can change it, so the Note reads Checked, naming the figure not recalculated.
-    const { state } = readNoteState({
-      footing: [],
-      doc: client.doc,
-      cellFigures: [],
-      documents: await core.listDocuments(),
-      keptCitationTexts: [],
-      folderId: null,
-    });
-    expect(state?.kind).toBe("checked");
-    expect(
-      state &&
-        noteStateParts(state, (key, params) => translate(language, key, params), language)[1],
-    ).toBe(WORDS[language].notRecalculated);
-    // A Check of what changed has nothing to send.
-    expect(
-      (await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" })).kind,
-    ).toBe("nothing");
     core.close();
   });
 
@@ -906,87 +871,15 @@ const NAMED = {
     total: "Total amount, Central",
     mean: "Average amount, Central",
     right: "Central's total amount is [=6].",
-    swapped: "North's total amount is [=6].",
-    asTotal: "In Central, the total amount was [=7].",
-    extra: "Central's total amount is [=6], and revenue doubled.",
-    reworded: "South's total amount is ",
-    gone: "The Analysis it came from is no longer available",
-    misnamed: (label: string) => `The sentence doesn’t say this figure is ${label}`,
-    unnamed: (label: string) => `The sentence doesn’t clearly say this figure is ${label}`,
-    rests: "1 figure not recalculated",
-    two: "2 figures not recalculated",
     whole: "North's total is [=3], of [=6] in all.",
-    inWord: "Central's subtotal amount is [=6].",
-    inOrder: "Central's total amount is [=6], and Central's average amount is [=7].",
-    others: ["North", "In Central"],
-    rewordedTo: "South",
-    outOfOrder: "Central's average amount is [=6], and its total amount is [=7].",
-    listed: [
-      "- Central: total amount [=6]",
-      "1. Central's total amount is [=6]",
-      "- Central's total amount is [=6], and Central's average amount is [=7]",
-      "Central's total amount is [=6]",
-    ],
-    nested: "- By region:\n  - Central: total amount [=6]",
-    listedWrong: "- North: total amount [=6]",
-    listedUnclear: "- South: total amount [=6]",
   },
   "zh-CN": {
     total: "中部地区金额合计",
     mean: "中部地区平均金额",
     right: "中部地区金额合计为 [=6]。",
-    swapped: "北部地区金额合计为 [=6]。",
-    asTotal: "在中部地区，金额合计是 [=7]。",
-    extra: "中部地区金额合计为 [=6]，而且收入翻了一番。",
-    reworded: "南部地区金额合计为 ",
-    gone: "它所来自的数据分析已不可用",
-    misnamed: (label: string) => `句中没有写明这个数字是${label}`,
-    unnamed: (label: string) => `句中没有写明这个数字是${label}`,
-    rests: "1 个数字未重新计算",
-    two: "2 个数字未重新计算",
     whole: "North地区合计为 [=3]，全部合计为 [=6]。",
-    inWord: null,
-    inOrder: "中部地区金额合计为 [=6]，中部地区平均金额为 [=7]。",
-    others: ["北部", "在中部"],
-    rewordedTo: "南部",
-    outOfOrder: "中部地区平均金额为 [=6]，金额合计为 [=7]。",
-    listed: [
-      "- 中部地区：金额合计 [=6]",
-      "1. 中部地区金额合计为 [=6]",
-      "- 中部地区金额合计为 [=6]，中部地区平均金额为 [=7]",
-      "中部地区金额合计为 [=6]",
-    ],
-    nested: "- 按地区：\n  - 中部地区：金额合计 [=6]",
-    listedWrong: "- 北部地区：金额合计 [=6]",
-    listedUnclear: "- 南部地区：金额合计 [=6]",
   },
 } as const;
-
-/**
- * One wrong name of each kind #2544 found, in the Note's lines after the right one: what the
- * sentence, its paragraph, the heading above or a typed table's column says besides the name.
- */
-const WORDS_AROUND: Record<Language, readonly [kind: string, ...lines: string[]][]> = {
-  en: [
-    ["per unit", "A Central order's total amount is [=6]."],
-    ["sign or symbol", "Central's total amount is -[=6]."],
-    ["scale said before", "All amounts below are in thousands. Central's total amount is [=6]."],
-    ["typed-table column", "| Region | Total amount % |\n| --- | --- |\n| Central | [=6] |"],
-    ["target", "Central's total amount has to reach [=6]."],
-    ["currency the unit doesn't back", "Central's total amount is €[=6]."],
-    ["subset", "Central's closed orders had a total amount of [=6]."],
-  ],
-  "zh-CN": [
-    ["per unit", "中部地区每笔订单的金额合计为 [=6]。"],
-    ["sign or symbol, a slash before the input's word", "中部地区金额合计为 [=6]/order。"],
-    ["sign or symbol", "中部地区金额合计为 [=6]%。"],
-    ["scale said before", "## 金额（单位：千元）", "中部地区金额合计为 [=6]。"],
-    ["typed-table column", "| 地区 | 金额合计（%） |\n| --- | --- |\n| 中部地区 | [=6] |"],
-    ["target", "中部地区金额合计须达到 [=6]。"],
-    ["currency the unit doesn't back", "中部地区金额合计为 ¥[=6]。"],
-    ["subset", "中部地区已完成订单的金额合计为 [=6]。"],
-  ],
-};
 
 describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#2378)", (language) => {
   const words = NAMED[language];
@@ -1006,503 +899,10 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     };
   };
   const lines = (...said: string[]) => [`# ${WORDS[language].title}`, "", ...said].join("\n\n");
-  /** The mark on the sentence `said` starts with: its first words before the figure. */
-  const stateOf = (client: MindClient, said: string) =>
-    marks(client).find((mark) => mark.text.trim().length > 1 && said.startsWith(mark.text));
-  const reading = async (core: Core, client: MindClient) =>
-    readNoteState({
-      footing: [],
-      doc: client.doc,
-      cellFigures: [],
-      documents: await core.listDocuments(),
-      keptCitationTexts: [],
-      folderId: null,
-    }).state;
-  const parts = (state: NonNullable<Awaited<ReturnType<typeof reading>>>) =>
-    noteStateParts(state, (key, params) => translate(language, key, params), language);
-
-  /** The scripted judge reads another figure's name in each sentence that starts with one of `others`. */
-  const judgedOther =
-    (others: readonly string[]) =>
-    (sentence: string): Plan | undefined =>
-      others.some((each) => sentence.startsWith(each))
-        ? { names: "other", verdict: "unsupported" }
-        : undefined;
   const scheduleStates = async (core: Core, madeId: string) =>
     (await core.getFigureSchedule(madeId)).rows
       .filter((row) => !row.analysisTable)
       .map((row) => row.shown.state);
-
-  test("the claim judge names a figure: Supported where it reads the sentence as naming it, Unsupported where it reads another figure's name there, saying what the figure is", async () => {
-    const content = lines(words.right, words.swapped, words.asTotal);
-    const { core, madeId, client, sent } = await walked(
-      language,
-      content,
-      false,
-      null,
-      withFigures(),
-      null,
-      judgedOther(words.others),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)?.state).toBe("supported");
-    expect(stateOf(client, words.swapped)).toMatchObject({
-      state: "unsupported",
-      reason: words.misnamed(words.total),
-    });
-    expect(stateOf(client, words.asTotal)).toMatchObject({
-      state: "unsupported",
-      reason: words.misnamed(words.mean),
-    });
-    // It holds the badge, and its own row in the schedule: never quietly green.
-    expect((await reading(core, client))?.kind).toBe("needs-look");
-    expect(await scheduleStates(core, madeId)).toEqual(["supported", "unsupported", "unsupported"]);
-    // Check again leaves it as the judge read it; only the User's edit sends it again.
-    sent.length = 0;
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" });
-    await client.settled();
-    expect(sent.filter((each) => words.others.some((other) => each.includes(other)))).toEqual([]);
-    core.close();
-  });
-
-  test("the judge decides: a reply whose fields disagree with its verdict is asked once, then read as the model's reply that couldn't be read", async () => {
-    const unread = "malformed";
-    const judgedWith =
-      (fields: (asked: boolean) => Record<string, string>, names: Plan["names"] = "same") =>
-      (sentence: string): Plan | undefined =>
-        sentence.startsWith(words.right.slice(0, 8))
-          ? { verdict: "supported", names, analysisItem: fields }
-          : undefined;
-    const checked = async (plan: (sentence: string) => Plan | undefined) => {
-      const { core, madeId, client } = await walked(
-        language,
-        lines(words.right),
-        false,
-        null,
-        withFigures(),
-        null,
-        plan,
-      );
-      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-      await client.settled();
-      const shown = {
-        mark: stateOf(client, words.right),
-        rows: await scheduleStates(core, madeId),
-      };
-      core.close();
-      return shown;
-    };
-    // Each field that disagrees with a same, asked about and still disagreeing.
-    for (const disagreeing of <Record<string, string>[]>[
-      { verdict: "unsupported" },
-      { verdict: "contradicted" },
-      { relation: "at least" },
-      { topic: "not found" },
-      { roles: "differs" },
-      { scope: "wider" },
-    ]) {
-      const shown = await checked(judgedWith(() => disagreeing));
-      expect(shown.mark, JSON.stringify(disagreeing)).toMatchObject({
-        state: "not-checked",
-        reason: unread,
-      });
-      expect(shown.rows, JSON.stringify(disagreeing)).toEqual(["not-checked"]);
-    }
-    // "other" with a verdict of supported, and "unclear" with supported, disagree as well.
-    for (const names of ["other", "unclear"] as const) {
-      const shown = await checked(judgedWith(() => ({ verdict: "supported" }), names));
-      expect(shown.mark, names).toMatchObject({ state: "not-checked", reason: unread });
-    }
-    // Mended when asked, the judge's own same stands.
-    const mended = await checked(
-      judgedWith((asked): Record<string, string> => (asked ? {} : { verdict: "unsupported" })),
-    );
-    expect(mended.mark?.state).toBe("supported");
-    expect(mended.rows).toEqual(["supported"]);
-  });
-
-  test("asked again, a reply whose Figures line can't be read leaves the cell Not checked, never the Supported its first reply gave (#2591)", async () => {
-    const supportedWithFigures = (call: ModelCall): ScriptedReply => {
-      const items = requestedFigures(call).map(({ id, reading }) => ({
-        id,
-        names: "same",
-        verdict: "supported",
-        scope: "same",
-        topic: "found",
-        roles: "same",
-        says: null,
-        reading,
-        relation: "equals",
-        source: null,
-        calculation: null,
-      }));
-      return { text: `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({ items })}` };
-    };
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-      null,
-      () => ({
-        reply: (call: ModelCall): ScriptedReply =>
-          call.prompt.includes("Your Figures line gives no remainder")
-            ? { text: "Verdict: supported\nAbsence: no" }
-            : supportedWithFigures(call),
-      }),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)).toMatchObject({ state: "not-checked" });
-    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
-    expect((await reading(core, client))?.kind).not.toBe("checked");
-    core.close();
-  });
-
-  test("one verdict everywhere: a reply with no remainder leaves the sentence, its marker and its row all Not checked", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-      null,
-      () => ({ remainder: "left out" }),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)).toMatchObject({
-      state: "not-checked",
-      reason: "malformed",
-    });
-    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
-    expect((await reading(core, client))?.kind).not.toBe("checked");
-    core.close();
-  });
-
-  test("the judge's same never stands where the figure's own clause leaves a word of its label out: it is left Not checked, never Unsupported", async () => {
-    const content = lines(words.right, words.swapped, words.asTotal);
-    const { core, madeId, client } = await walked(language, content, false, null, withFigures());
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)?.state).toBe("supported");
-    for (const said of [words.swapped, words.asTotal])
-      expect(stateOf(client, said)).toMatchObject({
-        state: "not-checked",
-        reason: "analysis-unnamed",
-      });
-    expect(translate(language, "claim.reason.analysis-unnamed", { detail: words.total })).toBe(
-      words.unnamed(words.total),
-    );
-    expect((await reading(core, client))?.kind).not.toBe("checked");
-    expect(await scheduleStates(core, madeId)).toEqual(["supported", "not-checked", "not-checked"]);
-    core.close();
-  });
-
-  test("a sentence of only an Analysis's figures is checked with no calculate to call: IncarnaMind worked them out", async () => {
-    const { core, madeId, client, sent, offered } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    sent.length = 0;
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    const tools = sent.map((each) => offered.get(each) ?? []);
-    expect(tools.length).toBeGreaterThan(0);
-    for (const each of tools) {
-      expect(each).toContain("search_documents");
-      expect(each).not.toContain("calculate");
-    }
-    core.close();
-  });
-
-  test("a judge's prose where an Analysis item's calculation goes doesn't make its reply unreadable", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-      null,
-      () => ({
-        reply: (call) =>
-          call.results.some((result) => result.tool === "search_documents")
-            ? {
-                text: `Verdict: supported\nAbsence: no\nFigures: ${JSON.stringify({
-                  items: requestedFigures(call).map(({ id }) => ({
-                    id,
-                    names: "same",
-                    verdict: "supported",
-                    scope: "same",
-                    topic: "found",
-                    roles: "same",
-                    measure: null,
-                    says: null,
-                    reading: null,
-                    relation: "equals",
-                    source: null,
-                    calculation: "the sum of Central's amounts",
-                  })),
-                  remainder: null,
-                })}`,
-              }
-            : { calls: [{ tool: "search_documents", input: { query: "Central" } }] },
-      }),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)?.state).toBe("supported");
-    core.close();
-  });
-
-  test("a judge that gives supported but leaves names out, asked again and still without them, is a reply that couldn't be read", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-      null,
-      () => ({ names: null, verdict: "supported" }),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)).toMatchObject({
-      state: "not-checked",
-      reason: "malformed",
-    });
-    core.close();
-  });
-
-  test("a figure the judge can't tell is named is left Not checked", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-      null,
-      () => ({ names: "unclear", verdict: "unsupported" }),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)).toMatchObject({
-      state: "not-checked",
-      reason: "analysis-unnamed",
-    });
-    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
-    core.close();
-  });
-
-  test("two figures each under the other's words are left Not checked; each named in its own clause, both are Supported", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.inOrder, words.outOfOrder),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.inOrder)?.state).toBe("supported");
-    expect(stateOf(client, words.outOfOrder)).toMatchObject({
-      state: "not-checked",
-      reason: "analysis-unnamed",
-    });
-    core.close();
-  });
-
-  test.runIf(words.inWord !== null)(
-    "a word of the label found only inside another word doesn't name the figure",
-    async () => {
-      const said = words.inWord ?? "";
-      const { core, madeId, client } = await walked(
-        language,
-        lines(said),
-        false,
-        null,
-        withFigures(),
-      );
-      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-      await client.settled();
-      expect(stateOf(client, said)).toMatchObject({
-        state: "not-checked",
-        reason: "analysis-unnamed",
-      });
-      core.close();
-    },
-  );
-
-  test("a figure in a typed table is named by its row and column headings", async () => {
-    const north = language === "en" ? "North's total amount" : "北部地区金额合计";
-    const table = [
-      `| ${language === "en" ? "Measure" : "指标"} | ${language === "en" ? "Value" : "数值"} |`,
-      "| --- | --- |",
-      `| ${words.total} | [=6] |`,
-      `| ${north} | [=6] |`,
-    ].join("\n");
-    const { core, madeId, client } = await walked(
-      language,
-      lines(table),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    // A figure in a cell keeps its check on itself, not as a mark on words.
-    const cells: { state: string; reason: string | null }[] = [];
-    const visit = (node: NodeJSON) => {
-      const check =
-        node.type === CALCULATED_FIGURE_NODE ? readClaimCheck(node.attrs?.claimCheck) : null;
-      if (check)
-        cells.push({
-          state: check.state,
-          reason: check.state === "not-checked" ? check.reason : null,
-        });
-      for (const child of node.content ?? []) visit(child);
-    };
-    for (const block of blocksOf(client)) visit(block);
-    expect(cells).toEqual([
-      { state: "supported", reason: null },
-      { state: "not-checked", reason: "analysis-unnamed" },
-    ]);
-    core.close();
-  });
-
-  test("a figure takes its verdict from the check that reads its sentence, the write's own, and loses it once the User rewords it, until the next Check judges the new words", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-      null,
-      judgedOther([words.rewordedTo]),
-    );
-    // What the assistant wrote is checked after its reply, its uncited claims too (#2830).
-    expect(stateOf(client, words.right)?.state).toBe("supported");
-    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.right)?.state).toBe("supported");
-    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
-    const paragraph = client.blocks
-      .toArray()
-      .find(
-        (each): each is Y.XmlElement =>
-          each instanceof Y.XmlElement &&
-          each.toString().includes(language === "en" ? "Central" : "中部"),
-      );
-    const text = paragraph?.toArray().find((each): each is Y.XmlText => each instanceof Y.XmlText);
-    if (!text) throw new Error("No sentence.");
-    client.doc.transact(() => {
-      text.delete(0, text.toString().indexOf(language === "en" ? " amount" : "金额"));
-      text.insert(0, language === "en" ? "South's total" : "南部地区");
-    });
-    await client.settled();
-    // The check left on the full stop is still the sentence's: Needs re-check, as the sentence
-    // shows (#2584).
-    expect(await scheduleStates(core, madeId)).toEqual(["needs-recheck"]);
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "changed" });
-    await client.settled();
-    expect(stateOf(client, words.reworded)).toMatchObject({
-      state: "unsupported",
-      reason: words.misnamed(words.total),
-    });
-    expect(await scheduleStates(core, madeId)).toEqual(["unsupported"]);
-    core.close();
-  });
-
-  test("a correctly named figure beside a claim the Documents don't make is never Supported", async () => {
-    const claim = language === "en" ? "revenue doubled" : "收入翻了一番";
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.extra),
-      false,
-      null,
-      withFigures(),
-      null,
-      (sentence) =>
-        sentence.includes(claim)
-          ? { verdict: "unsupported", remainder: { text: claim, verdict: "unsupported" } }
-          : undefined,
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(stateOf(client, words.extra)?.state).toBe("unsupported");
-    core.close();
-  });
-
-  test("a figure whose record is gone reads Not checked, and a Note with nothing earned rests on what wasn't recalculated, with no ✓", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    client.doc.transact(() => {
-      const runs = client.doc.getMap(MIND_FIGURE_RUNS_FIELD);
-      for (const key of [...runs.keys()]) runs.delete(key);
-    });
-    await client.settled();
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    const mark = stateOf(client, words.right);
-    expect(mark).toMatchObject({ state: "not-checked", reason: "analysis-gone" });
-    expect(translate(language, "claim.reason.analysis-gone")).toBe(words.gone);
-    const state = await reading(core, client);
-    expect(state).toMatchObject({ kind: "not-checked", tone: "neutral" });
-    expect(state && parts(state)).toEqual([words.rests]);
-    core.close();
-  });
-
-  test("a Note whose only figure is the slope rests on it, with no ✓ and no amber", async () => {
-    const { core, madeId, client } = await walked(language, lines(WORDS[language].slope), false);
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    const state = await reading(core, client);
-    expect(state).toMatchObject({ kind: "not-checked", tone: "neutral" });
-    expect(state && parts(state)).toEqual([words.rests]);
-    core.close();
-  });
-
-  test("each column not recalculated counts as one figure, beside the slope, on the green line", async () => {
-    const base = ANALYSIS(WORDS[language].caption);
-    const shares: Answered = {
-      ...base,
-      output: {
-        ...noAnalysisOutput(),
-        ...base.output,
-        results: (base.output?.results ?? []).map((result) =>
-          result.kind === "table"
-            ? {
-                ...result,
-                table: {
-                  columns: ["region", "amount", "share"],
-                  rows: TOTALS.map(([region, total]) => [region, total, total / 35550]),
-                  rowCount: 4,
-                  columnCount: 3,
-                },
-              }
-            : result,
-        ),
-      },
-    };
-    const { core, madeId, client } = await walked(language, CONTENT(language), false, null, shares);
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    const state = await reading(core, client);
-    expect(state?.kind).toBe("checked");
-    expect(state && parts(state)[1]).toBe(words.two);
-    core.close();
-  });
 
   test("a whole figure is written out, never rounded to a scale word", async () => {
     const base = ANALYSIS(WORDS[language].caption);
@@ -1545,17 +945,7 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
   });
 
   test("behind a walled Folder the Note is outside, the run backs nothing; inside it, it does again", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      [CONTENT(language), "", words.right].join("\n"),
-      false,
-      null,
-      withFigures(),
-    );
-    // Another Document the Note may read, so its Check has somewhere to look.
-    const elsewhere = join(await createTempDataFolder(), "Notes.txt");
-    await writeFile(elsewhere, "Meeting notes on the regions.\n");
-    await addAndProcess(core, [elsewhere]);
+    const { core, madeId, client } = await walked(language, TABLE_ALONE(language), false);
     const orders = (await core.listDocuments()).find((each) => each.name.startsWith("Orders"));
     if (!orders) throw new Error("No Orders.");
     const matter = await core.createLibraryGroup({ name: "Matter", description: "" });
@@ -1563,10 +953,6 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     await core.updateLibraryGroup(matter.id, { name: "Matter", description: "", keepInside: true });
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
-    expect(stateOf(client, words.right)).toMatchObject({
-      state: "not-checked",
-      reason: "kept-inside",
-    });
     const outside = await core.getFigureSchedule(madeId);
     expect(outside.rows.find((row) => row.analysisTable)?.shown).toEqual({
       state: "not-checked",
@@ -1582,9 +968,6 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
         ? "amount: from the Analysis · not recalculated"
         : "amount：来自数据分析 · 未重新计算",
     ]);
-    expect(
-      outside.rows.filter((row) => !row.analysisTable).map((row) => row.shown.state),
-    ).not.toContain("supported");
     // Home's row reads the wall as the badge does: the walled table earns no ✓ there either.
     const [walled] = await core.readMindContents([madeId]);
     if (!walled) throw new Error("No content.");
@@ -1595,11 +978,10 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
       folderId: null,
     });
     expect(home.health.supported).toBe(0);
-    expect(home.state?.kind).toBe("not-checked");
+    expect(home.state?.kind).not.toBe("checked");
     await core.moveToFolder({ mindIds: [madeId], folderId: matter.id });
     await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
     await client.settled();
-    expect(stateOf(client, words.right)?.state).toBe("supported");
     const inside = await core.getFigureSchedule(madeId);
     expect(inside.rows.find((row) => row.analysisTable)?.shown.state).toBe("supported");
     // Moved out again, what was checked inside backs nothing there, before any Check: Home's row
@@ -1658,218 +1040,6 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     core.close();
   });
 
-  /** Each check that holds an Analysis figure, in the Note's order: a sentence's, or a typed cell's own. */
-  const analysisVerdicts = (client: MindClient) => {
-    const found = new Map<string, string>();
-    const said = (check: ReturnType<typeof readClaimCheck>) =>
-      check?.state === "not-checked" ? `not-checked ${check.reason}` : (check?.state ?? "none");
-    const visit = (node: NodeJSON, path: string) => {
-      for (const mark of node.marks ?? []) {
-        const check = mark.type === CLAIM_CHECK_MARK ? readClaimCheck(mark.attrs) : null;
-        if (check?.figures?.some((figure) => figure.calculated?.figure.analysis))
-          found.set(`${path}:${check.text}`, said(check));
-      }
-      if (node.type === CALCULATED_FIGURE_NODE && path.includes("table")) {
-        const check = readClaimCheck(node.attrs?.claimCheck);
-        if (check) found.set(`${path}:${found.size}`, said(check));
-      }
-      for (const child of node.content ?? []) visit(child, `${path}/${node.type}`);
-    };
-    for (const [at, block] of blocksOf(client).entries()) visit(block, String(at));
-    return [...found.values()];
-  };
-  const homeOf = async (core: Core, madeId: string) => {
-    const [stored] = await core.readMindContents([madeId]);
-    if (!stored) throw new Error("No content.");
-    return homeReading(stored, {
-      documents: await core.listDocuments(),
-      keptCitationTexts: [],
-      library: await wallsNow(core),
-      folderId: null,
-    });
-  };
-
-  test.each(WORDS_AROUND[language])(
-    "%s: a judge's consistent same never stands, on the sentence, its row, the badge or Home, while the right name beside it is Supported (#2544)",
-    async (_kind, ...wrong) => {
-      const { core, madeId, client } = await walked(
-        language,
-        lines(words.right, ...wrong),
-        false,
-        null,
-        withFigures(),
-      );
-      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-      await client.settled();
-      expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
-      expect(await scheduleStates(core, madeId)).toEqual(["supported", "not-checked"]);
-      expect((await reading(core, client))?.kind).not.toBe("checked");
-      // Home's row, which the export's line reads too, counts the right name and nothing more.
-      const home = await homeOf(core, madeId);
-      expect(home.state?.kind).not.toBe("checked");
-      expect(home.health.supported).toBe(1);
-      core.close();
-    },
-  );
-
-  test("a scale said in a line above, or in the heading the sentence is under, is said of its figure too (#2544)", async () => {
-    const above =
-      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right, `## ${WORDS[language].caption}`, above, words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
-    // The check's record keeps the line that says a scale, and not the Note's title above it.
-    const stored: string[] = [];
-    const visit = (node: NodeJSON) => {
-      for (const mark of node.marks ?? [])
-        if (mark.type === CLAIM_CHECK_MARK) stored.push(JSON.stringify(mark.attrs));
-      for (const child of node.content ?? []) visit(child);
-    };
-    for (const block of blocksOf(client)) visit(block);
-    const underTheLine = stored.filter((each) => each.includes(above));
-    expect(underTheLine.length).toBeGreaterThan(0);
-    expect(underTheLine.some((each) => each.includes(WORDS[language].title))).toBe(false);
-    core.close();
-    const titled = await walked(
-      language,
-      [
-        `# ${WORDS[language].title} (${language === "en" ? "in thousands" : "单位：千元"})`,
-        "",
-        `## ${WORDS[language].caption}`,
-        "",
-        words.right,
-      ].join("\n\n"),
-      false,
-      null,
-      withFigures(),
-    );
-    await titled.core.checkMind({ requestId: randomUUID(), mindId: titled.madeId, mode: "all" });
-    await titled.client.settled();
-    expect(analysisVerdicts(titled.client)).toEqual(["not-checked analysis-unnamed"]);
-    titled.core.close();
-  });
-
-  test("an enclosing section's opening lines are said of the sections under it (#2544)", async () => {
-    const scale =
-      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right, scale, `## ${WORDS[language].caption}`, words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
-    core.close();
-  });
-
-  test("a long sibling section between the title's units line and the sentence doesn't hide it (#2544)", async () => {
-    const scale =
-      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
-    const long =
-      language === "en"
-        ? `${"the regions kept their records by month, ".repeat(56)}as before.`
-        : `${"各地区按月记录数据，".repeat(230)}与往常一样。`;
-    expect(long.length).toBeGreaterThan(2_200);
-    const { core, madeId, client } = await walked(
-      language,
-      lines(scale, "## A", long, "## B", words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["not-checked analysis-unnamed"]);
-    core.close();
-    // The same Note without the units line keeps its Supported.
-    const plain = await walked(
-      language,
-      lines("## A", long, "## B", words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    await plain.core.checkMind({ requestId: randomUUID(), mindId: plain.madeId, mode: "all" });
-    await plain.client.settled();
-    expect(analysisVerdicts(plain.client)).toEqual(["supported"]);
-    plain.core.close();
-  });
-
-  test("a heading or a line the User types above the sentence after the Answer is read by its first Check (#2544)", async () => {
-    for (const [kind, words_] of [
-      ["heading", language === "en" ? "Amounts (in thousands)" : "金额（单位：千元）"],
-      ["paragraph", language === "en" ? "Currency: EUR" : "以下金额均以欧元计。"],
-    ] as const) {
-      const { core, madeId, client } = await walked(
-        language,
-        lines(words.right, words.right),
-        false,
-        null,
-        withFigures(),
-      );
-      // The Note's figures were read before the edit, as its schedule or badge reads them.
-      expect(await scheduleStates(core, madeId)).toHaveLength(2);
-      const blocks = client.blocks.toArray();
-      const second = blocks.findLastIndex(
-        (each) => each instanceof Y.XmlElement && each.nodeName === "paragraph",
-      );
-      client.doc.transact(() => {
-        const line = new Y.XmlElement(kind);
-        line.setAttribute("id", randomUUID());
-        if (kind === "heading") line.setAttribute("level", "2");
-        line.insert(0, [new Y.XmlText(words_)]);
-        client.blocks.insert(second, [line]);
-      });
-      await client.settled();
-      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-      await client.settled();
-      expect(analysisVerdicts(client), kind).toEqual(["supported", "not-checked analysis-unnamed"]);
-      core.close();
-    }
-  });
-
-  test("a heading typed above a typed table after the Answer is read by its cell's next Check (#2544)", async () => {
-    const table =
-      language === "en"
-        ? "| Region | Total amount |\n| --- | --- |\n| Central | [=6] |"
-        : "| 地区 | 金额合计 |\n| --- | --- |\n| 中部地区 | [=6] |";
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.right, table),
-      false,
-      null,
-      withFigures(),
-    );
-    expect(await scheduleStates(core, madeId)).toHaveLength(2);
-    const at = client.blocks
-      .toArray()
-      .findIndex((each) => each instanceof Y.XmlElement && each.nodeName === "table");
-    client.doc.transact(() => {
-      const heading = new Y.XmlElement("heading");
-      heading.setAttribute("id", randomUUID());
-      heading.setAttribute("level", "2");
-      heading.insert(0, [
-        new Y.XmlText(language === "en" ? "Amounts (in thousands)" : "金额（单位：千元）"),
-      ]);
-      client.blocks.insert(at, [heading]);
-    });
-    await client.settled();
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["supported", "not-checked analysis-unnamed"]);
-    core.close();
-  });
-
   test("the judge reads the heading above as it is when the check runs, not as the Note was first read (#2544)", async () => {
     const before = language === "en" ? "Northern figures" : "北方数字";
     const after = language === "en" ? "Central figures" : "中部数字";
@@ -1915,173 +1085,6 @@ describe.each(["en", "zh-CN"] as const)("%s: an Analysis figure's sentence (#237
     expect(prompts.length).toBeGreaterThan(0);
     expect(prompts.every((prompt) => prompt.includes(`"heading":"${after}"`))).toBe(true);
     expect(prompts.some((prompt) => prompt.includes(before))).toBe(false);
-    expect(analysisVerdicts(client)).toEqual(["supported"]);
-    core.close();
-  });
-
-  test("the lines above are its own section's, and a table's caption is its table's (#2544)", async () => {
-    const scale =
-      language === "en" ? "All amounts below are in thousands." : "以下金额单位为万元。";
-    const caption = language === "en" ? "Totals (in thousands)" : "合计（单位：千元）";
-    const table = "| A | B |\n| --- | --- |\n| x | 1 |";
-    const { core, madeId, client } = await walked(
-      language,
-      lines(`## ${caption}`, scale, "## B", words.right, caption, table, words.right),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["supported", "supported"]);
-    core.close();
-  });
-
-  test("code never makes a Supported: the judge's other stays Unsupported and its unclear Not checked, whatever the sentence's symbols (#2544)", async () => {
-    const [, wrong = ""] = WORDS_AROUND[language].find(([kind]) => kind === "sign or symbol") ?? [];
-    const prefix = wrong.slice(0, 8);
-    for (const [names, shown] of [
-      ["other", "unsupported"],
-      ["unclear", "not-checked analysis-unnamed"],
-    ] as const) {
-      const { core, madeId, client } = await walked(
-        language,
-        lines(words.right, wrong),
-        false,
-        null,
-        withFigures(),
-        null,
-        (sentence) =>
-          sentence.startsWith(prefix) && sentence !== words.right.replace("[=6]", "8,325")
-            ? { names, verdict: "unsupported" }
-            : undefined,
-      );
-      await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-      await client.settled();
-      expect(analysisVerdicts(client)).toEqual(["supported", shown]);
-      core.close();
-    }
-  });
-
-  test("a figure that ends its list item or its line has its sentence's one verdict on its row, the badge and Home (#2584)", async () => {
-    const { core, madeId, client } = await walked(
-      language,
-      lines(...words.listed),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["supported", "supported", "supported", "supported"]);
-    expect(await scheduleStates(core, madeId)).toEqual(Array(5).fill("supported"));
-    expect((await reading(core, client))?.kind).toBe("checked");
-    // Home's row, which the export's line reads too.
-    const home = await homeOf(core, madeId);
-    expect(home.state?.kind).toBe("checked");
-    expect(home.health.supported).toBe(4);
-    core.close();
-  });
-
-  test("a list item's wrong name is Unsupported on its row too, one the judge can't tell and a figure no sentence holds are Not checked, and nothing is green (#2584)", async () => {
-    const [north, south] = language === "en" ? ["North", "South"] : ["北部", "南部"];
-    const { core, madeId, client } = await walked(
-      language,
-      lines(words.nested, words.listedWrong, words.listedUnclear, "- [=7]"),
-      false,
-      null,
-      withFigures(),
-      null,
-      (sentence) =>
-        sentence.startsWith(north)
-          ? { names: "other", verdict: "unsupported" }
-          : sentence.startsWith(south)
-            ? { names: "unclear", verdict: "unsupported" }
-            : undefined,
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual([
-      "supported",
-      "unsupported",
-      "not-checked analysis-unnamed",
-    ]);
-    expect(await scheduleStates(core, madeId)).toEqual([
-      "supported",
-      "unsupported",
-      "not-checked",
-      "not-checked",
-    ]);
-    expect((await reading(core, client))?.kind).toBe("needs-look");
-    const home = await homeOf(core, madeId);
-    expect(home.state?.kind).not.toBe("checked");
-    expect(home.health.supported).toBe(1);
-    core.close();
-  });
-
-  test("a reply whose Roles line gives a list item to someone else, while its figure's item names it, leaves the figure Not checked on the sentence, its row and the badge (#2584)", async () => {
-    const [item = ""] = words.listed;
-    const [subject, other] = language === "en" ? ["Central", "North"] : ["中部地区", "北部地区"];
-    const { core, madeId, client } = await walked(
-      language,
-      lines(item),
-      false,
-      null,
-      withFigures(),
-      null,
-      (sentence) =>
-        sentence.startsWith(subject)
-          ? { verdict: "unsupported", roles: `${subject} / ${other}, other` }
-          : undefined,
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["not-checked malformed"]);
-    expect(await scheduleStates(core, madeId)).toEqual(["not-checked"]);
-    expect((await reading(core, client))?.kind).toBe("not-checked");
-    expect((await homeOf(core, madeId)).state?.kind).toBe("not-checked");
-    core.close();
-  });
-  test("a wrong name stays Unsupported on the sentence and its row when the reply's Roles line also gives the sentence to someone else (#2596)", async () => {
-    const [item, subject, roles] =
-      language === "en"
-        ? ["- North: total amount [=6]", "North", "North / Central, other"]
-        : ["- 北部地区：金额合计 [=6]", "北部地区", "北部地区 / 中部地区, other"];
-    const { core, madeId, client } = await walked(
-      language,
-      lines(item),
-      false,
-      null,
-      withFigures(),
-      null,
-      (sentence) =>
-        sentence.startsWith(subject)
-          ? { names: "other", verdict: "unsupported", roles }
-          : undefined,
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["unsupported"]);
-    expect(await scheduleStates(core, madeId)).toEqual(["unsupported"]);
-    expect((await reading(core, client))?.kind).toBe("needs-look");
-    core.close();
-  });
-
-  test("a figure that starts its list item has its sentence's verdict on its row (#2596)", async () => {
-    const item =
-      language === "en" ? "- [=6] is Central's total amount" : "- [=6] 是中部地区金额合计";
-    const { core, madeId, client } = await walked(
-      language,
-      lines(item),
-      false,
-      null,
-      withFigures(),
-    );
-    await core.checkMind({ requestId: randomUUID(), mindId: madeId, mode: "all" });
-    await client.settled();
-    expect(analysisVerdicts(client)).toEqual(["supported"]);
-    expect(await scheduleStates(core, madeId)).toEqual(["supported"]);
-    expect((await reading(core, client))?.kind).toBe("checked");
     core.close();
   });
 });

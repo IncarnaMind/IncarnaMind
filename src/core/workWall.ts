@@ -99,15 +99,6 @@ export function createWorkWall(options: WorkWallOptions) {
     const excluded = new Set(walledDocuments());
     return (resolved ?? documents.ids({})).filter((id) => !excluded.has(id));
   };
-  /**
-   * The Documents a pick of the User's covers, as a search from `mindId` sees them (#1934): from
-   * inside a wall only those behind it, from outside never one a wall keeps inside.
-   */
-  const pickedDocuments = (scope: SearchScope, mindId: string): string[] => {
-    const searched = new Set(resolveScope(scope, mindId) ?? documents.ids({}));
-    const picked = resolveSearchScope(scope, sources);
-    return (picked ?? []).filter((id) => searched.has(id));
-  };
   const folderIdsInScope = (folderIds: readonly string[]) =>
     folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
       ? [...folderIds]
@@ -306,7 +297,6 @@ export function createWorkWall(options: WorkWallOptions) {
     scopeInsideWall,
     constrainedScope,
     resolveScope,
-    pickedDocuments,
     folderIdsInScope,
     walledFolderId,
     walledDocument,

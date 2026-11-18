@@ -9,7 +9,6 @@
  * stops the judgement stops it at a batch, so the sentences it leaves are the last ones.
  */
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
-import type { Figure } from "../../../shared/figures";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
@@ -40,7 +39,6 @@ import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
 import { judge, lines } from "../judge";
 import { type FoundPassage, LOOKS_AN_ANSWER, type LookResult } from "./answerLook";
-import { figureReadings, needsCalculation } from "./calculationGate";
 import type { CheckedCitation } from "./claimCheck";
 import { heldTime } from "./heldTime";
 import { repliesFirst } from "./repliesFirst";
@@ -54,12 +52,9 @@ import {
   batchParts,
   batchPrompt,
   marksCalls,
-  passesSentence,
   readBatchText,
   sentenceBatchInstructions,
 } from "./sentenceBatch";
-import type { UnitGate } from "./unitGate";
-import { isSameUnit } from "./units";
 
 /** What a checked sentence's result makes of each of its found Citations. */
 export interface SupportResult {
@@ -164,8 +159,6 @@ export interface AnswerCheckOptions {
   ): BatchPassage[];
   /** A cited Document's Units, for whether the quotes state a sentence's numbers. */
   units(citation: Citation): readonly { text: string }[];
-  /** Check against Documents' own gate: whether the quotes back the units the sentence states. */
-  unstatedUnit: UnitGate;
   /** How long one batch may take: a reply may never come. */
   claimTimeLimitMs: number;
   /** The clock its waits and time limit are kept by; the real one when left out. */
@@ -228,70 +221,13 @@ const WORSE: Record<SupportResult["check"], number> = {
   contradicted: 2,
 };
 
-/** A sentence a batch judged, as its Citations show it; null when it isn't judged. */
-async function supportOf(
-  sentence: CitedSentence & { found: MarkedCitation[] },
-  verdict: BatchVerdict | undefined,
-  { units, unstatedUnit }: Pick<AnswerCheckOptions, "units" | "unstatedUnit">,
-): Promise<SupportResult | null> {
+/** A sentence a batch judged, as its Citations show it: its model's verdict; null when it isn't judged. */
+function supportOf(verdict: BatchVerdict | undefined): SupportResult | null {
   // A sentence sorted as all opinion is left unjudged, never supported: the sort is a model's, and
   // a fact sorted as opinion must not show the green check.
   if (!verdict || verdict.kind === "opinion") return null;
-  if (verdict.verdict === "contradicted") return { check: "contradicted", verdict: verdict.says };
-  // Who does it, and whether it has happened, as Roles and Time do in a sentence's own check (#1668).
-  if (
-    verdict.verdict === "unsupported" ||
-    verdict.roles === "differs" ||
-    verdict.time === "differs"
-  ) {
-    return { check: "unsupported", verdict: verdict.says };
-  }
-  // A Citation shows its words beside the check: a sentence they don't state is never green,
-  // whatever another part of the Passage says (#2739).
-  if (!passesSentence(verdict)) return null;
-  // A unit, currency or scale its quotes give otherwise is what Check against Documents finds too,
-  // and says so in the same words (#2997).
-  const unit = unstatedUnit(sentence.found, sentence.sentence);
-  if (unit) return { check: "unsupported", verdict: unit.why.reason };
-  // A number no quote states is a calculation no one made (ADR-0021): the sentence isn't judged.
-  const calculation = await needsCalculation({
-    claim: sentence.sentence,
-    verdict: { verdict: "supported", topic: "found", calculations: [] },
-    attempted: false,
-    computed: [],
-    inputs: [],
-    citations: sentence.found.map((citation) => ({ citation, units: units(citation) })),
-    quotedWords: [
-      ...new Set(sentence.found.flatMap((citation) => citation.quotedWordsFound ?? [])),
-    ],
-    confirm: async (figure) => pinnedByModel(figure, sentence.found, units),
-  });
-  return calculation ? null : { check: "found", verdict: null };
-}
-
-/**
- * Whether the words the model quoted for a sentence, all its Citations' together, hold `figure` as
- * their one figure of its unit (#2739), read as the figure rule reads a quote: in its page's figure
- * context, a unit its page states included. A whole sentence shown around them may hold others of
- * that unit, and only the model's own words say which it meant. With nothing widened they are the
- * words the rule read, which hold several, so the sentence stays unjudged, as it always has.
- */
-export function pinnedByModel(
-  figure: Figure,
-  cited: readonly Citation[],
-  units: AnswerCheckOptions["units"],
-): boolean {
-  const ofUnit = cited.flatMap((citation) =>
-    figureReadings(citation.given ?? citation.quote, units(citation)).filter((readings) =>
-      readings.some((each) => isSameUnit(each.unit, figure.unit)),
-    ),
-  );
-  const [only] = ofUnit;
-  return (
-    ofUnit.length === 1 &&
-    only !== undefined &&
-    only.some((each) => isSameUnit(each.unit, figure.unit) && each.value === figure.value)
-  );
+  if (verdict.verdict === "supported") return { check: "found", verdict: null };
+  return { check: verdict.verdict, verdict: verdict.says };
 }
 
 /** The limit a failed batch met, if it was one. */
@@ -675,7 +611,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       }
       for (const [index, sentence] of batch.entries()) {
         const verdict = reply.get(index + 1);
-        const support = await supportOf(sentence, verdict, options);
+        const support = supportOf(verdict);
         if (support?.check === "unsupported" && options.look)
           unsupported.push({ sentence, support });
         else settle(sentence, support, null, verdict !== undefined);

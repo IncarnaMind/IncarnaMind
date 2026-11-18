@@ -19,8 +19,6 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
-  requestedFigures,
-  SAME_DETAIL,
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
@@ -43,12 +41,7 @@ const EBITDA = "Underlying EBITDA at Harbour Foods was £12 million in 2025.";
 const DEPOT = "The board approved the Leeds depot in March.";
 const ONLY_ONLINE = "Harbour Foods sells only online.";
 const PLANS_DEPOT = "Harbour Foods plans a new depot in Leeds.";
-const SELLS_PART = "Harbour Foods sells through its own shops and online";
-const DEPOT_PART = "it plans a new depot in Leeds";
-const BOTH = `${SELLS_PART}, and ${DEPOT_PART}.`;
 const ZH = "海港食品通过自有门店和网店销售。";
-const DERBY = DEPOT_PART.replace("Leeds", "Derby");
-const BOTH_EDITED = BOTH.replace("Leeds", "Derby");
 const FARMS = SELLS.replace("shops", "farms");
 /** The edits the User makes since a sentence's check, each beside a twin left as it was. */
 const EDITS = [
@@ -96,28 +89,15 @@ const PLANS: Record<string, Plan> = {
   [EBITDA]: { verdict: "supported", quote: EBITDA },
   [PLANS_DEPOT]: { verdict: "unsupported" },
   [DEPOT]: { verdict: "supported", quote: DEPOT },
-  [SELLS_PART]: { verdict: "supported", quote: SELLS },
-  [DEPOT_PART]: { verdict: "unsupported" },
   [ZH]: { verdict: "supported", quote: ZH },
-  [DERBY]: { verdict: "unsupported" },
   ...Object.fromEntries(
-    [...EDITS.map((each) => each.edited), BOTH_EDITED].map((text): [string, Plan] => [
-      text,
-      { verdict: "unsupported" },
-    ]),
+    EDITS.map((each): [string, Plan] => [each.edited, { verdict: "unsupported" }]),
   ),
-};
-
-/** The parts a model names: two in the joined sentence, the whole of any other. */
-const PARTS: Record<string, string[]> = {
-  [BOTH]: [SELLS_PART, DEPOT_PART],
-  [BOTH_EDITED]: [SELLS_PART, DERBY],
 };
 
 /**
  * A check Run that searches with its sentence, cites the shown Passage holding its plan's quote and
- * gives the plan's verdict, each figure bound to the same words in that quote; with no such Passage
- * shown, Unsupported.
+ * gives the plan's verdict; with no such Passage shown, Unsupported.
  */
 function checking(call: ModelCall): ScriptedReply {
   const claim = sentenceOf(call);
@@ -137,23 +117,13 @@ function checking(call: ModelCall): ScriptedReply {
     return {
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: holding.id, quote }] } }],
     };
-  const lines = `Verdict: ${plan.verdict}\nAbsence: no\n${SAME_DETAIL}${plan.says ? `\n${plan.says} [^1]` : ""}`;
-  const figures = requestedFigures(call);
-  if (figures.length === 0) return { text: lines };
-  const items = figures.map(({ id, shown: chars, reading }) => ({
-    id,
-    verdict: plan.verdict,
-    scope: "same",
-    topic: "found",
-    roles: "same",
-    says: null,
-    reading,
-    relation: "equals",
-    source: { citation: 1, number: chars },
-    measure: null,
-    calculation: null,
-  }));
-  return { text: `${lines}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+  return {
+    text: [
+      `Verdict: ${plan.verdict}`,
+      ...(plan.says ? [`Explanation: ${plan.says} [^1]`] : []),
+      "Evidence: [1]",
+    ].join("\n"),
+  };
 }
 
 function generate(call: GenerateCall) {
@@ -163,18 +133,10 @@ function generate(call: GenerateCall) {
         text: JSON.stringify({
           sentences: listedSentences(call.prompt).map(({ number, text }) => ({
             number,
-            parts: (PARTS[text] ?? (text in PLANS ? [text] : [])).map((part) => ({
-              kind: "fact",
-              text: part,
-            })),
+            parts: text in PLANS ? [{ kind: "fact", text }] : [],
           })),
         }),
       };
-    case "confirm":
-    case "strict":
-    case "strict-figure":
-    case "nearest":
-      return { text: "conflict" };
     default:
       return { text: JSON.stringify({ passage: null }) };
   }
@@ -278,7 +240,6 @@ async function checkedThenNarrowed(setup: Setup) {
     [EBITDA, await cites(EBITDA)],
     [PLANS_DEPOT, await cites(SELLS)],
     [DEPOT],
-    [BOTH, await cites(SELLS)],
   ]);
   await checkNote(core, note.mindId, note.client);
   const first = await cards(core, note.client);
@@ -299,7 +260,7 @@ const RECHECK = {
   action: "Check again",
 };
 
-// protects=a Supported or Contradicted verdict the sentence's own Citation backs, a sentence with figures and one part of several among them, reads as it was when the Note's Search scope narrows to a Folder without the cited Document: no recheck line, no Check again; a check after it keeps it with no request, and a third check leaves every card as the second did, none asking for a recheck, and the scope set back or to every Document leaves it so (#3087); fails_when=the card asks for a recheck Check again can't settle, or a check takes the verdict back; no_claim=what a real model decides.
+// protects=a Supported or Contradicted verdict the sentence's own Citation backs, a sentence with figures among them, reads as it was when the Note's Search scope narrows to a Folder without the cited Document: no recheck line, no Check again; a check after it keeps it with no request, and a third check leaves every card as the second did, none asking for a recheck, and the scope set back or to every Document leaves it so (#3087); fails_when=the card asks for a recheck Check again can't settle, or a check takes the verdict back; no_claim=what a real model decides.
 test("a verdict its own Citation backs survives the scope's change", async () => {
   const setup = await setUp();
   const { core, calls } = setup;
@@ -333,30 +294,6 @@ test("a verdict its own Citation backs survives the scope's change", async () =>
     for (const sentence of [SELLS, ONLY_ONLINE, EBITDA])
       expect(now.get(sentence)).toEqual(first.get(sentence));
   }
-  core.close();
-});
-
-// protects=of a sentence with several parts, the part its own Citation backs keeps its ✓ when a check leaves that Document out, and the part found Unsupported before reads Not checked with the reason (#3087); fails_when=the backed part is taken back, or the Unsupported part is kept; no_claim=how a real model splits it.
-test("one part of several keeps its ✓; the Unsupported part gives way", async () => {
-  const setup = await setUp();
-  const { core } = setup;
-  const { mindId, client, first } = await checkedThenNarrowed(setup);
-  expect(first.get(BOTH)?.state).toBe("unsupported");
-  expect((await cards(core, client)).get(BOTH)).toEqual(RECHECK);
-
-  await checkNote(core, mindId, client);
-
-  const [both] = claimsOf(readMind(client), {
-    footing: "not-yet-known",
-    versions: null,
-    folderId: null,
-    scope: mindScopeOf(client.doc),
-  }).claims.filter((claim) => claim.sentence.text === BOTH);
-  expect(both?.reads.parts?.map((part) => [part.verdict, part.reason])).toEqual([
-    ["supported", null],
-    ["not-checked", "outside-scope"],
-  ]);
-  expect((await cards(core, client)).get(BOTH)).toEqual(OUTSIDE);
   core.close();
 });
 
@@ -453,7 +390,6 @@ async function editableNote(setup: Setup) {
     [SELLS, await cites(SELLS)],
     [EBITDA, await cites(EBITDA)],
     [ZH, await cites(ZH)],
-    [BOTH, await cites(SELLS)],
   ]);
   await checkNote(core, note.mindId, note.client);
   const first = await cards(core, note.client);
@@ -485,30 +421,6 @@ test.each(EDITS)(
     core.close();
   },
 );
-
-// protects=an edit inside one part of a two-part sentence gives back neither part's earlier result when the scope leaves the cited Document out: an earlier part is kept only from a check of the sentence's words as they are now (#3087); fails_when=a part keeps a verdict from before the edit; no_claim=keeping a part whose own words are unchanged.
-test("an edit inside one part: neither part keeps its earlier result", async () => {
-  const setup = await setUp();
-  const { core } = setup;
-  const { mindId, client } = await editableNote(setup);
-
-  replaceWords(client, "line-3", "Leeds", "Derby");
-  await client.settled();
-  await checkNote(core, mindId, client);
-
-  const [both] = claimsOf(readMind(client), {
-    footing: "not-yet-known",
-    versions: null,
-    folderId: null,
-    scope: mindScopeOf(client.doc),
-  }).claims.filter((claim) => claim.sentence.text === BOTH_EDITED);
-  expect(both?.reads.parts?.map((part) => [part.verdict, part.reason])).toEqual([
-    ["not-checked", "outside-scope"],
-    ["not-checked", "outside-scope"],
-  ]);
-  expect((await cards(core, client)).get(BOTH_EDITED)).toEqual(OUTSIDE);
-  core.close();
-});
 
 // protects=Undo of an edit made since a ✓ brings the words back but not the ✓, since the sentence's mark is now the check of the edited words: the card asks for its recheck, and Check this Note settles it Not checked with the reason without a request (#3087); fails_when=the ✓ returns on a mark that judged other words, or the card asks for a recheck Check again can't settle; no_claim=the editor's own Undo step.
 test("Undo of the edit brings the words back, and the ✓ only with its mark", async () => {

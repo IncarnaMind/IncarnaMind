@@ -1,12 +1,9 @@
 import type { Editor } from "@tiptap/core";
-import { TranslatableError } from "../../../core/errors";
 import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
 import {
   checkSentences,
   fixesFree,
-  requestDocumentPicker,
-  requestDocumentRead,
   setCheckCardOpen,
   setClaimFocus,
   setOpenClaim,
@@ -20,7 +17,6 @@ import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
 import { startMindCheck } from "../mindCheck";
 import { readableNow } from "../readableDocuments";
-import { rewriteAt, rewriteWithDocuments } from "../rewriteFix";
 import {
   applyDocumentWording,
   applyFigure,
@@ -113,27 +109,18 @@ function withCuttable() {
   return at && verificationOf(at.doc) === null ? at : null;
 }
 
-const withRewrite = () => {
-  const doc = noteHandle.current?.doc;
-  return doc ? withClaim((editor) => rewriteAt(editor, doc)) : null;
-};
-
 /**
- * What a command on the sentence at the caret acts on: its Note, or the one Document or Folder the
- * assistant found or ⌘K has in focus, when the Note may read it: on the Note's side of a Folder
- * wall, and a Document with text, as the card's picker offers them. Null for none.
+ * What a command on the sentence at the caret acts on: its Note, or the one Document the assistant
+ * found or ⌘K has in focus, when the Note may read it: on the Note's side of a Folder wall, and
+ * with text, as the card's picker offers them. Null for none.
  */
-function sentenceTarget(
-  ctx: CommandContext,
-  kinds: readonly ("document" | "folder")[],
-): { kind: "mind" | "document" | "folder"; id: string } | null {
+function sentenceTarget(ctx: CommandContext): { kind: "mind" | "document"; id: string } | null {
   const at = withCuttable();
   const [one, ...more] = ctx.selection.length > 0 ? ctx.selection : ctx.focus ? [ctx.focus] : [];
   if (!at || !one || more.length > 0) return null;
   if (one.kind === "mind") return one.id === at.mindId ? { kind: "mind", id: one.id } : null;
-  const kind = kinds.find((each) => each === one.kind);
-  if (!kind) return null;
-  const target = { kind, id: one.id };
+  if (one.kind !== "document") return null;
+  const target = { kind: "document" as const, id: one.id };
   return readableNow(at.mindId, target) ? target : null;
 }
 
@@ -213,33 +200,6 @@ export const checkCommands: readonly Command[] = [
   },
   checkAgainstDocuments,
   {
-    // On the Note, the picker opens with a Document open beside it chosen; on a Document or Folder
-    // the assistant names ("check this sentence against the lease"), it is read with no picker,
-    // the card asking before it reads (#1554).
-    id: "check.againstDocument",
-    label: "claim.checkAgainstDocument",
-    keywords: ["claim.checkAgainstDocument.keywords"],
-    group: "main",
-    appliesTo: ["mind", "document", "folder"],
-    reversible: true,
-    when: (ctx) => sentenceTarget(ctx, ["document", "folder"]) !== null,
-    run(ctx) {
-      const at = withCuttable();
-      const target = sentenceTarget(ctx, ["document", "folder"]);
-      if (!at || !target) return;
-      showClaimCard(at);
-      if (target.kind === "mind" || !ctx.assistant) {
-        requestDocumentPicker(at.claim.check.id);
-        return;
-      }
-      requestDocumentRead(at.claim.check.id, {
-        folderIds: target.kind === "folder" ? [target.id] : [],
-        tagIds: [],
-        documentIds: target.kind === "document" ? [target.id] : [],
-      });
-    },
-  },
-  {
     // On a Document the assistant names ("the source is the lease"), it opens beside the Note for
     // the User to select the words; else as the card's action. The Citation is one step of Undo.
     id: "check.chooseCitation",
@@ -249,10 +209,10 @@ export const checkCommands: readonly Command[] = [
     group: "main",
     appliesTo: ["mind", "document"],
     reversible: true,
-    when: (ctx) => sentenceTarget(ctx, ["document"]) !== null,
+    when: (ctx) => sentenceTarget(ctx) !== null,
     run(ctx) {
       const at = withCuttable();
-      const target = sentenceTarget(ctx, ["document"]);
+      const target = sentenceTarget(ctx);
       if (!at || !target) return;
       if (target.kind === "mind" || !ctx.assistant) {
         showClaimCard(at);
@@ -268,24 +228,6 @@ export const checkCommands: readonly Command[] = [
         },
         ctx.page === undefined ? undefined : { pageFrom: ctx.page, pageTo: ctx.page },
       );
-    },
-  },
-  {
-    id: "check.rewrite",
-    label: "claim.rewrite",
-    group: "main",
-    // Applied as one step of the Note's Undo, which brings back the check it had.
-    reversible: true,
-    when: () => withRewrite() !== null,
-    async run(ctx) {
-      const at = withRewrite();
-      if (!at) return;
-      const end = await rewriteWithDocuments(at.editor, at.mindId, at.doc, at.claim);
-      if (end !== "written" && ctx.assistant) {
-        throw new TranslatableError({
-          key: end === "same" ? "claim.rewrite.same" : "claim.rewrite.kept",
-        });
-      }
     },
   },
   {
@@ -368,8 +310,7 @@ export const checkCommands: readonly Command[] = [
     when: () => withCorrection() !== null,
     run() {
       const at = withCorrection();
-      if (at)
-        applyCorrection(at.editor, at.mindId, at.doc, at.claim, null, () => showClaimCard(at));
+      if (at) applyCorrection(at.editor, at.mindId, at.doc, at.claim);
     },
   },
   {
@@ -392,7 +333,7 @@ export const checkCommands: readonly Command[] = [
     when: () => withClaim(figureAt) !== null,
     run() {
       const at = withClaim(figureAt);
-      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim, () => showClaimCard(at));
+      if (at) applyFigure(at.editor, at.mindId, at.doc, at.claim);
     },
   },
 ];

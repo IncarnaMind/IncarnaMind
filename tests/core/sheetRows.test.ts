@@ -10,11 +10,6 @@ import { describe, expect, test } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import {
-  confirmPrompt,
-  evidencePrompt,
-  presencePrompt,
-} from "../../src/core/answers/checks/prompt";
-import {
   figureRetryPrompt,
   quoteRetryPrompt,
   setAsideRowsMeaning,
@@ -998,32 +993,6 @@ test("a Passage found twice in its Units with other marks, or not at all, names 
 });
 
 test.each([
-  [
-    "a claim check's request for evidence",
-    (passage: string) =>
-      evidencePrompt({
-        claim: "The total is 0.4 kg.",
-        verdict: "unsupported",
-        says: null,
-        passages: [{ id: "P1", text: passage }],
-      }),
-  ],
-  [
-    "a contradiction's confirmation",
-    (passage: string) =>
-      confirmPrompt({ claim: "The total is 0.25 kg.", quote: "TOTAL\t\t\t0.4", passage }),
-  ],
-  [
-    "a look for what a sentence says is absent",
-    (passage: string) =>
-      presencePrompt({
-        claim: "The sheet has no total.",
-        absent: "a total",
-        quote: "TOTAL\t\t\t0.4",
-        document: "Load",
-        passage,
-      }),
-  ],
   [
     "the request for exact quotes",
     (passage: string) =>

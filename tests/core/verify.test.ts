@@ -20,8 +20,6 @@ import {
   isCheckRun,
   listedSentences,
   type Plan,
-  requestedFigures,
-  SAME_DETAIL,
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
@@ -254,7 +252,7 @@ describe("Verify a document", () => {
             ],
           };
         }
-        return { text: `Verdict: supported\nAbsence: no\n${SAME_DETAIL}\nThe memo says so [^1]` };
+        return { text: "Verdict: supported\nExplanation: The memo says so [^1]\nEvidence: [1]" };
       },
       {
         generate: checkGenerate({
@@ -281,8 +279,6 @@ describe("Verify a document", () => {
       { state: "unsupported" },
       { state: "unsupported" },
     ]);
-    // A figure keeps its own result, as the one Check gives it.
-    expect(first[1]?.check.figures?.map((figure) => figure.reading.chars)).toEqual(["4.2 million"]);
 
     expect(await core.checkClaim({ claim: DREDGING })).toMatchObject({
       verdict: "unsupported",
@@ -438,54 +434,12 @@ describe("Verify a document", () => {
     const LEDGER = "Fleet ledger.md";
     const fixedQuote = "固定资产期末余额 9,470 万元，期初余额 8,860 万元";
     const profitQuote = "净利润本年金额 1,580 万元，上年金额 1,215 万元";
-    const rowPlan = (
-      claim: string,
-      quote: string,
-      verdict: "supported" | "contradicted",
-      bindings: Record<string, { number: string; verdict: "supported" | "contradicted" }>,
-    ): Plan => {
-      const base: Plan = { verdict, quote };
-      return {
-        ...base,
-        reply(call) {
-          const reply = checkReply(call, { [claim]: base });
-          if ("calls" in reply) return reply;
-          return {
-            text: `Verdict: ${verdict}\nAbsence: no\n${SAME_DETAIL}\nFigures: ${JSON.stringify({
-              items: requestedFigures(call).map(({ id, shown, reading }) => {
-                const binding = bindings[shown];
-                if (!binding) throw new Error(`No checked row fixture for ${shown}`);
-                return {
-                  id,
-                  verdict: binding.verdict,
-                  scope: "same",
-                  topic: "found",
-                  roles: "same",
-                  says: null,
-                  reading,
-                  relation: "equals",
-                  source: { citation: 1, number: binding.number },
-                  calculation: null,
-                };
-              }),
-              remainder: null,
-            })}`,
-          };
-        },
-      };
-    };
     const calls: ModelCall[] = [];
     const { core, sources } = await setUp(
       checkingModel(
         {
-          [FIXED_ASSETS]: rowPlan(FIXED_ASSETS, fixedQuote, "supported", {
-            "9,470": { number: "9,470", verdict: "supported" },
-            "8,860": { number: "8,860", verdict: "supported" },
-          }),
-          [NET_PROFIT]: rowPlan(NET_PROFIT, profitQuote, "contradicted", {
-            "1,620": { number: "1,580", verdict: "contradicted" },
-            "1,215": { number: "1,215", verdict: "supported" },
-          }),
+          [FIXED_ASSETS]: { verdict: "supported", quote: fixedQuote },
+          [NET_PROFIT]: { verdict: "contradicted", quote: profitQuote },
         },
         calls,
       ),

@@ -536,10 +536,7 @@ export function HealthCard({
             testId: "checks-accept-and-check",
             onClick: () => {
               dismissCheckProblem(mindId);
-              void acceptAndCheck(editor, mindId, doc, problem, (checkId) => {
-                setCheckCardOpen(place, false);
-                setOpenClaim(place, checkId);
-              });
+              void acceptAndCheck(editor, mindId, doc, problem);
             },
           }}
           also={close}

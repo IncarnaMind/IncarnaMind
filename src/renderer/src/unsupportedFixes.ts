@@ -322,16 +322,9 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
  * Changes the one number of a sentence that a check's calculated figure
  * disagrees with to the figure, keeping the sentence's Citations, and checks
  * the sentence again (#1247). One step of the note's Undo, which brings the
- * number back with the check it had. A whole read is asked again in the
- * sentence's card, which `showCard` opens.
+ * number back with the check it had.
  */
-export function applyFigure(
-  editor: Editor,
-  mindId: string,
-  doc: Y.Doc,
-  claim: ShownClaim,
-  showCard?: (checkId: string) => void,
-): void {
+export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: ShownClaim): void {
   if (!editor.isEditable || !fixesFree(mindId)) return;
   if (claim.shown.state !== "supported" && claim.shown.state !== "contradicted") return;
   const calculation = claim.check.calculation;
@@ -355,7 +348,7 @@ export function applyFigure(
     void (async () => {
       await flushMindUpdates(mindId);
       const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
-      if (again) await checkAgain(editor, mindId, doc, again, undefined, showCard);
+      if (again) await checkAgain(editor, mindId, doc, again);
     })();
   };
   offerEditorUndo(

@@ -437,13 +437,6 @@ export function claimsOf(
   const kept: KeptMark[] = [];
   const note = noteOf(doc);
   for (const span of claimSpans(doc)) {
-    const { place } = span;
-    const figured =
-      context.figurePlaces && place
-        ? (context.figurePlaces.get(place.blockId) ?? []).some(
-            ([from, to]) => from >= place.from && to <= place.to,
-          )
-        : undefined;
     const citations = span.kind === "chart" ? [] : citationsWithin(doc, span.sentence);
     // No check reads a sentence that only names its source, so an earlier mark on it shows no card (#3093).
     if (span.kind !== "chart" && onlyNamesItsSource(span.sentence.text, citations)) continue;
@@ -451,7 +444,6 @@ export function claimsOf(
       ...context,
       text: span.sentence.text,
       citations,
-      ...(figured !== undefined && { figured }),
       ...note(span),
     });
     const holdsWithItsText =
@@ -460,7 +452,6 @@ export function claimsOf(
             ...context,
             text: span.check.text,
             citations,
-            ...(figured !== undefined && { figured }),
             ...note(span),
           })
         : null;
@@ -677,19 +668,13 @@ export function figureShownIn(
     };
     const child = span.check.figures?.find((figure) => figure.id === id);
     if (!child) {
-      // A whole-sentence check from before figures were checked one by one still says a re-check, a
-      // Keep or a run of its own; its verdict alone is no figure's evidence (#1932, #2378).
+      // A sentence is judged whole, its figures in it: a figure with no result of its own shows
+      // its sentence's check.
       if (!span.check.figures?.length) {
         if (span.check.kept) return claimCheckShown(span.check, now);
         // An Analysis's figure is its run's: no check of the sentence's words stands for it (#2378).
         if (result !== null) continue;
-        const legacy = claimCheckShown({ ...span.check, figures: undefined }, now);
-        if (
-          legacy.state === "needs-recheck" ||
-          legacy.state === "kept" ||
-          legacy.state === "checking"
-        )
-          return legacy;
+        return claimCheckShown({ ...span.check, figures: undefined }, now);
       }
       continue;
     }

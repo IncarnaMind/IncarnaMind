@@ -2,7 +2,7 @@
 
 **English** · [简体中文](how-the-check-works.zh-CN.md)
 
-IncarnaMind checks in two ways. A Citation's quote is checked on this computer, word for word, against the text of the Document where the Citation points: no model is involved. A sentence's claim is checked by the AI model you chose, which searches your Documents and quotes the Passage that decides it, where one does. A result shows as a Mark beside the sentence, or on the Citation's card.
+IncarnaMind checks in two ways. A Citation's quote is checked on this computer, word for word, against the text of the Document where the Citation points: no model is involved. A sentence's claim is checked by a model: the decision model your checks use reads it first, and where that leaves it undecided, the AI model you chose searches your Documents and quotes the Passage that decides it, where one does. A result shows as a Mark beside the sentence, or on the Citation's card.
 
 ## A Citation's quote
 
@@ -16,9 +16,11 @@ When a sentence with a Citation puts words in quotation marks, those words are c
 
 ## A sentence's claim
 
+The model reads the sentence whole, in its paragraph and under the heading above it, with the Passages its own Citations quote. It gives the verdict; nothing in IncarnaMind changes it. IncarnaMind confirms one thing itself: that the quote a `Supported` or `Needs a look · Contradicted` result rests on is in its Document.
+
 `Check against Documents`, `Check someone else’s file…`, and the Note's `Check` ask the model for one result:
 
-- `Supported`: the checked Passages, or the whole Documents read for an absence, together establish what the sentence says, down to each figure, date, name and outcome, who does it and to whom, and must where it says must, may where it says may. It means your Documents state it, not that it is true.
+- `Supported`: the checked Passages together establish what the sentence says, down to each figure, date, name and outcome, who does it and to whom, and must where it says must, may where it says may. It means your Documents state it, not that it is true.
 - `Needs a look · Unsupported`: no Passage states it either way. A near miss is unsupported, not contradicted: a Passage about another party, period or detail, one that states only part of the sentence, a forecast the Document does not say will happen, or two events stated without the causal link the sentence asserts. It is not a finding that the sentence is wrong.
 - `Needs a look · Not found`: the sentence has no Citation and nothing in the check's search was about it, after one more search with other words. The card says where it looked: `I didn’t find this in “Leases”.` It is a fact about the search, never a finding that the sentence is wrong, and not the same as `Quote not found`.
 - `Needs a look · Contradicted`: a Passage gives another value for the very thing the sentence states (the same subject and detail with a different figure, date, party, place or outcome, the parties the other way round, or may for must), so the Document and the sentence can't both be true. It says the two disagree, not which is right, and it is not the same as unsupported.
@@ -29,18 +31,15 @@ When the model can't tell whether a sentence makes a claim, a sentence with a fi
 
 In a table, the model judges a cell with its row's label and its column's heading. A cell after its row's label, or the only filled cell of its row, that gives a figure is checked whatever the model said. A figure in a row's first cell, beside other filled cells, is read as part of the row's label: it is checked only when the model finds a claim in it, or says nothing of it.
 
-A check also leaves a sentence's opinions out of what it judges, and counts them, as in `1 opinion left out`. A record cite inside a sentence has its own result, as in `Needs a look · Record cite`.
+A sentence is judged as one: it has one result, not one for each of its parts or numbers. A record cite inside a sentence has its own result, as in `Needs a look · Record cite`.
 
 ### A table or figure from an Analysis
 
 - A table an Analysis made is never checked against your Documents: its cells are the Analysis's. The marker at the end of its caption opens how each column was worked out.
 - A column is recalculated only when one sum, average, lowest value or highest value of one column, over the rows whose label its row names, reproduces every cell, as in `Amount: sum of 40 rows, by Region · recalculated`. A count, and any other column, reads as in `Share: from the Analysis · not recalculated`.
 - A cell whose text is no longer the Analysis's needs a look, with the reason `Differs from the Analysis`.
-- A sentence whose figure an Analysis gave is judged by that figure's own record, never against the text.
-- A figure IncarnaMind worked out again is backed only once the check reads the sentence as naming it as the Analysis does, from its label and the rows it was worked out from. Until that check, and after the sentence is reworded, it has no verdict.
-  - A sentence that names it as another figure needs a look, saying what the figure is.
-  - One that doesn't clearly name it reads `Not checked`. So does one that gives it a sign or symbol, makes it a target or one item's, or says, in the sentence, its paragraph, the heading or the lines above, that it is in a scale, currency or percent the Analysis didn't give it.
-- A figure IncarnaMind couldn't work out again, such as a slope, leaves its sentence `Not checked`, with `From the Analysis · not recalculated`. No check can change that, so the line says `1 figure not recalculated`; the Note reads checked only when something else in it was backed.
+- A sentence whose figure an Analysis gave, or IncarnaMind calculated, is not looked for in the text: the model is given that figure's own record, its label and how it was worked out, and judges whether the sentence says of the figure what its record says.
+- A figure IncarnaMind couldn't work out again, such as a slope, shows `From the Analysis · not recalculated`, and no check can change that. A column that isn't recalculated is counted in the Note's line, as in `1 figure not recalculated`; the Note reads checked only when something else in it was backed.
 
 ## What the check never promises
 

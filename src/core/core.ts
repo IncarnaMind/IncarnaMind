@@ -58,14 +58,7 @@ import { readableQuoteText } from "../shared/readableQuote";
 import { readyQuestionOf } from "../shared/readyQuestion";
 import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
-import {
-  folderScope,
-  hasSearchScope,
-  NO_SCOPE,
-  oneFolderOf,
-  type ScopeKind,
-  scopeName,
-} from "../shared/searchScope";
+import { folderScope, hasSearchScope, NO_SCOPE, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
@@ -82,7 +75,6 @@ import { createAskedChanges } from "./answers/applyAsked";
 import { createChecks } from "./answers/checks";
 import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
-import { type LibraryListing, linkedFolderName } from "./answers/checks/libraryFacts";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
@@ -1761,7 +1753,6 @@ export function createCore(adapters: CoreAdapters): Core {
   const {
     constrainedScope,
     resolveScope,
-    pickedDocuments,
     folderIdsInScope,
     walledFolderId,
     walledDocument,
@@ -1810,66 +1801,6 @@ export function createCore(adapters: CoreAdapters): Core {
       : kind === "tag"
         ? (tags.list().find((tag) => tag.id === id)?.name ?? null)
         : (documents.getMany([id])[0]?.name ?? null);
-  const nameSent = (kind: ScopeKind, id: string): string | null => {
-    const linked =
-      kind === "folder" ? folders.list().find((folder) => folder.id === id) : undefined;
-    return linked ? linkedFolderName(linked) : scopeItemName(kind, id);
-  };
-  /**
-   * What a check's scope sees of the Library (#2525), from a Note in `mindId`: the Documents the
-   * scope covers, the Folders, Tags and other notes it may see, with Folder walls applied both
-   * ways, so a walled Folder's Documents are never counted or named for a Note outside it.
-   */
-  const libraryListing = (mindId: string | null, searched: SearchScope | null): LibraryListing => {
-    const ownWall = walledFolder(mindId);
-    const counted = documents.getMany(scopeDocuments(searched, mindId) ?? documents.ids({}));
-    const ids = new Set(counted.map((document) => document.id));
-    // A scope picked before a Folder got its wall may still list it, or one of its Documents: for a
-    // note outside the wall, what is behind it is named from nowhere, only counted among the walls.
-    const constrained =
-      searched && hasSearchScope(searched) ? constrainedScope(searched, mindId) : null;
-    const visible = constrained && {
-      ...constrained,
-      documentIds: constrained.documentIds.filter((id) => walledDocument(id) === ownWall),
-    };
-    const one = oneFolderOf(visible);
-    const within = one === null ? null : new Set(library.subtree(one));
-    const seen = (folderId: string | null) =>
-      walledFolderId(folderId) === ownWall && (within === null || within.has(folderId ?? ""));
-    const named = visible && hasSearchScope(visible) ? scopeName(visible, nameSent) : null;
-    const walls = library.folders().filter((folder) => folder.keepInside).length;
-    const folders = library
-      .folders()
-      .filter((folder) => seen(folder.id))
-      .map((folder) => ({
-        name: folder.name,
-        count: library.treeDocumentIds(folder.id).filter((id) => ids.has(id)).length,
-      }));
-    const notes = minds.list().filter((mind) => mind.id !== mindId && seen(mind.folderId));
-    const unfiled = new Set(library.unfiledDocumentIds());
-    return {
-      source: named
-        ? { kind: "scope", name: named.name ?? "", more: named.more }
-        : ownWall === null && walls > 0
-          ? { kind: "left-out", folders: walls }
-          : { kind: "library" },
-      documents: counted.map(({ name, kind }) => ({ name, kind })),
-      folders,
-      unfiled: one === null ? counted.filter((document) => unfiled.has(document.id)).length : null,
-      tags: tags.list().flatMap((tag) => {
-        const count = counted.filter((document) =>
-          document.tags.some((each) => each.tagId === tag.id),
-        ).length;
-        return count > 0 ? [{ name: tag.name, count }] : [];
-      }),
-      // A note with no typed title is named by its first line, which is its text: it is counted only.
-      notes: {
-        count: notes.length,
-        names: notes.map((mind) => mind.title).filter((title) => title !== ""),
-      },
-      searches: named?.name ? { kind: named.kind, name: named.name } : null,
-    };
-  };
   // A Folder of the Library holds no file that isn't a Document, so it names the folders on disk
   // its Documents are in: a Linked folder filed into it whole names the Linked folder.
   const foldersOnDisk = (folderIds: readonly string[]) => {
@@ -3117,8 +3048,6 @@ export function createCore(adapters: CoreAdapters): Core {
     walledDocument,
     walledFolderName,
     searchedScope,
-    pickedDocuments,
-    libraryListing,
     originalOf: (mindId) => {
       const original = wordImports.originalOf(mindId);
       const duplicated = minds.duplicatedFrom(mindId);
@@ -3155,7 +3084,6 @@ export function createCore(adapters: CoreAdapters): Core {
       citationSource: (passageId) => documents.citationSource(passageId),
       pageTexts: (documentId, contentHash, from, to) =>
         documents.pageTexts(documentId, contentHash, from, to),
-      unitCounts: (documentIds) => documents.unitCounts(documentIds),
       documentDate: (documentId) => documents.documentDate(documentId),
       speakers: (documentId) => documents.speakersOf(documentId),
       othersHoldTerms: (text, except, documentIds, leftOut) =>
@@ -3170,7 +3098,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     readSpent: (requestId, currency) => meter.runSpent(requestId, currency),
     capLeft,
-    documentCheckProgress: (event) => events.emit("documentCheck.progress", event),
     checkingEarly: (event) => events.emit("mindCheck.early", event),
     decision: (service) => decisionChoice.reader(service),
     writtenProgress: (event) => events.emit("writtenCheck.progress", event),
@@ -3287,7 +3214,6 @@ export function createCore(adapters: CoreAdapters): Core {
     readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
-    libraryFactsNow: (mindId) => checks.libraryFactsNow(mindId),
     citationStyle: (mindId) => {
       const { style, textLanguage } = mindStyleAndText(mindId);
       return { style: citationStyles.resolve(style.style, textLanguage), textLanguage };
@@ -6753,11 +6679,8 @@ export function createCore(adapters: CoreAdapters): Core {
       editAsks.get(input.requestId)?.(input.accept === true);
     },
     checkSentences: (input) => inFlow(input.action, () => checks.checkSentences(input)),
-    planDocumentCheck: async (input) => checks.planDocumentCheck(input),
     cancelCheck: async (requestId) => checks.cancel(requestId),
     checkClaim: (input) => inFlow("check-claim", () => checks.checkClaim(input)),
-    rewriteFromDocuments: (input) =>
-      inFlow("check-claim", () => checks.rewriteFromDocuments(input)),
     chooseRecordCiteSource: (input) =>
       inFlow("check-claim", () => checks.chooseRecordCiteSource(input)),
     verifyDocument: (input) => inFlow("verify", () => checks.verifyDocument(input)),
@@ -6774,7 +6697,6 @@ export function createCore(adapters: CoreAdapters): Core {
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
-    libraryFactsNow: async (mindId) => checks.libraryFactsNow(mindId),
 
     getSecretStorage: async () => secrets.status(),
     acceptPlainTextSecretStorage: async () => secrets.acceptPlainText(),

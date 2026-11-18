@@ -14,7 +14,6 @@ import type { Core } from "../../src/core";
 import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
 import { DRAFT_INSTRUCTIONS } from "../../src/core/skills/draft";
 import { askAssistant } from "../helpers/assistant";
-import { SAME_DETAIL } from "../helpers/checks";
 import {
   answerEnded,
   askAndFinish,
@@ -313,7 +312,7 @@ describe("A model no list names, or one in a flow no list admits it to", {
 
     const checked = fixingModel(
       "Tides says spring tides follow new and full moons [^1].",
-      `Verdict: supported\nAbsence: no\n${SAME_DETAIL}`,
+      "Verdict: supported\nExplanation: The Document says so. [^1]\nEvidence: [1]",
     );
     const checking = await setUpWithDocuments(checked, [TIDES]);
     expect(

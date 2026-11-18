@@ -205,7 +205,7 @@ describe("A meeting in a Search scope", () => {
     expect(meetingChoices(library(false), none, found, [])).toEqual([]);
   });
 
-  test("Check against a Document… offers it by its Note's name and counts it in its Note's Folder", () => {
+  test("the Document picker offers it by its Note's name and counts it in its Note's Folder", () => {
     const choices = documentOrFolderChoices(library(true), "");
     expect(choices.find((choice) => choice.id === "g-harbour")).toMatchObject({ count: 1 });
     expect(choices.filter((choice) => choice.kind === "document").map((each) => each.name)).toEqual(

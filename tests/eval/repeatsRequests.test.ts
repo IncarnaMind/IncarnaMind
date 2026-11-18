@@ -1,12 +1,12 @@
 /**
- * The evaluation's request log ties each request a check makes to the sentence
- * it is for, whether the check is of the whole sentence or of one of its parts
- * (#2256): every request the scripted model receives is logged once, against
- * that sentence, with the part it checks.
+ * The evaluation's request log ties each request a check makes to the sentence it is for (#2256):
+ * every request the scripted model receives is logged once, against that sentence, from the tag
+ * the check gives it, not from the request's words.
  */
 import { describe, expect, test } from "vitest";
 import { watchRequests } from "../../eval/repeats/requests";
 import { checkNow } from "../../src/core/answers/checks/checkedText";
+import { checkGenerate, checkReply, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
 import { scriptedModel } from "../helpers/models";
 
@@ -15,65 +15,45 @@ const AGREEMENT = {
   contents: "# Agreement\n\nThe salary is 60,000 per year, paid monthly in arrears.\n",
 };
 const SALARY = "The salary is 65,000 per year, paid monthly in arrears.";
-const PARTS = [
-  { kind: "fact", text: "The salary is 65,000 per year" },
-  { kind: "fact", text: "paid monthly in arrears" },
-];
+const PLANS: Record<string, Plan> = {
+  [SALARY]: {
+    verdict: "contradicted",
+    quote: "The salary is 60,000 per year",
+    says: "The agreement says 60,000, not 65,000.",
+    change: { from: "65,000", to: "60,000" },
+  },
+};
 
-/** A request the model received: whether it is the sort or a check's Run, and the sentence it named. */
-type Received = { kind: "sort" | "run" | "other"; tag: string | null };
+/** A request the model received: whether it is a check's Run, and the sentence it was tagged with. */
+type Received = { run: boolean; tag: string | null };
 
-const kindOf = (system: string): Received["kind"] =>
-  system.startsWith("You sort the sentences")
-    ? "sort"
-    : system.startsWith("You check one sentence")
-      ? "run"
-      : "other";
-
-/** A model that names the sentence's two parts when it sorts it, and finds each contradicted with no quote recorded. */
+/** A model that searches, cites the agreement's line and finds the sentence contradicted. */
 function model(received: Received[]) {
   const see = (system: string) =>
-    received.push({ kind: kindOf(system), tag: checkNow()?.sentence ?? null });
+    received.push({
+      run: system.startsWith("You check one sentence"),
+      tag: checkNow()?.sentence ?? null,
+    });
   return scriptedModel(
     (call) => {
       see(call.system);
-      if (!call.results.some((result) => result.tool === "search_documents"))
-        return { calls: [{ tool: "search_documents", input: { query: "salary" } }] };
-      return {
-        text: [
-          "Verdict: contradicted",
-          "Scope: none, same",
-          "Topic: found",
-          "Roles: none, same",
-          "Calculation: none",
-          "",
-          "The agreement says 60,000, not 65,000.",
-        ].join("\n"),
-      };
+      return checkReply(call, PLANS);
     },
     {
       generate: (call) => {
         see(call.system);
-        if (call.system.startsWith("You sort the sentences"))
-          return { text: JSON.stringify({ sentences: [{ number: 1, parts: PARTS }] }) };
-        if (call.system.startsWith("Compare a sentence")) return { text: "conflict" };
-        return {
-          text: JSON.stringify({
-            passage: "P1",
-            location: "§ Agreement",
-            quote: "The salary is 60,000 per year",
-          }),
-        };
+        return checkGenerate(PLANS)(call);
       },
     },
   );
 }
 
 describe("The evaluation's request log", () => {
-  test("logs every request a check of a two-part sentence makes against that sentence", async () => {
+  // protects=every request a check makes is logged once against its sentence, by the tag the check gives it, as the checks evaluation reads its judge's replies; fails_when=a request of the check goes untagged or is logged against no sentence or twice; no_claim=what the check decides
+  test("logs every request a check makes against its sentence", async () => {
     const received: Received[] = [];
     const scripted = model(received);
-    const watch = watchRequests([SALARY]);
+    const watch = watchRequests([]);
     const { core } = await setUpWithDocuments(scripted, [AGREEMENT], {
       createChatModel: watch.chatModels(() => scripted),
     });
@@ -85,31 +65,11 @@ describe("The evaluation's request log", () => {
     expect(result.verdict).toBe("contradicted");
     const ofCheck = received.slice(asked);
     const requests = watch.take().get(SALARY) ?? [];
-    // Every request the model received is the sentence's, once: the whole sentence's
-    // Run and sort, then each part's Run, its evidence and its two judgements.
-    expect(ofCheck.length).toBeGreaterThan(6);
+    // The Run searches, cites and gives its verdict: one request each, at least.
+    const runs = ofCheck.filter((each) => each.run);
+    expect(runs.length).toBeGreaterThanOrEqual(3);
     expect(requests).toHaveLength(ofCheck.length);
-    expect(new Set(requests.map((request) => request.kind))).toEqual(
-      new Set(["check", "claims", "confirm", "evidence", "strict"]),
-    );
-    // A part's requests name the part, and the whole sentence's own name none.
-    expect(new Set(requests.map((request) => request.part))).toEqual(
-      new Set([null, ...PARTS.map((part) => part.text)]),
-    );
-    const whole = requests.filter((request) => request.part === null);
-    expect(whole.map((request) => request.kind)).toEqual(
-      expect.arrayContaining(["check", "claims"]),
-    );
-    // The first Run's requests name the sentence: the claim is a whole sentence, so its
-    // words alone would find it.
-    const runs = ofCheck.filter((each) => each.kind === "run");
-    expect(runs.length).toBeGreaterThan(0);
-    expect(runs.map((each) => each.tag)).toEqual(runs.map(() => SALARY));
-    // The sort names it too, though its words alone are ones no watched sentence holds.
-    const sorts = ofCheck.filter((each) => each.kind === "sort");
-    expect(sorts).toHaveLength(1);
-    expect(sorts[0]?.tag).toBe(SALARY);
-    // And every other request of the check, the judgements and the evidence alike.
+    expect(requests.filter((request) => request.kind === "check")).toHaveLength(runs.length);
     expect(new Set(ofCheck.map((each) => each.tag))).toEqual(new Set([SALARY]));
   });
 });

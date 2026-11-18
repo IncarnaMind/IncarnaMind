@@ -19,8 +19,6 @@ import {
   checkGenerate,
   isCheckRun,
   type Plan,
-  requestedFigures,
-  SAME_DETAIL,
   sentenceOf,
   unsupportedReply,
 } from "../helpers/checks";
@@ -79,8 +77,7 @@ const documentsScope = (...documentIds: string[]): SearchScope => ({
 
 /**
  * A check Run that searches with its sentence, cites the shown Passage holding its plan's quote and
- * gives the plan's verdict, each figure bound to the same words in that quote; with no such Passage
- * shown, Unsupported.
+ * gives the plan's verdict; with no such Passage shown, Unsupported.
  */
 function checking(plans: Record<string, Plan>, call: ModelCall): ScriptedReply {
   const claim = sentenceOf(call);
@@ -100,23 +97,13 @@ function checking(plans: Record<string, Plan>, call: ModelCall): ScriptedReply {
     return {
       calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage: holding.id, quote }] } }],
     };
-  const lines = `Verdict: ${plan.verdict}\nAbsence: no\n${SAME_DETAIL}${plan.says ? `\n${plan.says} [^1]` : ""}`;
-  const figures = requestedFigures(call);
-  if (figures.length === 0) return { text: lines };
-  const items = figures.map(({ id, shown: chars, reading }) => ({
-    id,
-    verdict: plan.verdict,
-    scope: "same",
-    topic: "found",
-    roles: "same",
-    says: null,
-    reading,
-    relation: "equals",
-    source: { citation: 1, number: chars },
-    measure: null,
-    calculation: null,
-  }));
-  return { text: `${lines}\nFigures: ${JSON.stringify({ items, remainder: null })}` };
+  return {
+    text: [
+      `Verdict: ${plan.verdict}`,
+      ...(plan.says ? [`Explanation: ${plan.says} [^1]`] : []),
+      "Evidence: [1]",
+    ].join("\n"),
+  };
 }
 
 /**

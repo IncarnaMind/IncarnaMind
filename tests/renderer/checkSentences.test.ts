@@ -58,6 +58,7 @@ const editor = {
 describe("a check asked again", () => {
   test.each([
     ["find-support", "check-against-documents"],
+    ["check-against-document", "check-against-documents"],
     ["check-against-documents", "check-against-documents"],
     ["contradiction-watch", "contradiction-watch"],
   ] as const)("from a %s mark is asked, and said to run, as %s", async (action, expected) => {
@@ -86,44 +87,26 @@ describe("a check asked again", () => {
   });
 });
 
-test("Check again on a whole read asks its card to size the read and ask its cost, reading nothing", async () => {
+test("Check again on a mark of a Document read whole checks it as an ordinary check", async () => {
   asked.length = 0;
-  const chosen = { folderIds: [], tagIds: [], documentIds: ["lease"] };
   const claim = {
     from: 1,
     to: 2,
     check: {
       id: "whole-read",
       action: "check-against-document",
-      scope: { widened: false, chosen, folderId: null },
+      scope: {
+        widened: false,
+        chosen: { folderIds: [], tagIds: [], documentIds: ["lease"] },
+        folderId: null,
+      },
     },
   } as unknown as ShownClaim;
 
-  const shown: string[] = [];
-  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim, undefined, (id) => shown.push(id));
-
-  expect(asked).toHaveLength(0);
-  expect(checks.useChecks.getState().pickDocument["whole-read"]).toEqual(chosen);
-  // Use the figure closes no card that has to ask: the card opens for it.
-  expect(shown).toEqual(["whole-read"]);
-  checks.dismissDocumentPicker("whole-read");
-
-  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim, true);
-  expect(asked).toHaveLength(1);
-  expect(asked[0]?.input).toMatchObject({ action: "check-against-documents", allDocuments: true });
-  expect(asked[0]?.input.within).toBeUndefined();
-});
-
-test("Check against all Documents after a whole read checks as an ordinary check", async () => {
-  asked.length = 0;
-
-  await checks.checkSentences(editor, "mind-1", new Y.Doc(), "check-against-document", {
-    allDocuments: true,
-  });
+  await checks.checkAgain(editor, "mind-1", new Y.Doc(), claim);
 
   expect(asked).toHaveLength(1);
-  expect(asked[0]?.input).toMatchObject({ action: "check-against-documents", allDocuments: true });
-  expect(asked[0]?.input.within).toBeUndefined();
+  expect(asked[0]?.input).toMatchObject({ action: "check-against-documents", allDocuments: false });
 });
 
 test("Check anyway sends an explicit part target even when the selection reader expands its sentence", async () => {
