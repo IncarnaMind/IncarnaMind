@@ -5582,9 +5582,12 @@ export type WorkKind = (typeof WORK_KINDS)[number];
 
 /**
  * Whether the window opens on the first run's setup (#3296), and, when it does, the order its
- * kinds of work are shown in: picked once per install, Something else last.
+ * kinds of work are shown in: picked once per install, Something else last. `picksSent`: this
+ * install has sent the picks already, which go once per install.
  */
-export type FirstRunSetup = { show: false } | { show: true; workOrder: WorkKind[] };
+export type FirstRunSetup =
+  | { show: false }
+  | { show: true; workOrder: WorkKind[]; picksSent: boolean };
 
 /**
  * An example Mind (onboarding, see src/core/examples.ts): "Draft: credit

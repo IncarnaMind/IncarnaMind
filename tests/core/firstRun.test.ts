@@ -197,6 +197,23 @@ describe("the first run's picks as usage data (#3296)", { timeout: 30_000 }, () 
     expect([...sent, ...once].map((message) => message.event)).toEqual(["work_picked"]);
   });
 
+  test("the picks go once per install: never again, in this launch or the next", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = fakeSender();
+    const core = startOn(dataDir, { usageData: first.sender });
+    expect(await core.firstRunSetup()).toMatchObject({ show: true, picksSent: false });
+    expect(await core.sendWorkPicked(["legal"])).toBe(true);
+    expect(await core.sendWorkPicked(["finance", "research"])).toBe(false);
+    expect(first.picks()).toHaveLength(1);
+    core.close();
+
+    const second = fakeSender({ testerBuild: true });
+    const again = startOn(dataDir, { usageData: second.sender });
+    expect(await again.firstRunSetup()).toMatchObject({ show: true, picksSent: true });
+    expect(await again.sendWorkPicked(["legal"])).toBe(false);
+    expect(second.picks()).toEqual([]);
+  });
+
   test("a tester build sends them with its usage data while that is on", async () => {
     const { sender, sent, once, picks } = fakeSender({ testerBuild: true });
     const { core } = await fresh({ usageData: sender });

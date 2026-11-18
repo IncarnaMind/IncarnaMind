@@ -35,6 +35,7 @@ import {
 const CHOICE = "usageData.enabled";
 const ASKED = "usageData.asked";
 const INSTALL_ID = "usageData.installId";
+const WORK_SENT = "usageData.workPickedSent";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -99,6 +100,8 @@ export function createUsageData(options: {
     event: event.event,
     properties: { ...event.fields, ...commonFields },
   });
+
+  const workPickedSent = (): boolean => settings.readDeviceValue(WORK_SENT) === true;
 
   /** Sends an event that has been checked, if sending is on. */
   const send = (event: UsageEvent) => {
@@ -168,17 +171,21 @@ export function createUsageData(options: {
     /**
      * The first run's picks (#3296), on the User's press of "Send and continue", which allows
      * this one event (ADR-0014): it goes with usage data while that is on, and otherwise once by
-     * itself, turning nothing on. Never in local mode, nor from a copy that can't send usage
-     * data. Returns whether it went to the sender.
+     * itself, turning nothing on. Once per install: never again once it went to the sender. Never
+     * in local mode, nor from a copy that can't send usage data. Returns whether it went now.
      */
     sendWorkPicked(work: readonly WorkKind[]): boolean {
-      if (!sender || !common || localOnly()) return false;
+      if (!sender || !common || localOnly() || workPickedSent()) return false;
       const fields = Object.fromEntries(WORK_KINDS.map((kind) => [kind, work.includes(kind)]));
       const event = parseUsageEvent("work_picked", fields);
       if (sending) sender.capture(messageOf(event, common));
       else sender.captureOnce(messageOf(event, common));
+      settings.writeDeviceValue(WORK_SENT, true);
       return true;
     },
+
+    /** Whether this install has sent the first run's picks. */
+    workPickedSent,
 
     /** An event from the interface: checked whether or not it is sent, so a bad one fails loudly. */
     recordFromUi(input: unknown): void {

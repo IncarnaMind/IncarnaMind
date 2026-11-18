@@ -18,7 +18,7 @@ const ASKED = WORK_KINDS.filter((kind) => kind !== "other");
 export function createFirstRun(options: {
   settings: SettingsStore;
   examples: Pick<ReturnType<typeof createExamples>, "unoffered" | "offer">;
-  usageData: Pick<UsageData, "sendWorkPicked">;
+  usageData: Pick<UsageData, "sendWorkPicked" | "workPickedSent">;
   hasMinds(): boolean;
   /** Whether the host opens a fresh profile on the setup; a test build only when a test asks. */
   offered: boolean;
@@ -56,7 +56,9 @@ export function createFirstRun(options: {
 
   return {
     status(): FirstRunSetup {
-      return fresh() ? { show: true, workOrder: workOrder() } : { show: false };
+      return fresh()
+        ? { show: true, workOrder: workOrder(), picksSent: options.usageData.workPickedSent() }
+        : { show: false };
     },
 
     async finish(work: unknown): Promise<Examples | null> {
