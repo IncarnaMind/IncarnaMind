@@ -7,7 +7,7 @@
  */
 import * as Y from "yjs";
 import { columnName, parseCellRef, type UnitText } from "../../../shared/units";
-import { BLOCK_ID_ATTRIBUTE } from "../../api";
+import { BLOCK_ID_ATTRIBUTE, type WorkbookSheetChoice } from "../../api";
 import {
   type WorkbookCell,
   type WorkbookModel,
@@ -20,17 +20,6 @@ import type { NodeJSON } from "../blocks";
 
 /** The most typed-in numbers one check takes: a bigger range is chosen smaller. */
 export const MOST_TYPED_NUMBERS = 1_000;
-
-/** What a sheet holds, for the choice of what to check. */
-export interface SheetChoice {
-  name: string;
-  /** Rows with anything in them. */
-  rows: number;
-  /** Numbers typed into cells. */
-  typed: number;
-  /** Cells with a formula. */
-  formulas: number;
-}
 
 const NUMBER_SHOWN = /^[\s(-]*[£$€¥]?\s*-?[\d,]*\.?\d+\s*[%)]?\s*[kKmMbB]?$/;
 
@@ -48,7 +37,7 @@ export function workbookOf(
   return model && model.sheets.length > 0 ? model : null;
 }
 
-export function sheetChoices(model: WorkbookModel): SheetChoice[] {
+export function sheetChoices(model: WorkbookModel): WorkbookSheetChoice[] {
   return model.sheets.map((sheet) => {
     let typed = 0;
     let formulas = 0;

@@ -4,8 +4,7 @@
  * over the page carrying its headings on, and each row one claim, said with its columns' headings.
  */
 import * as Y from "yjs";
-import type { DocumentText, ScannedText } from "../../api";
-import { BLOCK_ID_ATTRIBUTE } from "../../api";
+import { BLOCK_ID_ATTRIBUTE, type DocumentText, type ScannedText } from "../../api";
 import type { PagePart } from "../../documents/extract";
 import { findTables, scannedRows, type TableGrid } from "../../documents/tables";
 import type { NodeJSON } from "../blocks";
