@@ -35,6 +35,7 @@ import { EVERYDAY_PAIRS } from "./everydaySentences.cases";
 import { FIELD_PAIRS } from "./fieldSentences.cases";
 import { JUDGEMENT_NOTES } from "./judgementSentences.cases";
 import { REMARK_NOTES } from "./remarkSentences.cases";
+import { linesOf, STRUCTURED_NOTES, type StructuredNote } from "./structuredNotes.cases";
 
 const PROVIDER =
   process.env.INCARNAMIND_LIVE_GATE_PROVIDER === "deepseek" ? "deepseek" : "anthropic";
@@ -1237,22 +1238,53 @@ async function noteOf(
   probes: readonly Probe[],
   citation: JSONContent | null,
   folderId?: string,
+  layout?: JSONContent[],
 ): Promise<Pick<Written, "client" | "mindId">> {
   const mind = await core.createMind({ title, ...(folderId && { folderId }) });
   const client = await connectToMind(core, mind.id);
   writeMind(
     client,
-    probes.map(({ sentence }, index) => ({
-      type: "paragraph",
-      attrs: { id: `line-${index}` },
-      content: [
-        { type: "text", text: sentence },
-        ...(citation && sentence.includes("EBITDA") ? [citation] : []),
-      ],
-    })),
+    layout ??
+      probes.map(({ sentence }, index) => ({
+        type: "paragraph",
+        attrs: { id: `line-${index}` },
+        content: [
+          { type: "text", text: sentence },
+          ...(citation && sentence.includes("EBITDA") ? [citation] : []),
+        ],
+      })),
   );
   await client.settled();
   return { client, mindId: mind.id };
+}
+
+/** A structured Note's Blocks: its headings, its paragraphs of sentences and its lists. */
+function layoutOf(note: StructuredNote): JSONContent[] {
+  let at = 0;
+  const id = () => `line-${at++}`;
+  const paragraph = (sentences: readonly string[]): JSONContent => ({
+    type: "paragraph",
+    attrs: { id: id() },
+    content: [{ type: "text", text: sentences.join(note.language === "en" ? " " : "") }],
+  });
+  return note.blocks.map((block) =>
+    "heading" in block
+      ? {
+          type: "heading",
+          attrs: { id: id(), level: block.level },
+          content: [{ type: "text", text: block.heading }],
+        }
+      : "paragraph" in block
+        ? paragraph(block.paragraph.map((line) => line.sentence))
+        : {
+            type: "bulletList",
+            attrs: { id: id() },
+            content: block.bullets.map((item) => ({
+              type: "listItem",
+              content: [paragraph([item.sentence])],
+            })),
+          },
+  );
 }
 
 /**
@@ -1413,7 +1445,12 @@ async function heldOutRound(
  * a check reads, and the writer's own remarks about the Note, which it leaves without a mark.
  */
 async function remarkRound(language: Language) {
-  const cases = [...REMARK_NOTES, ...JUDGEMENT_NOTES].filter(
+  const laidOut = new Map(STRUCTURED_NOTES.map((note) => [note.id, layoutOf(note)]));
+  const cases = [
+    ...REMARK_NOTES,
+    ...JUDGEMENT_NOTES,
+    ...STRUCTURED_NOTES.map((note) => ({ ...note, lines: linesOf(note) })),
+  ].filter(
     (each) =>
       each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
   );
@@ -1433,7 +1470,7 @@ async function remarkRound(language: Language) {
     const folder = await core.createLibraryGroup({ name: each.id, description: "" });
     await core.moveToFolder({ documentIds: [file.id], folderId: folder.id });
     notes.push({
-      ...(await noteOf(core, each.id, each.lines, null, folder.id)),
+      ...(await noteOf(core, each.id, each.lines, null, folder.id, laidOut.get(each.id))),
       probes: each.lines,
       row: { arm: ARM, round: ROUND, group: "remark", language, case: each.id },
     });

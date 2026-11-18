@@ -11,6 +11,10 @@ import type { RemarkNote } from "./remarkSentences.cases";
  * The worked-out Notes (`-i`): three conclusions that follow for certain (a sum, plain logic),
  * three judgements the facts are a reason for, and three conclusions that don't follow (a wrong
  * sum, the wrong way round, no link).
+ * The boundary Notes (`-k`, #3332): conclusions given with their reason ("since", "so"). Three
+ * follow for certain; four give a true fact as the reason for what it goes against; four are
+ * evaluations that need a standard no Document gives (affordable, too few, cheap), though the
+ * figures can be compared; two are forecasts the facts are a reason for.
  *
  * The set is fixed: a Note is not edited once a baseline rests on it, and a new shape is a new Note.
  */
@@ -304,6 +308,120 @@ export const JUDGEMENT_NOTES: readonly JudgementNote[] = [
       { sentence: "续租每年要比现在多付16万元。", expected: "wrong" },
       { sentence: "装修费一年之内就能赚回来。", expected: "wrong" },
       { sentence: "磨坊街人流量低40%，搬过去会带来更多顾客。", expected: "wrong" },
+    ],
+  },
+  {
+    id: "en-k1",
+    language: "en",
+    name: "Larch Lane Bakery accounts",
+    document:
+      "Larch Lane Bakery sold 48,000 loaves in 2026, up from 40,000 in 2025. Flour cost £0.42 a loaf in 2026 and £0.35 in 2025. The shop price stayed at £3.20 a loaf in both years. The oven holds 180 loaves a batch and runs 6 batches a day. The bakery employs 5 bakers. A second oven is quoted at £27,000. Profit was £31,000 in 2026.",
+    lines: [
+      {
+        sentence:
+          "Since each batch holds 180 loaves and there are 6 batches a day, the oven can bake 1,080 loaves a day.",
+        expected: "right",
+        worked: true,
+      },
+      {
+        sentence:
+          "Sales grew by a fifth, so the bakery sold 8,000 more loaves than the year before.",
+        expected: "right",
+        worked: true,
+      },
+      {
+        sentence:
+          "Because the price stayed at £3.20 while flour rose to £0.42, flour took a larger share of each loaf's price in 2026.",
+        expected: "right",
+        worked: true,
+      },
+      {
+        sentence:
+          "Since sales rose from 40,000 to 48,000 loaves, the bakery is selling fewer loaves than before.",
+        expected: "wrong",
+      },
+      {
+        sentence:
+          "Since flour now costs more per loaf and the price has not moved, each loaf will earn the bakery more.",
+        expected: "wrong",
+      },
+      {
+        sentence:
+          "A second oven is quoted at £27,000, less than last year's profit, so one year's profit could not pay for it.",
+        expected: "wrong",
+      },
+      {
+        sentence:
+          "Because the oven can bake only 1,080 loaves a day, buying a second oven would cut how much the bakery can bake.",
+        expected: "wrong",
+      },
+      { sentence: "The bakery can comfortably afford a second oven.", expected: "none" },
+      { sentence: "Five bakers are too few for this volume.", expected: "none" },
+      { sentence: "Flour at £0.42 a loaf is still cheap.", expected: "none" },
+      { sentence: "Growth of a fifth in a year is a strong result.", expected: "none" },
+      {
+        sentence:
+          "With sales up a fifth, the oven will probably be the bottleneck within two years.",
+        expected: "none",
+        grounds: "for",
+      },
+      {
+        sentence:
+          "Since flour keeps getting dearer, the price will probably have to rise next year.",
+        expected: "none",
+        grounds: "for",
+      },
+    ],
+  },
+  {
+    id: "zh-k1",
+    language: "zh-CN",
+    name: "松巷面包店账目",
+    document:
+      "松巷面包店2026年卖出48,000个面包，2025年为40,000个。2026年每个面包的面粉成本为4.2元，2025年为3.5元。两年的售价都是每个32元。烤炉每炉能烤180个，每天烤6炉。面包店有5名面包师。再买一台烤炉的报价是27万元。2026年利润为31万元。",
+    lines: [
+      {
+        sentence: "每炉180个、每天6炉，所以烤炉一天能烤1,080个。",
+        expected: "right",
+        worked: true,
+      },
+      {
+        sentence: "销量增长了五分之一，也就是比上一年多卖了8,000个。",
+        expected: "right",
+        worked: true,
+      },
+      {
+        sentence:
+          "售价一直是32元，而面粉成本涨到4.2元，所以2026年面粉在每个面包售价里占的比例更高了。",
+        expected: "right",
+        worked: true,
+      },
+      {
+        sentence: "销量从40,000个涨到48,000个，所以面包店现在卖得比以前少了。",
+        expected: "wrong",
+      },
+      {
+        sentence: "面粉成本涨了而售价没变，所以每个面包会让面包店赚得更多。",
+        expected: "wrong",
+      },
+      {
+        sentence: "第二台烤炉要27万元，比去年的利润少，所以面包店一年的利润付不起它。",
+        expected: "wrong",
+      },
+      {
+        sentence: "烤炉一天只能烤1,080个，所以再买一台会让面包店能烤的数量变少。",
+        expected: "wrong",
+      },
+      { sentence: "面包店完全买得起第二台烤炉。", expected: "none" },
+      { sentence: "这样的销量，5名面包师太少了。", expected: "none" },
+      { sentence: "每个面包4.2元的面粉成本仍然算便宜。", expected: "none" },
+      { sentence: "一年增长五分之一是很好的成绩。", expected: "none" },
+      {
+        sentence: "销量涨了五分之一，烤炉很可能两年内就成为瓶颈。",
+        expected: "none",
+        grounds: "for",
+      },
+      { sentence: "面粉越来越贵，明年售价很可能得涨。", expected: "none", grounds: "for" },
     ],
   },
 ];
