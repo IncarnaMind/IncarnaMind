@@ -17,6 +17,7 @@
  * the streaming model and Silero through sherpa-onnx today (./sherpa).
  */
 import { gap } from "../../shared/i18n/join";
+import type { HeardWord } from "../../shared/wordTimes";
 import { MEETING_SAMPLE_RATE, type SpeechSegment } from "../adapters";
 import { cleanSpeech } from "./speechText";
 
@@ -46,6 +47,8 @@ export interface LiveReading {
   hear(samples: Float32Array): string;
   /** No more audio comes: the words of the whole stretch. */
   end(): string;
+  /** Words in the latest reading, with times relative to its first sample. */
+  timedWords?(): readonly HeardWord[];
 }
 
 /**
@@ -194,6 +197,7 @@ interface Job {
   samples: Float32Array;
   final: boolean;
   words: readonly string[];
+  timedWords?: HeardWord[];
 }
 
 interface Stream {
@@ -391,11 +395,16 @@ export function createSpeechHost(
     return ms;
   }
 
+  function timedWordsOf(stream: Stream): HeardWord[] | undefined {
+    if (!stream.speech) return undefined;
+    const base = msOf(stream.speech.start);
+    return stream.reading?.live.timedWords?.().map(({ text, ms }) => ({ text, ms: base + ms }));
+  }
+
   /** The streaming model's reading of the speech that ended: its words stay until the stretch's final text. */
-  function endReading(stream: Stream, id: number, start: number): void {
+  function endReading(stream: Stream, id: number, start: number): HeardWord[] | undefined {
     const { reading } = stream;
-    stream.reading = null;
-    if (!reading) return;
+    if (!reading) return undefined;
     let text = reading.text;
     try {
       text = cleanSpeech(reading.live.end());
@@ -405,6 +414,9 @@ export function createSpeechHost(
       );
     }
     if (text) stream.drafts.set(id, { start, text });
+    const timedWords = timedWordsOf(stream);
+    stream.reading = null;
+    return timedWords;
   }
 
   async function pump(): Promise<void> {
@@ -441,6 +453,7 @@ export function createSpeechHost(
           final: job.final,
           decodeMs: Date.now() - started,
           ...(failed && { failed: true }),
+          ...(job.timedWords?.length && { words: job.timedWords, draftWordTimes: true }),
         });
       }
       if (job.final) {
@@ -461,7 +474,13 @@ export function createSpeechHost(
    * Queues `samples`, from `start` in the stream, for their final text: in parts no longer than the
    * engine reads at once, the first with `id`, each a line of its own.
    */
-  function queue(stream: Stream, id: number, start: number, samples: Float32Array): void {
+  function queue(
+    stream: Stream,
+    id: number,
+    start: number,
+    samples: Float32Array,
+    timedWords?: readonly HeardWord[],
+  ): void {
     for (let at = 0, partId = id; ; partId = stream.nextId++) {
       const end =
         samples.length - at > longest
@@ -476,6 +495,9 @@ export function createSpeechHost(
         samples: samples.slice(at, end),
         final: true,
         words: stream.words,
+        timedWords: timedWords?.filter(
+          (word) => word.ms >= msOf(start + at) && word.ms < msOf(start + end),
+        ),
       });
       if (end >= samples.length) break;
       at = end;
@@ -499,7 +521,13 @@ export function createSpeechHost(
       const cut = speech.start + cutOf(samples);
       const said = stream.reading?.heard.findLast((each) => each.at <= cut)?.text;
       if (said) stream.drafts.set(speech.id, { start: speech.start, text: said });
-      queue(stream, speech.id, speech.start, samples.subarray(0, cut - speech.start));
+      queue(
+        stream,
+        speech.id,
+        speech.start,
+        samples.subarray(0, cut - speech.start),
+        timedWordsOf(stream),
+      );
       stream.cutAt = cut;
       stream.speech = { id: stream.nextId++, start: cut, lastPartial: stream.received };
       if (stream.reading && engine.live) {
@@ -523,7 +551,7 @@ export function createSpeechHost(
         Math.min(stream.keptFrom, found.start),
         stream.cutAt,
       );
-      endReading(stream, id, start);
+      const timedWords = endReading(stream, id, start);
       stream.speech = null;
       const before = slice(stream, start, found.start);
       // Empty when it was all read as it went on: its last part, after the cut, still gets its
@@ -534,7 +562,7 @@ export function createSpeechHost(
       const samples = new Float32Array(before.length + own.length);
       samples.set(before);
       samples.set(own, before.length);
-      queue(stream, id, start, samples);
+      queue(stream, id, start, samples, timedWords);
     }
     if (stream.detector.speaking()) {
       if (!stream.speech) {

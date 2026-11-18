@@ -8,6 +8,7 @@
  * utility process (src/main/transcriberProcess.ts), never on the core's thread.
  */
 import { gap } from "../../shared/i18n/join";
+import type { HeardWord } from "../../shared/wordTimes";
 import type { TranscriptionModelFiles } from "../adapters";
 import { MEETING_SAMPLE_RATE } from "../adapters";
 import { engineModule, exportsOf } from "../engineModules";
@@ -176,6 +177,28 @@ const LIVE_THREADS = 1;
 /** A model that writes English in capitals only: its words, as live text, in lower case. */
 const CAPITALS_ONLY = /^[^\p{Ll}]*\p{Lu}[^\p{Ll}]*$/u;
 
+function timedWords(tokens: readonly string[], timestamps: readonly number[]): HeardWord[] {
+  if (tokens.length !== timestamps.length) return [];
+  const words: HeardWord[] = [];
+  for (const [at, token] of tokens.entries()) {
+    const text = token.trim();
+    const time = timestamps[at];
+    if (!text || time === undefined || !Number.isFinite(time) || time < 0) continue;
+    const previous = words.at(-1);
+    if (
+      previous &&
+      token === text &&
+      /^[\p{Script=Latin}\p{N}'’]/u.test(text) &&
+      /[\p{Script=Latin}\p{N}'’]$/u.test(previous.text)
+    ) {
+      previous.text += text;
+    } else {
+      words.push({ text, ms: time * 1000 });
+    }
+  }
+  return words;
+}
+
 /** Readings by the streaming model of `live`, each of one stretch of speech. */
 async function liveReadings(
   live: NonNullable<TranscriptionModelFiles["live"]>,
@@ -208,13 +231,16 @@ async function liveReadings(
   });
   return () => {
     const stream = recognizer.createStream();
+    let result: ReturnType<typeof recognizer.getResult> | undefined;
     const words = () => {
       while (recognizer.isReady(stream)) recognizer.decode(stream);
       let text: string;
       try {
-        text = recognizer.getResult(stream).text;
+        result = recognizer.getResult(stream);
+        text = result.text;
       } catch (error) {
         if (!(error instanceof SyntaxError)) throw error;
+        result = undefined;
         // As for a final reading (#981): sherpa's reader refused the result's JSON.
         text = textOfResult(addon.getOnlineStreamResultAsJson(recognizer.handle, stream.handle));
       }
@@ -229,6 +255,8 @@ async function liveReadings(
         stream.inputFinished();
         return words();
       },
+      timedWords: () =>
+        result?.tokens && result.timestamps ? timedWords(result.tokens, result.timestamps) : [],
     };
   };
 }

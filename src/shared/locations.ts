@@ -265,10 +265,11 @@ export function formatLocation(
         range: span(location.from, location.to),
       });
     case "time": {
-      const from = location.speaker
+      const part = location.speaker
         ? partStartOf(speakers, location.from, location.speaker, quote)
         : location.from;
-      return speaker && location.speaker
+      const from = part ?? location.from;
+      return speaker && location.speaker && part !== null
         ? t("location.time.speaker", {
             speaker: shownSpeaker(speakers, from, location.speaker, t),
             time: clockTime(from),

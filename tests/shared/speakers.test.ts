@@ -271,6 +271,27 @@ describe("Splitting a line (#138)", () => {
     expect(partsOf(split, { ...LINE, text: "Another text now." })).toHaveLength(1);
   });
 
+  test("words repeated by two speakers show the original cue time without a speaker", () => {
+    const line = { ...LINE, text: "Yes, agreed. Yes, understood." };
+    const speakers = withSpeakerChosen(
+      withLineSplit(null, line, line.text.lastIndexOf("Yes"), 4100),
+      [
+        { startMs: 2000, label: line.label },
+        { startMs: 4100, label: line.label },
+      ],
+      { startMs: 4100, label: line.label },
+      { name: "Sam" },
+      false,
+    );
+    const location = { kind: "time" as const, from: 2000, to: 6000, speaker: line.label };
+    expect(formatLocation(location, en, { speakers, quote: "Yes" })).toBe("0:02");
+    expect(formatLocation(location, zh, { speakers, quote: "Yes" })).toBe("0:02");
+    expect(formatLocation(location, en, { speakers, quote: "agreed. Yes, understood" })).toBe(
+      "0:02",
+    );
+    expect(formatLocation(location, en, { speakers, quote: "Yes, understood" })).toBe("Sam · 0:04");
+  });
+
   // protects=a Citation stores its file's line and quote, and shows the part its quote starts in, by that part's time and Speaker, in English and Chinese; a quote not found shows the line; fails_when=the Citation shows the line's first time or Speaker for words of the rest; no_claim=the core's checks, which the core test covers.
   test("a Citation into a split line shows the part its quote is in", () => {
     const speakers = withSpeakerChosen(

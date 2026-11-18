@@ -43,7 +43,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   isTheirs,
-  lineKey,
   numberedVoice,
   SPEAKER_ME,
   SPEAKER_THEM,
@@ -688,6 +687,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     const words = alignWords(
       text,
       heard.map((word, at) => ({ text: written?.[at] ?? word.text, ms: baseMs + word.ms })),
+      segment.draftWordTimes,
     );
     const cue: Cue = {
       startMs,
@@ -1499,8 +1499,8 @@ export function createTranscripts(options: TranscriptsOptions) {
     pass
       .run(state.meetingId, [...state.cues])
       .then(
-        (cues) =>
-          current() && !named(state) && cues && !tellApart(state, cues, saved)
+        (speakers) =>
+          current() && !named(state) && speakers && !tellApart(state, speakers, saved)
             ? ("failed" as const)
             : ("done" as const),
         (error: unknown) => {
@@ -1545,26 +1545,18 @@ export function createTranscripts(options: TranscriptsOptions) {
    * Citation of a line, a call's notes' among them, names who said it from then on. False when
    * it couldn't be kept, so the Transcript says its speakers couldn't be told apart, with Try again.
    */
-  function tellApart(state: State, cues: readonly Cue[], saved: string): boolean {
+  function tellApart(state: State, speakers: TranscriptSpeakers, saved: string): boolean {
     const path = state.savedPath;
     const documentId = state.documentId;
     if (!path || documentId === null) return true;
-    const lines: Record<string, string> = {};
-    for (const [at, cue] of cues.entries()) {
-      const before = state.cues[at];
-      if (before?.speaker && cue.speaker && cue.speaker !== before.speaker) {
-        // The file keeps whole ms (`timestamp` in ../documents/formats/vtt), and its lines are the keys.
-        lines[lineKey(Math.round(before.startMs), before.speaker)] = cue.speaker;
-      }
-    }
-    if (Object.keys(lines).length === 0) return true;
+    if (Object.keys(speakers.lines).length === 0 && !speakers.splits) return true;
     try {
       // Its keys are the file's lines: kept only while the file holds the lines told apart.
       if (readFileSync(path, "utf8") !== saved) {
         log.warn("speakers.fileChanged", { meetingId: state.meetingId });
         return true;
       }
-      documents.setSpeakers(documentId, { labels: {}, lines });
+      documents.setSpeakers(documentId, speakers);
       return true;
     } catch (error) {
       log.error("speakers.writeFailed", { meetingId: state.meetingId, message: messageOf(error) });
