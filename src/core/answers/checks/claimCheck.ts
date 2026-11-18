@@ -308,6 +308,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     },
   ];
   const language = deps.language();
+  const countsLibrary = runtime !== undefined && deps.libraryLists !== undefined;
   let reply = "";
   let setAside: readonly string[] = [];
   let failed: ProviderError | null = null;
@@ -321,7 +322,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         request.callIn !== undefined,
         calculates,
         runtime !== undefined && sheets,
-        runtime !== undefined && deps.libraryLists !== undefined,
+        countsLibrary,
       ),
     messages: [
       { role: "user", content: claimPrompt({ ...request, figures, citedShown, language }) },
@@ -366,6 +367,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       ? null
       : readVerdict(turns.slice(from).join("\n"));
   if (!read) return notChecked(turns.some(readsAsRefusal) ? "refused" : "malformed");
+  if (read.unsettled && countsLibrary) return notChecked("library-unsettled");
   if (!looked() && !restsOnOwnFigure(read)) return notChecked("unread");
 
   session.check();
@@ -390,7 +392,10 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     if (!worked) return notChecked(last ? endedAs(last) : "rows-run-failed", file);
     if (rowsOf(worked).some((rows) => rows.cut)) return notChecked("rows-cut", file);
   }
-  const lists = worked && libraryRead(worked);
+  // A verdict rests on the Library only where the code gave a number: a run that read the lists
+  // and gave none told the model nothing.
+  const counted = worked?.output.results.some((each) => each.kind === "figure") === true;
+  const lists = worked && counted ? libraryRead(worked) : undefined;
   const working = worked && { ...workingOf(worked), ...(lists && { library: lists.read }) };
   const evidence =
     quoted ?? (worked ? (rowsOf(worked)[0]?.citation ?? lists?.citation) : undefined);

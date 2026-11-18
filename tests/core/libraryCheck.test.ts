@@ -5,6 +5,7 @@
  */
 import { expect, onTestFinished, test } from "vitest";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
+import { libraryLists, libraryVersion } from "../../src/core/library/lists";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { LIBRARY_FACTS } from "../../src/shared/libraryFacts";
 import { isCheckRun } from "../helpers/checks";
@@ -16,9 +17,12 @@ const CODE = 'result("documents", len(inputs["files"]))';
 const CLAIM = "Your Library holds two Documents.";
 const SUPPORTED =
   "Verdict: supported\nExplanation: The Library's list of Documents has two rows.\nEvidence: []\nWorking: Counted the rows of the Documents list, giving 2.";
+const figure = (name: string, value: number) =>
+  ({ kind: "figure", name, label: name, unit: null, value }) as const;
+/** The count the code names, then one whose name the code worked out from a row, and what it printed. */
 const counted = (value: number): FakeAnswer => ({
   output: {
-    results: [{ kind: "figure", name: "documents", label: "Documents counted", unit: null, value }],
+    results: [figure("documents", value), figure("Harbour office", 1)],
     printed: "Tides\nHarbour office\n",
   },
 });
@@ -116,29 +120,56 @@ test("a sentence about the Library is supported on the count of its lists", asyn
   expect(jobs()[0]?.inputs[0]).toMatchObject({
     kind: "table",
     name: "files",
-    columns: ["name", "kind", "folder", "tags"],
+    columns: ["name", "kind", "folder", "folder_path", "tags"],
     rows: expect.arrayContaining([
-      ["Tides", "markdown", "", ""],
-      ["Harbour office", "markdown", "Client A", ""],
+      ["Tides", "markdown", "", "", ""],
+      ["Harbour office", "markdown", "Client A", "Client A", ""],
     ]),
   });
 });
 
-// protects=the lists stay on this computer: the model is told the numbers its code gave, and nothing the code printed nor Python's own words for an error, which could hold a Document's name; fails_when=a run over the lists sends names, Folders or Tags to the model's provider.
+// protects=the lists stay on this computer: the model is told the numbers its code gave, each under a name only where the code writes that name out, and nothing else: not what the code printed, not a name it worked out from a row, not how many rows a list has, and no word of an error's message, which could quote a Document's name; fails_when=a run over the lists sends names, Folders, Tags or the size of a list to the model's provider.
 test("the model is told only the numbers a run over the lists gave", async () => {
   const done = await setUp(counted(2));
   await done.core.checkClaim({ claim: CLAIM, mindId: done.outside.id });
-  expect(done.told()).toContain("Documents counted: 2");
+  expect(done.told()).toContain("- documents: 2");
+  expect(done.told()).toContain("- result 2: 1");
   expect(done.told()).not.toContain("Tides");
   expect(done.told()).not.toContain("Harbour office");
+  expect(done.told()).not.toMatch(/\d+ rows/);
 
   const failed = await setUp({
-    end: { kind: "error", message: "KeyError: 'Harbour office'", line: 1 },
+    end: { kind: "error", message: "KeyError: 'Harbour office'\nHarbour office", line: 1 },
   });
   const result = await failed.core.checkClaim({ claim: CLAIM, mindId: failed.outside.id });
-  expect(failed.told()).toContain("KeyError");
-  expect(failed.told()).not.toContain("Harbour office");
+  expect(failed.told()).toContain("did not finish (error on line 1)");
+  expect(failed.told()).not.toContain("KeyError");
+  expect(failed.told()).not.toContain("Harbour");
   expect(result).toMatchObject({ verdict: "not-checked", reason: "rows-run-failed" });
+});
+
+// protects=a verdict rests on the Library only where the code gave a number: a run that read the lists and gave none told the model nothing, so a Supported with no quote is not accepted on it; fails_when=a ✓ rests on a count nobody made.
+test("a run that gave no number is no evidence", async () => {
+  const { core, outside } = await setUp({ output: { printed: "2\n" } });
+
+  const result = await core.checkClaim({ claim: CLAIM, mindId: outside.id });
+
+  expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+});
+
+// protects=a sentence about the Library that its lists can't settle (what the files cover) reads Not checked with that reason, as the model said, never Not found with an offer to cut it; fails_when=a reading of the names is marked not found.
+test("a sentence the lists can't settle reads not checked, with its reason", async () => {
+  const { core, outside, repliesWith } = await setUp(counted(2));
+  repliesWith(
+    "Verdict: unsettled\nExplanation: The lists hold names and kinds, not what the files cover.\nEvidence: []",
+  );
+
+  const result = await core.checkClaim({
+    claim: "Your Library holds two Documents, mostly about the harbour.",
+    mindId: outside.id,
+  });
+
+  expect(result).toMatchObject({ verdict: "not-checked", reason: "library-unsettled" });
 });
 
 // protects=a count the lists don't give reads Contradicted, resting on the Library's row; fails_when=a wrong count of the Library reads Supported or stays Not found.
@@ -166,8 +197,8 @@ test("a walled Folder's Documents are counted only for a Note inside it", async 
   const within = await core.checkClaim({ claim: CLAIM, mindId: inside.id });
 
   expect(jobs().map((job) => job.inputs[0])).toMatchObject([
-    { rows: [["Tides", "markdown", "", ""]] },
-    { rows: [["Harbour office", "markdown", "Client A", ""]] },
+    { rows: [["Tides", "markdown", "", "", ""]] },
+    { rows: [["Harbour office", "markdown", "Client A", "Client A", ""]] },
   ]);
   expect(from.verdict === "supported" && from.evidence?.location).toMatchObject({
     source: { kind: "left-out", folders: 1 },
@@ -200,4 +231,35 @@ test("with no Python on this computer, the lists aren't offered", async () => {
 
   expect(calls.some((call) => call.tools.includes(ANALYSIS_TOOLS.run))).toBe(false);
   expect(result).toMatchObject({ verdict: "unsupported", unsupported: { word: "not-found" } });
+});
+
+// protects=two Folders of one name under different parents are told apart by their paths, in the Folders' rows and in each Document's; fails_when=a count of one such Folder takes in the other's Documents, or moving a Document between them leaves the lists' version as it was.
+test("Folders of one name are told apart by their paths", () => {
+  const folder = (id: string, name: string, parentId: string | null) => ({ id, name, parentId });
+  const seen = (inNorth: boolean) =>
+    libraryLists({
+      source: { kind: "library" },
+      documents: [{ id: "d1", name: "Lease", kind: "pdf", tags: [] }],
+      folders: [
+        folder("north", "North", null),
+        folder("south", "South", null),
+        folder("na", "Archive", "north"),
+        folder("sa", "Archive", "south"),
+      ],
+      folderOf: new Map([["d1", inNorth ? "na" : "sa"]]),
+      tagNames: new Map(),
+      notes: [{ name: "Rundown", folderId: "sa" }],
+    });
+
+  const lists = seen(true);
+
+  expect(lists.documents.rows).toEqual([["Lease", "pdf", "Archive", "North / Archive", ""]]);
+  expect(lists.folders.rows).toEqual([
+    ["North", "", "North", 1],
+    ["South", "", "South", 0],
+    ["Archive", "North", "North / Archive", 1],
+    ["Archive", "South", "South / Archive", 0],
+  ]);
+  expect(lists.notes.rows).toEqual([["Rundown", "Archive", "South / Archive"]]);
+  expect(libraryVersion(seen(false))).not.toBe(libraryVersion(lists));
 });

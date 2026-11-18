@@ -18,8 +18,8 @@ export interface LibraryCase {
 }
 
 const NOT_SUPPORTED = ["contradicted", "unsupported"] as const;
-/** A reading of the names, which the lists don't settle: the writer's own view, or not found. */
-const UNSETTLED = ["unsupported", "not-checked"] as const;
+/** A reading of the names, which the lists don't settle: Not checked, never Not found. */
+const UNSETTLED = ["not-checked"] as const;
 
 export const LIBRARY_CASES: Record<"en" | "zh-CN", LibraryCase[]> = {
   en: [
@@ -80,6 +80,17 @@ export const LIBRARY_CASES: Record<"en" | "zh-CN", LibraryCase[]> = {
     {
       sentence: "Most of the files concern harbour maintenance work.",
       expected: UNSETTLED,
+      library: "open",
+    },
+    // A right count joined to a reading of the names, and a wrong count joined to one.
+    {
+      sentence: "Your Library holds 7 Documents, mostly planning and survey material.",
+      expected: UNSETTLED,
+      library: "open",
+    },
+    {
+      sentence: "Your Library holds 12 Documents, mostly planning and survey material.",
+      expected: NOT_SUPPORTED,
       library: "open",
     },
     // About the note itself.
@@ -158,6 +169,11 @@ export const LIBRARY_CASES: Record<"en" | "zh-CN", LibraryCase[]> = {
       aboutLibrary: true,
     },
     { sentence: "这些文件大多与港口维修有关。", expected: UNSETTLED, library: "open" },
+    {
+      sentence: "你的资料库里有 7 个文档，大多是规划和勘测方面的材料。",
+      expected: UNSETTLED,
+      library: "open",
+    },
     { sentence: "后文逐一列出了这些文档。", expected: ["left-out"], library: "open" },
     { sentence: "你的资料库里有 9 个文档。", expected: NOT_SUPPORTED, library: "walled-outside" },
     {

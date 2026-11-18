@@ -57,34 +57,41 @@ export interface AnalysisToolOptions {
   readLibrary?(analysis: AnswerAnalysis, lists: readonly string[]): void;
 }
 
-/** How the model is told to read the Library's lists, where a Run offers them. */
-const LIBRARY_INPUT = ` An input can also be one of the lists IncarnaMind keeps of the User's Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, tags; kind is one of ${Object.keys(DOCUMENT_KINDS).join(", ")}, and tags are joined with ", "), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder). The code reads each by the name you gave it, as inputs["files"], a DataFrame with those columns. Their rows stay on the User's computer and are never shown to you: count or look up in the code what you need and give each number with result(). Nothing the code prints and no table comes back from such a run.`;
+const LIBRARY_INPUT = ` An input can also be one of the lists IncarnaMind keeps of the User's Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, folder_path, tags; kind is one of ${Object.keys(DOCUMENT_KINDS).join(", ")}, and tags are joined with ", "), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, path, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder, folder_path). folder is the Folder's own name, and a path is its place from the top, as "Clients / Acme / Contracts", which tells two Folders of one name apart. The code reads each by the name you gave it, as inputs["files"], a DataFrame with those columns. Their rows stay on the User's computer and are never shown to you: count or look up in the code what you need and give each number with result(name, value), its name a plain text written in the code. Only those numbers come back from such a run: nothing the code prints, no table, no label worked out from the rows, and of an error only its line.`;
+
+/** Whether `text` stands in `code` as a quoted text of its own, so the model wrote it itself. */
+const writtenIn = (code: string, text: string): boolean =>
+  text !== "" && [`"${text}"`, `'${text}'`].some((quoted) => code.includes(quoted));
 
 /**
- * A run that read the Library's lists, as its model is told of it: the numbers its code gave and
- * nothing else of its output, so the lists themselves (names, Folders, Tags) stay on this computer
- * (#2525). Of an error, only Python's name for it.
+ * What the model is told of a run that read the Library's lists (#2525): the numbers its code
+ * gave, each under a name only where the code writes that name out, and how the run ended. The
+ * lists themselves (names, Folders, Tags) stay on this computer, so nothing the code printed or
+ * worked out as text is here, and no word of an error's message, which can quote a cell.
  */
-function countsOnly(analysis: AnswerAnalysis): AnswerAnalysis {
-  const { output, end } = analysis;
-  return {
-    ...analysis,
-    end:
-      end.kind === "error"
-        ? {
-            ...end,
-            message: /^[\w.]+/.exec(end.message.trim().split("\n").at(-1) ?? "")?.[0] ?? "",
-          }
-        : end,
-    output: {
-      ...output,
-      results: output.results.filter((each) => each.kind === "figure"),
-      charts: [],
-      pictures: [],
-      notNumbers: [],
-      printed: "",
-    },
-  };
+function libraryRunReport(analysis: AnswerAnalysis, lists: readonly string[]): string {
+  const { output, end, code } = analysis;
+  const lines = [`Analysis ${analysis.number}`, "Inputs:", ...lists.map((each) => `- ${each}`)];
+  if (end.kind !== "done") {
+    const at = end.kind === "error" && end.line !== null ? ` on line ${end.line}` : "";
+    lines.push(
+      `The run did not finish (${end.kind}${at}), so it gave no number. An error's message isn't shown, because it can quote the lists.`,
+    );
+    return lines.join("\n");
+  }
+  const numbers = output.results.flatMap((each) => (each.kind === "figure" ? [each] : []));
+  if (numbers.length === 0) {
+    lines.push("The code gave no number: give each with result(name, value).");
+    return lines.join("\n");
+  }
+  lines.push(
+    "Numbers:",
+    ...numbers.map(
+      (each, at) =>
+        `- ${writtenIn(code, each.name) ? each.name : `result ${at + 1}`}: ${each.value}`,
+    ),
+  );
+  return lines.join("\n");
 }
 
 const fields = (value: unknown): Record<string, unknown> =>
@@ -394,16 +401,13 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
       const lists = ok.flatMap(({ library, job }) =>
         library && job.kind === "table"
           ? [
-              `inputs["${job.name}"]: the Library's ${library}: ${job.rows.length} rows × ${job.columns.length} columns (${job.columns.join(", ")}), never shown: only the numbers result() gives come back`,
+              `inputs["${job.name}"]: the Library's ${library} (${job.columns.join(", ")}), its rows never shown`,
             ]
           : [],
       );
-      return analysisReport(
-        lists.length > 0 ? countsOnly(analysis) : analysis,
-        options.language,
-        options.codeOffered?.() === true,
-        lists,
-      );
+      return lists.length > 0
+        ? libraryRunReport(analysis, lists)
+        : analysisReport(analysis, options.language, options.codeOffered?.() === true);
     },
   };
 }

@@ -51,6 +51,20 @@ export function libraryLists(seen: LibrarySeen): LibraryLists {
   const folderName = new Map(seen.folders.map((folder) => [folder.id, folder.name]));
   const named = (folderId: string | null | undefined) => folderName.get(folderId ?? "") ?? "";
   const parentOf = new Map(seen.folders.map((folder) => [folder.id, folder.parentId]));
+  // Two Folders may share a name under different parents: the path tells them apart.
+  const pathOf = (folderId: string | null | undefined): string => {
+    const names: string[] = [];
+    const met = new Set<string>();
+    for (
+      let at = folderId ?? null;
+      at !== null && folderName.has(at) && !met.has(at);
+      at = parentOf.get(at) ?? null
+    ) {
+      met.add(at);
+      names.unshift(named(at));
+    }
+    return names.join(" / ");
+  };
   const held = new Map<string, number>();
   for (const document of seen.documents) {
     // A Folder holds what is filed in it and in the Folders inside it, as the Library counts it.
@@ -67,11 +81,12 @@ export function libraryLists(seen: LibrarySeen): LibraryLists {
   return {
     source: seen.source,
     documents: {
-      columns: ["name", "kind", "folder", "tags"],
+      columns: ["name", "kind", "folder", "folder_path", "tags"],
       rows: seen.documents.map((document) => [
         document.name,
         document.kind,
         named(seen.folderOf.get(document.id)),
+        pathOf(seen.folderOf.get(document.id)),
         document.tags
           .flatMap((tag) => seen.tagNames.get(tag.tagId) ?? [])
           .sort()
@@ -79,16 +94,17 @@ export function libraryLists(seen: LibrarySeen): LibraryLists {
       ]),
     },
     folders: {
-      columns: ["name", "inside", "documents"],
+      columns: ["name", "inside", "path", "documents"],
       rows: seen.folders.map((folder) => [
         folder.name,
         named(folder.parentId),
+        pathOf(folder.id),
         held.get(folder.id) ?? 0,
       ]),
     },
     notes: {
-      columns: ["name", "folder"],
-      rows: seen.notes.map((note) => [note.name, named(note.folderId)]),
+      columns: ["name", "folder", "folder_path"],
+      rows: seen.notes.map((note) => [note.name, named(note.folderId), pathOf(note.folderId)]),
     },
   };
 }

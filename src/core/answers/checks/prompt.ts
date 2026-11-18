@@ -70,7 +70,7 @@ const ROWS =
   "A figure the sentence gives over the rows of a data file (a sheet or a CSV file: a total, an average, a count, a share, a change over many rows) is not stated by the few rows a Passage shows. Work it out with run_analysis: give the file's Passage as its input, which reads the whole sheet, and write code that works out the quantity the sentence names (its rows, its column, its period, its group, its measure) without using the sentence's own number, giving it with result(). Then compare the result with the sentence's figure at the precision the sentence writes it: the same value is supported; another value is contradicted, and your explanation says the value the rows give; where the file has no such rows or column, it is not found. Such a verdict rests on the run and needs no quote: write Evidence: []. For contradicted, \"To 1:\" is only the value the rows give, written the way the sentence writes its figure, with no marker and nothing after it. A run that fails may be mended and run once more.";
 
 const LIBRARY =
-  "A sentence about the User's Library itself, rather than about what a Document says (how many Documents, Folders or notes it holds, what they are called, of what kind, where they are filed or how they are tagged), is stated by no Passage. A sentence that speaks of the User's files, Documents, Folders or notes as things is such a sentence, even where its words could also be read as about a Document's text: count the lists before you search. Work it out with run_analysis over the Library's own lists, as its description gives them: write code that counts what the sentence names, without using the sentence's own number, and give the count with result(): the lists are never shown to you, only the numbers your code gives. Then compare the result with the sentence: the same is supported and another value is contradicted, with no quote, and Working says what the code counted. The lists hold only names, kinds, Folders and Tags: what a Document says or is about is not in them, and they settle no sentence about that.";
+  "A sentence about the User's Library itself, rather than about what a Document says (how many Documents, Folders or notes it holds, what they are called, of what kind, where they are filed or how they are tagged), is stated by no Passage. A sentence that speaks of the User's files, Documents, Folders or notes as things is such a sentence, even where its words could also be read as about a Document's text: count the lists before you search. Work it out with run_analysis over the Library's own lists, as its description gives them: write code that counts what the sentence names, without using the sentence's own number, and give the count with result(): the lists are never shown to you, only the numbers your code gives. Then compare the result with the sentence: the same is supported and another value is contradicted, with no quote, and Working says what the code counted. The lists hold only names, kinds, Folders and Tags: what a Document says or is about is not in them. A sentence about the Library that neither a count nor a Passage can settle (what its files cover, a reading of their names) has the verdict unsettled, a verdict for such a sentence only; so has one whose count is right and whose other words are of that kind.";
 
 /**
  * The instructions of a check's Run, for a way of citing; `passages`: what the one search found,
@@ -225,6 +225,8 @@ export interface ReadVerdict {
   correction?: ReadCorrection;
   /** The one line of working of a verdict reached from the quotes rather than read in one. */
   working?: string;
+  /** The reply called a sentence about the Library one its lists can't settle (#2525). */
+  unsettled?: true;
 }
 
 const MARKERS = /\s*\[[\^=]?\d{1,4}\]/g;
@@ -237,7 +239,7 @@ const WORKING = label("working|推算|算式");
 const CHANGE = label("change\\s*1?");
 const TO = label("to\\s*1?");
 const WORD =
-  "supported|contradicted|unsupported|overstated|part(?:ly|ially)[ -]supported|not[ -]found|own[ -]view";
+  "supported|contradicted|unsupported|overstated|part(?:ly|ially)[ -]supported|not[ -]found|own[ -]view|unsettled";
 const BARE = new RegExp(`^[\\s>*_#\`"'“”-]*((?:${WORD})\\b.*)`, "i");
 /**
  * Where a field's label stands after other words on its line. Only the labels the reply form
@@ -250,11 +252,14 @@ const FIELD_START =
 type Finer = NonNullable<UnsupportedReason["word"]>;
 
 /** A reply's verdict word: one of the six it is asked for, or "unsupported" as older replies say. */
-const verdictIn = (words: string | undefined): Pick<ReadVerdict, "verdict" | "word"> | null => {
+const verdictIn = (
+  words: string | undefined,
+): Pick<ReadVerdict, "verdict" | "word" | "unsettled"> | null => {
   const said = new RegExp(`^(${WORD})\\b`, "i").exec(words ?? "")?.[1]?.toLowerCase();
   if (said === undefined) return null;
   if (said === "supported" || said === "contradicted" || said === "unsupported")
     return { verdict: said };
+  if (said === "unsettled") return { verdict: "unsupported", word: "not-found", unsettled: true };
   return {
     verdict: "unsupported",
     word:
