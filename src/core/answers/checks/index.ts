@@ -116,7 +116,7 @@ import {
 } from "./claimCheck";
 import { createFirstReading, type DecisionReader } from "./decisionFirst";
 import { createFastPaths } from "./fastPaths";
-import { createMindCheck, type MindCheckOptions } from "./mindCheck";
+import { createMindCheck, type MindCheckOptions, type NotAskedReason } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import {
   judgeResolvedRecordCites,
@@ -1259,6 +1259,16 @@ export function createChecks(options: ChecksOptions) {
     }
   }
 
+  /** Why a check on this model can't start with nothing asked of the User; null: it can. */
+  async function asksFirst(choice: ChatModelChoice | null): Promise<NotAskedReason | null> {
+    const readiness = await chat.readiness(choice ?? undefined, "checks");
+    if (!readiness.ready) return "not-ready";
+    const { service } = readiness.provider;
+    if (!service) return null;
+    if (options.localOnly()) return "local-mode";
+    return options.consent.covers("checks", service, CHECKS_FLOW_SENDS) ? null : "consent-needed";
+  }
+
   const evidenceReady = (stop: AbortSignal, mindId: string) =>
     options.evidence.ready(stop, () => leftOutOf(mindId));
 
@@ -1307,6 +1317,7 @@ export function createChecks(options: ChecksOptions) {
     ...options,
     documentVersions: options.watch.documentVersions,
     prepare,
+    asksFirst,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     evidenceReady,
     citedNow,
@@ -1539,6 +1550,7 @@ export function createChecks(options: ChecksOptions) {
 
     findMindClaims: (input: unknown) => mindCheck.findMindClaims(input),
     checkMind: (input: unknown) => mindCheck.checkMind(input),
+    checkMindOutside: (mindId: string) => mindCheck.checkOutside(mindId),
     documentsAddedSinceChecks: (mindId: unknown) => mindCheck.documentsAddedSinceChecks(mindId),
 
     /** A Document's status changed: a new version has its Folder's Minds checked for contradictions. */

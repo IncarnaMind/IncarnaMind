@@ -44,6 +44,7 @@ export const SERVER_INSTRUCTIONS = [
   "When the User wants to see a source, `show_citation` opens it in IncarnaMind.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`: your changes wait for the User to accept or reject, and never apply by themselves.",
   "To hand the User a new document, `create_mind` writes it as a Note of its own, which they see at once.",
+  "Then `check_mind` on that Note: IncarnaMind checks every claim in it against the User's Documents, cited or not, and lists each that needs a look. Tell the User what it found.",
 ].join("\n");
 
 const passageId = z.string().describe("A passageId from search or read_passages.");
@@ -366,6 +367,55 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       },
     },
     (input) => answer(() => access.createMind(input)),
+  );
+
+  server.registerTool(
+    tool("check_mind"),
+    {
+      title: "Check a Note you wrote",
+      description:
+        "Check a Note you wrote with create_mind: every claim in it, cited or not, against the User's Documents, on their own AI model. They see the marks in the Note. Returns each claim that needs a look, with what the Document says. When status is running, call again. Tell the User what needs a look.",
+      inputSchema: z.object({ mindId: z.string() }),
+      outputSchema: z.object({
+        mindId: z.string(),
+        title: z.string(),
+        status: z.enum(["checked", "running", "stopped"]),
+        stopped: z.string().nullable(),
+        models: z.array(z.string()),
+        supported: z.number(),
+        needLook: z.number(),
+        claims: z.array(
+          z.object({
+            sentence: z.string(),
+            result: z.enum([
+              "unsupported",
+              "contradicted",
+              "not-found",
+              "not-checked",
+              "needs-recheck",
+              "changed",
+            ]),
+            reason: z
+              .string()
+              .nullable()
+              .describe("Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap."),
+            says: z.string().nullable(),
+            document: z.string().nullable(),
+            location,
+            quote: z.string().nullable(),
+            cite: z.string().nullable(),
+          }),
+        ),
+      }),
+      // It marks the Note's claims and changes none of its words; its sentences go to the User's AI model.
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    (input) => answer(() => access.checkMind(input)),
   );
 
   return server;

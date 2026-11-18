@@ -547,6 +547,7 @@ describe("outside agents", () => {
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         "ask",
         "check_citations",
+        "check_mind",
         "cite",
         "create_mind",
         "list_minds",
@@ -574,9 +575,10 @@ describe("outside agents", () => {
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
-      // Only two write: Proposals the User decides on, and a new Note that changes none there is.
+      // Three write: Proposals the User decides on, a new Note that changes none there is, and
+      // the marks of a check on a Note the agent wrote.
       expect(tool.annotations?.readOnlyHint).toBe(
-        tool.name !== "propose_changes" && tool.name !== "create_mind",
+        !["propose_changes", "create_mind", "check_mind"].includes(tool.name),
       );
       expect(tool.annotations?.destructiveHint).toBe(false);
       expect(tool.outputSchema).toBeDefined();

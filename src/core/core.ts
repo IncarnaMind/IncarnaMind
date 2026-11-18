@@ -5586,6 +5586,8 @@ export function createCore(adapters: CoreAdapters): Core {
         makeMind(parseCreateMindInput({ title, folderId }), { headed }),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
+      checkNote: (mindId) => inFlow("check-mind", () => checks.checkMindOutside(mindId)),
+      checkRecord: (mindId) => checkRecord.build(mindId),
       show: (place) => events.emit("agents.citationShown", place),
     },
     skillInstalled: (client) => skillInstalled(home, client),

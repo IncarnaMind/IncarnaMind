@@ -100,10 +100,19 @@ import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
 import { widerRun } from "./widerRun";
 
+export type NotAskedReason = "not-ready" | "consent-needed" | "local-mode";
+
+/** A Note's Check run for an outside agent (see `checkOutside`), or why nothing was sent. */
+export type OutsideCheck =
+  | { asked: false; reason: NotAskedReason }
+  | { asked: true; result: CheckMindResult };
+
 export interface MindCheckOptions extends RunChecksOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   modelInUse(own: ChatModelChoice | null): ChatModelChoice | null;
   prepare: VerifyOptions["prepare"];
+  /** Why a check on this model would have to ask the User something first; null: it wouldn't. */
+  asksFirst(choice: ChatModelChoice | null): Promise<NotAskedReason | null>;
   unread: VerifyOptions["unread"];
   recordUnread: VerifyOptions["recordUnread"];
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
@@ -947,7 +956,7 @@ export function createMindCheck(options: MindCheckOptions) {
     };
   }
 
-  return {
+  const windowCheck = {
     /** See `CoreApi.planMindCheck`. */
     planMindCheck(
       mindId: unknown,
@@ -1071,6 +1080,23 @@ export function createMindCheck(options: MindCheckOptions) {
           else checking.set(parsed.mindId, { ...current, running: false });
         }
       }
+    },
+  };
+
+  return {
+    ...windowCheck,
+
+    /**
+     * "Check this Mind" for an outside agent (#3317): what was never checked or needs a re-check,
+     * on the Note's model, as the window's Check runs. It asks nothing of the User: a model that
+     * can't be used now, or whose data flow isn't allowed yet, is said instead (ADR-0022).
+     */
+    async checkOutside(mindId: string): Promise<OutsideCheck> {
+      options.requireMind(mindId);
+      const reason = await options.asksFirst(modelOf(mindId));
+      if (reason) return { asked: false, reason };
+      const input = { requestId: randomUUID(), mindId, mode: "changed" };
+      return { asked: true, result: await windowCheck.checkMind(input) };
     },
   };
 }

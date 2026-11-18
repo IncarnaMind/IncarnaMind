@@ -180,6 +180,15 @@ test("an agent the User lets propose changes: its change waits in the Note with 
         arguments: { title: "Tide report", markdown: `${NEAP} ${RANGE}` },
       });
       expect(created.isError ?? false).toBe(false);
+      // Having it checked (#3317) runs on the User's AI model: with none set up it says so.
+      const checked = await agent.callTool({
+        name: "check_mind",
+        arguments: { mindId: (created.structuredContent as { mindId: string }).mindId },
+      });
+      expect(checked.isError).toBe(true);
+      expect((checked.content as { text: string }[])[0]?.text).toBe(
+        "No AI model is ready in IncarnaMind to check with. Set one up in Settings › AI.",
+      );
     } finally {
       await agent.close();
     }
