@@ -1,6 +1,6 @@
 /**
  * Verify (#97), the window's side. "Check someone else’s file…"
- * (the + menu, ⌘K) takes a PDF or a Word file (#110), whose Mind opens with
+ * (the + menu, ⌘K) takes a PDF, a Word file (#110) or a deck (#3275), whose Mind opens with
  * the file beside it and has its claims found. The check badge's card then
  * checks them (editor/VerifyLine).
  * One run goes at a time: asking again while one runs shows its Mind.

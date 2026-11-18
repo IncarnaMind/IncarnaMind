@@ -1,11 +1,12 @@
 /**
- * Verify (#97): a PDF someone else wrote, checked claim by claim against the
+ * Verify (#97): a file someone else wrote, checked claim by claim against the
  * User's Documents.
  *
- * 1. `verifyDocument` adds the PDF to the Library, or finds it there, waits
+ * 1. `verifyDocument` adds the file to the Library, or finds it there, waits
  *    until its text is read, and makes a Mind of it: its paragraphs, and its
  *    tables as tables (#1368), with each Block's page and each table row's,
- *    all of it third-party text (#78). A Word file (#110) is imported as a
+ *    all of it third-party text (#78). A deck (#3275) is read slide by slide
+ *    (./verifySlides), a slide its page. A Word file (#110) is imported as a
  *    Mind instead, kept to export back into with the results as comments,
  *    and added to the Library as its original. The Mind's settings say which
  *    Document it verifies (src/shared/verification.ts).
@@ -53,6 +54,7 @@ import {
   type WordRefusalReason,
 } from "../../api";
 import type { PagePart } from "../../documents/extract";
+import type { SlideOutline } from "../../documents/formats/pptx";
 import { parseModel } from "../../edits";
 import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { MindContent } from "../../mindContent";
@@ -74,6 +76,7 @@ import {
   type SelectedSentence,
 } from "./sentences";
 import { askBrief } from "./verifyBrief";
+import { slideBlocks } from "./verifySlides";
 import { documentBlocks, tableClaim } from "./verifyTables";
 
 /** A Document whose text is read: its Passages can be searched and its pages read. */
@@ -105,6 +108,8 @@ export interface VerifyOptions extends CheckRuns {
   /** A PDF's text-layer pages that hold a table, laid out (#1368); none when it can't be read again. */
   readTables(documentId: string): Promise<ReadonlyMap<number, PagePart[]>>;
   readScanned(documentId: string): ScannedText;
+  /** A deck's slides, read again from its file; null for another kind of file, or when it can't be read again. */
+  readSlides(documentId: string): Promise<SlideOutline[] | null>;
   createMind(title: string, folderId: string | null): Mind;
   /** Why a Word file can't be imported as a Mind; null when it can. */
   wordRefusal(path: string): Promise<WordRefusalReason | null>;
@@ -532,19 +537,24 @@ export function createVerify(options: VerifyOptions) {
       if (!document) return { ok: false, reason: "unreadable" };
       if (!(await textRead(document.id))) {
         const now = options.document(document.id);
-        return { ok: false, reason: now.status === "no-text" ? "no-text" : "unreadable" };
+        if (now.status === "no-text") return { ok: false, reason: "no-text" };
+        const locked = now.failure?.reason === "password-protected";
+        return { ok: false, reason: locked ? "password-protected" : "unreadable" };
       }
       const text = options.readText(document.id);
       const { name, kind } = options.document(document.id);
       // A Markdown file keeps its own shape: its headings are headings, not "#" in a paragraph (#2771).
       const markdown = kind === "markdown";
+      const slides = markdown ? null : await options.readSlides(document.id);
       const found = markdown
         ? []
-        : documentBlocks(
-            text.pages,
-            await options.readTables(document.id),
-            options.readScanned(document.id).pages,
-          );
+        : slides
+          ? slideBlocks(slides)
+          : documentBlocks(
+              text.pages,
+              await options.readTables(document.id),
+              options.readScanned(document.id).pages,
+            );
       if (markdown) {
         if (!text.pages.some((each) => each.text.trim() !== ""))
           return { ok: false, reason: "no-text" };

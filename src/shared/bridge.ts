@@ -131,7 +131,7 @@ export interface FilesBridge {
    * if the User cancelled.
    */
   pickWordFile(): Promise<string | null>;
-  /** As `pickWordFile`, for a PDF or a Word file to verify (see `CoreApi.verifyDocument`). */
+  /** As `pickWordFile`, for a PDF, a Word file or a deck to verify (see `CoreApi.verifyDocument`). */
   pickFileToVerify(): Promise<string | null>;
   /**
    * Shows a Linked folder selected in the system's file manager (Finder,

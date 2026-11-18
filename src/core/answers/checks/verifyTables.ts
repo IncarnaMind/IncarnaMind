@@ -100,7 +100,8 @@ const cell = (type: string, text: string, right: boolean | undefined): NodeJSON 
   content: [{ type: "paragraph", ...(text !== "" && { content: [{ type: "text", text }] }) }],
 });
 
-function tableNode({ headings, rows, numeric }: TableGrid): NodeJSON {
+/** A table of cells as the Mind keeps it: its headings a row of header cells, its figures to the right. */
+export function tableNode({ headings, rows, numeric }: TableGrid): NodeJSON {
   const headed = headings.some((heading) => heading !== "");
   return {
     type: "table",

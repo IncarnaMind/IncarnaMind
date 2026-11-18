@@ -8452,7 +8452,7 @@ export interface MindCheckRun {
  * files (#110).
  */
 export interface VerifyDocumentInput {
-  /** The file's absolute path: a PDF, a Word file, or any other file the Library reads. */
+  /** The file's absolute path: a PDF, a Word file, a deck, or any other file the Library reads. */
   path: string;
   /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
@@ -8462,8 +8462,11 @@ export interface VerifyDocumentInput {
 export type VerifyDocumentResult =
   /** The Mind holds the document's text, a paragraph to a Block: its claims can be found. */
   | { ok: true; mind: Mind; documentId: string }
-  /** No Mind was made: the file can't be read, or holds no text (a scan nothing could read). */
-  | { ok: false; reason: "unreadable" | "no-text" }
+  /**
+   * No Mind was made: the file can't be read, needs a password, or holds no text (a scan nothing
+   * could read, a deck of pictures).
+   */
+  | { ok: false; reason: "unreadable" | "password-protected" | "no-text" }
   /** No Mind was made: a Word file that can't be imported, for the reason Word import gives. */
   | { ok: false; reason: "word"; refusal: WordRefusalReason };
 

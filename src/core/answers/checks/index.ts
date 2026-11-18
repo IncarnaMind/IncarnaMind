@@ -203,6 +203,7 @@ export interface ChecksOptions
     | "onStatus"
     | "readText"
     | "readTables"
+    | "readSlides"
     | "readScanned"
     | "createMind"
     | "wordRefusal"

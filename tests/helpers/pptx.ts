@@ -162,6 +162,73 @@ export function pptxOf(deck: DeckInput): Buffer {
   return buildZip(entries);
 }
 
+const escaped = (text: string) =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** A slide in words: its title, the lines of its text box, a table as rows of cells, its speaker notes. */
+export interface PlainSlide {
+  title?: string;
+  lines?: readonly string[];
+  table?: readonly (readonly string[])[];
+  notes?: readonly string[];
+}
+
+/** A deck of plain slides, as someone sends one for review: titles, bullets, a table, speaker notes. */
+export function plainDeck(slides: readonly PlainSlide[]): Buffer {
+  const paragraphs = (lines: readonly string[]) =>
+    lines.map((line) => para(escaped(line))).join("");
+  const cell = (text: string) =>
+    `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>${para(escaped(text))}</a:txBody><a:tcPr/></a:tc>`;
+  const frame = (rows: readonly (readonly string[])[]) =>
+    `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="2400000"/><a:ext cx="8000000" cy="2000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1"/><a:tblGrid>${'<a:gridCol w="2000000"/>'.repeat(rows[0]?.length ?? 1)}</a:tblGrid>${rows
+      .map((row) => `<a:tr h="360000">${row.map(cell).join("")}</a:tr>`)
+      .join("")}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+  const parts: ZipInput[] = [];
+  return pptxOf({
+    slides: slides.map((slide, index) => {
+      const shapes = [
+        slide.title === undefined
+          ? ""
+          : sp({
+              id: 2,
+              name: "Title",
+              ph: `<p:ph type="title"/>`,
+              spPr: xfrm(457200, 300000, 8000000, 700000),
+              body: txBody(paragraphs([slide.title])),
+            }),
+        slide.lines?.length
+          ? sp({
+              id: 3,
+              name: "Content",
+              ph: `<p:ph type="body" idx="1"/>`,
+              spPr: xfrm(457200, 1100000, 8000000, 1200000),
+              body: txBody(paragraphs(slide.lines)),
+            })
+          : "",
+        slide.table?.length ? frame(slide.table) : "",
+      ].join("");
+      if (!slide.notes?.length) return { shapes };
+      const number = index + 1;
+      parts.push({
+        name: `ppt/notesSlides/notesSlide${number}.xml`,
+        data: `${HEAD}<p:notes ${NS}><p:cSld>${tree(
+          sp({
+            id: 2,
+            name: "Notes",
+            ph: `<p:ph type="body" idx="1"/>`,
+            body: txBody(paragraphs(slide.notes)),
+          }),
+        )}</p:cSld></p:notes>`,
+      });
+      return {
+        shapes,
+        rels: rel("rNotes", "notesSlide", `../notesSlides/notesSlide${number}.xml`),
+      };
+    }),
+    parts,
+  });
+}
+
 /** A relationship, for `SlideInput.rels`. */
 export const rel = (id: string, type: string, target: string, external = false) =>
   `<Relationship Id="${id}" Type="${REL}/${type}" Target="${target}"${external ? ` TargetMode="External"` : ""}/>`;
