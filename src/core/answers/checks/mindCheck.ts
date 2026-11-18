@@ -65,6 +65,7 @@ import { recordCiteSpans } from "../../recordCites/parser";
 import { type Slots, slots } from "../../runs/stop";
 import type { CheckedCitation } from "./claimCheck";
 import type { DecisionReader } from "./decisionFirst";
+import { sortedByDecision } from "./decisionSort";
 import { cellHeadings, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
 import { recordOpinions, type SortedSentence } from "./opinions";
@@ -275,6 +276,7 @@ export function createMindCheck(options: MindCheckOptions) {
     mindId: string,
     fresh: readonly SelectedSentence[],
     prepared: PreparedChatModel,
+    decision: DecisionReader | null,
     signal: AbortSignal,
     along?: {
       slots: Slots;
@@ -309,27 +311,25 @@ export function createMindCheck(options: MindCheckOptions) {
     if (unsorted.length > 0) {
       const grids = new Map<Y.XmlElement, TableLayout>();
       const heard = new Set<number>();
-      const found = await claimsAmong(
-        prepared,
-        unsorted.map((sentence) => ({
-          text: checkText(sentence).claim,
-          ...cellHeadings(sentence.element, grids),
-        })),
-        "own",
-        signal,
-        true,
-        along && {
-          slots: along.slots,
-          named: (index, said) => {
-            const sentence = unsorted[index];
-            // Sentences of the same words share one inventory, which only the whole reply settles.
-            if (!sentence || heard.has(index)) return;
-            heard.add(index);
-            if (unsorted.filter((each) => each.text === sentence.text).length > 1) return;
-            along.named(sentence, partsOf(sentence, said));
-          },
+      const texts = unsorted.map((sentence) => ({
+        text: checkText(sentence).claim,
+        ...cellHeadings(sentence.element, grids),
+      }));
+      const hears = along && {
+        slots: along.slots,
+        named: (index: number, said: readonly ClaimPartPlan[]) => {
+          const sentence = unsorted[index];
+          // Sentences of the same words share one inventory, which only the whole reply settles.
+          if (!sentence || heard.has(index)) return;
+          heard.add(index);
+          if (unsorted.filter((each) => each.text === sentence.text).length > 1) return;
+          along.named(sentence, partsOf(sentence, said));
         },
-      );
+      };
+      // A decision model in use sorts (#3334); where it can't, the AI model does, as with none.
+      const found =
+        (decision && (await sortedByDecision(decision, texts, signal, hears?.named))) ??
+        (await claimsAmong(prepared, texts, "own", signal, true, hears));
       if (found.kind !== "found") return found;
       for (const [index, sentence] of unsorted.entries()) {
         if (found.undecided.has(index)) continue;
@@ -692,7 +692,8 @@ export function createMindCheck(options: MindCheckOptions) {
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
     options.warmReranker?.();
-    const found = await sort(mindId, fresh, ready.prepared, signal);
+    const decision = (await options.decision?.(ready.prepared.provider.service)) ?? null;
+    const found = await sort(mindId, fresh, ready.prepared, decision, signal);
     if (found.kind !== "found") return found;
     const claims = found.claims.length + again.length;
     return claims === 0 ? { kind: "nothing" } : { kind: "found", claims };
@@ -913,7 +914,7 @@ export function createMindCheck(options: MindCheckOptions) {
       // The sort takes its places first, so the checks started early don't hold it back.
       const sorting =
         fresh.length > 0
-          ? sort(mindId, fresh, width.prepared, signal, {
+          ? sort(mindId, fresh, width.prepared, decision, signal, {
               slots: limit,
               named: (sentence, parts) => {
                 if (parts.some((part) => part.kind === "fact")) startEarly(sentence, parts);
