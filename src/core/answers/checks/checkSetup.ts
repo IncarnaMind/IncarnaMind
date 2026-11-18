@@ -65,6 +65,15 @@ export function citedSources(
   return [...found.values()];
 }
 
+/**
+ * The Library's lists a sentence's check may count (#2525): none in a check an outside agent
+ * started, whose verdicts would tell the agent the names and counts of what it may not read.
+ */
+export const listsFor = (
+  deps: Pick<ClaimCheckDependencies, "libraryLists">,
+  request: Pick<ClaimCheckRequest, "outside">,
+): ClaimCheckDependencies["libraryLists"] => (request.outside ? undefined : deps.libraryLists);
+
 /** What a run read of the Library's own lists: what its working keeps, and what its verdict rests on. */
 export interface LibraryRead {
   read: NonNullable<CheckWorking["library"]>;
@@ -180,7 +189,10 @@ export function withoutDocumentLeftOut(result: ClaimCheckResult, name: string): 
 
 export function setUpRun(
   deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark" | "libraryLists">,
-  request: Pick<ClaimCheckRequest, "claim" | "cited" | "scope" | "about" | "callIn" | "mindId">,
+  request: Pick<
+    ClaimCheckRequest,
+    "claim" | "cited" | "scope" | "about" | "callIn" | "mindId" | "outside"
+  >,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
   /** The model is offered `calculate`, the calculator Answers use (ADR-0021). */
   calculates = false,
@@ -252,6 +264,7 @@ export function setUpRun(
   // The Library's lists are read once, when a run first asks for one: every run of this check
   // counts the same rows.
   let lists: LibraryLists | null = null;
+  const libraryLists = listsFor(deps, request);
   const listsRead = new Map<AnswerAnalysis, LibraryRead>();
   const analysis = runtime
     ? analysisTool({
@@ -271,9 +284,9 @@ export function setUpRun(
         language: answerLanguage(request.claim),
         now: () => new Date(),
         ran: (_call, run) => workings.push(run),
-        ...(deps.libraryLists && {
+        ...(libraryLists && {
           library(list) {
-            lists ??= deps.libraryLists?.(request.mindId ?? null) ?? null;
+            lists ??= libraryLists(request.mindId ?? null);
             return isLibraryList(list) ? (lists?.[list] ?? null) : null;
           },
           readLibrary(run, read) {

@@ -47,6 +47,7 @@ import {
   citedOutsideScope,
   courtDecisions,
   keptInside,
+  listsFor,
   setUpRun,
   withoutDocumentLeftOut,
 } from "./checkSetup";
@@ -125,6 +126,8 @@ export interface ClaimCheckRequest {
   thirdParty?: readonly ThirdPartyReason[];
   /** The Note the sentence is in, whose source choices and earlier record cites apply. */
   mindId?: string;
+  /** An outside agent started the check (#3317): what it is told must stay within what it may read. */
+  outside?: true;
   /** The Note whose call the sentence's Answer was asked in (#3005). */
   callIn?: string;
   /** Where the sentence starts in the Note, for what its `Id.` and `supra` refer to. */
@@ -253,7 +256,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     offersAnalysis(model.capabilities) &&
     sends("analysis-results") &&
     deps.analysisRuntime?.languages.some((each) => each.language === "python") &&
-    (sheets || deps.libraryLists !== undefined)
+    (sheets || listsFor(deps, request) !== undefined)
       ? deps.analysisRuntime
       : undefined;
   const { scoped, session, decisions, citedShown, looked, searches, tools, workings, libraryRead } =
@@ -308,7 +311,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     },
   ];
   const language = deps.language();
-  const countsLibrary = runtime !== undefined && deps.libraryLists !== undefined;
+  const countsLibrary = runtime !== undefined && listsFor(deps, request) !== undefined;
   let reply = "";
   let setAside: readonly string[] = [];
   let failed: ProviderError | null = null;

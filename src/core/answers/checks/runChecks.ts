@@ -122,6 +122,8 @@ export interface ChecksRun {
   /** Each sentence's reading by the decision model the User chose for checks (`readingsFirst`). */
   readFirst?: ReadFirst;
   thirdParty?: readonly ThirdPartyReason[];
+  /** An outside agent started the run (#3317). */
+  outside?: true;
   signal: AbortSignal;
 }
 
@@ -139,6 +141,7 @@ export function checkRequestOf(
     scope: claim.scope ?? run.scope,
     model: run.prepared,
     ...(run.thirdParty && { thirdParty: run.thirdParty }),
+    ...(run.outside && { outside: true }),
     mindId: run.mindId,
     ...(claim.recordClaim !== undefined && { recordClaim: claim.recordClaim }),
     ...(claim.place && { place: claim.place }),

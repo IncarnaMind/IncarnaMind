@@ -45,7 +45,7 @@ import { recordCiteSpans } from "../../recordCites/parser";
 import { matchingOf } from "../citations";
 import { sentencesOfLines } from "../wholeSentences";
 import { createCheckResults } from "./checkResults";
-import { asPassage, citedOutsideScope, citedSources, keptInside } from "./checkSetup";
+import { asPassage, citedOutsideScope, citedSources, keptInside, listsFor } from "./checkSetup";
 import { type ClaimCheckDependencies, type ClaimCheckRequest, lineLocation } from "./claimCheck";
 import { aboutLibrary } from "./decisionLibrary";
 import {
@@ -506,7 +506,7 @@ export function createFirstReading(deps: Dependencies) {
         // own check where that can count the Library's lists (#2525).
         const counted =
           worksOutRows(deps, request) &&
-          deps.libraryLists !== undefined &&
+          listsFor(deps, request) !== undefined &&
           (await aboutLibrary(reader, request.claim, signal));
         return counted ? unsettled(null) : verdictOf("unsupported", null);
       }
