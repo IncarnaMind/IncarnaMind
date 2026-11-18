@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "vitest";
 import {
+  claimPartsOf,
   claimPartsReader,
   findClaimsPrompt,
   paragraphsOf,
@@ -168,6 +169,25 @@ describe("The literal parts of numbered JSON input", () => {
     '{"sentences":[{"number":37,"parts":[{"kind":"fact","text":"The North store opened."}]}]}',
   ])("keeps an unreadable or rewritten response unresolved: %s", (reply) => {
     expect(readClaimParts(reply, [{ number: 37, text: "North opened." }])).toBeNull();
+  });
+
+  // protects=a reply asked for again, whose parts still aren't the sentence's own words, gives the sentence as one part by their kinds: a fact when any part is one, an opinion when all are (#3262); fails_when=such a sentence stays undecided, so it is never checked, or a first reply's rewritten part is taken; no_claim=which sentences a model rewrites
+  test("a part rewritten in a reply asked for again makes the sentence one part, by its kinds", () => {
+    const text = "62% were satisfied with repairs and with rents.";
+    const sentences = [{ number: 5, text }];
+    const reply = (kinds: string[]) => ({
+      sentences: [{ number: 5, parts: kinds.map((kind) => ({ kind, text: "62% were happy." })) }],
+    });
+    const whole = { start: 0, end: text.length };
+
+    expect(claimPartsOf(reply(["fact", "fact"]), sentences)).toBeNull();
+    expect(claimPartsOf(reply(["fact", "opinion"]), sentences, true)?.get(5)).toEqual([
+      { kind: "fact", span: whole },
+    ]);
+    expect(claimPartsOf(reply(["opinion"]), sentences, true)?.get(5)).toEqual([
+      { kind: "opinion", span: whole },
+    ]);
+    expect(claimPartsOf(reply(["claim"]), sentences, true)).toBeNull();
   });
 
   test.each([
