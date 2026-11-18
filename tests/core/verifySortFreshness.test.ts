@@ -11,6 +11,7 @@ import {
   type Plan,
   sentenceOf,
 } from "../helpers/checks";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -42,14 +43,7 @@ async function setUp(example: (typeof CASES)[number]) {
         if (sentences.some(({ text }) => text === otherRow)) {
           tableSorts.push(sentences.map(({ text }) => text));
         }
-        return {
-          text: JSON.stringify({
-            sentences: sentences.map(({ number, text }) => ({
-              number,
-              parts: text === original ? [{ kind: "fact", text }] : [],
-            })),
-          }),
-        };
+        return { text: sortReply(call.prompt, (text) => (text === original ? "claim" : "no")) };
       },
     },
   );
@@ -200,15 +194,7 @@ test("Verify loads the reranker before it asks for the claims", async () => {
     generate(call) {
       if (call.question !== "find-claims") return checkGenerate({})(call);
       events.push("claims asked");
-      const sentences = listedSentences(call.prompt);
-      return {
-        text: JSON.stringify({
-          sentences: sentences.map(({ number, text }) => ({
-            number,
-            parts: [{ kind: "fact", text }],
-          })),
-        }),
-      };
+      return { text: sortReply(call.prompt) };
     },
   });
   const core = startCore(await createTempDataFolder(), {

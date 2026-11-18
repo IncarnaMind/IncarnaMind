@@ -38,6 +38,7 @@ import {
   sentenceOf,
 } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
 import { footnotesOf, part, unzip } from "../helpers/docx";
@@ -213,14 +214,7 @@ function writingModel(
         if (call.question === "find-claims") {
           const listed = listedSentences(call.prompt);
           sent.push(...listed.map((each) => each.text));
-          return {
-            text: JSON.stringify({
-              sentences: listed.map(({ number, text }) => ({
-                number,
-                parts: [{ kind: "fact", text }],
-              })),
-            }),
-          };
+          return { text: sortReply(call.prompt) };
         }
         return checkGenerate({})(call);
       },

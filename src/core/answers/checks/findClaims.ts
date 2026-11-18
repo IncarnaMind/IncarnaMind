@@ -10,13 +10,14 @@ import { answerTemperature } from "../engine";
 import { json, judge } from "../judge";
 import {
   CLAIM_BATCH,
-  claimPartsOf,
-  claimPartsReader,
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
-  FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
   type SortedText,
+  type SortWord,
+  sortedWhole,
+  sortWordsOf,
+  sortWordsReader,
 } from "./claims";
 import { claimsAtOnce } from "./runChecks";
 
@@ -33,7 +34,7 @@ export type ClaimsFound =
   | { kind: "cancelled" };
 
 type Asked =
-  | { kind: "read"; parts: Map<number, readonly ClaimPartPlan[]> }
+  | { kind: "read"; words: Map<number, SortWord> }
   | { kind: "unread" }
   | Exclude<ClaimsFound, { kind: "found" }>;
 
@@ -48,50 +49,47 @@ export interface SortAlong {
   named?(index: number, parts: readonly ClaimPartPlan[]): void;
 }
 
-/** Names the claims among `texts`: someone else's document's, or the User's own draft's, which leaves out their opinions. */
+/**
+ * Names the claims among `texts`: someone else's document's, or the User's own draft's, which
+ * leaves out words about the draft itself. Each sentence is sorted whole.
+ */
 export async function claimsAmong(
   prepared: PreparedChatModel,
   texts: readonly SortedText[],
   whose: "someone-else" | "own",
   signal: AbortSignal,
-  /** Its sentences' checks may show the Library's facts, so it sorts as those checks do (#2525). */
-  library = false,
   along: SortAlong = {},
 ): Promise<ClaimsFound> {
-  // A sort's reply repeats each part's words, so a batch takes as long as its words: batches go
-  // at once, within the provider's limit, and the first that fails ends the rest.
+  // Batches go at once, within the provider's limit, and the first that fails ends the rest.
   const ended = new AbortController();
   const sorting = AbortSignal.any([signal, ended.signal]);
   type Batch = readonly ({ number: number } & SortedText)[];
   const instructions =
-    whose === "someone-else"
-      ? FIND_CLAIMS_INSTRUCTIONS
-      : library
-        ? FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS
-        : FIND_OWN_CLAIMS_INSTRUCTIONS;
-  const ask = async (batch: Batch, tries: number, again = false): Promise<Asked> => {
+    whose === "someone-else" ? FIND_CLAIMS_INSTRUCTIONS : FIND_OWN_CLAIMS_INSTRUCTIONS;
+  const partsOf = (number: number, word: SortWord) =>
+    sortedWhole(texts[number - 1]?.text ?? "", word);
+  const ask = async (batch: Batch, tries: number): Promise<Asked> => {
+    const numbers = batch.map((each) => each.number);
     for (let tried = 0; tried < tries; tried++) {
       const { named } = along;
-      const early = named ? claimPartsReader(batch) : null;
+      const early = named ? sortWordsReader(numbers) : null;
       const judged = await judge({
         model: prepared.model,
         question: { id: "find-claims", instructions },
-        // The sentences go as JSON in no tag, so the parts copied back are their own words.
         parts: [{ text: findClaimsPrompt(batch) }],
         data: [],
-        // A reply asked for again is read by its parts' kinds where their words aren't the sentence's.
-        reply: json((value) => claimPartsOf(value, batch, tried > 0 || again)),
+        reply: json((value) => sortWordsOf(value, numbers)),
         retries: 1,
         signal: sorting,
         temperature: answerTemperature(prepared.capabilities.facts.temperature),
         ...(named &&
           early && {
             onPartial: (delta: string) => {
-              for (const record of early(delta)) named(record.number - 1, record.parts);
+              for (const { number, word } of early(delta)) named(number - 1, partsOf(number, word));
             },
           }),
       });
-      if (judged.ok) return { kind: "read", parts: judged.value };
+      if (judged.ok) return { kind: "read", words: judged.value };
       if (judged.reason === "stopped") return { kind: "cancelled" };
       if (judged.error) return { kind: "failed", error: judged.error };
     }
@@ -99,7 +97,7 @@ export async function claimsAmong(
   };
 
   type Sorted =
-    | { kind: "read"; inventories: Map<number, readonly ClaimPartPlan[]> }
+    | { kind: "read"; words: Map<number, SortWord> }
     | Exclude<ClaimsFound, { kind: "found" }>;
   const sortBatch = async (batch: Batch): Promise<Sorted> => {
     // A reply that can't be read is asked for once more.
@@ -109,25 +107,21 @@ export async function claimsAmong(
         kind: "failed",
         error: {
           kind: "no-answer",
-          message: "The model's reply did not describe readable original sentence parts.",
+          message: "The model's reply did not sort the sentences in a form that can be read.",
         },
       };
     }
     if (first.kind !== "read") return first;
-    const inventories = first.parts;
+    const words = first.words;
     // A sentence the reply says nothing of was never decided, so it isn't one that makes no claim.
-    const unanswered = batch.filter((each) => !inventories.has(each.number));
+    const unanswered = batch.filter((each) => !words.has(each.number));
     if (unanswered.length > 0) {
-      const second = await ask(unanswered, 1, true);
+      const second = await ask(unanswered, 1);
       if (second.kind === "cancelled" || second.kind === "failed") return second;
-      if (second.kind === "read") {
-        for (const { number } of unanswered) {
-          const inventory = second.parts.get(number);
-          if (inventory !== undefined) inventories.set(number, inventory);
-        }
-      }
+      if (second.kind === "read")
+        for (const [number, word] of second.words) words.set(number, word);
     }
-    return { kind: "read", inventories };
+    return { kind: "read", words };
   };
 
   const batches: Batch[] = [];
@@ -160,11 +154,11 @@ export async function claimsAmong(
     const outcome = sorted[at];
     if (outcome?.kind !== "read") return { kind: "cancelled" };
     for (const { number } of batch) {
-      const inventory = outcome.inventories.get(number);
-      if (inventory === undefined) undecided.add(number - 1);
+      const word = outcome.words.get(number);
+      if (word === undefined) undecided.add(number - 1);
       else {
-        parts.set(number - 1, inventory);
-        if (inventory.some((part) => part.kind === "fact")) claims.add(number - 1);
+        parts.set(number - 1, partsOf(number, word));
+        if (word === "claim") claims.add(number - 1);
       }
     }
   }

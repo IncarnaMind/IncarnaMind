@@ -7,7 +7,7 @@
 import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
-import { claimPartsOf } from "../../src/core/answers/checks/claims";
+import { sortWordsOf } from "../../src/core/answers/checks/claims";
 import { readRestated } from "../../src/core/answers/checks/explanations";
 import { QUICK_REPLY } from "../../src/core/answers/checks/fastPaths";
 import { readPart, readRecordJudgement } from "../../src/core/answers/checks/recordCites";
@@ -96,10 +96,10 @@ const QUESTIONS: Partial<Record<JudgeQuestion, Question>> = {
     unreadable: "Judgement: supported\nJudgement: partly",
   },
   "find-claims": {
-    reply: json((value) => claimPartsOf(value, [{ number: 1, text: CLAIM }])),
-    right: JSON.stringify({ sentences: [{ number: 1, parts: [{ kind: "fact", text: CLAIM }] }] }),
-    read: new Map([[1, [{ kind: "fact", span: { start: 0, end: CLAIM.length } }]]]),
-    unreadable: JSON.stringify({ parts: [{ kind: "fact", text: CLAIM }] }),
+    reply: json((value) => sortWordsOf(value, [1])),
+    right: JSON.stringify({ "1": "claim" }),
+    read: new Map([[1, "claim"]]),
+    unreadable: '{"1": "claim", "1": "no"}',
     stream: true,
   },
   "verify-brief": {

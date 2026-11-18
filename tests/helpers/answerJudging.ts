@@ -4,7 +4,6 @@
  */
 import { checkGenerate, checkReply, isCheckRun, type Plan } from "./checks";
 import { shownPassages } from "./citations";
-import { listedSentences } from "./claimSentences";
 import { type GenerateCall, type GeneratedReply, type ModelCall, scriptedModel } from "./models";
 
 /**
@@ -39,8 +38,7 @@ const isBatch = (call: GenerateCall) => call.question === "sentence-batch";
 /**
  * A model that searches for `query`, answers with `answer`, citing `quotes` as markers 1, 2…, and
  * judges its sentences as `plans` say, or as `judge` replies to each batch; every streamed request
- * it is sent is kept in `calls`. A sentence in `parts` is sorted into those parts, each its own
- * words in the sentence, when a check of it asks.
+ * it is sent is kept in `calls`.
  */
 export function answeringModel(
   query: string,
@@ -51,12 +49,10 @@ export function answeringModel(
     calls = [],
     opinions = [],
     judge,
-    parts = {},
   }: {
     calls?: ModelCall[];
     opinions?: readonly string[];
     judge?: (call: GenerateCall) => GeneratedReply;
-    parts?: Record<string, readonly string[]>;
   } = {},
 ) {
   return scriptedModel(
@@ -81,16 +77,7 @@ export function answeringModel(
     {
       generate: (call) => {
         if (isBatch(call)) return judge?.(call) ?? batchReply(call, plans, opinions);
-        const sorted = call.question === "find-claims" ? listedSentences(call.prompt) : [];
-        if (!sorted.some(({ text }) => parts[text])) return checkGenerate(plans)(call);
-        return {
-          text: JSON.stringify({
-            sentences: sorted.map(({ number, text }) => ({
-              number,
-              parts: (parts[text] ?? [text]).map((words) => ({ kind: "fact", text: words })),
-            })),
-          }),
-        };
+        return checkGenerate(plans)(call);
       },
     },
   );

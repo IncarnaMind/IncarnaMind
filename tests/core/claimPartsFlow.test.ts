@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { ClaimPartPlan } from "../../src/core/api";
+import type { SortWord } from "../../src/core/answers/checks/claims";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { opinionsIn } from "../../src/renderer/src/editor/opinionLocations";
 import { readOpinionSentences } from "../../src/shared/opinions";
-import { checkGenerate, checkReply, listedSentences, type Plan } from "../helpers/checks";
+import { checkGenerate, checkReply, type Plan } from "../helpers/checks";
 import { setUpWithDocuments } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder } from "../helpers/core";
 import { writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
@@ -26,12 +27,6 @@ const CASES = [
   },
 ] as const;
 
-function part(text: string, words: string, kind: ClaimPartPlan["kind"]): ClaimPartPlan {
-  const start = text.indexOf(words);
-  if (start < 0) throw new Error("The fixture part is absent.");
-  return { span: { start, end: start + words.length }, kind };
-}
-
 async function setUpParts(example: (typeof CASES)[number]) {
   const sorts: string[] = [];
   const plans: Record<string, Plan> = {
@@ -39,29 +34,22 @@ async function setUpParts(example: (typeof CASES)[number]) {
     [example.reworded]: { verdict: "supported", quote: example.quote },
     [example.pure]: { verdict: "unsupported" },
   };
-  const inventories = new Map<string, ClaimPartPlan[]>([
-    [example.pure, [{ ...part(example.pure, example.pure, "opinion"), itself: true }]],
-    [example.quote, [part(example.quote, example.quote, "fact")]],
-    [example.reworded, [part(example.reworded, example.reworded, "fact")]],
+  const words = new Map<string, SortWord>([
+    [example.pure, "note"],
+    [example.quote, "claim"],
+    [example.reworded, "claim"],
   ]);
   const model = scriptedModel((call) => checkReply(call, plans), {
     generate(call) {
       if (call.question !== "find-claims") return checkGenerate(plans)(call);
       sorts.push(call.prompt);
-      const sentences = listedSentences(call.prompt).flatMap(({ number, text }) => {
-        const parts = inventories.get(text);
-        if (!parts) throw new Error(`No sorting fixture for ${text}`);
-        return [
-          {
-            number,
-            parts: parts.map((plan) => ({
-              kind: plan.itself ? "about-this-text" : plan.kind,
-              text: text.slice(plan.span.start, plan.span.end),
-            })),
-          },
-        ];
-      });
-      return { text: JSON.stringify({ sentences }) };
+      return {
+        text: sortReply(call.prompt, (text) => {
+          const word = words.get(text);
+          if (!word) throw new Error(`No sorting fixture for ${text}`);
+          return word;
+        }),
+      };
     },
   });
   const result = await setUpWithDocuments(model, [{ name: "Costs.md", contents: example.quote }]);

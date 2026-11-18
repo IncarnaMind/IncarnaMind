@@ -15,14 +15,9 @@ import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { mindScopeOf, setMindScope } from "../../src/shared/mindScope";
 import { folderScope, NO_SCOPE } from "../../src/shared/searchScope";
-import {
-  isCheckRun,
-  listedSentences,
-  type Plan,
-  sentenceOf,
-  unsupportedReply,
-} from "../helpers/checks";
+import { isCheckRun, type Plan, sentenceOf, unsupportedReply } from "../helpers/checks";
 import { citationOf, shownPassages } from "../helpers/citations";
+import { sortReply } from "../helpers/claimSentences";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -129,14 +124,7 @@ function checking(call: ModelCall): ScriptedReply {
 function generate(call: GenerateCall) {
   switch (call.question) {
     case "find-claims":
-      return {
-        text: JSON.stringify({
-          sentences: listedSentences(call.prompt).map(({ number, text }) => ({
-            number,
-            parts: text in PLANS ? [{ kind: "fact", text }] : [],
-          })),
-        }),
-      };
+      return { text: sortReply(call.prompt, (text) => (text in PLANS ? "claim" : "no")) };
     default:
       return { text: JSON.stringify({ passage: null }) };
   }

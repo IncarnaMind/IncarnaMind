@@ -3,7 +3,7 @@
  * leaves out a sentence of each claim kind, how often it names one that makes no claim, and what
  * a call costs.
  */
-import { readClaimDecisions, readClaimParts } from "../../src/core/answers/checks/claims";
+import { readSortWords } from "../../src/core/answers/checks/claims";
 import { CLAIM_KINDS, type ClaimKind } from "./cases";
 import type { ClaimsRequest } from "./requests";
 
@@ -59,7 +59,7 @@ export interface ClaimsSummary {
 }
 
 /** The sentences a request showed, by their numbers. */
-function shownIn(request: ClaimsRequest): { sentences: Map<number, string>; parts: boolean } {
+function shownIn(request: ClaimsRequest): Map<number, string> {
   const shown = new Map<number, string>();
   let value: unknown;
   try {
@@ -84,13 +84,13 @@ function shownIn(request: ClaimsRequest): { sentences: Map<number, string>; part
       )
         shown.set(number, text);
     }
-    return { sentences: shown, parts: true };
+    return shown;
   }
   for (const line of request.asked.split("\n")) {
     const match = /^\[(\d+)\] (.*)$/u.exec(line);
     if (match) shown.set(Number(match[1]), (match[2] ?? "").trim());
   }
-  return { sentences: shown, parts: false };
+  return shown;
 }
 
 export interface CallDecisions {
@@ -109,24 +109,11 @@ export function decisionsIn(requests: readonly ClaimsRequest[]): CallDecisions {
   const decided = new Map<number, boolean>();
   let read = false;
   for (const request of requests) {
-    const { sentences: shown, parts: rich } = shownIn(request);
+    const shown = shownIn(request);
     for (const [number, text] of shown) if (!texts.has(number)) texts.set(number, text);
-    const parts = rich
-      ? readClaimParts(
-          request.reply,
-          [...shown].map(([number, text]) => ({ number, text })),
-        )
-      : null;
-    const decisions = rich
-      ? parts === null
-        ? null
-        : new Map(
-            [...parts].map(([number, plans]) => [
-              number,
-              plans.some((part) => part.kind === "fact"),
-            ]),
-          )
-      : readClaimDecisions(request.reply, [...shown.keys()]);
+    const words = readSortWords(request.reply, [...shown.keys()]);
+    const decisions =
+      words && new Map([...words].map(([number, word]) => [number, word === "claim"] as const));
     if (decisions === null) continue;
     read = true;
     for (const [number, decision] of decisions) {

@@ -3,7 +3,7 @@
  * for the live tests' reports.
  */
 import type { LanguageModelMiddleware } from "ai";
-import { readClaimParts } from "../../src/core/answers/checks/claims";
+import { readSortWords } from "../../src/core/answers/checks/claims";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import type { MindClient } from "./mindClient";
 import { readMind } from "./minds";
@@ -57,9 +57,9 @@ export function sortedCells(calls: readonly SortCall[], cells: ReadonlySet<strin
   const asked = new Map<number, string>();
   for (const call of calls) {
     for (const each of call.asked) asked.set(each.number, each.text);
-    for (const [number, parts] of readClaimParts(call.reply, call.asked) ?? []) {
-      if (!decided.has(number))
-        decided.set(number, parts.some((part) => part.kind === "fact") ? "claim" : "none");
+    const numbers = call.asked.map((each) => each.number);
+    for (const [number, word] of readSortWords(call.reply, numbers) ?? []) {
+      if (!decided.has(number)) decided.set(number, word === "claim" ? "claim" : "none");
     }
   }
   const counts = { cells: 0, claim: 0, none: 0, undecided: 0 };

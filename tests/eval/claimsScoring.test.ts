@@ -52,82 +52,65 @@ describe("What a call of the claims request decided", () => {
   test.each([
     {
       fact: "  Revenue rose.\nWe should wait.  ",
-      claim: "Revenue rose.",
-      opinion: "We should wait.",
       question: "Should we wait?\nUntil next year?",
     },
     {
       fact: "  收入增长。\n我们应该等待。  ",
-      claim: "收入增长。",
-      opinion: "我们应该等待。",
       question: "是否等待？\n等到明年吗？",
     },
-  ])(
-    "rich replies keep exact multiline words and global numbers: $claim",
-    ({ fact, claim, opinion, question }) => {
-      const found = decisionsIn([
-        richRequest(
-          [
-            { number: 13, text: fact },
-            { number: 27, text: question },
-          ],
-          {
-            sentences: [
-              {
-                number: 13,
-                parts: [
-                  { kind: "fact", text: claim },
-                  { kind: "opinion", text: opinion },
-                ],
-              },
-              { number: 27, parts: [] },
-            ],
-          },
-        ),
-      ]);
-      expect(decisionOf(found, fact)).toBe("claim");
-      expect(decisionOf(found, question)).toBe("left-out");
-      expect(decisionOf(found, fact.trim())).toBe("not-shown");
-    },
-  );
+  ])("rich replies keep exact multiline words and global numbers: $fact", ({ fact, question }) => {
+    const found = decisionsIn([
+      richRequest(
+        [
+          { number: 13, text: fact },
+          { number: 27, text: question },
+        ],
+        { "13": "claim", "27": "no" },
+      ),
+    ]);
+    expect(decisionOf(found, fact)).toBe("claim");
+    expect(decisionOf(found, question)).toBe("left-out");
+    expect(decisionOf(found, fact.trim())).toBe("not-shown");
+  });
 
-  test.each(["We should wait.\nThis seems risky.", "我们应该等待。\n这似乎有风险。"])(
+  test.each(["Should we wait?\nIs this risky?", "是否等待？\n这有风险吗？"])(
     "a missing-only rich retry decides its original global number: %s",
-    (opinion) => {
+    (question) => {
       const fact = "Revenue rose.";
       const first = richRequest(
         [
           { number: 13, text: fact },
-          { number: 27, text: opinion },
+          { number: 27, text: question },
         ],
-        {
-          sentences: [{ number: 13, parts: [{ kind: "fact", text: fact }] }],
-        },
+        { "13": "claim" },
       );
-      const again = richRequest([{ number: 27, text: opinion }], {
-        sentences: [{ number: 27, parts: [{ kind: "opinion", text: opinion }] }],
-      });
+      const again = richRequest([{ number: 27, text: question }], { "27": "no" });
       const found = decisionsIn([first, again]);
       expect(decisionOf(found, fact)).toBe("claim");
-      expect(decisionOf(found, opinion)).toBe("left-out");
-      expect(decisionOf(decisionsIn([first]), opinion)).toBe("undecided");
+      expect(decisionOf(found, question)).toBe("left-out");
+      expect(decisionOf(decisionsIn([first]), question)).toBe("undecided");
     },
   );
 
-  test("a readable empty rich inventory is undecided; an invalid literal part is unread", () => {
-    const sentences = [{ number: 27, text: "收入增长。\n我们应该等待。" }];
-    const empty = richRequest(sentences, { sentences: [] });
-    expect(decisionOf(decisionsIn([empty]), sentences[0]?.text ?? "")).toBe("undecided");
-    const invalid = richRequest(sentences, {
-      sentences: [{ number: 27, parts: [{ kind: "fact", text: "Unstated words." }] }],
-    });
-    expect(decisionOf(decisionsIn([invalid]), sentences[0]?.text ?? "")).toBe("unread");
+  test("words about the note are left out, as the app leaves them out", () => {
+    const text = "This note leaves out VAT.";
+    const call = richRequest([{ number: 13, text }], { "13": "note" });
+    expect(decisionOf(decisionsIn([call]), text)).toBe("left-out");
   });
 
-  test("a current part request cannot be scored as decided from the old reply format", () => {
-    const text = "Revenue rose.";
-    const call = richRequest([{ number: 13, text }], { "13": "claim" });
-    expect(decisionOf(decisionsIn([call]), text)).toBe("unread");
+  test("a rich reply that decides none of its sentences, or is in the old parts form, is unread", () => {
+    const text = "收入增长。\n我们应该等待。";
+    const sentences = [{ number: 27, text }];
+    expect(decisionOf(decisionsIn([richRequest(sentences, { sentences: [] })]), text)).toBe(
+      "unread",
+    );
+    expect(decisionOf(decisionsIn([richRequest(sentences, { "9": "claim" })]), text)).toBe(
+      "unread",
+    );
+    const old = richRequest(sentences, {
+      sentences: [{ number: 27, parts: [{ kind: "fact", text }] }],
+    });
+    expect(decisionOf(decisionsIn([old]), text)).toBe("unread");
   });
 });
 

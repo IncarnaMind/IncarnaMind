@@ -5,6 +5,7 @@
  */
 import type { ClaimPartPlan } from "../../api";
 import type { JevNoulQuestion } from "../../providers/jev";
+import { sortedWhole } from "./claims";
 import type { DecisionReader } from "./decisionFirst";
 import { libraryScore } from "./decisionLibrary";
 import type { ClaimsFound } from "./findClaims";
@@ -68,12 +69,9 @@ export async function sortedByDecision(
     texts.map(async ({ text }, index) => {
       const checked = await sortsIntoCheck(reader, { ...reader.lines, sort: line }, text, signal);
       if (checked === null) return null;
-      const span = { start: 0, end: text.length };
       // Left out as words about the Note itself are (#2525), so one that writes a figure is
       // checked all the same.
-      const parts: ClaimPartPlan[] = [
-        checked ? { kind: "fact", span } : { kind: "opinion", itself: true, span },
-      ];
+      const parts = sortedWhole(text, checked ? "claim" : "note");
       named?.(index, parts);
       return parts;
     }),

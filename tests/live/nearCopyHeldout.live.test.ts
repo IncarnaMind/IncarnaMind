@@ -4,9 +4,9 @@
  * (#1765, #1766, #1708), through Check this Note on the core, with the test core's fake embedding
  * and reranking models: with one short Document in each Library, they decide no search. Each case is checked
  * on its own: its own Note, in a Library that holds only the one Document whose clause it copies,
- * so nothing else could back a decoy. The sorter is scripted to give each sentence as its case's
- * parts (one fact, or the wrong part and the probe), so the judge alone decides them: a sorter that
- * reads "should" as advice would leave the sentence unchecked, which says nothing of the judge.
+ * so nothing else could back a decoy. The sorter is scripted to send every sentence to its check,
+ * so the judge alone decides them: a sorter that reads "should" as advice would leave the sentence
+ * unchecked, which says nothing of the judge.
  * Everything else is the real model, and every request is logged with its case, so each verdict
  * says which path decided it (the check's own verdict and fields, the judgements after it). Its bars
  * are about verdicts, so each check of a case is a Note of its own, sorted afresh, and the report
@@ -147,10 +147,10 @@ function sortedSentences(prompt: unknown): { number: number; text: string }[] | 
 }
 
 /**
- * The real model for one Library, its sort answered from the cases without a request, and every
+ * The real model for one Library, its sort answered without a request, and every
  * other request's reply logged into `log`, the case being checked.
  */
-function loggingModel(cases: readonly Case[], log: () => Logged[]) {
+function loggingModel(log: () => Logged[]) {
   const createChatModel: NonNullable<Parameters<typeof startCore>[1]>["createChatModel"] = (spec) =>
     wrapLanguageModel({
       model: createAiSdkChatModel(spec),
@@ -160,14 +160,9 @@ function loggingModel(cases: readonly Case[], log: () => Logged[]) {
           const kind = kindOf(params.prompt);
           const asked = kind === "sort" ? sortedSentences(params.prompt) : null;
           if (asked) {
-            const sentences = asked.map(({ number, text }) => ({
-              number,
-              parts: (cases.find((each) => each.sentence === text)?.parts ?? [text]).map(
-                (part) => ({ kind: "fact", text: part }),
-              ),
-            }));
+            const words = Object.fromEntries(asked.map(({ number }) => [number, "claim"]));
             return {
-              content: [{ type: "text" as const, text: JSON.stringify({ sentences }) }],
+              content: [{ type: "text" as const, text: JSON.stringify(words) }],
               finishReason: { unified: "stop" as const, raw: undefined },
               usage: {
                 inputTokens: { total: 0, noCache: 0, cacheRead: undefined, cacheWrite: undefined },
@@ -264,7 +259,7 @@ async function checkLibrary(
 ): Promise<{ results: { case: Case; samples: Sample[] }[]; spent: number; skipped: string[] }> {
   let logged: Logged[] = [];
   const core = startCore(await createTempDataFolder(), {
-    createChatModel: loggingModel(cases, () => logged),
+    createChatModel: loggingModel(() => logged),
   });
   live.add(core);
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));

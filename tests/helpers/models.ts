@@ -3,7 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory, ChatModelSpec, ClaimedChange, CoreAdapters } from "../../src/core";
 import { restateInstructions } from "../../src/core/answers/checks/explanations";
 import { type JudgeQuestion, questionOf } from "../../src/core/answers/judge";
-import { listedSentences } from "./claimSentences";
+import { sortReply } from "./claimSentences";
 
 export { questionOf } from "../../src/core/answers/judge";
 
@@ -23,13 +23,8 @@ export const UNSCRIPTED: string[] = [];
  */
 export function judgesNothing(call: GenerateCall): GeneratedReply {
   switch (call.question) {
-    case "find-claims": {
-      const sentences = listedSentences(call.prompt).map(({ number, text }) => ({
-        number,
-        parts: [{ kind: "fact", text }],
-      }));
-      return { text: JSON.stringify({ sentences }) };
-    }
+    case "find-claims":
+      return { text: sortReply(call.prompt) };
     case "sentence-batch":
       return { text: JSON.stringify({ sentences: [] }) };
     // A document's brief for a test of something else: no conclusion, so none is kept (#3277).
@@ -520,12 +515,8 @@ export function scriptedModel(
       };
     }
     if (!generate && question === "find-claims") {
-      const sentences = listedSentences(promptText(options.prompt)).map(({ number, text }) => ({
-        number,
-        parts: [{ kind: "fact", text }],
-      }));
       return {
-        content: [{ type: "text", text: JSON.stringify({ sentences }) }],
+        content: [{ type: "text", text: sortReply(promptText(options.prompt)) }],
         finishReason: { unified: "stop", raw: undefined },
         usage,
         warnings: [],
