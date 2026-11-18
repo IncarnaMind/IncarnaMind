@@ -28,11 +28,25 @@ export const isCall = (cues: readonly Cue[]) =>
 /** The source whose voices the pass tells apart: the other side in a call, the room otherwise. */
 export const sourceToSeparate = (call: boolean): AudioSource => (call ? "system" : "microphone");
 
-const overlap = (cue: Cue, turn: VoiceTurn) =>
+type TimeRange = Pick<Cue, "startMs" | "endMs">;
+
+const overlap = (cue: TimeRange, turn: VoiceTurn) =>
   Math.max(0, Math.min(cue.endMs, turn.endMs) - Math.max(cue.startMs, turn.startMs));
 
 const distance = (cue: Cue, turn: VoiceTurn) =>
   Math.max(0, turn.startMs - cue.endMs, cue.startMs - turn.endMs);
+
+function sharedVoices(cue: TimeRange, turns: readonly VoiceTurn[]): Map<number, number> {
+  const shared = new Map<number, number>();
+  for (const turn of turns) {
+    const ms = overlap(cue, turn);
+    if (ms > 0) shared.set(turn.voice, (shared.get(turn.voice) ?? 0) + ms);
+  }
+  return shared;
+}
+
+const mostOverlap = (shared: ReadonlyMap<number, number>) =>
+  [...shared].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
 /**
  * The lines with the voices the pass found, or null when too little of their speech has a
@@ -50,16 +64,12 @@ export function labelled(
   const voices = cues.map((cue) => {
     if (cue.speaker !== label) return null;
     speech += cue.endMs - cue.startMs;
-    const shared = new Map<number, number>();
-    for (const turn of turns) {
-      const ms = overlap(cue, turn);
-      if (ms > 0) shared.set(turn.voice, (shared.get(turn.voice) ?? 0) + ms);
-    }
+    const shared = sharedVoices(cue, turns);
     covered += Math.min(
       cue.endMs - cue.startMs,
       [...shared.values()].reduce((a, b) => a + b, 0),
     );
-    return [...shared].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    return mostOverlap(shared);
   });
   if (speech === 0 || covered / speech < MIN_COVERED) return null;
   const names = new Map<number, string>();
@@ -95,11 +105,10 @@ function adjacentWords(text: string, before: WordTime, after: WordTime): boolean
 function speakerCuts(cue: Cue, turns: readonly VoiceTurn[], used: Set<string>): WordTime[] {
   if (!cue.speaker || !cue.words?.length) return [];
   const own = turns.filter((turn) => overlap(cue, turn) > 0);
-  const cuts: WordTime[] = [];
+  const cuts: (WordTime & { previousVoice: number; nextVoice: number })[] = [];
   for (const [index, next] of own.entries()) {
     const previous = own[index - 1];
     if (!previous || previous.voice === next.voice) continue;
-    if (previous.endMs > next.startMs) return [];
     const boundary = (previous.endMs + next.startMs) / 2;
     const at = cue.words.findIndex((word) => word.ms >= boundary);
     const before = cue.words[at - 2];
@@ -119,6 +128,7 @@ function speakerCuts(cue: Cue, turns: readonly VoiceTurn[], used: Set<string>): 
       after.ms >= Math.min(cue.endMs, next.endMs)
     )
       return [];
+    // Overlap between the turns can still leave an exclusive word start on each side.
     if (
       own.some(
         (turn) =>
@@ -137,10 +147,20 @@ function speakerCuts(cue: Cue, turns: readonly VoiceTurn[], used: Set<string>): 
       return [];
     const key = lineKey(right.ms, cue.speaker);
     if (used.has(key)) return [];
-    cuts.push(right);
+    cuts.push({ ...right, previousVoice: previous.voice, nextVoice: next.voice });
   }
-  for (const cut of cuts) used.add(lineKey(cut.ms, cue.speaker));
-  return cuts;
+  for (const [index, cut] of cuts.entries()) {
+    const before = { startMs: cuts[index - 1]?.ms ?? cue.startMs, endMs: cut.ms };
+    const after = { startMs: cut.ms, endMs: cuts[index + 1]?.ms ?? cue.endMs };
+    if (
+      mostOverlap(sharedVoices(before, own)) !== cut.previousVoice ||
+      mostOverlap(sharedVoices(after, own)) !== cut.nextVoice
+    )
+      return [];
+  }
+  const splits = cuts.map(({ at, ms }) => ({ at, ms }));
+  for (const split of splits) used.add(lineKey(split.ms, cue.speaker));
+  return splits;
 }
 
 /** Keep post-call attribution in the same metadata as a manual split. */

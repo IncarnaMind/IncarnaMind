@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
+import { encodeWav, monoSamples, toPcm16 } from "../../eval/lib/wav";
+import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 import type { CoreBridge } from "../../src/core/api";
 import { recordMeeting, startRecording, transcriptSaved, turnOf, useOutputLocation } from "../app";
 import {
@@ -22,6 +24,22 @@ const speech = join(root, "tests/fixtures/speech/two-voices.wav");
 // Three Mandarin lines, each a short word alone, a pause, then the rest (tests/fixtures/speech/README.md).
 const shortFirstWords = join(root, "tests/fixtures/speech/short-first-words-zh.wav");
 const closeVoices = join(root, "tests/fixtures/speech/close-voices.wav");
+
+async function overlapVoices(home: string): Promise<string> {
+  const samplesPerMs = MEETING_SAMPLE_RATE / 1000;
+  const handoff = 7170 * samplesPerMs;
+  const shift = 400 * samplesPerMs;
+  const samples = monoSamples(await readFile(closeVoices), closeVoices);
+  const mixed = new Float32Array(samples.length - shift);
+  mixed.set(samples.subarray(0, handoff));
+  for (const [at, sample] of samples.subarray(handoff).entries()) {
+    const offset = handoff - shift + at;
+    mixed[offset] = (mixed[offset] ?? 0) + sample;
+  }
+  const file = join(home, "overlapping-voices.wav");
+  await writeFile(file, encodeWav(toPcm16(mixed)));
+  return file;
+}
 
 test.skip(
   process.platform !== "darwin" && process.platform !== "win32",
@@ -131,49 +149,55 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   await copyModelsOut(dataDir);
 });
 
-test("a speaker handoff without a pause gets two speaker turns after Stop", async () => {
-  expect(
-    existsSync(packagedExecutable),
-    `${packagedExecutable}: build the packaged app first`,
-  ).toBe(true);
-  const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
-  dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
-  folders.push(home, dataDir);
-  await copyModelsIn(dataDir);
-  app = await launchPackaged(home, dataDir, { speech: closeVoices });
-  const window = await app.firstWindow();
-  const start = await recordMeeting(window);
-  await start.getByTestId("meeting-start-audio").selectOption("me");
-  const bar = await startRecording(window, start, { notice: true });
-  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
-  const beside = window.getByTestId("meeting-transcript-beside");
-  await expect(beside).toBeEnabled({ timeout: 2 * 60_000 });
-  await beside.click();
+for (const { kind, overlap } of [
+  { kind: "without a pause", overlap: false },
+  { kind: "with overlapping audio", overlap: true },
+]) {
+  test(`a speaker handoff ${kind} gets two speaker turns after Stop`, async () => {
+    expect(
+      existsSync(packagedExecutable),
+      `${packagedExecutable}: build the packaged app first`,
+    ).toBe(true);
+    const home = await mkdtemp(join(tmpdir(), "incarnamind-home-"));
+    dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
+    folders.push(home, dataDir);
+    await copyModelsIn(dataDir);
+    const speech = overlap ? await overlapVoices(home) : closeVoices;
+    app = await launchPackaged(home, dataDir, { speech });
+    const window = await app.firstWindow();
+    const start = await recordMeeting(window);
+    await start.getByTestId("meeting-start-audio").selectOption("me");
+    const bar = await startRecording(window, start, { notice: true });
+    await bar.getByTestId("meeting-views").locator("label").nth(1).click();
+    const beside = window.getByTestId("meeting-transcript-beside");
+    await expect(beside).toBeEnabled({ timeout: 2 * 60_000 });
+    await beside.click();
 
-  const lines = window.getByTestId("transcript-line");
-  const shared = lines.filter({ hasText: /created equal.*thank you/i });
-  await expect(shared.first()).toBeVisible({ timeout: 2 * 60_000 });
-  const wordsBefore = (await shared.first().innerText()).trim();
-  await bar.getByTestId("meeting-stop").click();
-  await expect
-    .poll(
-      () =>
-        window.evaluate(async () => {
-          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-          const [meeting] = await core.listMeetings();
-          return meeting?.transcript?.state === "saved" && !meeting.transcript.separating;
-        }),
-      { timeout: 5 * 60_000 },
-    )
-    .toBe(true);
-  const first = lines.filter({ hasText: /created equal/i }).first();
-  const second = lines.filter({ hasText: /Thursday morning/i }).first();
-  await expect(turnOf(first).getByTestId("transcript-speaker")).toHaveText("Speaker 1");
-  await expect(turnOf(second).getByTestId("transcript-speaker")).toHaveText("Speaker 2");
-  await expect(shared).toHaveCount(0);
-  expect([await first.innerText(), await second.innerText()].join(" ")).toBe(wordsBefore);
-  await copyModelsOut(dataDir);
-});
+    const lines = window.getByTestId("transcript-line");
+    const shared = lines.filter({ hasText: /created equal.*thank you/i });
+    await expect(shared.first()).toBeVisible({ timeout: 2 * 60_000 });
+    const wordsBefore = (await shared.first().innerText()).trim();
+    await bar.getByTestId("meeting-stop").click();
+    await expect
+      .poll(
+        () =>
+          window.evaluate(async () => {
+            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+            const [meeting] = await core.listMeetings();
+            return meeting?.transcript?.state === "saved" && !meeting.transcript.separating;
+          }),
+        { timeout: 5 * 60_000 },
+      )
+      .toBe(true);
+    const first = lines.filter({ hasText: /created equal/i }).first();
+    const second = lines.filter({ hasText: /Thursday morning/i }).first();
+    await expect(turnOf(first).getByTestId("transcript-speaker")).toHaveText("Speaker 1");
+    await expect(turnOf(second).getByTestId("transcript-speaker")).toHaveText("Speaker 2");
+    await expect(shared).toHaveCount(0);
+    expect([await first.innerText(), await second.innerText()].join(" ")).toBe(wordsBefore);
+    await copyModelsOut(dataDir);
+  });
+}
 
 // protects=a Chinese line keeps its first word when it is short and a pause follows it ("对。总价是八十万元。"), through the packaged app's real speech engine and model: the stretch starts at the first speech the detector hears, not a quarter second into it (#2305); fails_when=a line reads "总价是80万元" without 对, as when the detector forgot speech shorter than a quarter second; no_claim=how well the engine hears names and numbers (#1031), the computer's sound, or English.
 test("the packaged app keeps the short first word of each Chinese line", async () => {
