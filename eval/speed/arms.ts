@@ -31,6 +31,7 @@ export interface Arm {
   paths?: {
     writesThenCites?: boolean;
     retrievesFirst?: boolean;
+    answersInOneReply?: boolean;
   };
   /** Whether the quick model looks first at every written sentence (#1667); unset: the list's. */
   checks?: { quickFirstLook?: boolean };
@@ -83,6 +84,11 @@ export const ARMS: readonly Arm[] = [
     id: "loop",
     label: "the Tool loop from its first call, whatever the lists say",
     paths: { retrievesFirst: false },
+  },
+  {
+    id: "one-reply",
+    label: "a call-help press answered in one reply, its records first (#3354)",
+    paths: { answersInOneReply: true },
   },
   {
     id: "no-quick-look",
@@ -289,6 +295,7 @@ export function armSwitch() {
   const answerPaths: AnswerPathsOverride = {
     writesThenCites: () => current?.paths?.writesThenCites,
     retrievesFirst: () => current?.paths?.retrievesFirst,
+    answersInOneReply: () => current?.paths?.answersInOneReply,
   };
   const checkPaths: CheckPathsOverride = {
     quickFirstLook: () => current?.checks?.quickFirstLook,

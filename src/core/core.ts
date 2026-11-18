@@ -328,7 +328,12 @@ import { createChanges } from "./proposals/apply";
 import { KeyCharacterError, storedApiKey } from "./providers/apiKey";
 import { readsImages } from "./providers/capabilities";
 import { withoutDateSuffix } from "./providers/catalog";
-import { offersQuickHelp, retrievesFirst, writesThenCites } from "./providers/catalog/answerPaths";
+import {
+  answersInOneReply,
+  offersQuickHelp,
+  retrievesFirst,
+  writesThenCites,
+} from "./providers/catalog/answerPaths";
 import {
   DECISION_HOST_ENTRIES,
   DECISION_HOSTS,
@@ -2181,6 +2186,13 @@ export function createCore(adapters: CoreAdapters): Core {
       writesThenCites({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
     retrievesFirst: ({ provider, modelId }, flow) =>
       retrievesFirst({ catalogId: provider.catalogId, modelId }, flow, adapters.answerPaths),
+    // The ChatGPT plan has no catalog entry of its own: it serves OpenAI's models through the same API.
+    answersInOneReply: ({ provider, modelId }, flow) =>
+      answersInOneReply(
+        { catalogId: provider.kind === "chatgpt" ? "openai" : provider.catalogId, modelId },
+        flow,
+        adapters.answerPaths,
+      ),
     async prepareQuickModel(answers, prepared, own = false) {
       const quick = own ? null : chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.

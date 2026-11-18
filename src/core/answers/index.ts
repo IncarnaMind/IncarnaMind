@@ -764,6 +764,8 @@ export interface AnswersOptions {
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Whether an Answer on this model, in this flow, searches its Question before the first call (#1633). */
   retrievesFirst?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
+  /** Whether a call-help press on this model is answered in one reply, its records first (#3354). */
+  answersInOneReply?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
   /** Searching the User's Documents, and what Citations point to. */
   documents: DocumentsForAnswers;
   /** Runs Analyses (#447, ADR-0023); absent: no Answer is offered `run_analysis`. */
@@ -3864,6 +3866,7 @@ export function createAnswers(options: AnswersOptions) {
           mode,
           {
             passages,
+            oneReply = false,
             skillTools: withSkillTools = false,
             connectorTools = false,
             sourceTools = false,
@@ -3896,6 +3899,7 @@ export function createAnswers(options: AnswersOptions) {
                     minds: withMindTools,
                     library,
                     given: context.given === true,
+                    oneReply,
                   },
                 ),
             inAssistant && !help ? SEARCH_SCOPE_RULE : "",
@@ -3978,6 +3982,7 @@ export function createAnswers(options: AnswersOptions) {
         support: startingSupport(prepared.support, supportByModel.get(learntKey)),
         writeThenCite: writeFirst,
         retrieveFirst,
+        ...(help && options.answersInOneReply?.(prepared, flow) && { oneReply: true }),
         structuredOutput: givesStructuredOutput(prepared.capabilities),
         takesTemperature: prepared.capabilities.facts.temperature,
         window: room && prepared.window ? withRoom(prepared.window, room) : prepared.window,

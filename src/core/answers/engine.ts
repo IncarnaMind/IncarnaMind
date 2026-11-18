@@ -370,6 +370,8 @@ export interface UnfoundQuote {
 export interface InstructionOptions {
   /** "structured-output" and "none": the Passages the search found (formatted, or a sentence saying there are none). */
   passages?: string;
+  /** "structured-output": the Passages are in the last message, and the records come before the Answer (#3354). */
+  oneReply?: boolean;
   /** The model is offered the Skills' Tools. */
   skillTools?: boolean;
   /** The model is offered Connectors' Tools. */
@@ -511,6 +513,11 @@ export interface AnswerRequest {
    * answer from those Passages without searching; it searches on when they aren't enough.
    */
   retrieveFirst?: boolean;
+  /**
+   * Answered in one reply from the Passages the request already holds, its records first, with no
+   * Tool loop (#3354); a reply that asks for more of the Documents goes to the loop.
+   */
+  oneReply?: boolean;
   /** False: the model is known to give no structured output, so it isn't tried. */
   structuredOutput?: boolean;
   /**
@@ -1325,14 +1332,18 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
        * structured output, or a plain Answer. Within a window, the Passages
        * that fit beside the Question, then the Question context that fits beside them.
        */
-      const onePass = (mode: CitationSupport | "no-documents", found?: SearchResultForModel) =>
+      const onePass = (
+        mode: CitationSupport | "no-documents",
+        found?: SearchResultForModel,
+        oneReply = false,
+      ) =>
         fitted(async function* () {
           if (!budget) {
             if (found) request.fitted?.(fittedPassageIds(found, found.text));
-            const instructions = request.instructions(mode, { passages: found?.text });
+            const instructions = request.instructions(mode, { passages: found?.text, oneReply });
             yield* tempered((sent) =>
               mode === "structured-output"
-                ? structured(request, instructions, sent)
+                ? structured(request, instructions, sent, undefined, undefined, oneReply)
                 : plain(request, instructions, sent),
             );
             return;
@@ -1348,7 +1359,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
             return;
           }
           if (found && kept !== undefined) request.fitted?.(fittedPassageIds(found, kept));
-          const instructions = request.instructions(mode, { passages: kept });
+          const instructions = request.instructions(mode, { passages: kept, oneReply });
           const fit = budget.fit({
             instructions,
             messages: request.messages,
@@ -1371,7 +1382,7 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
           const retry = request.retryQuotes ? budget : undefined;
           yield* tempered((sent) =>
             mode === "structured-output"
-              ? structured(sized, instructions, sent, window, retry)
+              ? structured(sized, instructions, sent, window, retry, oneReply)
               : plain(sized, instructions, sent, window),
           );
         });
@@ -1498,6 +1509,21 @@ function createWritingEngine(options: AiSdkAnswerEngineOptions): AnswerEngine {
         searched = merged;
         yield { type: "phase", phase: "writing" };
         return merged;
+      }
+
+      // One reply from the Passages the request holds (#3354). A reply that asks for more of the
+      // Documents, or a provider that refuses the form, goes on to the loop; how the model cites
+      // there isn't learnt from this.
+      if (request.oneReply && (request.support ?? "tools") === "tools") {
+        let goesOn = false;
+        for await (const event of onePass("structured-output", undefined, true)) {
+          if (event.type === "unsupported") {
+            goesOn = true;
+            break;
+          }
+          yield event;
+        }
+        if (!goesOn || signal.aborted) return;
       }
 
       // Structured output isn't tried for a model known to give none, unless it is where to start
@@ -2669,7 +2695,8 @@ interface Sized {
  * The Answer and its records as one JSON object, streamed: its `answer` text
  * as it grows. With a local model's window (`budget`), the quotes the check
  * doesn't find are then asked for once more (see ./quoteRetry); never for a
- * cloud model.
+ * cloud model. `oneReply` (#3354): the records come first, and a reply whose `more` asks for
+ * more of the Documents, with no answer, is not this way's to give.
  */
 async function* structured(
   request: AnswerRequest,
@@ -2677,8 +2704,18 @@ async function* structured(
   temperature: number | undefined,
   sized?: Sized,
   budget?: WindowBudget,
+  oneReply = false,
 ): Attempt {
   const { signal } = request;
+  const answerField = {
+    type: "string",
+    description: "The Answer, in Markdown, with Citation markers and figure markers.",
+  } as const;
+  // A small local model leaves out what its schema doesn't require: a record needs its quote here.
+  const citationsField = {
+    ...recordsSchema,
+    items: { ...recordsSchema.items, required: [...recordsSchema.items.required, "quote"] },
+  };
   const result = streamText({
     model: request.model,
     instructions,
@@ -2687,22 +2724,36 @@ async function* structured(
     providerOptions: cacheProviderOptions(request.cacheKey),
     maxOutputTokens: outputOf(request, writingKind(request)),
     output: Output.object({
-      schema: jsonSchema<{ answer: string; citations: unknown; calculations?: unknown }>({
-        type: "object",
-        properties: {
-          answer: {
-            type: "string",
-            description: "The Answer, in Markdown, with Citation markers and figure markers.",
-          },
-          // A small local model leaves out what its schema doesn't require: a record needs its quote here.
-          citations: {
-            ...recordsSchema,
-            items: { ...recordsSchema.items, required: [...recordsSchema.items.required, "quote"] },
-          },
-          ...(request.documents.calculate && { calculations: calculationsSchema }),
-        },
-        required: ["answer", "citations"],
-      }),
+      schema: jsonSchema<{
+        answer: string;
+        citations: unknown;
+        calculations?: unknown;
+        more?: string;
+      }>(
+        oneReply
+          ? {
+              type: "object",
+              properties: {
+                citations: citationsField,
+                answer: answerField,
+                more: {
+                  type: "string",
+                  description:
+                    "Empty, unless the Passages don't hold what the reply needs: then the words to search the Documents for, and an empty answer.",
+                },
+              },
+              required: ["citations", "answer", "more"],
+            }
+          : {
+              type: "object",
+              properties: {
+                answer: answerField,
+                citations: citationsField,
+                ...(request.documents.calculate && { calculations: calculationsSchema }),
+              },
+              required: ["answer", "citations"],
+            },
+      ),
       name: "answer",
     }),
     abortSignal: signal,
@@ -2750,6 +2801,12 @@ async function* structured(
   const answer = (value as { answer?: unknown } | undefined)?.answer;
   // The model didn't answer in JSON after all: it can't do structured output.
   if (typeof answer !== "string" && !emitted) {
+    yield { type: "unsupported" };
+    return;
+  }
+  const more = (value as { more?: unknown } | undefined)?.more;
+  if (oneReply && !emitted.trim() && typeof more === "string" && more.trim() !== "") {
+    if (emitted) yield { type: "text-retracted", length: emitted.length };
     yield { type: "unsupported" };
     return;
   }

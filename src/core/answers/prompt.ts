@@ -871,7 +871,8 @@ function addedLine(listed: number, library: number, scoped: boolean): string {
  * Question context shows Citations with ids, or a Mind read may. `writeFirst`: a model in the
  * Tool loop writes the Answer, then cites it; `minds`: it is offered the Tools that write into Minds.
  * `library`: the Library's own count, when it holds more than `listed` (#1333). `given`: the
- * request holds the Passages to read and offers no search.
+ * request holds the Passages to read and offers no search. `oneReply`: a "structured-output" reply
+ * from the Passages in the last message, its records first (#3354).
  */
 export function documentInstructions(
   mode: CitationSupport | "no-documents",
@@ -885,7 +886,14 @@ export function documentInstructions(
     minds = false,
     library = { total: listed.total },
     given = false,
-  }: { writeFirst?: boolean; minds?: boolean; library?: LibraryDocuments; given?: boolean } = {},
+    oneReply = false,
+  }: {
+    writeFirst?: boolean;
+    minds?: boolean;
+    library?: LibraryDocuments;
+    given?: boolean;
+    oneReply?: boolean;
+  } = {},
 ): string {
   const dated = datedDocumentsNote(passages);
   const notes = [
@@ -918,6 +926,26 @@ export function documentInstructions(
         ...(calculate ? ["", CALCULATE] : []),
       ].join("\n");
     case "structured-output":
+      if (oneReply) {
+        return [
+          `${added} The Passages to read are in the last message: there is nothing to search.`,
+          documentNames(listed),
+          ...rest,
+          "",
+          'Reply with one JSON object, its fields in this order: {"citations": [{"marker": 1, "passage": "P1", "location": "…", "quote": "…"}], "answer": "…", "more": ""}.',
+          `- citations: first, one record for each quote you will use: a marker number (1, 2, …), ${RECORD}.`,
+          "- answer: the reply. Put the marker as [^1] right after each claim it supports. Use only markers you recorded, and add no list of sources.",
+          "- more: empty. Only when the reply needs a fact of the User's Documents that the Passages in the last message don't hold, leave answer empty and give here the words to search the Documents for.",
+          UNBROKEN_QUOTE,
+          QUOTATION_MARKS,
+          NO_CALCULATE,
+          notCovered(true),
+          CITED_SAYS_ONLY_ITS_QUOTE,
+          FIGURES_AS_STATED,
+          scannedWords(true),
+          readingRules(true),
+        ].join("\n");
+      }
       return [
         added,
         documentNames(listed),

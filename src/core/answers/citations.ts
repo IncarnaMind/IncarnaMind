@@ -2344,7 +2344,10 @@ export function createCitationSession(
         problem: `A record needs a marker number (1, 2, …) that is in the Answer as [^n].`,
       };
     }
-    const taken = takeQuote(input, marker, options, true, read);
+    let taken = takeQuote(input, marker, options, true, read);
+    if (options.structured && taken.ok && !taken.record.kept) {
+      taken = inAnotherPassage(input, marker, options, taken) ?? taken;
+    }
     if (taken.ok && !taken.record.kept) {
       const problem =
         quotePlaceProblem(
@@ -2372,6 +2375,27 @@ export function createCitationSession(
           rejected: { marker, passage: given, reason: "passage" },
           problem: `[^${marker}]: ${taken.problem}`,
         };
+  }
+
+  /**
+   * Structured output can't be told it named the wrong Passage (`CiteOptions`): a quote another
+   * Passage of the same Document it was given holds, at the time the record names where it names
+   * one (#2306), is cited there (#3354). Null when the named Passage holds it, or none does.
+   */
+  function inAnotherPassage(
+    input: CitationRecordInput,
+    marker: number,
+    options: CiteOptions,
+    taken: Extract<Taken, { ok: true }>,
+  ): Extract<Taken, { ok: true }> | null {
+    if (check(taken.record).check !== "not-found") return null;
+    for (const [passageId, handle] of handleOf) {
+      if (passageId === taken.source.passageId) continue;
+      if (documents.citationSource(passageId)?.documentId !== taken.source.documentId) continue;
+      const again = takeQuote({ ...input, passage: handle }, marker, options, true);
+      if (again.ok && check(again.record).check === "found") return again;
+    }
+    return null;
   }
 
   /** `take`, for a quote with or without a marker (0 for none). A calculated figure's direct input keeps its supplied Location (#1979). */
