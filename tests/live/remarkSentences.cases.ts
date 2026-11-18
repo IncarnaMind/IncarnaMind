@@ -7,6 +7,11 @@
  * remark (who made a survey, what its interviewers couldn't reach, what a patient must do) and are
  * stated by the Document. On invented Documents of a few lines.
  *
+ * The memo Notes (`-j`, #3322) hold the writer's own judgements, steps, criteria and definitions,
+ * some with a figure or a date, beside facts, opinions a Document reports, and a Document's own
+ * recommendations, duties and forecasts with their wrong twins: advice is the writer's own only
+ * when no Document gives it.
+ *
  * The set is fixed: a Note is not edited once a baseline rests on it, and a new shape is a new Note.
  */
 export interface RemarkNote {
@@ -17,7 +22,7 @@ export interface RemarkNote {
   document: string;
   lines: readonly {
     sentence: string;
-    /** None: the writer's own remark, which a check leaves without a mark. */
+    /** None: the writer's own remark, advice or judgement, which a check leaves without a mark. */
     expected: "right" | "wrong" | "none";
     /** The factual part of a sentence that also holds a remark. */
     part?: string;
@@ -238,6 +243,215 @@ export const REMARK_NOTES: readonly RemarkNote[] = [
       { sentence: "来源：《供应商评估》（采购文件夹）。", expected: "none" },
       { sentence: "你在电话里提到的准时率98%，这里没有采用。", expected: "none" },
       { sentence: "这两个日期在续约会议前都需要再看一遍。", expected: "none" },
+    ],
+  },
+  {
+    id: "en-j1",
+    language: "en",
+    name: "Warehouse quotes",
+    document:
+      "Dunmerrow Logistics quotes £18,400 a month for 2,000 pallet places in Leeds. Harrowfinch Storage quotes £16,900 a month for 1,800 pallet places in Wakefield. Both contracts run for three years with a break after eighteen months. Dunmerrow's quote includes racking; Harrowfinch charges £22,000 once for it.",
+    lines: [
+      {
+        sentence: "Dunmerrow Logistics quotes £18,400 a month for 2,000 pallet places in Leeds.",
+        expected: "right",
+      },
+      {
+        sentence:
+          "Harrowfinch Storage quotes £16,900 a month for 2,000 pallet places in Wakefield.",
+        expected: "wrong",
+      },
+      { sentence: "Of the two, Dunmerrow is the safer choice.", expected: "none" },
+      {
+        sentence:
+          "The risk of running out of space is low this year and higher next year; that is my own reading.",
+        expected: "none",
+      },
+      {
+        sentence: "Ask both firms for a reference from a customer of similar size.",
+        expected: "none",
+      },
+      {
+        sentence: "Ask Harrowfinch for 2 or 3 references before the board meets on 14 March.",
+        expected: "none",
+      },
+      {
+        sentence:
+          "Go ahead if the reference calls raise no concern; stop if either firm refuses to give one.",
+        expected: "none",
+      },
+      {
+        sentence: 'In this memo, "cost" means the monthly fee without the one-off racking charge.',
+        expected: "none",
+      },
+      {
+        sentence: "Both contracts run for three years, which seems long for a first agreement.",
+        expected: "right",
+        part: "Both contracts run for three years",
+      },
+      {
+        sentence:
+          "Harrowfinch charges £12,000 once for racking, which I would try to negotiate away.",
+        expected: "wrong",
+        part: "Harrowfinch charges £12,000 once for racking",
+      },
+    ],
+  },
+  {
+    id: "en-j2",
+    language: "en",
+    name: "Support team report",
+    document:
+      "The support team has 6 agents and answered 9,200 tickets in 2026. Median first reply time was 4 hours 10 minutes. The head of support, Mara Lindqvist, said the team cannot keep that time if volume grows. Ticket volume is forecast to grow 15% in 2027.",
+    lines: [
+      {
+        sentence: "The support team has 6 agents and answered 9,200 tickets in 2026.",
+        expected: "right",
+      },
+      {
+        sentence: "Mara Lindqvist said the team cannot keep that reply time if volume grows.",
+        expected: "right",
+      },
+      {
+        sentence: "Mara Lindqvist said the team can keep that reply time even if volume grows.",
+        expected: "wrong",
+      },
+      { sentence: "Ticket volume is forecast to grow 15% in 2027.", expected: "right" },
+      { sentence: "Median first reply time was 2 hours 10 minutes.", expected: "wrong" },
+      { sentence: "We should hire before the summer rather than after it.", expected: "none" },
+      { sentence: "My suggestion is 2 more agents, starting in May.", expected: "none" },
+      {
+        sentence: "You know the budget better than I do, so treat the number as a starting point.",
+        expected: "none",
+      },
+      { sentence: "The question is no longer whether to hire but when.", expected: "none" },
+      {
+        sentence:
+          "If median first reply time passes 5 hours in any month, bring the second hire forward.",
+        expected: "none",
+      },
+    ],
+  },
+  {
+    id: "zh-j1",
+    language: "zh-CN",
+    name: "仓库报价",
+    document:
+      "敦沐物流报价每月184,000元，提供2,000个托盘位，地点在苏州。栎川仓储报价每月169,000元，提供1,800个托盘位，地点在昆山。两份合同期限均为三年，满十八个月可解约。敦沐物流的报价含货架；栎川仓储另收一次性货架费220,000元。",
+    lines: [
+      {
+        sentence: "敦沐物流报价每月184,000元，提供2,000个托盘位，地点在苏州。",
+        expected: "right",
+      },
+      {
+        sentence: "栎川仓储报价每月169,000元，提供2,000个托盘位，地点在昆山。",
+        expected: "wrong",
+      },
+      { sentence: "两家之中，敦沐物流是更稳妥的选择。", expected: "none" },
+      { sentence: "今年仓位不够的风险不高，明年会更高（这是我的判断）。", expected: "none" },
+      { sentence: "请两家各提供一位规模相近的客户作为参考。", expected: "none" },
+      { sentence: "请栎川仓储在3月14日董事会前提供2到3位参考客户。", expected: "none" },
+      {
+        sentence: "参考客户没有提出问题就继续推进；任何一家拒绝提供就停下来。",
+        expected: "none",
+      },
+      { sentence: "本备忘录中的“成本”指月费，不含一次性货架费。", expected: "none" },
+      {
+        sentence: "两份合同期限均为三年，对第一次合作来说似乎偏长。",
+        expected: "right",
+        part: "两份合同期限均为三年",
+      },
+      {
+        sentence: "栎川仓储另收一次性货架费120,000元，这一项我会争取谈掉。",
+        expected: "wrong",
+        part: "栎川仓储另收一次性货架费120,000元",
+      },
+    ],
+  },
+  {
+    id: "zh-j2",
+    language: "zh-CN",
+    name: "客服团队报告",
+    document:
+      "客服团队有6名客服，2026年共处理工单9,200张。首次回复时间的中位数为4小时10分钟。客服负责人林若棠表示，如果工单量继续增长，团队无法保持这一回复时间。预计2027年工单量增长15%。",
+    lines: [
+      { sentence: "客服团队有6名客服，2026年共处理工单9,200张。", expected: "right" },
+      {
+        sentence: "林若棠表示，如果工单量继续增长，团队无法保持这一回复时间。",
+        expected: "right",
+      },
+      {
+        sentence: "林若棠表示，即使工单量继续增长，团队也能保持这一回复时间。",
+        expected: "wrong",
+      },
+      { sentence: "预计2027年工单量增长15%。", expected: "right" },
+      { sentence: "首次回复时间的中位数为2小时10分钟。", expected: "wrong" },
+      { sentence: "我们应该在夏天之前招人，而不是之后。", expected: "none" },
+      { sentence: "我的建议是增加2名客服，5月到岗。", expected: "none" },
+      { sentence: "预算你比我清楚，这个数字只作为起点。", expected: "none" },
+      { sentence: "现在的问题不是招不招，而是什么时候招。", expected: "none" },
+      {
+        sentence: "如果任何一个月首次回复时间的中位数超过5小时，就把第二个人的招聘提前。",
+        expected: "none",
+      },
+    ],
+  },
+  {
+    id: "en-j3",
+    language: "en",
+    name: "Fleet review",
+    document:
+      "The fleet has 14 vans, 9 of them older than eight years. The reviewer, Tolland Marsh Consulting, recommends replacing 6 vans by the end of September 2027 and keeping the other 8 until 2029. Drivers must check tyre pressure every Monday. Maintenance cost £96,000 in 2026 and is forecast to reach £110,000 in 2027.",
+    lines: [
+      { sentence: "The fleet has 14 vans, 9 of them older than eight years.", expected: "right" },
+      {
+        sentence: "The review recommends replacing 6 vans by the end of September 2027.",
+        expected: "right",
+      },
+      {
+        sentence: "The review recommends replacing 9 vans by the end of September 2027.",
+        expected: "wrong",
+      },
+      {
+        sentence: "Replace 6 vans by the end of September 2027 and keep the other 8 until 2029.",
+        expected: "right",
+      },
+      { sentence: "Replace 6 vans by the end of March 2027.", expected: "wrong" },
+      { sentence: "Drivers must check tyre pressure every Monday.", expected: "right" },
+      { sentence: "Drivers must check tyre pressure every Friday.", expected: "wrong" },
+      { sentence: "Maintenance cost is forecast to reach £110,000 in 2027.", expected: "right" },
+      { sentence: "Maintenance cost is forecast to reach £130,000 in 2027.", expected: "wrong" },
+      {
+        sentence:
+          "I would book a call with the reviewer before 20 November to go through the list.",
+        expected: "none",
+      },
+      { sentence: "My own view is that 2029 is too late.", expected: "none" },
+      {
+        sentence: "Set aside 2 days in January to compare lease offers from 3 dealers.",
+        expected: "none",
+      },
+    ],
+  },
+  {
+    id: "zh-j3",
+    language: "zh-CN",
+    name: "车队评估",
+    document:
+      "车队共有14辆货车，其中9辆车龄超过八年。评估方拓岚咨询建议在2027年9月底前更换6辆，其余8辆保留到2029年。司机必须每周一检查胎压。2026年维修费用为96万元，预计2027年将达到110万元。",
+    lines: [
+      { sentence: "车队共有14辆货车，其中9辆车龄超过八年。", expected: "right" },
+      { sentence: "评估报告建议在2027年9月底前更换6辆货车。", expected: "right" },
+      { sentence: "评估报告建议在2027年9月底前更换9辆货车。", expected: "wrong" },
+      { sentence: "在2027年9月底前更换6辆货车，其余8辆保留到2029年。", expected: "right" },
+      { sentence: "在2027年3月底前更换6辆货车。", expected: "wrong" },
+      { sentence: "司机必须每周一检查胎压。", expected: "right" },
+      { sentence: "司机必须每周五检查胎压。", expected: "wrong" },
+      { sentence: "预计2027年维修费用将达到110万元。", expected: "right" },
+      { sentence: "预计2027年维修费用将达到130万元。", expected: "wrong" },
+      { sentence: "我打算在11月20日前约评估方通个电话，把清单过一遍。", expected: "none" },
+      { sentence: "我个人认为保留到2029年太晚了。", expected: "none" },
+      { sentence: "1月份留出2天时间，比较3家经销商的租赁报价。", expected: "none" },
     ],
   },
 ];
