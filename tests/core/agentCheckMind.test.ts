@@ -317,7 +317,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
     const { core, agent, coast } = await paired();
     const own = await core.createMind({ title: "My own", folderId: coast.id });
     expect(refusal(await check(agent, own.id))).toBe(
-      "check_mind checks a note this agent wrote with create_mind. It didn’t write this one.",
+      "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
     );
     expect(refusal(await check(agent, "no-such-note"))).toContain("No such passage");
 

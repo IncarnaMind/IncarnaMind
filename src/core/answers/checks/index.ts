@@ -116,6 +116,7 @@ import {
 } from "./claimCheck";
 import { createFirstReading, type DecisionReader } from "./decisionFirst";
 import { createFastPaths } from "./fastPaths";
+import { createJudgedOutside } from "./judgedOutside";
 import { createMindCheck, type MindCheckOptions, type NotAskedReason } from "./mindCheck";
 import { recordOpinions, removeOpinion, unmarkedOpinion } from "./opinions";
 import {
@@ -1338,6 +1339,15 @@ export function createChecks(options: ChecksOptions) {
     track,
   });
 
+  const judgedOutside = createJudgedOutside({
+    content,
+    scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
+    requireMind: options.requireMind,
+    withResult: noteResult,
+    retainEvidence,
+    now: options.now,
+  });
+
   /**
    * The quick model that looks first at a write's sentences checked on `prepared` (./fastPaths):
    * another model than the Answers model, so none once the User has set the quick-tasks model to
@@ -1558,6 +1568,8 @@ export function createChecks(options: ChecksOptions) {
     checkMind: (input: unknown) => mindCheck.checkMind(input),
     checkMindOutside: (mindId: string, reach: ReadonlySet<string>) =>
       mindCheck.checkOutside(mindId, reach),
+    checkTaskOutside: judgedOutside.task,
+    landJudgedOutside: judgedOutside.land,
     documentsAddedSinceChecks: (mindId: unknown) => mindCheck.documentsAddedSinceChecks(mindId),
 
     /** A Document's status changed: a new version has its Folder's Minds checked for contradictions. */
