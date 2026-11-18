@@ -40,6 +40,10 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     },
     show: () => undefined,
     mindMarkdown: () => "",
+    createMind: () => {
+      throw new Error("Not called.");
+    },
+    notesWrittenSince: () => 0,
     answer: async () => outcome,
     citations: {
       find: () => null,

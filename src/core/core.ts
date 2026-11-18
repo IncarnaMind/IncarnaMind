@@ -5563,6 +5563,8 @@ export function createCore(adapters: CoreAdapters): Core {
           pictures: false,
         }).text;
       },
+      createMind: (title, folderId, headed) =>
+        makeMind(parseCreateMindInput({ title, folderId }), { headed }),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
       show: (place) => events.emit("agents.citationShown", place),

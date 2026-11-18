@@ -388,10 +388,10 @@ function withTokens(
  * parse makes no Citation, footnote or figure of its own; a token's place it left in code is
  * only words.
  */
-function newBlocks(
+export function newBlocks(
   written: string,
   name: string,
-  options: ProposeOptions,
+  options: Pick<ProposeOptions, "cited" | "notFound">,
 ): { nodes: NodeJSON[]; cited: Attributes[] } {
   const tokens: { token: string; attributes: Attributes | null; held: number; back: number }[] = [];
   const held = new Map<string, number>();

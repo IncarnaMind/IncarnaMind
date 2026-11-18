@@ -23,6 +23,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openPageMenu,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -129,13 +130,13 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await dialog.getByTestId("agent-folder").check();
     const propose = dialog.getByTestId("agent-propose");
     await expect(propose).not.toBeChecked();
-    await expect(dialog).toContainText("Let it propose changes to the notes in these Folders");
+    await expect(dialog).toContainText("Let it write notes and propose changes in these Folders");
     await propose.check();
     await shot(window, "agent-proposals-connect");
     await dialog.getByTestId("connect-agent-allow").click();
     const row = page.locator('[data-testid="agent-pairing"][data-name="Research assistant agent"]');
     await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
-      "Can propose changes to notes there, which wait for you",
+      "Can write new notes there, and propose changes that wait for you",
     );
     await shot(window, "agent-proposals-row");
     const settings = JSON.parse(await copied(window)) as {
@@ -172,6 +173,12 @@ test("an agent the User lets propose changes: its change waits in the Note with 
         },
       });
       expect(proposed.isError ?? false).toBe(false);
+      // With the same leave it writes a Note of its own (#3306), there at once.
+      const created = await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Tide report", markdown: `${NEAP} ${RANGE}` },
+      });
+      expect(created.isError ?? false).toBe(false);
     } finally {
       await agent.close();
     }
@@ -296,6 +303,18 @@ test("an agent the User lets propose changes: its change waits in the Note with 
         await shot(window, `change-bar-${language}-${width}`);
       }
     }
+
+    // The Note the agent wrote is in the sidebar like any other, and its ⋯ menu says who wrote it.
+    await setLanguage(window, "en");
+    await pointAndClick(window, window.getByTestId("mind-row").filter({ hasText: "Tide report" }));
+    await expect(frontMind(window).getByTestId("mind-editor")).toContainText(NEAP);
+    const writtenBy = async () => (await openPageMenu(window)).getByTestId("page-written-by");
+    await expect(await writtenBy()).toContainText("Written by Research assistant agent, ");
+    await shot(window, "agent-note-menu-en");
+    await window.keyboard.press("Escape");
+    await setLanguage(window, "zh-CN");
+    await expect(await writtenBy()).toContainText("由“Research assistant agent”写入，");
+    await shot(window, "agent-note-menu-zh");
   } finally {
     await app.close();
   }
