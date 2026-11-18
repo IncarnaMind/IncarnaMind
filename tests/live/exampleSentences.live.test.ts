@@ -1291,6 +1291,7 @@ async function checkAll(core: Core, language: Language, notes: readonly Written[
             text: probe.sentence.slice(each.span.start, each.span.end),
             verdict: each.verdict,
             reason: each.verdict === "not-checked" ? each.reason : null,
+            ...(each.workedOut && { workedOut: each.workedOut }),
           }));
           const part = probe.part ? parts.find((each) => each.text === probe.part) : undefined;
           rows.push({

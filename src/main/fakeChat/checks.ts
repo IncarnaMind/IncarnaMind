@@ -10,6 +10,7 @@ import { sentenceBatchInstructions } from "../../core/answers/checks/sentenceBat
 import { LANGUAGES } from "../../core/language";
 import { outputTokens } from "../../core/providers/outputLimits";
 import { LISTED_PROJECTS, LISTS_PROJECTS, SAYS_MORE, THOUGHT_OVER } from "./answers";
+import { SAYS_A_VIEW } from "./claims";
 import { passagesIn, recordFor } from "./passages";
 import {
   type GenerateOptions,
@@ -100,6 +101,7 @@ export function fakeRestate(options: GenerateOptions): string | null {
 }
 
 const UNSUPPORTED: Reply = { text: "Verdict: unsupported\nEvidence: []" };
+const OWN_VIEW: Reply = { text: "Verdict: own view\nEvidence: []" };
 
 /** A sentence that says more than the line it shares its words with: read whole, it is unsupported. */
 const SAYS_MORE_THAN_ITS_LINE = /\bscaling constraint\b/;
@@ -113,7 +115,8 @@ const supported = (explanation: string): Reply => ({
  * shares the most words with it and cites it. Three shared words or more support it, unless the
  * sentence has a number the line doesn't while the line has numbers: that contradicts it, and the
  * sentence's first such number changes to the line's first. Fewer leave it unsupported, as does a
- * sentence that says more than its line (`SAYS_MORE_THAN_ITS_LINE`). A sentence with "blank reply"
+ * sentence that says more than its line (`SAYS_MORE_THAN_ITS_LINE`); one it takes for its writer's
+ * own view (`SAYS_A_VIEW`) is that instead. A sentence with "blank reply"
  * gets an empty reply, one with "refuse" a refusal, and one with "no reason" an unsupported
  * verdict. Asked to search again before it says a sentence isn't found, it searches the sentence's
  * longer words and numbers alone.
@@ -150,7 +153,7 @@ export function checkReply(prompt: Prompt): Reply {
     const shared = checkWords(line).filter((word) => words.includes(word)).length;
     if (found && (!best || shared > best.shared)) best = { record: found.record, line, shared };
   }
-  if (!best || best.shared < 3) return UNSUPPORTED;
+  if (!best || best.shared < 3) return SAYS_A_VIEW.test(sentence) ? OWN_VIEW : UNSUPPORTED;
   if (!cited) return { tool: "cite", input: { citations: [best.record] } };
   const lineNumbers = numbers(best.line);
   const from = numbers(sentence).find((each) => !lineNumbers.includes(each));

@@ -11,6 +11,9 @@ const FIND_CLAIMS =
   /^You sort the sentences of (?:a document someone else wrote|the User's own draft)/m;
 
 /** Whether a request is one to find the claims among numbered sentences. */
+/** The words by which the fake model takes a sentence for its writer's own view. */
+export const SAYS_A_VIEW = /\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i;
+
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
 
@@ -92,7 +95,7 @@ export function fakeClaims(
       });
       continue;
     }
-    const kind = /\b(?:we|I) (?:think|believe)\b|我们认为|我认为/i.test(text) ? "opinion" : "fact";
+    const kind = SAYS_A_VIEW.test(text) ? "opinion" : "fact";
     sentences.push({ number, parts: [{ kind, text }] });
   }
   return JSON.stringify({ sentences: undecidedLast ? sentences.slice(0, -1) : sentences });
