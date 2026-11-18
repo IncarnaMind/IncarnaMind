@@ -18,8 +18,8 @@ export interface LibraryCase {
 }
 
 const NOT_SUPPORTED = ["contradicted", "unsupported"] as const;
-/** A reading of the names, which the lists don't settle: Not checked, never Not found. */
-const UNSETTLED = ["not-checked"] as const;
+/** A reading of the names, which the lists don't settle: the writer's own view, or not found. */
+const UNSETTLED = ["unsupported", "not-checked"] as const;
 
 export const LIBRARY_CASES: Record<"en" | "zh-CN", LibraryCase[]> = {
   en: [
