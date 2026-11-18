@@ -3140,6 +3140,24 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE conversation_messages ADD COLUMN error_too_long TEXT;
     `,
   },
+  {
+    version: 144,
+    description: "Recover the stored order of automatic tagging turn-ons (#2370)",
+    // SQLite can return the object constructed in migration 132's subquery as ordinary text.
+    sql: `
+      UPDATE device_settings SET
+        value = json_set(value, '$.automaticSinceSeq',
+          json(json_extract(value, '$.automaticSinceSeq'))),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE key = 'library' AND deleted_at IS NULL
+          AND CASE WHEN json_valid(value) THEN
+            CASE WHEN json_type(value, '$.automaticSinceSeq') = 'text'
+                AND json_valid(json_extract(value, '$.automaticSinceSeq'))
+              THEN json_type(json_extract(value, '$.automaticSinceSeq')) = 'object'
+            END
+          END;
+    `,
+  },
 ];
 
 /**
