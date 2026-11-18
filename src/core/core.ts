@@ -2014,7 +2014,8 @@ export function createCore(adapters: CoreAdapters): Core {
         };
       }
       const exported = await mindExports.export(mindId, written);
-      // The window shows first what a Word file can't keep (#105); the assistant can't.
+      // The window's Saved line lists what a Word file couldn't keep (#105); the assistant has no
+      // such line, so it sends the User there.
       if (exported.word && exported.word.notKept.length > 0) {
         throw new InvalidInputError({ key: "error.commands.wordLoses" });
       }
@@ -3071,9 +3072,11 @@ export function createCore(adapters: CoreAdapters): Core {
     scopeDocuments,
     unread: unreadIn,
     evidence,
+    ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
       searchableBySize: (documentIds) => documents.searchableBySize(documentIds ?? undefined),
+      searchableHasSheets: (documentIds) => documents.searchableHasSheets(documentIds ?? undefined),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
       joinedAfter: (documentIds, since, folderId) =>
         documents.searchableJoinedAfter(documentIds ?? undefined, since, folderId),
@@ -5563,6 +5566,8 @@ export function createCore(adapters: CoreAdapters): Core {
           pictures: false,
         }).text;
       },
+      createMind: (title, folderId, headed) =>
+        makeMind(parseCreateMindInput({ title, folderId }), { headed }),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
       show: (place) => events.emit("agents.citationShown", place),
@@ -7411,9 +7416,6 @@ export function createCore(adapters: CoreAdapters): Core {
           files,
           ...counts
         } = await mindExports.export(known.mindId, options, checkComments);
-        const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
-        if (word?.notKept.some((loss) => !accepted.has(loss.key)))
-          return { status: "review", word };
         // The pictures first: a rewrite replaces the file in place, so one that fails leaves the
         // file as it was, with the pictures it links, rather than a new file whose links go nowhere.
         await saveExportFiles(files, dirname(known.path), known.mindId);
@@ -7455,9 +7457,6 @@ export function createCore(adapters: CoreAdapters): Core {
         files,
         ...counts
       } = await mindExports.export(mindId, options);
-      // What a Word file can't keep is said before anything is saved (#105).
-      const accepted = new Set(Array.isArray(options?.accept) ? options.accept : []);
-      if (word?.notKept.some((loss) => !accepted.has(loss.key))) return { status: "review", word };
       const saved = await saveExport(
         fileName,
         data,

@@ -340,6 +340,19 @@ function readsPassages(deps: ClaimCheckDependencies, request: ClaimCheckRequest)
   );
 }
 
+/** Whether the sentence's check may run code over a data file's rows: one the User started, where Python runs. */
+const worksOutRows = (deps: ClaimCheckDependencies, request: ClaimCheckRequest): boolean =>
+  deps.analysisRuntime !== undefined &&
+  (request.sends === undefined || request.sends.includes("analysis-results"));
+
+/** Whether any of `passages` is of a sheet or a CSV file. */
+function readsSheet(deps: ClaimCheckDependencies, passages: readonly WindowedPassage[]): boolean {
+  const ids = [...new Set(passages.map((each) => each.documentId))];
+  return (deps.documents.getMany?.(ids) ?? []).some(
+    (document) => document.kind === "xlsx" || document.kind === "csv",
+  );
+}
+
 type Source = NonNullable<ReturnType<ClaimCheckDependencies["documents"]["citationSource"]>>;
 
 /** The Passage as its Document holds it now, when a verdict may quote it. */
@@ -443,6 +456,9 @@ export function createFirstReading(deps: Dependencies) {
     ];
     // With no Passage to read, the sentence's check says what its Documents lack.
     if (passages.length === 0) return null;
+    // A sheet's rows state no total over them: where the sentence's own check can work a figure
+    // out from the whole file, a sentence that reads a data file is left to it (#3282).
+    if (worksOutRows(deps, request) && readsSheet(deps, passages)) return null;
     for (const passage of passages) results.readVersion(passage.documentId, passage.contentHash);
     for (const each of found.excluded) results.leftOut(each);
     const scores = await scoresOfEach(reader, request, passages, signal);

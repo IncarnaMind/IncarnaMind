@@ -4,16 +4,9 @@ import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { chipsOf, hiddenTagsLine } from "../../tagEditing";
 import { DocumentTagFooter } from "../DocumentTags";
-import { CloseLineIcon, PlusLineIcon, SparkLineIcon } from "../lineIcons";
+import { CloseLineIcon, PlusLineIcon } from "../lineIcons";
 import { tagChipColour } from "../TagColour";
-import {
-  chipClass,
-  chipTitle,
-  pickerLabel,
-  TagPicker,
-  tagPopoverClass,
-  useTagPopover,
-} from "../TagPicker";
+import { chipClass, pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "../TagPicker";
 
 /** How many chips a row shows before "+N": the row never wraps or grows. */
 const VISIBLE_CHIPS = 3;
@@ -101,7 +94,7 @@ const chipButtonClass =
   "inline-flex size-4 items-center justify-center rounded-sm hover:bg-sheet/70";
 
 /**
- * One Tag on a row: its name, a spark when tagging gave it, and, pointed at,
+ * One Tag on a row: its name and, pointed at,
  * × over its end to take it off, so nothing moves under the pointer. It is wide enough that a
  * two-character name (报告) still opens the picker where it is pointed at, not ×.
  */
@@ -113,12 +106,9 @@ function RowChip({ document, tag, link }: { document: Document; tag: Tag; link: 
       data-tag-id={tag.id}
       data-source={link.source}
       data-colour={tag.colour}
-      title={chipTitle(link, tag, t)}
+      title={tag.name}
       className={`group/chip relative ${chipClass} ${tagChipColour(tag.colour)} min-w-12 shrink`}
     >
-      {link.source === "automatic" && (
-        <SparkLineIcon aria-hidden="true" className="size-2.5 shrink-0 opacity-70" />
-      )}
       <span className="min-w-0 truncate">{tag.name}</span>
       <span className="absolute inset-y-0 right-0 hidden items-center rounded-r-sm bg-inherit pr-0.5 pl-0.5 group-focus-within/chip:flex group-hover/chip:flex">
         <button

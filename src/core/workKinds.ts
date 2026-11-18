@@ -17,13 +17,11 @@ export const isWorkKind = (value: unknown): value is WorkKind =>
   typeof value === "string" && (WORK_KINDS as readonly string[]).includes(value);
 
 /**
- * Picks as the setup keeps them: each kind once, in the order picked, and Something else only on
- * its own. Null for anything else.
+ * Picks as the setup keeps them: each kind once, in the order picked. Null for anything else.
  */
 export function pickedWork(value: unknown): WorkKind[] | null {
   if (!Array.isArray(value) || !value.every(isWorkKind)) return null;
   if (new Set(value).size !== value.length) return null;
-  if (value.includes("other") && value.length > 1) return null;
   return [...value];
 }
 

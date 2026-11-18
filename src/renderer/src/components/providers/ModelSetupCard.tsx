@@ -114,7 +114,6 @@ export function ModelSetupCard() {
               />
             )}
             {!localOnly && !chinese && plans}
-            <LocalWay ollama={ollama} />
             {!localOnly && (
               <details
                 open={others}
@@ -134,6 +133,7 @@ export function ModelSetupCard() {
                 </div>
               </details>
             )}
+            <LocalWay ollama={ollama} />
           </>
         )
       ) : (

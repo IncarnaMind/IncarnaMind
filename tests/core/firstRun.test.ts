@@ -147,9 +147,16 @@ describe("the first run's setup: what finishing makes (#3296)", { timeout: 60_00
     expect((await madeGroups(core)).sort()).toEqual(["credit", "reports"]);
   });
 
-  test("only the setup's own kinds are kept: Something else stands alone, each kind once", async () => {
+  test("Something else beside another pick is kept, and the first pick still leads", async () => {
     const { core } = await fresh();
-    for (const work of [["other", "legal"], ["legal", "legal"], ["tax"], "legal"]) {
+    expect((await core.finishFirstRunSetup(["legal", "other"]))?.group).toBe("contracts");
+    expect((await madeGroups(core)).sort()).toEqual(["contracts", "credit"]);
+    expect((await core.getSettings()).device.work).toEqual(["legal", "other"]);
+  });
+
+  test("only the setup's own kinds are kept, each kind once", async () => {
+    const { core } = await fresh();
+    for (const work of [["legal", "legal"], ["tax"], "legal"]) {
       await expect(core.finishFirstRunSetup(work as never)).rejects.toThrow(InvalidInputError);
     }
     expect((await core.firstRunSetup()).show).toBe(true);
@@ -235,7 +242,7 @@ describe("the first run's picks as usage data (#3296)", { timeout: 30_000 }, () 
 
     const strict = fakeSender();
     const checked = await fresh({ usageData: strict.sender });
-    for (const work of [[], ["other", "legal"], ["My tax return.pdf"]]) {
+    for (const work of [[], ["My tax return.pdf"]]) {
       await expect(checked.core.sendWorkPicked(work as never)).rejects.toThrow(InvalidInputError);
     }
     expect(strict.picks()).toEqual([]);

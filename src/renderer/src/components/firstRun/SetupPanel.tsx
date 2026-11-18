@@ -66,7 +66,7 @@ export function SetupPanel({
       data-testid="setup-panel"
       data-step={place.steps[place.at]}
       aria-labelledby="setup-title"
-      className={`relative flex min-h-[548px] w-full max-w-[640px] flex-col bg-sheet ${
+      className={`relative flex w-full max-w-[640px] flex-col bg-sheet ${
         place.close ? "" : "rounded-[12px] shadow-[0_0_0_1px_var(--color-rule)]"
       }`}
     >
@@ -148,6 +148,7 @@ export function SetupChoice({
   line,
   testId,
   value,
+  icon,
   onChange,
 }: {
   type: "checkbox" | "radio";
@@ -157,13 +158,17 @@ export function SetupChoice({
   line?: string;
   testId: string;
   value: string;
+  /** Drawn at the tile's start, in a chip; the box then sits at its end. */
+  icon?: ReactNode;
   onChange(): void;
 }) {
   return (
     <label
       data-testid={testId}
       data-value={value}
-      className="flex min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-3 py-[11px] shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover has-[input:checked]:shadow-[inset_0_0_0_2px_var(--color-ink)]"
+      className={`flex min-w-0 cursor-pointer rounded-lg shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover has-[input:checked]:shadow-[inset_0_0_0_2px_var(--color-ink)] ${
+        icon ? "items-center gap-3 px-3.5 py-3" : "items-start gap-2.5 px-3 py-[11px]"
+      }`}
     >
       <input
         type={type}
@@ -171,9 +176,17 @@ export function SetupChoice({
         value={value}
         checked={checked}
         onChange={onChange}
-        className="mt-0.5 size-4 shrink-0 accent-ink"
+        className={`size-4 shrink-0 accent-ink ${icon ? "order-last" : "mt-0.5"}`}
       />
-      <span className="flex min-w-0 flex-col">
+      {icon && (
+        <span
+          aria-hidden="true"
+          className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-chip text-ink-secondary"
+        >
+          {icon}
+        </span>
+      )}
+      <span className="flex min-w-0 flex-1 flex-col">
         <span className="text-ui font-semibold text-ink">{title}</span>
         {line && <span className="text-[13px] leading-5 text-ink-secondary">{line}</span>}
       </span>

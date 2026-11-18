@@ -22,10 +22,13 @@ export function ChatGptPlanWay({
   sign,
   leads,
   label = "setup.chatgpt.use",
+  quiet = false,
 }: {
   sign: ReturnType<typeof useContinueWithChatGpt>;
   leads: boolean;
   label?: MessageKey;
+  /** The first run's setup: no plan line, and once the sign-in waits only its own lines. */
+  quiet?: boolean;
 }) {
   const t = useT();
   const storage = useChatGptStorage();
@@ -48,12 +51,16 @@ export function ChatGptPlanWay({
         <ChatGptMark className="size-4" />
         {t(label)}
       </button>
-      <p data-testid="setup-chatgpt-line" className={lineClass}>
-        {t("setup.chatgpt.line")}
-      </p>
+      {!quiet && (
+        <p data-testid="setup-chatgpt-line" className={lineClass}>
+          {t("setup.chatgpt.line")}
+        </p>
+      )}
       {/* It signs in at once, so it says here what goes to OpenAI (ADR-0022). */}
-      <SendsLine provider={CHATGPT_RECIPIENT} testId="setup-chatgpt-sends" />
-      <ChatGptSignInState sign={sign} />
+      {!(quiet && sign.waiting) && (
+        <SendsLine provider={CHATGPT_RECIPIENT} testId="setup-chatgpt-sends" />
+      )}
+      <ChatGptSignInState sign={sign} quiet={quiet} />
     </div>
   );
 }
@@ -64,14 +71,27 @@ export function ChatGptPlanWay({
  * answers it says it is looking; a look that ran out of time, twice, settles to saying it wasn't
  * heard from with Check again, and neither says the app is missing (#2196, #2224).
  */
-export function LocalWay({ ollama }: { ollama: OllamaState }) {
+export function LocalWay({
+  ollama,
+  quiet = false,
+}: {
+  ollama: OllamaState;
+  /** Under a row that already names it (the first run's setup): no title, no line of its own. */
+  quiet?: boolean;
+}) {
   const t = useT();
   const read = ollamaRead(ollama);
+  const keeps = ollama.status?.running === true && ollama.keepLocal.checked;
   return (
-    <div data-testid="way-local" className="flex flex-col items-start gap-1.5 px-2 py-1.5">
-      <span className="text-ui font-semibold text-ink">
-        {t(read === "not-running" ? "setup.way.local.install" : "setup.way.local")}
-      </span>
+    <div
+      data-testid="way-local"
+      className={`flex flex-col items-start gap-1.5 ${quiet ? "" : "px-2 py-1.5"}`}
+    >
+      {!quiet && (
+        <span className="text-ui font-semibold text-ink">
+          {t(read === "not-running" ? "setup.way.local.install" : "setup.way.local")}
+        </span>
+      )}
       <span
         data-testid="ollama-status"
         data-read={read}
@@ -91,14 +111,16 @@ export function LocalWay({ ollama }: { ollama: OllamaState }) {
       <OllamaProgress ollama={ollama} />
       <OllamaAction ollama={ollama} />
       {/* One line in every state, so nothing under it moves when the line below changes. */}
-      <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
-        {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
-        {ollama.status?.running && ollama.keepLocal.checked ? (
-          <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
-        ) : (
-          <span className="text-ink-meta">{t("setup.way.local.line")}</span>
-        )}
-      </p>
+      {(!quiet || keeps) && (
+        <p data-testid="setup-local-keeps" className="min-h-[18px] text-[12px] leading-[18px]">
+          {/* With a cloud service set up and Local mode off, the click leaves Local mode as it is. */}
+          {keeps ? (
+            <OnThisComputer>{t("setup.way.local.keeps")}</OnThisComputer>
+          ) : (
+            <span className="text-ink-meta">{t("setup.way.local.line")}</span>
+          )}
+        </p>
+      )}
     </div>
   );
 }

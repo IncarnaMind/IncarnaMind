@@ -94,6 +94,7 @@ import {
 import { CardKeyHint } from "./CardKeyHint";
 import { ChangedCitations } from "./ChangedSourceNotice";
 import { CheckedByLine } from "./CheckedByLine";
+import { CheckWorkingView } from "./CheckWorkingView";
 import { ChooseCitationAction } from "./ChooseCitationAction";
 import { CardButtons, CardMenu } from "./ClaimCardActions";
 import { ClaimOutline } from "./ClaimOutline";
@@ -1088,6 +1089,8 @@ export function ClaimCard({
             : [],
         )
       : [];
+  const working = check.parts?.find((part) => part.working)?.working;
+  const worked = working && <CheckWorkingView working={working} />;
   const figureSources = mismatched.map((figure) => {
     const cited = figure.sourceInput?.citation;
     const at = cited ? citationLocation(cited) : null;
@@ -1538,6 +1541,7 @@ export function ClaimCard({
             })}
           </ol>
           {figureSources}
+          {worked}
           {statedUnits}
           <ChangedCitations cited={cited} />
           <PartsCoverage editor={editor} parts={partRows} signedAll={signedAll} onOpen={onOpen} />
@@ -1593,6 +1597,7 @@ export function ClaimCard({
               </p>
             )}
             {figureSources}
+            {worked}
             {statedUnits}
             {sole && <CorrectionConflict correction={sole.correction} />}
             {differs && (

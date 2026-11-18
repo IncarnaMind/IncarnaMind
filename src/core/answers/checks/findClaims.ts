@@ -69,7 +69,7 @@ export async function claimsAmong(
       : library
         ? FIND_OWN_LIBRARY_CLAIMS_INSTRUCTIONS
         : FIND_OWN_CLAIMS_INSTRUCTIONS;
-  const ask = async (batch: Batch, tries: number): Promise<Asked> => {
+  const ask = async (batch: Batch, tries: number, again = false): Promise<Asked> => {
     for (let tried = 0; tried < tries; tried++) {
       const { named } = along;
       const early = named ? claimPartsReader(batch) : null;
@@ -79,7 +79,8 @@ export async function claimsAmong(
         // The sentences go as JSON in no tag, so the parts copied back are their own words.
         parts: [{ text: findClaimsPrompt(batch) }],
         data: [],
-        reply: json((value) => claimPartsOf(value, batch)),
+        // A reply asked for again is read by its parts' kinds where their words aren't the sentence's.
+        reply: json((value) => claimPartsOf(value, batch, tried > 0 || again)),
         retries: 1,
         signal: sorting,
         temperature: answerTemperature(prepared.capabilities.facts.temperature),
@@ -117,11 +118,11 @@ export async function claimsAmong(
     // A sentence the reply says nothing of was never decided, so it isn't one that makes no claim.
     const unanswered = batch.filter((each) => !inventories.has(each.number));
     if (unanswered.length > 0) {
-      const again = await ask(unanswered, 1);
-      if (again.kind === "cancelled" || again.kind === "failed") return again;
-      if (again.kind === "read") {
+      const second = await ask(unanswered, 1, true);
+      if (second.kind === "cancelled" || second.kind === "failed") return second;
+      if (second.kind === "read") {
         for (const { number } of unanswered) {
-          const inventory = again.parts.get(number);
+          const inventory = second.parts.get(number);
           if (inventory !== undefined) inventories.set(number, inventory);
         }
       }

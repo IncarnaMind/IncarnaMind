@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, onTestFinished, test } from "vitest";
 import type { CheckDecisionModel, CheckMindInput, Core, Reranker } from "../../src/core";
+import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import {
   type PassageScores,
   type Reading,
@@ -153,6 +154,9 @@ const LOG = {
   ].join("\n\n"),
 };
 
+const CARGO_CSV = "Month,Cargo tonnes\n2026-01,26000\n2026-02,28000\n";
+const CARGO_TOTAL = "Cargo tonnes came to 54,000 over the two months.";
+
 const PLANS: Record<string, Plan> = {
   ...Object.fromEntries(MOONS.map((sentence) => [sentence, { verdict: "unsupported" }])),
   [MOON]: { verdict: "supported", quote: MOON },
@@ -165,6 +169,7 @@ const PLANS: Record<string, Plan> = {
   [TONNES]: { verdict: "unsupported" },
   [FERRY]: { verdict: "unsupported" },
   [BOTH]: { verdict: "unsupported" },
+  [CARGO_TOTAL]: { verdict: "unsupported" },
 };
 
 interface Shown {
@@ -251,7 +256,14 @@ async function setUp(
     readsByDefault = false,
     asShipped = false,
     reranker,
-  }: { readsByDefault?: boolean; asShipped?: boolean; reranker?: Reranker } = {},
+    cargoSheet = false,
+  }: {
+    readsByDefault?: boolean;
+    asShipped?: boolean;
+    reranker?: Reranker;
+    /** A CSV file of cargo by month is among the Documents, and Python can run. */
+    cargoSheet?: boolean;
+  } = {},
 ) {
   const host = await startDecisionHost();
   const checks: ModelCall[] = [];
@@ -270,6 +282,7 @@ async function setUp(
     decisionOrigins: { openrouter: host.url },
     ...(!asShipped && { decisionReadsByDefault: readsByDefault }),
     ...(reranker && { reranker }),
+    ...(cargoSheet && { analysisRuntime: createFakeAnalysisRuntime() }),
   });
   let accepts = true;
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, accepts));
@@ -283,6 +296,7 @@ async function setUp(
   await addAndProcess(core, [
     await writeSourceFile(sources, TIDES.name, TIDES.contents),
     await writeSourceFile(sources, OFFICE.name, OFFICE.contents),
+    ...(cargoSheet ? [await writeSourceFile(sources, "Cargo.csv", CARGO_CSV)] : []),
   ]);
   const mind = await core.createMind({ title: "Harbour notes" });
   const client = await connectToMind(core, mind.id);
@@ -760,6 +774,21 @@ describe("Check this Note with a decision model chosen (#3118)", { timeout: 30_0
     await core.checkMind(run());
 
     expect(host.asked).toEqual([]);
+    const [mark] = Object.values(await marks(client));
+    expect(mark?.by).not.toBe(DECIDER.modelId);
+  });
+
+  // protects=a sentence whose nearest Passages are a data file's rows is never settled by the decision model where its own check can work the figure out from the whole file (#3282): a sheet's rows state no total, so the host would call a right total Unsupported; fails_when=the host is asked about such a sentence, or its Mark is the decision model's; no_claim=what the AI model then makes of it
+  test("a sentence that reads a data file's rows goes to the AI model unread", async () => {
+    const { core, client, host, run, readByAiModel } = await setUp([CARGO_TOTAL], {
+      cargoSheet: true,
+    });
+    await choose(core);
+
+    await core.checkMind(run());
+
+    expect(host.asked).toEqual([]);
+    expect(readByAiModel()).toEqual([CARGO_TOTAL]);
     const [mark] = Object.values(await marks(client));
     expect(mark?.by).not.toBe(DECIDER.modelId);
   });
