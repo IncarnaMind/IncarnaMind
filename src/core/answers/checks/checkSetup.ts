@@ -6,10 +6,11 @@
 import { type CaseCitation, caseCitations, isOpinionOf } from "../../../shared/caseCitations";
 import type { AnalysisRuntime } from "../../adapters";
 import { analysisTool } from "../../analysis/tool";
-import type { AnswerAnalysis, Citation, ClaimCheckResult } from "../../api";
+import type { AnswerAnalysis, CheckWorking, Citation, ClaimCheckResult } from "../../api";
 import type { CitationSource } from "../../documents";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
+import { isLibraryList, type LibraryLists } from "../../library/lists";
 import { answerLanguage, createCalculationSession, givenList } from "../calculations";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import type { AnswerTools } from "../engine";
@@ -138,8 +139,8 @@ export function withoutDocumentLeftOut(result: ClaimCheckResult, name: string): 
 }
 
 export function setUpRun(
-  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark">,
-  request: Pick<ClaimCheckRequest, "claim" | "cited" | "scope" | "about" | "callIn">,
+  deps: Pick<ClaimCheckDependencies, "documents" | "evidence" | "callMark" | "libraryLists">,
+  request: Pick<ClaimCheckRequest, "claim" | "cited" | "scope" | "about" | "callIn" | "mindId">,
   results: Pick<CheckResults, "readVersion" | "leftOut">,
   /** The model is offered `calculate`, the calculator Answers use (ADR-0021). */
   calculates = false,
@@ -208,6 +209,10 @@ export function setUpRun(
   // whole sheet those Passages are of, on this computer. What the result means is the model's to say.
   const workings: AnswerAnalysis[] = [];
   let figures = 0;
+  // The Library's lists are read once, when a run first asks for one: every run of this check
+  // counts the same rows.
+  let lists: LibraryLists | null = null;
+  const listsRead = new Map<AnswerAnalysis, CheckWorking["library"]>();
   const analysis = runtime
     ? analysisTool({
         runtime,
@@ -226,6 +231,23 @@ export function setUpRun(
         language: answerLanguage(request.claim),
         now: () => new Date(),
         ran: (_call, run) => workings.push(run),
+        ...(deps.libraryLists && {
+          library(list) {
+            lists ??= deps.libraryLists?.(request.mindId ?? null) ?? null;
+            return isLibraryList(list) ? (lists?.[list] ?? null) : null;
+          },
+          readLibrary(run, read) {
+            const from = lists;
+            if (!from || read.length === 0) return;
+            listsRead.set(run, {
+              source: from.source,
+              lists: [...new Set(read)].filter(isLibraryList).map((list) => ({
+                list,
+                count: from[list].rows.length,
+              })),
+            });
+          },
+        }),
       })
     : null;
   const tools: AnswerTools = {
@@ -257,6 +279,8 @@ export function setUpRun(
     looked: () => searches > 0 || citedShown !== null,
     /** The Analyses the model ran, in order: a failed one too. */
     workings: (): readonly AnswerAnalysis[] => workings,
+    /** The Library's lists a run read; none for a run over a data file's rows alone. */
+    libraryRead: (run: AnswerAnalysis): CheckWorking["library"] => listsRead.get(run),
     tools,
   };
 }

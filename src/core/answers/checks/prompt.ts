@@ -69,10 +69,14 @@ const CALCULATE =
 const ROWS =
   "A figure the sentence gives over the rows of a data file (a sheet or a CSV file: a total, an average, a count, a share, a change over many rows) is not stated by the few rows a Passage shows. Work it out with run_analysis: give the file's Passage as its input, which reads the whole sheet, and write code that works out the quantity the sentence names (its rows, its column, its period, its group, its measure) without using the sentence's own number, giving it with result(). Then compare the result with the sentence's figure at the precision the sentence writes it: the same value is supported; another value is contradicted, and your explanation says the value the rows give; where the file has no such rows or column, it is not found. Such a verdict rests on the run and needs no quote: write Evidence: []. For contradicted, \"To 1:\" is only the value the rows give, written the way the sentence writes its figure, with no marker and nothing after it. A run that fails may be mended and run once more.";
 
+const LIBRARY =
+  "A sentence about the User's Library itself, rather than about what a Document says (how many Documents, Folders or notes it holds, what they are called, of what kind, where they are filed or how they are tagged), is stated by no Passage. Work it out with run_analysis over the Library's own lists, as its description gives them: write code that counts or looks up what the sentence names, without using the sentence's own number, and give it with result(). Then compare the result with the sentence: the same is supported and another value is contradicted, with no quote, and Working says what the code counted.";
+
 /**
  * The instructions of a check's Run, for a way of citing; `passages`: what the one search found,
  * for a model without Tools; `calls`: the sentence is from an Answer asked in a call; `calculate`:
- * the model is offered the calculator; `rows`: it is offered the Analysis Tool.
+ * the model is offered the calculator; `rows`: it is offered the Analysis Tool for a data file's
+ * rows; `library`: for the Library's own lists.
  */
 export function checkInstructions(
   mode: CitationSupport | "no-documents",
@@ -81,6 +85,7 @@ export function checkInstructions(
   calls = false,
   calculate = false,
   rows = false,
+  library = false,
 ): string {
   const REPLY = reply(language);
   switch (mode) {
@@ -92,6 +97,7 @@ export function checkInstructions(
         `Before you reply, call cite with every quote that decides the sentence, each under its own marker: ${RECORD}. A supported or contradicted verdict needs one; for overstated or partly supported, record the quote of what the Passages do state.`,
         ...(calculate ? [CALCULATE] : []),
         ...(rows ? [ROWS] : []),
+        ...(library ? [LIBRARY] : []),
         "",
         REPLY,
       ].join("\n");

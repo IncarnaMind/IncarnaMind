@@ -24,6 +24,7 @@ import {
 
 export { MAX_ANALYSES_PER_ANSWER };
 
+import type { LibraryList } from "../library/lists";
 import { parseRange, type ReadRange, readRange, sheetRows, sheetsOf } from "./ranges";
 import { analysisReport } from "./report";
 
@@ -46,7 +47,18 @@ export interface AnalysisToolOptions {
   recorder?: AnalysisRecorder;
   /** Whether run_code can take a range cut here, at this call: then it is run again there. */
   codeOffered?: () => boolean;
+  /**
+   * One of the Library's own lists as a table, where the code may read them (#2525): "documents",
+   * "folders" or "notes"; null for any other name. Absent: no such input is offered.
+   */
+  library?(list: string): LibraryList | null;
+  /** The Library's lists a run read, told with the run. */
+  readLibrary?(analysis: AnswerAnalysis, lists: readonly string[]): void;
 }
+
+/** How the model is told to read the Library's lists, where a Run offers them. */
+const LIBRARY_INPUT =
+  ' An input can also be one of the lists IncarnaMind keeps of the User\'s Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, tags), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder). Count and compare their rows in the code and give what you worked out with result().';
 
 const fields = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -61,7 +73,9 @@ type Read =
   | {
       ok: true;
       job: AnalysisInput;
-      record: Omit<AnalysisRangeInput, "sha256"> | Omit<AnalysisFigureInput, "sha256">;
+      /** What the Answer keeps of it; null for a list of the Library, which is no Document's. */
+      record: Omit<AnalysisRangeInput, "sha256"> | Omit<AnalysisFigureInput, "sha256"> | null;
+      library?: string;
     }
   | { ok: false; problem: string };
 
@@ -74,7 +88,7 @@ type ReadInput = Extract<Read, { ok: true }>;
  */
 function readTwice(reads: readonly ReadInput[]): string | null {
   const ranges = reads.flatMap((read) =>
-    read.job.kind === "table" && read.record.kind === "range"
+    read.job.kind === "table" && read.record?.kind === "range"
       ? [{ job: read.job, citation: read.record.citation, table: read.record.table?.number }]
       : [],
   );
@@ -215,6 +229,22 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     }
     const lead = (read: Read): Read =>
       read.ok ? read : { ok: false, problem: `${name}: ${read.problem}` };
+    if (options.library && input.library !== undefined) {
+      const list = text(input.library);
+      const table = options.library(list);
+      if (!table) {
+        return lead({
+          ok: false,
+          problem: 'the Library\'s lists are "documents", "folders" and "notes"',
+        });
+      }
+      return {
+        ok: true,
+        job: { kind: "table", name, columns: table.columns, rows: table.rows, firstRow: 2 },
+        record: null,
+        library: list,
+      };
+    }
     if (input.number === undefined && input.value === undefined && input.passage !== undefined) {
       return lead(readRangeInput(name, input));
     }
@@ -232,8 +262,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
     name: ANALYSIS_TOOLS.run,
     provider: ANALYSIS_PROVIDER,
     providerTool: ANALYSIS_TOOLS.run,
-    description:
-      'Run Python over sheets, CSV files and the tables of PDF, Word and PowerPoint files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once; it holds the rows the file strikes through or hides too, which the result names: drop such rows by their numbers where they are an earlier version of rows the sheet shows plainly), a table a Passage of a PDF, Word file or deck shows, {"name": "costs", "passage": "P5"} (the whole table, over every page it runs to, its headings row 1; add "table": 2 where the Passage shows more than one), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row\'s number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input\'s column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. A number of rows is the count of a column every row fills: figure("orders", df["order_id"], "count", "Orders"). Give any other figure or table with result(name, value, label, unit), each a number or a table. Every figure worked out from an input\'s rows (a coefficient, a forecast, a p-value, a share) passes those rows as of=, the DataFrame after any filtering, so its Citation leads to them: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure\'s marker [=n], each table\'s [=table n], each chart\'s [=chart n] and each picture\'s [=picture n].',
+    description: `Run Python over sheets, CSV files and the tables of PDF, Word and PowerPoint files you found, to work out totals, groups, changes, tables, statistics and models. Give title, inputs and code. An input is a range, {"name": "sales", "passage": "P3", "range": "A1:F1240"} (range optional: the whole sheet, its first row the headings; every Passage of a sheet reads the whole sheet, so give each sheet once; it holds the rows the file strikes through or hides too, which the result names: drop such rows by their numbers where they are an earlier version of rows the sheet shows plainly), a table a Passage of a PDF, Word file or deck shows, {"name": "costs", "passage": "P5"} (the whole table, over every page it runs to, its headings row 1; add "table": 2 where the Passage shows more than one), or a quoted number as calculate takes one, {"name": "rate", "citation": 1, "number": "5%"}. The code has pd (pandas) and np (numpy) imported, can import scipy, statsmodels, sklearn and matplotlib, and reads inputs["sales"] (a DataFrame whose index is each row's number in the sheet, named row) and inputs["rate"] (a number). Give each sum, mean, min, max or count of an input's column with figure(name, df["Revenue"], "sum", label, unit), after any filtering: IncarnaMind works it out again from the cells. A number of rows is the count of a column every row fills: figure("orders", df["order_id"], "count", "Orders"). Give any other figure or table with result(name, value, label, unit), each a number or a table. Every figure worked out from an input's rows (a coefficient, a forecast, a p-value, a share) passes those rows as of=, the DataFrame after any filtering, so its Citation leads to them: result("slope", fit.params["Price"], "Slope", of=df). For a percent figure, give a fraction: result("growth", 0.081, "Growth", "%") shows 8.1%. step(label, df) records each step that changes the rows, chart(kind, df, x, y, title) draws a bar, line, pie or scatter chart, and a plot drawn with matplotlib.pyplot comes back as a picture (its text in Latin letters or common Chinese characters). The result says each figure's marker [=n], each table's [=table n], each chart's [=chart n] and each picture's [=picture n].${options.library ? LIBRARY_INPUT : ""}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -248,6 +277,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
               range: { type: "string" },
               sheet: { type: "string" },
               table: { type: "number" },
+              ...(options.library && { library: { type: "string" } }),
               citation: { type: "number" },
               location: { type: "string" },
               quote: { type: "string" },
@@ -310,14 +340,15 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         language: "python",
         code,
         inputs: await Promise.all(
-          ok.map(async (read) => ({
-            ...read.record,
-            sha256: await sha256(
-              JSON.stringify(
-                read.job.kind === "table" ? [read.job.columns, read.job.rows] : read.job.value,
-              ),
-            ),
-          })),
+          ok.flatMap(({ record, job }) =>
+            record
+              ? [
+                  sha256(
+                    JSON.stringify(job.kind === "table" ? [job.columns, job.rows] : job.value),
+                  ).then((hash) => ({ ...record, sha256: hash })),
+                ]
+              : [],
+          ),
         ),
         versions: run.versions,
         codeSha256: run.code,
@@ -328,6 +359,10 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         ranAt: options.now().toISOString(),
         ...marked,
       };
+      options.readLibrary?.(
+        analysis,
+        ok.flatMap((read) => (read.library ? [read.library] : [])),
+      );
       options.ran(toolCallId, analysis);
       return analysisReport(analysis, options.language, options.codeOffered?.() === true);
     },

@@ -13,6 +13,7 @@
  * sentence it leaves undecided comes here.
  */
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
+import { LIBRARY_FACTS } from "../../../shared/libraryFacts";
 import { joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import type { AnalysisRuntime } from "../../adapters";
 import type {
@@ -31,6 +32,7 @@ import type {
 } from "../../api";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
+import type { LibraryLists } from "../../library/lists";
 import {
   checkCalculates,
   givesStructuredOutput,
@@ -86,6 +88,8 @@ export interface ClaimCheckDependencies {
   };
   /** Where a check's model works a figure out over a data file's rows (ADR-0023); absent: it can't. */
   analysisRuntime?: AnalysisRuntime;
+  /** The Library's own lists as a Note's check may see them, Folder walls applied (#2525). */
+  libraryLists?(mindId: string | null): LibraryLists;
   /** The call a Transcript's Passage is from, for an Answer asked in the Note `callIn` holds a call of (#3005). */
   callMark?(callIn: string | null, documentId: string): BatchCall | null;
 }
@@ -149,6 +153,36 @@ const endedAs = ({ end }: AnswerAnalysis): ClaimCheckFailure =>
     : end.kind === "unavailable"
       ? "rows-unavailable"
       : "rows-run-failed";
+
+/**
+ * What a verdict worked out from the Library's own lists rests on, as its card's row says it: how
+ * many Documents the Note's check saw, which is no Document's text.
+ */
+const libraryCitation = ({ source, lists }: NonNullable<CheckWorking["library"]>): Citation => {
+  const [first] = lists;
+  const count = first?.count ?? 0;
+  return {
+    passageId: LIBRARY_FACTS,
+    documentId: LIBRARY_FACTS,
+    documentName: "",
+    contentHash: "",
+    pageFrom: null,
+    pageTo: null,
+    location: {
+      kind: "library",
+      source,
+      fact:
+        first?.list === "folders"
+          ? { kind: "folders", count }
+          : first?.list === "notes"
+            ? { kind: "notes", count }
+            : { kind: "documents", count },
+    },
+    quote: "",
+    check: "found",
+    checkReason: null,
+  };
+};
 
 /** The most of a working's code, in characters, that a check keeps for its card. */
 const CODE_KEPT = 4_000;
@@ -242,22 +276,19 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const calculates = model.support === "tools" && checkCalculates(model.capabilities);
   const sends = (kind: DataKind) => request.sends === undefined || request.sends.includes(kind);
   // A figure over a data file's rows is worked out again where the model can run code, the User
-  // started the check, and a sheet or a CSV file is there to read (#3282).
+  // started the check, and a sheet or a CSV file is there to read (#3282); a sentence about the
+  // Library itself is worked out from the Library's own lists (#2525).
+  const sheets = deps.documents.searchableHasSheets?.(request.scope.documentIds) === true;
   const runtime =
     model.support === "tools" &&
     offersAnalysis(model.capabilities) &&
     sends("analysis-results") &&
     deps.analysisRuntime?.languages.some((each) => each.language === "python") &&
-    deps.documents.searchableHasSheets?.(request.scope.documentIds)
+    (sheets || deps.libraryLists !== undefined)
       ? deps.analysisRuntime
       : undefined;
-  const { scoped, session, decisions, citedShown, looked, searches, tools, workings } = setUpRun(
-    deps,
-    request,
-    results,
-    calculates,
-    runtime,
-  );
+  const { scoped, session, decisions, citedShown, looked, searches, tools, workings, libraryRead } =
+    setUpRun(deps, request, results, calculates, runtime);
   let court: Awaited<ReturnType<typeof courtDecisions>>;
   try {
     court = await courtDecisions(decisions, scoped, signal);
@@ -320,7 +351,8 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         options?.passages,
         request.callIn !== undefined,
         calculates,
-        runtime !== undefined,
+        runtime !== undefined && sheets,
+        runtime !== undefined && deps.libraryLists !== undefined,
       ),
     messages: [
       { role: "user", content: claimPrompt({ ...request, figures, citedShown, language }) },
@@ -389,8 +421,11 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     if (!worked) return notChecked(last ? endedAs(last) : "rows-run-failed", file);
     if (rowsOf(worked).some((rows) => rows.cut)) return notChecked("rows-cut", file);
   }
-  const working = worked && workingOf(worked);
-  const evidence = quoted ?? (worked ? rowsOf(worked)[0]?.citation : undefined);
+  const lists = worked && libraryRead(worked);
+  const working = worked && { ...workingOf(worked), ...(lists && { library: lists }) };
+  const evidence =
+    quoted ??
+    (worked ? (rowsOf(worked)[0]?.citation ?? (lists && libraryCitation(lists))) : undefined);
   const result = ((): Judged => {
     if (read.verdict === "unsupported")
       return {

@@ -15,7 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
-import { type Core, createAiSdkChatModel } from "../../src/core";
+import { type AnalysisRuntime, type Core, createAiSdkChatModel } from "../../src/core";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { readOpinionSentences } from "../../src/shared/opinions";
@@ -24,6 +24,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, writeMind } from "../helpers/minds";
 import { docxOf, xlsxOf } from "../helpers/office";
+import { pyodideAnalysisRuntime } from "../helpers/pyodideAnalysis";
 
 const DEEPSEEK = process.env.INCARNAMIND_LIVE_PROVIDER === "deepseek";
 const KIND = DEEPSEEK ? "deepseek" : "anthropic";
@@ -84,6 +85,8 @@ interface Case {
 }
 
 const NOT_SUPPORTED = ["contradicted", "unsupported"] as const;
+/** A reading of the names, which the lists don't settle: the writer's own view, or not found. */
+const UNSETTLED = ["unsupported", "not-checked"] as const;
 
 const CASES: Record<"en" | "zh-CN", Case[]> = {
   en: [
@@ -143,7 +146,7 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
     // A description the facts can't settle: a reading of the names.
     {
       sentence: "Most of the files concern harbour maintenance work.",
-      expected: ["not-checked"],
+      expected: UNSETTLED,
       library: "open",
     },
     // About the note itself.
@@ -221,7 +224,7 @@ const CASES: Record<"en" | "zh-CN", Case[]> = {
       library: "open",
       aboutLibrary: true,
     },
-    { sentence: "这些文件大多与港口维修有关。", expected: ["not-checked"], library: "open" },
+    { sentence: "这些文件大多与港口维修有关。", expected: UNSETTLED, library: "open" },
     { sentence: "后文逐一列出了这些文档。", expected: ["left-out"], library: "open" },
     { sentence: "你的资料库里有 9 个文档。", expected: NOT_SUPPORTED, library: "walled-outside" },
     {
@@ -243,8 +246,15 @@ interface Checked {
 }
 
 /** A Library of its own for one case, with its note in the place the case names. */
-async function libraryFor(library: Case["library"], language: "en" | "zh-CN") {
-  const core = startCore(await createTempDataFolder(), { createChatModel: createAiSdkChatModel });
+async function libraryFor(
+  library: Case["library"],
+  language: "en" | "zh-CN",
+  analysisRuntime: AnalysisRuntime,
+) {
+  const core = startCore(await createTempDataFolder(), {
+    createChatModel: createAiSdkChatModel,
+    analysisRuntime,
+  });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.saveChatProvider({ kind: KIND, apiKey: KEY ?? "", modelId: MODEL });
   await core.updateSettings({ user: { language } });
@@ -335,8 +345,9 @@ describe.each(["en", "zh-CN"] as const)("sentences about the Library, live (%s)"
       const falseSupported: string[] = [];
       let right = 0;
       const spent: unknown[] = [];
+      const analysisRuntime = await pyodideAnalysisRuntime();
       for (const each of CASES[language]) {
-        const { core, folderId } = await libraryFor(each.library, language);
+        const { core, folderId } = await libraryFor(each.library, language, analysisRuntime);
         const result = await checkedAsNote(core, folderId, each.sentence);
         const byLibrary = result.evidence.some((line) => line.startsWith("library "));
         const holds =

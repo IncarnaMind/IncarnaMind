@@ -319,6 +319,7 @@ export interface ChecksOptions
   /** A Check this Note run's sentences checked before it marks them. */
   checkingEarly(event: MindCheckEarly): void;
   decision?: MindCheckOptions["decision"];
+  libraryLists?: ClaimCheckDependencies["libraryLists"];
   /** How far the check of what the assistant wrote is (./written). */
   writtenProgress: WrittenCheckOptions["progress"];
   engine: AnswerEngine;
