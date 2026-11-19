@@ -130,7 +130,7 @@ On the Apple M2 Max used for ADR-0023, macOS 26.5, with other work loading the m
 
 Of what #2346 built:
 
-- **Installer size.** It grows by about 37.5 MB on every system, so Python's files and the font total about 50 MB compressed. `scripts/check-package.mjs` gives each installer its own limit: its size in 0.1.0-alpha.5, these 37.5 MB, and about 5 MB (AppImage 275, dmg 270, zip 263, exe 242, deb 226 MB).
+- **Installer size.** It grows by about 37.5 MB on every system, so Python's files and the font total about 50 MB compressed. `scripts/check-package.mjs` gives each installer its own limit: its size in 0.1.0-alpha.5, these 37.5 MB, and about 5 MB (AppImage 275, dmg 270, zip 263, exe 242, deb 226 MB). The Windows installer's limit became 248 MB when 0.1.0-alpha.6's build, the first to measure it, came to 242.9 MB.
 - **A job that uses them waits for them.** A job that imports one of the four takes 2–7 s more on this Mac than a pandas job, most of it importing the package; more on a slower computer.
 - **A Chinese font ships.** GB2312's second level, which holds characters common in people's and companies' names, costs about 0.5 MB more than its first level alone; the whole set is worth it. Japanese, Korean and rarer Chinese characters still leave a plot out.
 - **Content schema 46.** A Note keeps an Analysis figure's rows with its kept value, so an older version opens a Note written since read-only.

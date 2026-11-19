@@ -49,6 +49,8 @@ An employment agreement in English and a 劳动合同 in Chinese (two-page PDFs,
 | `en-limits-held-out`, `zh-limits-held-out` | The same kinds on other figures (half-year results with interest payable in brackets) |
 | `en-conditions`, `zh-conditions` | Held-out rules of a tenancy and a market's rules (`conditionCases.ts`, #3390), each without what its Document attaches to it: a condition (of the Tenant by name, and of the Tenant), a limit or an exception, the rule said of every trader where the rules say it of some or of the Guarantor where the tenancy says it of the Tenant, and a period; each expected Unsupported, never Supported |
 | `en-conditions-kept`, `zh-conditions-kept` | The same rules with what their Document attaches, in other words, in a Note of their own: each Supported |
+| `en-points`, `zh-points` | Held-out changes between two percentages (`percentPointCases.ts`, #3408), over a savings bank, a ferry operator, a hardware retailer and a council's report, and a bank, a courier, a furniture maker and a district's in Chinese: a rate's fall and rise, an interest rate, a share of all bookings or orders, a margin and a market share, each a difference in percentage points written as a percent; points the Document itself gives, written as a percent; and the mirror, a relative change the Document gives written as points. Each is another figure than the Document's: expected Contradicted, never Supported |
+| `en-points-right`, `zh-points-right` | The same changes as they are, in a Note of their own: in percentage points (or basis points, 个百分点, 基点), or as the true relative change written as a percent; each Supported |
 
 ## Running it
 

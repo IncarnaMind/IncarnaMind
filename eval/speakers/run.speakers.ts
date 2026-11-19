@@ -4,7 +4,7 @@
  * apart (the computer's sound online, the room's otherwise) is written as a Meeting's 10-second
  * parts and separated by the pass's own engine (`createSherpaSeparator`); the Transcript's lines
  * are cut as the transcription process cuts them, with Silero VAD, and labelled by the pass's
- * own rule (`labelled`), the microphone's "Me" online. Each case's labelled lines are written as
+ * own speaker labels and word-aligned splits, the microphone's "Me" online. Each case's labelled lines are written as
  * a hypothesis for eval/meetings' scorer, which gives DER; they carry no text, so its error
  * rate means nothing here.
  *
@@ -19,17 +19,16 @@
  *   eval/meetings): the pass labels its lines, text and all, in place of Silero VAD's, as it does
  *   after a Meeting that route transcribed. A case the folder lacks is left out.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { availableParallelism, loadavg, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { VoiceTurn } from "../../src/core";
 import { silentLogger } from "../../src/core/activityLog";
 import type { Cue } from "../../src/core/documents/formats/vtt";
 import { downloadModel } from "../../src/core/embedding/download";
 import { writePart } from "../../src/core/meetings/audioFiles";
-import { labelled } from "../../src/core/meetings/speakerPass";
 import {
   CLUSTER_THRESHOLD,
   createSherpaSeparator,
@@ -41,9 +40,12 @@ import { createSileroDetectors } from "../../src/core/transcription/sherpa";
 import { createSpeakerModel } from "../../src/core/transcription/speakerModel";
 import { SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN } from "../../src/shared/speakers";
 import { evalCache } from "../lib/cache";
+import { readCases } from "../meetings/cache";
 import { readHypothesis } from "../meetings/hypotheses";
+import { afterCallLines, transcriptCues } from "./lines";
 
-const CASES = process.env.INCARNAMIND_EVAL_MEETING_CASES ?? join(evalCache(), "meetings", "cases");
+const DEFAULT_CASES = join(evalCache(), "meetings", "cases");
+const CASES = resolve(process.env.INCARNAMIND_EVAL_MEETING_CASES ?? DEFAULT_CASES);
 const ONLY = process.env.INCARNAMIND_EVAL_SPEAKER_CASES?.split(",");
 const THRESHOLDS = (process.env.INCARNAMIND_EVAL_SPEAKER_THRESHOLDS ?? String(CLUSTER_THRESHOLD))
   .split(",")
@@ -85,8 +87,11 @@ function samplesOf(path: string): Int16Array {
   throw new Error(`${path} has no data chunk.`);
 }
 
-function casesIn(folder: string): Case[] {
-  return readdirSync(folder)
+async function casesIn(folder: string): Promise<Case[]> {
+  const fromCache =
+    existsSync(DEFAULT_CASES) && realpathSync(folder) === realpathSync(DEFAULT_CASES);
+  const ids = fromCache ? (await readCases()).map((c) => c.id) : readdirSync(folder);
+  return ids
     .filter((id) => !ONLY || ONLY.includes(id))
     .sort()
     .flatMap((id) => {
@@ -166,14 +171,7 @@ async function linesIn(folder: string, id: string, call: boolean): Promise<Cue[]
   const hypothesis = await readHypothesis(folder, id);
   if (!hypothesis) return null;
   const until = MINUTES > 0 ? MINUTES * 60 : Number.POSITIVE_INFINITY;
-  return hypothesis.segments
-    .filter((segment) => segment.start < until)
-    .map((segment) => ({
-      startMs: segment.start * 1000,
-      endMs: Math.min(segment.end, until) * 1000,
-      text: segment.text,
-      speaker: segment.speaker ?? (call ? SPEAKER_THEM : SPEAKER_UNKNOWN),
-    }));
+  return transcriptCues(hypothesis, call, until);
 }
 
 const asSegments = (
@@ -192,7 +190,7 @@ const turnsAsSegments = (turns: readonly VoiceTurn[]) =>
 describe.runIf(existsSync(CASES))("The speaker pass on the meeting audio set", () => {
   test("hypotheses for eval/meetings' scorer, and the real-time factor", async () => {
     const { speakers, vad } = await models();
-    const cases = casesIn(CASES);
+    const cases = await casesIn(CASES);
     if (process.env.INCARNAMIND_EVAL_SPEAKER_HOUR === "1") {
       const room = cases.filter((each) => each.mic === null && each.id.includes("-room-"));
       const hour = new Int16Array(60 * 60 * RATE);
@@ -243,7 +241,7 @@ describe.runIf(existsSync(CASES))("The speaker pass on the meeting audio set", (
             ...(await linesOf(each.separate, vad, call ? SPEAKER_THEM : SPEAKER_UNKNOWN)),
           ]
         ).sort((a, b) => a.startMs - b.startMs);
-        const final = labelled(cues, turns, call) ?? cues;
+        const final = afterCallLines(cues, turns, call);
         const audio = each.separate.length / RATE;
         const hypothesis = {
           case: each.id,

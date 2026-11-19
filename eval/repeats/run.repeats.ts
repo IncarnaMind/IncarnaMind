@@ -18,6 +18,7 @@ import { createLog } from "../lib/log";
 import { createWorkerCrossEncoder, prepareGpuFile } from "../lib/rerank";
 import { documentsOf, type RepeatSet, SETS, writeDocuments } from "./cases";
 import { CONDITION_SETS } from "./conditionCases";
+import { PERCENT_POINT_SETS } from "./percentPointCases";
 import { barOf, repeatChecks, sortsAsked, sortsOf } from "./repeat";
 import { watchRequests } from "./requests";
 import { type RepeatRow, report, savedRows, sortsBy, summarise } from "./score";
@@ -74,7 +75,13 @@ test("repeated checks of the same sentences", async () => {
   const only = process.env.INCARNAMIND_EVAL_REPEATS_SETS?.trim();
   const budget = Number(process.env.INCARNAMIND_EVAL_REPEATS_BUDGET ?? "5") || 5;
   const keys = process.env.INCARNAMIND_EVAL_REPEATS_KEYS?.trim().split(",") ?? null;
-  const sets = [...SETS, ...VERBATIM_SETS, ...VERDICT_SETS, ...CONDITION_SETS]
+  const sets = [
+    ...SETS,
+    ...VERBATIM_SETS,
+    ...VERDICT_SETS,
+    ...CONDITION_SETS,
+    ...PERCENT_POINT_SETS,
+  ]
     .filter((each) => !only || only.split(",").includes(each.id))
     .map((each) =>
       keys
