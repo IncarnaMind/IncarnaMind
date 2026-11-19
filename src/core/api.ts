@@ -12219,6 +12219,28 @@ export interface MeetingTranscript {
 /** The speech-to-text model on this computer and its download, as the built-in embedding model's. */
 export type TranscriptionModelStatus = EmbeddingModelStatus;
 
+export interface MeetingSpeakerReviewQuote {
+  available: boolean;
+  reason: "audio" | "transcript" | "soniox" | "local" | "cap" | "duration" | null;
+  durationMs: number;
+  estimatedUsd: number;
+}
+
+export interface MeetingSpeakerSuggestion {
+  startMs: number;
+  endMs: number;
+  text: string;
+  fileLabel: string;
+  currentLabel: string;
+  suggestedLabel: string;
+}
+
+export interface MeetingSpeakerReviewResult {
+  documentId: string;
+  contentHash: string;
+  suggestions: MeetingSpeakerSuggestion[];
+}
+
 export interface MeetingAudio {
   /** Some audio is on this computer. */
   kept: boolean;
@@ -13301,6 +13323,8 @@ export interface CoreApi {
    */
   setTranscriptSpeakers(input: {
     documentId: string;
+    expectedSpeakers?: TranscriptSpeakers | null;
+    expectedContentHash?: string;
     speakers: TranscriptSpeakers;
   }): Promise<Document>;
   /**
@@ -14877,6 +14901,9 @@ export interface CoreApi {
     fromMs: number;
     toMs: number;
   }): Promise<MeetingAudioStretch>;
+  getMeetingSpeakerReview(meetingId: string): Promise<MeetingSpeakerReviewQuote>;
+  reviewMeetingSpeakers(input: { meetingId: string; confirmed: true }): Promise<MeetingSpeakerReviewResult>;
+  cancelMeetingSpeakerReview(meetingId: string): Promise<void>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
   /**
@@ -15724,6 +15751,9 @@ const methods: Record<CoreApiMethod, true> = {
   deleteMeetingAudio: true,
   keepMeetingAudio: true,
   readMeetingAudio: true,
+  getMeetingSpeakerReview: true,
+  reviewMeetingSpeakers: true,
+  cancelMeetingSpeakerReview: true,
   listTranscriptionServices: true,
   setTranscriptionKey: true,
   removeTranscriptionKey: true,
