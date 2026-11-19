@@ -6,6 +6,7 @@
 import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asData, type PromptTag, tagged } from "../../promptData";
+import type { CiteReply } from "../engine";
 import { declines, parseJson, withoutThinking } from "../judge";
 import { setAsideRowsMeaning } from "../prompt";
 
@@ -54,11 +55,21 @@ const QUOTE =
 
 const RECORD = `the Passage's id, where the quote is as the Passage names it (its pages or location, and marks like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]), and ${QUOTE}`;
 
+/** The verdicts a reply gives, on its Verdict line or in `cite`. */
+const VERDICTS = [
+  "supported",
+  "overstated",
+  "partly supported",
+  "not found",
+  "contradicted",
+  "own view",
+] as const;
+
 const reply = (language: Language) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     'Details: what the sentence states, one thing after another (each figure with its unit and scale, each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
-    "Verdict: supported, overstated, partly supported, not found, contradicted or own view",
+    `Verdict: ${VERDICTS.slice(0, -1).join(", ")} or ${VERDICTS.at(-1)}`,
     `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the quotes that decide it at its end ("… [^1]"); for contradicted, name the thing, and give the Document's value and the sentence's. For overstated, say what the Document says and how the sentence goes further; for partly supported, say which part the Documents don't state; for not found, say what the Documents don't say; for own view, say what the Documents hold on it, with the markers of the quotes: the facts that are a reason for it and the facts that point the other way, or that they hold nothing on it. Never mention the search, the Passages or how you found it.`,
     "Evidence: [1, 2] naming the cite markers of the quotes that decide it, or Evidence: [] when no quote does.",
     `Working: where no quote states the sentence as it stands and you reached supported or contradicted by working it out from the quotes (a sum, a difference, a share, a comparison of two figures, a step of plain logic), that working in one short line, its figures in it and its words in ${LANGUAGE_NAMES[language]} ("412 + 388 = 800, under the 1,000 the sentence gives"). Otherwise "Working: none".`,
@@ -343,6 +354,37 @@ function jsonVerdict(reply: string): ReadVerdict | null {
     }
   );
 }
+
+/** The verdict a check's model may hand over in `cite`, with the quotes that call records (#3381). */
+export const CITE_REPLY: CiteReply = {
+  properties: {
+    verdict: {
+      type: "string",
+      enum: [...VERDICTS],
+      description:
+        "Your verdict, as your reply's Verdict line gives it, when this call ends the check.",
+    },
+    explanation: {
+      type: "string",
+      description: "Your reply's Explanation line, given with verdict.",
+    },
+  },
+  description:
+    "To finish, you may give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would: the check then ends with that call, its quotes the evidence, and needs no reply.",
+  reply(inputs, markers) {
+    const given = inputs.findLast(
+      ({ verdict }) => typeof verdict === "string" && verdictIn(verdict.trim()) !== null,
+    );
+    if (!given) return null;
+    const explanation =
+      typeof given.explanation === "string" ? given.explanation.replace(/\s+/g, " ").trim() : "";
+    return [
+      `Verdict: ${String(given.verdict).trim()}`,
+      ...(explanation === "" ? [] : [`Explanation: ${explanation}`]),
+      `Evidence: [${markers.join(", ")}]`,
+    ].join("\n");
+  },
+};
 
 /** A reply that declined: it says so and gives no verdict. */
 export const readsAsRefusal = (reply: string): boolean =>
