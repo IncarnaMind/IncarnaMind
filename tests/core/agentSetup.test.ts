@@ -10,6 +10,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentLaunch, Core } from "../../src/core";
 import { SERVER_INSTRUCTIONS } from "../../src/core/agents/mcp";
 import { SKILL_MARKDOWN } from "../../src/core/agents/skill";
+import { AGENT_CLIENT_IDS } from "../../src/core/api";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { agentsAdapter, buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
@@ -83,18 +84,9 @@ describe("setting an agent up", () => {
       ["cursor", true],
     ]);
     expect(clients.at(-1)).toMatchObject({ id: "other", installed: false, setup: "manual" });
-    // Only the first-class agents, and "Other agent" for the rest (ADR-0019).
-    expect(clients.map((each) => each.id).sort()).toEqual(
-      [
-        "antigravity",
-        "claude-code",
-        "claude-desktop",
-        "codex",
-        "cursor",
-        "other",
-        "workbuddy",
-      ].sort(),
-    );
+    // The agents in wide use, and "Other agent" for the rest (ADR-0019, #3374).
+    expect(clients.map((each) => each.id).sort()).toEqual([...AGENT_CLIENT_IDS].sort());
+    expect(clients.find((each) => each.id === "devin")?.otherNames).toContain("Windsurf");
     expect(clients.find((each) => each.id === "codex")?.name).toBe("ChatGPT app and Codex");
   });
 
@@ -145,6 +137,9 @@ describe("setting an agent up", () => {
   it.each([
     ["antigravity", [".gemini", "config", "mcp_config.json"], "Antigravity"],
     ["workbuddy", [".workbuddy", "mcp.json"], "WorkBuddy"],
+    ["vscode", [".copilot", "mcp-config.json"], "VS Code"],
+    ["cline", [".cline", "data", "settings", "cline_mcp_settings.json"], "Cline"],
+    ["kimi-code", [".kimi-code", "mcp.json"], "Kimi Code"],
   ] as const)(
     "adds itself to %s's own mcpServers file, keeps the User's servers, and leaves when disconnected",
     async (client, segments, name) => {
@@ -165,6 +160,9 @@ describe("setting an agent up", () => {
       expect(settings.theme).toBe("dark");
       expect(Object.keys(settings.mcpServers)).toEqual(["notes", "incarnamind"]);
       await searchesThrough(core, launchIn(settings.mcpServers.incarnamind));
+      // Copied again from its Details, it comes in the same shape.
+      const again = JSON.parse((await core.copyAgentSetup(pairing.id)).text);
+      expect(again.mcpServers.incarnamind).toEqual(settings.mcpServers.incarnamind);
 
       await core.disconnectAgent(pairing.id);
       expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
@@ -177,7 +175,7 @@ describe("setting an agent up", () => {
   describe("Disconnect and the settings file IncarnaMind made", () => {
     /** Connects, quits and starts again on the same folders, as a restart does. */
     async function restarted(
-      client: "workbuddy" | "antigravity" | "codex",
+      client: "workbuddy" | "antigravity" | "codex" | "vscode" | "cline" | "kimi-code",
       existing?: { file: readonly string[]; text: string },
     ) {
       const dataDir = await createTempDataFolder();
@@ -210,6 +208,9 @@ describe("setting an agent up", () => {
       ["workbuddy", ".workbuddy", [".workbuddy", "mcp.json"]],
       ["antigravity", ".gemini", [".gemini", "config", "mcp_config.json"]],
       ["codex", ".codex", [".codex", "config.toml"]],
+      ["vscode", ".copilot", [".copilot", "mcp-config.json"]],
+      ["cline", ".cline", [".cline", "data", "settings", "cline_mcp_settings.json"]],
+      ["kimi-code", ".kimi-code", [".kimi-code", "mcp.json"]],
     ] as const)(
       "takes away the file and the folder it made for %s, and the agent stays among those not on this computer",
       async (client, folder, file) => {
@@ -283,53 +284,57 @@ describe("setting an agent up", () => {
     expect(result.shown).not.toContain(token);
   });
 
-  it.each([
-    ["gemini-cli", [".gemini", "settings.json"]],
-    ["qwen-code", [".qwen", "settings.json"]],
-    ["codebuddy", [".codebuddy", ".mcp.json"]],
-  ] as const)(
-    "keeps a pairing made for %s, now an agent that is no longer listed, and Disconnect takes out its unchanged entry",
-    async (client, segments) => {
+  it.each(["opencode", "openclaw", "gemini-cli", "qwen-code"] as const)(
+    "gives %s a line to run that starts the server, and writes none of its settings",
+    async (client) => {
       const { core, home, coast } = await started();
-      const path = join(home, ...segments);
-      await mkdir(join(path, ".."), { recursive: true });
-      const { launch, pairing } = await core.connectAgent({
-        name: "Old pairing",
-        client,
-        folderIds: [coast.id],
-      });
-      await writeFile(
-        path,
-        JSON.stringify({
-          theme: "dark",
-          mcpServers: { notes: { command: "n" }, incarnamind: launchIn(launch) },
-        }),
-      );
-      await searchesThrough(core, launch);
-      expect((await core.listAgentClients()).some((each) => (each.id as string) === client)).toBe(
-        false,
-      );
-
+      const { pairing, result } = await core.setUpAgent({ client, folderIds: [coast.id] });
+      if (result.kind !== "copy") throw new Error("Expected a line to copy.");
+      const token = (await core.getAgentLaunch(pairing.id)).env[TOKEN_ENV] ?? "";
+      expect(result.how).toBe("command");
+      expect(result.text).toContain(token);
+      expect(result.shown).not.toContain(token);
+      expect((await core.copyAgentSetup(pairing.id)).text).toBe(result.text);
+      // Only the Skill, in the shared folder these agents read.
+      expect(await readdir(home)).toEqual([".agents"]);
       await core.disconnectAgent(pairing.id);
-      expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-        theme: "dark",
-        mcpServers: { notes: { command: "n" } },
-      });
-      expect((await core.getAgents()).pairings).toEqual([]);
+      expect(await readdir(home)).toEqual([]);
     },
   );
 
-  it("leaves a retired agent's entry alone once the User has changed it, and still disconnects", async () => {
-    const { core, home } = await started();
+  it("leaves the settings an agent's own line wrote to that agent when it is disconnected", async () => {
+    const { core, home, coast } = await started();
+    const { pairing } = await core.setUpAgent({ client: "gemini-cli", folderIds: [coast.id] });
+    // What `gemini mcp add -s user` wrote when the User ran the line: Gemini CLI's, not ours.
     const path = join(home, ".gemini", "settings.json");
     await mkdir(join(home, ".gemini"));
-    const { pairing } = await core.connectAgent({ name: "Old pairing", client: "gemini-cli" });
-    const theirs = JSON.stringify({ mcpServers: { incarnamind: { command: "mine" } } });
+    const theirs = JSON.stringify({
+      mcpServers: { incarnamind: launchIn(await core.getAgentLaunch(pairing.id)) },
+    });
     await writeFile(path, theirs);
     await core.disconnectAgent(pairing.id);
     expect(await readFile(path, "utf8")).toBe(theirs);
     expect((await core.getAgents()).pairings).toEqual([]);
   });
+
+  it.each(["devin", "zed", "trae", "qoder", "codebuddy", "minimax-code", "kilo-code"] as const)(
+    "gives %s the settings to paste into its own screen, and writes nothing but a Skill",
+    async (client) => {
+      const { core, home, coast } = await started();
+      const { pairing, result } = await core.setUpAgent({ client, folderIds: [coast.id] });
+      if (result.kind !== "copy") throw new Error("Expected settings to copy.");
+      expect(result.how).toBe("settings");
+      const pasted = JSON.parse(result.text);
+      await searchesThrough(core, launchIn(pasted.mcpServers?.incarnamind ?? pasted.incarnamind));
+      for (const name of await readdir(home)) {
+        expect([".agents", ".qoder", ".codebuddy", ".kilo", ".config"].includes(name), name).toBe(
+          true,
+        );
+      }
+      await core.disconnectAgent(pairing.id);
+      expect(await readdir(home)).toEqual([]);
+    },
+  );
 
   it('gives "Other agent" settings an MCP client can start, under the name the User types', async () => {
     const { core, coast } = await started();
@@ -446,8 +451,11 @@ describe("the Skill that installs with an agent's connection", () => {
   const skillPaths = [
     ["claude-code", [".claude", "skills"]],
     ["codex", [".agents", "skills"]],
-    ["cursor", [".cursor", "skills"]],
+    ["cursor", [".agents", "skills"]],
     ["antigravity", [".gemini", "config", "skills"]],
+    ["vscode", [".copilot", "skills"]],
+    ["cline", [".cline", "skills"]],
+    ["qoder", [".qoder", "skills"]],
   ] as const;
 
   it.each(skillPaths)(
@@ -517,6 +525,39 @@ describe("the Skill that installs with an agent's connection", () => {
     await expect(readFile(file, "utf8")).rejects.toThrow(/ENOENT/);
   });
 
+  it("is written once in the folder several agents share, and stays while any of them is connected", async () => {
+    const { core, home, coast } = await started();
+    const file = join(home, ".agents", "skills", "incarnamind", "SKILL.md");
+    const codex = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    const opencode = await core.setUpAgent({ client: "opencode", folderIds: [coast.id] });
+    const gemini = await core.setUpAgent({ client: "gemini-cli", folderIds: [coast.id] });
+    expect(await readdir(join(home, ".agents", "skills"))).toEqual(["incarnamind"]);
+    expect((await core.getAgents()).skills.toSorted()).toEqual(
+      [codex.pairing.id, opencode.pairing.id, gemini.pairing.id].toSorted(),
+    );
+    await core.disconnectAgent(codex.pairing.id);
+    await core.undoAgentSetup(gemini.pairing.id);
+    expect(await readFile(file, "utf8")).toBe(SKILL_MARKDOWN);
+    await core.disconnectAgent(opencode.pairing.id);
+    await expect(stat(join(home, ".agents"))).rejects.toThrow(/ENOENT/);
+  });
+
+  it("isn't written again for an agent that already reads it in another folder", async () => {
+    const { core, home, coast } = await started();
+    const claudes = join(home, ".claude", "skills", "incarnamind", "SKILL.md");
+    const code = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+    // Cursor reads Claude Code's folder too: a second copy would show it the Skill twice.
+    const cursor = await core.setUpAgent({ client: "cursor", folderIds: [coast.id] });
+    await expect(stat(join(home, ".agents"))).rejects.toThrow(/ENOENT/);
+    expect((await core.getAgents()).skills.toSorted()).toEqual(
+      [code.pairing.id, cursor.pairing.id].toSorted(),
+    );
+    await core.disconnectAgent(code.pairing.id);
+    expect(await readFile(claudes, "utf8")).toBe(SKILL_MARKDOWN);
+    await core.disconnectAgent(cursor.pairing.id);
+    await expect(readFile(claudes, "utf8")).rejects.toThrow(/ENOENT/);
+  });
+
   it("is not written where the agent's docs give no skills folder, and comes with Copy settings instead", async () => {
     const { core, home, coast } = await started();
     expect((await core.listAgentClients()).find((each) => each.id === "workbuddy")?.skillPath).toBe(
@@ -539,7 +580,7 @@ describe("the Skill that installs with an agent's connection", () => {
     links.push = () => {
       throw new Error("No app can open this link.");
     };
-    const mine = join(home, ".cursor", "skills", "incarnamind", "SKILL.md");
+    const mine = join(home, ".agents", "skills", "incarnamind", "SKILL.md");
     await expect(core.setUpAgent({ client: "cursor", folderIds: [coast.id] })).rejects.toThrow(
       /No app/,
     );

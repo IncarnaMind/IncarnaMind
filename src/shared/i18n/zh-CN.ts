@@ -7897,6 +7897,8 @@ export const zhCN = {
   "agents.settings.connect": "连接智能体",
   "agents.settings.connect.note": "在这台电脑上找到的智能体排在前面。",
   "agents.settings.web": "只能在线使用的聊天应用无法连接 IncarnaMind。",
+  "agents.find": "搜索 {count} 个智能体",
+  "agents.find.none": "没有与“{query}”匹配的智能体。选择“其他智能体”来连接它。",
   "agents.settings.connectButton": "连接",
   "agents.settings.help": "分步说明",
   "agents.setup.bundle": "一键连接：打开 Claude 进行安装",
@@ -7904,7 +7906,10 @@ export const zhCN = {
   "agents.setup.file": "IncarnaMind 会把自己添加到{agent}的设置中",
   "agents.setup.command": "复制一行命令，在终端中运行",
   "agents.setup.other": "复制设置，粘贴到你的智能体中",
-  "agents.note.codex": "在 ChatGPT 应用的“工作”和 Codex 模式中使用；普通对话模式不会用到。",
+  "agents.note.codex": "适用于 ChatGPT 桌面应用，不适用于网页版。",
+  "agents.setup.paste": "复制设置，粘贴到{agent}中",
+  "agents.setup.parts": "在{agent}中逐项填写 IncarnaMind 给出的设置",
+  "agents.note.gemini-cli": "适用于 Gemini Code Assist；AI Pro 和 Ultra 请用 Antigravity。",
   "agents.client.other": "其他智能体",
   "agents.client.codex": "ChatGPT 应用和 Codex",
   "agents.sentence.codex": "ChatGPT 应用或 Codex",
@@ -7987,6 +7992,20 @@ export const zhCN = {
   "agents.done.settings": "已复制。在{agent}中把它添加为新的服务器，然后重新启动它。",
   "agents.done.settings.other":
     "已复制。在智能体添加服务器的地方粘贴，然后重新启动它。如果它要求分项填写，可在“技术细节”里逐项复制。",
+  "agents.done.paste.devin":
+    "已复制。在 Devin Desktop 中打开 Customize › MCPs，选择 This computer，打开它的配置文件，把它加到 mcpServers 下。",
+  "agents.done.paste.zed":
+    "已复制。在 Zed 中打开 Settings › AI › MCP Servers，选择 Add Server › Add Local Server，用它替换示例内容，然后确认。",
+  "agents.done.paste.trae":
+    "已复制。在 Trae 中打开“设置 › MCP”，选择“添加 › 手动添加”，粘贴后点击“确认”。",
+  "agents.done.paste.qoder":
+    "已复制。在 Qoder 中打开 Qoder IDE Settings › MCP › My Servers，点击“+ Add”，把它加到打开的文件里，然后保存。",
+  "agents.done.paste.codebuddy":
+    "已复制。在 CodeBuddy 中点击设置按钮，进入 MCP 标签页，添加 MCP，粘贴后保存。",
+  "agents.done.paste.minimax-code":
+    "已复制。在 MiniMax Code 中打开插件管理 › MCP Servers，切换到 JSON，粘贴后保存。",
+  "agents.done.paste.kilo-code":
+    "在 Kilo Code 中打开 Settings › MCP，选择 Add Server › Local (stdio)，按“技术细节”逐项填写。",
   "agents.done.unreadable": "无法读取{agent}的设置文件，未作改动。设置已复制：粘贴到 {path} 中。",
   "agents.done.undo": "撤销",
   "agents.bundle.description": "搜索你在 IncarnaMind 中的文档并引用，每条引文都经过核对。",

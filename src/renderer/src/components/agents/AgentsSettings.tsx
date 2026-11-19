@@ -10,6 +10,7 @@ import {
   SettingsSwitchRow,
 } from "../settings/SettingsGroup";
 import { buttonStyle, noticeClass, pageIntroClass } from "../ui";
+import { AgentFinder } from "./AgentFinder";
 import { AgentPairingRow, type JustSetUp } from "./AgentPairingRow";
 import { clientName, clientNote, setupWords } from "./agentWords";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
@@ -144,7 +145,11 @@ export function AgentsSettings() {
             </>
           }
         >
-          <SettingsGroup data-testid="agents-list">{clients.map(clientRow)}</SettingsGroup>
+          <AgentFinder clients={clients} testId="agents-list">
+            {(shown) => (
+              <SettingsGroup data-testid="agents-list">{shown.map(clientRow)}</SettingsGroup>
+            )}
+          </AgentFinder>
         </SettingsSection>
       )}
 

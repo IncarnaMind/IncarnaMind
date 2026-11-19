@@ -5,9 +5,11 @@ import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import type { Read } from "../../useRead";
+import { AgentFinder } from "../agents/AgentFinder";
 import type { JustSetUp } from "../agents/AgentPairingRow";
-import { clientName, doneWords, helpUrl } from "../agents/agentWords";
+import { clientName, doneWords, helpUrl, takesParts } from "../agents/agentWords";
 import { ConnectAgentFields, useAgentConnection } from "../agents/ConnectAgentFields";
+import { LaunchDetails } from "../agents/LaunchDetails";
 import { ReadProblem } from "../ReadProblem";
 import { buttonStyle } from "../ui";
 import { WorksRow } from "./SetupPanel";
@@ -105,6 +107,11 @@ export function AgentWays({
                 )}
               </p>
             )}
+            {done?.kind === "copy" && takesParts(pairing.client) && (
+              <div className="px-3">
+                <LaunchDetails pairingId={pairing.id} />
+              </div>
+            )}
           </div>
         );
       })}
@@ -116,40 +123,44 @@ export function AgentWays({
         />
       )}
       {clients.state === "ready" && (
-        <fieldset
-          ref={list}
-          className="m-0 grid grid-cols-2 gap-2 border-0 p-0 max-[520px]:grid-cols-1"
-        >
-          <legend className="sr-only">{t("setupPage.ai.agents")}</legend>
-          {clients.data.map((client) => (
-            <label
-              key={client.id}
-              data-testid="setup-agent"
-              data-value={client.id}
-              className="flex min-h-9 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-3 py-1.5 shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover has-[input:checked]:shadow-[inset_0_0_0_2px_var(--color-ink)]"
+        <AgentFinder clients={clients.data} testId="setup-agents">
+          {(shown) => (
+            <fieldset
+              ref={list}
+              className="m-0 grid grid-cols-2 gap-2 border-0 p-0 max-[520px]:grid-cols-1"
             >
-              <input
-                type="radio"
-                name={`${id}-agent`}
-                value={client.id}
-                checked={chosen?.id === client.id}
-                onChange={() => {
-                  connection.clearProblem();
-                  setChosen(client);
-                }}
-                className="size-4 shrink-0 accent-ink"
-              />
-              <span className="min-w-0 flex-1 truncate text-ui font-semibold text-ink">
-                {clientName(client, t)}
-              </span>
-              {client.installed && (
-                <span className="shrink-0 text-[12px] leading-4 text-ink-meta">
-                  {t("setupPage.agent.found")}
-                </span>
-              )}
-            </label>
-          ))}
-        </fieldset>
+              <legend className="sr-only">{t("setupPage.ai.agents")}</legend>
+              {shown.map((client) => (
+                <label
+                  key={client.id}
+                  data-testid="setup-agent"
+                  data-value={client.id}
+                  className="flex min-h-9 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-3 py-1.5 shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover has-[input:checked]:shadow-[inset_0_0_0_2px_var(--color-ink)]"
+                >
+                  <input
+                    type="radio"
+                    name={`${id}-agent`}
+                    value={client.id}
+                    checked={chosen?.id === client.id}
+                    onChange={() => {
+                      connection.clearProblem();
+                      setChosen(client);
+                    }}
+                    className="size-4 shrink-0 accent-ink"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-ui font-semibold text-ink">
+                    {clientName(client, t)}
+                  </span>
+                  {client.installed && (
+                    <span className="shrink-0 text-[12px] leading-4 text-ink-meta">
+                      {t("setupPage.agent.found")}
+                    </span>
+                  )}
+                </label>
+              ))}
+            </fieldset>
+          )}
+        </AgentFinder>
       )}
       {chosen && (
         <div

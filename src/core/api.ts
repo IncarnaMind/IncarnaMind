@@ -12471,8 +12471,22 @@ export const AGENT_CLIENT_IDS = [
   "claude-code",
   "codex",
   "cursor",
+  "vscode",
+  "opencode",
+  "openclaw",
   "antigravity",
+  "gemini-cli",
+  "devin",
+  "cline",
+  "kilo-code",
+  "zed",
+  "trae",
+  "qoder",
+  "codebuddy",
+  "qwen-code",
+  "kimi-code",
   "workbuddy",
+  "minimax-code",
   "other",
 ] as const;
 
@@ -12491,6 +12505,8 @@ export interface AgentClient {
   id: AgentClientId;
   /** Its own name; empty for "other", which the interface names. */
   name: string;
+  /** Other names the User may know it by ("Windsurf", "Copilot"), to find it by typing. */
+  otherNames: string[];
   /** It looks installed on this computer: such agents are listed first. */
   installed: boolean;
   setup: AgentSetupKind;

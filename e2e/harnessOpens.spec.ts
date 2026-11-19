@@ -86,8 +86,8 @@ test("a launched app records what it would open, and finds only the agents the t
     await app.close();
   }
 
-  // An agent's app the test made is found; still nothing of this computer's. A home of its own:
-  // connecting Cursor above put its Skill in the first one, which counts as Cursor found.
+  // An agent's app the test made is found; still nothing of this computer's. A home of its own,
+  // so nothing the agents connected above left in the first one counts.
   await mkdir(join(apps, "Cursor.app"));
   const again = await launchApp(dataDir, { home: freshHome, agentApps: [apps] });
   try {

@@ -69,7 +69,10 @@ export function SetupPanel({
     if (!chosen && within.contains(document.activeElement)) return;
     const first =
       chosen ??
-      within.querySelector<HTMLElement>("input:not([type=hidden]), select") ??
+      // A search above a list of choices waits: the first choice takes the focus (#3374).
+      within.querySelector<HTMLElement>(
+        "input:not([type=hidden]):not([data-later-focus] *), select",
+      ) ??
       within.querySelector<HTMLElement>("button:not([data-testid=setup-crumb])");
     first?.focus({ preventScroll: true });
   }, [view]);
