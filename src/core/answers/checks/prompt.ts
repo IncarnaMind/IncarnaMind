@@ -355,32 +355,49 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   );
 }
 
-/** The verdict a check's model may hand over in `cite`, with the quotes that call records (#3381). */
+/** The reply's lines `cite` may carry beside its verdict, by field, each under the reply's own label. */
+const CARRIED_LINES = {
+  explanation: "Explanation",
+  working: "Working",
+  change: "Change 1",
+  to: "To 1",
+} as const;
+
+/** A reply's line as the reply writes it; none when `value` says nothing. */
+const replyLine = (label: string, value: unknown): string[] => {
+  const said = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return said === "" ? [] : [`${label}: ${said}`];
+};
+
+/** The reply a check's model may hand over in `cite`, with the quotes that call records (#3381). */
 export const CITE_REPLY: CiteReply = {
   properties: {
     verdict: {
       type: "string",
       enum: [...VERDICTS],
       description:
-        "Your verdict, as your reply's Verdict line gives it: given here, the check ends with this call.",
+        "What your reply's Verdict line would say: given, the check ends with this call.",
     },
-    explanation: {
-      type: "string",
-      description: "Your reply's Explanation line, given with verdict.",
-    },
+    ...Object.fromEntries(
+      Object.entries(CARRIED_LINES).map(([field, label]) => [
+        field,
+        {
+          type: "string",
+          description: `What your reply's ${label} line would say, where it has one.`,
+        },
+      ]),
+    ),
   },
   description:
-    "Give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would, and write beside it only the Working and Change lines your reply needs: the check ends with that call, its quotes the evidence.",
+    "Give your reply in the call that records the quotes deciding the sentence, each of its lines in the field named for it, as the reply would write it: the check ends with that call, its quotes the evidence.",
   reply(inputs, markers) {
     const given = inputs.findLast(
       ({ verdict }) => typeof verdict === "string" && verdictIn(verdict.trim()) !== null,
     );
     if (!given) return null;
-    const explanation =
-      typeof given.explanation === "string" ? given.explanation.replace(/\s+/g, " ").trim() : "";
     return [
-      `Verdict: ${String(given.verdict).trim()}`,
-      ...(explanation === "" ? [] : [`Explanation: ${explanation}`]),
+      ...replyLine("Verdict", given.verdict),
+      ...Object.entries(CARRIED_LINES).flatMap(([field, label]) => replyLine(label, given[field])),
       `Evidence: [${markers.join(", ")}]`,
     ].join("\n");
   },

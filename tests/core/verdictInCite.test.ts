@@ -105,6 +105,56 @@ describe("A verdict handed over in cite (#3381)", () => {
     });
   });
 
+  test("a call that carries a contradiction's change gives what the reply written out gives, its correction too", async () => {
+    const HARBOUR_SAYS = "Tides says harbours publish them every year, not every week.";
+    const written = await check(
+      CONTRADICTED,
+      (call) => search(sentenceOf(call)),
+      (_call, passage) => ({ calls: [cite(passage, [HARBOUR])] }),
+      () => ({
+        text: `Verdict: contradicted\nExplanation: ${HARBOUR_SAYS} [^1]\nEvidence: [1]\nWorking: none\nChange 1: every week\nTo 1: every year [^1]`,
+      }),
+    );
+    const carried = await check(
+      CONTRADICTED,
+      (call) => search(sentenceOf(call)),
+      (_call, passage) => ({
+        calls: [
+          cite(passage, [HARBOUR], {
+            verdict: "contradicted",
+            explanation: `${HARBOUR_SAYS} [^1]`,
+            working: "none",
+            change: "every week",
+            to: "every year [^1]",
+          }),
+        ],
+      }),
+    );
+    const read = ({ result }: typeof written) =>
+      result.verdict === "not-checked"
+        ? result
+        : {
+            verdict: result.verdict,
+            says: result.says,
+            quote: result.evidence?.quote,
+            correction: result.correction && {
+              from: result.correction.from,
+              wordings: result.correction.choices.map((each) => [
+                each.wording,
+                each.evidence.quote,
+              ]),
+            },
+          };
+
+    expect(read(carried)).toEqual(read(written));
+    expect(read(carried)).toMatchObject({
+      verdict: "contradicted",
+      correction: { from: "every week", wordings: [["every year", HARBOUR]] },
+    });
+    expect(carried.runs).toHaveLength(2);
+    expect(written.runs).toHaveLength(3);
+  });
+
   test("beside a verdict written in the same turn, the call's is read, and the written Change lines still offer their correction", async () => {
     const { result, runs } = await check(
       CONTRADICTED,
