@@ -25,10 +25,11 @@ import {
 /*
  * A calculated figure in a note (#439): an Answer's two worked-out figures keep their
  * formula and inputs when added to the note, each an =n marker numbered with the Citations.
- * The one Check recalculates them from their kept inputs; the card opens on hover and from
- * the keyboard, shows the formula in words and with its values and each input with its own
- * check, and Open shows the input's quote in its Document. Convert to text keeps the shown
- * words without the working, and Undo brings the figure back. English wide, Chinese narrow.
+ * The one Check checks their sentence, which rests on how IncarnaMind worked them out, and each
+ * figure shows that check; the card opens on hover and from the keyboard, shows the formula in
+ * words and with its values and each input with its own check, and Open shows the input's quote
+ * in its Document. Convert to text keeps the shown words without the working, and Undo brings the
+ * figure back. English wide, Chinese narrow.
  */
 
 const SHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -98,7 +99,7 @@ for (const [language, width] of [
       expect(Number(numbers[1]?.slice(1))).toBeGreaterThan(Number(numbers[0]?.slice(1)));
       await expect(figures.nth(0)).toHaveAttribute("data-state", "not-checked");
 
-      // The one Check recalculates each figure from its kept inputs.
+      // The one Check checks the sentence: its figures, worked out by IncarnaMind, support it.
       await runCommand(window, "mind.check", t("mindCheck.command"));
       await expect(figures.nth(0)).toHaveAttribute("data-state", "supported", { timeout: 60_000 });
       await expect(figures.nth(1)).toHaveAttribute("data-state", "supported");
@@ -107,9 +108,7 @@ for (const [language, width] of [
       await pointAt(window, markers.nth(0));
       const card = window.locator(".calculated-figure-card");
       await expect(card).toBeVisible();
-      await expect(card.locator(".calculated-figure-state")).toContainText(
-        t("figures.inline.recalculated"),
-      );
+      await expect(card.locator(".calculated-figure-state")).toHaveText(t("claim.state.supported"));
       const formula = card.locator(".calculated-figure-formula");
       await expect(formula).toContainText("1,482.6");
       await expect(formula).toContainText("1,231.0");
