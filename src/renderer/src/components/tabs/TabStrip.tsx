@@ -216,6 +216,7 @@ function Tab({ tab, groupId, selected, divider, dragged }: TabProps) {
       data-kind={tab.item.kind}
       data-mind-id={tab.item.kind === "mind" ? tab.item.mindId : undefined}
       data-document-id={tab.item.kind === "document" ? tab.item.documentId : undefined}
+      data-canvas-id={tab.item.kind === "canvas" ? tab.item.canvasId : undefined}
       data-preview={tab.preview || undefined}
       data-pinned={tab.pinned || undefined}
       data-divider={divider || undefined}

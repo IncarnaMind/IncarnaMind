@@ -21,6 +21,7 @@ import {
   type MenuCommand,
   SERVED_CHANNEL,
 } from "../shared/bridge";
+import type { CanvasFrameNews } from "../shared/canvases";
 import {
   CITED_PAGE_ARGUMENT,
   CITED_PAGE_BRIDGE_KEY,
@@ -156,6 +157,7 @@ const files: FilesBridge = {
     };
   },
   onMeetingHelp: (listener) => listen<GeneralHelpKind>(FILES_CHANNELS.meetingHelp, listener),
+  onCanvasFrame: (listener) => listen<CanvasFrameNews>(FILES_CHANNELS.canvasFrame, listener),
   globalKeysFree: (keys) => invoke(FILES_CHANNELS.globalKeysFree, keys),
   windowKeys: (forms) => send(FILES_CHANNELS.windowKeys, forms),
   showMeetingPanel: (shown) => send(FILES_CHANNELS.showMeetingPanel, shown),

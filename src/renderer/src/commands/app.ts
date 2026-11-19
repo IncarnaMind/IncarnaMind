@@ -31,6 +31,7 @@ import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
 import { blockCommands, noteOfBlock } from "./blocks";
 import { calendarCommands } from "./calendars";
+import { canvasCommands } from "./canvases";
 import { chartCommands } from "./charts";
 import { checkCommands } from "./checks";
 import { commentCommands } from "./comments";
@@ -186,6 +187,7 @@ const appCommands: readonly Command[] = [
   ...editCommands,
   ...selectionCommands,
   ...mindCommands,
+  ...canvasCommands,
   ...documentCommands,
   ...peekCommands,
   ...folderCommands,

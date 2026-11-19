@@ -174,7 +174,7 @@ export function currentMindIdOf(layout: WindowLayout | null): string | null {
   return mind?.kind === "mind" ? mind.mindId : null;
 }
 
-/** Whether two tabs show the same place: the same Note or its figures, Document, Library or Home. */
+/** Whether two tabs show the same place: the same Note or its figures, Document, Canvas, Library or Home. */
 export function sameTabItem(a: TabItem | null, b: TabItem | null): boolean {
   if (a === null || b === null) return a === b;
   if (a.kind !== b.kind) return false;
@@ -184,6 +184,8 @@ export function sameTabItem(a: TabItem | null, b: TabItem | null): boolean {
       return b.kind === a.kind && a.mindId === b.mindId;
     case "document":
       return b.kind === "document" && a.documentId === b.documentId;
+    case "canvas":
+      return b.kind === "canvas" && a.canvasId === b.canvasId;
     case "library":
     case "home":
       return true;
@@ -239,6 +241,7 @@ export function isShown(layout: WindowLayout | null, item: TabItem, merged = fal
     if (tab.kind === "document") {
       return item.kind === "document" && tab.documentId === item.documentId;
     }
+    if (tab.kind === "canvas") return item.kind === "canvas" && tab.canvasId === item.canvasId;
     return true;
   });
 }

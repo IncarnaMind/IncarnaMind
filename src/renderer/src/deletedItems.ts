@@ -30,7 +30,14 @@ export function whenDeleted(
 }
 
 /** The kinds in the order a confirmation lists what is lost. */
-const KIND_ORDER: readonly DeletedKind[] = ["document", "mind", "conversation", "folder", "tag"];
+const KIND_ORDER: readonly DeletedKind[] = [
+  "document",
+  "mind",
+  "canvas",
+  "conversation",
+  "folder",
+  "tag",
+];
 
 type Sentence = { key: MessageKey; params: MessageParams };
 

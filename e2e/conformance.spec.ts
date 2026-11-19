@@ -37,6 +37,7 @@ import {
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
+import { connectCanvasAgent, publishCanvas } from "./canvases";
 
 /*
  * What docs/agents/interaction.md asks of every object, checked on the built app for each kind of
@@ -57,9 +58,9 @@ import {
  * is run here with no edit. A kind needs a stage below to be made and shown: the types fail until
  * a new kind has one. Selecting two with ⌘-click and running a command on both waits for #225.
  *
- * What the core holds here is its Minds, Documents, Folders, Tags, Linked folders and Recently
- * deleted (`coreState`), or, for what lives in a Mind's text, that Mind's note. A window's tabs
- * aren't in it: a tab is taken back by opening it again (⇧⌘T), as in a browser.
+ * What the core holds here is its Minds, Documents, Folders, Tags, Linked folders, Canvases and
+ * Recently deleted (`coreState`), or, for what lives in a Mind's text, that Mind's note. A
+ * window's tabs aren't in it: a tab is taken back by opening it again (⇧⌘T), as in a browser.
  */
 
 type Registry = ReturnType<TestHooks["registry"]>;
@@ -803,6 +804,27 @@ const STAGES: Record<Staged, Stage> = {
         key,
       ),
     opened: ({ window }) => window.getByTestId("viewer-header"),
+  },
+  // Published by the User's own agent, as Claude Code would (#3406), into no Folder.
+  canvas: {
+    async make({ window }) {
+      const agent = await connectCanvasAgent(window);
+      const id = await publishCanvas(agent, "Tide chart", "<p>Spring tides follow the Moon.</p>");
+      await agent.close();
+      return id;
+    },
+    async show({ window }, key) {
+      await showView(window, "Folders");
+      return key;
+    },
+    name: ({ window }, key) =>
+      read(
+        window,
+        async (core, id) => (await core.listCanvases()).find((each) => each.id === id)?.title ?? "",
+        key,
+      ),
+    opened: ({ window }, key) =>
+      window.locator(`[data-testid="canvas-tab"][data-canvas-id="${key}"][aria-selected="true"]`),
   },
   annotation: {
     // A highlight on the words of a Document, made through the bridge, shown in its tab's panel.
