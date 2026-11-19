@@ -126,7 +126,7 @@ export const MAX_FIGURES_PER_CALL = 20;
 export { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 
 /** How many times one Answer may call `calculate`; later calls are refused, so the model answers. */
-const MAX_CALLS_PER_ANSWER = 5;
+export const MAX_CALLS_PER_ANSWER = 5;
 
 export const FIX_FIGURES = "Fix these with another calculate call:";
 
@@ -198,7 +198,7 @@ export function quotedLines(quoted: QuotedText): string {
 }
 
 /** The one line a figure read from a scan's unsure word is refused with (#535). */
-const UNSURE_INPUT =
+export const UNSURE_INPUT =
   "That number was read from a scan and may be misread; it can't be an input until the User confirms it.";
 
 /** The parts of a quote around its ellipses, with where each starts in it. */

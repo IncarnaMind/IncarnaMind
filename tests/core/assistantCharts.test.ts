@@ -563,10 +563,10 @@ describe("A chart of figures calculate worked out, with a model that calculates"
     marker,
     label: `Revenue growth ${marker}`,
     formula: "rev2025 / rev2024 - 1",
-    as: "percent",
+    shown: "20.4%",
     inputs: [
-      { name: "rev2025", label: "Revenue 2025", citation: 1, number: "$1,482.6 million" },
-      { name: "rev2024", label: "Revenue 2024", citation: 1, number: "$1,231.0 million" },
+      { name: "rev2025", label: "Revenue 2025", citation: 1, value: 1_482_600_000 },
+      { name: "rev2024", label: "Revenue 2024", citation: 1, value: 1_231_000_000 },
     ],
   }));
   const growthTable = (delimiter: string, cells: readonly [string, string]) =>

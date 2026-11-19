@@ -6,6 +6,7 @@ import type {
   SignOffNow,
 } from "../../../core/api";
 import type { AnalysisFigureRows, AnalysisRecalculation } from "../../../shared/analysis";
+import { inputInWorking } from "../../../shared/calculatedFigures";
 import { badgeMessage, citationState } from "../../../shared/citations";
 import type { ClaimCheckShown } from "../../../shared/claimChecks";
 import { type CalculatedSources, retainedCheck } from "../../../shared/figureRuns";
@@ -92,10 +93,10 @@ export function CalculatedFigureCard({
           </p>
           <p>
             ={" "}
-            {formulaText(
-              figure.formula,
-              (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
-            )}{" "}
+            {formulaText(figure.formula, (name) => {
+              const input = byName.get(name.toLowerCase());
+              return input ? inputInWorking(input) : null;
+            })}{" "}
             = {figure.shown}
           </p>
         </div>

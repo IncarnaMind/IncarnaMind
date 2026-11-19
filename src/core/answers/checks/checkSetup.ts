@@ -18,9 +18,10 @@ import type { CitationSource } from "../../documents";
 import { type EvidenceScope, NOT_READ } from "../../documents/evidence";
 import type { WindowedPassage } from "../../documents/search";
 import { isLibraryList, type LibraryLists, libraryVersion } from "../../library/lists";
-import { answerLanguage, createCalculationSession, givenList } from "../calculations";
+import { answerLanguage, givenList } from "../calculations";
 import { type AnswerDocuments, createCitationSession, documentNamedAmong } from "../citations";
 import type { AnswerTools } from "../engine";
+import { createPlainCalculator } from "../plainCalculator";
 import type { CheckResults } from "./checkResults";
 import type { CheckedCitation, ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
 import { CHECK_TAGS, CITE_REPLY } from "./prompt";
@@ -263,7 +264,7 @@ export function setUpRun(
   // A tool in the model's hands: it works a figure out from numbers quoted from the Passages and
   // tells the model the result. What that means for the sentence is the model's to say.
   const calculator = calculates
-    ? createCalculationSession({
+    ? createPlainCalculator({
         documents: scoped,
         quotes: session.quotes,
         language: answerLanguage(request.claim),

@@ -3,7 +3,13 @@
  * whole against the Passages its Citations quote and the ones it searches for, records the quotes
  * that decide it with `cite`, and gives one verdict. Nothing here judges the sentence.
  */
-import type { CheckFigure, CitationSupport, ClaimVerdict, UnsupportedReason } from "../../api";
+import type {
+  CalculatedFigure,
+  CheckFigure,
+  CitationSupport,
+  ClaimVerdict,
+  UnsupportedReason,
+} from "../../api";
 import { LANGUAGE_NAMES, type Language } from "../../language";
 import { asData, type PromptTag, tagged } from "../../promptData";
 import type { CiteReply } from "../engine";
@@ -79,7 +85,7 @@ const reply = (language: Language) =>
   ].join("\n");
 
 const CALCULATE =
-  "A figure the sentence gives that no Passage states but their numbers give (a sum, a difference, a change, a ratio, a share): a simple one you may work out in your head. For one with several steps, many inputs or large numbers, call calculate with its inputs, each a number quoted from a Passage, and a formula: IncarnaMind works it out and tells you the result. An input keeps its sign as the Passage writes it, and comes in base units with its unit line's scale applied, so never convert a scale in the formula. What the result means for the sentence is yours to say; record the quotes its inputs come from with cite as well.";
+  "A figure the sentence gives that no Passage states but their numbers give (a sum, a difference, a change, a ratio, a share): a simple one you may work out in your head. For one with several steps, many inputs or large numbers, call calculate with its inputs, each a plain number with the quote it is in, a formula, a label that says what the figure is and shown, how it reads: IncarnaMind works it out and tells you the result. What the result means for the sentence is yours to say; record the quotes its inputs come from with cite as well.";
 
 const ROWS =
   "A figure the sentence gives over the rows of a data file (a sheet or a CSV file: a total, an average, a count, a share, a change over many rows) is not stated by the few rows a Passage shows. Work it out with run_analysis: give the file's Passage as its input, which reads the whole sheet, and write code that works out the quantity the sentence names (its rows, its column, its period, its group, its measure) without using the sentence's own number, giving it with result(). Then compare the result with the sentence's figure at the precision the sentence writes it: the same value is supported; another value is contradicted, and your explanation says the value the rows give; where the file has no such rows or column, it is not found. Such a verdict rests on the run and needs no quote: write Evidence: []. For contradicted, \"To 1:\" is only the value the rows give, written the way the sentence writes its figure, with no marker and nothing after it. A run that fails may be mended and run once more.";
@@ -147,6 +153,25 @@ export function checkInstructions(
 /** How many of an Analysis figure's runs of rows a check is sent: what the checks consent names. */
 const ROW_RUNS_SENT = 20;
 
+/**
+ * A calculated figure as its check is told of it: what it is, as shown, and how it was worked out
+ * from which quotes. Its label and shown text say what it measures, so no unit is sent (#3393).
+ */
+const savedRecord = (figure: CalculatedFigure) => ({
+  label: figure.label,
+  shown: figure.shown,
+  ...(figure.formula && { formula: figure.formula }),
+  inputs: figure.inputs.map((input) => ({
+    name: input.name,
+    label: input.label,
+    quote: input.citation.quote,
+    number: input.number.chars,
+    value: input.number.value,
+  })),
+  ...(figure.analysis && { analysis: figure.analysis }),
+  ...(figure.workbook && { workbook: figure.workbook }),
+});
+
 /** A figure of the sentence that IncarnaMind worked out itself, as its check is told of it. */
 function workedOut({ reading, calculated, label, analysisRecord }: CheckFigure) {
   if (!calculated && analysisRecord?.label === undefined) return [];
@@ -154,7 +179,7 @@ function workedOut({ reading, calculated, label, analysisRecord }: CheckFigure) 
     {
       shown: reading.chars,
       ...(label && { label }),
-      ...(calculated && { saved: calculated.figure }),
+      ...(calculated && { saved: savedRecord(calculated.figure) }),
       ...(analysisRecord?.label !== undefined && {
         analysis: {
           label: analysisRecord.label,

@@ -121,9 +121,10 @@ function differenceOfPrices(calls: ModelCall[]) {
               marker: 1,
               label: "Enterprise over Team, per seat a month",
               formula: "enterprise - team",
+              shown: "$20",
               inputs: [
-                { name: "enterprise", label: "Enterprise per seat", citation: 1, number: "$45" },
-                { name: "team", label: "Team per seat", citation: 1, number: "$25" },
+                { name: "enterprise", label: "Enterprise per seat", citation: 1, value: 45 },
+                { name: "team", label: "Team per seat", citation: 1, value: 25 },
               ],
             },
           ],

@@ -599,7 +599,6 @@ describe("outside agents", () => {
       const tools = await agent.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         "ask",
-        "calculate",
         "check_citations",
         "check_mind",
         "check_mind_yourself",
