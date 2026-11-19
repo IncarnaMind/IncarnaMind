@@ -17,6 +17,7 @@ import { startSkillFromMind } from "../makeSkill";
 import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
+import { useHeldOutlines, useNoteOutlines } from "../noteOutline";
 import { citationStepOpen, stepsShownOf } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
@@ -106,6 +107,12 @@ function originShown(ctx: CommandContext): BlockOrigin | null {
   const block = blockAt(editor.state.selection);
   return block ? originOf(editor.state, block.id) : null;
 }
+
+/** The outline of the Note a menu names, or the one in front, while it is shown (#3414). */
+const outlineHeld = (ctx: CommandContext) => {
+  const mindId = mindShown(ctx);
+  return mindId ? useHeldOutlines.getState()[mindId] : undefined;
+};
 
 /** The Mind a command acts on: the one a menu names, else the one in front (⌘K, the assistant). */
 function mindOf(ctx: CommandContext): string | null {
@@ -496,20 +503,18 @@ const appCommands: readonly Command[] = [
   },
   {
     id: "mind.outline",
-    label: "editor.outline.title",
-    keywords: ["editor.slash.heading1"],
+    label: (ctx, t) => {
+      const mindId = mindShown(ctx);
+      const open = mindId !== null && useNoteOutlines.getState().open.has(mindId);
+      return t(open ? "viewer.outline.hide" : "viewer.outline.show");
+    },
+    keywords: ["editor.outline.title", "editor.slash.heading1"],
     shortcut: { keys: "CmdOrCtrl+Alt+L" },
     group: "main",
-    // Opening it changes nothing.
+    // Run again, it switches back; the Note's text doesn't change.
     reversible: true,
-    when: (ctx) => onlyOne(ctx) && mindShown(ctx) !== null,
-    run: (ctx) => {
-      const mindId = mindShown(ctx);
-      if (!mindId) return;
-      // A Mind's row in the sidebar opens the Mind, which then shows its outline.
-      if (mindId !== mindInFront()) useAppStore.getState().openMind(mindId);
-      useMindTools.getState().showOutline(mindId);
-    },
+    when: (ctx) => onlyOne(ctx) && outlineHeld(ctx)?.has() === true,
+    run: (ctx) => outlineHeld(ctx)?.toggle(),
   },
   {
     id: "mind.find",

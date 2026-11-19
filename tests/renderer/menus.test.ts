@@ -102,15 +102,22 @@ describe("the menus", () => {
     expect(idsIn(page)).toContain("mind.exportMenu");
   });
 
-  test("More holds the rest of a Mind's menu, in its own order and not the groups'", () => {
-    // Tidy Chinese text and the transcript's rows are offered only where they apply.
+  test("More holds the rest of a Mind's menu, in its own order and not the groups'", async () => {
+    // Tidy Chinese text, the transcript's rows and the outline are offered only where they apply.
     expect(moreIn(buildMenu("mind", focusOn("mind")))).toEqual([
-      "mind.outline",
       "mind.checkContradictions",
       "mind.useAsSource",
       "skill.fromMind",
       "folder.newWith",
     ]);
+    // The outline: for a Note shown with two headings or more (#3414).
+    const { holdOutline } = await import("../../src/renderer/src/noteOutline");
+    const release = holdOutline("one", { has: () => true, toggle: () => undefined });
+    try {
+      expect(moreIn(buildMenu("mind", focusOn("mind")))[0]).toBe("mind.outline");
+    } finally {
+      release();
+    }
   });
 
   test("a Mind's menu offers no Style, Citation style or the export records, which the page's ⋯ and the Export menu hold", () => {

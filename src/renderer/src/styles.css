@@ -1385,6 +1385,30 @@
     color: var(--color-ink-secondary);
   }
 
+  /*
+   * The outline's button (#3414), at the tab's top left as the ⋯ is at its right: it stays put
+   * as the outline opens under it, on the outline's frame then, else on the sheet, and above the
+   * handle (z-index 10) of a Block scrolled under it.
+   */
+  .note-outline-button-slot {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 11;
+  }
+  .note-outline-button {
+    border-radius: 6px;
+    background: var(--color-sheet);
+
+    &[data-open] {
+      background: var(--color-frame);
+    }
+  }
+  /* Its list starts under the button. */
+  .pdf-outline.note-outline {
+    padding-top: 52px;
+  }
+
   /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
   .mind-menu-slot {
     position: absolute;
@@ -7559,11 +7583,6 @@
   }
   .find-match--current {
     background: var(--color-find-current);
-  }
-  .mind-outline {
-    width: min(320px, 92vw);
-    max-height: min(60vh, 420px);
-    overflow-y: auto;
   }
   /* Where a link goes, with Open, Edit and Remove: the address gives way to the buttons. */
   .editor-menu.link-bubble {
