@@ -93,6 +93,7 @@ export interface ScopeSummary {
 const OUTCOMES: readonly Outcome[] = [
   "supported",
   "contradicted",
+  "overstated",
   "partly",
   "differs",
   "absent",
@@ -166,6 +167,7 @@ const tally = (value: Tally) =>
 const ABBREVIATIONS: Record<Outcome, string> = {
   supported: "S",
   contradicted: "C",
+  overstated: "O",
   partly: "P",
   differs: "D",
   absent: "N",

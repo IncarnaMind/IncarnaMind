@@ -9,20 +9,23 @@ import { join, resolve } from "node:path";
 import { docxOf } from "../../tests/helpers/office";
 import { buildPdf, type PdfPage } from "../../tests/helpers/pdf";
 import type { EvalDocument } from "../lib/evaluationSet";
+import { CONDITION_DOCUMENTS } from "./conditionCases";
 import { VERBATIM_DOCUMENTS } from "./verbatimCases";
 import { VERDICT_DOCUMENTS } from "./verdictCases";
 
 /**
  * What the Documents make of a sentence: "contradicted-or-unsupported" for a wrong figure,
- * which either verdict flags; "partly" for a general word for the agreement's own term, which
- * is judged on the term with the wider group not covered (DESIGN.md › Checks); "contradicted"
- * for a genuine conflict, which a judgement must never lose; "absent" for a figure for a period
- * the agreement doesn't cover, which is another claim, so its card says nothing was found;
- * "not-contradicted" for a sentence whose duty or permission word sits on the condition its clause
- * puts on the act, which may read Supported or Unsupported but never Contradicted.
+ * which either verdict flags; "overstated" for a general word for the agreement's own term,
+ * which says of all staff what the agreement says of its one Employee (#3390); "partly" for a
+ * sentence the card heads Partly supported; "contradicted" for a genuine conflict, which a
+ * judgement must never lose; "absent" for a figure for a period the agreement doesn't cover,
+ * which is another claim, so its card says nothing was found; "not-contradicted" for a sentence
+ * whose duty or permission word sits on the condition its clause puts on the act, which may read
+ * Supported or Unsupported but never Contradicted.
  */
 export type Expected =
   | "supported"
+  | "overstated"
   | "partly"
   | "contradicted-or-unsupported"
   | "contradicted"
@@ -311,7 +314,7 @@ export const SETS: readonly RepeatSet[] = [
       {
         key: "staff-home",
         kind: "general-word",
-        expected: "partly",
+        expected: "overstated",
         text: "Staff may work from home two days a week, agreed in advance with the manager.",
       },
       {
@@ -360,7 +363,7 @@ export const SETS: readonly RepeatSet[] = [
       {
         key: "staff-home",
         kind: "general-word",
-        expected: "partly",
+        expected: "overstated",
         text: "员工每周可以居家办公两天，须事先与主管商定。",
       },
       {
@@ -416,13 +419,13 @@ export const SETS: readonly RepeatSet[] = [
       {
         key: "staff-home",
         kind: "general-word",
-        expected: "partly",
+        expected: "overstated",
         text: "Staff may work from home two days a week, agreed in advance with the manager.",
       },
       {
         key: "employees-home",
         kind: "general-word",
-        expected: "partly",
+        expected: "overstated",
         text: "Employees may work from home two days a week, agreed in advance with the manager.",
       },
     ],
@@ -459,13 +462,13 @@ export const SETS: readonly RepeatSet[] = [
       {
         key: "staff-home",
         kind: "general-word",
-        expected: "partly",
+        expected: "overstated",
         text: "员工每周可以居家办公两天，须事先与主管商定。",
       },
       {
         key: "employees-home",
         kind: "general-word",
-        expected: "partly",
+        expected: "overstated",
         text: "职工每周可在家工作两天，须事先与主管商定。",
       },
     ],
@@ -926,7 +929,7 @@ export function claimKindOf(set: RepeatSet, sentence: RepeatSentence): ClaimKind
 
 /** The Documents a set's Library holds. */
 export const documentsOf = (set: Pick<RepeatSet, "id" | "language">): LibraryDocument[] =>
-  [...DOCUMENTS, ...VERBATIM_DOCUMENTS, ...VERDICT_DOCUMENTS].filter(
+  [...DOCUMENTS, ...VERBATIM_DOCUMENTS, ...VERDICT_DOCUMENTS, ...CONDITION_DOCUMENTS].filter(
     (each) => each.language === set.language && (!each.onlyFor || each.onlyFor.includes(set.id)),
   );
 

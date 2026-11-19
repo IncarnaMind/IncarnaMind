@@ -186,6 +186,7 @@ const sentenceKey = (text: string) =>
 
 const FLAGGED: ReadonlySet<SentenceCheck["outcome"]> = new Set([
   "contradicted",
+  "overstated",
   "partly",
   "differs",
   "absent",

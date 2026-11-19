@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { SETS } from "../../eval/repeats/cases";
+import { CONDITION_SETS } from "../../eval/repeats/conditionCases";
 import { type Outcome, outcomeOf } from "../../eval/repeats/repeat";
 import {
   meetsExpected,
@@ -83,7 +84,7 @@ const row = (
 };
 
 describe("the repeated checks", () => {
-  test("name an Unsupported card by what it shows: a quoted part, a different line, or absent", () => {
+  test("name an Unsupported card by what it shows: the word its model named, a quoted part, a different line, or absent", () => {
     const partly = { reason: null, covered: "two days a week", uncovered: "all staff" };
     expect(outcomeOf(mark({ unsupported: { ...partly, quoted: QUOTE } }))).toBe("partly");
     expect(outcomeOf(mark({ unsupported: partly }))).toBe("absent");
@@ -91,6 +92,11 @@ describe("the repeated checks", () => {
       "differs",
     );
     expect(outcomeOf(mark({}))).toBe("absent");
+    const named = (word: "overstated" | "partly-supported" | "not-found") =>
+      outcomeOf(mark({ unsupported: { reason: null, covered: null, uncovered: null, word } }));
+    expect(named("overstated")).toBe("overstated");
+    expect(named("partly-supported")).toBe("partly");
+    expect(named("not-found")).toBe("absent");
     expect(outcomeOf(mark({ state: "supported" }))).toBe("supported");
     expect(outcomeOf(mark({ state: "not-checked", reason: "failed" }))).toBe("not-checked");
     expect(outcomeOf(undefined)).toBe("no-mark");
@@ -160,13 +166,19 @@ describe("the repeated checks", () => {
     expect(summary?.misses).toHaveLength(3);
   });
 
-  test("expect the partly-supported card for a general word for the agreement's term", () => {
+  test("expect the Overstated card for a general word for the agreement's term, and count its ✓ as false", () => {
     const [summary] = summarise([
-      row(1, "staff-home", "partly"),
+      row(1, "staff-home", "overstated"),
       row(2, "staff-home", "supported"),
+      row(3, "staff-home", "absent"),
+      row(4, "staff-home", "partly"),
     ]);
-    expect(summary?.misses.map((each) => [each.repeat, each.outcome])).toEqual([[2, "supported"]]);
-    expect(summary?.falseSupported).toEqual({ count: 0, checks: 0, sorts: 0 });
+    expect(summary?.misses.map((each) => [each.repeat, each.outcome])).toEqual([
+      [2, "supported"],
+      [3, "absent"],
+      [4, "partly"],
+    ]);
+    expect(summary?.falseSupported).toEqual({ count: 1, checks: 4, sorts: 4 });
   });
 
   test("expect the not-found card for a figure for a year the agreement doesn't cover", () => {
@@ -242,6 +254,21 @@ describe("the repeated checks", () => {
     expect(keys("en")).toEqual(keys("zh"));
     expect(keys("en-control")).toEqual(keys("zh-control"));
     expect(keys("en-periods")).toEqual(keys("zh-periods"));
+  });
+
+  // protects=each rule written without what its Document attaches has its twin that keeps it, in a Note of its own, in both languages (#3390); fails_when=a pair loses its twin or a kept sentence shares a Note with the one that drops it; no_claim=what a real model says.
+  test("pair each rule that drops its condition with the same rule kept, in both languages", () => {
+    const of = (id: string) => CONDITION_SETS.find((each) => each.id === id)?.sentences ?? [];
+    const keys = (id: string) => of(id).map((each) => each.key);
+    expect(keys("en-conditions").length).toBeGreaterThanOrEqual(6);
+    for (const id of ["en-conditions-kept", "zh-conditions", "zh-conditions-kept"])
+      expect(keys(id)).toEqual(keys("en-conditions"));
+    for (const id of ["en-conditions", "zh-conditions"]) {
+      expect(new Set(of(id).map((each) => each.expected))).toEqual(new Set(["unsupported"]));
+      expect(new Set(of(`${id}-kept`).map((each) => each.expected))).toEqual(
+        new Set(["supported"]),
+      );
+    }
   });
 });
 
