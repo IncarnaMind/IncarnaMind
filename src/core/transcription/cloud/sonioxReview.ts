@@ -31,7 +31,8 @@ export interface SonioxReviewInput extends Connection {
   signal: AbortSignal;
   /** Save before the request is sent so a lost response can be recovered by reference. */
   saveCleanup?(cleanup: SonioxReviewCleanup | null): void | Promise<void>;
-  onSubmitted?(referenceId: string): void | Promise<void>;
+  /** A job can be billed even when its response never arrives. */
+  onSubmission?(state: "dispatched" | "rejected"): void;
 }
 
 export class SonioxReviewCleanupError extends Error {
@@ -76,6 +77,7 @@ async function request(
   path: string,
   signal: AbortSignal,
   options: RequestInit = {},
+  beforeFetch?: () => void,
 ): Promise<Response> {
   const timeout =
     path === "/files" && options.method === "POST" ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
@@ -84,6 +86,7 @@ async function request(
   try {
     const headers = new Headers(options.headers);
     headers.set("Authorization", `Bearer ${connection.apiKey}`);
+    beforeFetch?.();
     return await connection.fetch(`${API}${path}`, {
       ...options,
       headers,
@@ -232,11 +235,17 @@ export async function reviewSonioxAudio(input: SonioxReviewInput): Promise<Revie
     await input.saveCleanup?.(pending);
     checkSignal(signal);
     cleanup = pending;
-    const response = await request(input, path, signal, { ...options, method: "POST" });
+    const response = await request(
+      input,
+      path,
+      signal,
+      { ...options, method: "POST" },
+      key === "transcription" ? () => input.onSubmission?.("dispatched") : undefined,
+    );
     if ([400, 401, 402, 403, 404, 413, 415, 422, 429].includes(response.status)) {
       cleanup = { ...cleanup, [key]: undefined };
+      if (key === "transcription") input.onSubmission?.("rejected");
     }
-    if (key === "transcription" && response.ok) await input.onSubmitted?.(referenceId);
     const body = await requireJson(response);
     if (
       !validId(body.id) ||

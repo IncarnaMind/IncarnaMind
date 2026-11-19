@@ -34,7 +34,7 @@ describe("Soniox meeting speaker review", () => {
       let saved: SonioxReviewCleanup | null = null;
       let referenceId = "";
       let polls = 0;
-      const onSubmitted = vi.fn();
+      const onSubmission = vi.fn();
       const connection = soniox((path, init) => {
         if (init?.method === "DELETE") return deleted();
         if (path === "/v1/files") {
@@ -48,6 +48,7 @@ describe("Soniox meeting speaker review", () => {
         }
         if (path === "/v1/transcriptions") {
           expect(saved).toEqual({ referenceId, file: FILE, transcription: true });
+          expect(onSubmission).toHaveBeenCalledExactlyOnceWith("dispatched");
           expect(JSON.parse(String(init?.body))).toEqual({
             model: "stt-async-v6",
             file_id: FILE,
@@ -73,7 +74,7 @@ describe("Soniox meeting speaker review", () => {
       });
       const result = reviewSonioxAudio({
         ...connection,
-        onSubmitted,
+        onSubmission,
         saveCleanup: (cleanup) => {
           saved = cleanup;
         },
@@ -84,7 +85,7 @@ describe("Soniox meeting speaker review", () => {
         { text: "Hi", speaker: "1", startMs: 0, endMs: 10 },
         { text: "好", speaker: "2", startMs: 12, endMs: 35 },
       ]);
-      expect(onSubmitted).toHaveBeenCalledExactlyOnceWith(referenceId);
+      expect(onSubmission).toHaveBeenCalledExactlyOnceWith("dispatched");
       expect(saved).toBeNull();
       expect(connection.calls).toEqual([
         "POST /v1/files",
@@ -101,7 +102,7 @@ describe("Soniox meeting speaker review", () => {
   });
 
   it("deletes the uploaded file when the job is rejected and reports only the status", async () => {
-    const onSubmitted = vi.fn();
+    const onSubmission = vi.fn();
     const connection = soniox((path, init) => {
       if (init?.method === "DELETE") return deleted();
       return path === "/v1/files"
@@ -109,10 +110,10 @@ describe("Soniox meeting speaker review", () => {
         : Response.json({ error_message: "private transcript text" }, { status: 402 });
     });
 
-    await expect(reviewSonioxAudio({ ...connection, onSubmitted })).rejects.toThrow(
+    await expect(reviewSonioxAudio({ ...connection, onSubmission })).rejects.toThrow(
       /^Soniox review request failed \(402\)\.$/,
     );
-    expect(onSubmitted).not.toHaveBeenCalled();
+    expect(onSubmission.mock.calls).toEqual([["dispatched"], ["rejected"]]);
     expect(connection.calls).toEqual([
       "POST /v1/files",
       "POST /v1/transcriptions",

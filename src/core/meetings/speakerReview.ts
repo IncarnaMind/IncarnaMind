@@ -21,6 +21,10 @@ import { reviewSuggestions } from "./reviewSuggestions";
 const USD_PER_HOUR = 0.1;
 const MAX_MS = 300 * 60_000;
 const LEDGER = "meeting.speakerReviewCleanup";
+// Soniox automatically deletes async files and transcripts after 30 days. Allow time for a job to finish.
+const RECEIPT_TTL_MS = 31 * 24 * 60 * 60_000;
+const FIRST_RETRY_MS = 60_000;
+const LONGEST_RETRY_MS = 60 * 60_000;
 type Grant = NonNullable<Awaited<ReturnType<CloudTranscription["speakerReviewGrant"]>>>;
 type Reason = MeetingSpeakerReviewQuote["reason"];
 
@@ -64,6 +68,7 @@ export function createMeetingSpeakerReview(options: {
   } | null = null;
   let recovering = false;
   let retry: ReturnType<typeof setTimeout> | undefined;
+  let retryDelay = FIRST_RETRY_MS;
 
   function local(meeting: Meeting): Reason {
     if (
@@ -122,14 +127,63 @@ export function createMeetingSpeakerReview(options: {
     const raw = settings.readDeviceValue(LEDGER);
     return isRecord(raw) ? raw : {};
   };
-  const keep = (reference: string, signature: string, cleanup: SonioxReviewCleanup | null) => {
-    if (lifetime.aborted) return;
-    const book = receiptBook();
-    if (cleanup) book[reference] = { signature, cleanup };
-    else delete book[reference];
+  function writeReceipts(book: Record<string, unknown>) {
     if (Object.keys(book).length) settings.writeDeviceValue(LEDGER, book);
     else settings.deleteDeviceValue(LEDGER);
+  }
+  const keep = (
+    reference: string,
+    signature: string,
+    expiresAt: number,
+    cleanup: SonioxReviewCleanup | null,
+  ) => {
+    if (lifetime.aborted) return;
+    const book = receiptBook();
+    if (cleanup) book[reference] = { signature, expiresAt, cleanup };
+    else delete book[reference];
+    writeReceipts(book);
   };
+
+  function receiptsToClean() {
+    const book = receiptBook();
+    const now = Date.parse(options.now());
+    let changed = false;
+    const receipts = [];
+    for (const [id, entry] of Object.entries(book)) {
+      if (activeReceipts.has(id)) continue;
+      if (
+        !isRecord(entry) ||
+        typeof entry.signature !== "string" ||
+        !isRecord(entry.cleanup) ||
+        entry.cleanup.referenceId !== id ||
+        (typeof entry.expiresAt === "number" && entry.expiresAt <= now)
+      ) {
+        delete book[id];
+        changed = true;
+        continue;
+      }
+      const expiresAt =
+        typeof entry.expiresAt === "number" && Number.isFinite(entry.expiresAt)
+          ? entry.expiresAt
+          : now + RECEIPT_TTL_MS;
+      if (expiresAt !== entry.expiresAt) {
+        book[id] = { ...entry, expiresAt };
+        changed = true;
+      }
+      const resource = (part: unknown) =>
+        typeof part === "string" || part === true ? part : undefined;
+      const file = resource(entry.cleanup.file);
+      const transcription = resource(entry.cleanup.transcription);
+      const cleanup: SonioxReviewCleanup = {
+        referenceId: id,
+        ...(file && { file }),
+        ...(transcription && { transcription }),
+      };
+      receipts.push({ id, signature: entry.signature, expiresAt, cleanup });
+    }
+    if (changed) writeReceipts(book);
+    return receipts;
+  }
 
   const gatedFetch =
     (grant: Grant): typeof fetch =>
@@ -143,42 +197,28 @@ export function createMeetingSpeakerReview(options: {
     if (recovering || lifetime.aborted || !Object.keys(receiptBook()).length) return;
     recovering = true;
     try {
+      const receipts = receiptsToClean();
+      if (!receipts.length) return;
       const grant = await cloud.speakerReviewGrant();
       if (!grant || lifetime.aborted) return;
-      for (const [id, entry] of Object.entries(receiptBook())) {
-        if (
-          activeReceipts.has(id) ||
-          !isRecord(entry) ||
-          entry.signature !== grant.signature ||
-          !isRecord(entry.cleanup) ||
-          entry.cleanup.referenceId !== id
-        )
-          continue;
-        const resource = (part: unknown) =>
-          typeof part === "string" || part === true ? part : undefined;
-        const file = resource(entry.cleanup.file);
-        const transcription = resource(entry.cleanup.transcription);
-        const cleanup: SonioxReviewCleanup = {
-          referenceId: id,
-          ...(file && { file }),
-          ...(transcription && { transcription }),
-        };
+      for (const { id, signature, expiresAt, cleanup } of receipts) {
+        if (signature !== grant.signature) continue;
         const left = await cleanupSonioxReview({
           apiKey: grant.apiKey,
           fetch: gatedFetch(grant),
           cleanup,
           signal: lifetime,
         });
-        keep(id, grant.signature, left);
-        if (left) schedule();
+        keep(id, signature, expiresAt, left);
       }
     } catch {
       if (!lifetime.aborted) {
         options.log.warn("meeting.reviewCleanupWaiting", {});
-        schedule();
       }
     } finally {
       recovering = false;
+      if (!lifetime.aborted && Object.keys(receiptBook()).length) schedule();
+      else retryDelay = FIRST_RETRY_MS;
     }
   }
   function schedule() {
@@ -186,7 +226,8 @@ export function createMeetingSpeakerReview(options: {
     retry = setTimeout(() => {
       retry = undefined;
       void recover();
-    }, 60_000);
+    }, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, LONGEST_RETRY_MS);
     retry.unref();
   }
   lifetime.addEventListener(
@@ -246,6 +287,7 @@ export function createMeetingSpeakerReview(options: {
     if (!settle) throw unavailable("cap");
     let reference = "";
     let submitted = false;
+    const expiresAt = Date.parse(options.now()) + RECEIPT_TTL_MS;
     try {
       const tokens = await reviewSonioxAudio({
         apiKey: grant.apiKey,
@@ -257,11 +299,13 @@ export function createMeetingSpeakerReview(options: {
             reference = cleanup.referenceId;
             activeReceipts.add(reference);
           }
-          if (reference) keep(reference, grant.signature, cleanup);
+          if (reference) keep(reference, grant.signature, expiresAt, cleanup);
         },
-        onSubmitted: () => {
-          submitted = true;
-          if (!lifetime.aborted) settle(true);
+        onSubmission: (state) => {
+          if (lifetime.aborted) return;
+          if (state === "dispatched" && !grant.valid()) return;
+          submitted = state === "dispatched";
+          settle(submitted);
         },
       });
       signal.throwIfAborted();
@@ -303,12 +347,31 @@ export function createMeetingSpeakerReview(options: {
       const current = running.get(id);
       if (current) return current.promise;
       const stop = new AbortController();
-      const promise = run(id, stop).finally(() => running.delete(id));
+      const promise = run(id, stop)
+        .catch((error: unknown) => {
+          if (stop.signal.aborted && error === stop.signal.reason)
+            throw new InvalidInputError({ key: "error.meeting.reviewCancelled" });
+          throw error;
+        })
+        .finally(() => running.delete(id));
       running.set(id, { stop, promise });
       return promise;
     },
-    cancel(id: string) {
-      running.get(id)?.stop.abort();
+    async cancel(id: string) {
+      const pending = running.get(id);
+      if (!pending) return;
+      pending.stop.abort();
+      try {
+        await pending.promise;
+      } catch (error) {
+        if (
+          !(
+            error instanceof InvalidInputError &&
+            error.wording?.key === "error.meeting.reviewCancelled"
+          )
+        )
+          throw error;
+      }
     },
     changed() {
       for (const work of running.values()) {

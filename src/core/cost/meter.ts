@@ -681,7 +681,8 @@ export function createMeter(options: {
             );
             return (submitted: boolean) =>
               db.run(
-                "UPDATE model_requests SET status = ?, cost = ?, updated_at = ? WHERE id = ? AND status = 'reserved'",
+                `UPDATE model_requests SET status = ?, cost = ?, updated_at = ? WHERE id = ?
+                 AND status IN ('reserved', 'settled')`,
                 [
                   submitted ? "settled" : "interrupted",
                   submitted ? cost.amount : 0,

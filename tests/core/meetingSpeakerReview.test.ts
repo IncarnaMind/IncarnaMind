@@ -54,15 +54,29 @@ function liveSoniox() {
   return { cloud, streams };
 }
 
-function asyncSoniox(holdTranscript: boolean) {
+function asyncSoniox({
+  holdTranscript = false,
+  holdDeletion,
+  submit,
+}: {
+  holdTranscript?: boolean;
+  holdDeletion?: Promise<void>;
+  submit?: "lost" | "refused";
+}) {
   const calls: string[] = [];
   const uploads: Int16Array[] = [];
   const fetchingTranscript = Promise.withResolvers<void>();
+  const deleting = Promise.withResolvers<void>();
+  let read = false;
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
     expect(url.origin).toBe("https://api.soniox.com");
     calls.push(`${init?.method ?? "GET"} ${url.pathname}`);
-    if (init?.method === "DELETE") return new Response(null, { status: 204 });
+    if (init?.method === "DELETE") {
+      deleting.resolve();
+      await holdDeletion;
+      return new Response(null, { status: 204 });
+    }
     if (url.pathname === "/v1/files") {
       if (!(init?.body instanceof FormData)) throw new Error("Audio must be a file upload.");
       expect([...init.body.keys()].sort()).toEqual(["client_reference_id", "file"]);
@@ -72,6 +86,9 @@ function asyncSoniox(holdTranscript: boolean) {
       return Response.json({ id: FILE_ID }, { status: 201 });
     }
     if (url.pathname === "/v1/transcriptions") {
+      if (init?.method !== "POST") return Response.json({ transcriptions: [] });
+      if (submit === "lost") throw new Error("The response to the submission was lost.");
+      if (submit === "refused") return new Response(null, { status: 402 });
       return Response.json({ id: JOB_ID, file_id: FILE_ID }, { status: 201 });
     }
     if (url.pathname === `/v1/transcriptions/${JOB_ID}`) {
@@ -81,7 +98,8 @@ function asyncSoniox(holdTranscript: boolean) {
       throw new Error("Unexpected Soniox request.");
     }
     fetchingTranscript.resolve();
-    if (holdTranscript) {
+    if (holdTranscript && !read) {
+      read = true;
       const signal = init?.signal;
       if (!signal) throw new Error("This request must be cancellable.");
       signal.throwIfAborted();
@@ -97,14 +115,20 @@ function asyncSoniox(holdTranscript: boolean) {
       })),
     });
   });
-  return { fetch, calls, uploads, fetchingTranscript: fetchingTranscript.promise };
+  return {
+    fetch,
+    calls,
+    uploads,
+    fetchingTranscript: fetchingTranscript.promise,
+    deleting: deleting.promise,
+  };
 }
 
-async function recordedReview(holdTranscript = false) {
+async function recordedReview(options: Parameters<typeof asyncSoniox>[0] = {}) {
   const dataDir = await createTempDataFolder();
-  const remote = asyncSoniox(holdTranscript);
+  const remote = asyncSoniox(options);
   const live = liveSoniox();
-  const { core, record } = await transcribingCore(dataDir, {
+  const { core, record, clock } = await transcribingCore(dataDir, {
     transcriptionReviewFetch: remote.fetch,
     cloud: live.cloud,
     capture: {
@@ -141,7 +165,7 @@ async function recordedReview(holdTranscript = false) {
     }
     await until(core, id, (transcript) => transcript.lines === remoteLines.length + 1);
     const { document } = await stoppedMeeting(core, dataDir, id);
-    return { core, id, document, remote, cues: await savedCues(core, id) };
+    return { core, id, document, remote, clock, cues: await savedCues(core, id) };
   } catch (error) {
     core.close();
     throw error;
@@ -256,7 +280,7 @@ test("only a confirmed review sends the computer track once and applying it pres
 test.each(["cancel", "delete audio", "revoke"] as const)(
   "%s stops a review without changing the Transcript",
   async (action) => {
-    const { core, id, document, remote, cues } = await recordedReview(true);
+    const { core, id, document, remote, cues } = await recordedReview({ holdTranscript: true });
     try {
       const rejection = expect(
         core.reviewMeetingSpeakers({ meetingId: id, confirmed: true }),
@@ -296,6 +320,77 @@ test.each(["cancel", "delete audio", "revoke"] as const)(
     }
   },
 );
+
+test("a Cancel waits for the old review to exit before the user can retry", async () => {
+  const cleanup = Promise.withResolvers<void>();
+  const { core, id, remote } = await recordedReview({
+    holdTranscript: true,
+    holdDeletion: cleanup.promise,
+  });
+  const input = { meetingId: id, confirmed: true } as const;
+  try {
+    const first = core.reviewMeetingSpeakers(input).catch((error: unknown) => error);
+    await remote.fetchingTranscript;
+    let canceled = false;
+    const stopping = core.cancelMeetingSpeakerReview(id).then(() => {
+      canceled = true;
+    });
+    await remote.deleting;
+    expect(canceled).toBe(false);
+    cleanup.resolve();
+    await stopping;
+    expect(await first).toMatchObject({ wording: { key: "error.meeting.reviewCancelled" } });
+    expect((await core.reviewMeetingSpeakers(input)).suggestions).toHaveLength(1);
+    expect(remote.uploads).toHaveLength(2);
+  } finally {
+    cleanup.resolve();
+    core.close();
+  }
+});
+
+test.each([
+  { submit: "lost", refunded: false },
+  { submit: "refused", refunded: true },
+] as const)(
+  "a $submit submission response has a refund of $refunded",
+  async ({ submit, refunded }) => {
+    const { core, id, remote } = await recordedReview({ submit });
+    try {
+      const estimated = (await core.getMeetingSpeakerReview(id)).estimatedUsd;
+      const spent = async () =>
+        (await core.getCostSummary()).spent.find((money) => money.currency === "USD")?.amount ?? 0;
+      const before = await spent();
+      await expect(
+        core.reviewMeetingSpeakers({ meetingId: id, confirmed: true }),
+      ).rejects.toMatchObject({ wording: { key: "error.meeting.reviewFailed" } });
+      expect((await spent()) - before).toBeCloseTo(refunded ? 0 : estimated, 9);
+      expect(remote.calls.filter((call) => call === "POST /v1/transcriptions")).toHaveLength(1);
+      if (submit === "refused") expect(remote.calls.at(-1)).toBe(`DELETE /v1/files/${FILE_ID}`);
+    } finally {
+      core.close();
+    }
+  },
+);
+
+test("an unresolved upload receipt only retries while Soniox could still have audio", async () => {
+  const { core, id, remote, clock } = await recordedReview({ submit: "lost" });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    await expect(
+      core.reviewMeetingSpeakers({ meetingId: id, confirmed: true }),
+    ).rejects.toMatchObject({ wording: { key: "error.meeting.reviewFailed" } });
+    const attempts = () => remote.calls.filter((call) => call === "GET /v1/transcriptions").length;
+    expect(attempts()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(attempts()).toBe(2);
+    clock.advance(32 * 24 * 60 * 60_000);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(attempts()).toBe(2);
+  } finally {
+    core.close();
+    vi.useRealTimers();
+  }
+});
 
 test.each([
   { reason: "cap", key: "error.meeting.reviewCap" },
