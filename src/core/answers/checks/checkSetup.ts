@@ -23,7 +23,7 @@ import { type AnswerDocuments, createCitationSession, documentNamedAmong } from 
 import type { AnswerTools } from "../engine";
 import type { CheckResults } from "./checkResults";
 import type { CheckedCitation, ClaimCheckDependencies, ClaimCheckRequest } from "./claimCheck";
-import { CHECK_TAGS } from "./prompt";
+import { CHECK_TAGS, CITE_REPLY } from "./prompt";
 
 /**
  * A check reads only what a Document's words say: no date beside its Passages. The one Answers see
@@ -323,6 +323,7 @@ export function setUpRun(
       return session.tools.searchDocuments(query, searchSignal, options);
     },
     cite: (records, options) => session.tools.cite(records, options),
+    citeReply: CITE_REPLY,
     hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
     unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
     correctQuote: (marker, quote) => session.tools.correctQuote?.(marker, quote) ?? false,
