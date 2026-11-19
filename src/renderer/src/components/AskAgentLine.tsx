@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import { ChevronDownLineIcon } from "./lineIcons";
 import { MetaLine } from "./MetaLine";
 import { LineAction, type ProblemAction } from "./ProblemLine";
-import { menuClass, menuItemClass } from "./ui";
+import { menuClass, menuItemClass, menuRuleClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
 
 /**
@@ -65,23 +65,28 @@ export function AskAgentLine({
   );
 }
 
-/** The other agents behind a ⌄, one step away: a small menu, never a dialog. */
+/** The other agents behind a ⌄, one step away: a small menu, never a dialog; `foot` under a rule. */
 export function OtherAgents({
   agents,
   label,
   onAsk,
   testId,
   className = "text-accent hover:bg-hover",
+  name: named,
+  foot,
 }: {
   agents: readonly AgentPairing[];
   label(agent: string): string;
   onAsk(agent: AgentPairing): void;
   testId: string;
   className?: string;
+  /** The ⌄'s name, where its menu holds more than agents. */
+  name?: string;
+  foot?: { label: string; testId: string; onClick(): void };
 }) {
   const t = useT();
   const menu = usePopoverMenu({ focus: "first" });
-  const name = t("agents.ask.others");
+  const name = named ?? t("agents.ask.others");
   return (
     <>
       <button
@@ -111,6 +116,23 @@ export function OtherAgents({
               {label(agent.name)}
             </button>
           ))}
+        {menu.open && foot && (
+          <>
+            {agents.length > 0 && <div className={menuRuleClass} />}
+            <button
+              type="button"
+              role="menuitem"
+              data-testid={foot.testId}
+              className={`${menuItemClass} pl-2`}
+              onClick={() => {
+                menu.close();
+                foot.onClick();
+              }}
+            >
+              {foot.label}
+            </button>
+          </>
+        )}
       </div>
     </>
   );

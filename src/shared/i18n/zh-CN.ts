@@ -8041,6 +8041,8 @@ export const zhCN = {
   "agents.done.undo": "撤销",
   "agents.ask.action": "交给{agent}",
   "agents.ask.pill": "问{agent}",
+  "agents.ask.more": "更多提问方式",
+  "agents.ask.useModel": "在 IncarnaMind 里用一个模型…",
   "agents.ask.others": "交给其他智能体",
   "agents.ask.setUpModel": "设置 AI 模型",
   "agents.ask.copied": "已复制，粘贴到{agent}中即可。",

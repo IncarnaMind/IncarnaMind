@@ -2,12 +2,13 @@ import { askAgent } from "../../askYourAi";
 import { shortcutLabel } from "../../commands/keymap";
 import { useComparisons } from "../../comparisons";
 import { useT } from "../../i18n";
-import type { OwnAiPill as Pill } from "../../ownAiPanel";
+import { type OwnAiPill as Pill, setUpModelInstead } from "../../ownAiPanel";
 import { OtherAgents } from "../AskAgentLine";
 
 /**
  * The Ask pill for a User with only their own AI, the assistant folded (#3373): "Ask {agent}" with
- * ⌘J asks it about the Note the User is in, the others behind ⌄, as the card offers them.
+ * ⌘J asks it about the Note the User is in; its ⌄ holds the others, as the card offers them, and
+ * last IncarnaMind's own chat, which opens the assistant on model setup.
  */
 export function OwnAiPill({ mindId, agents }: Pill) {
   const t = useT();
@@ -32,15 +33,19 @@ export function OwnAiPill({ mindId, agents }: Pill) {
           {shortcutLabel("composer.focus")}
         </kbd>
       </button>
-      {others.length > 0 && (
-        <OtherAgents
-          agents={others}
-          label={label}
-          onAsk={(agent) => void askAgent(agent, mindId, { kind: "note" })}
-          testId="own-ai-pill"
-          className="h-6 hover:bg-hover hover:text-ink"
-        />
-      )}
+      <OtherAgents
+        agents={others}
+        label={label}
+        onAsk={(agent) => void askAgent(agent, mindId, { kind: "note" })}
+        testId="own-ai-pill"
+        className="h-6 hover:bg-hover hover:text-ink"
+        name={t("agents.ask.more")}
+        foot={{
+          label: t("agents.ask.useModel"),
+          testId: "own-ai-pill-use-model",
+          onClick: setUpModelInstead,
+        }}
+      />
     </div>
   );
 }

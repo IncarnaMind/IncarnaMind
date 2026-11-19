@@ -27,7 +27,8 @@ test.skip(
 
 /*
  * Ask your AI (#3373): a User who connected their own AI and set up no model finds the page above
- * the Note bare and the assistant folded, with a pill that asks that AI about the Note; they ask it
+ * the Note bare and the assistant folded out of sight, with no rail, and a pill that asks that AI
+ * about the Note, whose ⌄ also opens IncarnaMind's own chat on model setup; they ask it
  * to fix a sentence that needs a look, and with what they typed in the chat box. Claude Code has a
  * link that opens it with the request typed; VS Code has none, so the request is copied. The app
  * opens nothing here: each link it would open is recorded.
@@ -126,9 +127,12 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
     const noteNamed = `In IncarnaMind, about my note “${TITLE}” (mindId: ${mindId}):`;
 
-    // No line above the Note, the assistant folded, and the pill asks Claude Code, used last.
+    // No line above the Note, the assistant folded out of sight with no rail, and the pill asks
+    // Claude Code, used last.
     const assistant = window.getByTestId("assistant");
     await expect(assistant).toHaveAttribute("data-folded", "true");
+    await expect(assistant).toBeHidden();
+    await expect(window.getByTestId("assistant-rail")).toBeHidden();
     const pill = window.getByTestId("own-ai-pill-ask");
     await expect(pill).toContainText("Ask Claude Code");
     await expect(window.getByTestId("ask-pill")).toHaveCount(0);
@@ -176,10 +180,30 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(3);
     expect(typedIn((await urlsOpened(app))[2])).toBe(noteNamed);
-    await expect(assistant).toHaveAttribute("data-folded", "true");
+    await expect(assistant).toBeHidden();
 
-    // Opened by hand, it stays open, with no pill; Enter in the chat box offers Claude Code for
-    // the words, in place of the setup card, and Enter again asks.
+    // IncarnaMind's own chat is under the pill's ⌄, last, by the keyboard as its agents are: it
+    // opens the assistant on model setup, with the cursor in its key field.
+    await window.getByTestId("own-ai-pill-others").focus();
+    await window.keyboard.press("Enter");
+    await expect(window.getByRole("menuitem", { name: "Ask VS Code" })).toBeFocused();
+    await window.keyboard.press("ArrowDown");
+    const useModel = window.getByTestId("own-ai-pill-use-model");
+    await expect(useModel).toHaveText("Use a model in IncarnaMind…");
+    await expect(useModel).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect(assistant).toBeVisible();
+    await expect(assistant).not.toHaveAttribute("data-folded", "true");
+    await expect(window.getByTestId("model-setup")).toBeVisible();
+    await expect(window.getByTestId("setup-key")).toBeFocused();
+    await expect(window.getByTestId("own-ai-pill")).toHaveCount(0);
+    await pointAndClick(window, window.getByTestId("setup-later"));
+
+    // Their own fold then shows the rail, as for everyone, beside the pill; opened again, Enter in
+    // the chat box offers Claude Code for the words, in place of the setup card, and Enter again asks.
+    await pointAndClick(window, window.getByTestId("assistant-fold"));
+    await expect(window.getByTestId("assistant-rail")).toBeVisible();
+    await expect(window.getByTestId("own-ai-pill")).toBeVisible();
     await pointAndClick(window, window.getByTestId("assistant-fold"));
     await expect(assistant).not.toHaveAttribute("data-folded", "true");
     await expect(window.getByTestId("own-ai-pill")).toHaveCount(0);

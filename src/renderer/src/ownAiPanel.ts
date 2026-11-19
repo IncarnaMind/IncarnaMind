@@ -1,10 +1,11 @@
 /**
  * The assistant for a User whose own AI is connected and who set up no model (#3373): its panel
- * starts folded, until the User folds or unfolds it themselves, and while it is folded the pill at
- * the foot of the page asks their own AI about the Note, as ⌘J does.
+ * starts folded and out of sight, as the quiet assistant of a first open is, until the User opens
+ * or folds it themselves; while it is folded the pill at the foot of the page asks their own AI
+ * about the Note, as ⌘J does.
  */
 import { useEffect } from "react";
-import type { AgentPairing } from "../../core/api";
+import type { AgentPairing, AssistantPlace } from "../../core/api";
 import {
   agentsToAsk,
   noModel,
@@ -14,6 +15,7 @@ import {
   useReadAgentsToAsk,
 } from "./askYourAi";
 import { assistantTabOf, groupsMerged } from "./layoutSlice";
+import { chooseModelInPlace } from "./modelSetup";
 import { useAppStore } from "./store";
 import { useGroupsMerged } from "./useWindowWidth";
 
@@ -27,6 +29,24 @@ export function useOwnAiOnly(): boolean | null {
 }
 
 export const ownAiOnlyNow = (): boolean => noModel() && agentsToAsk(null).length > 0;
+
+const foldedForOwnAi = (place: AssistantPlace | undefined) =>
+  place?.folded === true && place.foldedBy === "agent";
+
+/** Folded for their own AI, never by the User: no rail, the panel out of sight. */
+export function useHiddenForOwnAi(): boolean {
+  const only = useOwnAiOnly();
+  return useAppStore((state) => only === true && foldedForOwnAi(state.layout?.assistant));
+}
+
+export const hiddenForOwnAiNow = (): boolean =>
+  ownAiOnlyNow() && foldedForOwnAi(useAppStore.getState().layout?.assistant);
+
+/** IncarnaMind's own chat, from the pill: the panel opens, as the User's own choice, on model setup. */
+export function setUpModelInstead(): void {
+  void useAppStore.getState().placeAssistant({ folded: false });
+  chooseModelInPlace();
+}
 
 /**
  * Folds the assistant for a User with only their own AI, while they have never folded or unfolded

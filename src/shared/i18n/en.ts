@@ -8527,6 +8527,8 @@ export const en = {
   "agents.done.undo": "Undo",
   "agents.ask.action": "Ask {agent}",
   "agents.ask.pill": "Ask {agent}",
+  "agents.ask.more": "More ways to ask",
+  "agents.ask.useModel": "Use a model in IncarnaMind\u2026",
   "agents.ask.others": "Ask another AI",
   "agents.ask.setUpModel": "Set up a model",
   "agents.ask.copied": "Copied. Paste it into {agent}.",
