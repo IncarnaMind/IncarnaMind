@@ -111,14 +111,37 @@ const supported = (explanation: string): Reply => ({
 });
 
 /**
+ * The figures IncarnaMind worked out itself that a check's message gives with its sentence: the
+ * numbers they show, and their inputs' numbers and the quotes those come from.
+ */
+function workedOut(message: string): { shown: string[]; inputs: string[]; quotes: string[] } {
+  const block = /<figures>\n([\s\S]*?)\n<\/figures>/.exec(message)?.[1];
+  const figures: unknown = block ? JSON.parse(block) : [];
+  const worked = { shown: [] as string[], inputs: [] as string[], quotes: [] as string[] };
+  if (!Array.isArray(figures)) return worked;
+  for (const figure of figures as {
+    shown?: string;
+    saved?: { inputs?: { number?: { chars?: string }; citation?: { quote?: string } }[] };
+  }[]) {
+    worked.shown.push(...numbers(figure.shown ?? ""));
+    for (const input of figure.saved?.inputs ?? []) {
+      if (input.number?.chars) worked.inputs.push(input.number.chars);
+      if (input.citation?.quote) worked.quotes.push(input.citation.quote);
+    }
+  }
+  return worked;
+}
+
+/**
  * A check of one sentence (#96): it searches for the sentence, then takes the Passage line that
  * shares the most words with it, among equals the one with the sentence's numbers, and cites it. Three shared words or more support it, unless the
  * sentence has a number the line doesn't while the line has numbers: that contradicts it, and the
  * sentence's first such number changes to the line's first. Fewer leave it unsupported, as does a
  * sentence that says more than its line (`SAYS_MORE_THAN_ITS_LINE`); one it takes for its writer's
- * own view (`SAYS_A_VIEW`) is that instead. A sentence with "blank reply"
- * gets an empty reply, one with "refuse" a refusal, and one with "no reason" an unsupported
- * verdict. Asked to search again before it says a sentence isn't found, it searches the sentence's
+ * own view (`SAYS_A_VIEW`) is that instead. One whose every number IncarnaMind worked out itself
+ * searches for its figures' inputs and is supported by the line that holds them all. A sentence
+ * with "blank reply" gets an empty reply, one with "refuse" a refusal, and one with "no reason" an
+ * unsupported verdict. Asked to search again before it says a sentence isn't found, it searches the sentence's
  * longer words and numbers alone.
  */
 export function checkReply(prompt: Prompt): Reply {
@@ -127,13 +150,32 @@ export function checkReply(prompt: Prompt): Reply {
   const sentence = /<sentence>\n([\s\S]*?)\n<\/sentence>/.exec(first)?.[1] ?? "";
   if (/blank reply/i.test(sentence)) return { text: "" };
   if (/\brefuse\b/i.test(sentence)) return { text: "I'm sorry, I can't help with that." };
+  // Each number IncarnaMind worked out is taken as right, as the check asks; a sentence of only
+  // such numbers rests on the line its figures' inputs are quoted from.
+  const worked = workedOut(first);
+  const own = numbers(sentence);
+  const ownFigures =
+    worked.inputs.length > 0 && own.length > 0 && own.every((each) => worked.shown.includes(each));
   const searches = toolResults(prompt, "search_documents");
   const searched = searches.at(-1);
-  if (searched === undefined) return { tool: "search_documents", input: { query: sentence } };
+  if (searched === undefined)
+    return {
+      tool: "search_documents",
+      input: { query: ownFigures ? worked.quotes.join(" ") : sentence },
+    };
+  const cited = toolResults(prompt, "cite").length > 0;
+  if (ownFigures) {
+    const holdsInputs = (line: string) => worked.inputs.every((input) => line.includes(input));
+    const record = passagesIn(searched)
+      .map((passage) => recordFor(passage, sentence, 1, holdsInputs)?.record)
+      .find((each) => typeof each?.quote === "string" && holdsInputs(each.quote));
+    if (!record) return UNSUPPORTED;
+    if (!cited) return { tool: "cite", input: { citations: [record] } };
+    return supported("The Document's numbers give these figures [^1].");
+  }
   if (searches.length === 1 && lastUserText(prompt).includes(SEARCH_AGAIN)) {
     return { tool: "search_documents", input: { query: checkWords(sentence).join(" ") } };
   }
-  const cited = toolResults(prompt, "cite").length > 0;
   // A listed project named in Chinese has no words the count below reads: the Passage line that
   // holds its name supports it (#2809).
   const named = LISTED_PROJECTS["zh-CN"].held.find((each) => sentence.includes(each));

@@ -3,6 +3,8 @@
  * reference says, and what a transcriber hands back to be scored.
  */
 
+import type { WordTime } from "../../src/core/documents/formats/vtt";
+
 export type Language = "en" | "zh" | "mixed";
 /** `conversation` is two people talking, recorded as one track. */
 export type Setting = "online" | "room" | "conversation";
@@ -53,7 +55,7 @@ export interface Hypothesis {
   /** Wall-clock seconds the transcriber took on the whole case, for the real-time factor. */
   processingSeconds?: number;
   /** A segment with no speaker says nothing about who spoke: the case gets no diarisation score. */
-  segments: { start: number; end: number; text: string; speaker?: string }[];
+  segments: { start: number; end: number; text: string; speaker?: string; words?: WordTime[] }[];
 }
 
 export interface CaseFolder {

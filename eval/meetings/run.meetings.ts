@@ -31,6 +31,7 @@ import { monoSamples } from "../lib/wav";
 import { evalModelFiles, FRAME, modelData } from "../transcription/clips";
 import { loadCase, readCases } from "./cache";
 import { type CloudRoute, cloudModelOf, isCloudRoute, transcribeOnCloud } from "./cloud";
+import { hypothesisSegment } from "./hypotheses";
 import { type CaseScore, formatReport, scoreCase } from "./report";
 import { formatTerms, readWords, scoreTerms, type TermScore } from "./terms";
 import type { Hypothesis, Language, Track } from "./types";
@@ -104,15 +105,9 @@ describe("Transcription on this computer, on the meeting set", () => {
         case: definition.id,
         transcriber: `${QWEN3_ASR_0_6B.name} with Silero VAD, ${files.threads} threads${files.live ? ", live words from the streaming model" : ""}${TOLD ? ", told its words" : ""}`,
         processingSeconds,
-        segments: segments.map((segment) => {
-          const speaker = LABELS[segment.stream as Track];
-          return {
-            start: segment.startMs / 1000,
-            end: segment.endMs / 1000,
-            text: segment.text,
-            ...(speaker && { speaker }),
-          };
-        }),
+        segments: segments.map((segment) =>
+          hypothesisSegment(segment, LABELS[segment.stream as Track]),
+        ),
       };
       await writeFile(join(out, `${definition.id}.json`), JSON.stringify(hypothesis));
       scores.push(scoreCase(definition, loaded.reference, hypothesis, { until: UNTIL }));
@@ -173,12 +168,7 @@ async function runOnCloud(
           const reported = segment.speaker && `${segment.stream}:${segment.speaker}`;
           const speaker =
             segment.stream === "mic" ? LABELS.mic : reported || LABELS[segment.stream as Track];
-          return {
-            start: segment.startMs / 1000,
-            end: segment.endMs / 1000,
-            text: segment.text,
-            ...(speaker && { speaker }),
-          };
+          return hypothesisSegment(segment, speaker);
         })
         .sort((a, b) => a.start - b.start),
     };

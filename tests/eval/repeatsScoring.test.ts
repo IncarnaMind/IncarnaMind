@@ -5,6 +5,7 @@
 import { describe, expect, test } from "vitest";
 import { SETS } from "../../eval/repeats/cases";
 import { CONDITION_SETS } from "../../eval/repeats/conditionCases";
+import { PERCENT_POINT_SETS } from "../../eval/repeats/percentPointCases";
 import { type Outcome, outcomeOf } from "../../eval/repeats/repeat";
 import {
   meetsExpected,
@@ -266,6 +267,21 @@ describe("the repeated checks", () => {
     for (const id of ["en-conditions", "zh-conditions"]) {
       expect(new Set(of(id).map((each) => each.expected))).toEqual(new Set(["unsupported"]));
       expect(new Set(of(`${id}-kept`).map((each) => each.expected))).toEqual(
+        new Set(["supported"]),
+      );
+    }
+  });
+
+  // protects=each wrong change between two percentages has its right twin, in a Note of its own, in both languages (#3408); fails_when=a pair loses its twin or a right sentence shares a Note with its wrong one; no_claim=what a real model says.
+  test("pair each change written as the wrong figure with the same change written right, in both languages", () => {
+    const of = (id: string) => PERCENT_POINT_SETS.find((each) => each.id === id)?.sentences ?? [];
+    const keys = (id: string) => of(id).map((each) => each.key);
+    expect(keys("en-points").length).toBeGreaterThanOrEqual(6);
+    for (const id of ["en-points-right", "zh-points", "zh-points-right"])
+      expect(keys(id)).toEqual(keys("en-points"));
+    for (const id of ["en-points", "zh-points"]) {
+      expect(new Set(of(id).map((each) => each.expected))).toEqual(new Set(["contradicted"]));
+      expect(new Set(of(`${id}-right`).map((each) => each.expected))).toEqual(
         new Set(["supported"]),
       );
     }

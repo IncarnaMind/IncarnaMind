@@ -10,6 +10,7 @@ import { docxOf } from "../../tests/helpers/office";
 import { buildPdf, type PdfPage } from "../../tests/helpers/pdf";
 import type { EvalDocument } from "../lib/evaluationSet";
 import { CONDITION_DOCUMENTS } from "./conditionCases";
+import { PERCENT_POINT_DOCUMENTS } from "./percentPointCases";
 import { VERBATIM_DOCUMENTS } from "./verbatimCases";
 import { VERDICT_DOCUMENTS } from "./verdictCases";
 
@@ -929,7 +930,13 @@ export function claimKindOf(set: RepeatSet, sentence: RepeatSentence): ClaimKind
 
 /** The Documents a set's Library holds. */
 export const documentsOf = (set: Pick<RepeatSet, "id" | "language">): LibraryDocument[] =>
-  [...DOCUMENTS, ...VERBATIM_DOCUMENTS, ...VERDICT_DOCUMENTS, ...CONDITION_DOCUMENTS].filter(
+  [
+    ...DOCUMENTS,
+    ...VERBATIM_DOCUMENTS,
+    ...VERDICT_DOCUMENTS,
+    ...CONDITION_DOCUMENTS,
+    ...PERCENT_POINT_DOCUMENTS,
+  ].filter(
     (each) => each.language === set.language && (!each.onlyFor || each.onlyFor.includes(set.id)),
   );
 

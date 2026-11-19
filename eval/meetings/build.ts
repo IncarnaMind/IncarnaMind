@@ -22,7 +22,7 @@ import {
   roomRecording,
   talkTimes,
 } from "./ami";
-import { ascendSession, conversationTrack } from "./ascend";
+import { ascendSession, ascendSpeaker, conversationTrack } from "./ascend";
 import { caseFolderOf, hashesOf, isVerified, markVerified, readCases, sourcesFile } from "./cache";
 import { gateTurns, onlineTracks } from "./tracks";
 import type { CaseDefinition, Reference } from "./types";
@@ -32,10 +32,16 @@ export interface SourceFile extends Pinned {
   rows?: Record<string, number>;
 }
 
+interface AscendParticipant {
+  source: string;
+  speaker: number;
+}
+
 export interface Sources {
   format: 1;
   /** Files fetched whole, by the name cases refer to them with. */
   files: Record<string, SourceFile>;
+  ascend: Record<string, { session: number; pair: [AscendParticipant, AscendParticipant] }>;
   /** The one archive that is read from its start and not kept. */
   alimeeting: { url: string; entries: (ArchiveEntry & { session: string })[] };
 }
@@ -190,8 +196,13 @@ async function buildAlimeetingRoom(ctx: Context, definition: CaseDefinition): Pr
 }
 
 async function buildAscend(ctx: Context, definition: CaseDefinition): Promise<Built> {
-  const session = Number(/(\d+)$/.exec(definition.recording)?.[1]);
-  const built = await ascendSession(await ensureFile(ctx, "ascend-test"), session);
+  const recording = ctx.sources.ascend[definition.recording];
+  if (!recording || recording.pair.length !== 2)
+    throw new Error(`No ASCEND pair for ${definition.recording}.`);
+  const read = async ({ source, speaker }: AscendParticipant) =>
+    ascendSpeaker(await ensureFile(ctx, source), recording.session, speaker);
+  const [left, right] = await Promise.all([read(recording.pair[0]), read(recording.pair[1])]);
+  const built = ascendSession(left, right);
   return {
     files: {
       "conversation.wav": wavOf(conversationTrack(built)),

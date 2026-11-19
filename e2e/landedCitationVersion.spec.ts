@@ -370,6 +370,8 @@ for (const language of ["en", "zh-CN"] as const) {
       // Checked, the sentence's own card says the Document changed after it was cited.
       await pointAndClick(window, (await checkCard(window)).getByTestId("badge-check-mind"));
       const mark = window.getByTestId("claim-mark").first();
+      // Its quiet ring is there before the check ends: point at it once it has its verdict.
+      await expect(mark).toHaveAttribute("data-check", "unsupported", { timeout: 60_000 });
       await expect(mark).toBeVisible();
       await window.mouse.move(0, 0);
       await pointAt(window, mark);

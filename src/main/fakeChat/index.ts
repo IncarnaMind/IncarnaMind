@@ -160,18 +160,29 @@ const requestsSent: {
 (globalThis as { incarnamindFakeChatRequests?: typeof requestsSent }).incarnamindFakeChatRequests =
   requestsSent;
 
+/** A sentence's word in a sort's reply, `"1":"claim"`, as the checks read it while it streams. */
+const SORT_ENTRY = /"\d+"\s*:\s*"\w+"/;
+
 /** A sort's reply that waits, after the first sentence it names, for the test to release it. */
 function heldAfterFirstClaim(
   streamed: ReturnType<typeof streamedText>,
 ): ReturnType<typeof streamedText> {
-  let named = false;
+  let reply = "";
   return {
     stream: streamed.stream.pipeThrough(
-      new TransformStream({
+      new TransformStream<StreamPart, StreamPart>({
         async transform(part, controller) {
-          if (named && slowCheck.holdSort) await held("other");
-          controller.enqueue(part);
-          if (part.type === "text-delta" && part.delta.includes("}]}")) named = true;
+          // The reply has no spaces to stream it by, so it comes an entry at a time, as a
+          // provider's tokens do, and the hold falls between the first entry and the next.
+          const pieces: StreamPart[] =
+            part.type === "text-delta"
+              ? part.delta.split(/(?<=,)/).map((delta) => ({ ...part, delta }))
+              : [part];
+          for (const piece of pieces) {
+            if (SORT_ENTRY.test(reply) && slowCheck.holdSort) await held("other");
+            controller.enqueue(piece);
+            if (piece.type === "text-delta") reply += piece.delta;
+          }
         },
       }),
     ),
