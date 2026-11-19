@@ -19,6 +19,7 @@ import {
   helpUrl,
   pairingInSentence,
   readsLine,
+  takesParts,
   timeWords,
 } from "./agentWords";
 import { LaunchDetails } from "./LaunchDetails";
@@ -267,7 +268,7 @@ export function AgentPairingRow({
         >
           {copied === "settings" ? t("agents.pairing.copied") : t("agents.pairing.copySettings")}
         </button>
-        {pairing.client === "other" && <LaunchDetails pairingId={pairing.id} />}
+        {takesParts(pairing.client) && <LaunchDetails pairingId={pairing.id} />}
         {!skillInstalled && (
           <>
             <button

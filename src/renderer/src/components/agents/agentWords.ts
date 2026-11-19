@@ -49,6 +49,28 @@ export const readsLine = (names: readonly string[], t: Translate, language: Lang
     ? t("agents.pairing.reads", { folders: unitsOf(names, language) })
     : t("agents.pairing.readsNothing");
 
+/**
+ * Where each agent that takes settings by hand has the User put them (#3374), in its own
+ * screen's words, from its documentation (src/core/agents/clients.ts).
+ */
+const PASTE_WORDS = {
+  devin: "agents.done.paste.devin",
+  zed: "agents.done.paste.zed",
+  trae: "agents.done.paste.trae",
+  qoder: "agents.done.paste.qoder",
+  codebuddy: "agents.done.paste.codebuddy",
+  "minimax-code": "agents.done.paste.minimax-code",
+  "kilo-code": "agents.done.paste.kilo-code",
+} as const satisfies Partial<Record<AgentClientId, MessageKey>>;
+
+const pasteWords = (client: string | null): MessageKey | null =>
+  client !== null && Object.hasOwn(PASTE_WORDS, client)
+    ? PASTE_WORDS[client as keyof typeof PASTE_WORDS]
+    : null;
+
+/** Whether the agent's screen asks for the command, arguments and environment one by one. */
+export const takesParts = (client: string | null) => client === "other" || client === "kilo-code";
+
 /** How connecting an agent goes, in a line under its name. */
 export function setupWords(client: AgentClient, t: Translate): string {
   const agent = clientInSentence(client, t);
@@ -62,13 +84,17 @@ export function setupWords(client: AgentClient, t: Translate): string {
     case "command":
       return t("agents.setup.command");
     case "manual":
-      return t("agents.setup.other");
+      if (client.id === "other") return t("agents.setup.other");
+      return t(takesParts(client.id) ? "agents.setup.parts" : "agents.setup.paste", { agent });
   }
 }
 
 /** A line under an agent's setup, where its row has more to say. */
-export const clientNote = (client: Pick<AgentClient, "id">, t: Translate) =>
-  client.id === "codex" ? t("agents.note.codex") : null;
+export function clientNote(client: Pick<AgentClient, "id">, t: Translate): string | null {
+  if (client.id === "codex") return t("agents.note.codex");
+  if (client.id === "gemini-cli") return t("agents.note.gemini-cli");
+  return null;
+}
 
 /** What came of setting an agent up, as one line. */
 export function doneWords(
@@ -85,9 +111,8 @@ export function doneWords(
     case "copy":
       if (result.path) return t("agents.done.unreadable", { agent, path: result.path });
       if (result.how === "command") return t("agents.done.command");
-      return pairing.client === "other"
-        ? t("agents.done.settings.other")
-        : t("agents.done.settings", { agent });
+      if (pairing.client === "other") return t("agents.done.settings.other");
+      return t(pasteWords(pairing.client) ?? "agents.done.settings", { agent });
   }
 }
 

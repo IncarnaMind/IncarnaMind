@@ -8372,6 +8372,8 @@ export const en = {
   "agents.settings.connect": "Connect an agent",
   "agents.settings.connect.note": "Agents found on this computer come first.",
   "agents.settings.web": "Online-only chat apps can’t reach IncarnaMind.",
+  "agents.find": "Search {count} agents",
+  "agents.find.none": "No agent matches “{query}”. Choose Other agent to connect it.",
   "agents.settings.connectButton": "Connect",
   "agents.settings.help": "Step-by-step help",
   "agents.setup.bundle": "One click: Claude opens to install it",
@@ -8379,8 +8381,10 @@ export const en = {
   "agents.setup.file": "IncarnaMind adds itself to the settings of {agent}",
   "agents.setup.command": "Copy one line to run in a terminal",
   "agents.setup.other": "Copy the settings to paste into your agent",
-  "agents.note.codex":
-    "Used in the ChatGPT app’s Work and Codex modes; ordinary Chat mode doesn’t use it.",
+  "agents.note.codex": "Works in the ChatGPT desktop app, not on the web.",
+  "agents.setup.paste": "Copy the settings to paste into {agent}",
+  "agents.setup.parts": "Fill in the settings IncarnaMind shows in {agent}",
+  "agents.note.gemini-cli": "For Gemini Code Assist; AI Pro and Ultra use Antigravity.",
   "agents.client.other": "Other agent",
   "agents.client.codex": "ChatGPT app and Codex",
   "agents.sentence.codex": "the ChatGPT app or Codex",
@@ -8465,6 +8469,20 @@ export const en = {
   "agents.done.settings": "Copied. In {agent}, add it as a new server, then restart it.",
   "agents.done.settings.other":
     "Copied. Paste it where your agent adds a server, then restart the agent. Details shows each part, if it asks for them separately.",
+  "agents.done.paste.devin":
+    "Copied. In Devin Desktop, open Customize › MCPs, choose This computer, open its config file and add it under mcpServers.",
+  "agents.done.paste.zed":
+    "Copied. In Zed, open Settings › AI › MCP Servers, choose Add Server › Add Local Server, put it in place of the example and confirm.",
+  "agents.done.paste.trae":
+    "Copied. In Trae, open Settings › MCP, choose Add › Add Manually, paste it and confirm.",
+  "agents.done.paste.qoder":
+    "Copied. In Qoder, open Qoder IDE Settings › MCP › My Servers, click + Add, add it to the file that opens, then save.",
+  "agents.done.paste.codebuddy":
+    "Copied. In CodeBuddy, open CodeBuddy Settings › MCP, click Add MCP, paste it and save.",
+  "agents.done.paste.minimax-code":
+    "Copied. In MiniMax Code, open plugin management › MCP Servers, switch to JSON, paste it and save.",
+  "agents.done.paste.kilo-code":
+    "In Kilo Code, open Settings › MCP, choose Add Server › Local (stdio), and fill in each part from Details.",
   "agents.done.unreadable":
     "The settings file of {agent} couldn’t be read, so it was left alone. The settings are copied: paste them into {path}.",
   "agents.done.undo": "Undo",

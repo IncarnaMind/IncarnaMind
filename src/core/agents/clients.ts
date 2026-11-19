@@ -1,20 +1,21 @@
 /**
- * The agents IncarnaMind is set up in (#351, ADR-0019): a few get first-class
- * setup, tried before each release, and every other agent connects as "Other
- * agent", with settings to copy. Moving one between the two is a change here.
- * A setup is one of:
+ * The agents IncarnaMind is set up in (#351, ADR-0019, #3374): the agents in
+ * wide use, each set up the least-effort way its own documentation gives,
+ * and "Other agent" for the rest, with settings to copy. A setup is one of:
  *
  * - "bundle": Claude's desktop app installs an `.mcpb` bundle opened with it
  *   (the shim inside, run on the app's own Node);
- * - "link": Cursor installs a server from a link of its own;
- * - "file": IncarnaMind adds itself to the agent's settings file (Codex's
- *   TOML, or the `mcpServers` JSON), shown first, with Undo;
- * - "command": Claude Code takes one line pasted into a terminal;
- * - "manual": the settings to copy, for the agent's own screen.
+ * - "link": the agent's app installs a server from a link of its own (Cursor);
+ * - "command": the agent's own line that adds a server, for the User to run;
+ *   IncarnaMind never runs another program's command;
+ * - "file": IncarnaMind adds itself to the agent's settings file, shown first,
+ *   with Undo, only where the file is plain JSON or TOML that the agent's
+ *   documentation gives the User to edit, and is neither synced nor managed;
+ * - "manual": the settings to paste, worded for the agent's own screen.
  *
  * Whether an agent is on this computer is a guess from its app or the folder
- * it keeps its settings in, used only to list it first. The settings files
- * are the agents' own documented ones, cited beside each.
+ * it keeps its settings in, used only to list it first. The documentation
+ * each setup follows is cited beside it, as it stood on 2026-11-19.
  */
 import { join } from "node:path";
 import { HIDDEN_KEY } from "../../shared/agentSocket";
@@ -30,12 +31,16 @@ export interface SettingsFile {
   /** Under the home folder. */
   path: readonly string[];
   format: SettingsFormat;
+  /** IncarnaMind's entry under `mcpServers`, where the agent's shape differs from `serverEntry`. */
+  entry?(launch: AgentLaunch): object;
 }
 
 export interface ClientDefinition {
   id: AgentClientId;
   /** Its own name, which no language translates; "other" is named by the interface. */
   name: string;
+  /** Other names the User may know it by, to find it by typing. */
+  otherNames?: readonly string[];
   setup: AgentSetupKind;
   /** Files or folders under the home folder whose presence says it is installed. */
   home?: readonly (readonly string[])[];
@@ -47,13 +52,23 @@ export interface ClientDefinition {
    */
   files?: readonly SettingsFile[];
   /**
-   * The folder under the home folder whose subfolders are the agent's own
-   * Agent Skills (#378), cited beside each agent below. Left out where the
-   * agent's docs give no such folder: it gets the workflow from the server's
-   * instructions, and "Copy settings" carries the Skill for the User to add.
+   * The folders under the home folder whose subfolders the agent reads as
+   * Agent Skills (#378), cited beside each agent below; IncarnaMind writes its
+   * Skill into the first, `~/.agents/skills` where the agent reads it, since
+   * several agents share it. Left out where the agent's docs give no such
+   * folder: it gets the workflow from the server's instructions, and "Copy
+   * settings" carries the Skill for the User to add.
    */
-  skills?: readonly string[];
+  skills?: readonly (readonly string[])[];
+  /** "command": its own line that adds IncarnaMind, for the User to run; IncarnaMind runs no agent's command. */
+  command?(launch: AgentLaunch, platform: NodeJS.Platform): string;
+  /** "link": the link its app installs IncarnaMind from. */
+  link?(launch: AgentLaunch): string;
+  /** The settings to paste, in the form its own screen takes; `mcpServers` when not given. */
+  pasted?(launch: AgentLaunch): string;
 }
+
+const SHARED_SKILLS = [".agents", "skills"] as const;
 
 export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
   {
@@ -71,35 +86,96 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     id: "claude-code",
     name: "Claude Code",
     setup: "command",
+    command: claudeCodeCommand,
     home: [[".claude.json"], [".claude"]],
-    // https://code.claude.com/docs/en/skills (personal skills).
-    skills: [".claude", "skills"],
+    // https://code.claude.com/docs/en/skills (personal skills): its own folder only.
+    skills: [[".claude", "skills"]],
   },
   {
-    // One entry for both: the ChatGPT desktop app's Work and Codex modes read Codex's file.
+    // One entry for both: https://learn.chatgpt.com/docs/extend/mcp says "The ChatGPT desktop app,
+    // Codex CLI, and IDE extension share this configuration". A file, not `codex mcp add`, which
+    // can't give the two minutes `ask` needs (`tool_timeout_sec`, see codexTable).
     id: "codex",
     name: "ChatGPT app and Codex",
+    otherNames: ["ChatGPT", "Codex", "OpenAI"],
     setup: "file",
     apps: ["Codex.app", "ChatGPT.app"],
     home: [[".codex"]],
     files: [{ path: [".codex", "config.toml"], format: "codex-toml" }],
-    // https://learn.chatgpt.com/docs/build-skills (user skills). The page doesn't name the
-    // ChatGPT app's Codex mode, which reads Codex's settings, so it is assumed to read these too.
-    skills: [".agents", "skills"],
+    // https://learn.chatgpt.com/docs/build-skills (user skills, shared with the ChatGPT desktop app).
+    skills: [SHARED_SKILLS],
   },
   {
     id: "cursor",
     name: "Cursor",
     setup: "link",
+    link: cursorLink,
     apps: ["Cursor.app"],
     home: [[".cursor"]],
-    // https://cursor.com/docs/context/skills (user-level skills).
-    skills: [".cursor", "skills"],
+    // https://cursor.com/docs/context/skills (user-level, and Claude's and Codex's for compatibility).
+    skills: [SHARED_SKILLS, [".cursor", "skills"], [".claude", "skills"], [".codex", "skills"]],
+  },
+  {
+    // https://code.visualstudio.com/docs/agents/reference/mcp-configuration: Copilot's own file,
+    // which "doesn't synchronize configuration across machines" and is the one the page gives for
+    // new configurations. Not `code --add-mcp` or its install link: they write the profile's
+    // mcp.json, which Settings Sync carries to other computers with the pairing's key in it.
+    id: "vscode",
+    name: "VS Code",
+    otherNames: ["Visual Studio Code", "Copilot", "GitHub Copilot"],
+    setup: "file",
+    apps: ["Visual Studio Code.app"],
+    home: [[".vscode"], [".copilot"]],
+    files: [
+      {
+        path: [".copilot", "mcp-config.json"],
+        format: "mcp-servers-json",
+        entry: (launch) => ({ type: "stdio", ...serverEntry(launch), tools: ["*"] }),
+      },
+    ],
+    // https://code.visualstudio.com/docs/copilot/customization/agent-skills (Copilot, personal).
+    skills: [[".copilot", "skills"]],
+  },
+  {
+    // https://opencode.ai/docs/mcp-servers/: its file may hold comments (JSONC), so its command.
+    id: "opencode",
+    name: "OpenCode",
+    setup: "command",
+    command: (launch, platform) =>
+      [
+        `opencode mcp add ${SERVER_KEY} --global`,
+        ...envFlags("--env", launch, platform),
+        "--",
+        ...commandWords(launch, platform),
+      ].join(" "),
+    home: [[".config", "opencode"], [".opencode"]],
+    // https://opencode.ai/docs/skills/ (global, and the shared and Claude folders it also reads).
+    skills: [SHARED_SKILLS, [".config", "opencode", "skills"], [".claude", "skills"]],
+  },
+  {
+    // https://docs.openclaw.ai/cli/mcp/registry: the Gateway owns its JSON5 settings, and `add`
+    // refuses while it runs unless told not to try the server first.
+    id: "openclaw",
+    name: "OpenClaw",
+    setup: "command",
+    command: (launch, platform) =>
+      [
+        `openclaw mcp add ${SERVER_KEY} --command`,
+        quote(launch.command, platform),
+        ...launch.args.flatMap((arg) => ["--arg", quote(arg, platform)]),
+        ...envFlags("--env", launch, platform),
+        "--no-probe",
+      ].join(" "),
+    apps: ["OpenClaw.app"],
+    home: [[".openclaw"]],
+    // https://docs.openclaw.ai/tools/skills
+    skills: [SHARED_SKILLS, [".openclaw", "skills"]],
   },
   {
     // https://www.antigravity.google/docs/mcp/ gives ~/.gemini/config/mcp_config.json.
     id: "antigravity",
     name: "Antigravity",
+    otherNames: ["Google Antigravity", "Gemini"],
     setup: "file",
     apps: ["Antigravity.app"],
     home: [
@@ -108,7 +184,133 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     ],
     files: [{ path: [".gemini", "config", "mcp_config.json"], format: "mcp-servers-json" }],
     // https://www.antigravity.google/docs/skills (global skills, Antigravity 2.0 and the IDE).
-    skills: [".gemini", "config", "skills"],
+    skills: [[".gemini", "config", "skills"]],
+  },
+  {
+    // https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md (`-s user`).
+    id: "gemini-cli",
+    name: "Gemini CLI",
+    otherNames: ["Gemini"],
+    setup: "command",
+    command: (launch, platform) =>
+      [
+        "gemini mcp add -s user",
+        ...envFlags("-e", launch, platform),
+        SERVER_KEY,
+        ...commandWords(launch, platform),
+      ].join(" "),
+    home: [[".gemini", "settings.json"]],
+    // https://geminicli.com/docs/cli/skills/ (user skills; the shared alias comes first).
+    skills: [SHARED_SKILLS, [".gemini", "skills"]],
+  },
+  {
+    // https://docs.devin.ai/desktop/cascade/mcp: no form to add a server, only its config file,
+    // whose documented examples carry comments, so the settings to paste there.
+    id: "devin",
+    name: "Devin Desktop",
+    otherNames: ["Windsurf", "Devin"],
+    setup: "manual",
+    apps: ["Devin.app", "Windsurf.app"],
+    home: [[".config", "devin"], [".codeium"]],
+    skills: [SHARED_SKILLS, [".config", "devin", "skills"]],
+  },
+  {
+    // https://docs.cline.bot/cline-cli/configuration: one file for its IDE, CLI and SDK, given to
+    // the User to edit. Not `cline mcp add`, which takes no environment.
+    id: "cline",
+    name: "Cline",
+    setup: "file",
+    home: [[".cline"]],
+    files: [
+      {
+        path: [".cline", "data", "settings", "cline_mcp_settings.json"],
+        format: "mcp-servers-json",
+      },
+    ],
+    // https://docs.cline.bot/customization/skills
+    skills: [[".cline", "skills"]],
+  },
+  {
+    // https://kilo.ai/docs/automate/mcp/using-in-kilo-code: a form with the command, arguments and
+    // environment; its own file may hold comments (kilo.jsonc).
+    id: "kilo-code",
+    name: "Kilo Code",
+    otherNames: ["Kilo"],
+    setup: "manual",
+    home: [[".kilo"], [".config", "kilo"]],
+    // https://kilo.ai/docs/customize/skills
+    skills: [SHARED_SKILLS, [".kilo", "skills"]],
+  },
+  {
+    // https://zed.dev/docs/ai/mcp: Add Local Server takes one server keyed by its name, without
+    // `context_servers` (crates/agent_ui/src/agent_configuration/configure_context_server_modal.rs).
+    // Its settings.json takes comments, so it is never written.
+    id: "zed",
+    name: "Zed",
+    setup: "manual",
+    pasted: (launch) => `${JSON.stringify({ [SERVER_KEY]: serverEntry(launch) }, null, 2)}\n`,
+    apps: ["Zed.app"],
+    home: [[".config", "zed"]],
+  },
+  {
+    // https://docs.trae.cn/ide_add-mcp-servers: Settings › MCP › Add › Add Manually.
+    id: "trae",
+    name: "Trae",
+    setup: "manual",
+    apps: ["Trae.app", "Trae CN.app"],
+    home: [[".trae"], [".trae-cn"]],
+  },
+  {
+    // https://docs.qoder.com/user-guide/chat/model-context-protocol: My Servers › + Add.
+    id: "qoder",
+    name: "Qoder",
+    setup: "manual",
+    apps: ["Qoder.app"],
+    home: [[".qoder"]],
+    // https://docs.qoder.com/cli/Skills (user-level), and the shared folder its IDE also reads.
+    skills: [[".qoder", "skills"], SHARED_SKILLS],
+  },
+  {
+    // https://www.codebuddy.ai/docs/cli/mcp: the IDE's Add MCP takes `mcpServers`, `type` given.
+    // Its CLI adds a server with no environment, and which user file it reads depends on which
+    // of three exist, so nothing is written.
+    id: "codebuddy",
+    name: "CodeBuddy",
+    setup: "manual",
+    pasted: (launch) => typedSnippet(launch),
+    apps: ["CodeBuddy.app"],
+    home: [[".codebuddy"]],
+    // https://www.codebuddy.ai/docs/cli/skills (user-level).
+    skills: [[".codebuddy", "skills"]],
+  },
+  {
+    // https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/mcp.md
+    id: "qwen-code",
+    name: "Qwen Code",
+    otherNames: ["Qwen", "通义"],
+    setup: "command",
+    command: (launch, platform) =>
+      [
+        "qwen mcp add --scope user",
+        ...envFlags("-e", launch, platform),
+        SERVER_KEY,
+        ...commandWords(launch, platform),
+      ].join(" "),
+    home: [[".qwen"]],
+    // https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/skills.md
+    skills: [SHARED_SKILLS, [".qwen", "skills"]],
+  },
+  {
+    // https://www.kimi.com/code/docs/kimi-code-cli/customization/mcp.html: the user-level file,
+    // shared across projects; Kimi Code CLI documents no command that adds a server.
+    id: "kimi-code",
+    name: "Kimi Code",
+    otherNames: ["Kimi"],
+    setup: "file",
+    home: [[".kimi-code"]],
+    files: [{ path: [".kimi-code", "mcp.json"], format: "mcp-servers-json" }],
+    // https://www.kimi.com/code/docs/kimi-code-cli/customization/skills.html
+    skills: [SHARED_SKILLS, [".kimi-code", "skills"]],
   },
   {
     // https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide
@@ -120,36 +322,30 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     home: [[".workbuddy"]],
     files: [{ path: [".workbuddy", "mcp.json"], format: "mcp-servers-json" }],
   },
+  {
+    // https://code.minimax.io/docs/code/agents/mcp.md: MCP Servers takes a full `mcpServers`
+    // object in its JSON mode; its file's place is given only as "for example".
+    id: "minimax-code",
+    name: "MiniMax Code",
+    otherNames: ["MiniMax"],
+    setup: "manual",
+    pasted: (launch) => typedSnippet(launch),
+    apps: ["MiniMax Code.app"],
+    home: [[".minimax"], [".minimax-code"]],
+  },
   { id: "other", name: "", setup: "manual" },
 ];
 
-/**
- * Agents IncarnaMind used to write settings into and no longer lists. A
- * pairing made then keeps working, and Disconnect still takes out the entry
- * IncarnaMind wrote, from the file it wrote it to.
- */
-const RETIRED_SETTINGS_FILES: Readonly<Record<string, readonly SettingsFile[]>> = {
-  "gemini-cli": [{ path: [".gemini", "settings.json"], format: "mcp-servers-json" }],
-  "kimi-code": [{ path: [".kimi-code", "mcp.json"], format: "mcp-servers-json" }],
-  "qwen-code": [{ path: [".qwen", "settings.json"], format: "mcp-servers-json" }],
-  codebuddy: [{ path: [".codebuddy", ".mcp.json"], format: "mcp-servers-json" }],
-  "minimax-code": [{ path: [".minimax", "mcp.json"], format: "mcp-servers-json" }],
-};
-
-/** The settings files IncarnaMind may have written for a pairing's agent, listed or retired. */
+/** The settings files IncarnaMind wrote for a pairing's agent, if it writes any. */
 export function settingsFilesFor(client: string | null): readonly SettingsFile[] {
-  if (client === null) return [];
-  return (
-    clientDefinition(client)?.files ??
-    (Object.hasOwn(RETIRED_SETTINGS_FILES, client) ? RETIRED_SETTINGS_FILES[client] : undefined) ??
-    []
-  );
+  return clientDefinition(client)?.files ?? [];
 }
 
-/** The Agent Skill's file in an agent's skills folder, or null if the agent has none. */
-export function skillPathFor(home: string, client: string | null): string | null {
-  const folder = clientDefinition(client)?.skills;
-  return folder ? join(home, ...folder, SKILL_NAME, "SKILL.md") : null;
+/** The Agent Skill's file in each folder the agent reads Skills from, the one IncarnaMind writes first. */
+export function skillPathsFor(home: string, client: string | null): string[] {
+  return (clientDefinition(client)?.skills ?? []).map((folder) =>
+    join(home, ...folder, SKILL_NAME, "SKILL.md"),
+  );
 }
 
 export function clientDefinition(id: unknown): ClientDefinition | null {
@@ -179,26 +375,37 @@ export const serverEntry = (launch: AgentLaunch) => ({
 export const mcpServersSnippet = (launch: AgentLaunch) =>
   `${JSON.stringify({ mcpServers: { [SERVER_KEY]: serverEntry(launch) } }, null, 2)}\n`;
 
+/** Settings to paste where the agent's screen asks for the server's `type`. */
+const typedSnippet = (launch: AgentLaunch) =>
+  `${JSON.stringify({ mcpServers: { [SERVER_KEY]: { type: "stdio", ...serverEntry(launch) } } }, null, 2)}\n`;
+
 /** A word quoted for the User's shell: Windows' (PowerShell) or a POSIX one. */
 function quote(word: string, platform: NodeJS.Platform): string {
   if (platform === "win32") return `"${word.replaceAll('"', '`"')}"`;
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 }
 
-/** The line that adds IncarnaMind to Claude Code, for every project. */
-export function claudeCodeCommand(launch: AgentLaunch, platform: NodeJS.Platform): string {
-  const env = Object.entries(launch.env).flatMap(([name, value]) => [
-    "--env",
+/** The server's environment as a command's flags: `--env NAME=value` for each. */
+function envFlags(flag: string, launch: AgentLaunch, platform: NodeJS.Platform): string[] {
+  return Object.entries(launch.env).flatMap(([name, value]) => [
+    flag,
     quote(`${name}=${value}`, platform),
   ]);
+}
+
+/** The server's command and its arguments, quoted for the User's shell. */
+const commandWords = (launch: AgentLaunch, platform: NodeJS.Platform) =>
+  [launch.command, ...launch.args].map((word) => quote(word, platform));
+
+/** The line that adds IncarnaMind to Claude Code, for every project. */
+export function claudeCodeCommand(launch: AgentLaunch, platform: NodeJS.Platform): string {
   return [
     "claude mcp add --scope user",
     // Claude Code's variadic --env consumes a server name placed after it (#1998).
     SERVER_KEY,
-    ...env,
+    ...envFlags("--env", launch, platform),
     "--",
-    quote(launch.command, platform),
-    ...launch.args.map((arg) => quote(arg, platform)),
+    ...commandWords(launch, platform),
   ].join(" ");
 }
 

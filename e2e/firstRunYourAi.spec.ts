@@ -349,6 +349,95 @@ test("agents that can't be listed: the step says so in their place, and a model 
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
 });
 
+/** Skips each step left, until the setup has ended. */
+async function skipTheRest(window: Page): Promise<void> {
+  const panel = panelOf(window);
+  while ((await panel.count()) > 0) {
+    const step = await panel.getAttribute("data-step");
+    await panel.getByTestId("setup-skip").click();
+    await expect(window.locator(`[data-testid="setup-panel"][data-step="${step}"]`)).toHaveCount(0);
+  }
+}
+
+// protects=a long list of agents stays easy to choose from: those on this computer first, then the most used, any other found by typing its name, by keyboard, in the setup and in Settings › Agents alike; fails_when=every agent shows at once, a found agent isn't first, typing a name or one it went by doesn't find it, or the keyboard can't reach the search or the agent found
+test("the agents found here come first, and any other is found by typing, in the step and in Settings", async () => {
+  test.setTimeout(240_000);
+  // Made-up signs of Zed and Qwen Code beside Claude Code's, in the test's own home folder.
+  await mkdir(join(home, ".config", "zed"), { recursive: true });
+  await mkdir(join(home, ".qwen"));
+  const window = await launch();
+  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  const ai = await atStep(window, "ai");
+  const agents = ai.getByTestId("setup-agent");
+  const listed = () =>
+    agents.evaluateAll((rows) => rows.map((row) => row.getAttribute("data-value")));
+  expect(await listed()).toEqual([
+    "claude-code",
+    "zed",
+    "qwen-code",
+    "claude-desktop",
+    "codex",
+    "cursor",
+    "vscode",
+    "other",
+  ]);
+  await expect(ai.getByTestId("setup-agents-search")).toHaveAttribute(
+    "placeholder",
+    "Search 20 agents",
+  );
+  await stills(window, "8-agents-step");
+
+  // From the first agent, the search is one Shift+Tab away; a name it went by finds it.
+  await agents.first().locator("input").focus();
+  await window.keyboard.press("Shift+Tab");
+  const search = ai.getByTestId("setup-agents-search");
+  await expect(search).toBeFocused();
+  await window.keyboard.type("windsurf");
+  await expect.poll(listed).toEqual(["devin", "other"]);
+  await stills(window, "8-agents-step-typed");
+  await search.focus();
+  await window.keyboard.press("Tab");
+  await expect(agents.first().locator("input")).toBeFocused();
+  await window.keyboard.press("Space");
+  await expect(ai.getByTestId("setup-agent-connect")).toContainText(
+    "Let Devin Desktop read your Documents?",
+  );
+  // A name that isn't listed says so, and leaves Other agent to choose; Esc empties the field.
+  await search.fill("goose");
+  await expect(ai.getByTestId("setup-agents-none")).toHaveText(
+    "No agent matches “goose”. Choose Other agent to connect it.",
+  );
+  await expect.poll(listed).toEqual(["other"]);
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(panelOf(window)).toHaveAttribute("data-step", "ai");
+  await expect.poll(listed).toHaveLength(8);
+
+  await skipTheRest(window);
+  await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setAgentsEnabled(true),
+  );
+  await window.getByTestId("first-open-set-change").click();
+  const page = await showSettingsPage(window, "agents");
+  const list = page.getByTestId("agents-list");
+  const rows = () =>
+    list
+      .getByTestId("agent-client")
+      .evaluateAll((each) => each.map((row) => row.getAttribute("data-client")));
+  await expect(list.getByTestId("agent-client")).toHaveCount(8);
+  expect((await rows()).slice(0, 3)).toEqual(["claude-code", "zed", "qwen-code"]);
+  await expect(list.locator('[data-client="qwen-code"]')).toContainText(
+    "Copy one line to run in a terminal",
+  );
+  await stills(window, "8-agents-settings");
+  await page.getByTestId("agents-list-search").fill("kimi");
+  await expect.poll(rows).toEqual(["kimi-code", "other"]);
+  await expect(list.locator('[data-client="kimi-code"]')).toContainText(
+    "IncarnaMind adds itself to the settings of Kimi Code",
+  );
+  await stills(window, "8-agents-settings-typed");
+});
+
 // protects=a Note the agent writes ticks the card's second step, and once the agent's check lands the third opens the Note at its first mark that needs a look; fails_when=the step ticks on a Note the agent didn't write, before its check lands, or opens the Note anywhere but at its mark
 test("the agent's Note ticks the second step, and its check opens the Note at what needs a look", async () => {
   test.setTimeout(240_000);

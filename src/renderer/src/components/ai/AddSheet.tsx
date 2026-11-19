@@ -3,10 +3,11 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { useClaudeAccount } from "../../claudeSignIn";
 import { useLanguage, useT } from "../../i18n";
 import { ROUTE_LABELS } from "../../transcriptionServices";
-import { MicLineIcon, SearchLineIcon } from "../lineIcons";
+import { MicLineIcon } from "../lineIcons";
 import { useOfferedWay } from "../providers/CopilotPlan";
 import { ProviderLogo } from "../providers/ProviderLogo";
 import { keyProviderName } from "../providers/shared";
+import { SearchField } from "../SearchField";
 import { buttonStyle, dialogClass } from "../ui";
 import { useModal } from "../useModal";
 import {
@@ -105,27 +106,14 @@ export function ServiceDirectory({
   const groups = serviceDirectory(language, { offered, only, name, query });
   return (
     <div data-testid="provider-directory" className="flex min-h-0 flex-col gap-3">
-      <label className="flex h-8 shrink-0 items-center gap-2 rounded-lg px-2.5 text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]">
-        <SearchLineIcon className="size-3.5 shrink-0" />
-        <input
-          ref={searchRef}
-          type="search"
-          data-testid="provider-directory-search"
-          value={query}
-          placeholder={t("ai.add.search", { count })}
-          aria-label={t("ai.add.search", { count })}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            // Esc empties the field first; with it empty, Esc closes the sheet.
-            if (event.key === "Escape" && query !== "") {
-              event.preventDefault();
-              event.stopPropagation();
-              setQuery("");
-            }
-          }}
-          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-placeholder"
-        />
-      </label>
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        label={t("ai.add.search", { count })}
+        testId="provider-directory-search"
+        inputRef={searchRef}
+        className="h-8 shrink-0"
+      />
       {groups.length === 0 ? (
         <p className="px-1 text-[13px] leading-5 text-ink-meta">
           {t("models.directory.noMatch", { query: query.trim() })}
