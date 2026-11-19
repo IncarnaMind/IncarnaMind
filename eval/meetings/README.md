@@ -2,7 +2,7 @@
 
 Recordings of meetings in English, Chinese and both mixed, with the words and the speakers written down, and a scorer that reports how well a transcriber (and a speaker pass) does on them. Issue #85. It is the set behind the alpha's gates: transcription at most 15% WER in English and 20% CER in Chinese, in real time on an M-series Mac; speakers at most 20% DER online and 30% in a room, in both languages.
 
-Nothing here is committed but the lists: `sources.json` pins every download by URL, size and SHA-256, and `cases.json` pins every case built from them. The audio is fetched at eval time into `~/.cache/incarnamind-eval/meetings/` (or under `INCARNAMIND_EVAL_CACHE`), about 2.0 GB, and needs no network after that.
+Nothing here is committed but the lists: `sources.json` pins every download by URL, size and SHA-256, and `cases.json` pins every case built from them. The audio is fetched at eval time into `~/.cache/incarnamind-eval/meetings/` (or under `INCARNAMIND_EVAL_CACHE`), about 2.7 GB, and needs no network after that.
 
 ## What is in it
 
@@ -12,7 +12,7 @@ Nothing here is committed but the lists: `sources.json` pins every download by U
 | English | in a room | ES2004b, TS3003b | 75.9 | AMI, the distant microphone |
 | Chinese | online call | R8007_M8011, R8008_M8013 | 68.4 | AliMeeting, each person's headset |
 | Chinese | in a room | R8003_M8001, R8007_M8010 | 65.4 | AliMeeting, the eight-channel array |
-| English and Chinese mixed | conversation | test sessions 1 and 3 | 37.1 | ASCEND |
+| English and Chinese mixed | conversation | 17/18 (session 1), 3/4 (session 3) | 39.7 | ASCEND |
 
 The issue asks for 30 minutes of each language in each setting and 20 of mixed; `tests/eval/meetingSet.test.ts` holds the set to it. Every English and Chinese meeting has three or four speakers (the room ones, three or more as asked). A case id is `<language>-<setting>-<recording>`, e.g. `en-online-EN2002a`.
 
@@ -20,7 +20,7 @@ The issue asks for 30 minutes of each language in each setting and 20 of mixed; 
 |---|---|---|
 | [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/) (Carletta et al., 2005) | CC BY 4.0 | Hugging Face: the University of Edinburgh's copy [`edinburghcstr/ami`](https://huggingface.co/datasets/edinburghcstr/ami) (Kaldi's text of the eval meetings, and each meeting's segments cut from the participants' headsets), and [`diarizers-community/ami`](https://huggingface.co/datasets/diarizers-community/ami) (the whole recordings of the single distant microphone, Array1-01), both at pinned revisions |
 | [AliMeeting](https://www.openslr.org/119/) (Yu et al., ICASSP 2022, the M2MeT challenge) | CC BY-SA 4.0 | OpenSLR's link to the Eval set, `Eval_Ali.tar.gz` (3.7 GB, gzipped, so it can only be read from its start), read until the files wanted are out: the array recordings of the two room sessions (first channel kept), the four TextGrids, and the headsets of the two online sessions. The rest of it is not downloaded, and none of it is kept but those files. |
-| [ASCEND](https://huggingface.co/datasets/CAiRE/ASCEND) (Lovenia et al., LREC 2022) | CC BY-SA 4.0 | Hugging Face `CAiRE/ASCEND`, the test split (106 MB), at a pinned revision |
+| [ASCEND](https://huggingface.co/datasets/CAiRE/ASCEND) (Lovenia et al., LREC 2022) | CC BY-SA 4.0 | Hugging Face `CAiRE/ASCEND`, the test split and training shards 0 and 2 (750 MB combined), at a pinned revision |
 
 **Licences, checked 2026-10-21.**
 
@@ -38,10 +38,13 @@ Every case is mono 16 kHz 16-bit WAV files and a `reference.json`: `{ format: 1,
   - AMI: each person's headset segments are put back where they were said; between them the track is silent. No voice reaches another person's track.
   - AliMeeting: the whole headset recordings, each cut to its speaker's annotated turns, 0.25 s either side, with 10 ms fades, so that the others' voices that leak into a headset don't reach the system audio as well. Between turns the track is silent.
 - **In a room (`room.wav`).** AMI: the whole meeting as the distant microphone heard it, with the room's noise. AliMeeting: the first channel of the eight-channel array, whole. The reference is on the `room` track.
-- **Conversation (`conversation.wav`).** ASCEND is a corpus of utterances, each named with its session, speaker and start. A session is laid out again as the conversation it was: each utterance at its start, where utterances overlap they add up, and between them the track is silent. Two speakers.
+- **Conversation (`conversation.wav`).** Each ASCEND participant wore a microphone. The session number repeats across pairs. The case pins both participants and their source shards, checks that their source utterance numbers interleave, and places their clips at their original times. Each pair has one speaker from the publisher’s test split and their partner from a training shard. [ASCEND recording setup and session counts](https://aclanthology.org/2022.lrec-1.788/)
+
+The retired `mixed-conversation-test-1` and `mixed-conversation-test-3` combined speakers 3 and 17 from separate dialogues. Mixed-language scores reported before the paired cases were introduced used those synthetic mixes. Use the new case IDs when comparing systems on conversations.
 
 What this does not capture, so the numbers are not the whole story:
 
+- The two ASCEND pairs have 20.54 s and 0.32 s of annotated simultaneous speech. They exercise language switching and turn-taking. Use the room recordings to evaluate sustained overlap. In the second paired recording, 1.27% of PCM samples are at the 16-bit limits.
 - The silences between speech in the online AMI and AliMeeting tracks, and in the ASCEND conversations, are digital zero. A voice detector has an easier time there than on a call with background noise. The room cases are real, noisy audio.
 - AMI's text is the transcription of what each participant said in the meeting proper. Speech nobody transcribed (set-up talk before the meeting starts, for instance) is in the room audio and not in the reference, so a transcriber that hears it is charged for insertions.
 - AMI's references come in Kaldi's form: upper case, no punctuation, hesitations kept ("UM"). The scorer's normalisation below deals with that.
@@ -104,6 +107,8 @@ Both sides go through the same rules (`eval/transcription/scoring.ts`, tested in
 What this leaves different, on purpose or for want of a rule: a Chinese numeral inside an ordinary word is a number too ("一起" is 1起, "十分" is 10分, "万一" is 10001), the same on both sides; years said in two parts ("nineteen ninety" is 19 90, "1990" is one number), ordinals ("second"), decimals ("2.5" is 2 5, "two point five" is 2 point 5), "okay" and "ok", spelled-out letters ("e c e" and "ece"), and British and American spelling. They cost every transcriber alike.
 
 ## Results
+
+The October and early November mixed-language figures below describe the retired synthetic mixes. The current two conversations have new case IDs and audio hashes.
 
 **This computer, Qwen3-ASR 0.6B int8 with Silero VAD** (the app's first engine, #136) on the whole set. 2026-10-21, Apple M2 Max, `npm run eval:meetings`, while the machine ran other work (load average 21 to 23, so the real-time factors are on the slow side):
 

@@ -29,6 +29,16 @@
       "url": "https://huggingface.co/datasets/CAiRE/ASCEND/resolve/737e9800ae31be9932ba8464c80366559bd28424/main/test-00000-of-00001.parquet",
       "sha256": "a4c81d2b5ed6124f052089a695972808c16e0ce0c365ec9773c5d1a8fcf043a7",
       "bytes": 105756434
+    },
+    "ascend-train-0": {
+      "url": "https://huggingface.co/datasets/CAiRE/ASCEND/resolve/737e9800ae31be9932ba8464c80366559bd28424/main/train-00000-of-00003.parquet",
+      "sha256": "3d66ba76f324e0711b779cfb01ee4e772a24a929e1d77a2063cde0506f75976f",
+      "bytes": 316735328
+    },
+    "ascend-train-2": {
+      "url": "https://huggingface.co/datasets/CAiRE/ASCEND/resolve/737e9800ae31be9932ba8464c80366559bd28424/main/train-00002-of-00003.parquet",
+      "sha256": "aa76b7ef4a74ff111fd1d2573d0b69e6b6f901df6054618d8e5658a7a394523e",
+      "bytes": 327687102
     }
   },
   "alimeeting": {
@@ -165,5 +175,33 @@
         "keptBytes": 71663100
       }
     ]
+  },
+  "ascend": {
+    "s1-spk17-spk18": {
+      "session": 1,
+      "pair": [
+        {
+          "source": "ascend-test",
+          "speaker": 17
+        },
+        {
+          "source": "ascend-train-0",
+          "speaker": 18
+        }
+      ]
+    },
+    "s3-spk3-spk4": {
+      "session": 3,
+      "pair": [
+        {
+          "source": "ascend-test",
+          "speaker": 3
+        },
+        {
+          "source": "ascend-train-2",
+          "speaker": 4
+        }
+      ]
+    }
   }
 }

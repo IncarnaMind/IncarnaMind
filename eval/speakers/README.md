@@ -17,6 +17,8 @@ npm run eval:meetings:score -- eval/results/speakers-<time>/lines-<threshold>-<s
 - **Another transcriber's lines:** `INCARNAMIND_EVAL_SPEAKER_LINES=<results folder>` gives the pass the lines of a cloud route's run of eval/meetings (`INCARNAMIND_EVAL_ROUTE=soniox npm run eval:meetings -- run`) in place of Silero VAD's, text and all, the microphone's "Me" kept: what the pass does after a Meeting that route transcribed. Scoring both folders compares the service's own speaker numbers with the pass's on the same lines.
 - **Reported:** each case's voices found, labels given and time over audio, with the machine's load average, in `speakers.md`. The scorer gives DER with a 0.25 s collar, overlap scored. The hypotheses carry no text, so its word error rate means nothing here.
 
+The default run reads the current case IDs from the meeting manifest. Set `INCARNAMIND_EVAL_MEETING_CASES` to evaluate a separate folder of recordings.
+
 ## How the settings were chosen
 
 `CLUSTER_THRESHOLD` (0.7), `SAME_PERSON` (0.6) and the join's rule for rough voiceprints in `src/core/transcription/diarization.ts` were set on 2026-11-18 on the English cases alone: their first 15 minutes (`INCARNAMIND_EVAL_SPEAKER_MINUTES=15`) for the two settings, their first 1, 3 and 15 minutes and whole length for the rule, with three short recordings of two voices made for #138. The Chinese and mixed cases were scored afterwards. They are not blind: an earlier form of the rule was scored on them before this one was chosen.
@@ -36,6 +38,8 @@ English first 15 minutes, DER:
 | 0.9 / 0.6 | | | | one voice on the English one |
 | 0.7 / 0.5 | 14.4% | 30.2% | 21.9% | two each |
 | 0.7 / 0.7 | 15.0% | 27.3% | 20.8% | two each |
+
+The following November 18 measurements used the two retired synthetic mixes described in the [meeting set](../meetings/README.md). Their mixed and combined scores are historical. The other eight recordings retain the same audio and references.
 
 The settings as they are against the first ones, same machine and day:
 
@@ -60,7 +64,7 @@ The settings as they are against the first ones, same machine and day:
 
 ## A cloud service's own speaker numbers
 
-Soniox (`stt-rt-v6`) numbers the speakers of each stream as they speak. Whether those numbers or the pass's should be the final ones was measured on 2026-11-18: each whole case sent to the live route once at speaking pace (the four online ones on both tracks, the six others on their one track), then the same lines labelled by the pass (`INCARNAMIND_EVAL_SPEAKER_LINES`), both scored by eval/meetings' scorer. The words are the same on both sides, so only who spoke differs. DER, and the speech given to the wrong speaker:
+Soniox (`stt-rt-v6`) numbers the speakers of each stream as they speak. Whether those numbers or the pass's should be the final ones was measured on 2026-11-18: each recording sent to the live route once at speaking pace (both tracks for the four online calls and the microphone track for the four room meetings below), then the same lines labelled by the pass (`INCARNAMIND_EVAL_SPEAKER_LINES`), both scored by eval/meetings' scorer. The words are the same on both sides, so only who spoke differs. DER, and the speech given to the wrong speaker:
 
 | Case | People | The service's numbers | The pass's labels |
 |---|---|---|---|
@@ -72,12 +76,25 @@ Soniox (`stt-rt-v6`) numbers the speakers of each stream as they speak. Whether 
 | en-room-TS3003b | 4 | 54.4%, 563 s | 16.7%, 22 s |
 | zh-room-R8003_M8001 | 4 | 41.5%, 410 s | 23.6%, 132 s |
 | zh-room-R8007_M8010 | 4 | 66.0%, 360 s | 60.8%, 280 s |
-| mixed-conversation-test-1 | 2 | 33.9%, 13 s | 58.8%, 185 s |
-| mixed-conversation-test-3 | 2 | 29.2%, 5 s | 28.8%, 2 s |
 
 - **Online:** the service gave the other side two, one, one and two numbers where three, three, three and two people spoke (the fourth is the microphone, which stays "Me"); the pass is better on all four, English 50.4% to 19.7% and Chinese 19.5% to 12.3% together. On the first minute and the first 3 minutes of the four, no case is worse. So after a call the pass labels a cloud Transcript too (`src/core/meetings/transcript.ts`).
-- **In a room:** the pass is far better on the four meetings of four, and far worse on one of the two conversations: mixed-conversation-test-1, two people changing between Mandarin and English, comes out as three voices, where the service's two numbers were nearly all right. Over all six, the speech given the wrong speaker falls from 2,291 s to 650 s. The project owner decided on 2026-11-19 that a room's cloud Transcript is labelled by the pass too, as a call's is.
+- **In a room:** across the four AMI and AliMeeting recordings, confusion fell from 2,273 seconds to 463 seconds (sums of the rounded rows). The pass still attributed 280 seconds to the wrong person on R8007_M8010.
 - The service's numbers also start again at each new connection, so a person can get a second number after a reconnect; the pass hears the whole recording at once.
+
+The November 18 cloud comparison also included the retired ASCEND mixes. They combined separate conversations. Their 33.9% to 58.8% and 29.2% to 28.8% results do not measure real two-person conversations.
+
+On November 19, both corrected bilingual dialogues were sent to Soniox `stt-rt-v6` at speaking pace. Each duration started a separate stream and ran the app's speaker pass on just that audio. Each cell gives live DER → after-call DER for one run. Both stages found both people in all six runs.
+
+| ASCEND participants | Full duration | First minute | First 3 minutes | Full conversation |
+|---|---:|---:|---:|---:|
+| 17 and 18 | 15:35 | 9.9% → 13.4% | 11.4% → 13.1% | 10.2% → 10.8% |
+| 3 and 4 | 24:05 | 6.9% → 5.5% | 7.2% → 7.7% | 5.2% → 5.4% |
+
+The two full conversations had 20.54 and 0.32 seconds of annotated overlap. Their mixed-language transcription error rates (MER) were 16.9% and 8.5%. The eight original English and Chinese comparisons above were reproduced from their archived outputs.
+
+### Simultaneous speech in the four-person Mandarin room recording
+
+In R8007_M8010, the live Transcript missed 653.4 speaker-seconds. Of those, 638.4 fell in intervals where the reference has simultaneous speakers. With the live lines' timing, the missed speech alone contributes 42.4 percentage points of DER. In two 90-second windows selected for high and low overlap, all 1,128 final tokens matched between the service response and the app's stream adapter in text and start time. The real-time and asynchronous Soniox runs both reported two people in the full four-person recording.
 
 ## The models' licences
 

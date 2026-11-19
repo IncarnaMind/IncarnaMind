@@ -114,29 +114,29 @@
       }
     },
     {
-      "id": "mixed-conversation-test-1",
+      "id": "mixed-conversation-s1-spk17-spk18",
       "language": "mixed",
       "setting": "conversation",
       "source": "ascend",
-      "recording": "test-1",
+      "recording": "s1-spk17-spk18",
       "durationSeconds": 934.94,
       "speakers": 2,
       "files": {
-        "conversation.wav": "6a197af775d25c145918bb48b7111d3b0000a3022c735ec5bb00a390918a1355",
-        "reference.json": "14876ed86f99252e8961b212ffb659d1b1a52d5abbbb7ba53b7304a0f47fd697"
+        "conversation.wav": "94d03db75fbe62096971c30df2bd369a7c35f86ee79ed1a5bc8836cae0995d75",
+        "reference.json": "9a56eed831d1b82b5c0b9fe3a32c06e872321e7330735a8767db8c3f96b8fbe0"
       }
     },
     {
-      "id": "mixed-conversation-test-3",
+      "id": "mixed-conversation-s3-spk3-spk4",
       "language": "mixed",
       "setting": "conversation",
       "source": "ascend",
-      "recording": "test-3",
-      "durationSeconds": 1291.24,
+      "recording": "s3-spk3-spk4",
+      "durationSeconds": 1444.6599375,
       "speakers": 2,
       "files": {
-        "conversation.wav": "8e92ac237c1475a2a80ef9dc2b9a640d5b6103571044e40ee9b4464216d87a3f",
-        "reference.json": "b62cf8e7fa31244fd0c9dcc667aca3faad65f4a4066c4e9f1c855f2615951890"
+        "conversation.wav": "31a5ce20df466a5bb4495d54a7dc447edfc9f6a55d72f5f3305d9cc6d6cc14f2",
+        "reference.json": "cfb3f6af0f2948646c1f074409b628dbf0cbc1a88e1acdcfc479203d6868bd34"
       }
     }
   ]
