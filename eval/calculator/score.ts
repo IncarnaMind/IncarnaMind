@@ -44,8 +44,10 @@ export function readingsOf(text: string, language: Language): Read[] {
   }));
 }
 
-/** How far after a figure its unit word may stand: "66,560 litres". */
-const AFTER = 14;
+/** A figure's own characters and the one word right after it: "66,560 litres", not "(3,750 sacks". */
+const withWordAfter = (text: string, read: Pick<Read, "start" | "end">): string =>
+  text.slice(read.start, read.end) +
+  (/^[\s\u00a0]*[\p{L}%]+/u.exec(text.slice(read.end))?.[0] ?? "");
 
 export type UnitShown = "right" | "bare" | "other";
 
@@ -114,12 +116,7 @@ export function figureIn(
     (read) => !within || (read.end > within.start && read.start < within.end),
   );
   const shownOf = (read: Read) =>
-    unitShown(
-      read.unit,
-      text.slice(read.start, read.end + AFTER),
-      each.expected.unit,
-      each.quantityWords,
-    );
+    unitShown(read.unit, withWordAfter(text, read), each.expected.unit, each.quantityWords);
   // A value written more than once ("75,600,000 HK$, i.e. 7,560万港元") reads as its best.
   const [found] = reads
     .filter((read) => matches(read.value, each.expected.value, read.precision))
@@ -138,11 +135,11 @@ export function figureIn(
       ? reads.find(
           (read) =>
             matches(read.value, each.expected.value * 100) &&
-            MINOR_AFTER.test(text.slice(read.end, read.end + AFTER)),
+            MINOR_AFTER.test(text.slice(read.end)),
         )
       : undefined;
   if (!minor) return NONE;
-  const words = text.slice(minor.start, minor.end + AFTER);
+  const words = withWordAfter(text, minor);
   return {
     chars: words,
     value: minor.value / 100,
