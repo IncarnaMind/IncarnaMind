@@ -47,6 +47,7 @@ import {
   createCheckRuns,
   documentsForPairing,
   pairingReaches,
+  reachedFolders,
 } from "./access";
 import { createAgentCitations } from "./citations";
 import type { ServedConnection } from "./mcp";
@@ -542,14 +543,11 @@ export function createAgents(options: AgentsOptions) {
         .filter((pairing) => {
           try {
             const admitted = admissible(pairing.id);
-            if (mind && !pairingReaches(accessDeps, admitted, mind)) return false;
+            const reached = reachedFolders(accessDeps, admitted);
+            if (mind && !pairingReaches(accessDeps, admitted, mind, reached)) return false;
             return (
               !documentId ||
-              documentsForPairing(
-                accessDeps,
-                admitted,
-                accessDeps.foldersInScope(admitted.folderIds),
-              ).includes(documentId)
+              documentsForPairing(accessDeps, admitted, [...reached], reached).includes(documentId)
             );
           } catch (error) {
             if (error instanceof AgentRefusedError) return false;

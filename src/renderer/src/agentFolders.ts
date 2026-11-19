@@ -8,7 +8,7 @@ import {
   type LibraryGroup,
   NOT_IN_A_FOLDER_ID,
 } from "../../core/api";
-import { treeCounts } from "./libraryPage";
+import { buildFolderTree, flattenFolderTree } from "./folders";
 import { isListedDocument } from "./meetingTranscript";
 
 export interface AgentFolderRow {
@@ -16,15 +16,63 @@ export interface AgentFolderRow {
   id: string;
   /** The Folder's name; null for Not in a Folder, which the interface names. */
   name: string | null;
-  /** How many Documents it holds now, those in its sub-Folders too. */
+  /** How many Documents an agent given it reads: its own and its inner Folders' up to a wall. */
   documents: number;
+  /** 0 at the top level. */
+  depth: number;
+  /** It keeps its work inside it: shared only by its own choice, alone. */
+  walled: boolean;
+  /** The Folders above it whose choice shares it too (#3394), the nearest first. */
+  sharedWith: string[];
+}
+
+type Placed = Pick<LibraryGroup, "id" | "parentId" | "keepInside">;
+
+/**
+ * For each Folder, the Folders above it that share it when an agent is given them (#3394): a
+ * Folder shares those inside it up to the next wall, as the core's reach does, so a walled
+ * Folder is shared by none above it, and nothing inside it by any above the wall.
+ */
+export function sharedWithOf(folders: readonly Placed[]): Map<string, string[]> {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  return new Map(
+    folders.map((folder) => {
+      const above: string[] = [];
+      const seen = new Set([folder.id]);
+      let at = folder.keepInside ? undefined : byId.get(folder.parentId ?? "");
+      while (at && !seen.has(at.id)) {
+        seen.add(at.id);
+        above.push(at.id);
+        if (at.keepInside) break;
+        at = byId.get(at.parentId ?? "");
+      }
+      return [folder.id, above];
+    }),
+  );
+}
+
+/** The Folders an agent given `chosen` reads: those, and the Folders inside them up to a wall. */
+export function foldersReached(folders: readonly Placed[], chosen: readonly string[]): string[] {
+  return [...chosen.filter((id) => id !== NOT_IN_A_FOLDER_ID), ...sharedInside(folders, chosen)];
+}
+
+/** The Folders an agent given `chosen` reads besides those it was given: the Folders inside them. */
+export function sharedInside(folders: readonly Placed[], chosen: readonly string[]): string[] {
+  const sharedWith = sharedWithOf(folders);
+  return folders
+    .filter(
+      (folder) =>
+        !chosen.includes(folder.id) &&
+        (sharedWith.get(folder.id) ?? []).some((id) => chosen.includes(id)),
+    )
+    .map((folder) => folder.id);
 }
 
 /**
- * Every Folder in the order given, then Not in a Folder, as the Library lists them: while it
- * holds a Document, while there is no Document at all, the place an agent can start from
- * (#3364), or while `keepUnfiled`, an agent's choice that can be taken back. The app's own
- * examples are never among Not in a Folder's (`isExample`), as an agent never reads them there.
+ * Every Folder as the Library's tree lists it, each under the one it is inside, then Not in a
+ * Folder: while it holds a Document, while there is no Document at all, the place an agent can
+ * start from (#3364), or while `keepUnfiled`, an agent's choice that can be taken back. The app's
+ * own examples are never among Not in a Folder's (`isExample`), as an agent never reads them there.
  */
 export function agentFolderRows(
   folders: readonly LibraryGroup[],
@@ -35,26 +83,39 @@ export function agentFolderRows(
 ): AgentFolderRow[] {
   const folderOf = new Map(assignments.map((each) => [each.documentId, each.groupId]));
   const listed = documents.filter(isListedDocument);
-  const counts = treeCounts(
-    folders,
-    listed.flatMap((document) => {
-      const id = folderOf.get(document.id) ?? null;
-      return id === null ? [] : [{ folderId: id }];
-    }),
-  );
-  const known = new Set(folders.map((folder) => folder.id));
+  const sharedWith = sharedWithOf(folders);
+  const counts = new Map<string, number>();
+  for (const document of listed) {
+    const id = folderOf.get(document.id) ?? null;
+    if (id === null || !sharedWith.has(id)) continue;
+    for (const each of [id, ...(sharedWith.get(id) ?? [])]) {
+      counts.set(each, (counts.get(each) ?? 0) + 1);
+    }
+  }
   const loose = listed.filter((document) => {
     const id = folderOf.get(document.id) ?? null;
-    return (id === null || !known.has(id)) && !isExample(document);
+    return (id === null || !sharedWith.has(id)) && !isExample(document);
   });
   return [
-    ...folders.map((folder) => ({
+    ...flattenFolderTree(buildFolderTree(folders)).map(({ folder, depth }) => ({
       id: folder.id,
       name: folder.name,
       documents: counts.get(folder.id) ?? 0,
+      depth,
+      walled: folder.keepInside,
+      sharedWith: sharedWith.get(folder.id) ?? [],
     })),
     ...(loose.length > 0 || listed.every(isExample) || keepUnfiled
-      ? [{ id: NOT_IN_A_FOLDER_ID, name: null, documents: loose.length }]
+      ? [
+          {
+            id: NOT_IN_A_FOLDER_ID,
+            name: null,
+            documents: loose.length,
+            depth: 0,
+            walled: false,
+            sharedWith: [],
+          },
+        ]
       : []),
   ];
 }

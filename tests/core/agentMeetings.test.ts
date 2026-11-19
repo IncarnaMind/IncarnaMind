@@ -6,28 +6,27 @@
  * nothing of it comes back in a refusal. Meetings are recorded with the fake capture and engine.
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
-import { createFakeCapture, type FakeCapture } from "../../src/core/meetings/fakeCapture";
 import type { AnalysisJob } from "../../src/shared/analysis";
 import { formatFullDateTime } from "../../src/shared/dates";
-import { agentsAdapter, buildAgentShim, connectLegacyAgent, resultText } from "../helpers/agents";
-import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import {
+  agentsAdapter,
+  buildAgentShim,
+  connectLegacyAgent,
+  type RecordedMeeting,
+  resultText,
+  startMeetingAgentsCore,
+} from "../helpers/agents";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
-import {
-  inProcessTranscriber,
-  NO_TRANSCRIPTION_FILES,
-  stoppedMeeting,
-  until,
-} from "../helpers/transcription";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
 
@@ -58,6 +57,7 @@ const ORDER: readonly Key[] = ["harbour", "sale", "party", "refit", "claim"];
 interface Listed {
   folders: {
     id: string;
+    name: string;
     documents: number;
     documentList: { id: string; name: string }[];
     minds: {
@@ -93,45 +93,17 @@ const listsGiven = (job: AnalysisJob | undefined) =>
     input.kind === "table" ? input.rows.map((row) => row.join(" | ")) : [],
   );
 
-/** Speech on one side for `ms`, the other quiet, the clock moving with it. */
-function hear(
-  capture: FakeCapture,
-  clock: ReturnType<typeof manualClock>,
-  ms: number,
-  speaking: "microphone" | "system" | null,
-) {
-  for (let at = 0; at < ms; at += 500) {
-    clock.advance(500);
-    capture.push("microphone", 500, speaking !== "microphone");
-    capture.push("system", 500, speaking !== "system");
-  }
-}
-
 /**
  * Coast (a timetable Document, the harbour meeting, and a sub-Folder Engineering holding the
  * refit meeting), Private (the sale meeting), Legal behind a wall (the claim meeting), and the
  * party meeting in no Folder. Each meeting's Note is named for it.
  */
 async function library() {
-  const dataDir = await createTempDataFolder();
-  const clock = manualClock();
-  const capture = createFakeCapture({ now: () => clock.now().getTime() });
-  const engine = inProcessTranscriber({
-    lines: ORDER.map((key) => MEETINGS[key][0]),
-    theirLines: ORDER.map((key) => MEETINGS[key][1]),
-  });
   const runtime = createFakeAnalysisRuntime();
-  const core = startCore(dataDir, {
-    agents: await agentsAdapter(dataDir),
-    audioCapture: capture,
-    transcriber: engine.transcriber,
-    transcriptionModelSource: NO_TRANSCRIPTION_FILES,
-    transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
-    now: clock.now,
-    analysisRuntime: runtime,
-  });
-  await core.updateSettings({ device: { meetingNoticeAccepted: true } });
-  await core.setOutputLocation(join(dataDir, "Documents", "IncarnaMind"));
+  const { core, recordMeeting } = await startMeetingAgentsCore(
+    { mine: ORDER.map((key) => MEETINGS[key][0]), theirs: ORDER.map((key) => MEETINGS[key][1]) },
+    { analysisRuntime: runtime },
+  );
   const [timetable] = await addAndProcess(core, [
     await writeSourceFile(
       await createSourceFolder(),
@@ -156,22 +128,9 @@ async function library() {
     refit: engineering.id,
     claim: legal.id,
   };
-  const recorded = {} as Record<Key, { mindId: string; transcriptId: string; startedAt: string }>;
+  const recorded = {} as Record<Key, RecordedMeeting>;
   for (const key of ORDER) {
-    const meeting = await core.createMeeting({ folderId: folderOf[key] });
-    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
-    hear(capture, clock, 2000, "microphone");
-    hear(capture, clock, 1000, null);
-    hear(capture, clock, 2000, "system");
-    hear(capture, clock, 1000, null);
-    await until(core, meeting.id, (transcript) => transcript.lines >= 2);
-    const stopped = await stoppedMeeting(core, dataDir, meeting.id);
-    await core.renameMind(meeting.mindId, `Meeting about the ${key}`);
-    recorded[key] = {
-      mindId: meeting.mindId,
-      transcriptId: stopped.document.id,
-      startedAt: stopped.meeting.startedAt ?? "",
-    };
+    recorded[key] = await recordMeeting(folderOf[key], `Meeting about the ${key}`);
   }
   await core.setTranscriptSpeakers({
     documentId: recorded.harbour.transcriptId,
@@ -292,7 +251,11 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     structured(await countLists(agent));
     const [documents, notes] = listsGiven(runtime.jobs[0]);
     expect(documents).toEqual([expect.stringMatching(/^Timetable \| markdown \| Coast/)]);
-    expect(notes).toEqual([expect.stringMatching(/^Meeting about the harbour \| Coast/)]);
+    // The refit meeting is in Engineering, a Folder inside Coast, which shares it (#3394).
+    expect([...(notes ?? [])].sort()).toEqual([
+      "Meeting about the harbour | Coast | Coast",
+      "Meeting about the refit | Engineering | Coast / Engineering",
+    ]);
   });
 
   // protects=only a Transcript's Passage is placed as a Citation of it is; any other Document's keeps the place it had before (#3384); fails_when=read_passages narrows a web page's or a text file's Location to what its whole text covers
@@ -331,11 +294,11 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     expect(await placed(log.id)).toEqual(["lines 1–50", "lines 1–100"]);
   });
 
-  // protects=a meeting goes where its Note goes: one whose Note the agent can't read, in a Folder not shared, in a sub-Folder, in no Folder or behind a wall, is never listed, searched, cited or counted, and the refusal says nothing of it; fails_when=Not in a Folder or a shared Folder's tree hands the agent a Transcript whose Note it may not read, or a refusal tells such a meeting apart from an id that never was
+  // protects=a meeting goes where its Note goes: one whose Note the agent can't read, in a Folder not shared, in no Folder or behind a wall, is never listed, searched, cited or counted, and the refusal says nothing of it; fails_when=Not in a Folder or a shared Folder's tree hands the agent a Transcript whose Note it may not read, or a refusal tells such a meeting apart from an id that never was
   it("never lists, searches, cites or counts a meeting whose Note it may not read", async () => {
     const { core, runtime, recorded, coast, connect } = await library();
     const agent = await connect("Claude Code", [coast.id, NOT_IN_A_FOLDER_ID]);
-    const outOfReach: Key[] = ["sale", "party", "refit", "claim"];
+    const outOfReach: Key[] = ["sale", "party", "claim"];
     const forbidden = new RegExp(
       outOfReach
         .flatMap((key) => [
@@ -381,12 +344,13 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     said.push(resultText(await countLists(agent)));
     for (const text of said) expect(text).not.toMatch(forbidden);
     const [documents, notes] = listsGiven(runtime.jobs[0]);
-    expect([documents?.length, notes?.length]).toEqual([1, 1]);
+    expect([documents?.length, notes?.length]).toEqual([1, 2]);
     expect([...(documents ?? []), ...(notes ?? [])].join("\n")).not.toMatch(forbidden);
     const listed = await listMinds(agent);
-    expect(listed.folders.map((folder) => [folder.id, folder.documents])).toEqual([
-      [coast.id, 1],
-      [NOT_IN_A_FOLDER_ID, 0],
+    expect(listed.folders.map((folder) => [folder.name, folder.documents])).toEqual([
+      ["Coast", 1],
+      ["Engineering", 0],
+      ["Not in a Folder", 0],
     ]);
   });
 

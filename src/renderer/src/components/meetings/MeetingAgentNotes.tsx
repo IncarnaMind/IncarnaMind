@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { type AgentPairing, type Meeting, NOT_IN_A_FOLDER_ID } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
+import { foldersReached } from "../../agentFolders";
 import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
 import { moveIntoFolder } from "../../folderDrag";
 import { useT } from "../../i18n";
@@ -19,6 +20,7 @@ export function MeetingAgentNotes({ meeting, agentId }: { meeting: Meeting; agen
   const noteReaders = useAgentsToAskRead(meeting.mindId);
   const active = useAgentsToAskRead(null);
   const mind = useAppStore((state) => state.minds.find((item) => item.id === meeting.mindId));
+  const folders = useAppStore((state) => state.library?.groups);
   const openSettings = useAppStore((state) => state.openSettings);
   if (!allowed || !active || !noteReaders || !documentId) return null;
   const open = (agent: AgentPairing): ProblemAction => ({
@@ -66,7 +68,7 @@ export function MeetingAgentNotes({ meeting, agentId }: { meeting: Meeting; agen
           anchor={anchor}
           name={mindName(mind) || t("mind.untitled")}
           current={mind.folderId}
-          offeredFolderIds={connected.folderIds}
+          offeredFolderIds={foldersReached(folders ?? [], connected.folderIds)}
           onChoose={(folderId) => {
             setAnchor(null);
             void moveIntoFolder({ mindIds: [mind.id] }, folderId);

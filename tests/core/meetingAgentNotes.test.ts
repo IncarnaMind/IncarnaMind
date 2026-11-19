@@ -39,6 +39,7 @@ test.each(["en", "zh-CN"] as const)(
       name: "Codex",
       client: "codex",
       folderIds: [folder.id],
+      propose: language === "zh-CN",
     });
     if (language === "en") {
       await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
@@ -84,9 +85,8 @@ test.each(["en", "zh-CN"] as const)(
     const prompt = new URL(openLink.mock.calls[0]?.[0] ?? "").searchParams.get("prompt");
     expect(prompt).toContain(meeting.mindId);
     expect(prompt).toContain(documentId);
-    expect(prompt).toContain(
-      language === "en" ? "check the citations yourself" : "由你自己核对引用",
-    );
+    expect(prompt).toContain("check_citations");
+    expect(prompt?.includes("propose_changes")).toBe(pairing.propose);
     expect(prompt).not.toContain(sentence);
     const privateFolder = await reopened.createLibraryGroup({
       name: "Separate transcript",

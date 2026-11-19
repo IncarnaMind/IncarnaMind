@@ -5679,29 +5679,26 @@ export function createCore(adapters: CoreAdapters): Core {
         library.folders().map((folder) => ({
           id: folder.id,
           name: folder.name,
+          parentId: folder.parentId,
           keepInside: folder.keepInside,
         })),
       wallOf: (folderId) => library.wallOf(folderId),
       foldersInScope: folderIdsInScope,
+      // A grant behind a wall reaches what is behind that wall alone, never an inner wall's (#1934,
+      // #246): the tree stops at the next wall.
+      foldersInside: (folderId) => library.treeFolderIds(folderId),
       documentsIn: (folderIds) => {
-        // A pairing granted a Folder behind a wall reads that Folder and the Folders inside it,
-        // never the wall's other Folders: a grant names what it names (#1934, #246).
-        const only =
-          folderIds.length === 1 && walledFolderId(folderIds[0] ?? null) !== null
-            ? (folderIds[0] ?? null)
-            : null;
-        if (only !== null) return library.treeDocumentIds(only);
-        const allowed = folderIdsInScope(folderIds);
-        const folders = allowed.filter((id) => id !== NOT_IN_A_FOLDER_ID);
-        const filed =
-          folders.length === 0
-            ? []
-            : (resolveScope({ folderIds: folders, tagIds: [], documentIds: [] }) ?? []);
-        if (!allowed.includes(NOT_IN_A_FOLDER_ID)) return filed;
+        const folders = folderIds.filter((id) => id !== NOT_IN_A_FOLDER_ID);
+        const filed = folders.flatMap((id) => library.documentIds(id));
+        // A file written from a walled Note stays behind its wall wherever it is indexed (#1934).
+        const behind = folders.some((id) => walledFolderId(id) !== null);
+        const walled = new Set(behind ? [] : walledDocuments());
+        const outside = filed.filter((id) => !walled.has(id));
+        if (!folderIds.includes(NOT_IN_A_FOLDER_ID)) return [...new Set(outside)];
         // The app's own examples are not the User's Documents, in no Folder or out of one (#3364).
         const leftOut = new Set([...walledDocuments(), ...examples.made().documentIds]);
         const unfiled = library.unfiledDocumentIds().filter((id) => !leftOut.has(id));
-        return [...new Set([...filed, ...unfiled])];
+        return [...new Set([...outside, ...unfiled])];
       },
       noteTranscripts: () => noteTranscripts(db),
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's

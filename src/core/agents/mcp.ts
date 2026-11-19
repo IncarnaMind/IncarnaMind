@@ -256,6 +256,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
           z.object({
             id: z.string(),
             name: z.string(),
+            path: z.string().optional().describe("Where it is: inside another Folder listed here."),
             documents: z.number(),
             documentList: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string() })),
             minds: z.array(
