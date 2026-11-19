@@ -1,4 +1,11 @@
-import { isTheirs, lineKey, partsOf, speakerOf } from "../../shared/speakers";
+import {
+  isNumberedVoice,
+  isTheirs,
+  type LinePart,
+  lineKey,
+  partsOf,
+  speakerOf,
+} from "../../shared/speakers";
 import type { MeetingSpeakerSuggestion, TranscriptSpeakers } from "../api";
 import type { Cue } from "../documents/formats/vtt";
 import type { ReviewToken } from "../transcription/cloud/sonioxReview";
@@ -51,6 +58,54 @@ function windowOf<T extends Span>(spans: readonly T[]) {
       if (span.endMs >= start) hits.push(span);
     }
     return hits;
+  };
+}
+
+/** Live speaker numbers can change across connections. Nearby turns can corroborate a label
+ * independently of the saved acoustic pass. A long monologue gets at most five seconds of weight. */
+function liveCorroboration(
+  parts: readonly LinePart[],
+  speakers: TranscriptSpeakers | null,
+  duplicates: ReadonlySet<string>,
+) {
+  if (
+    !speakers ||
+    !parts.some(
+      (part) =>
+        isNumberedVoice(part.label) && speakerOf(speakers, part.startMs, part.label) !== part.label,
+    )
+  )
+    return () => true;
+  const turns = windowOf(
+    parts.map((part) => ({
+      ...part,
+      speaker: speakerOf(speakers, part.startMs, part.label),
+    })),
+  );
+  return (part: LinePart, suggested: string) => {
+    if (!isNumberedVoice(part.label)) return true;
+    let evidence = 0;
+    let support = 0;
+    const agreeing = new Set<number>();
+    const radius = 90_000;
+    for (const other of turns(part.startMs - radius, part.startMs + radius)) {
+      if (
+        other.label !== part.label ||
+        other.lineMs === part.lineMs ||
+        Math.abs(other.startMs - part.startMs) > radius ||
+        duplicates.has(lineKey(other.startMs, other.label)) ||
+        !isTheirs(other.speaker)
+      )
+        continue;
+      const duration = Math.min(5000, other.endMs - other.startMs);
+      if (duration <= 0) continue;
+      evidence += duration;
+      if (other.speaker === suggested) {
+        support += duration;
+        agreeing.add(other.lineMs);
+      }
+    }
+    return agreeing.size >= 2 && 3 * support >= 2 * evidence;
   };
 }
 
@@ -118,14 +173,24 @@ export function reviewSuggestions(
   }
   for (const [label, matches] of labels) {
     const [best, next] = matches.sort((a, b) => b.ms - a.ms);
-    if (!best || (next && next.ms >= best.ms * 0.9)) continue;
+    if (
+      !best ||
+      (next && next.ms >= best.ms * 0.9) ||
+      2 * best.ms <= matches.reduce((total, match) => total + match.ms, 0)
+    )
+      continue;
     const rivals = anchors.get(best.voice);
-    if (rivals && ![...rivals].some(([other, ms]) => other !== label && ms >= best.ms * 0.9))
+    if (
+      rivals &&
+      2 * best.ms > [...rivals.values()].reduce((total, ms) => total + ms, 0) &&
+      ![...rivals].some(([other, ms]) => other !== label && ms >= best.ms * 0.9)
+    )
       mapping.set(best.voice, label);
   }
+  const corroborates = liveCorroboration(parts, speakers, duplicates);
   return reliable.flatMap(({ part, current, voice }) => {
     const suggested = mapping.get(voice);
-    return suggested && suggested !== current
+    return suggested && suggested !== current && corroborates(part, suggested)
       ? [
           {
             startMs: part.startMs,

@@ -55,6 +55,33 @@ describe("post-call speaker suggestions", () => {
     expect(labels.lines).toEqual({});
   });
 
+  test("asks a numbered live voice for independent support when a separate pass has relabelled voices", () => {
+    const earlier = line(19_000, "Speaker 1", "Review the older budget.", 3000);
+    const later = line(24_000, "Speaker 1", "Then approve the budget.", 3000);
+    const far = line(200_000, "Speaker 1", "Budget is now agreed.");
+    const cues = [first, second, wrong, earlier, later, far];
+    const tokens = [
+      heard(first, "2"),
+      heard(second, "1"),
+      heard(wrong, "1"),
+      heard(earlier, "1"),
+      heard(later, "1"),
+      heard(far, "1"),
+    ];
+    const metadata = {
+      labels: {},
+      lines: { "19000 Speaker 1": "Speaker 2", "24000 Speaker 1": "Speaker 2" },
+    };
+    // One six-second competing turn still has as much weight as the two corroborating turns.
+    expect(reviewSuggestions(cues, metadata, tokens)).toEqual([]);
+    const shorter = { ...first, endMs: 1000 };
+    const supported = reviewSuggestions([shorter, ...cues.slice(1)], metadata, [
+      heard(shorter, "2"),
+      ...tokens.slice(1),
+    ]);
+    expect(supported.map((s) => s.startMs)).toEqual([wrong.startMs]);
+  });
+
   test("overlapping pieces of one voice cannot cover the same time twice", () => {
     const partial = line(16_000, "Speaker 1", "Budget decisions today.");
     expect(
