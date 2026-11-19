@@ -90,6 +90,11 @@ export function NoteOutline({
     setCurrent(headingAt(tops, READING_LINE));
   }, [editor, scrollerOf]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the headings changing is when to forget it.
+  useEffect(() => {
+    jumped.current = null;
+  }, [headings]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: the headings changing is when to measure again.
   useEffect(() => {
     const scroller = scrollerOf();
