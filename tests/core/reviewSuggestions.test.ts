@@ -55,6 +55,19 @@ describe("post-call speaker suggestions", () => {
     expect(labels.lines).toEqual({});
   });
 
+  test("overlapping pieces of one voice cannot cover the same time twice", () => {
+    const partial = line(16_000, "Speaker 1", "Budget decisions today.");
+    expect(
+      reviewSuggestions([first, second, partial], null, [
+        heard(first, "2"),
+        heard(second, "1"),
+        { startMs: 16_000, endMs: 16_490, speaker: "1", text: "Budget " },
+        { startMs: 16_105, endMs: 16_110, speaker: "2", text: "oh" },
+        { startMs: 16_200, endMs: 16_520, speaker: "1", text: "decisions today." },
+      ]),
+    ).toEqual([]);
+  });
+
   test("abstains for ambiguous identities, different words, short answers, competing voices and duplicate anchors", () => {
     expect(
       reviewSuggestions([line(0, "A", wrong.text), line(1000, "B", wrong.text)], null, [

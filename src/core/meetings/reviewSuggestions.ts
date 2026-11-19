@@ -78,9 +78,13 @@ export function reviewSuggestions(
     const current = speakerOf(speakers, part.startMs, part.label);
     if (!isTheirs(current)) continue;
     const byVoice = new Map<string, number>();
+    const coveredTo = new Map<string, number>();
     for (const span of spans(part.startMs, part.endMs)) {
-      const ms = Math.min(span.endMs, part.endMs) - Math.max(span.startMs, part.startMs);
-      if (ms > 0) byVoice.set(span.speaker, (byVoice.get(span.speaker) ?? 0) + ms);
+      const from = Math.max(span.startMs, part.startMs, coveredTo.get(span.speaker) ?? 0);
+      const to = Math.min(span.endMs, part.endMs);
+      if (to <= from) continue;
+      coveredTo.set(span.speaker, to);
+      byVoice.set(span.speaker, (byVoice.get(span.speaker) ?? 0) + to - from);
     }
     for (const [voice, ms] of byVoice) {
       const totals = anchors.get(voice) ?? new Map<string, number>();
@@ -103,20 +107,20 @@ export function reviewSuggestions(
   }
   // Speaker numbers are local to each transcription. Pair only voices with a clear, mutual anchor.
   const mapping = new Map<string, string>();
-  const weights = [...anchors].flatMap(([voice, totals]) =>
-    [...totals].map(([label, ms]) => ({ voice, label, ms })),
-  );
-  for (const pair of weights) {
-    if (
-      !weights.some(
-        (other) =>
-          other !== pair &&
-          (other.voice === pair.voice || other.label === pair.label) &&
-          other.ms >= pair.ms * 0.9,
-      )
-    ) {
-      mapping.set(pair.voice, pair.label);
+  const labels = new Map<string, { voice: string; ms: number }[]>();
+  for (const [voice, totals] of anchors) {
+    for (const [label, ms] of totals) {
+      const matches = labels.get(label) ?? [];
+      matches.push({ voice, ms });
+      labels.set(label, matches);
     }
+  }
+  for (const [label, matches] of labels) {
+    const [best, next] = matches.sort((a, b) => b.ms - a.ms);
+    if (!best || (next && next.ms >= best.ms * 0.9)) continue;
+    const rivals = anchors.get(best.voice);
+    if (rivals && ![...rivals].some(([other, ms]) => other !== label && ms >= best.ms * 0.9))
+      mapping.set(best.voice, label);
   }
   return candidates.flatMap(({ part, key, current, voice }) => {
     const suggested = mapping.get(voice);
