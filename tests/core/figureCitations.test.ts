@@ -32,14 +32,13 @@ const CEDAR = {
 const called = (call: ModelCall, tool: string) => call.results.some((each) => each.tool === tool);
 
 /** The figure of net debt in GBP millions, its input quoting its Passage directly. */
-function netDebt(call: ModelCall, stated?: string) {
+function netDebt(call: ModelCall) {
   const search = call.results.find((each) => each.tool === "search_documents");
   const [passage] = shownPassages(search?.text ?? "");
   return {
     marker: 1,
     label: "Net debt",
     formula: "nd",
-    shown: stated ?? "£310.000 million",
     inputs: [
       {
         name: "nd",
@@ -54,17 +53,13 @@ function netDebt(call: ModelCall, stated?: string) {
 }
 
 /** Searches, calculates the figure from a direct quote, then writes `then` (and `last`, when given). */
-function calculatingModel(
-  then: (call: ModelCall) => ScriptedReply,
-  last?: ScriptedReply,
-  stated?: string,
-) {
+function calculatingModel(then: (call: ModelCall) => ScriptedReply, last?: ScriptedReply) {
   return scriptedModel((call) => {
     if (!called(call, "search_documents")) {
       return { calls: [{ tool: "search_documents", input: { query: "net debt" } }] };
     }
     if (!called(call, "calculate")) {
-      return { calls: [{ tool: "calculate", input: { figures: [netDebt(call, stated)] } }] };
+      return { calls: [{ tool: "calculate", input: { figures: [netDebt(call)] } }] };
     }
     return last && called(call, "add_to_mind") ? last : then(call);
   });
@@ -284,7 +279,7 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
   // protects=a comparison table's cell whose only amount is a figure with a direct quote is answered and cited, not "not found"; fails_when=the cell says not found; no_claim=none beyond protects.
   test("in a comparison table's cell, which is answered, not 'not found'", async () => {
     const { core, documents, mind, client } = await setUp(
-      calculatingModel(() => ({ text: "[=1]" }), undefined, "£310 million"),
+      calculatingModel(() => ({ text: "£310 million [=1]" })),
     );
     await compare(core, client, {
       mindId: mind.id,
@@ -315,7 +310,7 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
     "a Citation the model writes later keeps its own quote (%s)",
     async (when) => {
       const content =
-        "Net debt was [=1] at Q3.\n\nLTM adjusted EBITDA was 95,000 [^1].\n\nThat is all for the quarter.";
+        "Net debt was £310.000 million [=1] at Q3.\n\nLTM adjusted EBITDA was 95,000 [^1].\n\nThat is all for the quarter.";
       const cite = (call: ModelCall) => ({
         tool: "cite",
         input: {
@@ -414,7 +409,6 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
           marker: 1,
           label: "净负债（亿元）",
           formula: "nd",
-          shown: "3.1亿元",
           inputs: [
             {
               name: "nd",
@@ -428,7 +422,7 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
         };
         return { calls: [{ tool: "calculate", input: { figures: [figure] } }] };
       }
-      return { text: "净负债 [=1]" };
+      return { text: "净负债 3.1亿元 [=1]" };
     });
     const { core, documents, mind, client } = await setUp(model, [
       { name: "雪松控股.txt", contents: "雪松控股2026年三季度\n单位：万元\n净负债：31,000\n" },

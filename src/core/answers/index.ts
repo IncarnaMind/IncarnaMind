@@ -374,7 +374,7 @@ import {
   withHelp,
 } from "./meetingHelp";
 import { paragraphAsked } from "./paragraphAsked";
-import { createPlainCalculator } from "./plainCalculator";
+import { createPlainCalculator, unwrittenFiguresNote } from "./plainCalculator";
 import { createPrintedNumbers } from "./printedNumbers";
 import {
   analysisInstructions,
@@ -2041,6 +2041,7 @@ export function createAnswers(options: AnswersOptions) {
       const placed: MarkedFigure[] = [];
       const missing = new Map<number, UncalculatedFigure>();
       if (!calculating) return { figures: placed, missing: [] };
+      figures.written(text);
       withFigures(
         withCitations(markdownToBlocks(text, { streaming: !final }), citedNode),
         (marker) => {
@@ -2068,6 +2069,7 @@ export function createAnswers(options: AnswersOptions) {
         analyses,
         answerLanguage(context.question),
       );
+      if (calculating) figures.written(text);
       // Final: a marker with no record is removed, and each is counted for the summary. Call help's
       // panel shows each quote's check as it lands, and a reading's moments of the call on the
       // lines it has finished as the end will find them (#2847); an option's quoted words wait for
@@ -3202,6 +3204,7 @@ export function createAnswers(options: AnswersOptions) {
                 ),
               figure: (marker) => (calculating ? figures.figure(marker) : null),
               blocksOf: (text) => {
+                if (calculating) figures.written(text);
                 let found = 0;
                 let notFound = 0;
                 let unrecorded = 0;
@@ -3807,6 +3810,15 @@ export function createAnswers(options: AnswersOptions) {
             );
             return unrecorded.length > 0
               ? { claims: [], note: unrecordedMarkersNote(unrecorded) }
+              : null;
+          },
+        },
+        {
+          name: "unwritten-figures",
+          check: (text) => {
+            const unwritten = calculating ? figures.unwritten(text) : [];
+            return unwritten.length > 0
+              ? { claims: [], writeOnly: true, note: unwrittenFiguresNote(unwritten) }
               : null;
           },
         },

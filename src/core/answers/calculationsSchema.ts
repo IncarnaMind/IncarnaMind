@@ -1,6 +1,7 @@
 /**
  * What `calculate` takes (#3393): each figure's inputs as plain numbers with the quotes they come
- * from, a formula over their names, and the figure's label and shown text, which say what it is.
+ * from, a formula over their names, and the figure's label, which says what it is. The result goes
+ * back to the model, which writes the figure in its text.
  */
 export const calculationsSchema = {
   type: "array",
@@ -68,12 +69,7 @@ export const calculationsSchema = {
         description:
           "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year.",
       },
-      shown: {
-        type: "string",
-        description:
-          'The figure as the Answer writes it in place of its marker, with its unit and scale and one number in it: "20.4%", "$251.6 million", "1,842万元". Its digits are the result\'s, rounded as you show it.',
-      },
     },
-    required: ["marker", "label", "inputs", "formula", "shown"],
+    required: ["marker", "label", "inputs", "formula"],
   },
 } as const;

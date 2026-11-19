@@ -180,7 +180,6 @@ const GROWTH = (cited: { revenue: number; margin: number }) => [
     marker: 1,
     label: "Revenue growth 2025 (%)",
     formula: "rev2025 / rev2024 - 1",
-    shown: "20.4%",
     inputs: [
       { name: "rev2025", label: "Revenue 2025 ($)", citation: cited.revenue, value: 1_482_600_000 },
       { name: "rev2024", label: "Revenue 2024 ($)", citation: cited.revenue, value: 1_231_000_000 },
@@ -190,7 +189,6 @@ const GROWTH = (cited: { revenue: number; margin: number }) => [
     marker: 2,
     label: "Change in gross margin (percentage points)",
     formula: "gm2025 - gm2024",
-    shown: "2.3 percentage points",
     inputs: [
       { name: "gm2025", label: "Gross margin 2025", citation: cited.margin, value: 0.412 },
       { name: "gm2024", label: "Gross margin 2024", citation: cited.margin, value: 0.389 },
@@ -221,12 +219,12 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
       queries: ["revenue gross margin"],
       steps: [citeAndCalculate],
       answer: [
-        "Revenue grew [=1] in 2025, to $1,482.6 million[^1]; gross margin rose [=2], to 41.2%[^2].",
+        "Revenue grew 20.4% [=1] in 2025, to $1,482.6 million[^1]; gross margin rose 2.3 percentage points [=2], to 41.2%[^2].",
         "",
         "| Measure | Change |",
         "|:--|--:|",
-        "| Revenue | [=1] |",
-        "| Gross margin | [=2] |",
+        "| Revenue | 20.4% [=1] |",
+        "| Gross margin | 2.3 percentage points [=2] |",
       ].join("\n"),
     });
     const { core } = await setUpCalculating(model, [ACME]);
@@ -254,9 +252,9 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     // The model is told what each came to, with the numbers it used, in one line each.
     expect(told(model, "calculate")).toEqual([
       [
-        "Recorded [=1] = 20.4% (Revenue growth 2025 (%): 1,482,600,000 ÷ 1,231,000,000 − 1 = 20.4% · 1,482.6 → 1,482,600,000, 1,231.0 → 1,231,000,000).",
-        "Recorded [=2] = 2.3 percentage points (Change in gross margin (percentage points): 0.412 − 0.389 = 2.3 percentage points · 41.2 → 0.412, 38.9 → 0.389).",
-        "Write each marker in its number's place, in the text or a table's cell, as in \"grew [=1] in 2025\": it shows as its shown text, so write neither the number nor its unit beside it.",
+        "Recorded [=1] = 0.204387 (Revenue growth 2025 (%): 1,482,600,000 ÷ 1,231,000,000 − 1 = 0.204387 · 1,482.6 → 1,482,600,000, 1,231.0 → 1,231,000,000).",
+        "Recorded [=2] = 0.023 (Change in gross margin (percentage points): 0.412 − 0.389 = 0.023 · 41.2 → 0.412, 38.9 → 0.389).",
+        'Write each figure in your text as it should read, with its unit and scale, and its marker right after it, as in "grew 20.4% [=1] in 2025".',
       ].join("\n"),
     ]);
     expect(shown(answerBlocks(answer))).toBe(
@@ -329,7 +327,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
           ];
         },
       ],
-      answer: "Revenue grew [=1] in 2025, to $1,482.6 million[^1].",
+      answer: "Revenue grew 20.4% [=1] in 2025, to $1,482.6 million[^1].",
     });
     const { core } = await setUpCalculating(model, [ACME]);
 
@@ -384,18 +382,18 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
       queries: ["revenue gross margin"],
       steps: [citeAndCalculate],
       answer:
-        "Revenue grew 20.4% [=1] in 2025, gross margin rose 2.3% [=2], costs fell [=9], and `[=1]` is how it is written.",
+        "Revenue grew 20.4% [=1] in 2025, gross margin rose 3.2% [=2], costs fell [=9], and `[=1]` is how it is written.",
     });
     const { core } = await setUpCalculating(model, [ACME]);
 
     const { answer, finished } = await askAndRead(core, "How did Acme do in 2025?");
 
     expect(shown(answerBlocks(answer))).toBe(
-      "Revenue grew 20.4% in 2025, gross margin rose 2.3% 2.3 percentage points, costs fell ‹mark›, and [=1] is how it is written.",
+      "Revenue grew 20.4% in 2025, gross margin rose 3.2% 0.023, costs fell ‹mark›, and [=1] is how it is written.",
     );
     expect(answer.figures).toMatchObject([
       { marker: 1, shown: "20.4%", written: null },
-      { marker: 2, shown: "2.3 percentage points", written: "2.3%" },
+      { marker: 2, shown: "0.023", written: "3.2%" },
     ]);
     expect(finished.uncalculated).toBe(1);
     // Its end names the marker, and no number was written before it (#2313).
@@ -419,7 +417,6 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
               marker: 1,
               label: "Revenue growth (%)",
               formula,
-              shown: formula === "a / b - 1" ? "20.4%" : "-17.0%",
               inputs: [
                 // A value written as text reads as the number it writes.
                 {
@@ -452,7 +449,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
         (passages) => growth(passages, "b / a - 1"),
         (passages) => growth(passages, "a / b - 1"),
       ],
-      answer: "Revenue changed by [=1].",
+      answer: "Revenue changed by -17.0% [=1].",
     });
     const { core } = await setUpCalculating(model, [ACME]);
 
@@ -460,7 +457,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
 
     const results = told(model, "calculate");
     expect(results[1]).toMatch(
-      /^Recorded \[=1\] = -17\.0% \(Revenue growth \(%\): 1,231 ÷ 1,482\.6 − 1 = -17\.0%\)\. It replaces the earlier \[=1\] = 20\.4%: give each figure a marker of its own\./,
+      /^Recorded \[=1\] = -0\.169702 \(Revenue growth \(%\): 1,231 ÷ 1,482\.6 − 1 = -0\.169702\)\. It replaces the earlier \[=1\] = 0\.204387: give each figure a marker of its own\./,
     );
     expect(results[4]).toMatch(/^Recorded \[=1\]/);
     expect(results[5]).toBe(
@@ -508,7 +505,8 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     const model = calculatingModel({
       queries: ["revenue gross margin"],
       steps: [citeAndCalculate],
-      answer: "Revenue grew [=1] in 2025[^1]; gross margin rose [=2][^2].",
+      answer:
+        "Revenue grew 20.4% [=1] in 2025[^1]; gross margin rose 2.3 percentage points [=2][^2].",
     });
     const { core } = await setUpCalculating(model, [ACME]);
     const { conversationId } = await askAndRead(core, "How did Acme do in 2025?");
@@ -524,9 +522,7 @@ describe("The calculate Tool", { timeout: 60_000 }, () => {
     ]);
     const [match] = await core.searchConversations("percentage");
     expect(match?.conversation.id).toBe(conversationId);
-    expect(match?.messages.map((message) => message.excerpt)).toEqual([
-      expect.stringContaining("gross margin rose 2.3 percentage points"),
-    ]);
+    expect(match?.messages[0]?.excerpt).toContain("gross margin rose 2.3 percentage points");
   });
 });
 
@@ -553,7 +549,7 @@ describe("Calculated figures with conversations (ADR-0017)", { timeout: 60_000 }
     const model = calculatingModel({
       queries: ["revenue gross margin"],
       steps: [citeAndCalculate],
-      answer: "Revenue grew [=1][^1]; gross margin rose [=2][^2].",
+      answer: "Revenue grew 20.4% [=1][^1]; gross margin rose 2.3 percentage points [=2][^2].",
     });
     const { core } = await setUpCalculating(model, [ACME], dataDir);
 
@@ -580,7 +576,7 @@ describe("Calculated figures with conversations (ADR-0017)", { timeout: 60_000 }
 });
 
 describe("Structured output, for a model offered calculate", { timeout: 60_000 }, () => {
-  test("its figures come in its JSON and are worked out the same way; one in error is dropped, the mark stands in its place, and the Answer says so", async () => {
+  test("its figures come in its JSON and are worked out the same way; one in error is dropped, and the Answer says so", async () => {
     const growth = GROWTH({ revenue: 1, margin: 2 });
     const badMargin = {
       ...growth[1],
@@ -596,7 +592,8 @@ describe("Structured output, for a model offered calculate", { timeout: 60_000 }
           ? { error: { status: 400, message: "This model does not support tools" } }
           : {
               text: JSON.stringify({
-                answer: "Revenue grew [=1][^1], and gross margin rose [=2][^2].",
+                answer:
+                  "Revenue grew 20.4% [=1][^1], and gross margin rose 2.3 percentage points [=2][^2].",
                 citations: [
                   { marker: 1, passage: "P1", location: "p. 1", quote: REVENUE },
                   { marker: 2, passage: "P1", location: "p. 2", quote: MARGIN },
@@ -619,7 +616,10 @@ describe("Structured output, for a model offered calculate", { timeout: 60_000 }
     expect(finished.uncalculated).toBe(1);
     // A cloud model gets no second request, as for quotes.
     expect(finished.figureRetry).toBeNull();
-    expect(shown(answerBlocks(answer))).toBe("Revenue grew 20.4%, and gross margin rose ‹mark›.");
+    // Structured output has no second ask: the number it wrote for the figure dropped stays (#2577).
+    expect(shown(answerBlocks(answer))).toBe(
+      "Revenue grew 20.4%, and gross margin rose 2.3 percentage points.",
+    );
     expect(calculateCall(answer)).toMatchObject({ resultCount: 1, uncalculated: 1 });
     expect(translate("zh-CN", "answer.figures.uncalculated.one")).toBe("1 个数字未能计算");
   });
@@ -636,7 +636,8 @@ describe("DeepSeek's own models are offered calculate (#441)", { timeout: 60_000
     const model = calculatingModel({
       queries: ["revenue gross margin"],
       steps: [citeAndCalculate],
-      answer: "Revenue grew [=1] in 2025[^1]; gross margin rose [=2][^2].",
+      answer:
+        "Revenue grew 20.4% [=1] in 2025[^1]; gross margin rose 2.3 percentage points [=2][^2].",
     });
     const { core } = await setUpCalculating(model, [ACME], undefined, {}, DEEPSEEK);
 
@@ -719,7 +720,6 @@ const marginChange = (citation: number, values = [0.412, 0.389]) => [
     marker: 1,
     label: "Change in gross margin (percentage points)",
     formula: "gm2025 - gm2024",
-    shown: `${(((values[0] ?? 0) - (values[1] ?? 0)) * 100).toFixed(1)} percentage points`,
     inputs: [
       { name: "gm2025", label: "Gross margin 2025", citation, value: values[0] },
       { name: "gm2024", label: "Gross margin 2024", citation, value: values[1] },
@@ -767,7 +767,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
     async (_, writes, requests) => {
       const model = steppingModel([
         (passage) => ({
-          text: "Revenue was $1,482.6 million in 2025[^1]; gross margin rose [=1][^2].",
+          text: "Revenue was $1,482.6 million in 2025[^1]; gross margin rose 2.3 percentage points [=1][^2].",
           calls: [
             {
               tool: "cite",
@@ -806,7 +806,7 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
       const cited = (passage: string) => citeOne(passage, 1, "p. 2", MARGIN);
       const model = steppingModel([
         (passage) => ({
-          text: "Gross margin rose [=1][^1].",
+          text: "Gross margin rose 2.3 percentage points [=1][^1].",
           calls: [
             cited(passage),
             { tool: "calculate", input: { figures: marginChange(1, [0.45, 0.389]) } },

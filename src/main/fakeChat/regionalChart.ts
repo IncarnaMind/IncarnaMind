@@ -47,13 +47,6 @@ function rowsIn(searched: string): Row[] {
 
 export function regionalChart(prompt: Prompt, question: string, tools: readonly string[]): Reply {
   const chinese = /\p{Script=Han}/u.test(question);
-  if (lastResult(prompt, "add_to_mind") !== undefined) {
-    return {
-      text: chinese
-        ? "2026 年一至三季度总收入：North [=1]，South [=2]，East [=3]，West [=4]。West 增长最快，为 [=8]。"
-        : "Total revenue, Q1 to Q3 2026: North [=1], South [=2], East [=3], West [=4]. West grew fastest, [=8].",
-    };
-  }
   const [searched] = toolResults(prompt, "search_documents");
   if (searched === undefined) {
     return { tool: "search_documents", input: { query: "revenue by region and quarter" } };
@@ -85,6 +78,26 @@ export function regionalChart(prompt: Prompt, question: string, tools: readonly 
   const sum = (rows: readonly Row[]) =>
     rows.reduce((total, row) => total + writtenValue(row.revenue), 0);
   if (!tools.includes("calculate")) return { text: "I can't calculate here." };
+  const endsOf = (region: Row["region"]) =>
+    of(region).filter((row) => row.quarter === first || row.quarter === last);
+  // What the model writes for each figure once it is told the result.
+  const totalText = (region: Row["region"]) => `$${plainNumber(sum(of(region)))}`;
+  const growthText = (region: Row["region"]) => {
+    const ends = endsOf(region);
+    const at = (quarter: number) => sum(ends.filter((row) => row.quarter === quarter));
+    return `${((at(last) / at(first) - 1) * 100).toFixed(1)}%`;
+  };
+  if (lastResult(prompt, "add_to_mind") !== undefined) {
+    const [north, south, east, west] = REGIONS.map(
+      (region, index) => `${totalText(region)} [=${index + 1}]`,
+    );
+    const fastest = `${growthText("West")} [=8]`;
+    return {
+      text: chinese
+        ? `2026 年一至三季度总收入：North ${north}，South ${south}，East ${east}，West ${west}。West 增长最快，为 ${fastest}。`
+        : `Total revenue, Q1 to Q3 2026: North ${north}, South ${south}, East ${east}, West ${west}. West grew fastest, ${fastest}.`,
+    };
+  }
   if (toolResults(prompt, "calculate").length === 0) {
     const totals = REGIONS.map((region, index) => ({
       marker: index + 1,
@@ -93,28 +106,23 @@ export function regionalChart(prompt: Prompt, question: string, tools: readonly 
       formula: of(region)
         .map((row) => `q${row.quarter}`)
         .join(" + "),
-      shown: `$${plainNumber(sum(of(region)))}`,
     }));
-    const growth = REGIONS.map((region, index) => {
-      const ends = of(region).filter((row) => row.quarter === first || row.quarter === last);
-      return {
-        marker: REGIONS.length + index + 1,
-        label: `${region} growth Q${first} to Q${last} 2026 (%)`,
-        inputs: ends.map(input),
-        formula: `q${last} / q${first} - 1`,
-        shown: `${((sum(ends.filter((row) => row.quarter === last)) / sum(ends.filter((row) => row.quarter === first)) - 1) * 100).toFixed(1)}%`,
-      };
-    });
+    const growth = REGIONS.map((region, index) => ({
+      marker: REGIONS.length + index + 1,
+      label: `${region} growth Q${first} to Q${last} 2026 (%)`,
+      inputs: endsOf(region).map(input),
+      formula: `q${last} / q${first} - 1`,
+    }));
     return { tool: "calculate", input: { figures: [...totals, ...growth] } };
   }
   const cited = (rows: readonly Row[]) => rows.map((row) => `[^${marker(row)}]`).join("");
   const table = [
     chinese ? "| 地区 | 总收入 | 增长 |" : "| Region | Total revenue | Growth |",
     "|---|---|---|",
-    ...REGIONS.map((region, index) => {
-      const ends = of(region).filter((row) => row.quarter === first || row.quarter === last);
-      return `| ${region} | [=${index + 1}] ${cited(of(region))} | [=${REGIONS.length + index + 1}] ${cited(ends)} |`;
-    }),
+    ...REGIONS.map(
+      (region, index) =>
+        `| ${region} | ${totalText(region)} [=${index + 1}] ${cited(of(region))} | ${growthText(region)} [=${REGIONS.length + index + 1}] ${cited(endsOf(region))} |`,
+    ),
   ].join("\n");
   return {
     tool: "add_to_mind",

@@ -5882,7 +5882,7 @@
    "prompt": [
     {
      "role": "system",
-     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Corvane\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number's place, with no number or unit beside it: \"grew [=1] in 2025\", not \"grew 20.4% [=1]\".\n- Name each input's number as it is written in its quote, labelled with what it is and its period; give the line that states its scale (\"单位：万元\", \"All amounts in £'000\") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale (\"亿\", \"billion\") to show another, never convert in the formula.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- Write the Answer in the language of the Question itself, not the Documents'."
+     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Corvane\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate, then write the figure it gives as it should read, with its marker right after it: \"grew 20.4% [=1] in 2025\".\n- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit. Write the figure with its unit and scale, its digits the result's as you round it.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- Write the Answer in the language of the Question itself, not the Documents'."
     },
     {
      "role": "user",
@@ -5982,7 +5982,7 @@
           },
           "label": {
            "type": "string",
-           "description": "What the result is, with its period: \"Revenue growth 2025\"."
+           "description": "What the figure is, with its period and unit: \"Revenue growth 2025 (%)\"."
           },
           "inputs": {
            "type": "array",
@@ -5995,7 +5995,11 @@
              },
              "label": {
               "type": "string",
-              "description": "What it is, with its year or period: \"Revenue 2024\"."
+              "description": "What it is, with its year or period and unit: \"Revenue 2024 ($)\"."
+             },
+             "value": {
+              "type": "number",
+              "description": "The number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit (2.7亿 as 270000000, 45 cents as 0.45 dollars, 6% as 0.06)."
              },
              "citation": {
               "type": "integer",
@@ -6015,57 +6019,18 @@
              },
              "number": {
               "type": "string",
-              "description": "The number as it is written in the quote: \"1.2亿\", \"$1,482.6 million\"."
-             },
-             "position": {
-              "type": "integer",
-              "description": "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first."
-             },
-             "unitQuote": {
-              "type": "string",
-              "description": "When the number's scale or currency is only in a table's heading or caption (\"单位：万元\", \"in millions\"), or in another Passage whose line says it holds for the whole Document (\"All amounts in £'000\", under a parent heading or on an earlier page): that line, copied word for word."
-             },
-             "reading": {
-              "type": "integer",
-              "description": "Only when told the number can be read more than one way: the reading to use, as numbered then."
-             },
-             "rate": {
-              "type": "string",
-              "description": "Only for an exchange rate: the currencies it converts, as \"CNY per USD\"."
-             },
-             "bracketedCost": {
-              "type": "boolean",
-              "description": "True when the number is a cost or deduction printed in brackets (\"Finance costs (41.2)\", \"财务费用 (41.2)\"), so its size is meant. Never for a loss or another result in brackets."
+              "description": "Only when the quote has the same digits twice: the number as the quote writes it."
              }
             },
             "required": [
-             "name"
+             "name",
+             "value"
             ]
            }
           },
           "formula": {
            "type": "string",
-           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead."
-          },
-          "as": {
-           "type": "string",
-           "enum": [
-            "number",
-            "percent",
-            "points",
-            "currency",
-            "times",
-            "yes-no"
-           ],
-           "description": "How to show the result: percent for a growth rate or a share. Default: from the inputs."
-          },
-          "decimals": {
-           "type": "integer",
-           "description": "Decimal places, when the default won't do."
-          },
-          "scale": {
-           "type": "string",
-           "description": "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown."
+           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b."
           },
           "constants": {
            "type": "array",
@@ -6073,27 +6038,13 @@
             "type": "string"
            },
            "description": "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year."
-          },
-          "stated": {
-           "type": "string",
-           "description": "The exact quantity copied from the sentence to check, in its original language: \"1.1x\", \"12%\", \"three\", \"三年\". Never translate it or replace written words with digits."
-          },
-          "relation": {
-           "type": "string",
-           "enum": [
-            "equals",
-            "at most",
-            "at least"
-           ],
-           "description": "How the figure stands to stated: \"equals\" when stated is the figure; \"at most\" or \"at least\" when stated is a limit the sentence says the figure stays within or above (\"inside a 3.25x covenant\", \"不超过3.25倍\", \"至少5倍\")."
           }
          },
          "required": [
           "marker",
+          "label",
           "inputs",
-          "formula",
-          "stated",
-          "relation"
+          "formula"
          ]
         }
        }
@@ -6102,7 +6053,7 @@
        "figures"
       ]
      },
-     "description": "Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025\", \"inputs\": [{\"name\": \"r24\", \"label\": \"Revenue 2024\", \"citation\": 1, \"number\": \"$1,231.0 million\"}, {\"name\": \"r25\", \"label\": \"Revenue 2025\", \"citation\": 1, \"number\": \"$1,482.6 million\"}], \"formula\": \"r25 / r24 - 1\", \"as\": \"percent\"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale (\"单位：万元\", \"in millions\") applied, so give scale (\"亿\", \"billion\") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, \"(12,500)\", is negative, so take a deduction off by adding it, never by subtracting it. Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above (\"leverage inside the 3.25x covenant\"), give relation \"at most\" or \"at least\"."
+     "description": "Work out a number from numbers in the Passages instead of in your head: give the inputs, the formula and the label; IncarnaMind does the arithmetic and gives you the result. Give figures, each {marker, label, inputs, formula}. Each input is {name, value, citation}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; value is the number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names; label says what the figure is, with its unit. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025 (%)\", \"inputs\": [{\"name\": \"r24\", \"citation\": 1, \"value\": 1231000000}, {\"name\": \"r25\", \"citation\": 1, \"value\": 1482600000}], \"formula\": \"r25 / r24 - 1\"}]}. IncarnaMind checks that each value's digits are in its quote; what a number measures is yours to say. What the result means for the sentence is yours to say."
     }
    ],
    "toolChoice": {
@@ -6113,7 +6064,7 @@
    "prompt": [
     {
      "role": "system",
-     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Corvane\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number's place, with no number or unit beside it: \"grew [=1] in 2025\", not \"grew 20.4% [=1]\".\n- Name each input's number as it is written in its quote, labelled with what it is and its period; give the line that states its scale (\"单位：万元\", \"All amounts in £'000\") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale (\"亿\", \"billion\") to show another, never convert in the formula.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- Write the Answer in the language of the Question itself, not the Documents'."
+     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Corvane\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate, then write the figure it gives as it should read, with its marker right after it: \"grew 20.4% [=1] in 2025\".\n- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit. Write the figure with its unit and scale, its digits the result's as you round it.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- Write the Answer in the language of the Question itself, not the Documents'."
     },
     {
      "role": "user",
@@ -6240,7 +6191,7 @@
           },
           "label": {
            "type": "string",
-           "description": "What the result is, with its period: \"Revenue growth 2025\"."
+           "description": "What the figure is, with its period and unit: \"Revenue growth 2025 (%)\"."
           },
           "inputs": {
            "type": "array",
@@ -6253,7 +6204,11 @@
              },
              "label": {
               "type": "string",
-              "description": "What it is, with its year or period: \"Revenue 2024\"."
+              "description": "What it is, with its year or period and unit: \"Revenue 2024 ($)\"."
+             },
+             "value": {
+              "type": "number",
+              "description": "The number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit (2.7亿 as 270000000, 45 cents as 0.45 dollars, 6% as 0.06)."
              },
              "citation": {
               "type": "integer",
@@ -6273,57 +6228,18 @@
              },
              "number": {
               "type": "string",
-              "description": "The number as it is written in the quote: \"1.2亿\", \"$1,482.6 million\"."
-             },
-             "position": {
-              "type": "integer",
-              "description": "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first."
-             },
-             "unitQuote": {
-              "type": "string",
-              "description": "When the number's scale or currency is only in a table's heading or caption (\"单位：万元\", \"in millions\"), or in another Passage whose line says it holds for the whole Document (\"All amounts in £'000\", under a parent heading or on an earlier page): that line, copied word for word."
-             },
-             "reading": {
-              "type": "integer",
-              "description": "Only when told the number can be read more than one way: the reading to use, as numbered then."
-             },
-             "rate": {
-              "type": "string",
-              "description": "Only for an exchange rate: the currencies it converts, as \"CNY per USD\"."
-             },
-             "bracketedCost": {
-              "type": "boolean",
-              "description": "True when the number is a cost or deduction printed in brackets (\"Finance costs (41.2)\", \"财务费用 (41.2)\"), so its size is meant. Never for a loss or another result in brackets."
+              "description": "Only when the quote has the same digits twice: the number as the quote writes it."
              }
             },
             "required": [
-             "name"
+             "name",
+             "value"
             ]
            }
           },
           "formula": {
            "type": "string",
-           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead."
-          },
-          "as": {
-           "type": "string",
-           "enum": [
-            "number",
-            "percent",
-            "points",
-            "currency",
-            "times",
-            "yes-no"
-           ],
-           "description": "How to show the result: percent for a growth rate or a share. Default: from the inputs."
-          },
-          "decimals": {
-           "type": "integer",
-           "description": "Decimal places, when the default won't do."
-          },
-          "scale": {
-           "type": "string",
-           "description": "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown."
+           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b."
           },
           "constants": {
            "type": "array",
@@ -6331,27 +6247,13 @@
             "type": "string"
            },
            "description": "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year."
-          },
-          "stated": {
-           "type": "string",
-           "description": "The exact quantity copied from the sentence to check, in its original language: \"1.1x\", \"12%\", \"three\", \"三年\". Never translate it or replace written words with digits."
-          },
-          "relation": {
-           "type": "string",
-           "enum": [
-            "equals",
-            "at most",
-            "at least"
-           ],
-           "description": "How the figure stands to stated: \"equals\" when stated is the figure; \"at most\" or \"at least\" when stated is a limit the sentence says the figure stays within or above (\"inside a 3.25x covenant\", \"不超过3.25倍\", \"至少5倍\")."
           }
          },
          "required": [
           "marker",
+          "label",
           "inputs",
-          "formula",
-          "stated",
-          "relation"
+          "formula"
          ]
         }
        }
@@ -6360,7 +6262,7 @@
        "figures"
       ]
      },
-     "description": "Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025\", \"inputs\": [{\"name\": \"r24\", \"label\": \"Revenue 2024\", \"citation\": 1, \"number\": \"$1,231.0 million\"}, {\"name\": \"r25\", \"label\": \"Revenue 2025\", \"citation\": 1, \"number\": \"$1,482.6 million\"}], \"formula\": \"r25 / r24 - 1\", \"as\": \"percent\"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale (\"单位：万元\", \"in millions\") applied, so give scale (\"亿\", \"billion\") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, \"(12,500)\", is negative, so take a deduction off by adding it, never by subtracting it. Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above (\"leverage inside the 3.25x covenant\"), give relation \"at most\" or \"at least\"."
+     "description": "Work out a number from numbers in the Passages instead of in your head: give the inputs, the formula and the label; IncarnaMind does the arithmetic and gives you the result. Give figures, each {marker, label, inputs, formula}. Each input is {name, value, citation}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; value is the number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names; label says what the figure is, with its unit. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025 (%)\", \"inputs\": [{\"name\": \"r24\", \"citation\": 1, \"value\": 1231000000}, {\"name\": \"r25\", \"citation\": 1, \"value\": 1482600000}], \"formula\": \"r25 / r24 - 1\"}]}. IncarnaMind checks that each value's digits are in its quote; what a number measures is yours to say. What the result means for the sentence is yours to say."
     }
    ],
    "toolChoice": {
@@ -6371,7 +6273,7 @@
    "prompt": [
     {
      "role": "system",
-     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Corvane\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number's place, with no number or unit beside it: \"grew [=1] in 2025\", not \"grew 20.4% [=1]\".\n- Name each input's number as it is written in its quote, labelled with what it is and its period; give the line that states its scale (\"单位：万元\", \"All amounts in £'000\") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale (\"亿\", \"billion\") to show another, never convert in the formula.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- Write the Answer in the language of the Question itself, not the Documents'."
+     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Corvane\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate, then write the figure it gives as it should read, with its marker right after it: \"grew 20.4% [=1] in 2025\".\n- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit. Write the figure with its unit and scale, its digits the result's as you round it.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- Write the Answer in the language of the Question itself, not the Documents'."
     },
     {
      "role": "user",
@@ -6531,7 +6433,7 @@
           },
           "label": {
            "type": "string",
-           "description": "What the result is, with its period: \"Revenue growth 2025\"."
+           "description": "What the figure is, with its period and unit: \"Revenue growth 2025 (%)\"."
           },
           "inputs": {
            "type": "array",
@@ -6544,7 +6446,11 @@
              },
              "label": {
               "type": "string",
-              "description": "What it is, with its year or period: \"Revenue 2024\"."
+              "description": "What it is, with its year or period and unit: \"Revenue 2024 ($)\"."
+             },
+             "value": {
+              "type": "number",
+              "description": "The number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit (2.7亿 as 270000000, 45 cents as 0.45 dollars, 6% as 0.06)."
              },
              "citation": {
               "type": "integer",
@@ -6564,57 +6470,18 @@
              },
              "number": {
               "type": "string",
-              "description": "The number as it is written in the quote: \"1.2亿\", \"$1,482.6 million\"."
-             },
-             "position": {
-              "type": "integer",
-              "description": "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first."
-             },
-             "unitQuote": {
-              "type": "string",
-              "description": "When the number's scale or currency is only in a table's heading or caption (\"单位：万元\", \"in millions\"), or in another Passage whose line says it holds for the whole Document (\"All amounts in £'000\", under a parent heading or on an earlier page): that line, copied word for word."
-             },
-             "reading": {
-              "type": "integer",
-              "description": "Only when told the number can be read more than one way: the reading to use, as numbered then."
-             },
-             "rate": {
-              "type": "string",
-              "description": "Only for an exchange rate: the currencies it converts, as \"CNY per USD\"."
-             },
-             "bracketedCost": {
-              "type": "boolean",
-              "description": "True when the number is a cost or deduction printed in brackets (\"Finance costs (41.2)\", \"财务费用 (41.2)\"), so its size is meant. Never for a loss or another result in brackets."
+              "description": "Only when the quote has the same digits twice: the number as the quote writes it."
              }
             },
             "required": [
-             "name"
+             "name",
+             "value"
             ]
            }
           },
           "formula": {
            "type": "string",
-           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead."
-          },
-          "as": {
-           "type": "string",
-           "enum": [
-            "number",
-            "percent",
-            "points",
-            "currency",
-            "times",
-            "yes-no"
-           ],
-           "description": "How to show the result: percent for a growth rate or a share. Default: from the inputs."
-          },
-          "decimals": {
-           "type": "integer",
-           "description": "Decimal places, when the default won't do."
-          },
-          "scale": {
-           "type": "string",
-           "description": "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown."
+           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b."
           },
           "constants": {
            "type": "array",
@@ -6622,27 +6489,13 @@
             "type": "string"
            },
            "description": "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year."
-          },
-          "stated": {
-           "type": "string",
-           "description": "The exact quantity copied from the sentence to check, in its original language: \"1.1x\", \"12%\", \"three\", \"三年\". Never translate it or replace written words with digits."
-          },
-          "relation": {
-           "type": "string",
-           "enum": [
-            "equals",
-            "at most",
-            "at least"
-           ],
-           "description": "How the figure stands to stated: \"equals\" when stated is the figure; \"at most\" or \"at least\" when stated is a limit the sentence says the figure stays within or above (\"inside a 3.25x covenant\", \"不超过3.25倍\", \"至少5倍\")."
           }
          },
          "required": [
           "marker",
+          "label",
           "inputs",
-          "formula",
-          "stated",
-          "relation"
+          "formula"
          ]
         }
        }
@@ -6651,7 +6504,7 @@
        "figures"
       ]
      },
-     "description": "Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025\", \"inputs\": [{\"name\": \"r24\", \"label\": \"Revenue 2024\", \"citation\": 1, \"number\": \"$1,231.0 million\"}, {\"name\": \"r25\", \"label\": \"Revenue 2025\", \"citation\": 1, \"number\": \"$1,482.6 million\"}], \"formula\": \"r25 / r24 - 1\", \"as\": \"percent\"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale (\"单位：万元\", \"in millions\") applied, so give scale (\"亿\", \"billion\") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, \"(12,500)\", is negative, so take a deduction off by adding it, never by subtracting it. Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above (\"leverage inside the 3.25x covenant\"), give relation \"at most\" or \"at least\"."
+     "description": "Work out a number from numbers in the Passages instead of in your head: give the inputs, the formula and the label; IncarnaMind does the arithmetic and gives you the result. Give figures, each {marker, label, inputs, formula}. Each input is {name, value, citation}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; value is the number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names; label says what the figure is, with its unit. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025 (%)\", \"inputs\": [{\"name\": \"r24\", \"citation\": 1, \"value\": 1231000000}, {\"name\": \"r25\", \"citation\": 1, \"value\": 1482600000}], \"formula\": \"r25 / r24 - 1\"}]}. IncarnaMind checks that each value's digits are in its quote; what a number measures is yours to say. What the result means for the sentence is yours to say."
     }
    ],
    "toolChoice": {
@@ -6664,7 +6517,7 @@
    "prompt": [
     {
      "role": "system",
-     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Transcript · Meeting, 6 October (“We agreed the enterprise price is 45 dollars a seat”)\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number's place, with no number or unit beside it: \"grew [=1] in 2025\", not \"grew 20.4% [=1]\".\n- Name each input's number as it is written in its quote, labelled with what it is and its period; give the line that states its scale (\"单位：万元\", \"All amounts in £'000\") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale (\"亿\", \"billion\") to show another, never convert in the formula.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- The Question is written in English, so answer in English."
+     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Transcript · Meeting, 6 October (“We agreed the enterprise price is 45 dollars a seat”)\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate, then write the figure it gives as it should read, with its marker right after it: \"grew 20.4% [=1] in 2025\".\n- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit. Write the figure with its unit and scale, its digits the result's as you round it.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- The Question is written in English, so answer in English."
     },
     {
      "role": "user",
@@ -6764,7 +6617,7 @@
           },
           "label": {
            "type": "string",
-           "description": "What the result is, with its period: \"Revenue growth 2025\"."
+           "description": "What the figure is, with its period and unit: \"Revenue growth 2025 (%)\"."
           },
           "inputs": {
            "type": "array",
@@ -6777,7 +6630,11 @@
              },
              "label": {
               "type": "string",
-              "description": "What it is, with its year or period: \"Revenue 2024\"."
+              "description": "What it is, with its year or period and unit: \"Revenue 2024 ($)\"."
+             },
+             "value": {
+              "type": "number",
+              "description": "The number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit (2.7亿 as 270000000, 45 cents as 0.45 dollars, 6% as 0.06)."
              },
              "citation": {
               "type": "integer",
@@ -6797,57 +6654,18 @@
              },
              "number": {
               "type": "string",
-              "description": "The number as it is written in the quote: \"1.2亿\", \"$1,482.6 million\"."
-             },
-             "position": {
-              "type": "integer",
-              "description": "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first."
-             },
-             "unitQuote": {
-              "type": "string",
-              "description": "When the number's scale or currency is only in a table's heading or caption (\"单位：万元\", \"in millions\"), or in another Passage whose line says it holds for the whole Document (\"All amounts in £'000\", under a parent heading or on an earlier page): that line, copied word for word."
-             },
-             "reading": {
-              "type": "integer",
-              "description": "Only when told the number can be read more than one way: the reading to use, as numbered then."
-             },
-             "rate": {
-              "type": "string",
-              "description": "Only for an exchange rate: the currencies it converts, as \"CNY per USD\"."
-             },
-             "bracketedCost": {
-              "type": "boolean",
-              "description": "True when the number is a cost or deduction printed in brackets (\"Finance costs (41.2)\", \"财务费用 (41.2)\"), so its size is meant. Never for a loss or another result in brackets."
+              "description": "Only when the quote has the same digits twice: the number as the quote writes it."
              }
             },
             "required": [
-             "name"
+             "name",
+             "value"
             ]
            }
           },
           "formula": {
            "type": "string",
-           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead."
-          },
-          "as": {
-           "type": "string",
-           "enum": [
-            "number",
-            "percent",
-            "points",
-            "currency",
-            "times",
-            "yes-no"
-           ],
-           "description": "How to show the result: percent for a growth rate or a share. Default: from the inputs."
-          },
-          "decimals": {
-           "type": "integer",
-           "description": "Decimal places, when the default won't do."
-          },
-          "scale": {
-           "type": "string",
-           "description": "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown."
+           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b."
           },
           "constants": {
            "type": "array",
@@ -6855,27 +6673,13 @@
             "type": "string"
            },
            "description": "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year."
-          },
-          "stated": {
-           "type": "string",
-           "description": "The exact quantity copied from the sentence to check, in its original language: \"1.1x\", \"12%\", \"three\", \"三年\". Never translate it or replace written words with digits."
-          },
-          "relation": {
-           "type": "string",
-           "enum": [
-            "equals",
-            "at most",
-            "at least"
-           ],
-           "description": "How the figure stands to stated: \"equals\" when stated is the figure; \"at most\" or \"at least\" when stated is a limit the sentence says the figure stays within or above (\"inside a 3.25x covenant\", \"不超过3.25倍\", \"至少5倍\")."
           }
          },
          "required": [
           "marker",
+          "label",
           "inputs",
-          "formula",
-          "stated",
-          "relation"
+          "formula"
          ]
         }
        }
@@ -6884,7 +6688,7 @@
        "figures"
       ]
      },
-     "description": "Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025\", \"inputs\": [{\"name\": \"r24\", \"label\": \"Revenue 2024\", \"citation\": 1, \"number\": \"$1,231.0 million\"}, {\"name\": \"r25\", \"label\": \"Revenue 2025\", \"citation\": 1, \"number\": \"$1,482.6 million\"}], \"formula\": \"r25 / r24 - 1\", \"as\": \"percent\"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale (\"单位：万元\", \"in millions\") applied, so give scale (\"亿\", \"billion\") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, \"(12,500)\", is negative, so take a deduction off by adding it, never by subtracting it. Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above (\"leverage inside the 3.25x covenant\"), give relation \"at most\" or \"at least\"."
+     "description": "Work out a number from numbers in the Passages instead of in your head: give the inputs, the formula and the label; IncarnaMind does the arithmetic and gives you the result. Give figures, each {marker, label, inputs, formula}. Each input is {name, value, citation}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; value is the number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names; label says what the figure is, with its unit. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025 (%)\", \"inputs\": [{\"name\": \"r24\", \"citation\": 1, \"value\": 1231000000}, {\"name\": \"r25\", \"citation\": 1, \"value\": 1482600000}], \"formula\": \"r25 / r24 - 1\"}]}. IncarnaMind checks that each value's digits are in its quote; what a number measures is yours to say. What the result means for the sentence is yours to say."
     }
    ],
    "toolChoice": {
@@ -6895,7 +6699,7 @@
    "prompt": [
     {
      "role": "system",
-     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Transcript · Meeting, 6 October (“We agreed the enterprise price is 45 dollars a seat”)\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number's place, with no number or unit beside it: \"grew [=1] in 2025\", not \"grew 20.4% [=1]\".\n- Name each input's number as it is written in its quote, labelled with what it is and its period; give the line that states its scale (\"单位：万元\", \"All amounts in £'000\") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale (\"亿\", \"billion\") to show another, never convert in the formula.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- The Question is written in English, so answer in English."
+     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Transcript · Meeting, 6 October (“We agreed the enterprise price is 45 dollars a seat”)\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate, then write the figure it gives as it should read, with its marker right after it: \"grew 20.4% [=1] in 2025\".\n- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit. Write the figure with its unit and scale, its digits the result's as you round it.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- The Question is written in English, so answer in English."
     },
     {
      "role": "user",
@@ -7028,7 +6832,7 @@
           },
           "label": {
            "type": "string",
-           "description": "What the result is, with its period: \"Revenue growth 2025\"."
+           "description": "What the figure is, with its period and unit: \"Revenue growth 2025 (%)\"."
           },
           "inputs": {
            "type": "array",
@@ -7041,7 +6845,11 @@
              },
              "label": {
               "type": "string",
-              "description": "What it is, with its year or period: \"Revenue 2024\"."
+              "description": "What it is, with its year or period and unit: \"Revenue 2024 ($)\"."
+             },
+             "value": {
+              "type": "number",
+              "description": "The number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit (2.7亿 as 270000000, 45 cents as 0.45 dollars, 6% as 0.06)."
              },
              "citation": {
               "type": "integer",
@@ -7061,57 +6869,18 @@
              },
              "number": {
               "type": "string",
-              "description": "The number as it is written in the quote: \"1.2亿\", \"$1,482.6 million\"."
-             },
-             "position": {
-              "type": "integer",
-              "description": "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first."
-             },
-             "unitQuote": {
-              "type": "string",
-              "description": "When the number's scale or currency is only in a table's heading or caption (\"单位：万元\", \"in millions\"), or in another Passage whose line says it holds for the whole Document (\"All amounts in £'000\", under a parent heading or on an earlier page): that line, copied word for word."
-             },
-             "reading": {
-              "type": "integer",
-              "description": "Only when told the number can be read more than one way: the reading to use, as numbered then."
-             },
-             "rate": {
-              "type": "string",
-              "description": "Only for an exchange rate: the currencies it converts, as \"CNY per USD\"."
-             },
-             "bracketedCost": {
-              "type": "boolean",
-              "description": "True when the number is a cost or deduction printed in brackets (\"Finance costs (41.2)\", \"财务费用 (41.2)\"), so its size is meant. Never for a loss or another result in brackets."
+              "description": "Only when the quote has the same digits twice: the number as the quote writes it."
              }
             },
             "required": [
-             "name"
+             "name",
+             "value"
             ]
            }
           },
           "formula": {
            "type": "string",
-           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead."
-          },
-          "as": {
-           "type": "string",
-           "enum": [
-            "number",
-            "percent",
-            "points",
-            "currency",
-            "times",
-            "yes-no"
-           ],
-           "description": "How to show the result: percent for a growth rate or a share. Default: from the inputs."
-          },
-          "decimals": {
-           "type": "integer",
-           "description": "Decimal places, when the default won't do."
-          },
-          "scale": {
-           "type": "string",
-           "description": "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown."
+           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b."
           },
           "constants": {
            "type": "array",
@@ -7119,27 +6888,13 @@
             "type": "string"
            },
            "description": "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year."
-          },
-          "stated": {
-           "type": "string",
-           "description": "The exact quantity copied from the sentence to check, in its original language: \"1.1x\", \"12%\", \"three\", \"三年\". Never translate it or replace written words with digits."
-          },
-          "relation": {
-           "type": "string",
-           "enum": [
-            "equals",
-            "at most",
-            "at least"
-           ],
-           "description": "How the figure stands to stated: \"equals\" when stated is the figure; \"at most\" or \"at least\" when stated is a limit the sentence says the figure stays within or above (\"inside a 3.25x covenant\", \"不超过3.25倍\", \"至少5倍\")."
           }
          },
          "required": [
           "marker",
+          "label",
           "inputs",
-          "formula",
-          "stated",
-          "relation"
+          "formula"
          ]
         }
        }
@@ -7148,7 +6903,7 @@
        "figures"
       ]
      },
-     "description": "Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025\", \"inputs\": [{\"name\": \"r24\", \"label\": \"Revenue 2024\", \"citation\": 1, \"number\": \"$1,231.0 million\"}, {\"name\": \"r25\", \"label\": \"Revenue 2025\", \"citation\": 1, \"number\": \"$1,482.6 million\"}], \"formula\": \"r25 / r24 - 1\", \"as\": \"percent\"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale (\"单位：万元\", \"in millions\") applied, so give scale (\"亿\", \"billion\") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, \"(12,500)\", is negative, so take a deduction off by adding it, never by subtracting it. Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above (\"leverage inside the 3.25x covenant\"), give relation \"at most\" or \"at least\"."
+     "description": "Work out a number from numbers in the Passages instead of in your head: give the inputs, the formula and the label; IncarnaMind does the arithmetic and gives you the result. Give figures, each {marker, label, inputs, formula}. Each input is {name, value, citation}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; value is the number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names; label says what the figure is, with its unit. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025 (%)\", \"inputs\": [{\"name\": \"r24\", \"citation\": 1, \"value\": 1231000000}, {\"name\": \"r25\", \"citation\": 1, \"value\": 1482600000}], \"formula\": \"r25 / r24 - 1\"}]}. IncarnaMind checks that each value's digits are in its quote; what a number measures is yours to say. What the result means for the sentence is yours to say."
     }
    ],
    "toolChoice": {
@@ -7159,7 +6914,7 @@
    "prompt": [
     {
      "role": "system",
-     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Transcript · Meeting, 6 October (“We agreed the enterprise price is 45 dollars a seat”)\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number's place, with no number or unit beside it: \"grew [=1] in 2025\", not \"grew 20.4% [=1]\".\n- Name each input's number as it is written in its quote, labelled with what it is and its period; give the line that states its scale (\"单位：万元\", \"All amounts in £'000\") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale (\"亿\", \"billion\") to show another, never convert in the formula.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- The Question is written in English, so answer in English."
+     "content": "You answer Questions in IncarnaMind, a notebook where the User writes Notes and asks Questions in place.\nThe messages are the User's Notes and Questions as user messages, your Answers as assistant messages. The last user message ends with the Question to answer now; use the rest as context.\nThe first user message may start with the notebook page the User asks beside, in <mind> (earlier Q&A in <question> and <answer>; […] marks cuts), the last with what they selected in it, in <selection>: the Question is about that first, the rest is background.\n\n- Answer in the language the Question is written in, even when the Notes or Documents are in another language.\n- Answer the Question asked. Mention an earlier Answer, or a Document or figure from one, only when the Question is about it; never tell the User to disregard an earlier Answer.\n- Never send the reader to an earlier Answer for part of what you write (\"covered in my earlier answer\", \"as above\", \"见上一条回答\", \"见上文\"): someone who never saw this conversation may read it on a page, so write that part out.\n- If you don't know the answer, or it isn't in what you were given and you aren't sure of it, say so plainly instead of guessing.\n- Write Markdown: paragraphs, headings, lists, tables (one row per line, with a heading row; the panel is narrow, so a cell holds about eight words, or 16 Chinese characters, and a quote belongs in its Citation, not in a cell), fenced code blocks with a language, and LaTeX math as $…$ inline or $$…$$ on lines of its own. Don't use HTML.\n\nThe User limited this Question to 1 Document of theirs (PDF, Word, PowerPoint, Excel, CSV, text and Markdown files). Search them with search_documents whenever they may help; search again with other words if the Passages don't answer the Question.\nIts name:\n- Transcript · Meeting, 6 October (“We agreed the enterprise price is 45 dollars a seat”)\nUse the names to tell which Documents a Question means, and to say which Documents there are when asked; only the Passages say what is in them.\n\nCite every claim you draw from a Passage:\n- Before writing the Answer, call cite once with a record for each quote you will use: a marker number (1, 2, …), the Passage's id, where the quote is, and a short quote copied exactly from the Passage, without its marks. Where: the page, slide, section, or rows or lines the quote is in, or two in a row, written as the Passage names them (its pages or location, and marks where each new one starts, like [p. 4], [slide 4], [§ 2.1 Sensitivity], [Revenue, rows 2–41] or [lines 51–100]; name rows or lines more narrowly when you can, e.g. \"Revenue, rows 12–14\"). Revision worksheets need every item row and its revision, no bare values.\n- Copy each quote as one unbroken stretch of the Passage: don't leave words out with an ellipsis (... or …); quote less instead.\n- Use quotation marks only around a Document's exact words, in its own language, the same as the record's quote, never a translation of them: that goes after the closing mark, as “…”（译：…）.\n- In the Answer, put the marker as [^1] right after each claim it supports, in a table's cell too. Use only markers you recorded, and add no list of sources.\n- Write nothing before your Tool calls: only the Answer, after them.\nIf the Documents don't cover the Question, say \"I didn't find X in “Doc”\" (\"未在“Doc”中找到 X\"). Absence needs read_document where X would be. You may add what the Passages do say that comes closest, cited, then stop: never fill the gap from your own knowledge, so no figure, date or name that isn't in a Passage. Only a general Question that isn't about the User's Documents (a concept or a method) may be answered from your own knowledge, in a paragraph that starts \"Not from your Documents:\" (\"以下内容不是来自你的文档：\"), with no figures and no markers.\n- A sentence with a Citation says only what its quote supports. Your inference, judgement or comparison goes in a sentence of its own with no marker, worded as a reading: \"This suggests…\" / \"这意味着…\".\n- A figure taken from a Passage keeps exactly the currency, unit and scale its Document gives it: \"salary is 54,000\" stays \"54,000 (currency not stated)\" / \"54,000（未注明币种）\", never \"£54,000\"; \"2 percentage points\" never becomes \"2%\".\n- Words a scan may have misread are marked ⟦like this⟧ in the Passages: never state a figure read from one as fact, nor use one in a calculation; say the scan is unclear and cite it.\n- If the Question takes for granted what the Passages don't say (an approval, a date, a figure, a cause), say so first, in one plain sentence, then answer from what they say: \"I didn't find a Board approval in the Documents; the 14 May memo asks for one.\" / \"未在文档中找到董事会批准的记录；5 月 14 日的备忘录是在申请批准。\"\n- If Passages from different Documents disagree, or give different figures for the same thing (one updates the other), lead with the newer Document by its date (a Passage's date, else its file-created or file-modified date) and cite it. Then write one sentence naming the older Document, its date and its figure, with a Citation; never leave it out: \"Report outages over 4 hours (memo, May 2025)[^1]. The older handbook (January 2024) says 6 hours[^2].\" / \"2025 年 5 月的备忘录要求报告超过 4 小时的停电[^1]。较早的手册（2024 年 1 月）写的是 6 小时[^2]。\" Say \"probably\" (可能) only when neither is dated or newer.\n\nNever work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate, then write the figure it gives as it should read, with its marker right after it: \"grew 20.4% [=1] in 2025\".\n- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit. Write the figure with its unit and scale, its digits the result's as you round it.\n- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.\n- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.\n\n- The Question is written in English, so answer in English."
     },
     {
      "role": "user",
@@ -7325,7 +7080,7 @@
           },
           "label": {
            "type": "string",
-           "description": "What the result is, with its period: \"Revenue growth 2025\"."
+           "description": "What the figure is, with its period and unit: \"Revenue growth 2025 (%)\"."
           },
           "inputs": {
            "type": "array",
@@ -7338,7 +7093,11 @@
              },
              "label": {
               "type": "string",
-              "description": "What it is, with its year or period: \"Revenue 2024\"."
+              "description": "What it is, with its year or period and unit: \"Revenue 2024 ($)\"."
+             },
+             "value": {
+              "type": "number",
+              "description": "The number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit (2.7亿 as 270000000, 45 cents as 0.45 dollars, 6% as 0.06)."
              },
              "citation": {
               "type": "integer",
@@ -7358,57 +7117,18 @@
              },
              "number": {
               "type": "string",
-              "description": "The number as it is written in the quote: \"1.2亿\", \"$1,482.6 million\"."
-             },
-             "position": {
-              "type": "integer",
-              "description": "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first."
-             },
-             "unitQuote": {
-              "type": "string",
-              "description": "When the number's scale or currency is only in a table's heading or caption (\"单位：万元\", \"in millions\"), or in another Passage whose line says it holds for the whole Document (\"All amounts in £'000\", under a parent heading or on an earlier page): that line, copied word for word."
-             },
-             "reading": {
-              "type": "integer",
-              "description": "Only when told the number can be read more than one way: the reading to use, as numbered then."
-             },
-             "rate": {
-              "type": "string",
-              "description": "Only for an exchange rate: the currencies it converts, as \"CNY per USD\"."
-             },
-             "bracketedCost": {
-              "type": "boolean",
-              "description": "True when the number is a cost or deduction printed in brackets (\"Finance costs (41.2)\", \"财务费用 (41.2)\"), so its size is meant. Never for a loss or another result in brackets."
+              "description": "Only when the quote has the same digits twice: the number as the quote writes it."
              }
             },
             "required": [
-             "name"
+             "name",
+             "value"
             ]
            }
           },
           "formula": {
            "type": "string",
-           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead."
-          },
-          "as": {
-           "type": "string",
-           "enum": [
-            "number",
-            "percent",
-            "points",
-            "currency",
-            "times",
-            "yes-no"
-           ],
-           "description": "How to show the result: percent for a growth rate or a share. Default: from the inputs."
-          },
-          "decimals": {
-           "type": "integer",
-           "description": "Decimal places, when the default won't do."
-          },
-          "scale": {
-           "type": "string",
-           "description": "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown."
+           "description": "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b."
           },
           "constants": {
            "type": "array",
@@ -7416,27 +7136,13 @@
             "type": "string"
            },
            "description": "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year."
-          },
-          "stated": {
-           "type": "string",
-           "description": "The exact quantity copied from the sentence to check, in its original language: \"1.1x\", \"12%\", \"three\", \"三年\". Never translate it or replace written words with digits."
-          },
-          "relation": {
-           "type": "string",
-           "enum": [
-            "equals",
-            "at most",
-            "at least"
-           ],
-           "description": "How the figure stands to stated: \"equals\" when stated is the figure; \"at most\" or \"at least\" when stated is a limit the sentence says the figure stays within or above (\"inside a 3.25x covenant\", \"不超过3.25倍\", \"至少5倍\")."
           }
          },
          "required": [
           "marker",
+          "label",
           "inputs",
-          "formula",
-          "stated",
-          "relation"
+          "formula"
          ]
         }
        }
@@ -7445,7 +7151,7 @@
        "figures"
       ]
      },
-     "description": "Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025\", \"inputs\": [{\"name\": \"r24\", \"label\": \"Revenue 2024\", \"citation\": 1, \"number\": \"$1,231.0 million\"}, {\"name\": \"r25\", \"label\": \"Revenue 2025\", \"citation\": 1, \"number\": \"$1,482.6 million\"}], \"formula\": \"r25 / r24 - 1\", \"as\": \"percent\"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale (\"单位：万元\", \"in millions\") applied, so give scale (\"亿\", \"billion\") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, \"(12,500)\", is negative, so take a deduction off by adding it, never by subtracting it. Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above (\"leverage inside the 3.25x covenant\"), give relation \"at most\" or \"at least\"."
+     "description": "Work out a number from numbers in the Passages instead of in your head: give the inputs, the formula and the label; IncarnaMind does the arithmetic and gives you the result. Give figures, each {marker, label, inputs, formula}. Each input is {name, value, citation}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; value is the number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names; label says what the figure is, with its unit. For example: {\"figures\": [{\"marker\": 1, \"label\": \"Revenue growth 2025 (%)\", \"inputs\": [{\"name\": \"r24\", \"citation\": 1, \"value\": 1231000000}, {\"name\": \"r25\", \"citation\": 1, \"value\": 1482600000}], \"formula\": \"r25 / r24 - 1\"}]}. IncarnaMind checks that each value's digits are in its quote; what a number measures is yours to say. What the result means for the sentence is yours to say."
     }
    ],
    "toolChoice": {
