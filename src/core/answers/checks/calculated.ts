@@ -1,150 +1,16 @@
 /**
- * A figure a sentence states that no Passage does, worked out from numbers
- * the Passages state (#707): which number of the sentence the model named as
- * that figure, and whether it agrees with the figure IncarnaMind calculated
- * (ADR-0021), to the sentence's own rounding. A program decides, not the
- * model: a wrong derived number is what an analyst fears most.
+ * Whether a figure a sentence states that no Passage does agrees with the figure IncarnaMind
+ * calculated from numbers the Passages state (#707, ADR-0021), to the sentence's own rounding. A
+ * program decides, not the model: a wrong derived number is what an analyst fears most.
  */
-import { citedCases } from "../../../shared/caseCitations";
-import {
-  type Figure,
-  type FigureContext,
-  type FigureUnit,
-  readFigures,
-} from "../../../shared/figures";
+import type { Figure, FigureUnit } from "../../../shared/figures";
 import {
   evaluateFormula,
   type FormulaInput,
   type ResultUnit,
   sameNumber,
-  showResult,
 } from "../../../shared/formula";
-import { wholeNumberWords } from "../../../shared/numberWords";
-import { citedNameStretches, isNameNumber } from "../../../shared/sourceNames";
 import type { CalculatedFigure, LimitRelation } from "../../api";
-import { documentFigureContext } from "../calculations";
-import { PERIOD_DEMONSTRATIVE, periodCounts } from "./periodCounts";
-
-export { periodCounts };
-
-/**
- * The figures `text` prints, but those in a reference ("Exhibit 4") and the number of the name of
- * a Document it cites, among `names` (#3093).
- */
-function printedFigures(
-  text: string,
-  context: FigureContext,
-  names: readonly unknown[] = [],
-): Figure[] {
-  const named = citedNameStretches(text, names);
-  const references = citedCases(text).map((reference, index, citations) => {
-    const next = citations[index + 1];
-    const suffix = text.slice(reference.to, next?.from);
-    const closed = /^[\s.,;!?…)\]}，。；！？]*$/u.test(
-      next ? suffix.replace(/\b(?:and(?:\/or)?|or)\b|[&与及和或]/giu, "") : suffix,
-    );
-    return { from: reference.from, to: closed ? reference.to : reference.citeTo };
-  });
-  return readFigures(text, context).filter(
-    (figure) =>
-      !references.some(
-        (reference) => figure.start >= reference.from && figure.end <= reference.to,
-      ) && !isNameNumber(figure, named),
-  );
-}
-
-/** A claim's figures; `names`: the Documents it cites, whose names' numbers are none (#3093). */
-export function figuresInClaim(
-  text: string,
-  context: FigureContext,
-  names: readonly unknown[] = [],
-): Figure[] {
-  const counts = periodCounts(text, context);
-  return [
-    ...printedFigures(text, context, names).filter(
-      (figure) => !counts.some((count) => figure.start < count.end && figure.end > count.start),
-    ),
-    ...counts,
-  ].sort((a, b) => a.start - b.start);
-}
-
-/**
- * The number of `sentence` that `stated` names ("1.1x" in "Net debt to
- * EBITDA fell to 1.1x"), as the sentence writes it; null when the sentence
- * has no such number, or it can be read more than one way. A sentence too
- * short to tell its language by writes its numbers as `document` does, the
- * Document its figure was worked out from.
- */
-export function statedFigure(
-  sentence: string,
-  stated: string,
-  document: FigureContext,
-): Figure | null {
-  const own = documentFigureContext([{ text: sentence }]);
-  const context = own.language ? own : { ...document, header: null };
-  const [named] = readFigures(stated, context);
-  if (!named) return namedCount(sentence, stated, context);
-  return (
-    printedFigures(sentence, context).find(
-      (figure) =>
-        figure.ambiguous.length === 0 &&
-        figure.value === named.value &&
-        (named.unit.kind === "plain" || sameUnit(figure.unit, named.unit)),
-    ) ?? namedCount(sentence, stated, context)
-  );
-}
-
-function namedCount(sentence: string, stated: string, context: FigureContext): Figure | null {
-  const start = sentence.indexOf(stated);
-  if (start < 0 || sentence.indexOf(stated, start + stated.length) >= 0) return null;
-  const period = periodCounts(sentence, context).find(
-    (figure) =>
-      figure.start === start && figure.end >= start + stated.length && !Number.isNaN(figure.value),
-  );
-  if (period) return period;
-  const value = wholeNumberWords(stated);
-  if (value !== null) {
-    return {
-      start,
-      end: start + stated.length,
-      chars: stated,
-      value,
-      scale: 1,
-      scaleWord: null,
-      unit: { kind: "plain" },
-      decimals: 0,
-      currency: null,
-      approximate: false,
-      rangeTo: null,
-      footnote: null,
-      ambiguous: [],
-    };
-  }
-  const figures = readFigures(stated, { ...context, dates: true, midLine: true, header: null });
-  const figure = figures.length === 1 ? figures[0] : undefined;
-  if (
-    !figure ||
-    figure.ambiguous.length > 0 ||
-    !Number.isFinite(figure.value) ||
-    !Number.isInteger(figure.value) ||
-    figure.value < 0
-  )
-    return null;
-  // A period that says which one ("在这一年里") is no quantity, and the date read would make a
-  // plain 1 of it to match an unrelated unit (#2215).
-  if (figure.value === 1 && PERIOD_DEMONSTRATIVE.test(sentence.slice(0, start))) return null;
-  if (
-    figure.start !== 0 ||
-    readFigures(stated, { ...context, dates: false, midLine: true, header: null }).length !== 0
-  )
-    return null;
-  return { ...figure, start: start + figure.start, end: start + figure.end };
-}
-
-const sameUnit = (a: FigureUnit, b: FigureUnit): boolean =>
-  a.kind === b.kind &&
-  (a.kind !== "currency" || (b.kind === "currency" && a.code === b.code)) &&
-  (a.kind !== "other" || (b.kind === "other" && a.word === b.word));
 
 /** Whether a sentence's number and a result measure the same kind of thing, so they can be compared. */
 function comparable(
@@ -192,80 +58,6 @@ function tolerance(stated: Figure): number {
     }
   }
   return step / 2 + more + 1e-9 * Math.max(1, Math.abs(stated.value));
-}
-
-const BRACKETED = /^[^\d]*[(（]/;
-
-const NAME = /[\p{L}_][\p{L}\p{N}_.]*/gu;
-
-/** Whether `formula` only multiplies or divides its inputs: no sum, difference or function. */
-function onlyScales(formula: string, names: readonly string[]): boolean {
-  const own = new Set(names.map((name) => name.toLowerCase()));
-  const rest = formula.replace(NAME, (word) => (own.has(word.toLowerCase()) ? "" : word));
-  return /^[\d.\s*/()]*$/.test(rest);
-}
-
-// A minus that comes only from inputs the model marked as a cost or deduction printed in
-// brackets ("Finance costs (41.2)"), in a formula that only multiplies or divides, for a sentence
-// whose own number has none, is the cost's presentation: its size is meant (#1908). Brackets on a
-// loss are its sign, and one added or taken off in a sum keeps its sign (#978).
-function bracketsOnly(
-  stated: Figure,
-  figure: Pick<CalculatedFigure, "value" | "inputs" | "formula">,
-  costs: ReadonlySet<string>,
-): boolean {
-  const negatives = figure.inputs.filter((input) => input.number.value < 0);
-  return (
-    typeof figure.value === "number" &&
-    figure.value < 0 &&
-    stated.value > 0 &&
-    !/[-−(（]/.test(stated.chars) &&
-    negatives.length > 0 &&
-    negatives.every((input) => BRACKETED.test(input.number.chars) && costs.has(input.name)) &&
-    onlyScales(
-      figure.formula,
-      figure.inputs.map((input) => input.name),
-    )
-  );
-}
-
-/**
- * The figure a sentence's number is compared with, as its card shows it. When its only minus
- * comes from costs printed in brackets (`bracketsOnly`), each of them is taken at its size,
- * ABS(name), and the formula worked out again: the formula, value and shown figure are then the
- * ones compared, and each input keeps the sign and characters its quote writes (#1908). Null when
- * that can't be worked out, so the number isn't compared.
- */
-export function comparedFigure(
-  stated: Figure,
-  figure: CalculatedFigure,
-  costs: ReadonlySet<string>,
-): CalculatedFigure | null {
-  if (!bracketsOnly(stated, figure, costs)) return figure;
-  const sized = new Set(
-    figure.inputs
-      .filter((input) => input.number.value < 0)
-      .map((input) => input.name.toLowerCase()),
-  );
-  const formula = figure.formula.replace(NAME, (word) =>
-    sized.has(word.toLowerCase()) ? `ABS(${word})` : word,
-  );
-  const result = evaluateFormula(
-    formula,
-    figure.inputs.map((input) => ({ name: input.name, ...input.number })),
-    figure.engine,
-  );
-  if (!result.ok || typeof result.value !== "number") return null;
-  const shown = showResult(result, figure.show);
-  if (!shown.ok) return null;
-  return {
-    ...figure,
-    formula,
-    value: result.value,
-    unit: result.unit,
-    shown: shown.shown,
-    literals: result.literals,
-  };
 }
 
 /**

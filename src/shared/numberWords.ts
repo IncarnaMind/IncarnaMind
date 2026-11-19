@@ -142,17 +142,3 @@ export function figuresOf(words: readonly string[]): Figure[] {
   if (words.length > from) out.push(figureOf(words, from, words.length));
   return out;
 }
-
-export function wholeNumberWords(text: string): number | null {
-  if (!new RegExp(`^${INTEGER_WORDS}$`, "i").test(text)) return null;
-  const figures = figuresOf(
-    text
-      .toLowerCase()
-      .split(/[ -]+/)
-      .filter((each) => each !== "and"),
-  );
-  const value = figures.length === 1 ? figures[0]?.value : undefined;
-  return value !== undefined && Number.isFinite(value) && Number.isInteger(value) && value >= 0
-    ? value
-    : null;
-}

@@ -14,14 +14,12 @@
  *   table cell (#2447), and every figure that came out other than expected.
  * - INCARNAMIND_LIVE_TRACE: a file to keep each check's last request and what the model
  *   wrote back, to read why a figure came out as it did.
- * - INCARNAMIND_LIVE_MEASURES: a file to keep each figure's measure, as the check read it, to
- *   replay the replies through other code (`measureLog.ts`).
  */
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import type { FigureScheduleRow } from "../../src/core/api";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -31,10 +29,6 @@ import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { xlsxOf } from "../helpers/office";
 import { checksOn, sortedCells, sortRecorder } from "../helpers/sortCalls";
-
-vi.mock(import("../../src/core/answers/checks/figureMeasures"), async (original) =>
-  (await import("./measureLog")).keptMeasures(await original()),
-);
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const MODEL =
