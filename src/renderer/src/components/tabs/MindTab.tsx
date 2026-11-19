@@ -13,6 +13,7 @@ import { assistantTabOf } from "../../layoutSlice";
 import { useMeetingOf } from "../../meetings";
 import { hasMeetingViews, useMeetingNoteView } from "../../meetingViews";
 import { useWritingProperties } from "../../mindStyles";
+import { useOwnAiPillShown } from "../../ownAiPanel";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
@@ -60,7 +61,8 @@ export function MindTab({ mindId }: { mindId: string }) {
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
-  const pill = useQuietAssistant();
+  const quietPill = useQuietAssistant();
+  const pill = useOwnAiPillShown() || quietPill;
   // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
     (state) => pill && !merged && (state.layout?.groups.length ?? 0) > 1,

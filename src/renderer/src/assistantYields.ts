@@ -139,7 +139,8 @@ export function citationPageOpened(layout: WindowLayout, origin: CitedOrigin): v
   const foldedCard = cardWidth + (sideWidth(place.width, room) - RAIL);
   const narrowed = pageYieldsWidths(layout, pair, foldedCard);
   yielded = true;
-  void app.placeAssistant({ folded: true });
+  // A fold for the page, not the User's: who folded it before still holds.
+  void app.placeAssistant({ folded: true, foldedBy: place.foldedBy ?? null });
   if (narrowed) void app.changeLayout({ type: "resize", widths: narrowed });
 }
 
@@ -191,7 +192,10 @@ export function useAssistantYields({
       splitWidths(layout, pair, card).note >= NOTE_MIN;
     if (pair === null || fits) {
       yielded = false;
-      void placeAssistant({ folded: false });
+      void placeAssistant({
+        folded: false,
+        foldedBy: useAppStore.getState().layout?.assistant.foldedBy ?? null,
+      });
     }
   }, [layout, folded, side, width, quiet, room]);
 }

@@ -950,6 +950,27 @@ describe("Tabs and groups", () => {
     expect((await restarted.getLayout(WINDOW)).assistant.dock).toBe("float");
   });
 
+  // protects=who last folded or unfolded the assistant survives a restart, so the User's own choice holds over the fold for their own AI (#3373); fails_when=it is lost on restart, or a value other than the User or their own AI is kept
+  test("who folded the assistant is kept, and comes back after a restart", async () => {
+    const { core, dataDir, change } = await setUp();
+    let layout = await change({ type: "assistant", place: { folded: true, foldedBy: "agent" } });
+    expect(layout.assistant).toMatchObject({ folded: true, foldedBy: "agent" });
+    layout = await change({ type: "assistant", place: { folded: false, foldedBy: "user" } });
+    expect(layout.assistant).toMatchObject({ folded: false, foldedBy: "user" });
+    core.close();
+    const restarted = startCore(dataDir);
+    expect((await restarted.getLayout(WINDOW)).assistant).toMatchObject({
+      folded: false,
+      foldedBy: "user",
+    });
+    await expect(
+      restarted.changeLayout(WINDOW, {
+        type: "assistant",
+        place: { foldedBy: "someone" },
+      } as unknown as LayoutChange),
+    ).rejects.toThrow(InvalidInputError);
+  });
+
   test("the conversation the assistant shows is kept with the window's layout and comes back after a restart (#258)", async () => {
     const { core, dataDir, change } = await setUp();
     expect((await core.getLayout(WINDOW)).conversationId).toBeNull();

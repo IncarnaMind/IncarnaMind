@@ -4167,6 +4167,12 @@ export interface AssistantPlace {
   dock: AssistantDock;
   /** Folded: a 44px rail on a side, or only its header at the bottom or floating. */
   folded: boolean;
+  /**
+   * Who folded or unfolded it last (#3373): "user", the User themselves, whose choice then holds;
+   * "agent", the app, folding it for a User whose own AI is connected and who set up no model.
+   * Absent for neither, as in a layout kept before this was.
+   */
+  foldedBy?: "user" | "agent" | null;
   /** A side dock's width, in CSS pixels. */
   width: number;
   /** A bottom dock's height, in CSS pixels. */

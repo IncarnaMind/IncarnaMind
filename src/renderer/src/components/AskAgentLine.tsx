@@ -65,16 +65,19 @@ export function AskAgentLine({
   );
 }
 
-function OtherAgents({
+/** The other agents behind a ⌄, one step away: a small menu, never a dialog. */
+export function OtherAgents({
   agents,
   label,
   onAsk,
   testId,
+  className = "text-accent hover:bg-hover",
 }: {
   agents: readonly AgentPairing[];
   label(agent: string): string;
   onAsk(agent: AgentPairing): void;
   testId: string;
+  className?: string;
 }) {
   const t = useT();
   const menu = usePopoverMenu({ focus: "first" });
@@ -87,7 +90,7 @@ function OtherAgents({
         data-testid={`${testId}-others`}
         aria-label={name}
         title={name}
-        className="inline-flex items-center rounded-sm px-0.5 text-accent hover:bg-hover"
+        className={`inline-flex items-center rounded-sm px-0.5 ${className}`}
       >
         <ChevronDownLineIcon className="size-3.5" />
       </button>

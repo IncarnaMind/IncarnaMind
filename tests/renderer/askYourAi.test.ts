@@ -1,12 +1,21 @@
 /**
  * Ask your AI (#3373) for each kind of User: one whose own AI is connected and who set up no
- * model is never asked for one above a Note, the page stays bare, and the chat box offers that AI
- * in place of the setup card; one with a model, and one with neither, see what they saw before.
+ * model is never asked for one above a Note, the page stays bare, the assistant starts folded with
+ * a pill that asks that AI, and the chat box offers it in place of the setup card; one with a
+ * model, and one with neither, see what they saw before.
  */
 import { DOMParser } from "linkedom";
 import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { AgentAsk, AgentPairing, ChatReadiness } from "../../src/core/api";
+import {
+  type AgentAsk,
+  type AgentPairing,
+  type AssistantPlace,
+  type ChatReadiness,
+  DEFAULT_ASSISTANT,
+  type WindowLayout,
+} from "../../src/core/api";
+import type { OwnAiPill } from "../../src/renderer/src/ownAiPanel";
 
 const page = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
 Object.defineProperty(page, "styleSheets", { value: [] });
@@ -20,6 +29,13 @@ const bridge = {
   askAgent: async (input: { pairingId: string; mindId: string | null; ask: AgentAsk }) => {
     bridge.asked.push(input);
     return { kind: "copy", text: "The request" };
+  },
+  // The core keeps the assistant's place as the window asks.
+  layout: null as WindowLayout | null,
+  changeLayout: async (_window: string, change: { place: Partial<AssistantPlace> }) => {
+    const layout = bridge.layout as WindowLayout;
+    bridge.layout = { ...layout, assistant: { ...layout.assistant, ...change.place } };
+    return bridge.layout;
   },
   askInConversation: async () => ({
     asked: false,
@@ -68,6 +84,7 @@ const { useModelSetup } = await import("../../src/renderer/src/modelSetup");
 const { askInAssistant } = await import("../../src/renderer/src/conversations");
 const { askAgent } = await import("../../src/renderer/src/askYourAi");
 const { composerKey } = await import("../../src/renderer/src/composer");
+const { useFoldForOwnAi, useOwnAiPill } = await import("../../src/renderer/src/ownAiPanel");
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
 const noticePath = "../../src/renderer/src/components/providers/ChatReadinessNotice.tsx";
 const { ChatReadinessNotice }: { ChatReadinessNotice: ComponentType<{ mindId: string }> } =
@@ -91,13 +108,64 @@ const MODEL = {
   consent: "not-required",
 } as unknown as ChatReadiness;
 
-function user(readiness: ChatReadiness, agents: AgentPairing[], language = "en") {
+function user(
+  readiness: ChatReadiness,
+  agents: AgentPairing[],
+  language = "en",
+  assistant: AssistantPlace = DEFAULT_ASSISTANT,
+) {
   bridge.agents = agents;
+  bridge.layout = {
+    groups: [
+      {
+        id: "group",
+        tabs: [
+          {
+            id: "tab",
+            item: { kind: "mind", mindId: MIND },
+            preview: false,
+            pinned: false,
+            place: null,
+            opened: 0,
+          },
+        ],
+        activeTabId: "tab",
+        width: 1,
+      },
+    ],
+    focusedGroupId: "group",
+    reopenable: 0,
+    conversationId: null,
+    assistant,
+  } as WindowLayout;
   useAppStore.setState({
     chatReadiness: readiness,
     minds: [{ id: MIND, folderId: "folder-ferries" }],
     settings: { language, user: {} },
+    layout: bridge.layout,
   } as never);
+}
+
+/** The window as the User finds it: whether the assistant is folded, and the pill if one shows. */
+async function windowShown(): Promise<{ folded: boolean; pill: OwnAiPill | null }> {
+  const container = page.createElement("div", {});
+  page.body.append(container);
+  const root = createRoot(container);
+  let pill: OwnAiPill | null = null;
+  const Probe = () => {
+    useFoldForOwnAi();
+    pill = useOwnAiPill();
+    return null;
+  };
+  await act(async () => root.render(createElement(Probe)));
+  // The agents are read, then the fold is kept through the core.
+  await act(async () => undefined);
+  await act(async () => undefined);
+  unmount = async () => {
+    await act(() => root.unmount());
+    container.remove();
+  };
+  return { folded: useAppStore.getState().layout?.assistant.folded === true, pill };
 }
 
 let unmount: (() => Promise<void>) | null = null;
@@ -140,6 +208,41 @@ describe("the line above a Note", () => {
     const line = await lineAbove();
     expect(line.textContent).toContain("Asking needs an AI model");
     expect(line.textContent).not.toContain("Claude Code");
+  });
+});
+
+describe("the assistant and its pill", () => {
+  const agents = [pairing("Claude Code", "claude-code"), pairing("VS Code", "vscode")];
+
+  // protects=a User with only their own AI who never folded or unfolded the assistant finds it folded, with a pill that asks that AI about the Note; fails_when=it stays open, or no pill offers their AI
+  test("with an agent and no model: folded for them, and the pill asks Claude Code", async () => {
+    user(NO_MODEL, agents);
+    const shown = await windowShown();
+    expect(shown.folded).toBe(true);
+    expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
+    expect(shown.pill).toEqual({ mindId: MIND, agents });
+  });
+
+  // protects=the User's own fold or unfold holds over the default; fails_when=the app folds a panel the User opened
+  test("their own unfold holds: open, and no pill", async () => {
+    user(NO_MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: false, foldedBy: "user" });
+    const shown = await windowShown();
+    expect(shown).toEqual({ folded: false, pill: null });
+  });
+
+  // protects=a User with a model, or with neither, keeps the assistant as it was and today's pill; fails_when=either is folded or given the agent's pill
+  test("with a model, or with neither: open as before, no agent's pill", async () => {
+    user(MODEL, agents);
+    expect(await windowShown()).toEqual({ folded: false, pill: null });
+    await unmount?.();
+    user(NO_MODEL, []);
+    expect(await windowShown()).toEqual({ folded: false, pill: null });
+  });
+
+  // protects=a fold made only for the User's own AI goes once they set up a model; fails_when=it stays folded for a User with a model who never folded it
+  test("set up a model, and the fold made for their AI goes", async () => {
+    user(MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "agent" });
+    expect(await windowShown()).toEqual({ folded: false, pill: null });
   });
 });
 

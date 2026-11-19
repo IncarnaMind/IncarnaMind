@@ -26,11 +26,11 @@ test.skip(
 );
 
 /*
- * Ask your AI (#3373): a User who connected their own AI and set up no model asks it, from
- * IncarnaMind, to fix a sentence that needs a look, and with what they typed in the chat box; the
- * page above the Note stays bare. Claude Code has a link that opens it with the request typed; VS
- * Code has none, so the request is copied. The app opens nothing here: each link it would open is
- * recorded.
+ * Ask your AI (#3373): a User who connected their own AI and set up no model finds the page above
+ * the Note bare and the assistant folded, with a pill that asks that AI about the Note; they ask it
+ * to fix a sentence that needs a look, and with what they typed in the chat box. Claude Code has a
+ * link that opens it with the request typed; VS Code has none, so the request is copied. The app
+ * opens nothing here: each link it would open is recorded.
  */
 
 let dataDir: string;
@@ -112,7 +112,7 @@ async function writtenAndChecked(launch: AgentLaunch): Promise<string> {
 const typedIn = (url: string | undefined) =>
   new URL(url ?? "about:blank").searchParams.get("q") ?? "";
 
-test("an agent-only User asks their own AI from a check's card and the chat box, the page bare", async () => {
+test("an agent-only User finds a bare page, the assistant folded and a pill that asks their own AI; the card and the chat box ask it too", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   await acceptPlainTextKeys(window);
   try {
@@ -124,9 +124,24 @@ test("an agent-only User asks their own AI from a check's card and the chat box,
       window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`),
     );
     await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
+    const noteNamed = `In IncarnaMind, about my note “${TITLE}” (mindId: ${mindId}):`;
 
-    // The card's first action asks Claude Code, used last, reached with the keyboard: Space goes
-    // into the card on its mark.
+    // No line above the Note, the assistant folded, and the pill asks Claude Code, used last.
+    const assistant = window.getByTestId("assistant");
+    await expect(assistant).toHaveAttribute("data-folded", "true");
+    const pill = window.getByTestId("own-ai-pill-ask");
+    await expect(pill).toContainText("Ask Claude Code");
+    await expect(window.getByTestId("ask-pill")).toHaveCount(0);
+    await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
+    await expect(frontMind(window)).not.toContainText("Asking needs an AI model");
+    await pointAndClick(window, pill);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    let [link] = await urlsOpened(app);
+    expect(link?.startsWith("claude-cli://open?q=")).toBe(true);
+    expect(typedIn(link)).toBe(noteNamed);
+
+    // The card's first action asks Claude Code, reached with the keyboard: Space goes into the card
+    // on its mark.
     const mark = frontMind(window).locator('[data-testid="claim-mark"][data-check="unsupported"]');
     await mark.focus();
     await window.keyboard.press("Space");
@@ -136,19 +151,14 @@ test("an agent-only User asks their own AI from a check's card and the chat box,
     await expect(ask).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(card).toBeHidden();
-    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-    const [link] = await urlsOpened(app);
-    expect(link?.startsWith("claude-cli://open?q=")).toBe(true);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
+    link = (await urlsOpened(app))[1];
     const request = typedIn(link);
     expect(request).toBe(
       `In IncarnaMind, the check of my note “${TITLE}” (mindId: ${mindId}) says this sentence is overstated:\n\n“${OVERSTATED}”\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.`,
     );
     expect(request).not.toContain(CROSSINGS);
     expect(request).not.toContain(BOOKING);
-    // No line above the Note asks for a model, and none offers the agent: the page stays bare.
-    await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
-    await expect(frontMind(window)).not.toContainText("Asking needs an AI model");
-    await expect(frontMind(window)).not.toContainText("Set up a model");
 
     // VS Code has no such link: from the card's ⋯ the request is copied, and the line says where to.
     await pointAndClick(window, mark);
@@ -159,9 +169,20 @@ test("an agent-only User asks their own AI from a check's card and the chat box,
     );
     await expect(window.getByTestId("copied-line")).toHaveText("Copied. Paste it into VS Code.");
     expect(await copied(window)).toBe(request);
-    expect(await urlsOpened(app)).toHaveLength(1);
+    expect(await urlsOpened(app)).toHaveLength(2);
 
-    // The chat box: Enter offers Claude Code for the words, in place of the setup card; Enter again asks.
+    // The pill's key does what the pill does.
+    await pointAndClick(window, frontMind(window).getByTestId("mind-editor"));
+    await window.keyboard.press("ControlOrMeta+j");
+    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
+    expect(typedIn((await urlsOpened(app))[2])).toBe(noteNamed);
+    await expect(assistant).toHaveAttribute("data-folded", "true");
+
+    // Opened by hand, it stays open, with no pill; Enter in the chat box offers Claude Code for
+    // the words, in place of the setup card, and Enter again asks.
+    await pointAndClick(window, window.getByTestId("assistant-fold"));
+    await expect(assistant).not.toHaveAttribute("data-folded", "true");
+    await expect(window.getByTestId("own-ai-pill")).toHaveCount(0);
     await window.keyboard.press("ControlOrMeta+j");
     await window.keyboard.type("What did fuel cost in 2025?");
     await window.keyboard.press("Enter");
@@ -169,10 +190,8 @@ test("an agent-only User asks their own AI from a check's card and the chat box,
     await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
     await expect(window.getByTestId("model-setup")).toHaveCount(0);
     await window.keyboard.press("Enter");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
-    expect(typedIn((await urlsOpened(app))[1])).toBe(
-      `In IncarnaMind, about my note “${TITLE}” (mindId: ${mindId}):\n\nWhat did fuel cost in 2025?`,
-    );
+    await expect.poll(() => urlsOpened(app)).toHaveLength(4);
+    expect(typedIn((await urlsOpened(app))[3])).toBe(`${noteNamed}\n\nWhat did fuel cost in 2025?`);
     await expect(offer).toBeHidden();
     await expect(window.getByTestId("composer-input")).toHaveValue("");
 
@@ -181,8 +200,8 @@ test("an agent-only User asks their own AI from a check's card and the chat box,
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-ask-agent")).toHaveText("交给 Claude Code");
     await pointAndClick(window, card.getByTestId("claim-ask-agent"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
-    expect(typedIn((await urlsOpened(app))[2])).toContain(
+    await expect.poll(() => urlsOpened(app)).toHaveLength(5);
+    expect(typedIn((await urlsOpened(app))[4])).toContain(
       `我的笔记“${TITLE}”（mindId：${mindId}）经核对，这句话有夸大：`,
     );
   } finally {
