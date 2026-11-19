@@ -43,7 +43,7 @@ export function agentRequest(
   if (ask.kind === "question" && note === null) {
     return say("agents.ask.request.questionAlone", { question: ask.text });
   }
-  if (note === null) throw new InvalidInputError("Only a question can be asked about no note.");
+  if (note === null) throw new InvalidInputError({ key: "error.agent.askRequest" });
   const named = { title: quotedName(note.title), mindId: note.mindId };
   switch (ask.kind) {
     case "question":
@@ -59,34 +59,34 @@ export function agentRequest(
   }
 }
 
-const words = (value: unknown, field: string): string => {
+const words = (value: unknown): string => {
   if (typeof value !== "string" || value.trim() === "") {
-    throw new InvalidInputError(`${field} must be text.`);
+    throw new InvalidInputError({ key: "error.agent.askRequest" });
   }
   return value.trim();
 };
 
 function parseAsk(value: unknown): AgentAsk {
-  if (!isRecord(value)) throw new InvalidInputError("ask must be an object.");
+  if (!isRecord(value)) throw new InvalidInputError({ key: "error.agent.askRequest" });
   switch (value.kind) {
     case "question":
-      return { kind: "question", text: words(value.text, "text") };
+      return { kind: "question", text: words(value.text) };
     case "note":
       return { kind: "note" };
     case "fix": {
       const verdict = ASK_VERDICTS.find((each) => each === value.verdict);
-      if (!verdict) throw new InvalidInputError("verdict must be one a check gives.");
-      return { kind: "fix", sentence: words(value.sentence, "sentence"), verdict };
+      if (!verdict) throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return { kind: "fix", sentence: words(value.sentence), verdict };
     }
     default:
-      throw new InvalidInputError("ask.kind must be question, note or fix.");
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
   }
 }
 
 function parseInput(input: unknown): AskAgentInput {
-  if (!isRecord(input)) throw new InvalidInputError("askAgent expects an object.");
-  const mindId = input.mindId === null ? null : words(input.mindId, "mindId");
-  return { pairingId: words(input.pairingId, "pairingId"), mindId, ask: parseAsk(input.ask) };
+  if (!isRecord(input)) throw new InvalidInputError({ key: "error.agent.askRequest" });
+  const mindId = input.mindId === null ? null : words(input.mindId);
+  return { pairingId: words(input.pairingId), mindId, ask: parseAsk(input.ask) };
 }
 
 export function createAgentAsk(options: AgentAskOptions) {

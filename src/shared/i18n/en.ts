@@ -5877,6 +5877,7 @@ export const en = {
   "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
   "error.layout.conversation": "The assistant shows a conversation, or a New chat.",
+  "error.layout.foldedBy": "The assistant can be folded only by you, or for your own AI.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
   "error.mind.notFromWord":
     "This note wasn’t imported from a Word file, so it has no original to add.",
@@ -6342,6 +6343,7 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.cantAsk": "That agent can’t read this note now.",
+  "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.agent.nameEmpty": "Give the agent a name.",
   "error.firstRun.work": "Those aren’t kinds of work the setup asks about.",
   "error.firstRun.noPicks": "There are no picks to send.",

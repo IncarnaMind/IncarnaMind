@@ -270,7 +270,7 @@ function parseAssistantPlace(value: unknown): Partial<AssistantPlace> {
   if (folded !== undefined) place.folded = folded;
   if (value.foldedBy !== undefined) {
     if (value.foldedBy !== null && value.foldedBy !== "user" && value.foldedBy !== "agent") {
-      throw new InvalidInputError("The assistant is folded by the User or for their own AI.");
+      throw new InvalidInputError({ key: "error.layout.foldedBy" });
     }
     place.foldedBy = value.foldedBy;
   }
