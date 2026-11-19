@@ -259,12 +259,11 @@ export function createMeetingSpeakerReview(options: {
     return { ...state, grant, budget, cached, reason };
   }
 
-  async function run(id: string, stop: AbortController) {
+  async function run(id: string, stop: AbortController, reuseOnly: boolean) {
     const { signal } = stop;
     const { doc, parts, durationMs, grant, budget, cached, reason } = await prepare(id);
     signal.throwIfAborted();
     if (reason || !grant || !doc) throw unavailable(reason);
-    if (cached) return cached;
     const version = snapshot(doc);
     const valid = () => {
       if (!grant.valid()) return false;
@@ -277,6 +276,10 @@ export function createMeetingSpeakerReview(options: {
         version === snapshot(current)
       );
     };
+    if (cached || reuseOnly) {
+      if (cached && valid()) return cached;
+      throw unavailable("transcript");
+    }
     const entry = running.get(id);
     if (entry) entry.valid = valid;
     const cues = await options.cues(doc);
@@ -337,17 +340,23 @@ export function createMeetingSpeakerReview(options: {
 
   return {
     async quote(id: string): Promise<MeetingSpeakerReviewQuote> {
-      const { reason, durationMs, estimatedUsd } = await prepare(id);
-      return { available: reason === null, reason, durationMs, estimatedUsd };
+      const { reason, durationMs, estimatedUsd, cached } = await prepare(id);
+      return {
+        available: reason === null,
+        reason,
+        durationMs,
+        estimatedUsd: cached ? 0 : estimatedUsd,
+        ...(cached && { cached: true }),
+      };
     },
-    review(input: { meetingId: string; confirmed: true }) {
+    review(input: { meetingId: string; confirmed: true; reuseOnly?: true }) {
       if (!isRecord(input) || input.confirmed !== true)
         throw new InvalidInputError({ key: "error.meeting.reviewConsent" });
       const { id } = options.meeting(input.meetingId);
       const current = running.get(id);
       if (current) return current.promise;
       const stop = new AbortController();
-      const promise = run(id, stop)
+      const promise = run(id, stop, input.reuseOnly === true)
         .catch((error: unknown) => {
           if (stop.signal.aborted && error === stop.signal.reason)
             throw new InvalidInputError({ key: "error.meeting.reviewCancelled" });

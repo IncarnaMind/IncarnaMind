@@ -12224,6 +12224,7 @@ export interface MeetingSpeakerReviewQuote {
   reason: "audio" | "transcript" | "soniox" | "local" | "cap" | "duration" | null;
   durationMs: number;
   estimatedUsd: number;
+  cached?: true;
 }
 
 export interface MeetingSpeakerSuggestion {
@@ -14907,6 +14908,8 @@ export interface CoreApi {
   reviewMeetingSpeakers(input: {
     meetingId: string;
     confirmed: true;
+    /** View a previous review without authorizing another upload. */
+    reuseOnly?: true;
   }): Promise<MeetingSpeakerReviewResult>;
   cancelMeetingSpeakerReview(meetingId: string): Promise<void>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */

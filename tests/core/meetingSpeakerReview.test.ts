@@ -212,6 +212,12 @@ test("only a confirmed review sends the computer track once and applying it pres
       core.reviewMeetingSpeakers(input),
     ]);
     expect(second).toEqual(first);
+    expect(await core.getMeetingSpeakerReview(id)).toMatchObject({
+      available: true,
+      cached: true,
+      estimatedUsd: 0,
+    });
+    expect(await core.reviewMeetingSpeakers({ ...input, reuseOnly: true })).toEqual(first);
     expect(first).toEqual({
       documentId: document.id,
       contentHash: document.contentHash,
@@ -269,6 +275,10 @@ test("only a confirmed review sends the computer track once and applying it pres
     });
     expect(speakerOf(changed.speakers, line.startMs, line.speaker)).toBe("Speaker 2");
     expect(changed.contentHash).toBe(document.contentHash);
+    await expect(core.reviewMeetingSpeakers({ ...input, reuseOnly: true })).rejects.toMatchObject({
+      wording: { key: "error.meeting.reviewChanged" },
+    });
+    expect(remote.uploads).toHaveLength(1);
     expect(await savedCues(core, id)).toEqual(cues);
     expect(mindCitations(client)).toEqual(original);
     expect(await exportNote(core, note.id)).toContain(`Speaker 2 · ${clockTime(line.startMs)}`);
