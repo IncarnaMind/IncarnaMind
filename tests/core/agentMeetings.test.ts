@@ -265,13 +265,22 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     ).citations;
     expect(checked.map((each) => each.check)).toEqual(["found"]);
 
-    const read = structured<{ passages: { text: string }[] }>(
+    const read = structured<{ passages: { text: string; location: string | null }[] }>(
       await agent.callTool({
         name: "read_passages",
         arguments: { documentId: harbour.transcriptId },
       }),
     );
     expect(read.passages.map((each) => each.text).join("\n")).toContain(MEETINGS.harbour[0]);
+    // Placed as a Citation of its first line: who said it, then when.
+    const [first] = structured<{ citations: { location: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: { citations: [{ passageId: said?.passageId, quote: MEETINGS.harbour[0] }] },
+      }),
+    ).citations;
+    expect(first?.location).toMatch(/^Me · 0:00$/);
+    expect(read.passages.map((each) => each.location)).toEqual([first?.location]);
 
     // The Library's lists count the meeting once, as its Note.
     structured(await countLists(agent));
