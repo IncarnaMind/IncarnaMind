@@ -8,7 +8,7 @@ import { onTestFinished } from "vitest";
 import type { AgentLaunch, CoreAdapters, Logger } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
 import { legacyAgentClient, modernAgentClient } from "./agentClients";
-import { createTempDataFolder, startCore } from "./core";
+import { createTempDataFolder, startCore, type TestAdapters } from "./core";
 import { scriptedModels } from "./models";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -67,10 +67,7 @@ export async function agentsAdapter(dataDir: string): Promise<CoreAdapters["agen
  * data folder, with a local chat model (no consent needed) answering from
  * `model`.
  */
-export async function startAgentsCore(
-  model: MockLanguageModelV4,
-  overrides: Partial<CoreAdapters> = {},
-) {
+export async function startAgentsCore(model: MockLanguageModelV4, overrides: TestAdapters = {}) {
   const dataDir = await createTempDataFolder();
   const log = captureLog();
   const models = scriptedModels(model);

@@ -142,7 +142,16 @@ describe("an agent that may read Not in a Folder", () => {
       await agent.callTool({ name: "list_minds", arguments: {} }),
     );
     expect(listed.folders).toEqual([
-      { id: NOT_IN_A_FOLDER_ID, name: "Not in a Folder", documents: 2, minds: [] },
+      {
+        id: NOT_IN_A_FOLDER_ID,
+        name: "Not in a Folder",
+        documents: 2,
+        documentList: [
+          { id: ferry.id, name: ferry.name, kind: "markdown" },
+          { id: tides.id, name: tides.name, kind: "markdown" },
+        ],
+        minds: [],
+      },
     ]);
   });
 

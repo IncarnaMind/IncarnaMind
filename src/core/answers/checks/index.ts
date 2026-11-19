@@ -1348,6 +1348,7 @@ export function createChecks(options: ChecksOptions) {
   const judgedOutside = createJudgedOutside({
     content,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
+    documentVersions: options.watch.documentVersions,
     requireMind: options.requireMind,
     withResult: noteResult,
     retainEvidence,

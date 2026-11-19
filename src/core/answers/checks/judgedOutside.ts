@@ -14,6 +14,7 @@ import type {
   ClaimCheckResult,
   UnsupportedReason,
 } from "../../api";
+import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
 import { cellHeadings, type TableLayout } from "./figureOccurrences";
 import {
@@ -63,9 +64,25 @@ export interface LandedCheck {
   unreported: number[];
 }
 
+/**
+ * The Documents a Check of `scope` searches, when an outside agent may read every one of them;
+ * null when it may not. A scope of every Document, a Note's in no Folder (#3364), is every live
+ * Document there is now.
+ */
+export function readsWithin(
+  scope: EvidenceScope,
+  reach: ReadonlySet<string>,
+  live: () => ReadonlyMap<string, string>,
+): string[] | null {
+  const read = scope.documentIds ?? [...live().keys()];
+  return read.every((id) => reach.has(id)) ? read : null;
+}
+
 export interface JudgedOutsideOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
+  /** Each live Document's version now. */
+  documentVersions(): ReadonlyMap<string, string>;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   withResult(
@@ -115,9 +132,11 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
     if (empty || check.marked.widened)
       return { ok: false as const, reason: "no-documents" as const };
     // A scope the User chose is the User's to check: an agent would learn from it what it may not read.
-    if (check.marked.chosen || !check.scope.documentIds?.every((id) => reach.has(id)))
-      return { ok: false as const, reason: "beyond-reach" as const };
-    return { ok: true as const, check, documentIds: new Set(check.scope.documentIds) };
+    const read = check.marked.chosen
+      ? null
+      : readsWithin(check.scope, reach, options.documentVersions);
+    if (read === null) return { ok: false as const, reason: "beyond-reach" as const };
+    return { ok: true as const, check, documentIds: new Set(read) };
   };
 
   const skippedOf = (mindId: string) =>

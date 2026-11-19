@@ -239,7 +239,8 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     tool("list_minds"),
     {
       title: "List Notes",
-      description: "List the shared Folders, with the User's Notes in each.",
+      description:
+        "List the shared Folders with their Documents and the User's Notes (in Not in a Folder, yours).",
       inputSchema: z.object({}),
       outputSchema: z.object({
         folders: z.array(
@@ -247,6 +248,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
             id: z.string(),
             name: z.string(),
             documents: z.number(),
+            documentList: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string() })),
             minds: z.array(z.object({ id: z.string(), title: z.string(), updatedAt: z.string() })),
           }),
         ),
@@ -344,14 +346,14 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Write a new Note",
       description:
-        "Write a new Note in one of the User's Folders: a report, a summary, a draft. It is there at once, marked as yours, and changes no Note there is. Write Markdown; cite each claim from the User's Documents with its [cite:…] token, exactly as given. Returns how each Citation checks now and the sentences with none. Refused unless the User let this agent write.",
+        "Write a new Note: a report, a summary, a draft. It is there at once, marked as yours, and changes no Note there is. Write Markdown; cite each claim from the User's Documents with its [cite:…] token, exactly as given. Returns how each Citation checks now and the sentences with none. Refused unless the User let this agent write.",
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),
         folderId: z
           .string()
           .optional()
-          .describe("A Folder id from list_minds; may be left out when one Folder is shared."),
+          .describe("An id from list_minds; may be left out when only one is shared."),
       }),
       outputSchema: z.object({
         mindId: z.string(),

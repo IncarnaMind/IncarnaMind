@@ -93,6 +93,7 @@ We keep our own loop rather than run Claude Code's, Codex's, pi's or OpenClaw's 
 - Each agent is a pairing the User makes in Settings, with its own Search scope, its own consent, a token only it holds, and a list of what it did.
 - Its Tools read the Documents and the Minds and mint Citations. Its only write is a Proposal, which waits for the User. Only IncarnaMind mints a Citation: every Citation an agent sends back is checked again, and a sentence without one is marked.
 - Off by default, offered as an experimental setting first. A new pairing sees no Documents until the User picks its Folders. Local mode pauses every outside agent, because IncarnaMind can't tell which model it sends text to.
+- A pairing given the Documents in no Folder (Not in a Folder) also writes its Notes there, if it may write, and reaches the Notes in no Folder that it wrote itself, never another, so a User with no Folder can have their own AI write and check a Note on day one. With no Document yet, connecting offers Not in a Folder for the Documents added next. This was the owner's decision of 2026-11-19 (#3364); before it, an agent reached no Note outside a Folder.
 
 **IncarnaMind can host an outside agent over ACP, experimentally** (ADR-0026). A hosted agent is a new kind of Run whose loop runs in the agent's process. It isn't a Run engine, because the model isn't ours.
 

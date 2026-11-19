@@ -68,6 +68,7 @@ import type { DecisionReader } from "./decisionFirst";
 import { sortedByDecision } from "./decisionSort";
 import { cellHeadings, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
+import { readsWithin } from "./judgedOutside";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import { checkRunOf } from "./runCheck";
 import {
@@ -718,15 +719,19 @@ export function createMindCheck(options: MindCheckOptions) {
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     await options.evidenceReady(signal, mindId);
     if (signal.aborted) return { kind: "cancelled" };
-    const { empty, check: scope } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
+    const { empty, check: found } = options.scopeOf(mindId, everywhere(input.allDocuments, sent));
     if (empty) return empty;
+    let scope = found;
     if (reach) {
       // A wider check is the User's to run: an agent would learn from it what it may not read.
-      if (scope.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
+      if (found.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
       // A Folder with no Document searches every Document.
-      if (scope.marked.widened) throw new NotAsked("no-documents");
-      if (!scope.scope.documentIds?.every((id) => reach.has(id)))
-        throw new NotAsked("beyond-reach");
+      if (found.marked.widened) throw new NotAsked("no-documents");
+      const admitted = readsWithin(found.scope, reach, options.documentVersions);
+      if (admitted === null) throw new NotAsked("beyond-reach");
+      // What was admitted is all the run searches, every request it sends: a Document filed
+      // where the agent may not read while the run goes on is never searched (#3364).
+      scope = { ...found, scope: { ...found.scope, documentIds: admitted } };
     }
     const wide = widened.size > 0 ? options.scopeOf(mindId, true).check : scope;
     const scopeFor = (claim: SelectedSentence) => (widened.has(claim) ? wide : scope);
