@@ -206,7 +206,7 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     await panel.getByRole("button", { name: "Send to Soniox and review" }).press("Enter");
     await expect(panel.getByText("Reviewing speakers…")).toBeVisible();
     await panel.getByRole("button", { name: "Cancel review" }).press("Enter");
-    await expect(panel.getByText("Speaker review cancelled.")).toBeVisible();
+    await expect(panel.getByText("Speaker review canceled.")).toBeVisible();
     expect((await activity()).runs).toBe(1);
     await panel.getByRole("button", { name: "Try again" }).press("Enter");
     await panel.getByRole("button", { name: "Send to Soniox and review" }).press("Enter");
