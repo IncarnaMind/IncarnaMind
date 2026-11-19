@@ -7,7 +7,14 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { type AgentNoteChange, GENERATED_MARK } from "../../src/core/api";
+import {
+  type AgentNoteChange,
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_SCHEMA_VERSION_KEY,
+  GENERATED_MARK,
+  MIND_SETTINGS_FIELD,
+} from "../../src/core/api";
+import { MindReadOnlyError } from "../../src/core/errors";
 import { activityWords } from "../../src/renderer/src/components/agents/agentWords";
 import { translate } from "../../src/shared/i18n";
 import { pendingProposals } from "../../src/shared/proposals";
@@ -421,6 +428,35 @@ describe("Undo and Redo of an agent's change to a Note it wrote (#3371)", () => 
     expect(second).toContain("widely");
     expect(second).not.toContain("Ranges vary");
     expect(second?.replace(" widely", "")).toBe(RANGE);
+  });
+
+  // protects=a Note a newer IncarnaMind wrote is never changed by this one; fails_when=Undo or Redo changes the Note and only then finds it may not
+  it("leave a Note a newer IncarnaMind wrote exactly as it is, and say why", async () => {
+    const { core, client, mindId, a, b } = await changedTwice();
+    expect(await core.undoAgentChange(b)).toBe("done");
+    await expect
+      .poll(() => linesOf(client))
+      .toEqual(["Tide report", "Tides turn twice a day.", RANGE]);
+    client.doc
+      .getMap(MIND_SETTINGS_FIELD)
+      .set(CONTENT_SCHEMA_VERSION_KEY, CONTENT_SCHEMA_VERSION + 1);
+    await client.settled();
+
+    for (const step of [() => core.undoAgentChange(a), () => core.redoAgentChange(b)]) {
+      const failure = await step().then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(MindReadOnlyError);
+      expect((failure as MindReadOnlyError).wording).toEqual({
+        key: "error.mind.newerVersionEdit",
+      });
+    }
+    const now = await connectToMind(core, mindId);
+    expect(linesOf(now)).toEqual(["Tide report", "Tides turn twice a day.", RANGE]);
+    // Refused, each step leaves, as the window's Undo lets go of it.
+    expect(await core.undoAgentChange(a)).toBe("unavailable");
+    expect(await core.redoAgentChange(b)).toBe("unavailable");
   });
 
   // protects=restoring a version, or disconnecting the agent, leaves Undo safe; fails_when=either throws, or Undo then changes the restored Note

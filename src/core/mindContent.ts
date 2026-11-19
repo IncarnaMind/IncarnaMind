@@ -564,6 +564,14 @@ export function createMindContent(
     },
 
     /**
+     * Throws `MindReadOnlyError` for a Mind a newer version wrote, as `edit` does, for a change
+     * made outside `edit` that must be refused before anything of it is written (#3371).
+     */
+    requireWritable(mindId: string): void {
+      requireWritable(load(mindId));
+    },
+
+    /**
      * Compacts the Mind and drops its document from memory. Does nothing if it isn't loaded.
      * Changes that still can't be stored keep it in memory, still tried again.
      */

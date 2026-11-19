@@ -36,7 +36,7 @@ const MAX_STEPS = 50;
 export type OwnChanges = ReturnType<typeof createOwnChanges>;
 
 export function createOwnChanges(
-  content: Pick<MindContent, "read" | "edit" | "isLoaded">,
+  content: Pick<MindContent, "read" | "edit" | "isLoaded" | "requireWritable">,
   newId: () => string,
 ) {
   const notes = new Map<string, NoteSteps>();
@@ -74,11 +74,22 @@ export function createOwnChanges(
     return null;
   };
 
-  /** Takes the named step back, or does it again: only it, and only the Note's last one. */
+  /**
+   * Takes the named step back, or does it again: only it, and only the Note's last one. A Note a
+   * newer version wrote is refused before anything changes it.
+   */
   const move = (stepId: string, from: "done" | "undone"): AgentChangeStep => {
     const found = find(stepId, from);
     if (!found) return "unavailable";
     const { mindId, note, step } = found;
+    try {
+      content.requireWritable(mindId);
+    } catch (error) {
+      // This version may never write it: the step goes, as the window's does on the refusal.
+      note[from].pop();
+      step.manager.destroy();
+      throw error;
+    }
     // Outside any other transaction: Yjs files a step taken back only in a transaction of its own.
     const moved = from === "done" ? step.manager.undo() : step.manager.redo();
     content.edit(mindId, () => undefined);
