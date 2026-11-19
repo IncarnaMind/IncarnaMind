@@ -9,12 +9,14 @@ import {
   checkCalculates,
   cloudWindow,
   givesStructuredOutput,
+  type ModelFactsLayer,
   offersAnalysis,
   offersCode,
   offersWorkbookTools,
   readsImages,
   resolveCapabilities,
   startingSupport,
+  TOOLS_WINDOW,
 } from "../../src/core/providers/capabilities";
 import {
   CATALOG_PROVIDERS,
@@ -360,61 +362,99 @@ describe("The provider catalog", () => {
     ["anthropic", "claude-sonnet-5-5", true],
     ["openai", "gpt-6-luna", true],
     ["chatgpt", "gpt-6-sol", true],
-    ["openrouter", "openai/gpt-6-luna", false],
-    ["google", "gemini-3.8-flash", false],
+    ["openrouter", "openai/gpt-6-luna", true],
+    ["google", "gemini-3.8-flash", true],
     ["deepseek", "deepseek-flash", true],
-    ["deepseek", "deepseek-v4-pro", false],
-    ["openrouter", "deepseek/deepseek-chat", false],
-    ["qwen", "qwen3.8-flash", false],
+    ["deepseek", "deepseek-v4-pro", true],
+    ["openrouter", "deepseek/deepseek-chat", true],
+    ["qwen", "qwen3.8-flash", true],
+    ["kimi", "kimi-k2.6", true],
+    ["openai", "gpt-4", false],
+    ["siliconflow", "deepseek-ai/DeepSeek-OCR", false],
     ["siliconflow", "deepseek-ai/DeepSeek-V4", false],
     ["ollama", "gpt-oss:20b-cloud", false],
     ["ollama", "qwen3.5:4b", false],
   ])("%s %s is offered calculate by the catalog: %s", (kind, modelId, offered) => {
-    // Only models measured to use it well (#438, then the evaluation #441).
+    // Every model the catalog knows to call Tools in a window of at least 32k (#3357); an Ollama
+    // model's facts come from its server.
     expect(calculates(fromCatalog(kind, modelId))).toBe(offered);
   });
 
-  test.each<[ChatProviderKind, string, boolean]>([
-    ["anthropic", "claude-haiku-5-5", true],
-    ["claude-account", "claude-sonnet-5-5", true],
-    ["openai", "gpt-6-luna", true],
-    ["chatgpt", "gpt-6-sol", true],
-    ["deepseek", "deepseek-flash", false],
+  test.each<[string, ModelFactsLayer, boolean[]]>([
+    ["a model that calls Tools", { tools: true }, [true, true, true, true, true]],
+    [
+      "one that calls Tools in a 16k window",
+      { tools: true, context: 16_385 },
+      [false, false, false, false, false],
+    ],
+    [
+      "one that calls Tools in a 32k window",
+      { tools: true, context: 32_768 },
+      [true, true, true, true, true],
+    ],
+    [
+      "one whose own fact switches the Analysis Tool off",
+      { tools: true, analysisTool: false },
+      [true, true, false, false, true],
+    ],
+    [
+      "one whose own fact switches calculate off",
+      { tools: true, calculates: false },
+      [false, false, false, false, false],
+    ],
+    ["a model that doesn't call Tools", { tools: false }, [false, false, false, false, false]],
+    [
+      "a small model that cites in structured output",
+      { tools: true, citing: "structured-output" },
+      [false, false, false, false, false],
+    ],
+    ["a model nothing is known of", {}, [false, false, false, false, false]],
+    [
+      "a model that doesn't call Tools, given calculate by a source",
+      { tools: false, calculates: true },
+      [true, false, false, false, false],
+    ],
   ])(
-    "%s %s is offered the workbook Tools, the Analysis Tool and calculate in checks: %s",
-    (kind, modelId, offered) => {
-      const capabilities = fromCatalog(kind, modelId);
+    "%s is offered calculate, the workbook Tools, the Analysis Tool, run_code and calculate in checks: %j",
+    (_, facts, offered) => {
+      const capabilities = resolveCapabilities({ catalog: facts });
       expect([
+        calculates(capabilities),
         offersWorkbookTools(capabilities),
         offersAnalysis(capabilities),
+        offersCode(capabilities),
         checkCalculates(capabilities),
-      ]).toEqual([offered, offered, offered]);
+      ]).toEqual(offered);
     },
   );
 
-  test("run_code is offered only to Claude Haiku 5.5 and Sonnet 5.5, where it was measured", () => {
-    const models = providersWithModels().flatMap((provider) =>
-      catalogModels(provider).map((model) => ({ provider, id: model.id })),
+  test("the catalog switches none of them off: each model it knows to call Tools in a window they fit is offered all five", () => {
+    const offeredAll = providersWithModels().flatMap((provider) =>
+      catalogModels(provider).flatMap((model) => {
+        const capabilities = resolveCapabilities({ catalog: catalogFacts(provider, model.id) });
+        const offered = [
+          calculates(capabilities),
+          offersWorkbookTools(capabilities),
+          offersAnalysis(capabilities),
+          offersCode(capabilities),
+          checkCalculates(capabilities),
+        ];
+        const fits =
+          startingSupport(capabilities) === "tools" &&
+          (capabilities.facts.context ?? 0) >= TOOLS_WINDOW;
+        return offered.every((each) => each === fits) ? [] : [`${provider}/${model.id}`];
+      }),
     );
-    const on = models
-      .filter(({ provider, id }) => catalogFacts(provider, id)?.codeTool === true)
-      .map(({ provider, id }) => `${provider}/${id}`);
-    const offered = models
-      .filter(({ provider, id }) =>
-        offersCode(resolveCapabilities({ catalog: catalogFacts(provider, id) })),
-      )
-      .map(({ provider, id }) => `${provider}/${id}`);
-    const measured = ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5"];
-    expect([on, offered]).toEqual([measured, measured]);
-    // What a test turns on is enough to offer it, where the model has the Analysis Tool.
+    expect(offeredAll).toEqual([]);
+    // A User's or a test's no wins over the catalog.
     expect(
       offersCode(
         resolveCapabilities({
-          user: { codeTool: true },
-          catalog: catalogFacts("openai", "gpt-5.5"),
+          user: { codeTool: false },
+          catalog: catalogFacts("anthropic", "claude-haiku-5-5"),
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test.each<[ChatProviderKind, string, boolean]>([

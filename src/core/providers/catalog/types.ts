@@ -299,22 +299,16 @@ export interface ModelFacts {
   /** How it cites, when that was measured or the server decides it (a small local model). */
   citing: Citing;
   /**
-   * It is offered the `calculate` Tool and told to work no number out itself
-   * (ADR-0021), because it was measured to use them well (#438, then the
-   * evaluation, #441). Unset: neither, and its Answers are as before.
+   * It is offered the `calculate` Tool and told to work no number out itself (ADR-0021). Unset: on
+   * for a model known to call Tools in a window they fit (#3357, see ../capabilities). Set it, or
+   * one of the four below, to false only to switch that Tool off for a model shown to misuse it.
    */
   calculates: boolean;
-  /**
-   * Offered the workbook Tools (`trace_formulas`, `what_if`) with `calculate`, when a workbook is
-   * in scope (#2347): measured apart, since a workbook figure's formula chain is the model's reading.
-   */
+  /** Offered the workbook Tools (`trace_formulas`, `what_if`) with `calculate`, when a workbook is in scope (#2347). */
   workbookTools: boolean;
-  /** Offered the Analysis Tool with `calculate` (#447): measured apart, as its figures are its code's. */
+  /** Offered the Analysis Tool with `calculate` (#447). */
   analysisTool: boolean;
-  /**
-   * Offered `run_code` beside the Analysis Tool (#2351, ADR-0025): measured apart, as it runs
-   * code on whole files in the OS sandbox without asking.
-   */
+  /** Offered `run_code` beside the Analysis Tool (#2351, ADR-0025), where the OS sandbox runs it. */
   codeTool: boolean;
   /** Offered `calculate` in a claim check, whose verdict rests on its own calculation (#707). */
   checkCalculates: boolean;

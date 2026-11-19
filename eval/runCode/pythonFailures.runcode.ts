@@ -26,7 +26,6 @@ import { createProcessLauncher } from "../../src/main/processes";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { type TarEntry, writeTarZst } from "../../src/main/runCode/tar";
 import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
-import { codeToolOn } from "../../tests/helpers/models";
 import { pyodideAnalysisRuntime } from "../../tests/helpers/pyodideAnalysis";
 import { createSweepGuard } from "../../tests/helpers/sweepGuard";
 import { commitOf } from "../lib/commit";
@@ -242,7 +241,6 @@ test("run_code when Python can't be had", async () => {
         keep: config.keepData,
         log,
         analysisRuntime,
-        ...codeToolOn(),
         executor: sandbox.createExecutor({
           processes: createProcessLauncher(async () => ({ PATH: "/usr/bin:/bin" })),
           environment: async () => ({ PATH: "/usr/bin:/bin" }),

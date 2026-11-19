@@ -72,24 +72,42 @@ export function startingSupport({ facts }: ModelCapabilities): CitationSupport |
   return facts.structuredOutput === "none" ? "none" : "structured-output";
 }
 
-/** Whether an Answer offers the model the `calculate` Tool and its steer: only when a source says so. */
-export const calculates = ({ facts }: ModelCapabilities): boolean => facts.calculates === true;
+/**
+ * The least context window, in tokens, the Tools beside the search are offered in: in 16,384 they
+ * left a hosted model's Answer no room for a selection at all (#3045's tests).
+ */
+export const TOOLS_WINDOW = 32_768;
 
-/** Whether an Answer that offers `calculate` also offers the workbook Tools: only when a source says so. */
+/**
+ * Whether the model has a Tool of its own fact: as a source says, else whenever it is known to call
+ * Tools in a window they fit, since calling `calculate` or running code is what any model that
+ * calls Tools does (#3357). A model that doesn't call Tools, or isn't known to, has it only where a
+ * source says so.
+ */
+const offered = (capabilities: ModelCapabilities, fact: boolean | undefined): boolean =>
+  fact ??
+  (startingSupport(capabilities) === "tools" &&
+    (capabilities.facts.context ?? TOOLS_WINDOW) >= TOOLS_WINDOW);
+
+/** Whether an Answer offers the model the `calculate` Tool and its steer: unless a source says no. */
+export const calculates = (capabilities: ModelCapabilities): boolean =>
+  offered(capabilities, capabilities.facts.calculates);
+
+/** Whether an Answer that offers `calculate` also offers the workbook Tools: unless a source says no. */
 export const offersWorkbookTools = (capabilities: ModelCapabilities): boolean =>
-  calculates(capabilities) && capabilities.facts.workbookTools === true;
+  calculates(capabilities) && offered(capabilities, capabilities.facts.workbookTools);
 
-/** Whether an Answer that offers `calculate` also offers the Analysis Tool: only when a source says so. */
+/** Whether an Answer that offers `calculate` also offers the Analysis Tool: unless a source says no. */
 export const offersAnalysis = (capabilities: ModelCapabilities): boolean =>
-  calculates(capabilities) && capabilities.facts.analysisTool === true;
+  calculates(capabilities) && offered(capabilities, capabilities.facts.analysisTool);
 
-/** Whether an Answer that offers the Analysis Tool also offers `run_code`: only when a source says so. */
+/** Whether an Answer that offers the Analysis Tool also offers `run_code`: unless a source says no. */
 export const offersCode = (capabilities: ModelCapabilities): boolean =>
-  offersAnalysis(capabilities) && capabilities.facts.codeTool === true;
+  offersAnalysis(capabilities) && offered(capabilities, capabilities.facts.codeTool);
 
-/** Whether a claim check offers the model `calculate`: only when a source says so. */
+/** Whether a claim check offers the model `calculate`: unless a source says no. */
 export const checkCalculates = (capabilities: ModelCapabilities): boolean =>
-  calculates(capabilities) && capabilities.facts.checkCalculates === true;
+  calculates(capabilities) && offered(capabilities, capabilities.facts.checkCalculates);
 
 /** False when the model is known to give no structured output: an Answer then doesn't try it. */
 export const givesStructuredOutput = ({ facts }: ModelCapabilities): boolean | undefined =>

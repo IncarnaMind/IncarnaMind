@@ -10,12 +10,13 @@ import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import type { ModelFactsLayer } from "../../src/core/providers/capabilities";
 import { createCodeHost } from "../../src/main/runCode/host";
 import { answerEnded, shownPassages } from "../helpers/citations";
 import { localExecutorAt } from "../helpers/codeRunner";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { answerRequests, codeToolOn, scriptedModel, scriptedModels } from "../helpers/models";
+import { answerRequests, scriptedModel, scriptedModels } from "../helpers/models";
 
 const LOG = ["GET /a 200", "GET /b 500", "GET /c 500", "POST /d 201", ""].join("\n");
 
@@ -67,8 +68,8 @@ async function setUp(
   options: {
     level?: "os" | "none";
     codeRuntime?: boolean;
-    /** Leave run_code to the shipped catalog, which offers it only where it was measured. */
-    catalogOnly?: boolean;
+    /** Facts laid over the catalog's for the model, as a model switched off would have them. */
+    facts?: ModelFactsLayer;
     modelId?: string;
     manifestUrl?: string;
     /** sales.csv's rows below its heading; null: no sales.csv, so no sheet to run_analysis. */
@@ -77,7 +78,7 @@ async function setUp(
 ) {
   const dataDir = await createTempDataFolder();
   const core: Core = startCore(dataDir, {
-    ...(options.catalogOnly !== true && codeToolOn()),
+    ...(options.facts && { modelFacts: () => options.facts }),
     createChatModel: scriptedModels(model).createChatModel,
     analysisRuntime: createFakeAnalysisRuntime({
       answer: () => ({
@@ -143,21 +144,20 @@ const bash = (code: string) => (passage: Passages) => ({
 });
 
 describe.skipIf(process.platform === "win32")("run_code in an Answer", () => {
-  test("with the shipped catalog alone it is offered to Claude Haiku 5.5, and not to a model it wasn't measured on", async () => {
-    const measured = codingModel([]);
-    await ask(
-      await setUp(measured.model, { catalogOnly: true }),
-      "How many errors are in the log?",
-    );
-    expect(measured.offered.at(-1)).toContain("run_code");
+  test("is offered to any model that calls Tools, and not to one whose own fact switches it off", async () => {
+    for (const modelId of ["claude-haiku-5-5", "claude-opus-5-5"]) {
+      const coding = codingModel([]);
+      await ask(await setUp(coding.model, { modelId }), "How many errors are in the log?");
+      expect(coding.offered.at(-1)).toContain("run_code");
+    }
 
-    const unmeasured = codingModel([]);
+    const off = codingModel([]);
     await ask(
-      await setUp(unmeasured.model, { catalogOnly: true, modelId: "claude-opus-5-5" }),
+      await setUp(off.model, { facts: { codeTool: false } }),
       "How many errors are in the log?",
     );
-    expect(unmeasured.offered.at(-1)).toContain("run_analysis");
-    expect(unmeasured.offered.at(-1)).not.toContain("run_code");
+    expect(off.offered.at(-1)).toContain("run_analysis");
+    expect(off.offered.at(-1)).not.toContain("run_code");
   });
 
   test("is offered, with when to use it, only where code runs in the OS sandbox", async () => {

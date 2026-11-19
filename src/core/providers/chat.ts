@@ -44,6 +44,7 @@ import {
   readsImages,
   resolveCapabilities,
   startingSupport,
+  TOOLS_WINDOW,
 } from "./capabilities";
 import {
   cannotAnswerReason,
@@ -301,10 +302,14 @@ function parseEndpoint(
   return endpointOf(provider, given)?.id ?? null;
 }
 
-/** What Ollama says of a model, as the server's word on it: whether it calls Tools, and how it cites. */
+/** What Ollama says of a model, as the server's word on it: whether it calls Tools, how it cites, and in what window. */
 const ollamaFacts = (profile: OllamaModelProfile): ModelFactsLayer => ({
   ...(profile.capabilities && { tools: profile.capabilities.includes("tools") }),
   ...(profile.support && { citing: profile.support }),
+  // A model on this computer runs in a window chosen from its memory, 8,192 tokens on 16 GB, so it
+  // would have the Tools beside the search on one computer and not another: it never does. A cloud
+  // model runs in its own window.
+  ...((!profile.remote || profile.settings.numCtx < TOOLS_WINDOW) && { calculates: false }),
 });
 
 function parseModelId(value: unknown): string {

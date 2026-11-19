@@ -32,7 +32,6 @@ import { loadOsSandbox, readDeniedFolders } from "../../src/main/sandbox";
 import { FIGURE_MARKER } from "../../src/shared/figureMarkers";
 import { printedValues } from "../../src/shared/printedFigures";
 import { queryDatabase } from "../../tests/helpers/core";
-import { codeToolOn } from "../../tests/helpers/models";
 import { createSweepGuard } from "../../tests/helpers/sweepGuard";
 import { commitOf } from "../lib/commit";
 import { chatProviderOf, readConfig } from "../lib/config";
@@ -155,8 +154,6 @@ test("run_code routing", async () => {
     keep: config.keepData,
     log,
     analysisRuntime: createFakeAnalysisRuntime({ answer: () => ({}) }),
-    // On, as on a `main` that offered run_code to no model yet (#2351): both arms are measured alike.
-    ...codeToolOn(),
     ...(sandbox.available && {
       executor: sandbox.createExecutor({
         processes: createProcessLauncher(async () => ({
