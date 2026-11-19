@@ -6,6 +6,7 @@ import {
   type SecretStorageStatus,
 } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
+import { agentConnector } from "../../agentConnection";
 import { onlyNotInAFolder } from "../../agentFolders";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
@@ -30,12 +31,12 @@ export interface AgentChoice {
   propose: boolean;
 }
 
-/**
- * Connecting an agent (#351), wherever the User does it: Settings › Agents and the setup's Your AI
- * step (#3362) call the same core setup, so the agent is the one Settings lists. `enable` turns
- * connecting agents on first, for a place with no switch of its own; it goes back off if the
- * agent couldn't be connected.
- */
+const connectAgent = agentConnector(core, (error) => {
+  console.error("Couldn't turn connecting agents off again after a failed setup", error);
+  useAppStore.getState().reportError(error);
+});
+
+/** Connecting an agent (#351), in Settings › Agents and the setup's Your AI step (#3362). */
 export function useAgentConnection() {
   const t = useT();
   const reportError = useAppStore((state) => state.reportError);
@@ -44,28 +45,25 @@ export function useAgentConnection() {
   const connect = async (
     client: AgentClient,
     choice: AgentChoice,
-    { enable = false } = {},
+    options: { enable?: boolean } = {},
   ): Promise<JustSetUp | null> => {
     setBusy(true);
     setProblem(null);
-    let enabled = false;
     try {
-      if (enable && !(await core.getAgents()).enabled) {
-        await core.setAgentsEnabled(true);
-        enabled = true;
-      }
-      const { pairing, result } = await core.setUpAgent({
-        client: client.id,
-        folderIds: choice.folderIds,
-        ...(choice.name && { name: choice.name }),
-        propose: choice.propose,
-      });
+      const { pairing, result } = await connectAgent(
+        {
+          client: client.id,
+          folderIds: choice.folderIds,
+          ...(choice.name && { name: choice.name }),
+          propose: choice.propose,
+        },
+        options,
+      );
       // The agent is connected either way: "Copy settings" in its details copies it again.
       if (result.kind === "copy")
         await navigator.clipboard.writeText(result.text).catch(reportError);
       return { pairingId: pairing.id, result };
     } catch (error) {
-      if (enabled) await core.setAgentsEnabled(false).catch(reportError);
       setProblem(errorMessage(error, t));
       return null;
     } finally {
