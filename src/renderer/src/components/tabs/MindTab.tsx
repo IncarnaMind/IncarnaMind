@@ -106,7 +106,7 @@ export function MindTab({ mindId }: { mindId: string }) {
                 <EventBar mindId={mind.id} />
                 <MeetingInMind mindId={mind.id} />
                 {/* The example works without a chat model: it says so in its Answer instead. */}
-                {!isExample && <ChatReadinessNotice />}
+                {!isExample && <ChatReadinessNotice mindId={mind.id} />}
                 <ComposerDockContext.Provider value={read ? assistantSlot : null}>
                   <PageSlotsContext.Provider
                     value={{

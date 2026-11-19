@@ -23,6 +23,7 @@ import {
   expectRestart,
   sawRestart,
 } from "./askedChanges";
+import { agentsToAsk } from "./askYourAi";
 import { watchCommands } from "./assistantCommands";
 import { watchMindsMadeBy } from "./assistantMinds";
 import { offeredCommands } from "./assistantWindow";
@@ -368,6 +369,12 @@ export async function askInAssistant(
       result.reason === "not-ready" &&
       result.readiness.reason === "no-provider"
     ) {
+      // With the User's own AI connected, the composer offers it for the words, which come back
+      // to the box (#3373).
+      if (agentsToAsk(input.mindId).length > 0) {
+        settleAsk(key, result);
+        return false;
+      }
       // No model yet: the Question waits in the conversation while the setup card is shown.
       settleAsk(key, null);
       waitForModel({ ...input, conversationId: useConversations.getState().openId });

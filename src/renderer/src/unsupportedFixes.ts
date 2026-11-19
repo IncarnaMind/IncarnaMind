@@ -12,7 +12,12 @@
 import type { Editor } from "@tiptap/core";
 import type { Mark as ProseMirrorMark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
-import { CLAIM_CHECK_MARK, type ClaimCalculation, type ClaimCheckPart } from "../../core/api";
+import {
+  type AskVerdict,
+  CLAIM_CHECK_MARK,
+  type ClaimCalculation,
+  type ClaimCheckPart,
+} from "../../core/api";
 import { checkedScope, namedReason, saysNotFound, workedOutOf } from "../../shared/claimChecks";
 import { keepCheckAsView } from "../../shared/claimParts";
 import { readFigures } from "../../shared/figures";
@@ -140,6 +145,25 @@ export const checkStateKey = (editor: Editor, claim: ShownClaim): MessageKey => 
             : `claim.state.${claim.shown.state}`;
 };
 
+const ASKED: Partial<Record<MessageKey, AskVerdict>> = {
+  "claim.state.unsupported": "unsupported",
+  "claim.state.contradicted": "contradicted",
+  "claim.state.notFound": "not-found",
+  "claim.state.overstated": "overstated",
+  "claim.state.partly-supported": "partly-supported",
+  "claim.state.unitsMayDiffer": "units-may-differ",
+  "claim.state.recordCite": "record-cite",
+};
+
+/**
+ * What a sentence's card says that needs a look, as a request to the User's own AI names it
+ * (#3373); null for a sentence that needs none, or the User can't change.
+ */
+export const askVerdictOf = (editor: Editor, claim: ShownClaim): AskVerdict | null =>
+  claim.kind === "chart" || !editor.isEditable
+    ? null
+    : (ASKED[checkStateKey(editor, claim)] ?? null);
+
 export function offersKeepAsView(editor: Editor, claim: ShownClaim): boolean {
   return claim.kind !== "chart" && editor.isEditable && claim.shown.state === "contradicted";
 }
@@ -216,6 +240,10 @@ export const notFoundAt = (editor: Editor): ShownClaim | null => claimAt(editor,
 /** The unsupported sentence the selection is in whose card offers Find sources; null for none. */
 export const findSourcesAt = (editor: Editor): ShownClaim | null =>
   claimAt(editor, offersFindSources);
+
+/** The sentence the selection is in whose card says it needs a look, for ⌘K's Ask your AI; null for none. */
+export const askableAt = (editor: Editor): ShownClaim | null =>
+  claimAt(editor, (editor, claim) => askVerdictOf(editor, claim) !== null);
 
 /** The contradicted sentence the selection is in, for ⌘K; null for none. */
 export const contradictedAt = (editor: Editor): ShownClaim | null =>
