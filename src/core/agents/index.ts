@@ -45,6 +45,7 @@ import {
   AgentRefusedError,
   createAgentAccess,
   createCheckRuns,
+  documentsForPairing,
   pairingReaches,
 } from "./access";
 import { createAgentCitations } from "./citations";
@@ -528,7 +529,7 @@ export function createAgents(options: AgentsOptions) {
      * as `read_mind` does; with no Note, each that would be let in. The one connected or used
      * last comes first.
      */
-    askable(mindId: string | null): AgentPairing[] {
+    askable(mindId: string | null, documentId?: string): AgentPairing[] {
       const mind =
         mindId === null ? null : options.access.minds().find((each) => each.id === mindId);
       if (mind === undefined) return [];
@@ -541,7 +542,15 @@ export function createAgents(options: AgentsOptions) {
         .filter((pairing) => {
           try {
             const admitted = admissible(pairing.id);
-            return mind === null || pairingReaches(accessDeps, admitted, mind);
+            if (mind && !pairingReaches(accessDeps, admitted, mind)) return false;
+            return (
+              !documentId ||
+              documentsForPairing(
+                accessDeps,
+                admitted,
+                accessDeps.foldersInScope(admitted.folderIds),
+              ).includes(documentId)
+            );
           } catch (error) {
             if (error instanceof AgentRefusedError) return false;
             throw error;

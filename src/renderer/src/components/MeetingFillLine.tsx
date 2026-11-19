@@ -14,6 +14,7 @@ import { answerProblem } from "../problems";
 import { speechModelDownload } from "../speechModelDownload";
 import { useAppStore } from "../store";
 import { CheckLineIcon } from "./lineIcons";
+import { MeetingAgentNotes } from "./meetings/MeetingAgentNotes";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
 
@@ -126,6 +127,9 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       : step === "top" && meeting.fill.state === "undone"
         ? { ...meeting.fill, state: "filled" as const }
         : meeting.fill;
+  if (fill.state === "own-ai" && fill.agentId) {
+    return <MeetingAgentNotes meeting={meeting} agentId={fill.agentId} />;
+  }
   const words = WORDS[meeting.kind];
   const again = (label: string): ProblemAction => ({
     label,

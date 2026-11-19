@@ -294,7 +294,7 @@ export function namedNote(
 export type NamedChange =
   | { kind: "rewrite"; at: number; text: string }
   | { kind: "remove"; at: number }
-  | { kind: "add"; after: number; text: string };
+  | { kind: "add"; after: number | null; text: string };
 
 /** A token's Citation, checked again against its Document as it is now. */
 export interface CitedToken {
@@ -675,11 +675,12 @@ function writeNamed(
     fresh: Map<number, Attributes>;
     kept: string[];
   }[] = [];
-  const adds = new Map<number, NodeJSON[]>();
+  const adds = new Map<number | null, NodeJSON[]>();
   const citedAnew: Attributes[] = [];
   for (const change of changes) {
     if (change.kind === "add") {
-      const added = newBlocks(change.text, `${elementAt(change.after).paragraph.name}+`, options);
+      const anchor = change.after === null ? "¶0" : elementAt(change.after).paragraph.name;
+      const added = newBlocks(change.text, `${anchor}+`, options);
       adds.set(change.after, [...(adds.get(change.after) ?? []), ...added.nodes]);
       citedAnew.push(...added.cited);
       continue;
@@ -695,7 +696,10 @@ function writeNamed(
         : rewriteText(change.text, read.selection, paragraph.name, options);
     rewrites.push({ element, selection: read.selection, name: paragraph.name, ...written });
   }
-  const additions = [...adds.entries()].map(([after, nodes]) => ({ ...elementAt(after), nodes }));
+  const additions = [...adds.entries()].map(([after, nodes]) => ({
+    element: after === null ? null : elementAt(after).element,
+    nodes,
+  }));
 
   const placed = tallyCiting(new Map(), blocks, options.request);
   for (const { element, selection, fresh, kept } of rewrites) {
@@ -722,7 +726,9 @@ function writeNamed(
     if (refusalOf(written)) return refused({ ...written, at: name });
   }
   for (const { element, nodes } of additions) {
-    if (nodes.length > 0) addAfter(blocks, element, nodes, options);
+    if (nodes.length === 0) continue;
+    if (element) addAfter(blocks, element, nodes, options);
+    else blocks.push(nodes.map((node) => proposedElement(node, options)));
   }
   if (!holdsOnlyPlaced(blocks, options.request, placed)) return refused({ notPlaced: true });
   const waiting = waitingChanges(blocks, (each) => each.request === options.request);

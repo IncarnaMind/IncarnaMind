@@ -327,7 +327,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Change a Note",
       description:
-        "Change a Note read with read_mind and named. Each change names its paragraph: ¶3 with text rewrites ¶3 and with remove takes it out; ¶3+ adds new paragraphs after ¶3; ¶+ adds after the change before. Write Markdown, citing only with IncarnaMind's [cite:…] tokens. In Notes you wrote they apply at once; elsewhere they wait for the User.",
+        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no named paragraphs, start with ¶0+. Write Markdown with [cite:…] tokens. Changes apply in Notes you wrote and wait for review elsewhere.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
