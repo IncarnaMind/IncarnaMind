@@ -2330,6 +2330,8 @@ export function createCitationSession(
     input: CitationRecordInput,
     options: CiteOptions,
     read?: TranscriptSpeakers | null,
+    /** A quote corrected for an earlier record keeps the time that record named (#2306). */
+    correcting = false,
   ): Taken {
     const marker = input.marker;
     const given = String(input.passage ?? "").slice(0, 200);
@@ -2346,7 +2348,7 @@ export function createCitationSession(
     }
     let taken = takeQuote(input, marker, options, true, read);
     if (options.structured && taken.ok && !taken.record.kept) {
-      taken = inAnotherPassage(input, marker, options, taken) ?? taken;
+      taken = inAnotherPassage(input, marker, options, taken, !correcting) ?? taken;
     }
     if (taken.ok && !taken.record.kept) {
       const problem =
@@ -2378,27 +2380,56 @@ export function createCitationSession(
   }
 
   /**
-   * Structured output can't be told it named the wrong Passage (`CiteOptions`): a Transcript's
-   * Passages are overlapping stretches of one call, so a quote another Passage of the same
-   * Transcript it was given holds, at the time the record names where it names one (#2306), is
-   * cited there (#3354). Any other Document's record stays in the Passage it names. Null when the
-   * named Passage holds the quote, or none does.
+   * Structured output can't be told it named the wrong Passage, or the wrong time (`CiteOptions`):
+   * a Transcript's Passages are overlapping stretches of one call, so a quote another Passage of the
+   * same Transcript it was given holds, at the time the record names, is cited there (#3354); and,
+   * with `whenSaid` (not for a corrected quote), a quote said at no time it names is cited where it
+   * was said, if that was once (#2306). Any other Document's record stays in the Passage it names.
+   * Null when the named Passage holds the quote, or the call doesn't hold it once.
    */
   function inAnotherPassage(
     input: CitationRecordInput,
     marker: number,
     options: CiteOptions,
     taken: Extract<Taken, { ok: true }>,
+    whenSaid: boolean,
   ): Extract<Taken, { ok: true }> | null {
     if (taken.source.documentKind !== "transcript") return null;
     if (check(taken.record).check !== "not-found") return null;
-    for (const [passageId, handle] of handleOf) {
+    const transcript = [...handleOf].filter(
+      ([passageId]) => documents.citationSource(passageId)?.documentId === taken.source.documentId,
+    );
+    for (const [passageId, handle] of transcript) {
       if (passageId === taken.source.passageId) continue;
-      if (documents.citationSource(passageId)?.documentId !== taken.source.documentId) continue;
       const again = takeQuote({ ...input, passage: handle }, marker, options, true);
       if (again.ok && check(again.record).check === "found") return again;
     }
-    return null;
+    // At a time none of its words were said: cited where they were said only when that is one
+    // moment of the call, never one of several (#2306).
+    if (!whenSaid || typeof input.location !== "string" || !input.location.trim()) return null;
+    let said: Extract<Taken, { ok: true }> | null = null;
+    for (const [, handle] of transcript) {
+      const again = takeQuote(
+        { ...input, passage: handle, location: undefined },
+        marker,
+        options,
+        false,
+      );
+      if (!again.ok) continue;
+      const matching = matchingFor(again.source);
+      if (!quoteInUnits(again.passageUnits, again.record.quote, matching)) continue;
+      const at = locateQuote(again.passageUnits, again.record.quote, matching);
+      if (!at) return null;
+      if (said) {
+        if (said.record.range.pageFrom !== at.pageFrom || said.record.range.pageTo !== at.pageTo) {
+          return null;
+        }
+        continue;
+      }
+      const placed = { ...again.record, range: at, requested: null, unresolved: false };
+      said = { ...again, record: { ...placed, location: locationFor(placed) } };
+    }
+    return said && check(said.record).check === "found" ? said : null;
   }
 
   /** `take`, for a quote with or without a marker (0 for none). A calculated figure's direct input keeps its supplied Location (#1979). */
@@ -3031,6 +3062,7 @@ export function createCitationSession(
         { marker, passage: earlier.handle, ...earlier.given, quote },
         { structured: true },
         earlier.speakers,
+        true,
       );
       if (!taken.ok || !taken.record.quote) return false;
       const result = check(taken.record);
