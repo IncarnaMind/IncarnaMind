@@ -3,7 +3,8 @@
  * quotes and `run_analysis` over a whole data file or the Library's lists, each over what it may
  * read alone, and a verdict it reports may rest on such a run. Through the shim the app ships.
  */
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { AnalysisRuntime } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import type { AnalysisJob } from "../../src/shared/analysis";
@@ -96,14 +97,39 @@ const passengersOf = (job: AnalysisJob): FakeAnswer => ({
 });
 
 /**
+ * Figures over the Crossings rows given with figure(), which IncarnaMind works out again from the
+ * cells: `wrong` gives each name a value the rows don't sum to.
+ */
+const summed =
+  (names: Record<string, "right" | "wrong">) =>
+  (job: AnalysisJob): FakeAnswer => {
+    const total = rowsOf(job).reduce((sum, row) => sum + Number(row[2] ?? 0), 0);
+    return {
+      output: {
+        results: Object.entries(names).map(([name, value]) => ({
+          kind: "figure" as const,
+          name,
+          label: name,
+          unit: null,
+          value: value === "right" ? total : total + 1,
+          of: { input: "crossings", columns: ["Passengers"], rows: [[2, 4]], count: 3, how: "sum" },
+        })),
+      },
+    };
+  };
+
+/**
  * Coast (Harbour fares, Crossings) shared with Claude Code, which may write; Private (Payroll,
  * Minutes and a Note) shared with another agent only. Claude Code wrote a Note in Coast.
  */
-async function paired(answer: (job: AnalysisJob) => FakeAnswer = passengersOf, python = true) {
+async function paired(
+  answer: (job: AnalysisJob) => FakeAnswer = passengersOf,
+  python: boolean | AnalysisRuntime = true,
+) {
   const runtime = createFakeAnalysisRuntime({ answer });
   const started = await startAgentsCore(
     checkingModel({}),
-    python ? { analysisRuntime: runtime } : {},
+    python === false ? {} : { analysisRuntime: python === true ? runtime : python },
   );
   const { core } = started;
   const sources = await createSourceFolder();
@@ -484,6 +510,88 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     expect(new Set(reports).size).toBe(1);
     const [first, ...others] = runtime.jobs.map((job) => JSON.stringify(job.inputs));
     expect(others).toEqual([first, first]);
+  });
+
+  // protects=a run is of the check that was going when it began: a check begun while it ran can't rest on it; fails_when=a run started before check_mind_yourself and ended after it marks a sentence
+  it("marks nothing on a run that began before this check, though it ended after", async () => {
+    const fake = createFakeAnalysisRuntime({ answer: passengersOf });
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let begun = false;
+    const gated: AnalysisRuntime = {
+      languages: fake.languages,
+      async run(job, signal) {
+        begun = true;
+        await held;
+        return fake.run(job, signal);
+      },
+      close: () => fake.close(),
+    };
+    const { core, agent, mindId, coast } = await paired(passengersOf, gated);
+    const passageId = await passageOf(agent, "passengers crossings", "Crossings");
+    const going = run(agent, [{ name: "crossings", passageId }]);
+    await vi.waitFor(() => expect(begun).toBe(true));
+    const given = await task(agent, mindId);
+    release();
+    const before = runId(await going);
+    const after = runId(await run(agent, [{ name: "crossings", passageId }]));
+
+    const report = (id: string) =>
+      agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [{ n: 1, verdict: "supported", run: id, explanation: "The rows give 350." }],
+        },
+      });
+    expect(structured<Reported>(await report(before))).toMatchObject({
+      marked: 0,
+      unconfirmed: [1],
+    });
+    expect(await marks(core, mindId, coast.id)).toEqual([]);
+    expect(structured<Reported>(await report(after))).toMatchObject({ marked: 1, unconfirmed: [] });
+  });
+
+  // protects=a verdict rests only on figures the run's report lets the agent use: one IncarnaMind worked out again from the cells and found different backs nothing; fails_when=a figure that failed its recalculation backs a Supported mark or shows in the working line
+  it("rests no verdict on a figure that the cells don't give", async () => {
+    const wrong = await paired(summed({ passengers: "wrong" }));
+    const crossings = await passageOf(wrong.agent, "passengers crossings", "Crossings");
+    const given = await task(wrong.agent, wrong.mindId);
+    const unusable = runId(await run(wrong.agent, [{ name: "crossings", passageId: crossings }]));
+    expect(
+      structured<Reported>(
+        await wrong.agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId: wrong.mindId,
+            task: given.task,
+            results: [{ n: 1, verdict: "supported", run: unusable, explanation: "351." }],
+          },
+        }),
+      ),
+    ).toMatchObject({ unconfirmed: [1] });
+    expect(
+      (await marks(wrong.core, wrong.mindId, wrong.coast.id)).map((each) => each.state),
+    ).not.toContain("supported");
+
+    const mixed = await paired(summed({ passengers: "right", doubled: "wrong" }));
+    const rows = await passageOf(mixed.agent, "passengers crossings", "Crossings");
+    const mixedTask = await task(mixed.agent, mixed.mindId);
+    const both = runId(await run(mixed.agent, [{ name: "crossings", passageId: rows }]));
+    await mixed.agent.callTool({
+      name: "report_check",
+      arguments: {
+        mindId: mixed.mindId,
+        task: mixedTask.task,
+        results: [{ n: 1, verdict: "supported", run: both, explanation: "The rows give 350." }],
+      },
+    });
+    expect(await marks(mixed.core, mixed.mindId, mixed.coast.id)).toMatchObject([
+      { text: PASSENGERS, state: "supported", workedOut: "passengers = 350" },
+    ]);
   });
 
   // protects=on a computer that can't run Python for IncarnaMind, the agent is told so plainly and can still calculate; fails_when=run_analysis fails without saying why, or calculate needs Python

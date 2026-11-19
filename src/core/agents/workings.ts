@@ -72,8 +72,11 @@ export interface WorkOutDeps {
 export interface WorkFor {
   pairingId: string;
   documentIds: ReadonlySet<string>;
-  /** The Library's lists of what it may read, with what they hold, read when a run first asks. */
-  lists(): { lists: LibraryLists; read: AgentReach; version: string | null };
+  /**
+   * The Library's lists of what it may read, with what they hold, read when a run first asks;
+   * `checking` is the Note the pairing was checking when the run began.
+   */
+  lists(checking: string | null): { lists: LibraryLists; read: AgentReach; version: string | null };
 }
 
 export interface AgentFigure {
@@ -280,6 +283,8 @@ export function createWorkOut(deps: WorkOutDeps) {
       listed: string[];
     } = { run: null, lists: null, listed: [] };
     let figures = 0;
+    // The check the run is of is the one going when it began: one begun meanwhile can't rest on it.
+    const mindId = checking(to.pairingId);
     const title = words(given.title);
     const tool = analysisTool({
       runtime: analysisRuntime,
@@ -308,7 +313,7 @@ export function createWorkOut(deps: WorkOutDeps) {
         got.run = run;
       },
       library(list) {
-        got.lists ??= to.lists();
+        got.lists ??= to.lists(mindId);
         return isLibraryList(list) ? got.lists.lists[list] : null;
       },
       readLibrary(_run, read) {
@@ -327,7 +332,7 @@ export function createWorkOut(deps: WorkOutDeps) {
     const documentIds = [...new Set(rows.map((each) => each.citation.documentId))];
     const id = keep("run", {
       pairingId: to.pairingId,
-      mindId: checking(to.pairingId),
+      mindId,
       read: {
         documentIds: [...new Set([...documentIds, ...(read?.read.documentIds ?? [])])],
         folderIds: read?.read.folderIds ?? [],
@@ -397,7 +402,12 @@ function workedRun(
   const file = rows[0]?.citation.documentName ?? run.title;
   if (run.end.kind !== "done") return { ok: false, reason: endedAs(run), detail: file };
   if (rows.some((each) => each.cut)) return { ok: false, reason: "rows-cut", detail: file };
-  const figures = run.output.results.flatMap((each) => (each.kind === "figure" ? [each] : []));
+  // A figure IncarnaMind worked out again from the cells and found different has no marker: the
+  // run's report says it can't be used, and no verdict rests on it.
+  const usable = new Set(run.markers.figures.map((each) => each.result));
+  const figures = run.output.results.flatMap((each) =>
+    each.kind === "figure" && usable.has(each.name) ? [each] : [],
+  );
   if (figures.length === 0) return { ok: false, reason: "no-evidence", detail: null };
   const library = lists ? libraryRead(lists.lists, lists.listed.filter(isLibraryList)) : null;
   // A mark is compared with the lists as the Note's own check counts them, which the window knows.

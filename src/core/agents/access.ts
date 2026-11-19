@@ -1398,8 +1398,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     return {
       pairingId: pairing.id,
       documentIds: reach.documentIds,
-      lists() {
-        const checking = deps.workings.checking.get(pairing.id) ?? null;
+      lists(checking) {
         const read: AgentReach = {
           documentIds: [...reach.documentIds],
           folderIds: [...reach.folderIds],
