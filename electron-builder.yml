@@ -101,8 +101,8 @@ mac:
   # Meetings (ADR-0015): what macOS says when IncarnaMind first asks to record, in English here
   # and in Chinese from zh_CN.lproj (tests/main/meetingPermissions.test.ts checks both).
   extendInfo:
-    NSMicrophoneUsageDescription: "When you record a meeting, IncarnaMind records your microphone. The audio stays on this Mac."
-    NSAudioCaptureUsageDescription: "When you record a meeting, IncarnaMind records the computer's sound: the other people in the meeting. The audio stays on this Mac."
+    NSMicrophoneUsageDescription: "When you record a meeting, IncarnaMind records your microphone. With cloud transcription, the service you choose receives this audio."
+    NSAudioCaptureUsageDescription: "When you record a meeting, IncarnaMind records sound playing on this Mac, including the other people on the call. With cloud transcription, the service you choose receives this audio."
     # Meetings coming up (#190): what macOS says when the User connects the Mac's calendar, the
     # first key from macOS 14, the second before it (tests/main/meetingPermissions.test.ts).
     NSCalendarsFullAccessUsageDescription: "IncarnaMind reads your calendar to show the meetings coming up and fill in a meeting’s notes. Your events stay on this Mac."

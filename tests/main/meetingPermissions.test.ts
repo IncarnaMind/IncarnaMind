@@ -9,19 +9,21 @@ const read = (path: string) => readFile(join(REPO_ROOT, path), "utf8");
 describe("The macOS build may record a meeting (ADR-0015)", () => {
   test("it says why it asks for the microphone and the computer's sound, in English and Chinese", async () => {
     const mac = section(await read("electron-builder.yml"), "mac");
-    expect(mac).toMatch(
-      /^ {4}NSMicrophoneUsageDescription: "When you record a meeting, IncarnaMind records your microphone\. .+"$/m,
-    );
-    expect(mac).toMatch(
-      /^ {4}NSAudioCaptureUsageDescription: "When you record a meeting, IncarnaMind records the computer's sound: .+"$/m,
-    );
-    expect(mac).toMatch(/^ {4}- from: build\/zh_CN\.lproj\n {6}to: zh_CN\.lproj$/m);
-
     const chinese = await read("build/zh_CN.lproj/InfoPlist.strings");
-    expect(chinese).toMatch(/^"NSMicrophoneUsageDescription" = "录制会议时，[^"]*麦克风[^"]*";$/m);
-    expect(chinese).toMatch(
-      /^"NSAudioCaptureUsageDescription" = "录制会议时，[^"]*电脑声音[^"]*";$/m,
-    );
+    for (const [key, englishSource, chineseSource] of [
+      ["NSMicrophoneUsageDescription", "your microphone", "麦克风"],
+      ["NSAudioCaptureUsageDescription", "sound playing on this Mac", "电脑播放的声音"],
+    ]) {
+      const english = mac.split("\n").find((line) => line.startsWith(`    ${key}:`));
+      const translated = chinese.split("\n").find((line) => line.startsWith(`"${key}" =`));
+      expect(english).toContain(englishSource);
+      expect(english).toContain(
+        "With cloud transcription, the service you choose receives this audio.",
+      );
+      expect(translated).toContain(chineseSource);
+      expect(translated).toContain("使用云端转写时，音频会发送给你选用的服务。");
+    }
+    expect(mac).toMatch(/^ {4}- from: build\/zh_CN\.lproj\n {6}to: zh_CN\.lproj$/m);
   });
 
   test("a hardened-runtime build may open the microphone and the calendars, and keeps electron-builder's entitlements", async () => {
