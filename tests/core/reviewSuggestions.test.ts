@@ -68,6 +68,35 @@ describe("post-call speaker suggestions", () => {
     ).toEqual([]);
   });
 
+  test.each(["different words", "duplicate lines"] as const)(
+    "does not swap correctly labeled speakers based on %s",
+    (evidence) => {
+      const budget = line(0, "Speaker 1", "We should review budgets.");
+      const spreadsheet = line(2000, "Speaker 2", "Please open that spreadsheet.");
+      const unreliableFirst = line(4000, "Speaker 1", "First discover what happens.", 6000);
+      const unreliableSecond = line(11000, "Speaker 2", "Look outside another window.", 6000);
+      const duplicates = evidence === "duplicate lines" ? [unreliableFirst, unreliableSecond] : [];
+      const firstVoice = heard(unreliableFirst, "2");
+      const secondVoice = heard(unreliableSecond, "1");
+      expect(
+        reviewSuggestions(
+          [budget, spreadsheet, unreliableFirst, unreliableSecond, ...duplicates],
+          null,
+          [
+            heard(budget, "1"),
+            heard(spreadsheet, "2"),
+            evidence === "different words"
+              ? { ...firstVoice, text: "Projects run farther north." }
+              : firstVoice,
+            evidence === "different words"
+              ? { ...secondVoice, text: "Water settles slowly today." }
+              : secondVoice,
+          ],
+        ),
+      ).toEqual([]);
+    },
+  );
+
   test("abstains for ambiguous identities, different words, short answers, competing voices and duplicate anchors", () => {
     expect(
       reviewSuggestions([line(0, "A", wrong.text), line(1000, "B", wrong.text)], null, [

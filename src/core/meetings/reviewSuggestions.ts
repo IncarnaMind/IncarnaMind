@@ -67,7 +67,6 @@ export function reviewSuggestions(
   const ordered = tokens.toSorted((a, b) => a.startMs - b.startMs);
   const spans = windowOf(voiceSpans(ordered));
   const words = windowOf(ordered);
-  const anchors = new Map<string, Map<string, number>>();
   const keys = new Set<string>();
   const duplicates = new Set<string>();
   const candidates = [];
@@ -86,11 +85,6 @@ export function reviewSuggestions(
       coveredTo.set(span.speaker, to);
       byVoice.set(span.speaker, (byVoice.get(span.speaker) ?? 0) + to - from);
     }
-    for (const [voice, ms] of byVoice) {
-      const totals = anchors.get(voice) ?? new Map<string, number>();
-      totals.set(current, (totals.get(current) ?? 0) + ms);
-      anchors.set(voice, totals);
-    }
     const [best, runner] = [...byVoice].sort((a, b) => b[1] - a[1]);
     const duration = part.endMs - part.startMs;
     if (!best || duration <= 0 || best[1] < 0.75 * duration || (runner?.[1] ?? 0) > 0.15 * duration)
@@ -102,10 +96,17 @@ export function reviewSuggestions(
       return token.speaker === best[0] && middle >= from && middle <= to;
     });
     if (wordsAgree(part.text, heard.map((token) => token.text).join(""))) {
-      candidates.push({ part, key, current, voice: best[0] });
+      candidates.push({ part, key, current, voice: best[0], coveredMs: best[1] });
     }
   }
+  const reliable = candidates.filter(({ key }) => !duplicates.has(key));
   // Speaker numbers are local to each transcription. Pair only voices with a clear, mutual anchor.
+  const anchors = new Map<string, Map<string, number>>();
+  for (const { voice, current, coveredMs } of reliable) {
+    const totals = anchors.get(voice) ?? new Map<string, number>();
+    totals.set(current, (totals.get(current) ?? 0) + coveredMs);
+    anchors.set(voice, totals);
+  }
   const mapping = new Map<string, string>();
   const labels = new Map<string, { voice: string; ms: number }[]>();
   for (const [voice, totals] of anchors) {
@@ -122,9 +123,9 @@ export function reviewSuggestions(
     if (rivals && ![...rivals].some(([other, ms]) => other !== label && ms >= best.ms * 0.9))
       mapping.set(best.voice, label);
   }
-  return candidates.flatMap(({ part, key, current, voice }) => {
+  return reliable.flatMap(({ part, current, voice }) => {
     const suggested = mapping.get(voice);
-    return suggested && suggested !== current && !duplicates.has(key)
+    return suggested && suggested !== current
       ? [
           {
             startMs: part.startMs,
