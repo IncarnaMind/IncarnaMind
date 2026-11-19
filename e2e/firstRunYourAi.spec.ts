@@ -358,6 +358,12 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
     );
     expect(made.folder).toBe("Not in a Folder");
     await expect(step("agentAsk")).toHaveAttribute("data-state", "done");
+    // A copy of it is the User's: the card still follows the agent's own Note.
+    await window.evaluate(
+      (mindId) =>
+        (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.duplicateMind(mindId),
+      made.mindId,
+    );
     await expect(step("agentAsk")).toHaveText(/Your AI wrote a note/);
     await expect(card.getByTestId("first-open-agent-look")).toHaveText(
       "Its marks show here once Claude Code has checked the note.",

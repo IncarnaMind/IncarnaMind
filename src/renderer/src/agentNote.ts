@@ -111,7 +111,9 @@ export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | nul
           let pairingId: string | undefined;
           try {
             Y.applyUpdate(doc, snapshot.state);
-            pairingId = noteWriterOf(doc)?.pairingId;
+            const writer = noteWriterOf(doc);
+            // A copy carries its source's record: only the Note the record names is the agent's.
+            if (writer?.mindId === mind.id) pairingId = writer.pairingId;
           } finally {
             doc.destroy();
           }
