@@ -8,6 +8,7 @@ import { createTempDataFolder } from "../helpers/core";
 import {
   fakeSeparator,
   recordedCall,
+  savedCues,
   toldCues,
   transcribingCore,
   until,
@@ -459,6 +460,31 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
       "speakers",
     );
     kept.core.close();
+  });
+
+  test("Stop keeps the saved room lines when simultaneous voices leave most speech uncovered", async () => {
+    const separator: SpeakerSeparator = {
+      async separate({ parts }) {
+        return parts.flatMap(({ offsetMs }) =>
+          Array.from({ length: 100 }, (_, i) => offsetMs + i * 100).flatMap((startMs) => [
+            { startMs, endMs: startMs + 35, voice: 0 },
+            { startMs, endMs: startMs + 35, voice: 1 },
+          ]),
+        );
+      },
+    };
+    const { core, meeting } = await recordedCall(
+      await createTempDataFolder(),
+      { speakerSeparator: separator, capture: { system: "denied" } },
+      ["microphone"],
+    );
+    try {
+      const saved = await savedCues(core, meeting.id);
+      expect(new Set(saved.map((cue) => cue.speaker))).toEqual(new Set(["Speaker ?"]));
+      expect(await toldCues(core, meeting.id)).toEqual(saved);
+    } finally {
+      core.close();
+    }
   });
 
   // protects=after a failed pass, Try again runs it again while the audio is kept, and its labels replace the old ones; once the audio is deleted, nothing offers it; fails_when=Try again does nothing, the problem stays after a pass that worked, or it is offered with no audio left; no_claim=why the first pass failed.
