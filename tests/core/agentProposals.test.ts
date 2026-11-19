@@ -306,11 +306,11 @@ describe("an outside agent's proposed changes (#352)", () => {
     const named = await readNamed(agent, mind.id);
     expect(named.markdown).toBe(
       [
-        "¶1 ## Tides",
-        "¶2 Tides rise twice a day.",
-        "¶3 - Spring tides are big.",
-        "¶4 - Neap tides are small.",
-        "¶5 A \\¶ sign the User typed.",
+        "¶0 ## Tides",
+        "¶1 Tides rise twice a day.",
+        "¶2 - Spring tides are big.",
+        "¶3 - Neap tides are small.",
+        "¶4 A \\¶ sign the User typed.",
       ].join("\n\n"),
     );
     expect(named.version).toMatch(/^[0-9a-z]+$/);
@@ -334,9 +334,9 @@ describe("an outside agent's proposed changes (#352)", () => {
           mindId: mind.id,
           version,
           changes: [
-            { paragraph: "¶2", text: `Spring tides come twice a month ${spring}.` },
-            { paragraph: "¶4+", text: "- King tides are the biggest of the year." },
-            { paragraph: "¶5", remove: true },
+            { paragraph: "¶1", text: `Spring tides come twice a month ${spring}.` },
+            { paragraph: "¶3+", text: "- King tides are the biggest of the year." },
+            { paragraph: "¶4", remove: true },
           ],
         },
       }),
@@ -596,7 +596,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     await client.settled();
     const late = [{ paragraph: "¶2", text: "Neap tides are the smallest." }];
     expect(refusal(await propose(mind.id, again.version, late))).toBe(
-      "This note changed after the agent read it. Read it again, then propose the changes again.",
+      "The User changed this note after you read it. Read it again with named, then make your changes again.",
     );
     const fresh = await readNamed(agent, mind.id);
     expect(fresh.markdown).toContain("¶2 Very Neap tides are small.");
@@ -636,7 +636,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     );
     const spring = await tokenFor(agent, "spring tides new moon", SPRING);
     const { markdown, version } = await readNamed(agent, mind.id);
-    expect(markdown).toBe("¶1 ## 潮汐\n\n¶2 潮水每天涨落两次。");
+    expect(markdown).toBe("¶0 ## 潮汐\n\n¶1 潮水每天涨落两次。");
     const proposed = structured<Proposed>(
       await agent.callTool({
         name: "propose_changes",
@@ -644,8 +644,8 @@ describe("an outside agent's proposed changes (#352)", () => {
           mindId: mind.id,
           version,
           changes: [
-            { paragraph: "¶2", text: `大潮每月出现两次，在新月和满月时${spring}。` },
-            { paragraph: "¶2+", text: "港口管理处每年都会公布全年的潮汐时间表。" },
+            { paragraph: "¶1", text: `大潮每月出现两次，在新月和满月时${spring}。` },
+            { paragraph: "¶1+", text: "港口管理处每年都会公布全年的潮汐时间表。" },
           ],
         },
       }),
@@ -653,7 +653,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect(proposed.uncited).toEqual(["港口管理处每年都会公布全年的潮汐时间表。"]);
     await client.settled();
     const again = await readNamed(agent, mind.id);
-    expect(again.markdown).toBe("¶1 ## 潮汐\n\n¶2 （修订待处理） 潮水每天涨落两次。");
+    expect(again.markdown).toBe("¶0 ## 潮汐\n\n¶1 （修订待处理） 潮水每天涨落两次。");
     expect(
       refusal(
         await agent.callTool({
@@ -661,18 +661,18 @@ describe("an outside agent's proposed changes (#352)", () => {
           arguments: {
             mindId: mind.id,
             version: again.version,
-            changes: [{ paragraph: "¶2", remove: true }],
+            changes: [{ paragraph: "¶1", remove: true }],
           },
         }),
       ),
-    ).toBe("¶2 已有修订待处理。先在 IncarnaMind 中接受或拒绝。");
+    ).toBe("¶1 已有修订待处理。先在 IncarnaMind 中接受或拒绝。");
     // What it got wrong, it reads in Chinese too.
     for (const [paragraph, said] of [
       [
         "¶2a",
         "“¶2a”不是段落名称。用 ¶3 指 read_mind 列出的段落，用 ¶3+ 在其后添加，用 ¶+ 在上一处修改之后添加。",
       ],
-      ["¶9", "笔记中没有 ¶9：段落为 ¶1 到 ¶2。"],
+      ["¶9", "笔记中没有 ¶9：¶0 是标题，段落为 ¶1 到 ¶1。"],
     ] as const) {
       expect(
         refusal(

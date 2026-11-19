@@ -224,11 +224,11 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
     ]);
     expect(calls).toEqual([]);
 
-    // Its changes to its own Note wait for the User, as in a Folder.
+    // Its changes to its own Note apply at once, as in a Folder (#3371).
     const named = structured<{ version: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
     );
-    const proposed = structured<{ waiting: number }>(
+    const proposed = structured<{ status: string; waiting: number }>(
       await agent.callTool({
         name: "propose_changes",
         arguments: {
@@ -238,7 +238,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
         },
       }),
     );
-    expect(proposed.waiting).toBe(1);
+    expect(proposed).toMatchObject({ status: "applied", waiting: 0 });
   });
 
   // protects=IncarnaMind's own check, started by the agent, reads only what the agent may read; fails_when=check_mind refuses a Note in no Folder or checks it against Documents the agent wasn't given

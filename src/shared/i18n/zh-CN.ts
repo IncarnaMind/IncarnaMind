@@ -7834,6 +7834,10 @@ export const zhCN = {
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",
   "agents.problem.waiting": "{paragraph} 已有修订待处理。先在 IncarnaMind 中接受或拒绝。",
   "agents.problem.busy": "IncarnaMind 正在写入 {paragraph}。写完后再试。",
+  "agents.problem.changedByYou":
+    "你读取这篇笔记后，你自己的修改让它有了新版本。用 propose_changes 返回的 version，或用 named 重新读取笔记，再做这次修改。",
+  "agents.problem.changedByUser":
+    "你读取这篇笔记后，用户修改了它。用 named 重新读取，再做你的修改。",
   "agents.problem.too-many": "这个智能体在过去一小时内已新建 {max} 篇笔记，达到上限。稍后再试。",
   "agents.check.notYours": "只能核对这个智能体用 create_mind 写的笔记，这篇不是它写的。",
   "agents.check.noDocuments": "这篇笔记所在的文件夹里没有可对照的文档。",
@@ -7855,10 +7859,21 @@ export const zhCN = {
   "agents.check.reportAgain":
     "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用。",
   "agents.note.writtenBy": "{name} 写入，{when}",
+  "agents.note.wrote": "{name} 新建了笔记“{mind}”",
+  "agents.note.changed.one": "{name} 修改了“{mind}”中的 1 个段落",
+  "agents.note.changed": "{name} 修改了“{mind}”中的 {count} 个段落",
+  "agents.note.added.one": "{name} 在“{mind}”中添加了 1 个段落",
+  "agents.note.added": "{name} 在“{mind}”中添加了 {count} 个段落",
+  "agents.note.edited": "{name} 修改了“{mind}”",
+  "agents.note.nothingToUndo": "{name} 对“{mind}”的修改已没有可撤销的内容：它改动的部分已被删除。",
+  "agents.note.nothingToRedo": "{name} 对“{mind}”的修改已没有可重做的内容：它改动的部分已被删除。",
+  "agents.note.undoGone": "这次修改已无法撤销。可在笔记的“历史版本”中找到修改前的版本。",
   "agents.create.text": "正文",
   "agents.create.folder": "给出 folderId：list_minds 列出的文件夹之一。",
   "agents.mind.waiting": "（修订待处理）",
   "agents.mind.busy": "（正在写入）",
+  "agents.mind.usersWrote": "（用户写的）",
+  "agents.mind.usersChanged": "（用户改过）",
   "agents.propose.list": "列出 1 到 {max} 处修改。",
   "agents.propose.name":
     "“{name}”不是段落名称。用 ¶3 指 read_mind 列出的段落，用 ¶3+ 在其后添加，用 ¶+ 在上一处修改之后添加。",
@@ -7870,6 +7885,7 @@ export const zhCN = {
   "agents.propose.firstAdd": "¶+ 会添加在上一处修改之后，先写明一个段落。",
   "agents.propose.noParagraphs": "笔记中没有 {name}：这篇笔记没有可命名的段落。",
   "agents.propose.outOfRange": "笔记中没有 {name}：段落为 ¶1 到 ¶{count}。",
+  "agents.propose.outOfRange.titled": "笔记中没有 {name}：¶0 是标题，段落为 ¶1 到 ¶{count}。",
   "agents.propose.twice": "{name} 写了两次：每个段落只修改一次。",
   "agents.propose.formula":
     "{name} 中有引用位于两个美元符号之间，会被当作公式：把它写在美元符号之外。",
@@ -7944,6 +7960,7 @@ export const zhCN = {
   "agents.activity.read_mind": "读取了笔记“{text}”",
   "agents.activity.ask": "提问：“{text}”",
   "agents.activity.propose_changes": "对“{text}”提出了修改",
+  "agents.activity.changed": "修改了笔记“{text}”",
   "agents.activity.create_mind": "新建了笔记“{text}”",
   "agents.activity.check_mind": "核对了笔记“{text}”",
   "agents.activity.check_mind_yourself": "读取了笔记“{text}”，准备核对",

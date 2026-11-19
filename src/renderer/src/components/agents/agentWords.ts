@@ -119,6 +119,10 @@ export function doneWords(
 /** A call in the activity list: what it did, and how many results, or why it didn't. */
 export function activityWords(activity: AgentActivity, t: Translate): string {
   const text = activity.summary;
+  // Changes to a note the agent wrote apply at once, and count none waiting (#3371).
+  const applied =
+    activity.tool === "propose_changes" && activity.outcome === "done" && activity.count === null;
+  if (applied) return t("agents.activity.changed", { text });
   const what = t(`agents.activity.${activity.tool}`, { text });
   if (activity.outcome !== "done") {
     const reason = t(`agents.reason.${activity.problem ?? "failed"}`);

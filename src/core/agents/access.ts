@@ -11,7 +11,9 @@
  * User's Documents, and a Mind only through `propose_changes`, which the User
  * allows per pairing and whose changes wait for them as Proposals (#352,
  * ./proposals). With the same leave `create_mind` writes a new Mind (#3306):
- * it changes none there is, so it doesn't wait.
+ * it changes none there is, so it doesn't wait. In a Mind the pairing wrote
+ * itself, its changes apply at once, each a step the User can undo after a
+ * Checkpoint (#3371, ./ownChanges).
  *
  * Only IncarnaMind mints a Citation (./citations): a quote is checked first,
  * by the Citation check Answers use, and gets a token only once found. A
@@ -26,6 +28,13 @@ import { citedLocation, type LiveDocument, withShownName } from "../../shared/ci
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
+import {
+  addsOnly,
+  changeKinds,
+  countChanged,
+  decideProposals,
+  waitingChanges,
+} from "../../shared/proposals";
 import { setTextOrigin } from "../../shared/textOrigins";
 import type { OutsideAnswer } from "../answers";
 import type {
@@ -41,6 +50,7 @@ import { matchingTerms } from "../answers/citing";
 import {
   type AgentActivity,
   type AgentCitationShown,
+  type AgentNoteChange,
   type AgentProblem,
   type AgentToolName,
   BLOCK_ID_ATTRIBUTE,
@@ -64,6 +74,8 @@ import {
   type CitedToken,
   HeldParagraph,
   type NamedChange,
+  type NamedNote,
+  type NamedOptions,
   namedNote,
   newBlocks,
   proposeNamed,
@@ -187,7 +199,8 @@ export interface AgentMindList {
     documents: number;
     /** Its Documents by name, the first `MAX_LISTED_DOCUMENTS`: never their text (#3363, #3364). */
     documentList: { id: string; name: string; kind: string }[];
-    minds: { id: string; title: string; updatedAt: string }[];
+    /** `yours`: this agent wrote it, so its changes there apply at once (#3371). */
+    minds: { id: string; title: string; updatedAt: string; yours?: true }[];
   }[];
 }
 
@@ -234,8 +247,19 @@ export interface AgentProposeInput {
 
 export interface AgentProposed {
   mindId: string;
-  /** How many of its changes wait for the User in the Note: none applies until they accept it. */
+  /**
+   * "applied": the changes are in the Note now, one step the User can undo, since this agent
+   * wrote it (#3371); "waiting": they wait for the User to accept or reject.
+   */
+  status: "applied" | "waiting";
+  /** How many of its changes wait for the User in the Note; 0 once they applied. */
   waiting: number;
+  /** How many changes wait in the Note in all, this agent's and any before them. */
+  waitingInNote: number;
+  /** The Note as it is now, read by name as `read_mind` with `named` reads it: its next change names these. */
+  markdown: string;
+  nextOffset: number | null;
+  version: string;
   /** Each token in the text, checked again against its Document as it is now. */
   citations: AgentCheckedCitation[];
   /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
@@ -370,7 +394,10 @@ export interface AgentAccess {
   listMinds(): Promise<AgentMindList>;
   readMind(input: AgentReadMindInput): Promise<AgentMindText>;
   ask(input: AgentAskInput, signal?: AbortSignal): Promise<AgentAnswer>;
-  /** Proposes changes to a Note, which wait for the User (#352); never applied by the agent. */
+  /**
+   * Changes a Note: at once in a Note this agent wrote, as a step the User can undo (#3371);
+   * in any other, as changes that wait for the User (#352).
+   */
   proposeChanges(input: AgentProposeInput): Promise<AgentProposed>;
   /** Writes a new Note in one of the pairing's Folders (#3306): there at once, as the agent's text. */
   createMind(input: AgentCreateInput): Promise<AgentCreated>;
@@ -500,6 +527,18 @@ export interface AgentAccessDeps {
   mindBlocks<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
   /** Changes a Mind's Blocks in one Yjs transaction, stored and sent to its open windows. */
   editMind<T>(mindId: string, change: (blocks: Y.XmlFragment) => T): T;
+  /**
+   * `editMind` for a change that applies at once in a Note the agent wrote (#3371): one step the
+   * User's Undo takes back, by `step`; null when it changed nothing.
+   */
+  editOwnMind<T>(
+    mindId: string,
+    change: (blocks: Y.XmlFragment) => T,
+  ): { value: T; step: string | null };
+  /** Saves a Checkpoint of a Mind as it is, just before an agent's change applies there. */
+  checkpoint(mindId: string): void;
+  /** Tells the windows of a Note an agent wrote, or changed at once (#3371). */
+  noteChanged(change: AgentNoteChange): void;
   /** A Mind as Markdown, each Citation's footnote as `footnote` words it (see ../exports). */
   mindMarkdown(
     mindId: string,
@@ -530,6 +569,11 @@ export interface AgentAccessDeps {
   checkRecord(mindId: string): Promise<Pick<CheckRecord, "models" | "sentences">>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
+  /**
+   * Each Note's version right after a pairing's last change to it, by `versionKey`: a change
+   * built on an older version is refused for its true cause, the agent's own change or another's.
+   */
+  versions: Map<string, string>;
   /** `CHECK_WAIT_MS`, unless a test waits less. */
   checkWaitMs?: number;
   citations: AgentCitations;
@@ -737,30 +781,36 @@ function parseChanges(value: unknown, t: Say): AskedChange[] {
   });
 }
 
-/** The changes, each for the named paragraph it is for, in a Note of `count` named paragraphs. */
-function placeChanges(asked: readonly AskedChange[], count: number, t: Say): NamedChange[] {
+/** The changes, each for the named paragraph it is for, by its place in `note`. */
+function placeChanges(asked: readonly AskedChange[], note: NamedNote, t: Say): NamedChange[] {
+  const titled = note.paragraphs[0]?.name === "¶0";
+  const count = note.paragraphs.length - (titled ? 1 : 0);
   const named = new Set<number>();
   let before: number | null = null;
   return asked.map((change): NamedChange => {
-    const n = change.n ?? (before === null ? null : before + 1);
+    const n = change.n ?? before;
     if (n === null) throw new AgentRefusedError("invalid", t("agents.propose.firstAdd"));
-    if (n < 1 || n > count) {
+    const at = note.paragraphs.findIndex((paragraph) => paragraph.name === `¶${n}`);
+    if (at < 0) {
       throw new AgentRefusedError(
         "invalid",
-        count === 0
+        note.paragraphs.length === 0
           ? t("agents.propose.noParagraphs", { name: change.name })
-          : t("agents.propose.outOfRange", { name: change.name, count }),
+          : t(titled ? "agents.propose.outOfRange.titled" : "agents.propose.outOfRange", {
+              name: change.name,
+              count,
+            }),
       );
     }
-    before = n - 1;
-    if (change.kind === "add") return { kind: "add", after: n - 1, text: change.text };
-    if (named.has(n)) {
+    before = n;
+    if (change.kind === "add") return { kind: "add", after: at, text: change.text };
+    if (named.has(at)) {
       throw new AgentRefusedError("invalid", t("agents.propose.twice", { name: change.name }));
     }
-    named.add(n);
+    named.add(at);
     return change.kind === "remove"
-      ? { kind: "remove", at: n - 1 }
-      : { kind: "rewrite", at: n - 1, text: change.text };
+      ? { kind: "remove", at }
+      : { kind: "rewrite", at, text: change.text };
   });
 }
 
@@ -1164,6 +1214,19 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   };
 
   /**
+   * How a Note is named for an agent: its title as ¶0, and in a Note the agent wrote, what the
+   * User wrote there marked as theirs (#3371).
+   */
+  const namingOf = (own: boolean): NamedOptions => ({
+    title: true,
+    ...(own && {
+      users: { wrote: t("agents.mind.usersWrote"), changed: t("agents.mind.usersChanged") },
+    }),
+  });
+
+  const versionKey = (pairing: AdmittedPairing, mindId: string) => `${pairing.id}\u0000${mindId}`;
+
+  /**
    * How an agent reads a Note by name: each Citation of its Folders that was found as its
    * token, to keep or cite again, and the others as handles that only keep them. `cited`
    * hears the Documents.
@@ -1433,6 +1496,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             .sort((a, b) => a.name.localeCompare(b.name))
             .slice(0, MAX_LISTED_DOCUMENTS),
         });
+        // No Note it wrote is older than the pairing, which spares reading the others' records.
+        const yours = (mind: Mind) =>
+          mind.createdAt >= pairing.createdAt && wrote(pairing, mind.id);
+        const row = (mind: Mind, own: boolean) => ({
+          id: mind.id,
+          title: mind.title || mind.autoTitle || t("mind.untitled"),
+          updatedAt: mind.updatedAt,
+          ...(own && { yours: true as const }),
+        });
         const folders: AgentMindList["folders"] = deps
           .folders()
           .filter((folder) => folderIds.includes(folder.id))
@@ -1442,11 +1514,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             ...listed(deps.documentsIn([folder.id])),
             minds: minds
               .filter((mind) => mind.folderId === folder.id)
-              .map((mind) => ({
-                id: mind.id,
-                title: mind.title || mind.autoTitle || t("mind.untitled"),
-                updatedAt: mind.updatedAt,
-              })),
+              .map((mind) => row(mind, yours(mind))),
           }));
         if (folderIds.includes(NOT_IN_A_FOLDER_ID)) {
           folders.push({
@@ -1454,17 +1522,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             name: t("library.unsorted"),
             ...listed(deps.documentsIn([NOT_IN_A_FOLDER_ID])),
             minds: minds
-              .filter(
-                (mind) =>
-                  mind.folderId === null &&
-                  mind.createdAt >= pairing.createdAt &&
-                  wrote(pairing, mind.id),
-              )
-              .map((mind) => ({
-                id: mind.id,
-                title: mind.title || mind.autoTitle || t("mind.untitled"),
-                updatedAt: mind.updatedAt,
-              })),
+              .filter((mind) => mind.folderId === null && yours(mind))
+              .map((mind) => row(mind, true)),
           });
         }
         return {
@@ -1490,8 +1549,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const live = deps.liveDocuments();
         const cited: string[] = [];
         if (input?.named === true) {
+          const naming = namingOf(wrote(pairing, mind.id));
           const note = deps.mindBlocks(mind.id, (blocks) =>
-            namedNote(blocks, namedWords(pairing, inScope, cited)),
+            namedNote(blocks, namedWords(pairing, inScope, cited), naming),
           );
           return {
             result: { ...page(mind, note.text, offset), version: note.version },
@@ -1645,26 +1705,43 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
           }
         }
-        let proposed: { waiting: number; uncited: string[] };
-        try {
-          proposed = deps.editMind(mind.id, (blocks) => {
-            const note = namedNote(blocks, namedWords(pairing, inScope, []));
-            if (note.version !== version) {
-              throw new AgentRefusedError("changed", t("agents.problem.changed"));
-            }
-            return proposeNamed(blocks, note, placeChanges(asked, note.paragraphs.length, t), {
-              request: deps.newId(),
-              made: {
-                source: "outside-agent",
-                agent: pairing.name,
-                pairingId: pairing.id,
-                createdAt: deps.now(),
-              },
-              cited: (token) => tokens.get(token)?.cited ?? null,
-              notFound: t("agents.answer.notFound"),
-              newId: deps.newId,
-            });
+        // A copy of a Note the agent wrote is the User's: its changes wait there (#3371).
+        const own = wrote(pairing, mind.id);
+        const naming = namingOf(own);
+        const key = versionKey(pairing, mind.id);
+        const request = deps.newId();
+        const mine = (ref: { request: string }) => ref.request === request;
+        const write = (blocks: Y.XmlFragment) => {
+          const note = namedNote(blocks, namedWords(pairing, inScope, []), naming);
+          if (note.version !== version) {
+            // Its own last change gave the Note the version it has now: nothing else changed it.
+            const cause =
+              deps.versions.get(key) === note.version ? "changedByYou" : "changedByUser";
+            throw new AgentRefusedError("changed", t(`agents.problem.${cause}`));
+          }
+          const proposed = proposeNamed(blocks, note, placeChanges(asked, note, t), {
+            request,
+            made: {
+              source: "outside-agent",
+              agent: pairing.name,
+              pairingId: pairing.id,
+              createdAt: deps.now(),
+            },
+            cited: (token) => tokens.get(token)?.cited ?? null,
+            notFound: t("agents.answer.notFound"),
+            newId: deps.newId,
+            ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
           });
+          const kinds = changeKinds(blocks, mine);
+          if (own) decideProposals(blocks, mine, "accept");
+          const now = namedNote(blocks, namedWords(pairing, inScope, []), naming);
+          return { ...proposed, kinds, now, waitingInNote: waitingChanges(blocks) };
+        };
+        let written: ReturnType<typeof write>;
+        let step: string | null = null;
+        try {
+          if (own) ({ value: written, step } = deps.editOwnMind(mind.id, write));
+          else written = deps.editMind(mind.id, write);
         } catch (error) {
           if (error instanceof ChangeRefused) {
             throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
@@ -1677,16 +1754,36 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             }),
           );
         }
+        deps.versions.set(key, written.now.version);
+        if (own && step !== null) {
+          const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
+          deps.noteChanged({
+            mindId: mind.id,
+            agent: pairing.name,
+            kind: "changed",
+            changed: added > 0 ? 0 : countChanged(written.kinds),
+            added,
+            tables: written.kinds.filter((kind) => kind === "table-added").length,
+            step,
+          });
+        }
         const citations = [...tokens.values()].map((each) => each.report);
+        const { markdown, nextOffset } = page(mind, written.now.text, 0);
         return {
           result: {
             mindId: mind.id,
-            waiting: proposed.waiting,
+            status: own ? "applied" : "waiting",
+            waiting: own ? 0 : written.waiting,
+            waitingInNote: written.waitingInNote,
+            markdown,
+            nextOffset,
+            version: written.now.version,
             citations,
             // As the change's bar counts them, from what was written, the Citations kept too.
-            uncited: proposed.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
+            uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
           },
-          count: proposed.waiting,
+          // An activity row of changes that applied at once counts none waiting: null says so.
+          count: own ? null : written.waiting,
           documentIds: [...tokens.values()].flatMap((each) =>
             each.cited ? [each.cited.minted.documentId] : [],
           ),
@@ -1748,6 +1845,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             mindId: mind.id,
             createdAt: deps.now(),
           });
+        });
+        deps.noteChanged({
+          mindId: mind.id,
+          agent: pairing.name,
+          kind: "wrote",
+          changed: 0,
+          added: 0,
+          tables: 0,
+          step: null,
         });
         return {
           result: {

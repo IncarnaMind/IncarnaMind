@@ -8297,6 +8297,11 @@ export const en = {
   "agents.problem.waiting":
     "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
   "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
+  // Why a change built on an older version of a note was refused (#3371): its true cause.
+  "agents.problem.changedByYou":
+    "Your own change gave this note a new version after you read it. Use the version propose_changes returned, or read the note again with named, then make this change again.",
+  "agents.problem.changedByUser":
+    "The User changed this note after you read it. Read it again with named, then make your changes again.",
   "agents.problem.too-many":
     "This agent has written {max} notes in the last hour, which is the most it may. Try again later.",
   // An outside agent has a note it wrote checked (#3317).
@@ -8325,11 +8330,27 @@ export const en = {
     "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite that IncarnaMind can confirm.",
   // An outside agent writes a new note (#3306).
   "agents.note.writtenBy": "Written by {name}, {when}",
+  // A note an outside agent wrote or changed, said where the Library's work shows (#3371).
+  "agents.note.wrote": "{name} wrote the note “{mind}”",
+  "agents.note.changed.one": "{name} changed 1 paragraph in “{mind}”",
+  "agents.note.changed": "{name} changed {count} paragraphs in “{mind}”",
+  "agents.note.added.one": "{name} added 1 paragraph to “{mind}”",
+  "agents.note.added": "{name} added {count} paragraphs to “{mind}”",
+  "agents.note.edited": "{name} changed “{mind}”",
+  "agents.note.nothingToUndo":
+    "Nothing of {name}’s change to “{mind}” is left to undo: what it changed was deleted since.",
+  "agents.note.nothingToRedo":
+    "Nothing of {name}’s change to “{mind}” is left to redo: what it changed was deleted since.",
+  "agents.note.undoGone":
+    "This change can’t be undone any more. The note’s History has its version from before it.",
   "agents.create.text": "the text",
   "agents.create.folder": "Give folderId: one of the Folders list_minds lists.",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
   "agents.mind.busy": "(being written)",
+  // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
+  "agents.mind.usersWrote": "(the User wrote this)",
+  "agents.mind.usersChanged": "(the User changed this)",
   // Why an outside agent's proposed changes couldn't be read (#352), for it to put right.
   "agents.propose.list": "List 1 to {max} changes.",
   "agents.propose.name":
@@ -8342,6 +8363,8 @@ export const en = {
   "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
   "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
   "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
+  "agents.propose.outOfRange.titled":
+    "{name} isn’t in the note: ¶0 is its title, and its paragraphs are ¶1 to ¶{count}.",
   "agents.propose.twice": "{name} is named twice: change each paragraph once.",
   "agents.propose.formula":
     "In {name}, a Citation sits between two dollar signs, which read as a formula: write it outside them.",
@@ -8419,6 +8442,7 @@ export const en = {
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
   "agents.activity.propose_changes": "Proposed changes to “{text}”",
+  "agents.activity.changed": "Changed the note “{text}”",
   "agents.activity.create_mind": "Wrote the note “{text}”",
   "agents.activity.check_mind": "Had the note “{text}” checked",
   "agents.activity.check_mind_yourself": "Read the note “{text}” to check it",

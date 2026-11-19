@@ -56,6 +56,11 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     editMind: () => {
       throw new Error("Not called.");
     },
+    editOwnMind: () => {
+      throw new Error("Not called.");
+    },
+    checkpoint: () => undefined,
+    noteChanged: () => undefined,
     show: () => undefined,
     mindMarkdown: () => "",
     createMind: () => {
@@ -74,6 +79,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       throw new Error("Not called.");
     },
     checkRuns: createCheckRuns(),
+    versions: new Map(),
     citations: {
       find: () => null,
       mint: () => {

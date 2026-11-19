@@ -15,6 +15,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { listOf } from "../../../shared/i18n/join";
 import { organizeHeld, organizes, organizesNewDocuments } from "../../../shared/libraryModels";
 import { mindName } from "../../../shared/naming";
+import { agentNoteWords, dismissAgentNote, openAgentNote, useAgentNotes } from "../agentNotes";
 import { allowAndSort, keepSortingOff } from "../allowSorting";
 import { attentionIds } from "../attention";
 import { commands } from "../commands/registry";
@@ -428,6 +429,7 @@ function useStatuses(): Status[] {
   const savedOutside = useAppStore((state) => state.savedOutside);
   const dismissSavedOutside = useAppStore((state) => state.dismissSavedOutside);
   const joined = useJoinedMeetings((state) => state.joined);
+  const agentNotes = useAgentNotes((state) => state.lines);
   const minds = useAppStore((state) => state.minds);
   const leftApart = useMeetingsLeftApart((state) => state.left);
   const leftApartDetails = useMeetingsLeftApartDetails(leftApart);
@@ -836,6 +838,26 @@ function useStatuses(): Status[] {
           : t("status.alreadyAdded.other", { count: alreadyAdded.length }),
       full: alreadyAddedLine(t, language, alreadyAdded),
       dismiss: dismissAlreadyAdded,
+    });
+  }
+
+  // What the User's own AI did to a Note while IncarnaMind was open (#3371), the newest first.
+  for (const change of [...agentNotes].reverse()) {
+    const mind = minds.find((each) => each.id === change.mindId);
+    if (!mind) continue;
+    const said = saidInLine(t, agentNoteWords(change, mindName(mind) || t("mind.untitled")));
+    statuses.push({
+      testId: `agent-note-${change.mindId}`,
+      tone: "info",
+      short: said.message,
+      full: said.fullMessage ?? said.message,
+      wraps: true,
+      action: {
+        label: t("mind.open"),
+        testId: "agent-note-open",
+        run: () => openAgentNote(change.mindId),
+      },
+      dismiss: () => dismissAgentNote(change.mindId),
     });
   }
 
