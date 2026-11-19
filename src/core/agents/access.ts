@@ -28,6 +28,7 @@
 
 import * as Y from "yjs";
 import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
+import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
@@ -74,6 +75,7 @@ import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
 import { isRecord } from "../errors";
 import type { LibraryLists } from "../library/lists";
+import type { NoteTranscript } from "../meetings/oneItem";
 import { insertBlocks } from "../noteAdding";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
@@ -216,9 +218,27 @@ export interface AgentMindList {
     documents: number;
     /** Its Documents by name, the first `MAX_LISTED_DOCUMENTS`: never their text (#3363, #3364). */
     documentList: { id: string; name: string; kind: string }[];
-    /** `yours`: this agent wrote it, so its changes there apply at once (#3371). */
-    minds: { id: string; title: string; updatedAt: string; yours?: true }[];
+    /**
+     * `yours`: this agent wrote it, so its changes there apply at once (#3371). `meeting` or
+     * `voiceMemo`: the Note holds one, whose Transcript is listed only here (#3384).
+     */
+    minds: {
+      id: string;
+      title: string;
+      updatedAt: string;
+      yours?: true;
+      meeting?: AgentHeldCall;
+      voiceMemo?: AgentHeldCall;
+    }[];
   }[];
+}
+
+/** A Meeting or voice memo a Note holds, as `list_minds` marks the Note (#3384). */
+export interface AgentHeldCall {
+  /** When it started, as Answers give a call's date to a model; null when that isn't known. */
+  started: string | null;
+  /** Its Transcript's documentId, to search and read as any Document. */
+  transcript: string;
 }
 
 export interface AgentReadMindInput {
@@ -541,6 +561,8 @@ export interface AgentAccessDeps {
   foldersInScope(folderIds: readonly string[]): string[];
   /** The ids of the live Documents in these Folders; `NOT_IN_A_FOLDER_ID` stands for those in no Folder now. */
   documentsIn(folderIds: readonly string[]): string[];
+  /** Every live Transcript that belongs to a Note (#2528). */
+  noteTranscripts(): readonly NoteTranscript[];
   /** The search Answers use, without reranking, over these Documents. */
   search(
     query: string,
@@ -1034,21 +1056,40 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     }
   }
 
+  /**
+   * These Documents, a Transcript among them only while the pairing reaches its Note: its words
+   * are its Note's, and the User's Notes are shared only with their Folder (#3384).
+   */
+  const withTheirNotes = (pairing: AdmittedPairing, documentIds: string[]): string[] => {
+    const held = deps.noteTranscripts();
+    if (held.length === 0) return documentIds;
+    const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
+    const apart = new Set(
+      held
+        .filter((each) => {
+          const mind = minds.get(each.mindId);
+          return !mind || !noteReached(pairing, mind);
+        })
+        .map((each) => each.documentId),
+    );
+    return documentIds.filter((id) => !apart.has(id));
+  };
+
   /** The Documents a call may read: its pairing's Folders, or only those of them it names. */
   const scopeOf = (pairing: AdmittedPairing, folderIds: unknown): string[] => {
     if (pairing.folderIds.length === 0) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
     const effective = deps.foldersInScope(pairing.folderIds);
-    if (folderIds === undefined) return deps.documentsIn(effective);
+    if (folderIds === undefined) return withTheirNotes(pairing, deps.documentsIn(effective));
     if (!Array.isArray(folderIds) || !folderIds.every((id) => typeof id === "string")) {
       throw new AgentRefusedError("invalid", "folderIds must be a list of Folder ids.");
     }
-    if (folderIds.length === 0) return deps.documentsIn(effective);
+    if (folderIds.length === 0) return withTheirNotes(pairing, deps.documentsIn(effective));
     if (!folderIds.every((id) => effective.includes(id))) {
       throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
     }
-    return deps.documentsIn(folderIds);
+    return withTheirNotes(pairing, deps.documentsIn(folderIds));
   };
 
   /** A live Passage of these Documents, or a refusal that tells nothing of the others. */
@@ -1061,9 +1102,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     return passage;
   };
 
+  /** Where a Passage is; a Transcript's as `cite` places a Citation of all of it, by who said its first line. */
   const passageLocation = (passage: WindowedPassage) => {
-    const location = deps.citing.locate(passage);
-    return label(location, passage.pageFrom, passage.pageTo, passage.documentId);
+    const whole =
+      passage.documentKind === "transcript"
+        ? deps.citing.citeQuote(passage.passageId, passage.text)
+        : null;
+    return whole?.check === "found"
+      ? label(whole.location, whole.pageFrom, whole.pageTo, passage.documentId)
+      : label(deps.citing.locate(passage), passage.pageFrom, passage.pageTo, passage.documentId);
   };
 
   /** Mints the token of a Citation the check found. */
@@ -1188,6 +1235,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const readsUnfiled = (pairing: AdmittedPairing) => readsNoFolder(deps, pairing);
   const wrote = (pairing: AdmittedPairing, mindId: string) => pairingWrote(deps, pairing, mindId);
   const reaches = (pairing: AdmittedPairing, mind: Mind) => pairingReaches(deps, pairing, mind);
+  // No Note it wrote is older than the pairing, which spares reading the others' records.
+  const noteReached = (pairing: AdmittedPairing, mind: Mind) =>
+    (mind.folderId !== null || mind.createdAt >= pairing.createdAt) && reaches(pairing, mind);
 
   /**
    * A Mind in the pairing's Folders, or in no Folder when the pairing wrote it and reads the
@@ -1677,41 +1727,63 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         const minds = deps.minds();
         const folderIds = deps.foldersInScope(pairing.folderIds);
-        const listed = (documentIds: string[]) => ({
-          documents: documentIds.length,
-          documentList: deps
-            .documentsNamed(documentIds)
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .slice(0, MAX_LISTED_DOCUMENTS),
-        });
+        const held = deps.noteTranscripts();
+        const transcripts = new Set(held.map((each) => each.documentId));
+        const listed = (documentIds: string[]) => {
+          const own = documentIds.filter((id) => !transcripts.has(id));
+          return {
+            documents: own.length,
+            documentList: deps
+              .documentsNamed(own)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .slice(0, MAX_LISTED_DOCUMENTS),
+          };
+        };
         // No Note it wrote is older than the pairing, which spares reading the others' records.
         const yours = (mind: Mind) =>
           mind.createdAt >= pairing.createdAt && wrote(pairing, mind.id);
-        const row = (mind: Mind, own: boolean) => ({
-          id: mind.id,
-          title: mind.title || mind.autoTitle || t("mind.untitled"),
-          updatedAt: mind.updatedAt,
-          ...(own && { yours: true as const }),
-        });
+        const row = (mind: Mind, own: boolean, inFolder: ReadonlySet<string>) => {
+          const call = held.find(
+            (each) => each.mindId === mind.id && inFolder.has(each.documentId),
+          );
+          const mark: AgentHeldCall | null = call
+            ? {
+                started: call.startedAt && formatFullDateTime(call.startedAt, "en"),
+                transcript: call.documentId,
+              }
+            : null;
+          return {
+            id: mind.id,
+            title: mind.title || mind.autoTitle || t("mind.untitled"),
+            updatedAt: mind.updatedAt,
+            ...(own && { yours: true as const }),
+            ...(mark && (call?.kind === "memo" ? { voiceMemo: mark } : { meeting: mark })),
+          };
+        };
         const folders: AgentMindList["folders"] = deps
           .folders()
           .filter((folder) => folderIds.includes(folder.id))
-          .map((folder) => ({
-            id: folder.id,
-            name: folder.name,
-            ...listed(deps.documentsIn([folder.id])),
-            minds: minds
-              .filter((mind) => mind.folderId === folder.id)
-              .map((mind) => row(mind, yours(mind))),
-          }));
+          .map((folder) => {
+            const documentIds = deps.documentsIn([folder.id]);
+            const inFolder = new Set(documentIds);
+            return {
+              id: folder.id,
+              name: folder.name,
+              ...listed(documentIds),
+              minds: minds
+                .filter((mind) => mind.folderId === folder.id)
+                .map((mind) => row(mind, yours(mind), inFolder)),
+            };
+          });
         if (folderIds.includes(NOT_IN_A_FOLDER_ID)) {
+          const documentIds = deps.documentsIn([NOT_IN_A_FOLDER_ID]);
           folders.push({
             id: NOT_IN_A_FOLDER_ID,
             name: t("library.unsorted"),
-            ...listed(deps.documentsIn([NOT_IN_A_FOLDER_ID])),
+            ...listed(documentIds),
             minds: minds
               .filter((mind) => mind.folderId === null && yours(mind))
-              .map((mind) => row(mind, true)),
+              .map((mind) => row(mind, true, new Set(documentIds))),
           });
         }
         return {

@@ -295,6 +295,7 @@ import {
   joinedMeetingsSaid,
   meetingsLeftApart,
   meetingsLeftApartSaid,
+  noteTranscripts,
   transcriptsApart,
   undoMeetingJoin,
 } from "./meetings/oneItem";
@@ -3025,7 +3026,10 @@ export function createCore(adapters: CoreAdapters): Core {
     }));
     return libraryLists({
       source,
-      documents: documents.getMany([...documentIds]),
+      // A meeting is counted once, as its Note, as the Library counts it (#2528, #3384).
+      documents: documents
+        .getMany([...documentIds])
+        .filter((document) => document.meetingMindId === null),
       folders: granted.map((folder) => ({ ...folder, parentId: grantedAbove(folder.parentId) })),
       folderOf: new Map(
         documentIds.flatMap((documentId) => {
@@ -5693,6 +5697,7 @@ export function createCore(adapters: CoreAdapters): Core {
         const unfiled = library.unfiledDocumentIds().filter((id) => !leftOut.has(id));
         return [...new Set([...filed, ...unfiled])];
       },
+      noteTranscripts: () => noteTranscripts(db),
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.
       search: (query, documentIds, parameters, signal) =>
