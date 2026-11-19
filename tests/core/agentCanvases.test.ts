@@ -265,6 +265,57 @@ describe("Canvases an outside agent publishes", () => {
     ).toMatch(/may only read/);
   });
 
+  it("in a Folder inside a shared one are shared with it, unless that Folder keeps its work inside", async () => {
+    const { core, coast } = await twoAgents();
+    const engineering = await core.createLibraryGroup({
+      name: "Engineering",
+      description: "",
+      parentId: coast.id,
+    });
+    const legal = await core.createLibraryGroup({
+      name: "Legal",
+      description: "",
+      parentId: coast.id,
+      keepInside: true,
+    });
+    const inside = await core.connectAgent({
+      name: "Cursor",
+      folderIds: [engineering.id],
+      propose: true,
+    });
+    const walledIn = await core.connectAgent({ name: "Zed", folderIds: [legal.id], propose: true });
+    const inner = structured<Published>(
+      await publish(await connectLegacyAgent(inside.launch), {
+        title: "Pumps",
+        html: PAGE,
+        folderId: engineering.id,
+      }),
+    );
+    const walled = structured<Published>(
+      await publish(await connectLegacyAgent(walledIn.launch), {
+        title: "Leases",
+        html: PAGE,
+        folderId: legal.id,
+      }),
+    );
+
+    const coastOnly = await core.connectAgent({ name: "Windsurf", folderIds: [coast.id] });
+    const reader = await connectLegacyAgent(coastOnly.launch);
+    const listed = structured<Listed>(await reader.callTool({ name: "list_minds", arguments: {} }));
+    const canvases = listed.folders.flatMap((folder) => folder.canvases ?? []);
+    expect(canvases.map((canvas) => canvas.title)).toEqual(["Pumps"]);
+    expect(
+      structured<Read>(
+        await reader.callTool({ name: "read_canvas", arguments: { canvasId: inner.canvasId } }),
+      ).html,
+    ).toBe(PAGE);
+    expect(
+      refusal(
+        await reader.callTool({ name: "read_canvas", arguments: { canvasId: walled.canvasId } }),
+      ),
+    ).toContain("No such Canvas");
+  });
+
   it("cite with the tokens IncarnaMind gave the agent: each a marker that opens its own Citation alone", async () => {
     const { core, coast, writer } = await twoAgents();
     const agent = await connectLegacyAgent(writer.launch);

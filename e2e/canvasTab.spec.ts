@@ -13,6 +13,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
 } from "./app";
@@ -20,7 +21,9 @@ import {
   callTool,
   connectCanvasAgent,
   inCanvas,
+  MOD,
   pointInCanvas,
+  pressInCanvas,
   publishCanvas,
   showCanvasTab,
 } from "./canvases";
@@ -146,9 +149,10 @@ window.keys = [];
 addEventListener("keydown", (event) => window.keys.push((event.metaKey || event.ctrlKey ? "mod+" : "") + event.key));
 </script>`,
     );
-    const url = await showCanvasTab(window, canvasId);
+    // Each showing of the tab draws the page afresh, at an address of its own.
+    let url = await showCanvasTab(window, canvasId);
     const inside = () => inCanvas(app, url, "document.hasFocus() && document.activeElement?.id");
-    const here = await pointInCanvas(app, window, canvasId, url, "#here");
+    let here = await pointInCanvas(app, window, canvasId, url, "#here");
     const focusPage = async () => {
       await window.mouse.move(here.x, here.y);
       await window.mouse.down();
@@ -157,40 +161,42 @@ addEventListener("keydown", (event) => window.keys.push((event.metaKey || event.
     };
 
     await focusPage();
-    await window.keyboard.press("x");
+    await pressInCanvas(app, url, "x");
     await expect.poll(() => inCanvas(app, url, "window.keys.join(' ')")).toBe("x");
 
     // The command palette, and Esc, which the palette takes once it has the focus.
-    await window.keyboard.press("ControlOrMeta+K");
+    await pressInCanvas(app, url, "K", [MOD]);
     await expect(window.getByTestId("palette")).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(window.getByTestId("palette")).toBeHidden();
 
     // Ask's composer.
     await focusPage();
-    await window.keyboard.press("ControlOrMeta+J");
+    await pressInCanvas(app, url, "J", [MOD]);
     await expect(window.getByTestId("composer-input")).toBeFocused();
+    expect(await inCanvas(app, url, "window.keys.join(' ')")).toBe("x");
 
     // The next tab, the Note, and back.
     await focusPage();
-    await window.keyboard.press("Control+Tab");
+    await pressInCanvas(app, url, "Tab", ["control"]);
     await expect(window.locator('[data-testid="mind-tab"][aria-selected="true"]')).toBeVisible();
-    await showCanvasTab(window, canvasId);
-    expect(await inCanvas(app, url, "window.keys.join(' ')")).toBe("x");
+    url = await showCanvasTab(window, canvasId);
+    here = await pointInCanvas(app, window, canvasId, url, "#here");
 
     // Tab through the page's two buttons, and out of it; Shift+Tab back in, and out at its start.
+    // Back from outside the page, Shift+Tab is the window's key.
     await focusPage();
-    await window.keyboard.press("Tab");
+    await pressInCanvas(app, url, "Tab");
     await expect.poll(inside).toBe("first");
-    await window.keyboard.press("Tab");
+    await pressInCanvas(app, url, "Tab");
     await expect.poll(inside).toBe("last");
-    await window.keyboard.press("Tab");
+    await pressInCanvas(app, url, "Tab");
     await expect.poll(() => inCanvas(app, url, "document.hasFocus()")).toBe(false);
     await window.keyboard.press("Shift+Tab");
     await expect.poll(inside).toBe("last");
-    await window.keyboard.press("Shift+Tab");
+    await pressInCanvas(app, url, "Tab", ["shift"]);
     await expect.poll(inside).toBe("first");
-    await window.keyboard.press("Shift+Tab");
+    await pressInCanvas(app, url, "Tab", ["shift"]);
     await expect.poll(() => inCanvas(app, url, "document.hasFocus()")).toBe(false);
     await agent.close();
   } finally {
@@ -213,7 +219,7 @@ const report = (cite: string, summary: string) => `<!doctype html><html><head><m
   @media (prefers-color-scheme: dark) { :root { --ink: #e7e9ec; --soft: #a3abb5; --bar: #7aa7dc; --sheet: #1b1e22; } }
   body { margin: 0; padding: 32px 40px; font: 15px/1.55 system-ui, sans-serif; color: var(--ink); background: var(--sheet); }
   h1 { font-size: 24px; margin: 0 0 4px; } .meta { color: var(--soft); margin: 0 0 20px; }
-  .figures { display: flex; gap: 24px; } .figure { flex: 1; } svg text { fill: var(--soft); font-size: 11px; }
+  .figures { display: flex; gap: 24px; } .figure { flex: 1; max-width: 480px; } svg text { fill: var(--soft); font-size: 11px; }
 </style></head><body>
 <h1>Tide report</h1><p class="meta">Prepared for the harbour office</p>
 <p id="summary">${summary} Spring tides come twice a month, at new and full moon ${cite}.</p>
@@ -225,7 +231,7 @@ const report = (cite: string, summary: string) => `<!doctype html><html><head><m
 
 test("a Canvas says it is not checked against the User's files, follows the window's dark, and waits in Recently deleted once deleted", async () => {
   test.setTimeout(120_000);
-  const { app, window } = await launchApp(dataDir, { home, sandboxed: true });
+  const { app, window } = await launchApp(dataDir, { home, sandboxed: true, systemColours: true });
   try {
     await dismissChatSetup(window);
     await withTides(window);
@@ -252,20 +258,12 @@ test("a Canvas says it is not checked against the User's files, follows the wind
     await expect(unchecked).toContainText("Claude Code");
     await shot(window, "canvas-light-en");
 
-    await window.evaluate(() =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-        device: { appearance: "dark" },
-      }),
-    );
+    await runCommand(window, "appearance.switch", "Switch to Dark");
     await expect
       .poll(() => inCanvas(app, url, "matchMedia('(prefers-color-scheme: dark)').matches"))
       .toBe(true);
     await shot(window, "canvas-dark-en");
-    await window.evaluate(() =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-        device: { appearance: "light" },
-      }),
-    );
+    await runCommand(window, "appearance.switch", "Switch to Light");
     await expect
       .poll(() => inCanvas(app, url, "matchMedia('(prefers-color-scheme: dark)').matches"))
       .toBe(false);

@@ -75,12 +75,41 @@ export async function pointInCanvas(
   url: string,
   selector: string,
 ): Promise<{ x: number; y: number }> {
+  const where = `(() => { const r = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()`;
+  await expect
+    .poll(() => inCanvas(app, url, where), { message: `${selector} in the Canvas` })
+    .not.toBeNull();
   const box = await frameOf(window, canvasId).boundingBox();
-  const inside = (await inCanvas(
-    app,
-    url,
-    `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`,
-  )) as { x: number; y: number } | null;
+  const inside = (await inCanvas(app, url, where)) as { x: number; y: number } | null;
   if (!box || !inside) throw new Error(`No ${selector} in the Canvas.`);
   return { x: box.x + inside.x, y: box.y + inside.y };
+}
+
+type Modifier = "meta" | "control" | "shift" | "alt";
+
+/** The modifier of ⌘ here: Command on a Mac, Control elsewhere. */
+export const MOD: Modifier = process.platform === "darwin" ? "meta" : "control";
+
+/**
+ * Presses a key with the focus in a Canvas's page, sent to its view as the system sends a key to
+ * the view in focus: Playwright's keyboard reaches only the window's own page.
+ */
+export async function pressInCanvas(
+  app: ElectronApplication,
+  url: string,
+  keyCode: string,
+  modifiers: Modifier[] = [],
+): Promise<void> {
+  await app.evaluate(
+    ({ webContents }, { url, keyCode, modifiers }) => {
+      const guest = webContents
+        .getAllWebContents()
+        .find((each) => each.getType() === "webview" && each.getURL() === url);
+      if (!guest) throw new Error(`No Canvas at ${url}`);
+      guest.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+      if (keyCode.length === 1) guest.sendInputEvent({ type: "char", keyCode, modifiers });
+      guest.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+    },
+    { url, keyCode, modifiers },
+  );
 }
