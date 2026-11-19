@@ -20,7 +20,7 @@ How the checks themselves work is in [`checks.md`](checks.md): each CI and night
 
 ## Tests that pass on any machine
 
-- **Launch through `launchApp` in `e2e/app.ts`.** It gives each test a temporary data folder and home folder (and refuses any other), test hooks, the stand-in search, text recognition and speech engines and, with `fakeChat`, the scripted chat model. No test uses the network, an API key or the User's own files.
+- **Launch through `launchApp` in `e2e/app.ts`.** It gives each test a temporary data folder and home folder (and refuses any other), test hooks, the stand-in search, text recognition and speech engines and, with `fakeChat`, the scripted chat model. No test uses the network, an API key or the User's own files. The app it launches opens nothing on the computer: a file, a link or a folder it is asked to open is recorded (`pathsOpened`, `urlsOpened`, `pathsShown`), and it finds only the agents the test set up (`agentApps`, or their settings in the test's home folder), never the computer's own apps.
 - **Set the window size the test needs,** with `setWindowSize` in `e2e/app.ts`. Never depend on the screen's size, the display's scale, the window being in front, or the computer's fonts and language. CI's screens, a virtual one on Linux and a small one on macOS, are not yours.
 - **Assert relations, not exact pixels.** For example, "the controls sit under the text", "it wraps by word", or "it fits inside the card". Exact sizes are for what `DESIGN.md` fixes, such as a 44px band.
 - **Wait for a state, not a time.** Use `expect(locator).toBeVisible()`, a test id or a value from the bridge, never `waitForTimeout` in new tests.

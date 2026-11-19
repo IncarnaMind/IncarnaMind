@@ -365,6 +365,16 @@ const fakeTranscriber: FakeTranscriberOptions | undefined =
     : undefined;
 
 /**
+ * A test build finds only the agents its test set up, never this computer's own apps:
+ * INCARNAMIND_TEST_AGENT_APPS (JSON) lists the folders it looks in for them, none by default.
+ * Their settings folders are looked for in the test's own home folder, as always.
+ */
+const testAgentApplications: readonly string[] | undefined =
+  import.meta.env.MODE === "test"
+    ? JSON.parse(process.env.INCARNAMIND_TEST_AGENT_APPS ?? "[]")
+    : undefined;
+
+/**
  * A test build never asks the LM Studio or Unsloth Studio on this computer:
  * INCARNAMIND_TEST_LOCAL_SERVERS (JSON) names the models each one lists, and
  * one it doesn't name isn't running. Only a test build honours it.
@@ -1047,6 +1057,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
       shimScript: join(__dirname, "agentShim.js"),
       version: app.getVersion(),
       openLink: openAgentLink,
+      ...(testAgentApplications && { applications: testAgentApplications }),
     },
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
     transcriber: fakeTranscriber
