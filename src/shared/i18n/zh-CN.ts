@@ -8037,7 +8037,6 @@ export const zhCN = {
   "agents.done.unreadable": "无法读取{agent}的设置文件，未作改动。设置已复制：粘贴到 {path} 中。",
   "agents.done.undo": "撤销",
   "agents.ask.action": "交给{agent}",
-  "agents.ask.aboutNote": "就这篇笔记问{agent}",
   "agents.ask.others": "交给其他智能体",
   "agents.ask.setUpModel": "设置 AI 模型",
   "agents.ask.copied": "已复制，粘贴到{agent}中即可。",

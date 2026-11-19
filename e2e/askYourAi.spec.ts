@@ -27,9 +27,10 @@ test.skip(
 
 /*
  * Ask your AI (#3373): a User who connected their own AI and set up no model asks it, from
- * IncarnaMind, to fix a sentence that needs a look, about a Note, and with what they typed in the
- * chat box. Claude Code has a link that opens it with the request typed; VS Code has none, so the
- * request is copied. The app opens nothing here: each link it would open is recorded.
+ * IncarnaMind, to fix a sentence that needs a look, and with what they typed in the chat box; the
+ * page above the Note stays bare. Claude Code has a link that opens it with the request typed; VS
+ * Code has none, so the request is copied. The app opens nothing here: each link it would open is
+ * recorded.
  */
 
 let dataDir: string;
@@ -111,7 +112,7 @@ async function writtenAndChecked(launch: AgentLaunch): Promise<string> {
 const typedIn = (url: string | undefined) =>
   new URL(url ?? "about:blank").searchParams.get("q") ?? "";
 
-test("an agent-only User asks their own AI from a check's card, the Note and the chat box", async () => {
+test("an agent-only User asks their own AI from a check's card and the chat box, the page bare", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   await acceptPlainTextKeys(window);
   try {
@@ -124,15 +125,8 @@ test("an agent-only User asks their own AI from a check's card, the Note and the
     );
     await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
 
-    // No nag for a model above the Note: the User's own AI, Claude Code, used last; VS Code behind ⌄.
-    const line = frontMind(window).getByTestId("ask-agent-note");
-    await expect(line.getByTestId("ask-agent-note-ask")).toHaveText(
-      "Ask Claude Code about this note",
-    );
-    await expect(line.getByTestId("ask-agent-set-up")).toHaveText("Set up a model");
-    await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
-
-    // The card's first action, reached with the keyboard: Space goes into the card on its mark.
+    // The card's first action asks Claude Code, used last, reached with the keyboard: Space goes
+    // into the card on its mark.
     const mark = frontMind(window).locator('[data-testid="claim-mark"][data-check="unsupported"]');
     await mark.focus();
     await window.keyboard.press("Space");
@@ -151,6 +145,10 @@ test("an agent-only User asks their own AI from a check's card, the Note and the
     );
     expect(request).not.toContain(CROSSINGS);
     expect(request).not.toContain(BOOKING);
+    // No line above the Note asks for a model, and none offers the agent: the page stays bare.
+    await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
+    await expect(frontMind(window)).not.toContainText("Asking needs an AI model");
+    await expect(frontMind(window)).not.toContainText("Set up a model");
 
     // VS Code has no such link: from the card's ⋯ the request is copied, and the line says where to.
     await pointAndClick(window, mark);
@@ -163,13 +161,6 @@ test("an agent-only User asks their own AI from a check's card, the Note and the
     expect(await copied(window)).toBe(request);
     expect(await urlsOpened(app)).toHaveLength(1);
 
-    // The line above the Note names it alone, for the User to go on in Claude Code.
-    await pointAndClick(window, line.getByTestId("ask-agent-note-ask"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
-    expect(typedIn((await urlsOpened(app))[1])).toBe(
-      `In IncarnaMind, about my note “${TITLE}” (mindId: ${mindId}):`,
-    );
-
     // The chat box: Enter offers Claude Code for the words, in place of the setup card; Enter again asks.
     await window.keyboard.press("ControlOrMeta+j");
     await window.keyboard.type("What did fuel cost in 2025?");
@@ -178,8 +169,8 @@ test("an agent-only User asks their own AI from a check's card, the Note and the
     await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
     await expect(window.getByTestId("model-setup")).toHaveCount(0);
     await window.keyboard.press("Enter");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
-    expect(typedIn((await urlsOpened(app))[2])).toBe(
+    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
+    expect(typedIn((await urlsOpened(app))[1])).toBe(
       `In IncarnaMind, about my note “${TITLE}” (mindId: ${mindId}):\n\nWhat did fuel cost in 2025?`,
     );
     await expect(offer).toBeHidden();
@@ -187,11 +178,11 @@ test("an agent-only User asks their own AI from a check's card, the Note and the
 
     // In Chinese, the same request in Chinese words.
     await setLanguage(window, "zh-CN");
-    await expect(line.getByTestId("ask-agent-note-ask")).toHaveText("就这篇笔记问 Claude Code");
     await pointAndClick(window, mark);
+    await expect(card.getByTestId("claim-ask-agent")).toHaveText("交给 Claude Code");
     await pointAndClick(window, card.getByTestId("claim-ask-agent"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(4);
-    expect(typedIn((await urlsOpened(app))[3])).toContain(
+    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
+    expect(typedIn((await urlsOpened(app))[2])).toContain(
       `我的笔记“${TITLE}”（mindId：${mindId}）经核对，这句话有夸大：`,
     );
   } finally {

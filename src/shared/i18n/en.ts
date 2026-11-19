@@ -8523,7 +8523,6 @@ export const en = {
     "The settings file of {agent} couldn’t be read, so it was left alone. The settings are copied: paste them into {path}.",
   "agents.done.undo": "Undo",
   "agents.ask.action": "Ask {agent}",
-  "agents.ask.aboutNote": "Ask {agent} about this note",
   "agents.ask.others": "Ask another AI",
   "agents.ask.setUpModel": "Set up a model",
   "agents.ask.copied": "Copied. Paste it into {agent}.",

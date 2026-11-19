@@ -4,7 +4,7 @@ import {
   SIGN_IN_ROUTES,
   wayBackLabel,
 } from "../../../../core/providers/signInRoutes";
-import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
+import { useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
 import { signInAgain } from "../../chatGptSignIn";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
@@ -13,7 +13,6 @@ import { useRequests } from "../../requests";
 import { wayBackRun } from "../../routeSignIn";
 import type { SettingsPage } from "../../settingsPages";
 import { useAppStore } from "../../store";
-import { AskAgentLine } from "../AskAgentLine";
 import { ProblemLine } from "../ProblemLine";
 import { readinessKey, serviceName } from "./shared";
 
@@ -161,12 +160,11 @@ export function ReadinessLine({
 /**
  * Shown in a Mind while Questions can't be asked, with a way to fix it.
  * Answers (#29) disable asking with the same explanation. With no model and the User's own AI
- * connected, it offers that AI about the Note instead (#3373).
+ * connected, the page stays bare: that AI is asked from a check's card, the chat box and ⌘K (#3373).
  */
 export function ChatReadinessNotice({ mindId }: { mindId: string }) {
   const t = useT();
   const readiness = useAppStore((state) => state.chatReadiness);
-  const openSettings = useAppStore((state) => state.openSettings);
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAskRead(mindId);
   // The setup card already says it.
@@ -175,22 +173,8 @@ export function ChatReadinessNotice({ mindId }: { mindId: string }) {
   // Local mode's refusal is said once, in the composer where the Question was asked (#1511): a
   // second line above the page would move the page.
   if (readiness.reason === "local-mode") return null;
-  if (readiness.reason === "no-provider" && agents === null) return null;
-  if (readiness.reason === "no-provider" && agents && agents.length > 0) {
-    return (
-      <AskAgentLine
-        agents={agents}
-        label={(agent) => t("agents.ask.aboutNote", { agent })}
-        onAsk={(agent) => void askAgent(agent, mindId, { kind: "note" })}
-        setUp={{
-          ...readinessAction(readiness, t, openSettings, t("agents.ask.setUpModel")),
-          testId: "ask-agent-set-up",
-        }}
-        testId="ask-agent-note"
-        className="mb-3"
-      />
-    );
-  }
+  // Until the agents are read, nothing shows that could go a moment later.
+  if (readiness.reason === "no-provider" && agents?.length !== 0) return null;
   return (
     <ReadinessLine
       readiness={readiness}

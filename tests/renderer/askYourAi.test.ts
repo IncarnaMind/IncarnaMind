@@ -1,7 +1,7 @@
 /**
  * Ask your AI (#3373) for each kind of User: one whose own AI is connected and who set up no
- * model gets a way to ask that AI where IncarnaMind would have asked for a model, above a Note
- * and in the chat box; one with a model, and one with neither, see what they saw before.
+ * model is never asked for one above a Note, the page stays bare, and the chat box offers that AI
+ * in place of the setup card; one with a model, and one with neither, see what they saw before.
  */
 import { DOMParser } from "linkedom";
 import type { ComponentType } from "react";
@@ -66,6 +66,7 @@ const { useNotices } = await import("../../src/renderer/src/notices");
 const { useAnswers } = await import("../../src/renderer/src/answers");
 const { useModelSetup } = await import("../../src/renderer/src/modelSetup");
 const { askInAssistant } = await import("../../src/renderer/src/conversations");
+const { askAgent } = await import("../../src/renderer/src/askYourAi");
 const { composerKey } = await import("../../src/renderer/src/composer");
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
 const noticePath = "../../src/renderer/src/components/providers/ChatReadinessNotice.tsx";
@@ -127,26 +128,11 @@ afterEach(async () => {
 });
 
 describe("the line above a Note", () => {
-  // protects=a User with their own AI and no model is offered that AI about the Note, a model still one step away, and no nag; fails_when=the nag shows, or the agent's line has no way to set up a model
-  test("with an agent and no model: Ask {agent} about this note, then Set up a model", async () => {
+  // protects=a User with their own AI and no model is never asked for a model above a Note, while one with neither still is and one with a model sees nothing; fails_when=the agent User gets any line, or either other User's line changes
+  test("with an agent and no model: none; with neither: Asking needs an AI model; with a model: none", async () => {
     user(NO_MODEL, [pairing("Claude Code", "claude-code"), pairing("VS Code", "vscode")]);
-    const line = await lineAbove();
-    expect(line.textContent).toContain("Ask Claude Code about this note");
-    expect(line.textContent).toContain("Set up a model");
-    expect(line.textContent).not.toContain("Asking needs an AI model");
-    expect(line.querySelector('[data-testid="ask-agent-note-others"]')).not.toBeNull();
-  });
-
-  test("in Chinese", async () => {
-    user(NO_MODEL, [pairing("Claude Code", "claude-code")], "zh-CN");
-    const line = await lineAbove();
-    expect(line.textContent).toContain("就这篇笔记问 Claude Code");
-    expect(line.textContent).toContain("设置 AI 模型");
-    expect(line.querySelector('[data-testid="ask-agent-note-others"]')).toBeNull();
-  });
-
-  // protects=a User with a model, or with neither, sees what they saw before; fails_when=either gets the agent's line
-  test("with a model: nothing; with neither: Asking needs an AI model", async () => {
+    expect((await lineAbove()).textContent).toBe("");
+    await unmount?.();
     user(MODEL, [pairing("Claude Code", "claude-code")]);
     expect((await lineAbove()).textContent).toBe("");
     await unmount?.();
@@ -155,16 +141,15 @@ describe("the line above a Note", () => {
     expect(line.textContent).toContain("Asking needs an AI model");
     expect(line.textContent).not.toContain("Claude Code");
   });
+});
 
-  // protects=pressing Ask hands the agent the Note by name only and, where its app has no link, copies the request and says where to paste it; fails_when=it asks another agent, carries anything but the Note, or copies silently
-  test("Ask copies the request for an agent with no link, and says where to paste it", async () => {
+describe("asking an agent", () => {
+  // protects=the action the card, the chat box and ⌘K run hands that agent the request and, where its app has no link, copies it and says where to paste it; fails_when=it asks another agent, changes what it was given, or copies silently
+  test("copies the request for an agent with no link, and says where to paste it", async () => {
     user(NO_MODEL, [pairing("VS Code", "vscode")]);
-    const line = await lineAbove();
-    const ask = line.querySelector<HTMLButtonElement>('[data-testid="ask-agent-note-ask"]');
-    await act(async () => ask?.click());
-    expect(bridge.asked).toEqual([
-      { pairingId: "pairing-VS Code", mindId: MIND, ask: { kind: "note" } },
-    ]);
+    const ask = { kind: "question", text: "What did fuel cost in 2025?" } as const;
+    expect(await askAgent(pairing("VS Code", "vscode"), MIND, ask)).toBe(true);
+    expect(bridge.asked).toEqual([{ pairingId: "pairing-VS Code", mindId: MIND, ask }]);
     expect(copied).toEqual(["The request"]);
     expect(useNotices.getState().confirmation).toMatchObject({
       message: "agents.ask.copied",

@@ -6,9 +6,9 @@ import { noteHandle } from "./handles";
 import type { Command } from "./registry";
 
 /*
- * Ask your AI (#3373) from ⌘K: the card's Ask {agent} on the sentence at the caret, and the line
- * above a Note's title, with the agent connected or used last. Each hands the User's own AI a
- * request to send; neither changes the Note, and the assistant runs neither.
+ * Ask your AI (#3373) from ⌘K: the card's Ask {agent} on the sentence at the caret, and, with no
+ * model set up, a request that names the Note, for the agent connected or used last. Each hands the
+ * User's own AI a request to send; neither changes the Note, and the assistant runs neither.
  */
 
 function withAskableSentence() {
