@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { Core, SpeakerSeparator } from "../../src/core";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import { labelled, speakerLabels } from "../../src/core/meetings/speakerPass";
-import { partsOf, speakerOf, splitsHold } from "../../src/shared/speakers";
+import { lineKey, partsOf, speakerOf, splitsHold } from "../../src/shared/speakers";
 import { createTempDataFolder } from "../helpers/core";
 import {
   fakeSeparator,
@@ -84,6 +84,13 @@ describe("The labels the speaker pass gives (#138)", () => {
     const call = [line(0, "Them"), line(2000, "Them"), line(4000, "Them")];
     expect(labelled(call, [{ startMs: 0, endMs: 500, voice: 0 }], true)).toBeNull();
     expect(labelled(call, [], true)).toBeNull();
+    const room = [line(0, "Speaker ?")];
+    const first = { startMs: 100, endMs: 800, voice: 1 };
+    const second = { startMs: 300, endMs: 900, voice: 2 };
+    expect(speakerLabels(room, [second, first], false)).toBeNull();
+    expect(
+      speakerLabels(room, [second, first, { startMs: 1100, endMs: 1300, voice: 2 }], false),
+    ).toMatchObject({ lines: { [lineKey(0, "Speaker ?")]: "Speaker 1" } });
   });
 
   // protects=the voices a cloud service numbered as they spoke are not final: the pass gives every line of the side it tells apart its voice, whatever the service called it, in a call and in a room, one voice heard on the other side is "Them" again, and the who's who is kept by the file's own labels, so a Citation of such a line follows; fails_when=a line keeps the service's voice where the pass heard another, a "Me" line changes, one voice stays two speakers, or the who's who is kept by the new label; no_claim=which of the two is right on real audio, which eval/speakers measures.
