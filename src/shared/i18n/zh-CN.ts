@@ -8095,10 +8095,10 @@ export const zhCN = {
   "agents.ask.noteCommand": "就这篇笔记问你的 AI",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
-    "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，并由你自己核对引用。保留我写的笔记。{action}",
+    "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",
   "agents.ask.meeting.propose":
-    "请先核对完整草稿，再一次性建议将整理结果追加到笔记末尾。如果没有带编号的段落，请用 ¶0+ 添加。",
-  "agents.ask.meeting.reply": "请直接在这里给我整理结果。",
+    "核对后，请用 propose_changes 一次性建议将整理结果追加到这篇已有笔记的末尾。如果没有带编号的段落，请用 ¶0+ 添加。只需提交这一组修改建议。",
+  "agents.ask.meeting.reply": "请只在对话中回复核对后的整理结果。",
   "meetings.notesAgent.setting": "整理会议笔记的 AI",
   "meetings.notesAgent.detail": "选择自己的 AI 后，会后点开整理请求，在那个应用里发送。",
   "meetings.notesAgent.default": "优先使用 IncarnaMind 配置的模型",
