@@ -8330,7 +8330,7 @@ export const en = {
     "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
   "agents.check.results": "Give results: one result for each sentence, {max} at most.",
   "agents.check.reportAgain":
-    "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite that IncarnaMind can confirm.",
+    "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, or a calculate or run_analysis result of this check, that IncarnaMind can confirm, and none from the User’s own working file.",
   // An outside agent writes a new note (#3306).
   "agents.note.writtenBy": "Written by {name}, {when}",
   // A note an outside agent wrote or changed, said where the Library's work shows (#3371).

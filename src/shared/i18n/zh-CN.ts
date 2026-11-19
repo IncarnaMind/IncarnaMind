@@ -7860,7 +7860,7 @@ export const zhCN = {
     "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
   "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
   "agents.check.reportAgain":
-    "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用。",
+    "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用，或这次核对中 calculate、run_analysis 的结果，且不能来自用户自己的工作文件。",
   "agents.note.writtenBy": "{name} 写入，{when}",
   "agents.note.wrote": "{name} 新建了笔记“{mind}”",
   "agents.note.changed.one": "{name} 修改了“{mind}”中的 1 个段落",

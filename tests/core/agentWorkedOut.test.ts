@@ -48,6 +48,7 @@ interface Reported {
   marked: number;
   unconfirmed: number[];
   unreported: number[];
+  next: string | null;
 }
 
 function structured<T>(result: unknown): T {
@@ -137,7 +138,7 @@ async function paired(answer: (job: AnalysisJob) => FakeAnswer = passengersOf, p
       arguments: { title: "Coast figures", markdown: NOTE },
     }),
   );
-  return { ...started, core, coast, agent, codex, mindId, runtime };
+  return { ...started, core, coast, agent, codex, mindId, runtime, harbour, crossings };
 }
 
 const task = async (agent: Agent, mindId: string) =>
@@ -382,6 +383,77 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     expect(resultText(listed)).toMatch(/result 1: 2/);
 
     for (const text of said) expect(text).not.toMatch(new RegExp(UNSHARED.join("|")));
+  });
+
+  // protects=a ✓ never rests on the User's own working file, through a run as through a quote, though the agent may compute over it; fails_when=a run or a calculation over a Document kept as the User's own workings, before or after it ran, marks a sentence Supported
+  it("marks no verdict that rests on the User's own working file", async () => {
+    const { core, agent, mindId, coast, harbour, crossings } = await paired();
+    // Something else in Coast to check against, once both of these are the User's own workings.
+    const [tides] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createSourceFolder(),
+        "Tides.md",
+        "# Tides\n\nSpring tides come twice a month.",
+      ),
+    ]);
+    if (!tides) throw new Error("Tides wasn't added.");
+    await core.assignDocumentGroup(tides.id, coast.id);
+    await core.setNotCited(crossings.id, true);
+    const given = await task(agent, mindId);
+
+    const total = structured<{ id: string; report: string }>(
+      await run(agent, [
+        {
+          name: "crossings",
+          passageId: await passageOf(agent, "passengers crossings", "Crossings"),
+        },
+      ]),
+    );
+    expect(total.report).toMatch(/Passengers: 350/);
+    const spring = await passageOf(agent, "fares spring", "Harbour");
+    const { figures } = structured<{ figures: { id: string; result: string }[] }>(
+      await agent.callTool({
+        name: "calculate",
+        arguments: {
+          figures: [
+            {
+              label: "Fares",
+              inputs: [
+                { name: "spring", passageId: spring, quote: SPRING, number: "£1,250,000" },
+                { name: "autumn", passageId: spring, quote: AUTUMN, number: "£750,000" },
+              ],
+              formula: "spring + autumn",
+            },
+          ],
+        },
+      }),
+    );
+    expect(figures).toMatchObject([{ result: "£2,000,000" }]);
+    await core.setNotCited(harbour.id, true);
+
+    const reported = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            { n: 1, verdict: "supported", run: total.id, explanation: "The rows give 350." },
+            {
+              n: 2,
+              verdict: "contradicted",
+              run: figures[0]?.id,
+              explanation: "They make £2,000,000.",
+            },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ unconfirmed: [1, 2], unreported: [3] });
+    expect(reported.next).toMatch(/own working file/);
+    const states = (await marks(core, mindId, coast.id)).map((each) => each.state);
+    expect(states).not.toContain("supported");
+    expect(states).not.toContain("contradicted");
   });
 
   // protects=on a computer that can't run Python for IncarnaMind, the agent is told so plainly and can still calculate; fails_when=run_analysis fails without saying why, or calculate needs Python
