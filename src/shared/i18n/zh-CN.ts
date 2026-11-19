@@ -7845,9 +7845,10 @@ export const zhCN = {
     "还没有可用来核对这篇笔记的文档。用户可以在 IncarnaMind 中添加。",
   "agents.check.beyondReach":
     "这篇笔记的核对范围包含未与这个智能体共享的文件夹中的文档，因此不能为它核对。用户可以在 IncarnaMind 中核对。",
-  "agents.check.notReady": "IncarnaMind 中没有可用于核对的 AI 模型。请在“设置 › AI”中设置。",
+  "agents.check.notReady":
+    "IncarnaMind 没有设置自己的 AI 模型来核对。请改用 check_mind_yourself 核对这篇笔记；如需 IncarnaMind 自己核对，用户可在“设置 › AI”中设置模型。",
   "agents.check.consent":
-    "IncarnaMind 的 AI 模型尚未获准用于核对。在 IncarnaMind 中核对一篇笔记即可允许。",
+    "IncarnaMind 的 AI 模型尚未获准用于核对。请改用 check_mind_yourself 核对这篇笔记；如需 IncarnaMind 自己核对，用户在 IncarnaMind 中核对一篇笔记即可允许。",
   "agents.check.failed": "IncarnaMind 无法核对这篇笔记：{message}",
   "agents.check.tooMany": "这个智能体在过去一小时内已发起 {max} 次核对，达到上限。稍后再试。",
   "agents.check.stopped.user": "核对在完成前已在 IncarnaMind 中被停止。",
@@ -7899,6 +7900,10 @@ export const zhCN = {
   "agents.propose.typedTag":
     "{name} 的文字漏掉了用户在这一段输入的 <removed> 标记，会删掉用户的文字，因此没有写入任何修改。请按原样保留每个标记。",
   "agents.propose.misnamed": "{name} 的文字没有说清替换哪一段，因此没有写入任何修改。",
+  "agents.propose.unchecked.one":
+    "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
+  "agents.propose.unchecked":
+    "笔记中有 {count} 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这些句子。",
   "agents.mind.namedChoice": "named 必须是 true 或 false。",
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",

@@ -264,6 +264,11 @@ export interface AgentProposed {
   citations: AgentCheckedCitation[];
   /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
   uncited: string[];
+  /**
+   * In a Note this agent wrote, how many of its sentences hold no check result now, and that
+   * `check_mind_yourself` gives them (#3378); null when none do, and in any other Note.
+   */
+  next: string | null;
 }
 
 export interface AgentCreateInput {
@@ -1769,6 +1774,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         const citations = [...tokens.values()].map((each) => each.report);
         const { markdown, nextOffset } = page(mind, written.now.text, 0);
+        const left = own ? deps.checkTask(mind.id, inScope) : null;
+        const unchecked = left?.ok ? left.value.sentences.length : 0;
         return {
           result: {
             mindId: mind.id,
@@ -1781,6 +1788,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             citations,
             // As the change's bar counts them, from what was written, the Citations kept too.
             uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
+            next:
+              unchecked === 0
+                ? null
+                : t(unchecked === 1 ? "agents.propose.unchecked.one" : "agents.propose.unchecked", {
+                    count: unchecked,
+                  }),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
           count: own ? null : written.waiting,
@@ -1828,8 +1841,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (!(error instanceof ChangeRefused)) throw error;
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
         }
-        // A text that begins with a heading of its own keeps that one alone.
-        const mind = deps.createMind(title, folder.id, !/^\s*#{1,6}\s/.test(written));
+        // A text that begins with a heading of its own keeps that one alone. A title heading names
+        // the Note, as one typed in the window does, and its name follows it (#3378).
+        const mind = deps.createMind(
+          /^\s*#[ \t]+\S/.test(written) ? "" : title,
+          folder.id,
+          !/^\s*#{1,6}\s/.test(written),
+        );
         deps.editMind(mind.id, (blocks) => {
           insertBlocks(blocks, nodes);
           if (!blocks.doc) return;
@@ -1855,10 +1873,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           tables: 0,
           step: null,
         });
+        const made = deps.minds().find((each) => each.id === mind.id);
         return {
           result: {
             mindId: mind.id,
-            title: mindName(mind) || title,
+            title: (made && mindName(made)) || title,
             folder: folder.name,
             citations: [...tokens.values()].map((each) => each.report),
             uncited: uncitedIn([written], (token) => tokens.get(token)?.cited?.citable === true),

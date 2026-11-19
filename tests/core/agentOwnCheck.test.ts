@@ -26,6 +26,7 @@ const SPRING = "Spring tides come twice in every month.";
 const NEAP = "Neap tides have the largest range of the month.";
 const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const SOURCES = "These notes were drawn from the files in the Coast folder.";
+const SPRING_RANGE = "Spring tides have the largest range of the month.";
 const NOTE = [SPRING, NEAP, PENGUINS, SOURCES].join("\n\n");
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
@@ -240,6 +241,48 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
       ["2", "supported"],
     ]);
+  });
+
+  // protects=a Note the agent changes after its check is checked again before the User reads it, and nothing checked is judged twice; fails_when=the change doesn't say what is left to check, or the task gives back sentences that hold a result
+  it("after the agent changes the Note it checked, says what is left and gives only that", async () => {
+    const { core, agent, mindId, coast } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice] },
+        { n: 2, verdict: "contradicted", cites: [largest] },
+        { n: 3, verdict: "not found" },
+        { n: 4, verdict: "nothing to check" },
+      ]),
+    );
+
+    const { version } = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    const changed = structured<{ status: string; next: string | null }>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: { mindId, version, changes: [{ paragraph: "¶2", text: SPRING_RANGE }] },
+      }),
+    );
+    expect(changed).toMatchObject({
+      status: "applied",
+      next: "1 sentence of the note holds no check result now: check it before you finish, with check_mind_yourself, which gives only that one.",
+    });
+
+    const again = await task(agent, mindId);
+    expect(again.sentences).toEqual([{ n: 1, text: SPRING_RANGE }]);
+    structured<Reported>(
+      await report(agent, mindId, again.task, [{ n: 1, verdict: "supported", cites: [largest] }]),
+    );
+    expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
+      [SPRING, "supported"],
+      [SPRING_RANGE, "supported"],
+      [PENGUINS, "unsupported"],
+    ]);
+    expect((await task(agent, mindId)).sentences).toEqual([]);
   });
 
   // protects=a result is never laid on words the agent didn't judge; fails_when=results for an earlier state of the Note mark it as it is now

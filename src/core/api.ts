@@ -112,7 +112,10 @@ import type { Language, LanguagePreference } from "./language";
 export interface Mind {
   /** A random UUID generated on this device. */
   id: string;
-  /** The title the User typed. May be empty: the Mind is then named by `autoTitle`. */
+  /**
+   * The title the User typed. May be empty: the Mind is then named by `autoTitle`. A title that
+   * was its `autoTitle` goes once that changes, so the name follows the text (#3378).
+   */
   title: string;
   /** The Mind's first line of text, cut as a title; empty for a Mind with no text. */
   autoTitle: string;

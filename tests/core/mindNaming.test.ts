@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { type Core, messageReference } from "../../src/core";
+import { mindName } from "../../src/shared/naming";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { appendParagraph, connectToMind, typeInto } from "../helpers/mindClient";
 
@@ -83,6 +84,29 @@ describe("a Mind without a title", () => {
 
     const deleted = (await core.listDeleted()).find((item) => item.id === mind.id);
     expect(deleted?.name).toBe("Tides and the moon");
+  });
+});
+
+describe("a Mind whose title is its first line (#3378)", () => {
+  test("is named by that line as it is edited; one named otherwise keeps its name", async () => {
+    const core = startCore(await createTempDataFolder());
+    const titled = await core.createMind({ title: "Fieldwork plan", headed: true });
+    const named = await core.createMind({ title: "Fieldwork plan", headed: true });
+    await core.renameMind(named.id, "My plan");
+
+    for (const mind of [titled, named]) {
+      const client = await connectToMind(core, mind.id);
+      typeInto(client, 0, "Fieldwork plan".length, " for May");
+      await client.settled();
+    }
+
+    const listed = await core.listMinds();
+    const nameOf = (mindId: string) => {
+      const mind = listed.find((each) => each.id === mindId);
+      return mind && mindName(mind);
+    };
+    expect(nameOf(titled.id)).toBe("Fieldwork plan for May");
+    expect(nameOf(named.id)).toBe("My plan");
   });
 });
 

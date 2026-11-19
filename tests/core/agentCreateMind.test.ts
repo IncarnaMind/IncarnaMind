@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { MAX_NOTES_AN_HOUR } from "../../src/core/agents/access";
 import { BLOCK_ID_ATTRIBUTE, CITATION_NODE } from "../../src/core/api";
+import { mindName } from "../../src/shared/naming";
 import { noteWriterOf } from "../../src/shared/noteWriter";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
@@ -175,7 +176,8 @@ describe("a Note an outside agent writes (#3306)", () => {
     });
   });
 
-  it("keeps a heading the text begins with as the Note's only one", async () => {
+  // protects=the sidebar names the Note as its page does; fails_when=a title the text begins with differs from the Note's name
+  it("keeps a heading the text begins with as the Note's only one, and is named by it", async () => {
     const { core, agent } = await paired();
     const made = structured<Created>(
       await create(agent, {
@@ -188,6 +190,15 @@ describe("a Note an outside agent writes (#3306)", () => {
       { kind: "heading", text: "Harbour survey" },
       { kind: "paragraph", text: "The quay is 40 m long." },
     ]);
+    expect(made.title).toBe("Harbour survey");
+    const listed = (await core.listMinds()).find((mind) => mind.id === made.mindId);
+    expect(listed && mindName(listed)).toBe("Harbour survey");
+
+    // A section's heading is no title: the Note keeps the name it was given.
+    const sectioned = structured<Created>(
+      await create(agent, { title: "Harbour", markdown: "## Quay\n\nThe quay is 40 m long." }),
+    );
+    expect(sectioned.title).toBe("Harbour");
   });
 
   it("is refused in plain words: no leave to write, another Folder, no Folder named, text it can't keep", async () => {
