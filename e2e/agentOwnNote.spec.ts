@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { AgentLaunch, CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
+  acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -101,6 +102,7 @@ const paragraphsOf = (window: Page) =>
 
 test("a Note the agent writes opens behind the one being typed in, and ⌘Z takes back its changes there one by one", async () => {
   const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1440, 900);
