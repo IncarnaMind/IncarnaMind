@@ -24,6 +24,7 @@ export interface RepeatRow extends Omit<RepeatResult, "sort"> {
 
 const OUTCOMES: readonly Outcome[] = [
   "supported",
+  "overstated",
   "partly",
   "absent",
   "differs",
@@ -33,14 +34,17 @@ const OUTCOMES: readonly Outcome[] = [
   "no-mark",
 ];
 
-/** The verdict behind an outcome: the three cards of an unsupported sentence are one verdict. */
+/** The verdict behind an outcome: the cards of an unsupported sentence are one verdict. */
 export const verdictOf = (outcome: Outcome) =>
-  outcome === "partly" || outcome === "differs" || outcome === "absent" ? "unsupported" : outcome;
+  outcome === "overstated" || outcome === "partly" || outcome === "differs" || outcome === "absent"
+    ? "unsupported"
+    : outcome;
 
 export function meetsExpected(row: Pick<RepeatRow, "outcome" | "expected">): boolean {
   const verdict = verdictOf(row.outcome);
   if (row.expected === "supported") return verdict === "supported";
-  if (row.expected === "partly") return row.outcome === "partly";
+  if (row.expected === "overstated" || row.expected === "partly")
+    return row.outcome === row.expected;
   if (row.expected === "absent") return row.outcome === "absent";
   if (row.expected === "unsupported") return verdict === "unsupported";
   if (row.expected === "contradicted") return verdict === "contradicted";
@@ -279,7 +283,7 @@ function knownLines(known: readonly RepeatRow[]): string[] {
         const own = ofIssue.filter((row) => row.key === key);
         const count = (outcomes: readonly Outcome[]) =>
           own.filter((row) => outcomes.includes(row.outcome)).length;
-        return `- ${key}: ${counted(countOf(own, (row) => row.outcome === "contradicted"))} Contradicted, ${count(["supported"])} Supported, ${count(["partly", "absent", "differs", "unsupported"])} unsupported, ${count(["not-checked", "no-mark"])} not checked or not named`;
+        return `- ${key}: ${counted(countOf(own, (row) => row.outcome === "contradicted"))} Contradicted, ${count(["supported"])} Supported, ${count(["overstated", "partly", "absent", "differs", "unsupported"])} unsupported, ${count(["not-checked", "no-mark"])} not checked or not named`;
       }),
     ];
   });
@@ -299,11 +303,11 @@ export function report(
       "",
       SORTING[group.sorting],
       "",
-      "| Sentence | Kind | Expected | Supported | Partly | Absent | Differs | Unsupported | Contradicted | Not checked | Same verdict |",
-      "|---|---|---|---|---|---|---|---|---|---|---|",
+      "| Sentence | Kind | Expected | Supported | Overstated | Partly | Absent | Differs | Unsupported | Contradicted | Not checked | Same verdict |",
+      "|---|---|---|---|---|---|---|---|---|---|---|---|",
       ...group.sentences.map(
         (each) =>
-          `| ${each.key} | ${each.kind} | ${each.expected} | ${each.outcomes.supported} | ${each.outcomes.partly} | ${each.outcomes.absent} | ${each.outcomes.differs} | ${each.outcomes.unsupported} | ${each.outcomes.contradicted} | ${each.outcomes["not-checked"] + each.outcomes["no-mark"]} | ${counted({ count: each.steady, checks: each.repeats, sorts: each.sorts })} |`,
+          `| ${each.key} | ${each.kind} | ${each.expected} | ${each.outcomes.supported} | ${each.outcomes.overstated} | ${each.outcomes.partly} | ${each.outcomes.absent} | ${each.outcomes.differs} | ${each.outcomes.unsupported} | ${each.outcomes.contradicted} | ${each.outcomes["not-checked"] + each.outcomes["no-mark"]} | ${counted({ count: each.steady, checks: each.repeats, sorts: each.sorts })} |`,
       ),
       "",
       `- False Supported: ${counted(group.falseSupported)}`,

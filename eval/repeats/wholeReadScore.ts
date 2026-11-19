@@ -39,6 +39,7 @@ export interface WholeReadRow {
 const SHORT: Record<Outcome, string> = {
   supported: "S",
   contradicted: "C",
+  overstated: "O",
   partly: "P",
   differs: "D",
   absent: "A",
@@ -72,8 +73,9 @@ export function holds(row: Pick<WholeReadRow, "expected" | "outcome" | "readAll"
       return (
         row.outcome !== "supported" && row.outcome !== "not-checked" && row.outcome !== "no-mark"
       );
+    case "overstated":
     case "partly":
-      return row.outcome === "partly";
+      return row.outcome === row.expected;
     case "unsupported":
       return (
         row.outcome !== "supported" &&
