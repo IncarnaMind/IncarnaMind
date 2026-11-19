@@ -66,6 +66,7 @@ import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
+import { createAgentAsk } from "./agents/ask";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import type { AgentReach } from "./agents/workings";
@@ -5749,6 +5750,13 @@ export function createCore(adapters: CoreAdapters): Core {
     say: (key, params) => translate(settings.get().language, key, params),
     reportError: (error) => console.error(error),
   });
+  const agentAsk = createAgentAsk({
+    askable: (mindId) => agents.askable(mindId),
+    minds: () => minds.list(),
+    openLink: adapters.agents?.openLink ?? null,
+    say: (key, params) => translate(settings.get().language, key, params),
+    log: adapters.log ?? silentLogger,
+  });
 
   /** The files the last add skipped: only those can be shown in the file manager (#762). */
   const skippedForShowing = new Set<string>();
@@ -7972,6 +7980,9 @@ export function createCore(adapters: CoreAdapters): Core {
     setUpAgent: (input) => agentSetup.setUp(input),
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),
     copyAgentSetup: (pairingId) => agentSetup.settingsFor(pairingId),
+    listAgentsToAsk: async (mindId) =>
+      agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null),
+    askAgent: (input) => agentAsk.ask(input),
     getAgentLaunch: (pairingId) => agents.launch(pairingId),
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),

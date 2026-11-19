@@ -1176,7 +1176,7 @@ export interface CoreAdapters {
      * Defaults, on macOS, to the Applications folders.
      */
     applications?: readonly string[];
-    /** Opens an agent's install link (Cursor's) in its app. */
+    /** Opens a link in an agent's app: Cursor's install link, or one with a request typed (#3373). */
     openLink?(url: string): Promise<void>;
   };
   /** Runs the built-in embedding model (see `Embedder`). */

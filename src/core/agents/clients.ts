@@ -66,6 +66,15 @@ export interface ClientDefinition {
   link?(launch: AgentLaunch): string;
   /** The settings to paste, in the form its own screen takes; `mcpServers` when not given. */
   pasted?(launch: AgentLaunch): string;
+  /** The link its app documents that opens it with a prompt typed and not sent (#3373). */
+  prompt?: PromptLink;
+}
+
+export interface PromptLink {
+  link(prompt: string): string;
+  /** The most characters its documentation lets the prompt have, or the whole link (`of: "link"`). */
+  most: number;
+  of: "prompt" | "link";
 }
 
 const SHARED_SKILLS = [".agents", "skills"] as const;
@@ -75,6 +84,13 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     id: "claude-desktop",
     name: "Claude",
     setup: "bundle",
+    // https://support.claude.com/en/articles/14729294: a new chat, its prompt filled "so you can
+    // review and send it"; `q` is cut at roughly 14,000 characters.
+    prompt: {
+      link: (prompt) => `claude://claude.ai/new?q=${encodeURIComponent(prompt)}`,
+      most: 12_000,
+      of: "prompt",
+    },
     apps: ["Claude.app"],
     home: [
       ["Library", "Application Support", "Claude"],
@@ -87,6 +103,13 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "Claude Code",
     setup: "command",
     command: claudeCodeCommand,
+    // https://code.claude.com/docs/en/deep-links: "populated but not sent until you press Enter";
+    // `q` holds at most 5,000 characters.
+    prompt: {
+      link: (prompt) => `claude-cli://open?q=${encodeURIComponent(prompt)}`,
+      most: 5_000,
+      of: "prompt",
+    },
     home: [[".claude.json"], [".claude"]],
     // https://code.claude.com/docs/en/skills (personal skills): its own folder only.
     skills: [[".claude", "skills"]],
@@ -99,6 +122,13 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "ChatGPT app and Codex",
     otherNames: ["ChatGPT", "Codex", "OpenAI"],
     setup: "file",
+    // https://learn.chatgpt.com/docs/reference/commands: `codex://new?prompt=` "doesn't send the
+    // prompt automatically". It names no limit: held to Claude Code's, the strictest documented.
+    prompt: {
+      link: (prompt) => `codex://new?prompt=${encodeURIComponent(prompt)}`,
+      most: 5_000,
+      of: "prompt",
+    },
     apps: ["Codex.app", "ChatGPT.app"],
     home: [[".codex"]],
     files: [{ path: [".codex", "config.toml"], format: "codex-toml" }],
@@ -110,6 +140,14 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "Cursor",
     setup: "link",
     link: cursorLink,
+    // https://cursor.com/docs/integrations/deeplinks: "Deeplinks never trigger automatic
+    // execution"; a link is at most 10,000 characters once encoded.
+    prompt: {
+      link: (prompt) =>
+        `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(prompt)}`,
+      most: 10_000,
+      of: "link",
+    },
     apps: ["Cursor.app"],
     home: [[".cursor"]],
     // https://cursor.com/docs/context/skills (user-level, and Claude's and Codex's for compatibility).
@@ -350,6 +388,14 @@ export function skillPathsFor(home: string, client: string | null): string[] {
 
 export function clientDefinition(id: unknown): ClientDefinition | null {
   return AGENT_CLIENT_DEFINITIONS.find((each) => each.id === id) ?? null;
+}
+
+/** The link that opens the agent with `prompt` typed; null where it has none, or the prompt is too long for it. */
+export function promptLinkFor(client: string | null, prompt: string): string | null {
+  const form = clientDefinition(client)?.prompt;
+  if (!form) return null;
+  const link = form.link(prompt);
+  return (form.of === "link" ? link.length : prompt.length) <= form.most ? link : null;
 }
 
 /** Whether the agent looks installed: its app, or the folder it keeps its settings in. */

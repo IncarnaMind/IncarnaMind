@@ -133,10 +133,13 @@ export const systemBrowser: Browser = {
   },
 };
 
-/** The apps whose install links Settings → Agents opens (#351), and no others. */
-const AGENT_LINK_SCHEMES = new Set(["cursor:"]);
+/**
+ * The apps whose links IncarnaMind opens, and no others: Cursor's install link (#351), and the
+ * links that open an agent with a request typed and not sent (#3373).
+ */
+const AGENT_LINK_SCHEMES = new Set(["cursor:", "claude:", "claude-cli:", "codex:"]);
 
-/** Opens an agent's install link in its app: its app shows what it installs, and asks. */
+/** Opens an agent's link in its app, which shows what it installs, or the request, and waits for the User. */
 async function openAgentLink(url: string): Promise<void> {
   const { protocol } = new URL(url);
   if (!AGENT_LINK_SCHEMES.has(protocol)) throw new Error(`Refusing to open a ${protocol} link.`);
