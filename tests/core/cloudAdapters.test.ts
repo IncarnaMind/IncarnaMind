@@ -367,6 +367,30 @@ describe("Soniox's real-time transcription, played back as it was recorded", () 
     },
   );
 
+  test("a permanent live failure preserves confirmed words and leaves draft audio to recover", () => {
+    const service = playback();
+    const heard = collect();
+    createSonioxStream({
+      stream: "meeting:system",
+      model: "stt-rt-v5",
+      apiKey: "soniox-test",
+      connect: service.connect,
+      report: heard.report,
+    });
+    service.open();
+    service.say({
+      tokens: [
+        { text: "我们同意了", start_ms: 200, end_ms: 700, is_final: true },
+        { text: "周五交付", start_ms: 800, end_ms: 1400, is_final: false },
+      ],
+      final_audio_proc_ms: 1100,
+    });
+    service.drop(1008);
+    expect(heard.finals().map((line) => line.text)).toEqual(["我们同意了"]);
+    expect(heard.progress.at(-1)).toBe(700);
+    expect(heard.losses).toEqual(["dropped"]);
+  });
+
   test("a refused key, or the connection lost, ends the stream: the service says so", async () => {
     for (const [message, loss] of [
       [{ tokens: [], error_code: 401, error_message: "Incorrect API key provided." }, "refused"],

@@ -14,7 +14,7 @@ export interface CloudStreamReport {
    */
   progress(doneMs: number, heardMs?: number): void;
   /** It ended before it was finished; nothing more is reported. */
-  lost(loss: CloudLoss): void;
+  lost(loss: CloudLoss, code?: number): void;
   /** The core holds the audio until now, so a send gate that closes meanwhile sends nothing. */
   opened(): void;
 }
