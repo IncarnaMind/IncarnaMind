@@ -102,8 +102,9 @@ describe("A meeting's Transcript in the lists", () => {
     const filed: Pick<DocumentGroupAssignment, "documentId" | "groupId">[] = [
       { documentId: lease.id, groupId: "g-harbour" },
     ];
+    // Harbour counts its lease alone, and the Transcript makes no Not in a Folder row.
     expect(agentFolderRows([folder("g-harbour", "Harbour")], [lease, transcript], filed)).toEqual([
-      { id: "g-harbour", name: "Harbour", documents: 1 },
+      { id: "g-harbour", name: "Harbour", documents: 1, depth: 0, walled: false, sharedWith: [] },
     ]);
   });
 });
