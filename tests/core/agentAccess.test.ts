@@ -39,6 +39,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     wallOf: () => null,
     foldersInScope: (folderIds) => [...folderIds],
     documentsIn: () => ["tides"],
+    noteTranscripts: () => [],
     search: async () => [],
     passage: () => null,
     passagesBetween: () => [],

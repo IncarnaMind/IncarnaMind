@@ -6,10 +6,38 @@
  * here keeps each pair whole at every start, says each once, and undoes a
  * join exactly.
  */
-import type { JoinedMeeting, MeetingLeftApart } from "../api";
+import type { JoinedMeeting, MeetingKind, MeetingLeftApart } from "../api";
 import { InvalidInputError } from "../errors";
 import { parseIds } from "../minds";
 import type { Database } from "../storage";
+
+/** A live Transcript that belongs to a Note, with the Meeting it was made in, where that is known. */
+export interface NoteTranscript {
+  documentId: string;
+  mindId: string;
+  /** Null once its Meeting is gone. */
+  kind: MeetingKind | null;
+  /** When its Meeting first started recording (ISO 8601); null when that isn't known. */
+  startedAt: string | null;
+}
+
+/** Every live Transcript that belongs to a Note: it has no row of its own, and is reached through the Note. */
+export function noteTranscripts(db: Database): NoteTranscript[] {
+  return db
+    .all<{ id: string; mind_id: string; kind: MeetingKind | null; started_at: string | null }>(
+      `SELECT d.id, d.meeting_mind_id AS mind_id, m.kind, m.started_at FROM documents d
+       LEFT JOIN meetings m ON m.transcript_document_id = d.id AND m.mind_id = d.meeting_mind_id
+         AND m.deleted_at IS NULL
+       WHERE d.meeting_mind_id IS NOT NULL AND d.deleted_at IS NULL
+       ORDER BY d.id`,
+    )
+    .map((row) => ({
+      documentId: row.id,
+      mindId: row.mind_id,
+      kind: row.kind,
+      startedAt: row.started_at,
+    }));
+}
 
 /** Transcripts to send to Recently deleted with their Notes, at each Note's time. */
 export interface TranscriptsToDelete {
