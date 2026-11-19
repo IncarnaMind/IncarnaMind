@@ -11,7 +11,8 @@ import type { Language } from "../../../../core/language";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { PlusLineIcon, SearchLineIcon } from "../lineIcons";
+import { PlusLineIcon } from "../lineIcons";
+import { SearchField } from "../SearchField";
 import {
   SettingsGroup,
   SettingsRow,
@@ -219,25 +220,13 @@ export function ConnectorsSettings() {
     <section ref={section} data-testid="connectors-settings" className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
         <p className={pageIntroClass}>{t("connectors.directory.intro")}</p>
-        <label className="flex h-[34px] items-center gap-2 rounded-lg bg-sheet px-2.5 text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]">
-          <SearchLineIcon className="size-3.5 shrink-0" />
-          <input
-            type="search"
-            data-testid="connectors-search"
-            value={query}
-            placeholder={t("connectors.directory.search")}
-            aria-label={t("connectors.directory.search")}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              // Esc empties the field first; with it empty, Esc closes Settings.
-              if (event.key === "Escape" && query !== "") {
-                event.preventDefault();
-                setQuery("");
-              }
-            }}
-            className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-placeholder"
-          />
-        </label>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          label={t("connectors.directory.search")}
+          testId="connectors-search"
+          className="h-[34px] bg-sheet"
+        />
       </div>
 
       {connected.length > 0 && (
