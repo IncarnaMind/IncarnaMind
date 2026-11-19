@@ -146,11 +146,11 @@ export interface ClaimCheckRequest {
 }
 
 /** The rows of each sheet or CSV file an Analysis read. */
-const rowsOf = (run: AnswerAnalysis) =>
+export const rowsOf = (run: AnswerAnalysis) =>
   run.inputs.flatMap((input) => (input.kind === "range" ? [input] : []));
 
 /** Why a sentence whose working didn't finish isn't checked. */
-const endedAs = ({ end }: AnswerAnalysis): ClaimCheckFailure =>
+export const endedAs = ({ end }: AnswerAnalysis): ClaimCheckFailure =>
   end.kind === "timed-out"
     ? "rows-run-timed-out"
     : end.kind === "unavailable"
@@ -161,7 +161,7 @@ const endedAs = ({ end }: AnswerAnalysis): ClaimCheckFailure =>
 const CODE_KEPT = 4_000;
 
 /** What a check keeps of the Analysis its verdict rests on. */
-const workingOf = (run: AnswerAnalysis): CheckWorking => ({
+export const workingOf = (run: AnswerAnalysis): CheckWorking => ({
   title: run.title,
   code: run.code.slice(0, CODE_KEPT),
   rows: rowsOf(run).map(({ citation, range, rows }) => ({ citation, range, count: rows })),

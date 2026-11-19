@@ -45,7 +45,7 @@ const RESUMED_AT = 11_500;
  * The engine starts `at` the start of the call, as a model that loads slowly does at 14 s, or
  * only after Stop, when what was left is transcribed from the audio on disk. With `route`, the
  * streams go to the pretend cloud service the User chose, with their key; its connections drop
- * after `cloudDropsAfterMs` of audio, and `holdFinish` keeps the microphone's finished streams
+ * as configured by `cloudDrop`, and `holdFinish` keeps the microphone's finished streams
  * from answering until the call is over, as a service slow to say its last words does.
  */
 async function playCall({
@@ -53,14 +53,14 @@ async function playCall({
   leaks = false,
   at: engineStarts = "start",
   route,
-  cloudDropsAfterMs,
+  cloudDrop,
   holdFinish = false,
 }: {
   pause: boolean;
   leaks?: boolean;
   at?: "start" | "14 s" | "stop";
   route?: "soniox";
-  cloudDropsAfterMs?: number;
+  cloudDrop?: { afterMs: number; code: number };
   holdFinish?: boolean;
 }) {
   const dataDir = await createTempDataFolder();
@@ -93,7 +93,7 @@ async function playCall({
   });
   if (engineStarts === "start") ready();
   const engine = inProcessTranscriber(
-    { ...(cloudDropsAfterMs !== undefined && { cloud: { dropAfterMs: cloudDropsAfterMs } }) },
+    { ...(cloudDrop && { cloud: { dropAfterMs: cloudDrop.afterMs, dropCode: cloudDrop.code } }) },
     async () => {
       await loads;
       return createFakeSpeechEngine();
@@ -353,29 +353,39 @@ describe("Pausing the microphone, in the capture pipeline, with recorded voices"
       ).length,
     );
   });
-  test("a cloud connection lost while the microphone's finished stream waits for its last words drops that stream too, and Stop still saves", async () => {
-    const lost = await playCall({
-      pause: true,
-      route: "soniox",
-      cloudDropsAfterMs: 8000,
-      holdFinish: true,
-    });
+  test.each([
+    { loss: "transient", code: 1006, dropFinishing: false },
+    { loss: "permanent", code: 1008, dropFinishing: true },
+  ])(
+    "a $loss remote connection loss respects the paused microphone and Stop still saves",
+    async ({ code, dropFinishing }) => {
+      const lost = await playCall({
+        pause: true,
+        route: "soniox",
+        cloudDrop: { afterMs: 8000, code },
+        holdFinish: true,
+      });
 
-    const first = Object.keys(lost.pushed).find(isMicrophone);
-    const drop = lost.dropped.find((each) => each.stream === first);
-    expect(drop).toBeDefined();
-    expect(drop?.atMs).toBeGreaterThanOrEqual(PAUSED_AT);
-    expect(drop?.atMs).toBeLessThan(RESUMED_AT);
-    expect(lost.transcript.gaps).toContainEqual({
-      fromMs: PAUSED_AT,
-      toMs: RESUMED_AT,
-      reason: "muted",
-    });
-    for (const line of said(lost, "Me")) {
-      expect(line.startMs >= RESUMED_AT || line.endMs <= PAUSED_AT).toBe(true);
-    }
-    expect(said(lost, "Me").some((line) => line.endMs <= PAUSED_AT)).toBe(true);
-  });
+      const first = Object.keys(lost.pushed).find(isMicrophone);
+      expect(first).toBeDefined();
+      const drop = lost.dropped.find((each) => each.stream === first);
+      if (dropFinishing) {
+        expect(drop?.atMs).toBeGreaterThanOrEqual(PAUSED_AT);
+        expect(drop?.atMs).toBeLessThan(RESUMED_AT);
+      } else {
+        expect(drop).toBeUndefined();
+      }
+      expect(lost.transcript.gaps).toContainEqual({
+        fromMs: PAUSED_AT,
+        toMs: RESUMED_AT,
+        reason: "muted",
+      });
+      for (const line of said(lost, "Me")) {
+        expect(line.startMs >= RESUMED_AT || line.endMs <= PAUSED_AT).toBe(true);
+      }
+      expect(said(lost, "Me").some((line) => line.endMs <= PAUSED_AT)).toBe(true);
+    },
+  );
 });
 
 describe("Pausing the microphone just after it was heard", () => {

@@ -107,6 +107,7 @@ import {
 } from "./sentences";
 import type { CheckScope } from "./verify";
 import { waitLine } from "./waitLine";
+import { widerRun } from "./widerRun";
 
 const UNCHECKED: ReadonlySet<string> = new Set(["question", "codeBlock", "blockMath", "heading"]);
 
@@ -844,7 +845,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
   const undone = new Map<string, UndoneCheck[]>();
   /** The Minds a check's write looked gone from, waiting a moment to see if it stays gone. */
   const confirming = new Set<string>();
-  // One write's check at a time, each at most `claimsAtOnce` requests at once: two side by side
+  // One write's check at a time, each within its own limit of requests at once: two side by side
   // missed the first-verdict bar the limit was set by (#1635, #2532). Ends once the last one ends.
   let turn: Promise<void> = Promise.resolve();
   /** The checks begun and not ended, the one whose turn it is among them. */
@@ -1255,7 +1256,13 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       landNow(failedLanding(sentence, reason, detail), "failed");
     const ran = checkRunOf(options, prepared, signal, mindId, { behindReplies: true });
     const behind = ran.replies;
-    const sending = behind.model(prepared);
+    // Every request the check sends waits for one of these places, the first looks and the sort's
+    // too, and as many sentences are checked at once: twice as many once the service's replies
+    // state the key has room for the whole write, as for Check this Note (#3381).
+    const atOnce = claimsAtOnce(prepared);
+    const limit = slots(atOnce);
+    const width = widerRun(prepared, limit, atOnce, sentences.length);
+    const sending = behind.model(width.prepared);
     const quickSending = quick && behind.model(quick);
     const run = {
       ...ran,
@@ -1306,10 +1313,6 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
           : "checked",
       );
     };
-    // Every request the check sends waits for one of these, the first looks and the sort's too;
-    // and as many sentences at once, cited or not, as main's check had (#2532).
-    const limit = slots(claimsAtOnce(prepared));
-    const sentencesAtOnce = slots(claimsAtOnce(prepared));
     // A sentence its check asks about again, after a rate limit, keeps its first look's answer:
     // asked again, a quick model's later yes would stand.
     const looked = new Map<Sentence, FirstLookResult>();
@@ -1320,12 +1323,7 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       versions: [],
       excluded: [],
     });
-    const checkOne = (sentence: Sentence, attempt: CheckTry): Promise<ClaimCheckResult> =>
-      sentencesAtOnce.run(() => checkSentence(sentence, attempt));
-    const checkSentence = async (
-      sentence: Sentence,
-      attempt: CheckTry,
-    ): Promise<ClaimCheckResult> => {
+    const checkOne = async (sentence: Sentence, attempt: CheckTry): Promise<ClaimCheckResult> => {
       const own = new AbortController();
       stops.set(sentence, own);
       if (left.has(sentence)) own.abort();
@@ -1380,7 +1378,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
     const checkAll = (items: readonly Sentence[]) =>
       runClaimChecks(items, checkOne, {
         ...run,
-        concurrency: claimsAtOnce(prepared),
+        concurrency: atOnce,
+        wider: width.wider,
+        onLimit: width.onLimit,
         ...(options.waiting && {
           onPause: waitLine(run.timers.now, (until) => options.waiting?.(request, until)),
         }),

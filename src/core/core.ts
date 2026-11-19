@@ -68,6 +68,7 @@ import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
+import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
 import { createAnnotations } from "./annotations";
@@ -135,6 +136,7 @@ import {
   type ExternalService,
   type FigureSchedule,
   type FirstOpenQuestion,
+  type LibrarySource,
   type MarkAiTextChoice,
   type Meeting,
   MIND_CONTENT_FIELD,
@@ -2995,6 +2997,52 @@ export function createCore(adapters: CoreAdapters): Core {
         })),
     });
   };
+  /**
+   * The Library's lists as an outside agent may count them (#3363): its Documents, its Folders and
+   * the Notes it reaches. A Document is filed under the deepest of its Folders that holds it, as
+   * list_minds lists it there, and a Folder sits under another only when the agent has that one too.
+   */
+  const agentLibraryLists = ({
+    source,
+    documentIds,
+    folderIds,
+    mindIds,
+  }: AgentReach & { source: LibrarySource }) => {
+    const granted = library.folders().filter((folder) => folderIds.includes(folder.id));
+    const parentOf = new Map(library.folders().map((folder) => [folder.id, folder.parentId]));
+    const grantedAbove = (folderId: string | null): string | null => {
+      for (let at = folderId; at !== null; at = parentOf.get(at) ?? null) {
+        if (folderIds.includes(at)) return at;
+      }
+      return null;
+    };
+    const trees = granted.map((folder) => ({
+      id: folder.id,
+      holds: new Set(library.treeDocumentIds(folder.id)),
+    }));
+    return libraryLists({
+      source,
+      documents: documents.getMany([...documentIds]),
+      folders: granted.map((folder) => ({ ...folder, parentId: grantedAbove(folder.parentId) })),
+      folderOf: new Map(
+        documentIds.flatMap((documentId) => {
+          const [deepest] = trees
+            .filter((tree) => tree.holds.has(documentId))
+            .sort((a, b) => a.holds.size - b.holds.size);
+          return deepest ? [[documentId, deepest.id] as const] : [];
+        }),
+      ),
+      tagNames: new Map(tags.list().map((tag) => [tag.id, tag.name])),
+      notes: minds
+        .list()
+        .filter((mind) => mindIds.includes(mind.id))
+        .map((mind) => ({
+          name: mindName(mind) || translate(settings.get().language, "mind.untitled"),
+          folderId:
+            mind.folderId !== null && folderIds.includes(mind.folderId) ? mind.folderId : null,
+        })),
+    });
+  };
   const checks = createChecks({
     repliesOut,
     // The call a Transcript's Passage is from, for an Answer asked in a Note that holds a call (#3005).
@@ -5620,6 +5668,14 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.searchTool(query, { documentIds, parameters, signal }),
       passage: (passageId) => documents.passage(passageId),
       passagesBetween: (documentId, from, to) => documents.passagesBetween(documentId, from, to),
+      citationSource: (passageId) => documents.citationSource(passageId),
+      pageTexts: (documentId, contentHash, from, to) =>
+        documents.pageTexts(documentId, contentHash, from, to),
+      passagesCovering: (documentId, from, to, overlapping) =>
+        documents.passagesCovering(documentId, from, to, overlapping),
+      ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+      libraryLists: agentLibraryLists,
+      libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
       citing,
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),

@@ -63,7 +63,7 @@ export interface AnalysisToolOptions {
 const LIBRARY_INPUT = ` An input can also be one of the lists IncarnaMind keeps of the User's Library, as this check may see it, which no Passage states: {"name": "files", "library": "documents"} (one row for each Document: name, kind, folder, folder_path, tags; kind is one of ${Object.keys(DOCUMENT_KINDS).join(", ")}, and tags are joined with ", "), {"name": "folders", "library": "folders"} (one row for each Folder: name, inside, path, documents) or {"name": "notes", "library": "notes"} (one row for each other note: name, folder, folder_path). folder is the Folder's own name, and a path is its place from the top, as "Clients / Acme / Contracts", which tells two Folders of one name apart. The code reads each by the name you gave it, as inputs["files"], a DataFrame with those columns. Their rows stay on the User's computer and are never shown to you: count or look up in the code what you need and give each number with result(name, value), its name a plain text written in the code. Only those numbers come back from such a run: nothing the code prints, no table, no label worked out from the rows, and of an error only its line.`;
 
 /** Whether `text` stands in `code` as a quoted text of its own, so the model wrote it itself. */
-const writtenIn = (code: string, text: string): boolean =>
+export const writtenIn = (code: string, text: string): boolean =>
   text !== "" && [`"${text}"`, `'${text}'`].some((quoted) => code.includes(quoted));
 
 /**

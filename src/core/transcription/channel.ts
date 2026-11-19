@@ -63,7 +63,7 @@ export type TranscriberResponse =
   | { type: "progress"; stream: string; doneMs: number; heardMs?: number }
   | { type: "failed"; stream: string; message: string }
   | { type: "switched"; change: EngineSwitch }
-  | { type: "lost"; stream: string; loss: CloudLoss }
+  | { type: "lost"; stream: string; loss: CloudLoss; code?: number }
   | { type: "opened"; stream: string };
 
 /**
@@ -142,7 +142,8 @@ export function createChannelTranscriber(
           return;
         case "lost":
           clouds.delete(response.stream);
-          for (const listener of listeners) listener.lost(response.stream, response.loss);
+          for (const listener of listeners)
+            listener.lost(response.stream, response.loss, response.code);
           return;
         case "opened":
           for (const listener of listeners) listener.opened(response.stream);
@@ -408,10 +409,10 @@ export function serveTranscriber(
   }
 
   async function openCloud(stream: string, config: CloudStream): Promise<CloudStreamHandle | null> {
-    const lost = (loss: CloudLoss) => {
+    const lost = (loss: CloudLoss, code?: number) => {
       clouds.delete(stream);
       cloudOpen.delete(stream);
-      port.respond({ type: "lost", stream, loss });
+      port.respond({ type: "lost", stream, loss, code });
       maybeIdle();
     };
     if (!cloud) {

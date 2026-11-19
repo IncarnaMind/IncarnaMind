@@ -2,15 +2,20 @@
  * A Note judged by the outside agent that wrote it, on that agent's own model (#3342). IncarnaMind
  * hands over the sentences that hold no result yet, and marks the Note with what the agent hands
  * back. Nothing goes to a model from here. A verdict that a quote decides stands only on a Citation
- * IncarnaMind found in its Document, among the Documents the Note's own Check searches.
+ * IncarnaMind found in its Document, among the Documents the Note's own Check searches; one worked
+ * out stands only on a calculation or a run IncarnaMind made for that agent in this check (#3363).
  */
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
+import { partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { targetHash } from "../../../shared/proposals";
 import type {
+  CheckedVersion,
+  CheckWorking,
   Citation,
   ClaimCheckAttributes,
+  ClaimCheckFailure,
   ClaimCheckResult,
   UnsupportedReason,
 } from "../../api";
@@ -33,12 +38,35 @@ export type JudgedVerdict =
   /** The sentence says nothing a Document could state: it gets no mark. */
   | "nothing-to-check";
 
+/** What a calculation or a run IncarnaMind made for an agent gives a verdict that rests on it. */
+export interface WorkedBacking {
+  /** What its card cites: a calculation's inputs, a run's rows or the Library's lists. */
+  evidence: readonly Citation[];
+  /** A run's code and what it read. */
+  working?: CheckWorking;
+  /** Its one line of working: the formula with its numbers, or the figures the code gave. */
+  workedOut: string;
+  versions: readonly CheckedVersion[];
+  /** The Documents it read: each must be one the Note's Check searches. */
+  documentIds: readonly string[];
+}
+
+export type Worked =
+  | { ok: true; backing: WorkedBacking }
+  /** It ran, and gave no result a verdict can rest on. */
+  | { ok: false; reason: ClaimCheckFailure; detail: string | null };
+
 export interface JudgedSentence {
   /** The sentence's number in the task. */
   n: number;
   verdict: JudgedVerdict;
   /** The Citations the agent rests it on, each found in its Document now. */
   evidence: readonly Citation[];
+  /**
+   * The calculation or run it names, made for this agent in this check; null for one IncarnaMind
+   * can't confirm as that, which marks nothing.
+   */
+  worked?: Worked | null;
   explanation: string | null;
 }
 
@@ -189,6 +217,14 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
           const sentence = sentences[each.n - 1];
           if (!sentence || reported.has(each.n)) continue;
           reported.add(each.n);
+          const { worked } = each;
+          if (
+            worked === null ||
+            (worked?.ok && !worked.backing.documentIds.every((id) => scope.documentIds.has(id)))
+          ) {
+            unconfirmed.push(each.n);
+            continue;
+          }
           if (each.verdict === "nothing-to-check") {
             skipped.add(sentenceKey(sentence.text));
             continue;
@@ -196,7 +232,9 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
           const evidence = each.evidence.filter((citation) =>
             scope.documentIds.has(citation.documentId),
           );
-          const result = resultOf(each, evidence);
+          const result = worked
+            ? workedResult(each, worked, evidence, checkText(sentence).claim.length)
+            : resultOf(each, evidence);
           if (result.verdict === "not-checked") unconfirmed.push(each.n);
           const mark: ClaimCheckAttributes = {
             id: randomUUID(),
@@ -256,6 +294,60 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       return landed;
     },
   };
+}
+
+/**
+ * The result of a verdict that names a calculation or a run, shown as the check's own worked-out
+ * marks are: Supported or Contradicted on what it read, with its line of working; Not checked
+ * where it gave no result. Any other verdict doesn't rest on it, and keeps it only as its working.
+ */
+function workedResult(
+  judged: JudgedSentence,
+  worked: Worked,
+  cited: readonly Citation[],
+  length: number,
+): ClaimCheckResult {
+  const { verdict } = judged;
+  if (verdict !== "supported" && verdict !== "contradicted") {
+    const result = resultOf(judged, cited);
+    return worked.ok && result.verdict !== "not-checked"
+      ? {
+          ...result,
+          versions: [...result.versions, ...worked.backing.versions],
+          ...(worked.backing.working && { working: worked.backing.working }),
+        }
+      : result;
+  }
+  const unchecked = (reason: ClaimCheckFailure, detail: string | null): ClaimCheckResult => ({
+    verdict: "not-checked",
+    reason,
+    detail,
+    versions: [],
+    excluded: [],
+  });
+  if (!worked.ok) return unchecked(worked.reason, worked.detail);
+  const { evidence, working, workedOut, versions } = worked.backing;
+  const [first, ...more] = evidence;
+  if (!first) return unchecked("no-evidence", null);
+  const result: ClaimCheckResult = {
+    verdict,
+    evidence: first,
+    says: judged.explanation,
+    unsupported: null,
+    calculation: null,
+    ...(working && { working }),
+    workedOut,
+    citedCaseUnchecked: false,
+    citedCaseFound: false,
+    versions: [...versions],
+    excluded: [],
+  };
+  // Each input of a calculation is shown on its card, as the check's own quotes are.
+  return more.length === 0
+    ? result
+    : resultFromParts([
+        partWithResult({ kind: "fact", span: { start: 0, end: length } }, result, more),
+      ]);
 }
 
 /** The result a sentence's mark holds: the agent's verdict, on the Citations IncarnaMind found. */

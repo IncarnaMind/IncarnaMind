@@ -1,11 +1,11 @@
 /**
- * Check this Note checks twelve sentences at once only where the AI service's replies state the
- * key has room for the whole Note and it has answered six large requests, and six everywhere else
- * (#2532), on scripted keys.
+ * Check this Note, and the check of what the assistant writes (#3381), check twelve sentences at
+ * once only where the AI service's replies state the key has room for all of them and it has
+ * answered six large requests, and six everywhere else (#2532), on scripted keys.
  */
 import { expect, test } from "vitest";
 import { type KeyShape, measuredKey } from "../helpers/scriptedKeys";
-import { type KeyWrite, keyNotes } from "../helpers/writeChecked";
+import { type KeyWrite, keyNotes, keyWrites } from "../helpers/writeChecked";
 
 const REPLY_MS = 1000;
 
@@ -85,6 +85,30 @@ test("a refusal takes the check back to six at once, and every mark still lands"
   expect(note.refused).toBeGreaterThan(0);
   expect(note.marks).toEqual({ supported: 30 });
   const later = outAsEachBegan(note, firstRefusal(note));
+  expect(later.length).toBeGreaterThan(0);
+  expect(Math.max(...later)).toBeLessThanOrEqual(6);
+});
+
+// protects=what the assistant writes is checked twelve sentences at once on a key whose replies state room for the whole write, and six on the same key stating nothing, every mark landing either way and the wide check ending sooner (#3381); fails_when=a write's check on a key that states nothing is sent more than six at once, or one on a key that states its room never gets more than six; no_claim=how soon a real service's headers arrive, or what a real key takes.
+test("a write's check on a key that states room is sent twelve at once, on one that states nothing six", async () => {
+  const stated = only(await keyWrites(12, REPLY_MS, ROOMY, 1, true));
+  const silent = only(await keyWrites(12, REPLY_MS, ROOMY, 1, false));
+
+  expect(stated).toMatchObject({ refused: 0, marks: { supported: 12 } });
+  expect(silent).toMatchObject({ refused: 0, marks: { supported: 12 } });
+  expect(Math.max(...outAsEachBegan(stated))).toBe(12);
+  expect(Math.max(...outAsEachBegan(silent))).toBe(6);
+  expect(stated.end).toBeLessThan(silent.end);
+});
+
+// protects=a write's check widened on a key that then refuses its large requests begins a sentence, from that refusal on, only while fewer than six others are out, every mark still landing (#3381); fails_when=the write's check keeps beginning sentences past six after a refusal, or a refused sentence ends Not checked; no_claim=that the sentences already out when the refusal came are taken back, which they aren't.
+test("a refusal takes a write's check back to six at once, and every mark still lands", async () => {
+  const write = only(await keyWrites(30, REPLY_MS, measuredKey(6_000_000, 1 / 60), 1, true));
+
+  expect(Math.max(...outAsEachBegan(write))).toBeGreaterThan(6);
+  expect(write.refused).toBeGreaterThan(0);
+  expect(write.marks).toEqual({ supported: 30 });
+  const later = outAsEachBegan(write, firstRefusal(write));
   expect(later.length).toBeGreaterThan(0);
   expect(Math.max(...later)).toBeLessThanOrEqual(6);
 });

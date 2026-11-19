@@ -38,7 +38,7 @@ export interface LiveLink {
   /** Every text has come: the stream ends with nothing lost. */
   complete(): void;
   /** The stream ends before all its text came. */
-  lose(loss: CloudLoss): void;
+  lose(loss: CloudLoss, code?: number): void;
   /**
    * The service ends its sessions by design (a connection's time is up): a new connection is
    * made at once, the route's setup runs again on it, and audio is held until it is ready.
@@ -209,11 +209,11 @@ export function createLiveStream(options: CloudStreamOptions, route: LiveRoute):
       end();
       socket?.close();
     },
-    lose(loss) {
+    lose(loss, code) {
       if (ended) return;
       end();
       socket?.close();
-      report.lost(loss);
+      report.lost(loss, code);
     },
     renew() {
       if (ended) return;
