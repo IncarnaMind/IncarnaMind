@@ -331,6 +331,18 @@ export interface LaunchOptions {
    * every page is shown otherwise so a spec reads the same on any computer.
    */
   systemColours?: boolean;
+  /**
+   * Folders the app looks in for agents' apps, each inside the temporary folder: a test that
+   * wants an agent found on this computer makes its app there. None by default, so the agents
+   * found are only those whose settings the test put in its home folder, never this computer's.
+   */
+  agentApps?: readonly string[];
+  /**
+   * The system's own file manager, browser and the apps files and links open in, for a spec that
+   * truly needs them. Without it, every launch records what it was asked to open and opens
+   * nothing (`pathsOpened`, `urlsOpened`, `pathsShown`).
+   */
+  realOpen?: boolean;
 }
 
 /**
@@ -410,10 +422,13 @@ export async function launchApp(
     trace = false,
     switches = [],
     systemColours = false,
+    agentApps = [],
+    realOpen = false,
   }: LaunchOptions = {},
 ): Promise<RunningApp> {
   assertInTemporaryFolder("data folder", dataDir);
   if (home) assertInTemporaryFolder("home folder", home);
+  for (const folder of agentApps) assertInTemporaryFolder("agents' apps folder", folder);
   const appHome = home ?? (await mkdtemp(join(tmpdir(), "incarnamind-home-")));
   const env = launchEnvironment({
     ...lifecycleHomeEnv(appHome),
@@ -461,6 +476,7 @@ export async function launchApp(
     INCARNAMIND_TEST_TASKS: scriptedTasks ? "1" : undefined,
     INCARNAMIND_TEST_CONTRADICTION_DELAY_MS:
       contradictionWatchDelayMs === undefined ? undefined : String(contradictionWatchDelayMs),
+    INCARNAMIND_TEST_AGENT_APPS: JSON.stringify(agentApps),
     ...extraEnv,
   });
 
@@ -492,6 +508,11 @@ export async function launchApp(
   });
   await paintNoFrameInPrintPage(app);
   mainProcessIds.set(app, await app.evaluate(() => process.pid));
+  if (!realOpen) {
+    await recordOpens(app);
+    if (!(await opensRecorded(app)))
+      throw new Error("The launched app could open this computer's apps.");
+  }
   await assertPackagedMain(app);
   const window = await app.firstWindow();
   // With the setup offered, a fresh profile opens on it and any other on the app.
@@ -512,6 +533,55 @@ export async function launchApp(
   }
   return { app, window };
 }
+
+/**
+ * Nothing a launched app is asked to open reaches this computer (#3362): the app a file or a
+ * link opens in, the browser and the file manager record what they were asked instead, for
+ * `pathsOpened`, `urlsOpened` and `pathsShown`. Connecting Claude's app once handed it a test's
+ * install file, which the User's own copy of Claude received.
+ */
+async function recordOpens(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ shell }) => {
+    const kept = globalThis as {
+      pathsOpened?: string[];
+      urlsOpened?: string[];
+      pathsShown?: string[];
+    };
+    const opened: string[] = [];
+    const urls: string[] = [];
+    const shown: string[] = [];
+    kept.pathsOpened = opened;
+    kept.urlsOpened = urls;
+    kept.pathsShown = shown;
+    shell.openPath = Object.assign(
+      async (path: string) => {
+        opened.push(path);
+        return "";
+      },
+      { recorded: true },
+    );
+    shell.openExternal = Object.assign(
+      async (url: string) => {
+        urls.push(url);
+      },
+      { recorded: true },
+    );
+    shell.showItemInFolder = Object.assign(
+      (path: string) => {
+        shown.push(path);
+      },
+      { recorded: true },
+    );
+  });
+}
+
+/** Whether the launched app's file manager, browser and file-opening all record instead of open. */
+export const opensRecorded = (app: ElectronApplication) =>
+  app.evaluate(({ shell }) =>
+    [shell.openPath, shell.openExternal, shell.showItemInFolder].every(
+      (open) => (open as { recorded?: boolean }).recorded === true,
+    ),
+  );
 
 /**
  * Leaves the hidden print page as the app has it: never shown, it paints no frame, so nothing
