@@ -94,11 +94,7 @@ export function OutlinePanel({
           const title = entry.title || t("viewer.outline.untitled");
           return (
             <li key={entry.key}>
-              <div
-                className={`pdf-outline-row ${entry.depth > 0 ? "pdf-outline-row--nested" : ""} ${
-                  isCurrent ? "pdf-outline-row--current" : ""
-                }`}
-              >
+              <div className={`pdf-outline-row ${isCurrent ? "pdf-outline-row--current" : ""}`}>
                 <button
                   type="button"
                   data-testid="outline-item"
