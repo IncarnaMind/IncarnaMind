@@ -8279,6 +8279,8 @@ export const en = {
   "agents.check.notYours":
     "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
   "agents.check.noDocuments": "The note’s Folder has no Documents to check it against.",
+  "agents.check.noDocuments.unfiled":
+    "There are no Documents to check this note against yet. The User can add some in IncarnaMind.",
   "agents.check.beyondReach":
     "This note is checked against Documents outside the Folders shared with this agent, so it can’t be checked for it. The User can check it in IncarnaMind.",
   "agents.check.notReady":
@@ -8415,14 +8417,13 @@ export const en = {
   "agents.reason.too-many": "it had reached its limit for the hour",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders and the notes in them. Listing them sends each Folder’s name, internal id and Document count, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders and the notes in them; with Not in a Folder, also the notes it writes there. Listing them sends each Folder’s name, internal id and Document count, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",
   "agents.connect.allUnfiled":
     "Your Documents aren’t in Folders yet, so these are all of them. To share some, put them in a Folder first.",
-  "agents.connect.empty.title": "Nothing to read yet",
-  "agents.connect.empty.body": "Add Documents for {agent} to read. They appear here.",
+  "agents.connect.noneYet": "No Documents yet: it reads those added outside a Folder.",
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.hint":

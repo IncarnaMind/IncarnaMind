@@ -68,6 +68,7 @@ import type { DecisionReader } from "./decisionFirst";
 import { sortedByDecision } from "./decisionSort";
 import { cellHeadings, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
+import { readsWithin } from "./judgedOutside";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import { checkRunOf } from "./runCheck";
 import {
@@ -725,7 +726,7 @@ export function createMindCheck(options: MindCheckOptions) {
       if (scope.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
       // A Folder with no Document searches every Document.
       if (scope.marked.widened) throw new NotAsked("no-documents");
-      if (!scope.scope.documentIds?.every((id) => reach.has(id)))
+      if (readsWithin(scope.scope, reach, options.documentVersions) === null)
         throw new NotAsked("beyond-reach");
     }
     const wide = widened.size > 0 ? options.scopeOf(mindId, true).check : scope;

@@ -377,6 +377,7 @@ export function createAgents(options: AgentsOptions) {
       id: pairing.id,
       name: pairing.name,
       folderIds,
+      createdAt: pairing.createdAt,
       propose: pairing.propose,
     };
   };

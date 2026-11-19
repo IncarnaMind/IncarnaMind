@@ -23,9 +23,17 @@ import { transcriptUnits } from "../../src/core/documents/formats/vtt";
 import { translate } from "../../src/shared/i18n";
 import { recordNoteWriter } from "../../src/shared/noteWriter";
 
+const AT = "2026-11-01T00:00:00.000Z";
+
 function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessDeps> = {}) {
   const deps: AgentAccessDeps = {
-    admit: (pairingId) => ({ id: pairingId, name: "Codex", folderIds: ["coast"], propose: false }),
+    admit: (pairingId) => ({
+      id: pairingId,
+      name: "Codex",
+      folderIds: ["coast"],
+      createdAt: AT,
+      propose: false,
+    }),
     folders: () => [{ id: "coast", name: "Coast", keepInside: false }],
     wallOf: () => null,
     foldersInScope: (folderIds) => [...folderIds],
@@ -115,7 +123,13 @@ function accessChecking(
   return accessAnswering(
     { asked: false, reason: "not-ready" },
     {
-      admit: (pairingId) => ({ id: pairingId, name: "Codex", folderIds: ["coast"], propose: true }),
+      admit: (pairingId) => ({
+        id: pairingId,
+        name: "Codex",
+        folderIds: ["coast"],
+        createdAt: AT,
+        propose: true,
+      }),
       minds: () => [mind] as ReturnType<AgentAccessDeps["minds"]>,
       mindBlocks: (_mindId, look) => look(doc.getXmlFragment(MIND_CONTENT_FIELD)),
       checkNote,
@@ -183,7 +197,13 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
         admit: (pairingId) => {
           if (admitted++ > 0)
             throw new AgentRefusedError("unpaired", "This agent isn’t connected.");
-          return { id: pairingId, name: "Codex", folderIds: ["coast"], propose: true };
+          return {
+            id: pairingId,
+            name: "Codex",
+            folderIds: ["coast"],
+            createdAt: AT,
+            propose: true,
+          };
         },
       },
     );
@@ -418,6 +438,7 @@ for (const language of ["en", "zh-CN"] as const) {
           id: pairingId,
           name: "Codex",
           folderIds: ["coast"],
+          createdAt: AT,
           propose: true,
         }),
         citations: {

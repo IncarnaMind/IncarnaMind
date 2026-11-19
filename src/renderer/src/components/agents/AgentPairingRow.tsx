@@ -87,7 +87,7 @@ export function AgentPairingRow({
       reportError(error);
     });
   };
-  const rows = useAgentFolderRows(open === "folders");
+  const rows = useAgentFolderRows(open === "folders", chosen.includes(NOT_IN_A_FOLDER_ID));
   const names = [
     ...folders.filter((folder) => chosen.includes(folder.id)).map((folder) => folder.name),
     ...(chosen.includes(NOT_IN_A_FOLDER_ID) ? [t("library.unsorted")] : []),
@@ -226,12 +226,7 @@ export function AgentPairingRow({
           <legend className="text-[13px] leading-5 font-semibold text-ink">
             {t("agents.pairing.foldersTitle", { agent: pairingInSentence(pairing, t) })}
           </legend>
-          <AgentFolderList
-            rows={rows}
-            agent={pairingInSentence(pairing, t)}
-            chosen={new Set(chosen)}
-            onToggle={setFolder}
-          />
+          <AgentFolderList rows={rows} chosen={new Set(chosen)} onToggle={setFolder} />
           <div className="mt-2">
             <ProposeChoice checked={propose} onChange={changePropose} />
           </div>

@@ -46,15 +46,25 @@ describe("what an agent may be allowed to read", () => {
     expect(onlyNotInAFolder(rows)).toBe(false);
   });
 
-  test("leaves Not in a Folder out while it holds nothing, and lists a Folder that holds nothing", () => {
+  test("leaves Not in a Folder out while every Document is filed, unless the agent has it", () => {
     const a = doc();
     expect(agentFolderRows([board], [a], [filed(a, "board")])).toEqual([
       { id: "board", name: "Board", documents: 1 },
     ]);
+    expect(agentFolderRows([board], [a], [filed(a, "board")], true)).toEqual([
+      { id: "board", name: "Board", documents: 1 },
+      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 },
+    ]);
+  });
+
+  test("with no Document at all, Not in a Folder is offered, the place an agent starts from (#3364)", () => {
     expect(agentFolderRows([board], [], [])).toEqual([
       { id: "board", name: "Board", documents: 0 },
+      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 },
     ]);
-    expect(agentFolderRows([], [], [])).toEqual([]);
+    const rows = agentFolderRows([], [], []);
+    expect(rows).toEqual([{ id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 }]);
+    expect(onlyNotInAFolder(rows)).toBe(true);
   });
 
   test("with no Folders, Not in a Folder is the only choice, and holds every Document", () => {

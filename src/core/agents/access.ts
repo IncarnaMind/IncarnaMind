@@ -6,7 +6,8 @@
  * connecting agents be on, Local mode off and the User's consent in place,
  * and it reaches only the Documents in the pairing's Folders and those
  * Folders' Minds, and, if Not in a Folder is one of them, the Documents in no
- * Folder at the time of each call (never a Mind). Nothing here changes the
+ * Folder at the time of each call and the Minds there the pairing wrote itself
+ * (#3364), never another's. Nothing here changes the
  * User's Documents, and a Mind only through `propose_changes`, which the User
  * allows per pairing and whose changes wait for them as Proposals (#352,
  * ./proposals). With the same leave `create_mind` writes a new Mind (#3306):
@@ -244,7 +245,10 @@ export interface AgentCreateInput {
   title: string;
   /** Its text, as Markdown, cited only with IncarnaMind's tokens. */
   markdown: string;
-  /** The Folder to make it in, of the pairing's; may be left out when it has one. */
+  /**
+   * The Folder to make it in, of the pairing's, or `NOT_IN_A_FOLDER_ID` for none; may be left
+   * out when it has one Folder, or none and reads the Documents in no Folder.
+   */
   folderId?: string;
 }
 
@@ -441,6 +445,8 @@ export interface AdmittedPairing {
   id: string;
   name: string;
   folderIds: string[];
+  /** When the User connected it: no Note it wrote is older. */
+  createdAt: string;
   /** The User let it propose changes to the Notes in its Folders. */
   propose: boolean;
 }
@@ -491,8 +497,8 @@ export interface AgentAccessDeps {
     mindId: string,
     footnote: (attributes: Record<string, unknown>) => { source: string; unverified: boolean },
   ): string;
-  /** A new Mind in a Folder; `headed`, its text starts with its name as a heading. */
-  createMind(title: string, folderId: string, headed: boolean): Mind;
+  /** A new Mind in a Folder, or in none; `headed`, its text starts with its name as a heading. */
+  createMind(title: string, folderId: string | null, headed: boolean): Mind;
   /** How many Notes the pairing wrote since `since` (ISO 8601, UTC). */
   notesWrittenSince(pairingId: string, since: string): number;
   /** IncarnaMind's Answer to a Question from these Documents, on the default chat model. */
@@ -982,14 +988,26 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
   };
 
-  /** A Mind in the pairing's Folders, or a refusal that tells nothing of the others. */
+  const readsUnfiled = (pairing: AdmittedPairing) =>
+    deps.foldersInScope(pairing.folderIds).includes(NOT_IN_A_FOLDER_ID);
+
+  /** Whether the pairing wrote the Mind, as `create_mind` records it in the Mind. */
+  const wrote = (pairing: AdmittedPairing, mindId: string) =>
+    deps.mindBlocks(mindId, (blocks) => (blocks.doc ? noteWriterOf(blocks.doc) : null))
+      ?.pairingId === pairing.id;
+
+  /**
+   * A Mind in the pairing's Folders, or in no Folder when the pairing wrote it and reads the
+   * Documents there (#3364); otherwise a refusal that tells nothing of the others.
+   */
   const mindInScope = (pairing: AdmittedPairing, mindId: string): Mind => {
     const mind = deps.minds().find((each) => each.id === mindId);
-    if (
-      !mind ||
-      mind.folderId === null ||
-      !deps.foldersInScope(pairing.folderIds).includes(mind.folderId)
-    ) {
+    const reached =
+      mind !== undefined &&
+      (mind.folderId === null
+        ? readsUnfiled(pairing) && wrote(pairing, mind.id)
+        : deps.foldersInScope(pairing.folderIds).includes(mind.folderId));
+    if (!mind || !reached) {
       throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
     }
     return mind;
@@ -1034,15 +1052,22 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     return run;
   };
 
-  /** Why a Check sent nothing, in plain words. */
-  const notAsked = (reason: NotAskedReason): AgentRefusedError => {
+  /** Nothing to check a Note against: none in its Folder, or none at all for a Note in no Folder. */
+  const noDocuments = (mind: Mind) =>
+    new AgentRefusedError(
+      "invalid",
+      t(mind.folderId === null ? "agents.check.noDocuments.unfiled" : "agents.check.noDocuments"),
+    );
+
+  /** Why a Check of `mind` sent nothing, in plain words. */
+  const notAsked = (reason: NotAskedReason, mind: Mind): AgentRefusedError => {
     switch (reason) {
       case "local-mode":
         return new AgentRefusedError("local-mode", t("agents.problem.local-mode"));
       case "beyond-reach":
         return new AgentRefusedError("outside-scope", t("agents.check.beyondReach"));
       case "no-documents":
-        return new AgentRefusedError("invalid", t("agents.check.noDocuments"));
+        return noDocuments(mind);
       case "consent-needed":
         return new AgentRefusedError("chat-not-ready", t("agents.check.consent"));
       case "not-ready":
@@ -1065,31 +1090,39 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     return mind;
   };
 
-  const notJudged = (reason: NotJudgedReason): AgentRefusedError => {
+  const notJudged = (reason: NotJudgedReason, mind: Mind): AgentRefusedError => {
     switch (reason) {
       case "beyond-reach":
         return new AgentRefusedError("outside-scope", t("agents.check.beyondReach"));
       case "no-documents":
-        return new AgentRefusedError("invalid", t("agents.check.noDocuments"));
+        return noDocuments(mind);
       case "changed":
         return new AgentRefusedError("changed", t("agents.check.taskChanged"));
     }
   };
 
-  /** The Folder a new Note goes in: the one named, of the pairing's, or its only one. */
-  const folderToWriteIn = (pairing: AdmittedPairing, folderId: unknown) => {
+  /**
+   * Where a new Note goes: the Folder named, of the pairing's, or its only one; else no Folder,
+   * named or not, when the pairing reads the Documents there (#3364).
+   */
+  const placeToWriteIn = (
+    pairing: AdmittedPairing,
+    folderId: unknown,
+  ): { id: string | null; name: string } => {
     const shared = deps.foldersInScope(pairing.folderIds);
     const folders = deps.folders().filter((folder) => shared.includes(folder.id));
-    if (folders.length === 0) {
+    const unfiled = shared.includes(NOT_IN_A_FOLDER_ID);
+    const none = { id: null, name: t("library.unsorted") };
+    if (folders.length === 0 && !unfiled) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
     if (folderId === undefined) {
       const [only, ...others] = folders;
-      if (!only || others.length > 0) {
-        throw new AgentRefusedError("invalid", t("agents.create.folder"));
-      }
-      return only;
+      if (only && others.length === 0) return only;
+      if (!only) return none;
+      throw new AgentRefusedError("invalid", t("agents.create.folder"));
     }
+    if (folderId === NOT_IN_A_FOLDER_ID && unfiled) return none;
     const folder = folders.find((each) => each.id === folderId);
     if (!folder) throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
     return folder;
@@ -1397,7 +1430,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             id: NOT_IN_A_FOLDER_ID,
             name: t("library.unsorted"),
             documents: deps.documentsIn([NOT_IN_A_FOLDER_ID]).length,
-            minds: [],
+            minds: minds
+              .filter(
+                (mind) =>
+                  mind.folderId === null &&
+                  mind.createdAt >= pairing.createdAt &&
+                  wrote(pairing, mind.id),
+              )
+              .map((mind) => ({
+                id: mind.id,
+                title: mind.title || mind.autoTitle || t("mind.untitled"),
+                updatedAt: mind.updatedAt,
+              })),
           });
         }
         return {
@@ -1636,7 +1680,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         const title = text(input?.title, "title", MAX_TITLE_CHARS);
         const written = text(input?.markdown, "markdown", MAX_DRAFT_CHARS);
-        const folder = folderToWriteIn(pairing, input?.folderId);
+        const folder = placeToWriteIn(pairing, input?.folderId);
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
           throw new AgentRefusedError(
@@ -1713,19 +1757,17 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const outcome = await within(run, deps.checkWaitMs ?? CHECK_WAIT_MS);
         // Its end is told once: the call after starts a Check of what changed since.
         if (outcome && running.get(mind.id) === run) running.delete(mind.id);
-        if (outcome && !outcome.asked) throw notAsked(outcome.reason);
+        if (outcome && !outcome.asked) throw notAsked(outcome.reason, mind);
         const result = outcome?.result ?? null;
-        if (result?.kind === "not-ready") throw notAsked("not-ready");
-        if (result?.kind === "local-mode") throw notAsked("local-mode");
+        if (result?.kind === "not-ready") throw notAsked("not-ready", mind);
+        if (result?.kind === "local-mode") throw notAsked("local-mode", mind);
         if (result?.kind === "failed") {
           throw new AgentRefusedError(
             "failed",
             t("agents.check.failed", { message: result.error.message }),
           );
         }
-        if (result?.kind === "no-documents") {
-          throw new AgentRefusedError("invalid", t("agents.check.noDocuments"));
-        }
+        if (result?.kind === "no-documents") throw noDocuments(mind);
         const stopped =
           result?.kind === "cancelled"
             ? t("agents.check.stopped.user")
@@ -1806,13 +1848,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       return call("check_mind_yourself", known ? mindName(known) : "", effects, (pairing) => {
         const mind = ownNote(pairing, input?.mindId);
         const found = deps.checkTask(mind.id, new Set(scopeOf(pairing, undefined)));
-        if (!found.ok) throw notJudged(found.reason);
+        if (!found.ok) throw notJudged(found.reason, mind);
         return {
           result: {
             mindId: mind.id,
             title: mindName(mind),
             task: found.value.task,
-            how: howToJudge(mind.folderId ?? ""),
+            how: howToJudge(mind.folderId),
             sentences: found.value.sentences,
           },
           count: found.value.sentences.length,
@@ -1872,7 +1914,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           ];
         });
         const landed = deps.landJudged(mind.id, inScope, pairing.name, task, judged);
-        if (!landed.ok) throw notJudged(landed.reason);
+        if (!landed.ok) throw notJudged(landed.reason, mind);
         const { marked, unconfirmed, unreported } = landed.value;
         return {
           result: {

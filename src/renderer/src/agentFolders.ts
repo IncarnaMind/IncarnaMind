@@ -21,13 +21,15 @@ export interface AgentFolderRow {
 }
 
 /**
- * Every Folder in the order given, then Not in a Folder while it holds a
- * Document, as the Library lists them.
+ * Every Folder in the order given, then Not in a Folder, as the Library lists them: while it
+ * holds a Document, while there is no Document at all, the place an agent can start from
+ * (#3364), or while `keepUnfiled`, an agent's choice that can be taken back.
  */
 export function agentFolderRows(
   folders: readonly LibraryGroup[],
   documents: readonly Document[],
   assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId">[],
+  keepUnfiled = false,
 ): AgentFolderRow[] {
   const folderOf = new Map(assignments.map((each) => [each.documentId, each.groupId]));
   const listed = documents.filter(isListedDocument);
@@ -49,7 +51,9 @@ export function agentFolderRows(
       name: folder.name,
       documents: counts.get(folder.id) ?? 0,
     })),
-    ...(loose.length > 0 ? [{ id: NOT_IN_A_FOLDER_ID, name: null, documents: loose.length }] : []),
+    ...(loose.length > 0 || listed.length === 0 || keepUnfiled
+      ? [{ id: NOT_IN_A_FOLDER_ID, name: null, documents: loose.length }]
+      : []),
   ];
 }
 

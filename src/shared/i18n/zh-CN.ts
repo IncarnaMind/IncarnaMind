@@ -7818,6 +7818,8 @@ export const zhCN = {
   "agents.problem.too-many": "这个智能体在过去一小时内已新建 {max} 篇笔记，达到上限。稍后再试。",
   "agents.check.notYours": "只能核对这个智能体用 create_mind 写的笔记，这篇不是它写的。",
   "agents.check.noDocuments": "这篇笔记所在的文件夹里没有可对照的文档。",
+  "agents.check.noDocuments.unfiled":
+    "还没有可用来核对这篇笔记的文档。用户可以在 IncarnaMind 中添加。",
   "agents.check.beyondReach":
     "这篇笔记的核对范围包含未与这个智能体共享的文件夹中的文档，因此不能为它核对。用户可以在 IncarnaMind 中核对。",
   "agents.check.notReady": "IncarnaMind 中没有可用于核对的 AI 模型。请在“设置 › AI”中设置。",
@@ -7944,14 +7946,13 @@ export const zhCN = {
   "agents.reason.too-many": "已达到一小时内的上限",
   "agents.connect.title": "允许{agent}读取你的文档？",
   "agents.connect.body":
-    "它可以读取你所选的文件夹和其中的笔记。列出时会发送每个文件夹的名称、内部 ID 和文档数，以及每篇笔记的名称、内部 ID 和最后修改时间。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
+    "它可以读取你所选的文件夹和其中的笔记；选了“不在文件夹中”时，还能读取它自己写在那里的笔记。列出时会发送每个文件夹的名称、内部 ID 和文档数，以及每篇笔记的名称、内部 ID 和最后修改时间。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
   "agents.connect.name": "名称",
   "agents.connect.namePlaceholder": "我的智能体",
   "agents.connect.folders": "它可以读取的文件夹",
   "agents.connect.allUnfiled":
     "你的文档还没有放进文件夹，这里就是全部文档。想只分享一部分，先把它们放进一个文件夹。",
-  "agents.connect.empty.title": "还没有可读取的内容",
-  "agents.connect.empty.body": "添加要让{agent}读取的文档，它们会显示在这里。",
+  "agents.connect.noneYet": "还没有文档：之后添加且不在文件夹中的文档，它都能读取。",
   "agents.connect.pickOne": "至少选择一个文件夹。",
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.hint": "它新建的笔记立即出现，并可请求用你的 AI 模型核对；它的修改等你处理。",

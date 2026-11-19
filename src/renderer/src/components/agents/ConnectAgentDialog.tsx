@@ -136,7 +136,7 @@ export function ConnectAgentDialog({
         )}
         <fieldset className="flex min-w-0 flex-col gap-1">
           <legend className={fieldLabelClass}>{t("agents.connect.folders")}</legend>
-          <AgentFolderList rows={rows} agent={agent} chosen={chosen} onToggle={toggle} />
+          <AgentFolderList rows={rows} chosen={chosen} onToggle={toggle} />
         </fieldset>
         <ProposeChoice checked={propose} onChange={setPropose} />
         {preview && (

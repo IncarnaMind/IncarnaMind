@@ -4,66 +4,38 @@ import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
 import { isListedDocument } from "../../meetingTranscript";
 import { useAppStore } from "../../store";
-import { FolderLineIcon, PlusLineIcon } from "../lineIcons";
-import { buttonStyle } from "../ui";
+import { FolderLineIcon } from "../lineIcons";
 
-/** What an agent may be allowed to read now: the Folders, then Not in a Folder while it holds a Document. */
-export function useAgentFolderRows(enabled = true): AgentFolderRow[] {
+/** What an agent may be allowed to read now: the Folders, then Not in a Folder (see `agentFolderRows`). */
+export function useAgentFolderRows(enabled = true, keepUnfiled = false): AgentFolderRow[] {
   const folders = useAppStore((state) => state.library?.groups);
   const assignments = useAppStore((state) => state.library?.assignments);
   const documents = useAppStore((state) => state.documents);
   return useMemo(
-    () => (enabled ? agentFolderRows(folders ?? [], documents, assignments ?? []) : []),
-    [enabled, folders, assignments, documents],
+    () =>
+      enabled ? agentFolderRows(folders ?? [], documents, assignments ?? [], keepUnfiled) : [],
+    [enabled, folders, assignments, documents, keepUnfiled],
   );
 }
 
 /**
  * The choices of what an agent may read, ticked in place: each Folder with its
- * Documents, Not in a Folder last. With no Document at all there is nothing to
- * choose, so the list's place offers Add Documents…, the Library's own action.
+ * Documents, Not in a Folder last. With no Document at all, Not in a Folder is
+ * the one choice: the Documents the User adds there next (#3364).
  * The same list is in the connect dialog and in a connected agent's Folders….
  */
 export function AgentFolderList({
   rows,
-  agent,
   chosen,
   onToggle,
 }: {
   rows: readonly AgentFolderRow[];
-  /** The agent, as a sentence names it. */
-  agent: string;
   chosen: ReadonlySet<string>;
   onToggle(id: string, on: boolean): void;
 }) {
   const t = useT();
   const language = useLanguage();
-  const picking = useAppStore((state) => state.pickingDocuments);
   const anyDocument = useAppStore((state) => state.documents.some(isListedDocument));
-
-  if (!anyDocument) {
-    return (
-      <div
-        data-testid="agent-folders-empty"
-        className="mt-1 flex flex-col items-start gap-1.5 rounded-lg border border-dashed border-rule-strong px-4 py-[18px]"
-      >
-        <p className="text-ui font-semibold text-ink">{t("agents.connect.empty.title")}</p>
-        <p className="text-[13px] leading-[18px] text-ink-meta">
-          {t("agents.connect.empty.body", { agent })}
-        </p>
-        <button
-          type="button"
-          data-testid="agent-add-documents"
-          disabled={picking}
-          onClick={() => void useAppStore.getState().pickDocuments()}
-          className={`${buttonStyle("secondary", "sm")} mt-1.5`}
-        >
-          <PlusLineIcon className="size-4" />
-          {t("sidebar.plus.addDocuments")}
-        </button>
-      </div>
-    );
-  }
 
   return (
     <>
@@ -110,7 +82,7 @@ export function AgentFolderList({
           data-testid="agent-folders-all-unfiled"
           className="mt-1.5 text-[13px] leading-[18px] text-ink-meta"
         >
-          {t("agents.connect.allUnfiled")}
+          {anyDocument ? t("agents.connect.allUnfiled") : t("agents.connect.noneYet")}
         </p>
       )}
     </>
