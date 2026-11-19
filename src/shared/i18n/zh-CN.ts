@@ -1332,7 +1332,7 @@ export const zhCN = {
   "claim.useFigure.command": "改为计算得出的数字",
   "claim.useFigure.done": "已改为 {figure}",
   "claim.useFigure.moved": "未做修改：这句话不在核对标记的位置了。请重新核对。",
-  "claim.correction": "改为 {wording}",
+  "claim.correction": "改成“{wording}”",
   "claim.says.correction": "文档写的是“{to}”，不是“{from}”。",
   "claim.correction.command": "改为文档的说法",
   "claim.correction.doneMany": "已按文档更正 {count} 处",
