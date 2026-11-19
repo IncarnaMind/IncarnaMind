@@ -43,6 +43,9 @@ const LOOKS = [
 ] as const;
 const WIDTHS = [1280, 900] as const;
 
+/** A made-up OpenRouter key, in its form: the test build checks it with the scripted model. */
+const OPENROUTER_KEY = `sk-or-v1-${"0f9a".repeat(16)}`;
+
 const HARBOUR = [
   "# Harbour report 2025",
   "",
@@ -259,19 +262,33 @@ test("connecting the AI the User has in the step: no key, no Sorting, the agent'
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
   await stills(window, "3-your-ai-connected");
 
-  // No model: Sorting isn't offered, and Meetings says what a model adds.
+  // No model here: Sorting offers what sorts without one, and says so; the User's AI isn't one.
   await ai.getByTestId("setup-next").click();
-  const meetings = await atStep(window, "meetings");
-  await expect(meetings.getByTestId("setup-progress-step")).toHaveText([
+  const sorting = await atStep(window, "sorting");
+  await expect(sorting.getByTestId("setup-progress-step")).toHaveText([
     "Your work",
     "Your AI",
+    "Sorting",
     "Meetings",
   ]);
+  const choices = sorting.getByTestId("setup-sorting");
+  await expect(choices).toHaveCount(2);
+  await expect(choices.first()).toHaveAttribute("data-value", "decision");
+  await expect(choices.last()).toHaveAttribute("data-value", "local");
+  await expect(sorting.getByTestId("setup-sorting-agent-alone")).toHaveText(
+    "Sorting runs by itself with a decision model or a model on this computer; otherwise it waits.",
+  );
+  await expect(sorting.getByTestId("setup-decision-key")).toBeVisible();
+  await expect(sorting.getByTestId("setup-sorting-sends")).toContainText("to OpenRouter.");
+  await expect(sorting.getByTestId("setup-decision-answers")).toHaveCount(0);
+  await stills(window, "3b-sorting-agent-only");
+  await sorting.getByTestId("setup-skip").click();
+  const meetings = await atStep(window, "meetings");
   await expect(meetings.getByTestId("setup-meetings-needs-model")).toHaveText(
     "Notes after a call and help during it need a model in IncarnaMind.",
   );
   await meetings.getByTestId("setup-back").click();
-  await (await atStep(window, "ai")).getByTestId("setup-next").click();
+  await (await atStep(window, "sorting")).getByTestId("setup-skip").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   await expect(panelOf(window)).toHaveCount(0);
 
@@ -283,7 +300,9 @@ test("connecting the AI the User has in the step: no key, no Sorting, the agent'
     /See what needs a look/,
   ]);
   await expect(card).not.toContainText(/key|Choose a model/i);
-  await expect(card.getByTestId("first-open-set")).toContainText("Your AI: Claude Code");
+  await expect(card.getByTestId("first-open-set")).toContainText(
+    "Your AI: Claude Code · Sorting: not set",
+  );
 
   // Settings › Agents lists it as one connected there, and disconnects it.
   await card.getByTestId("first-open-set-change").click();
@@ -306,6 +325,7 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   await connectClaudeCode(window, await atStep(window, "ai"));
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
+  await (await atStep(window, "sorting")).getByTestId("setup-skip").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   const card = window.getByTestId("first-open-steps");
   const step = (name: string) =>
@@ -442,4 +462,56 @@ test("only a model keeps today's card; a model and an agent get the agent's, wit
     /Ask your AI for a document/,
     /See what needs a look/,
   ]);
+});
+
+// protects=a User with their own AI and no model here can still choose a decision model, its key typed in place, and the step turns nothing more on than it does for a User with a model: the key sorts and is no Answers model; fails_when=the step is hidden, offers to sort with the User's AI, makes the key the Answers model, or the card's foot misreads what sorts
+test("with only their own AI, the User chooses a decision model in place, and the key sorts and answers nothing", async () => {
+  test.setTimeout(180_000);
+  const window = await launch();
+  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  await connectClaudeCode(window, await atStep(window, "ai"));
+  await (await atStep(window, "ai")).getByTestId("setup-next").click();
+  const sorting = await atStep(window, "sorting");
+  await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openrouter");
+  await sorting.getByTestId("setup-decision-key").fill(OPENROUTER_KEY);
+  await stills(window, "3c-sorting-agent-only-key");
+  await sorting.getByTestId("setup-next").click();
+  await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  await expect(panelOf(window)).toHaveCount(0);
+
+  const read = await window.evaluate(async () => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const [settings, library, providers] = await Promise.all([
+      bridge.getSettings(),
+      bridge.getLibrary(),
+      bridge.listChatProviders(),
+    ]);
+    return {
+      chatModel: settings.user.chatModel,
+      classifier: library.settings.classifier,
+      automatic: library.settings.automatic,
+      providers: providers.map((each) => each.catalogId),
+    };
+  });
+  // Kept for sorting alone, as it would be for a User with a model: no Answers model came of it.
+  expect(read).toMatchObject({
+    chatModel: null,
+    classifier: { kind: "decision", host: "openrouter" },
+    automatic: false,
+    providers: ["openrouter"],
+  });
+  const foot = window.getByTestId("first-open-steps").getByTestId("first-open-set");
+  await expect(foot).toContainText(/^Your AI: Claude Code · Sorting: (?!not set)/);
+
+  // The foot reads a model on this computer, and nothing set, as it does for every User.
+  const sortWith = (classifier: unknown) =>
+    window.evaluate(async (chosen) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { settings } = await bridge.getLibrary();
+      await bridge.saveLibrarySettings({ ...settings, classifier: chosen } as typeof settings);
+    }, classifier);
+  await sortWith({ kind: "auto", baseUrl: "http://127.0.0.1:9" });
+  await expect(foot).toContainText("Sorting: on this computer");
+  await sortWith({ kind: "automatic" });
+  await expect(foot).toContainText("Sorting: not set");
 });

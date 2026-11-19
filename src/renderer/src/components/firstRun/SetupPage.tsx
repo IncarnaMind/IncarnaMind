@@ -1,7 +1,7 @@
 import { useState } from "react";
 import appIcon from "../../../../../build/icon/png/128x128.png";
 import type { WorkKind } from "../../../../core/api";
-import { useAgentAlone, useAgentClients } from "../../agentNote";
+import { useAgentClients } from "../../agentNote";
 import { useAppStore } from "../../store";
 import { ConsentDialog } from "../ConsentDialog";
 import { ErrorNotices } from "../ErrorNotices";
@@ -37,14 +37,13 @@ export function SetupSteps({
   const [work, setWork] = useState<WorkKind[]>([]);
   const [sent, setSent] = useState(first?.picksSent === true);
   const [ending, setEnding] = useState(false);
-  const shown = useStepsShown(steps);
   // Read on the first step shown, so Your AI has its agents as it opens.
   useAgentClients();
   const place: StepPlace = {
-    steps: shown,
+    steps,
     at,
     next: () => {
-      if (at + 1 < shown.length) {
+      if (at + 1 < steps.length) {
         setAt(at + 1);
         return;
       }
@@ -55,7 +54,7 @@ export function SetupSteps({
     ...(at > 0 && { back: () => setAt(at - 1) }),
     ...(close && { close }),
   };
-  const step = shown[at];
+  const step = steps[at];
   if (step === "work" && first) {
     return (
       <WorkStep
@@ -71,12 +70,6 @@ export function SetupSteps({
   if (step === "ai") return <AiStep place={place} />;
   if (step === "sorting") return <SortingStep place={place} />;
   return <TranscriptionStep place={place} />;
-}
-
-/** The steps shown: sorting needs a model in IncarnaMind, so the User's own AI alone skips it (#3362). */
-function useStepsShown(steps: readonly SetupStep[]): readonly SetupStep[] {
-  const agentAlone = useAgentAlone();
-  return agentAlone ? steps.filter((step) => step !== "sorting") : steps;
 }
 
 /**

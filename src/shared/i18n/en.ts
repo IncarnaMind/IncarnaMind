@@ -3302,6 +3302,8 @@ export const en = {
   "setupPage.sorting.local": "A model on this computer",
   "setupPage.sorting.local.line": "Free",
   "setupPage.sorting.local.none": "No model on this computer can sort yet.",
+  "setupPage.sorting.agentAlone":
+    "Sorting runs by itself with a decision model or a model on this computer; otherwise it waits.",
   "setupPage.sorting.provider": "Provider",
   "setupPage.meetings.title": "Meeting transcription",
   "setupPage.meetings.lead": "Turns what is said into text.",
@@ -8448,7 +8450,7 @@ export const en = {
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.hint":
-    "Its notes appear at once, and it can have them checked on your AI model. Its changes wait for you.",
+    "Its notes appear at once, and it can have them checked. Its changes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",

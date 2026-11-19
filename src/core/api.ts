@@ -6233,8 +6233,11 @@ export interface SaveChatProviderInput {
   apiKey?: string | null;
   /** The model to make the default, e.g. "gpt-5.4-mini". */
   modelId: string;
-  /** The default model stays as it is when there is one; `modelId` becomes it only when there is none. */
-  keepDefault?: boolean;
+  /**
+   * The default model stays as it is when there is one; `modelId` becomes it only when there is
+   * none. "always": it stays as it is, none included, for a key kept for something else alone.
+   */
+  keepDefault?: boolean | "always";
 }
 
 export interface TestChatConnectionInput {
