@@ -42,6 +42,7 @@ import { serveBackground } from "./backgroundHost";
 import { createFakeCallWatcher, type FakeCalls } from "./calls/fakeWatcher";
 import { macWatcherPath } from "./calls/macWatcher";
 import { createCallWatcher } from "./calls/watcher";
+import { allowCanvases, CANVAS_SCHEME_PRIVILEGES, serveCanvases } from "./canvases";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
 import { CHECK_ENGINES_SWITCH, engineCheckDataFolder, runEngineCheck } from "./engineCheck";
 import { serveFileActions } from "./files";
@@ -214,6 +215,13 @@ function testSandboxProblem(): { problem?: SandboxProblem } {
   return given ? { problem: JSON.parse(given) as SandboxProblem } : {};
 }
 
+/** Test-only: the memory a Canvas may use before it is stopped, lowered so a smoke test sees it. */
+function testCanvasMemory(): { memoryLimitMb?: number } {
+  const given =
+    import.meta.env.MODE === "test" ? Number(process.env.INCARNAMIND_TEST_CANVAS_MEMORY_MB) : NaN;
+  return Number.isFinite(given) && given > 0 ? { memoryLimitMb: given } : {};
+}
+
 /** Set by electron-vite in development; absent in a built app. */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 
@@ -230,7 +238,11 @@ if (testHooks) {
 }
 
 // Electron takes every privileged scheme in one call: a second would replace the first.
-protocol.registerSchemesAsPrivileged([DOCUMENT_SCHEME_PRIVILEGES, ANALYSIS_SCHEME_PRIVILEGES]);
+protocol.registerSchemesAsPrivileged([
+  DOCUMENT_SCHEME_PRIVILEGES,
+  ANALYSIS_SCHEME_PRIVILEGES,
+  CANVAS_SCHEME_PRIVILEGES,
+]);
 
 /**
  * The scripted chat model the smoke tests answer Questions with. Only a test
@@ -446,8 +458,11 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // A Canvas is drawn in one, and only as `allowCanvases` lets it (#3406).
+      webviewTag: true,
     },
   });
+  allowCanvases(window, () => core, logger);
   window.once("ready-to-show", () => {
     if (closingForUpdate) return;
     if (place.maximized) window.maximize();
@@ -628,6 +643,7 @@ app.whenReady().then(async () => {
   }
   started.resolve(core);
   exposeCore(core);
+  await serveCanvases(core, { log: logger, ...testCanvasMemory() });
   followAppearance(core, app.getPath("userData"), logger);
   const settleQuit = guardQuit(
     core,

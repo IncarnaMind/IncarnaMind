@@ -47,6 +47,7 @@ import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
 import { attentionOrder } from "./attention";
+import { loadCanvases } from "./canvases";
 import {
   deleted,
   documentsAdded,
@@ -1235,6 +1236,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
           documentsRead,
+          loadCanvases(),
         ]);
         const reloaded = windowLoadedBefore();
         // Minds made before this setting existed count as an earlier launch.
@@ -2503,6 +2505,17 @@ core.on("chatReadiness.changed", (chatReadiness) => {
 });
 
 // An outside agent asked to show one of its Citations (#351): it opens beside the Mind, at its quote.
+// A Canvas an agent publishes opens behind the tab in front, as a Note it writes does (#3406).
+core.on("agents.canvasChanged", (change) => {
+  if (change.kind !== "published") return;
+  void useAppStore.getState().changeLayout({
+    type: "open",
+    item: { kind: "canvas", canvasId: change.canvasId },
+    where: { in: "group" },
+    behind: true,
+  });
+});
+
 core.on("agents.citationShown", (place) => {
   const state = useAppStore.getState();
   if (state.settingsOpen) state.closeSettings();

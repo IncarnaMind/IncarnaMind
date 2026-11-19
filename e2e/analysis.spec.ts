@@ -273,7 +273,7 @@ test("nothing leaves the sandbox: every way out to the network, to the computer'
   const names = await run(
     app,
     python(
-      'import js\nprint([name for name in ("process", "require", "Buffer", "electron", "incarnamindAnalysis") if getattr(js, name, None) is not None])',
+      'import js\nprint([name for name in ("process", "require", "Buffer", "electron", "incarnamindAnalysis", "RTCPeerConnection", "webkitRTCPeerConnection") if getattr(js, name, None) is not None])',
     ),
   );
   expect(names.result.output.printed).toBe("[]\n");
