@@ -8258,9 +8258,9 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; and, for a search, which page of results it is and whether more follow",
+    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
-    "The shared Folders’ names, internal ids and Document counts, with each Document’s name, kind and internal id, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
+    "The shared Folders’ names, internal ids and Document counts, with each Document’s name, kind and internal id, the names, internal ids and last-change times of the notes in them when the agent lists them, the part of a note it reads, with where the next part starts, and the numbers its code works out on this computer from those names and kinds and the Documents’ Tags, never the lists themselves",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
   "consent.flow.web-search": "Web search",
   "consent.flow.web-search.purpose": "search the web for your Questions",
@@ -8304,6 +8304,9 @@ export const en = {
     "The User changed this note after you read it. Read it again with named, then make your changes again.",
   "agents.problem.too-many":
     "This agent has written {max} notes in the last hour, which is the most it may. Try again later.",
+  // An outside agent has a figure worked out by IncarnaMind (#3363).
+  "agents.problem.no-python":
+    "This computer can’t run code for IncarnaMind, so run_analysis isn’t available. Work a figure out from numbers passages state with calculate; a figure only code could work out stays not found.",
   // An outside agent has a note it wrote checked (#3317).
   "agents.check.notYours":
     "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
@@ -8452,6 +8455,8 @@ export const en = {
   "agents.activity.check_mind": "Had the note “{text}” checked",
   "agents.activity.check_mind_yourself": "Read the note “{text}” to check it",
   "agents.activity.report_check": "Checked the note “{text}” itself",
+  "agents.activity.calculate": "Worked out “{text}”",
+  "agents.activity.run_analysis": "Ran code for “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",
@@ -8472,9 +8477,10 @@ export const en = {
   "agents.reason.changed": "the note had changed since it read it",
   "agents.reason.waiting": "a paragraph had changes waiting",
   "agents.reason.too-many": "it had reached its limit for the hour",
+  "agents.reason.no-python": "this computer can’t run code for it",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders and the notes in them; with Not in a Folder, also the notes it writes there. Listing them sends each Folder’s name and internal id, the name, kind and internal id of each Document in it, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders and the notes in them; with Not in a Folder, also the notes it writes there. Listing them sends each Folder’s name and internal id, the name, kind and internal id of each Document in it, and each note’s name, internal id and last-change time. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",

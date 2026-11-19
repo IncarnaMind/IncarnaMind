@@ -14,6 +14,7 @@ import {
   MAX_CHECKS_AN_HOUR,
 } from "../../src/core/agents/access";
 import type { AgentCitation } from "../../src/core/agents/citations";
+import { createAgentWorkings } from "../../src/core/agents/workings";
 import type { OutsideAnswer } from "../../src/core/answers";
 import { createElement } from "../../src/core/answers/blocks";
 import type { OutsideCheck } from "../../src/core/answers/checks/mindCheck";
@@ -41,6 +42,12 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     search: async () => [],
     passage: () => null,
     passagesBetween: () => [],
+    citationSource: () => null,
+    pageTexts: () => [],
+    libraryLists: () => {
+      throw new Error("Not called.");
+    },
+    libraryVersion: () => "",
     citing: { citeQuote: () => null, locate: () => null },
     notCited: () => false,
     recheck: () => {
@@ -79,6 +86,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       throw new Error("Not called.");
     },
     checkRuns: createCheckRuns(),
+    workings: createAgentWorkings(),
     versions: new Map(),
     citations: {
       find: () => null,

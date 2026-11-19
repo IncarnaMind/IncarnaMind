@@ -49,6 +49,7 @@ import {
 import { createAgentCitations } from "./citations";
 import type { ServedConnection } from "./mcp";
 import { type AgentListener, listenForAgents } from "./socket";
+import { createAgentWorkings } from "./workings";
 
 export { type AgentAccess, AgentRefusedError } from "./access";
 export { agentSocketPath } from "./socket";
@@ -103,6 +104,7 @@ export interface AgentsOptions {
     | "record"
     | "notesWrittenSince"
     | "checkRuns"
+    | "workings"
     | "versions"
     | "citations"
     | "clock"
@@ -435,6 +437,7 @@ export function createAgents(options: AgentsOptions) {
     record,
     notesWrittenSince,
     checkRuns: createCheckRuns(),
+    workings: createAgentWorkings(),
     versions: new Map(),
     citations,
     clock: options.clock,
