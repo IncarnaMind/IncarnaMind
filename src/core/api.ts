@@ -12459,6 +12459,8 @@ export const AGENT_TOOLS = [
   "check_mind",
   "check_mind_yourself",
   "report_check",
+  "calculate",
+  "run_analysis",
 ] as const;
 
 /**
@@ -12582,6 +12584,7 @@ export type AgentToolName = (typeof AGENT_TOOLS)[number];
  * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold;
  * - "waiting": a paragraph it names has changes waiting for the User, or is being written;
  * - "invalid": its arguments make no sense;
+ * - "no-python": `run_analysis` needs Python, which this computer can't run for IncarnaMind (#3363);
  * - "failed": something went wrong in IncarnaMind (the log says what).
  */
 export type AgentProblem =
@@ -12598,6 +12601,7 @@ export type AgentProblem =
   | "waiting"
   | "too-many"
   | "invalid"
+  | "no-python"
   | "failed";
 
 /** One call an outside agent made, as its activity list shows it. */

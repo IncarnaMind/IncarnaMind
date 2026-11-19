@@ -85,7 +85,7 @@ export interface LibraryRead {
  * how many Documents the Note's check saw, which is no Document's text. Its version is of all its
  * lists, so a change to the Library puts the sentence back to needs re-check.
  */
-function libraryRead(lists: LibraryLists, names: readonly LibraryListName[]): LibraryRead {
+export function libraryRead(lists: LibraryLists, names: readonly LibraryListName[]): LibraryRead {
   const read = names.map((list) => ({ list, count: lists[list].rows.length }));
   const first = read[0]?.list ?? "documents";
   const count = lists[first].rows.length;

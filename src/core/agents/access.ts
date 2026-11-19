@@ -15,6 +15,9 @@
  * itself, its changes apply at once, each a step the User can undo after a
  * Checkpoint (#3371, ./ownChanges).
  *
+ * `calculate` and `run_analysis` work a figure out for it, over what it may read alone, with the
+ * code IncarnaMind's own check runs (./workings, #3363).
+ *
  * Only IncarnaMind mints a Citation (./citations): a quote is checked first,
  * by the Citation check Answers use, and gets a token only once found. A
  * search returns each Passage with a ready token for its best-matching
@@ -36,6 +39,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { setTextOrigin } from "../../shared/textOrigins";
+import type { AnalysisRuntime } from "../adapters";
 import type { OutsideAnswer } from "../answers";
 import type {
   CheckTask,
@@ -45,6 +49,7 @@ import type {
   NotJudgedReason,
 } from "../answers/checks/judgedOutside";
 import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
+import type { AnswerDocuments } from "../answers/citations";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
 import {
@@ -58,14 +63,17 @@ import {
   type CitationLocation,
   type CitationRecheck,
   type Effect,
+  type LibrarySource,
   type Mind,
   NOT_IN_A_FOLDER_ID,
 } from "../api";
 import type { CheckRecord } from "../checkRecord";
+import type { CitationSource } from "../documents";
 import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
 import { isRecord } from "../errors";
+import type { LibraryLists } from "../library/lists";
 import { insertBlocks } from "../noteAdding";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
@@ -80,6 +88,15 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
+import {
+  type AgentAnalysed,
+  type AgentCalculated,
+  type AgentReach,
+  type AgentWorkings,
+  createWorkOut,
+  pythonRuns,
+  type WorkFor,
+} from "./workings";
 
 // ---------------------------------------------------------------------------
 // The interface
@@ -357,7 +374,14 @@ export interface AgentCheckTask {
 export interface AgentReportInput {
   mindId: string;
   task: string;
-  results: { n: number; verdict: string; cites?: string[]; explanation?: string }[];
+  results: {
+    n: number;
+    verdict: string;
+    cites?: string[];
+    /** The id of a calculation or run IncarnaMind made for this agent in this check (#3363). */
+    run?: string;
+    explanation?: string;
+  }[];
 }
 
 export interface AgentReported {
@@ -365,11 +389,26 @@ export interface AgentReported {
   title: string;
   /** How many sentences got a mark in the Note. */
   marked: number;
-  /** Supported or contradicted with no Citation IncarnaMind could confirm: marked Not checked. */
+  /**
+   * Supported or contradicted with no Citation IncarnaMind could confirm: marked Not checked; and
+   * any result naming a run that isn't this agent's, of this check, in its reach: marked nothing.
+   */
   unconfirmed: number[];
   unreported: number[];
   /** What to do about those; null when there are none. */
   next: string | null;
+}
+
+/** Figures to work out from numbers quoted from Passages, as `calculate` takes them (ADR-0021). */
+export interface AgentCalculateInput {
+  figures: unknown;
+}
+
+/** Code to run over a sheet's or CSV file's rows, or the Library's lists, as `run_analysis` takes it. */
+export interface AgentAnalysisInput {
+  title: string;
+  inputs: unknown;
+  code: string;
 }
 
 export interface AgentAskInput {
@@ -412,6 +451,10 @@ export interface AgentAccess {
   checkMindYourself(input: AgentCheckMindInput): Promise<AgentCheckTask>;
   /** Marks the Note with the agent's results, each on the Citations IncarnaMind can confirm. */
   reportCheck(input: AgentReportInput): Promise<AgentReported>;
+  /** Works figures out from numbers quoted from Passages, by IncarnaMind's arithmetic (#3363). */
+  calculate(input: AgentCalculateInput): Promise<AgentCalculated>;
+  /** Runs code over what the agent may read, in IncarnaMind's sandbox (#3363). */
+  runAnalysis(input: AgentAnalysisInput, signal?: AbortSignal): Promise<AgentAnalysed>;
 }
 
 /** Why a call was refused or failed, in the interface language, for the agent to pass on. */
@@ -507,6 +550,15 @@ export interface AgentAccessDeps {
   ): Promise<WindowedPassage[]>;
   passage(passageId: string): WindowedPassage | null;
   passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
+  citationSource(passageId: string): CitationSource | null;
+  pageTexts: AnswerDocuments["pageTexts"];
+  passagesCovering?: AnswerDocuments["passagesCovering"];
+  /** Runs `run_analysis`'s code; absent where this computer can't run Python for IncarnaMind. */
+  analysisRuntime?: AnalysisRuntime;
+  /** The Library's lists of these Documents, Folders and notes alone, as `source` names them. */
+  libraryLists(reach: AgentReach & { source: LibrarySource }): LibraryLists;
+  /** The version of the Library's lists as a Note's own Check counts them, which its marks compare. */
+  libraryVersion(mindId: string): string;
   citing: Pick<Citing, "citeQuote" | "locate">;
   /** Whether the Passage's Document is the User's own workings: an agent reads it and never cites it. */
   notCited(passageId: string): boolean;
@@ -574,6 +626,8 @@ export interface AgentAccessDeps {
   checkRecord(mindId: string): Promise<Pick<CheckRecord, "models" | "sentences">>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
+  /** What IncarnaMind worked out for agents, shared by every connection (`createAgentWorkings`). */
+  workings: AgentWorkings;
   /**
    * Each Note's version right after a pairing's last change to it, by `versionKey`: a change
    * built on an older version is refused for its true cause, the agent's own change or another's.
@@ -1123,18 +1177,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       : writer.mindId === mindId;
   };
 
+  const reaches = (pairing: AdmittedPairing, mind: Mind): boolean =>
+    mind.folderId === null
+      ? readsUnfiled(pairing) && wrote(pairing, mind.id)
+      : deps.foldersInScope(pairing.folderIds).includes(mind.folderId);
+
   /**
    * A Mind in the pairing's Folders, or in no Folder when the pairing wrote it and reads the
    * Documents there (#3364); otherwise a refusal that tells nothing of the others.
    */
   const mindInScope = (pairing: AdmittedPairing, mindId: string): Mind => {
     const mind = deps.minds().find((each) => each.id === mindId);
-    const reached =
-      mind !== undefined &&
-      (mind.folderId === null
-        ? readsUnfiled(pairing) && wrote(pairing, mind.id)
-        : deps.foldersInScope(pairing.folderIds).includes(mind.folderId));
-    if (!mind || !reached) {
+    if (!mind || !reaches(pairing, mind)) {
       throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
     }
     return mind;
@@ -1301,6 +1355,75 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     waiting: t("agents.mind.waiting"),
     busy: t("agents.mind.busy"),
   });
+
+  const workOut = createWorkOut({
+    ...(deps.analysisRuntime && { analysisRuntime: deps.analysisRuntime }),
+    passage: deps.passage,
+    passagesBetween: deps.passagesBetween,
+    citationSource: deps.citationSource,
+    pageTexts: deps.pageTexts,
+    ...(deps.passagesCovering && { passagesCovering: deps.passagesCovering }),
+    citations: deps.citations,
+    workings: deps.workings,
+    newId: deps.newId,
+    now: deps.now,
+  });
+
+  /** Everything the pairing may read now: its Documents, its Folders and the Notes there it reaches. */
+  const reachOf = (pairing: AdmittedPairing) => {
+    let minds: Set<string> | null = null;
+    return {
+      documentIds: new Set(scopeOf(pairing, undefined)),
+      folderIds: new Set(
+        deps.foldersInScope(pairing.folderIds).filter((id) => id !== NOT_IN_A_FOLDER_ID),
+      ),
+      get mindIds(): Set<string> {
+        minds ??= new Set(
+          deps
+            .minds()
+            .filter((mind) => reaches(pairing, mind))
+            .map((mind) => mind.id),
+        );
+        return minds;
+      },
+    };
+  };
+
+  /**
+   * What a figure is worked out over for the pairing: its Documents, and the Library's lists of
+   * those, its Folders and the other Notes it reaches, named as its Folders are (#3363).
+   */
+  const workFor = (pairing: AdmittedPairing): WorkFor => {
+    const reach = reachOf(pairing);
+    return {
+      pairingId: pairing.id,
+      documentIds: reach.documentIds,
+      lists(checking) {
+        const read: AgentReach = {
+          documentIds: [...reach.documentIds],
+          folderIds: [...reach.folderIds],
+          mindIds: [...reach.mindIds].filter((id) => id !== checking),
+        };
+        const names = [
+          ...deps
+            .folders()
+            .filter((folder) => reach.folderIds.has(folder.id))
+            .map((folder) => folder.name),
+          ...(readsUnfiled(pairing) ? [t("library.unsorted")] : []),
+        ];
+        const source: LibrarySource = {
+          kind: "scope",
+          name: names[0] ?? "",
+          more: Math.max(0, names.length - 1),
+        };
+        return {
+          lists: deps.libraryLists({ ...read, source }),
+          read,
+          version: checking === null ? null : deps.libraryVersion(checking),
+        };
+      },
+    };
+  };
 
   return {
     search(input, signal) {
@@ -2056,6 +2179,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const mind = ownNote(pairing, input?.mindId);
         const found = deps.checkTask(mind.id, new Set(scopeOf(pairing, undefined)));
         if (!found.ok) throw notJudged(found.reason, mind);
+        workOut.checks(pairing.id, mind.id);
         return {
           result: {
             mindId: mind.id,
@@ -2086,7 +2210,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             t("agents.check.results", { max: MAX_REPORTED_SENTENCES }),
           );
         }
-        const inScope = new Set(scopeOf(pairing, undefined));
+        const reach = reachOf(pairing);
+        const inScope = reach.documentIds;
+        const worked = new Set<string>();
         const confirmed = new Map<string, Citation | null>();
         const citationOfToken = (given: string): Citation | null => {
           const token = [...given.matchAll(CITATION_TOKEN)][0]?.[1] ?? given.trim();
@@ -2106,6 +2232,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           const verdict = OWN_VERDICTS[each.verdict as OwnVerdict];
           if (verdict === undefined) return [];
           const cites: unknown[] = Array.isArray(each.cites) ? each.cites : [];
+          const run =
+            typeof each.run === "string" && each.run.trim() !== ""
+              ? workOut.confirmed(each.run, pairing.id, mind.id, reach)
+              : undefined;
+          if (run?.ok) for (const id of run.backing.documentIds) worked.add(id);
           return [
             {
               n: each.n,
@@ -2113,6 +2244,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               evidence: cites.flatMap((cite) =>
                 typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
               ),
+              ...(run !== undefined && { worked: run }),
               explanation:
                 typeof each.explanation === "string" && each.explanation.trim() !== ""
                   ? clip(each.explanation.trim(), READY_QUOTE_CHARS)
@@ -2137,12 +2269,52 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           },
           count: marked,
           documentIds: [
-            ...new Set([...confirmed.values()].flatMap((each) => (each ? [each.documentId] : []))),
+            ...new Set([
+              ...[...confirmed.values()].flatMap((each) => (each ? [each.documentId] : [])),
+              ...worked,
+            ]),
           ],
         };
       });
     },
+
+    calculate(input) {
+      const labels = givenFigureLabels(input?.figures);
+      return call("calculate", labels, [READ_DOCUMENTS], (pairing) => {
+        const done = workOut.calculate(input?.figures, workFor(pairing));
+        return { ...done, count: done.result.figures.length };
+      });
+    },
+
+    runAnalysis(input, signal) {
+      const title = typeof input?.title === "string" ? input.title : "";
+      const effects: Effect[] = [READ_DOCUMENTS, { action: "execute", scope: { kind: "sandbox" } }];
+      return call("run_analysis", title, effects, async (pairing) => {
+        if (!pythonRuns(deps.analysisRuntime)) {
+          throw new AgentRefusedError("no-python", t("agents.problem.no-python"));
+        }
+        if (pairing.folderIds.length === 0) {
+          throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
+        }
+        const given = isRecord(input) ? input : {};
+        const done = await workOut.analyse(
+          given,
+          workFor(pairing),
+          signal ?? new AbortController().signal,
+        );
+        return { ...done, count: done.result.id === null ? 0 : 1 };
+      });
+    },
   };
+}
+
+/** The labels of the figures `calculate` was given, for its activity row. */
+function givenFigureLabels(figures: unknown): string {
+  const list: unknown[] = Array.isArray(figures) ? figures : [];
+  return list
+    .map((each) => (isRecord(each) && typeof each.label === "string" ? each.label : ""))
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** A Citation node's Location: stored as an object, or as its JSON. */

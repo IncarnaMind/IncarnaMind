@@ -7802,9 +7802,9 @@ export const zhCN = {
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
   "consent.data.scoped-passages":
-    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
+    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多；以及 IncarnaMind 在这台电脑上为它推算的结果：根据它引用的数字推算，或用代码处理这些文件夹中的表格或 CSV 文件（代码给出的数字、表格和打印的文字）",
   "consent.data.scoped-minds":
-    "共享文件夹的名称、内部 ID 和文档数，以及其中每个文档的名称、类型和内部 ID；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置",
+    "共享文件夹的名称、内部 ID 和文档数，以及其中每个文档的名称、类型和内部 ID；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置；以及它的代码在这台电脑上根据这些名称、类型和文档的标签算出的数字，不含列表本身",
   "consent.data.answers": "IncarnaMind 对智能体所提问题的回答，以及其中的引文",
   "consent.flow.web-search": "联网搜索",
   "consent.flow.web-search.purpose": "为你的问题联网搜索",
@@ -7839,6 +7839,8 @@ export const zhCN = {
   "agents.problem.changedByUser":
     "你读取这篇笔记后，用户修改了它。用 named 重新读取，再做你的修改。",
   "agents.problem.too-many": "这个智能体在过去一小时内已新建 {max} 篇笔记，达到上限。稍后再试。",
+  "agents.problem.no-python":
+    "这台电脑无法为 IncarnaMind 运行代码，因此不能使用 run_analysis。段落中有数字的，用 calculate 推算；只能靠代码推算的数字，判为 not found。",
   "agents.check.notYours": "只能核对这个智能体用 create_mind 写的笔记，这篇不是它写的。",
   "agents.check.noDocuments": "这篇笔记所在的文件夹里没有可对照的文档。",
   "agents.check.noDocuments.unfiled":
@@ -7858,7 +7860,7 @@ export const zhCN = {
     "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
   "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
   "agents.check.reportAgain":
-    "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用。",
+    "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用，或这次核对中 calculate、run_analysis 的结果，且不能来自用户自己的工作文件。",
   "agents.note.writtenBy": "{name} 写入，{when}",
   "agents.note.wrote": "{name} 新建了笔记“{mind}”",
   "agents.note.changed.one": "{name} 修改了“{mind}”中的 1 个段落",
@@ -7970,6 +7972,8 @@ export const zhCN = {
   "agents.activity.check_mind": "核对了笔记“{text}”",
   "agents.activity.check_mind_yourself": "读取了笔记“{text}”，准备核对",
   "agents.activity.report_check": "自己核对了笔记“{text}”",
+  "agents.activity.calculate": "推算了“{text}”",
+  "agents.activity.run_analysis": "为“{text}”运行了代码",
   "agents.activity.count.one": "1 条结果",
   "agents.activity.count.other": "{count} 条结果",
   "agents.activity.changes.one": "1 处修订待你处理",
@@ -7990,9 +7994,10 @@ export const zhCN = {
   "agents.reason.changed": "它读取后笔记有了改动",
   "agents.reason.waiting": "有段落的修订待处理",
   "agents.reason.too-many": "已达到一小时内的上限",
+  "agents.reason.no-python": "这台电脑无法为它运行代码",
   "agents.connect.title": "允许{agent}读取你的文档？",
   "agents.connect.body":
-    "它可以读取你所选的文件夹和其中的笔记；选了“不在文件夹中”时，还能读取它自己写在那里的笔记。列出时会发送每个文件夹的名称和内部 ID、其中每个文档的名称、类型和内部 ID，以及每篇笔记的名称、内部 ID 和最后修改时间。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
+    "它可以读取你所选的文件夹和其中的笔记；选了“不在文件夹中”时，还能读取它自己写在那里的笔记。列出时会发送每个文件夹的名称和内部 ID、其中每个文档的名称、类型和内部 ID，以及每篇笔记的名称、内部 ID 和最后修改时间。IncarnaMind 还可以在这台电脑上为它运行代码：对这些文件夹中的表格或 CSV 文件运行时，发送代码给出的结果；对它可读取内容的名称、类型、文件夹和标签运行时，只发送算出的数字。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
   "agents.connect.name": "名称",
   "agents.connect.namePlaceholder": "我的智能体",
   "agents.connect.folders": "它可以读取的文件夹",

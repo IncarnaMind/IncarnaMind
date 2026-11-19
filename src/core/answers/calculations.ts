@@ -128,7 +128,7 @@ export { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 /** How many times one Answer may call `calculate`; later calls are refused, so the model answers. */
 const MAX_CALLS_PER_ANSWER = 5;
 
-const FIX_FIGURES = "Fix these with another calculate call:";
+export const FIX_FIGURES = "Fix these with another calculate call:";
 
 /** Whether what `calculate` told the model asks it to fix figures, which the Tool loop must not end before. */
 export const asksForFigureFixes = (told: string): boolean => told.includes(FIX_FIGURES);
