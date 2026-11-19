@@ -195,10 +195,11 @@ import {
 } from "./documents";
 import { createEvidence, parseCheckedDocument, passageResult } from "./documents/evidence";
 import { pdfIsLocked, pdfOpensWith, pdfTablePages } from "./documents/extract";
-import { statIdentity } from "./documents/files";
+import { hashBytes, statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
+import { readVtt } from "./documents/formats/vtt";
 import { createOwnFiles } from "./documents/ownFiles";
 import { approximateTokens } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
@@ -283,7 +284,7 @@ import {
   meetingRecord,
   otherCallTranscripts,
 } from "./meetings";
-import { listParts, meetingFolder } from "./meetings/audioFiles";
+import { listParts, meetingFolder, systemRecording } from "./meetings/audioFiles";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
@@ -297,6 +298,7 @@ import {
   undoMeetingJoin,
 } from "./meetings/oneItem";
 import { createSpeakerPass } from "./meetings/speakerPass";
+import { createMeetingSpeakerReview } from "./meetings/speakerReview";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
@@ -5056,6 +5058,7 @@ export function createCore(adapters: CoreAdapters): Core {
   if (transcripts) readsTimedByWriter = (path) => transcripts.timesReads(path);
   transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
+  let reviewMeetingChanged = () => {};
   const meetings = createMeetings({
     db,
     dataDir,
@@ -5080,7 +5083,10 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     removeMind,
-    changed: (list) => events.emit("meetings.changed", list),
+    changed: (list) => {
+      reviewMeetingChanged();
+      events.emit("meetings.changed", list);
+    },
     level: (level) => events.emit("meetings.level", level),
     onCapturingChange: (capturing) => {
       background.setRecording(capturing);
@@ -5142,7 +5148,31 @@ export function createCore(adapters: CoreAdapters): Core {
       removeDocuments(documentIds, deletedAt);
     }
   });
-  transcriptionGateChanged = () => transcripts?.recheckCloud() ?? Promise.resolve();
+  const speakerReview = createMeetingSpeakerReview({
+    parts: (id) => listParts(meetingFolder(dataDir, id)),
+    recording: systemRecording,
+    now,
+    settings,
+    cloud: cloudTranscription,
+    meeting: meetings.get,
+    document: (id) => documents.getMany([id])[0],
+    cues: async (doc) => {
+      const bytes = await readFile(await documents.filePath(doc.id));
+      if (hashBytes(bytes) !== doc.contentHash)
+        throw new InvalidInputError({ key: "error.meeting.reviewChanged" });
+      return readVtt(bytes.toString("utf8")).cues;
+    },
+    localOnly: () => embedding.localOnly(),
+    lifetime: lifetime.signal,
+    request: adapters.transcriptionReviewFetch ?? fetch,
+    log: adapters.log ?? silentLogger,
+  });
+  reviewMeetingChanged = speakerReview.changed;
+  transcriptionGateChanged = () => {
+    speakerReview.changed();
+    void speakerReview.recover();
+    return transcripts?.recheckCloud() ?? Promise.resolve();
+  };
   /**
    * The Questions typed in each live Meeting's panel (#2925), by id, not words: written again they
    * are its help still, while the same words asked anywhere else, or a button's name pressed after
@@ -6356,6 +6386,17 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     setTranscriptSpeakers: async (input) => {
       if (!isRecord(input)) throw new InvalidInputError({ key: "error.transcript.speakersUnheld" });
+      if (Object.hasOwn(input, "expectedSpeakers") || Object.hasOwn(input, "expectedContentHash")) {
+        const current = documents.get(input.documentId);
+        if (
+          (input.expectedContentHash !== undefined &&
+            input.expectedContentHash !== current.contentHash) ||
+          (Object.hasOwn(input, "expectedSpeakers") &&
+            JSON.stringify(input.expectedSpeakers) !== JSON.stringify(current.speakers))
+        ) {
+          throw new InvalidInputError({ key: "error.meeting.reviewChanged" });
+        }
+      }
       const updated = documents.setSpeakers(input.documentId, input.speakers);
       events.emit("documents.speakersChanged", [updated]);
       return updated;
@@ -7843,6 +7884,9 @@ export function createCore(adapters: CoreAdapters): Core {
     writeMeetingRecording: (meetingId, path) => meetings.writeRecording(meetingId, path),
     readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
+    getMeetingSpeakerReview: (id) => speakerReview.quote(id),
+    reviewMeetingSpeakers: (input) => speakerReview.review(input),
+    cancelMeetingSpeakerReview: async (id) => speakerReview.cancel(id),
     listTranscriptionServices: () => cloudTranscription.list(),
     setTranscriptionKey: async (input) => {
       const listed = await cloudTranscription.setKey(input);

@@ -50,6 +50,7 @@ import { ASSEMBLYAI_AUTH } from "./assemblyai";
 import { ELEVENLABS_AUTH } from "./elevenlabs";
 import { DEEPGRAM_URL } from "./protocol";
 import { authHeaders, BEARER, type CloudAuth } from "./socket";
+import { SONIOX_REVIEW_MODEL } from "./sonioxReview";
 import { cloudWords, tokensOf } from "./words";
 
 const SENDS = ["meeting-audio", "meeting-words"] as const;
@@ -489,6 +490,24 @@ export function createCloudTranscription(options: CloudTranscriptionOptions) {
   }
 
   return {
+    async speakerReviewGrant() {
+      if (options.localOnly() || chosen() !== "soniox") return null;
+      const readAt = revision;
+      const key = await keyOf("soniox");
+      if (readAt !== revision || !key || strayKeyCharacter(key.apiKey)) return null;
+      remember("soniox", key);
+      await refusedNow("soniox");
+      if (readAt !== revision) return null;
+      const signature = fingerprint(key.apiKey);
+      const valid = () =>
+        sending("soniox", null) === "ok" &&
+        keys.get("soniox")?.fingerprint === signature &&
+        refusals.get("soniox") !== refusalOf(key.apiKey, destination("soniox").url);
+      return valid() ? { apiKey: key.apiKey, signature, valid } : null;
+    },
+    reviewBudget(usd: number) {
+      return meter.audioJob("soniox", SONIOX_REVIEW_MODEL, { currency: "USD", amount: usd });
+    },
     list,
 
     sending,

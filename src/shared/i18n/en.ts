@@ -6381,6 +6381,17 @@ export const en = {
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
   "error.meeting.microphone": "The microphone can only be paused or resumed.",
+  "error.meeting.reviewChanged":
+    "The transcript changed. Open the review again to check the current speakers.",
+  "error.meeting.reviewCap": "This review would go over your monthly cap.",
+  "error.meeting.reviewService": "Choose Soniox in Meeting settings to check the speakers.",
+  "error.meeting.reviewDuration": "Soniox can check up to five hours of audio at a time.",
+  "error.meeting.reviewCancelled": "The speaker review was cancelled.",
+  "error.meeting.reviewConsent": "Confirm the upload and estimated cost to check the speakers.",
+  "error.meeting.reviewCleanup":
+    "Soniox has not confirmed deletion of the review audio. IncarnaMind will retry when Soniox is available.",
+  "error.meeting.reviewFailed":
+    "Soniox could not finish the speaker review. Check your connection and Soniox account.",
   "error.meeting.fillUndo": "The fill-in can only be taken back or put back.",
   "error.transcription.localMode":
     "Meeting audio can’t go to a cloud service: “Keep everything on this computer” is on.",

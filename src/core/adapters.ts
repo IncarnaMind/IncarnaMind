@@ -1481,6 +1481,8 @@ export interface CoreAdapters {
    * kept. The global `fetch` by default; tests answer without the network.
    */
   transcriptionKeyFetch?: typeof fetch;
+  /** HTTP transport for a user-requested post-call speaker review. */
+  transcriptionReviewFetch?: typeof fetch;
   /** The Mac's own calendars (#190). Absent: this copy offers none. */
   systemCalendar?: SystemCalendar;
   /**
