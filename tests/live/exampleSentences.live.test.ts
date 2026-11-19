@@ -1407,6 +1407,18 @@ async function heldOutRound(
     (each) =>
       each.language === language && (CASES?.some((start) => each.id.startsWith(start)) ?? true),
   );
+  // Each case has a Folder of its own, and a Library holds at most 100 (#3390).
+  const rows: Awaited<ReturnType<typeof checkAll>> = [];
+  const spent: Awaited<ReturnType<Core["getCostSummary"]>>["spent"] = [];
+  for (let at = 0; at < cases.length; at += 100) {
+    const round = await heldOutLibrary(language, cases.slice(at, at + 100), group);
+    rows.push(...round.rows);
+    spent.push(...round.spent);
+  }
+  return { rows, spent };
+}
+
+async function heldOutLibrary(language: Language, cases: readonly HeldOut[], group: string) {
   const core = await coreIn(language);
   const sources = await createSourceFolder();
   const notes: Written[] = [];
