@@ -718,6 +718,8 @@ function uncitedIn(texts: readonly string[], counts: (token: string) => boolean)
   const CITED = "\u0000";
   // A token that doesn't count goes with the space before it, as the sentence reads without it.
   const spacedToken = new RegExp(`[ \\t]*${CITATION_TOKEN.source}`, "g");
+  // A token written after a sentence's full stop cites that sentence, not the one after it (#3378).
+  const afterTheStop = new RegExp(`([.!?。！？]+["'”’)\\]]*)(${CITED}+)`, "g");
   return texts
     .flatMap((each) =>
       sentencesOf(
@@ -725,7 +727,8 @@ function uncitedIn(texts: readonly string[], counts: (token: string) => boolean)
           .replace(/^#{1,6}\s.*$/gm, "")
           .replace(/^\s*\|.*$/gm, "")
           .replace(/^\s*(?:>\s*)*(?:[-*+]|\d{1,9}[.)])?\s+/gm, "")
-          .replace(spacedToken, (_whole, token: string) => (counts(token) ? CITED : "")),
+          .replace(spacedToken, (_whole, token: string) => (counts(token) ? CITED : ""))
+          .replace(afterTheStop, "$2$1"),
       ),
     )
     .filter((sentence) => !sentence.includes(CITED) && makesAClaim(sentence))

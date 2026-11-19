@@ -142,6 +142,8 @@ describe("outside agents", () => {
           text: [
             "## When tides are high",
             `Spring tides come at new and full moon ${first?.cite}. The moon is made of cheese and nobody cites it.`,
+            // Cited after its full stop, as agents often write it: the Citation is this sentence's.
+            `- Spring tides come twice in every month. ${first?.cite}`,
             "| Tide type | When it comes in the month |",
             "| --- | --- |",
           ].join("\n"),
