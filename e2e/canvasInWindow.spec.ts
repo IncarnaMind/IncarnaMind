@@ -49,6 +49,9 @@ test.afterEach(async () => {
 test("a Canvas an agent publishes is listed where Notes are, and opens from its row", async () => {
   const { window } = await launchApp(dataDir, { home });
   await dismissChatSetup(window);
+  // Day one: no Canvas, so no Canvases heading.
+  await expect(window.getByTestId("canvases-section")).toHaveCount(0);
+  await shot(window, "sidebar-day-one-en");
   const agent = await connectCanvasAgent(window);
   try {
     const id = await publishCanvas(agent, "Tide chart", "<p>Spring tides follow the Moon.</p>");
