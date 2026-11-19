@@ -35,6 +35,7 @@ export interface FakeCloudOptions {
   lines?: readonly string[];
   /** The connection drops once this many ms of audio have been sent on it. */
   dropAfterMs?: number;
+  dropCode?: number;
   /** The service refuses the key. */
   refuse?: boolean;
   /** The account the key is for has no credit left. */
@@ -106,7 +107,8 @@ export function createFakeCloud(options: FakeCloudOptions = {}): CloudConnect {
     const heardAudio = (samples: Int16Array) => {
       const ms = (samples.length * 1000) / MEETING_SAMPLE_RATE;
       sentMs += ms;
-      if (options.dropAfterMs !== undefined && sentMs >= options.dropAfterMs) close(1006);
+      if (options.dropAfterMs !== undefined && sentMs >= options.dropAfterMs)
+        close(options.dropCode ?? 1006);
       return ms;
     };
 

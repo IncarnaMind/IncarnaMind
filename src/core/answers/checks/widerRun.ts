@@ -1,6 +1,7 @@
 /**
- * Check this Note checks twice as many sentences at once where the AI service's own replies state
- * that the key has room for the whole Note (#2532). It starts as wide as every check does, so a
+ * Check this Note, and the check of what the assistant writes (#3381), check twice as many
+ * sentences at once where the AI service's own replies state that the key has room for all of them
+ * (#2532). It starts as wide as every check does, so a
  * key that states nothing, or too little, is sent no more than before; and it goes back for good
  * once the service refuses one of the run's requests.
  *
@@ -35,7 +36,7 @@ export interface WiderRun {
   onLimit(): void;
 }
 
-/** `limit` holds `atOnce` places, for a Note of `sentences` sentences to check. */
+/** `limit` holds `atOnce` places, for `sentences` sentences to check. */
 export function widerRun(
   prepared: PreparedChatModel,
   limit: Slots,

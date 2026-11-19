@@ -495,6 +495,32 @@ describe("Nothing more goes to the cloud once the User says no", { timeout: 60_0
     });
   }
 
+  test.each(["local mode", "Stop"])(
+    "Soniox sends no buffered audio when the User chooses %s during reconnect",
+    async (action) => {
+      const service = counting({ dropAfterMs: 5000 });
+      const { core, record, meeting, channel } = await meetingOn("soniox", service);
+      record(4000);
+      await drained(channel);
+      service.holdOpen = true;
+      record(3000);
+      await vi.waitFor(() => expect(service.opened()).toHaveLength(4), { timeout: 10000 });
+      service.mark();
+      if (action === "local mode") await core.setLocalOnly(true);
+      else await core.stopMeeting(meeting.id);
+      service.release();
+      if (action === "local mode") {
+        record(4000);
+        await until(core, meeting.id, (t) => t.cloud === null && t.lines > 0);
+        await core.stopMeeting(meeting.id);
+      }
+      await until(core, meeting.id, (t) => t.state === "saved");
+      await settle();
+      expect(service.sendsSinceMark()).toEqual([]);
+      expect(service.opened()).toHaveLength(4);
+    },
+  );
+
   // In CI the connections once opened late, so the audio the core had held for them was still on
   // its way to the transcription process when the User acted (#2702): `hold` keeps it there.
   for (const when of [
