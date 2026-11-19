@@ -621,7 +621,7 @@ describe("outside agents", () => {
       tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     );
     // 1,850 before calculate and run_analysis (#3363).
-    expect(estimateTokens(definitions)).toBeLessThan(2_420);
+    expect(estimateTokens(definitions)).toBeLessThan(2_439);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

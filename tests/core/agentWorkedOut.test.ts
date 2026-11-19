@@ -309,33 +309,44 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
 
   // protects=the User's rule that an agent reads only its Folders holds for code: no row, name, count or error of a Document, Folder or Note outside them reaches it; fails_when=a run reads a Passage outside its Folders, the Library's lists hold a row of anything else, or a refusal tells an unknown Passage from one outside its reach
   it("runs only over what the agent may read, and says nothing of the rest", async () => {
-    const { agent, codex, runtime } = await paired(readsEverything);
+    const { core, agent, codex, runtime, coast } = await paired(readsEverything);
     const { passageId: payroll, documentId: payrollFile } = await found(codex, "salary", "Payroll");
     const minutes = await passageOf(codex, "merger", "Minutes");
+    const [gone] = await addAndProcess(core, [
+      await writeSourceFile(await createSourceFolder(), "Old.csv", "Item,Count\nRope,3"),
+    ]);
+    if (!gone) throw new Error("Old.csv wasn't added.");
+    await core.assignDocumentGroup(gone.id, coast.id);
+    await core.deleteDocument(gone.id);
 
-    const said: string[] = [];
-    for (const passageId of [payroll, minutes, "a-passage-that-is-nowhere", payrollFile]) {
-      const outside = await run(agent, [{ name: "rows", passageId }]);
-      said.push(resultText(outside).replaceAll(passageId, "…"));
-      const figured = await agent.callTool({
+    const runs: string[] = [];
+    const figured: string[] = [];
+    for (const id of [payroll, minutes, "an-id-that-is-nowhere", payrollFile, gone.id]) {
+      for (const field of ["passageId", "documentId"]) {
+        runs.push(
+          resultText(await run(agent, [{ name: "rows", [field]: id }])).replaceAll(id, "…"),
+        );
+      }
+      const calculated = await agent.callTool({
         name: "calculate",
         arguments: {
           figures: [
             {
               label: "Pay",
-              inputs: [{ name: "a", passageId, quote: "91000", number: "91000" }],
+              inputs: [{ name: "a", passageId: id, quote: "91000", number: "91000" }],
               formula: "a",
             },
           ],
         },
       });
-      said.push(resultText(figured).replaceAll(passageId, "…"));
+      figured.push(resultText(calculated).replaceAll(id, "…"));
     }
-    // An unknown Passage, one outside its Folders and a Document's id are refused in the same words.
-    expect(said[0]).toBe(said[4]);
-    expect(said[1]).toBe(said[5]);
-    expect(said[6]).toBe(said[4]);
-    expect(said[7]).toBe(said[5]);
+    // One refusal, whatever the id and whichever field carried it: outside its Folders, unknown or
+    // deleted, a Passage's or a Document's. It says what to give.
+    expect(new Set(runs).size).toBe(1);
+    expect(runs[0]).toMatch(/give a documentId or a passageId of a sheet or CSV file you can read/);
+    expect(new Set(figured).size).toBe(1);
+    const said = [...runs, ...figured];
     // So are another agent's Citation and a made-up one.
     const { citations } = structured<{ citations: { cite: string | null }[] }>(
       await codex.callTool({
@@ -454,6 +465,25 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     const states = (await marks(core, mindId, coast.id)).map((each) => each.state);
     expect(states).not.toContain("supported");
     expect(states).not.toContain("contradicted");
+  });
+
+  // protects=an agent that names a file by its Document's id, as search, read_passages and list_minds give it, has its rows run as by a Passage of it, in either field; fails_when=a Document's id is refused, or reads other rows than a Passage of the same file
+  it("runs over a file named by its Document's id, in either field, as over a Passage of it", async () => {
+    const { agent, runtime, crossings } = await paired();
+    const passageId = await passageOf(agent, "passengers crossings", "Crossings");
+    const reports: string[] = [];
+    for (const input of [
+      { name: "crossings", passageId },
+      { name: "crossings", documentId: crossings.id },
+      { name: "crossings", passageId: crossings.id },
+    ]) {
+      const { report } = structured<{ id: string; report: string }>(await run(agent, [input]));
+      reports.push(report.replace(/^Run run-\w+\n/, ""));
+    }
+    expect(reports[0]).toMatch(/Passengers: 350/);
+    expect(new Set(reports).size).toBe(1);
+    const [first, ...others] = runtime.jobs.map((job) => JSON.stringify(job.inputs));
+    expect(others).toEqual([first, first]);
   });
 
   // protects=on a computer that can't run Python for IncarnaMind, the agent is told so plainly and can still calculate; fails_when=run_analysis fails without saying why, or calculate needs Python

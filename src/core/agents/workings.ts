@@ -58,6 +58,7 @@ export interface WorkOutDeps {
   /** Runs `run_analysis`'s code; absent where this computer can't run Python for IncarnaMind. */
   analysisRuntime?: AnalysisRuntime;
   passage(passageId: string): WindowedPassage | null;
+  passagesBetween(documentId: string, from: number, to: number): WindowedPassage[];
   citationSource(passageId: string): CitationSource | null;
   pageTexts: AnswerDocuments["pageTexts"];
   passagesCovering?: AnswerDocuments["passagesCovering"];
@@ -98,6 +99,10 @@ export interface AgentAnalysed {
   id: string | null;
   report: string;
 }
+
+/** What `run_analysis` says of an input that names no file the agent can read, whatever it named. */
+const NO_FILE =
+  "give a documentId or a passageId of a sheet or CSV file you can read, from search, read_passages or list_minds";
 
 export const pythonRuns = (runtime: AnalysisRuntime | undefined): runtime is AnalysisRuntime =>
   runtime?.languages.some((each) => each.language === "python") === true;
@@ -279,14 +284,18 @@ export function createWorkOut(deps: WorkOutDeps) {
     const tool = analysisTool({
       runtime: analysisRuntime,
       passage(id) {
-        const passage = ownPassage(to, id.trim());
+        // A file is named by its Document's id as often as by a Passage of it, in either field.
+        const named = id.trim();
+        const passage =
+          ownPassage(to, named) ??
+          (to.documentIds.has(named) ? (deps.passagesBetween(named, 0, 0)[0] ?? null) : null);
         const source = passage ? deps.citationSource(passage.passageId) : null;
         return source && !source.documentDeleted
           ? {
               source,
               units: deps.pageTexts(source.documentId, source.contentHash, null, null),
             }
-          : null;
+          : { problem: NO_FILE };
       },
       number: () => ({
         problem:
@@ -307,8 +316,9 @@ export function createWorkOut(deps: WorkOutDeps) {
       },
     });
     const inputs = givenList(given.inputs).map((input) => {
-      const { passageId, ...rest } = fields(input);
-      return passageId === undefined ? rest : { ...rest, passage: passageId };
+      const { passageId, documentId, ...rest } = fields(input);
+      const file = documentId ?? passageId;
+      return file === undefined ? rest : { ...rest, passage: file };
     });
     const report = await tool.call({ ...given, inputs }, { toolCallId: deps.newId(), signal });
     const { run, lists: read, listed } = got;

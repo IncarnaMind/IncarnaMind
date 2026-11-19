@@ -559,12 +559,13 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     tool("run_analysis"),
     {
       title: "Run code over a file or the Library's lists",
-      description: `Run Python in IncarnaMind, on this computer, for a figure no Passage states: a total, average or count over a whole sheet or CSV file, or a count of the Documents, Folders or Notes you may read. An input is {name, passageId} of the file's Passage (the whole sheet, row 1 its headings), or {name, library}: "documents" (name, kind: ${Object.keys(DOCUMENT_KINDS).join("/")}, folder, folder_path, tags), "folders" (name, inside, path, documents) or "notes" (name, folder, folder_path), rows you never see. The code reads inputs["name"], a pandas DataFrame, and gives each figure with result("name", value). Returns the run's id, to name in report_check.`,
+      description: `Run Python in IncarnaMind, on this computer, for a figure no Passage states: a total, average or count over a whole sheet or CSV file, or a count of the Documents, Folders or Notes you may read. An input is {name, documentId} of the file, or {name, passageId} of a Passage of it (either reads the whole sheet, row 1 its headings), or {name, library}: "documents" (name, kind: ${Object.keys(DOCUMENT_KINDS).join("/")}, folder, folder_path, tags), "folders" (name, inside, path, documents) or "notes" (name, folder, folder_path), rows you never see. The code reads inputs["name"], a pandas DataFrame, and gives each figure with result("name", value). Returns the run's id, to name in report_check.`,
       inputSchema: z.object({
         title: z.string(),
         inputs: z.array(
           z.object({
             name: z.string(),
+            documentId: z.string().optional(),
             passageId: z.string().optional(),
             library: z.enum(["documents", "folders", "notes"]).optional(),
             sheet: z.string().optional(),

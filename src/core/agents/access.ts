@@ -1359,6 +1359,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const workOut = createWorkOut({
     ...(deps.analysisRuntime && { analysisRuntime: deps.analysisRuntime }),
     passage: deps.passage,
+    passagesBetween: deps.passagesBetween,
     citationSource: deps.citationSource,
     pageTexts: deps.pageTexts,
     ...(deps.passagesCovering && { passagesCovering: deps.passagesCovering }),
