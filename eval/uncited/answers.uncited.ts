@@ -65,10 +65,32 @@ function likest<T extends { text: string }>(text: string, sentences: readonly T[
   return best;
 }
 
+/**
+ * The Answer's sentence that restates the pair's: the one most like it of those no nearer its
+ * Passage, so a correction that quotes the Passage isn't taken for the draft written out.
+ */
+function restatementOf<T extends { text: string }>(pair: UncitedPair, sentences: readonly T[]) {
+  const passage = wordsOf(pair.passage);
+  return likest(
+    pair.sentence,
+    sentences.filter(
+      (sentence) =>
+        likeness(wordsOf(sentence.text), wordsOf(pair.sentence)).score >=
+        likeness(wordsOf(sentence.text), passage).score,
+    ),
+    RESTATED,
+  );
+}
+
 interface Restated {
   sentence: string;
   /** Its Citations as the User sees them: the quote and its check. */
-  citations: { quote: string; check: string; verdict?: string | null }[];
+  citations: {
+    quote: string;
+    check: string;
+    checkReason?: string | null;
+    verdict?: string | null;
+  }[];
 }
 
 /** Asked in the Note: the Answer's restatement, and the check of the Note for that sentence. */
@@ -97,12 +119,12 @@ async function inNote(
     mindId === undefined
       ? null
       : await checkNote(library.core, mindId, question, timeoutMs, secrets);
-  const found = likest(pair.sentence, answer.sentences, RESTATED);
+  const found = restatementOf(pair, answer.sentences);
   const restated: Restated | null = found && {
     sentence: found.sentence.text,
     citations: answer.citations
       .filter((citation) => citation.sentence === found.sentence.text)
-      .map(({ quote, check }) => ({ quote, check })),
+      .map(({ quote, check, checkReason }) => ({ quote, check, checkReason })),
   };
   const marks = checked?.check.kind === "checked" ? checked.check.sentences : [];
   const mark = restated
@@ -117,6 +139,7 @@ async function inNote(
     text: answer.text,
     restated,
     mark: mark && { outcome: mark.sentence.outcome, says: mark.sentence.says },
+    marks,
     stop: checked?.stop ?? null,
   };
 }
@@ -163,13 +186,20 @@ async function inAssistant(
       const cited = new Map<number, MarkedCitation>(
         answer.citations.map((citation) => [citation.marker, citation]),
       );
-      const found = likest(pair.sentence, answerSentences(answer.text), RESTATED);
+      const found = restatementOf(pair, answerSentences(answer.text));
       const restated: Restated | null = found && {
         sentence: found.sentence.text,
         citations: found.sentence.markers.flatMap((marker) => {
           const citation = cited.get(marker);
           return citation
-            ? [{ quote: citation.quote, check: citation.check, verdict: citation.verdict ?? null }]
+            ? [
+                {
+                  quote: citation.quote,
+                  check: citation.check,
+                  checkReason: citation.checkReason,
+                  verdict: citation.verdict ?? null,
+                },
+              ]
             : [];
         }),
       };
