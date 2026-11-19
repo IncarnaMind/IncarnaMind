@@ -295,6 +295,33 @@ describe("an outside agent's proposed changes (#352)", () => {
     await buildAgentShim();
   }, 60_000);
 
+  // protects=an empty Note can receive its first cited paragraphs once and the User decides whether to keep them; fails_when=the first addition is refused, repeated, or written without review
+  it("adds the first paragraphs to a blank Note once, for the User to accept", async () => {
+    const { agent, mind, client } = await pairedWithNote([paragraph("")]);
+    const { version } = await readNamed(agent, mind.id);
+    const cite = await tokenFor(agent, "spring tides new moon", SPRING);
+    const propose = () =>
+      agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version,
+          changes: [{ paragraph: "¶0+", text: `Spring tides ${cite}.` }],
+        },
+      });
+    expect(structured<Proposed>(await propose())).toMatchObject({
+      waiting: 1,
+      citations: [expect.objectContaining({ check: "found" })],
+    });
+    expect(refusal(await propose())).toContain("already waiting");
+    await client.settled();
+    expect(pendingProposals(client.blocks)).toHaveLength(1);
+    expect(await asItReads(agent, mind.id)).not.toContain("Spring tides");
+    decide(client, undoOf(client), () => true, "accept");
+    await client.settled();
+    expect(await asItReads(agent, mind.id)).toContain("Spring tides");
+  });
+
   it("read the Note with each paragraph named, Citations as tokens and a version", async () => {
     const { agent, mind } = await pairedWithNote([
       heading("Tides"),

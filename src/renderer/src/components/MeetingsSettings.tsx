@@ -10,6 +10,7 @@ import {
 } from "../transcriptionServices";
 import { CalendarSettings } from "./meetings/CalendarSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
+import { MeetingNotesAgentSetting } from "./meetings/MeetingNotesAgentSetting";
 import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
 import { WordsToKnow } from "./meetings/WordsToKnow";
 import { PopUpSelect } from "./settings/PopUpButton";
@@ -79,6 +80,7 @@ export function MeetingsSettings() {
               </PopUpSelect>
             }
           />
+          <MeetingNotesAgentSetting />
           <SettingsSwitchRow
             label={t("meetings.settings.keepAudio")}
             detail={t(
