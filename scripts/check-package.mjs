@@ -34,12 +34,13 @@ const MAX_ASAR_BYTES = 157_000_000;
 // Each installer's limit: its size in 0.1.0-alpha.5, the 37.5 MB that ADR-0025's packages and
 // plot font added to the macOS dmg (229.9 to 267.4 MB, built locally from main and from #2346),
 // and about 5 MB, so a mistake of that size trips it. A PR's CI builds no installers; the release
-// build is the first to measure the others.
+// build is the first to measure the others. The Windows installer measured 242.9 MB in
+// 0.1.0-alpha.6's build, 0.9 MB over that estimate, so its limit is that size and about 5 MB.
 const MAX_INSTALLER_BYTES = {
 	".AppImage": 275_000_000,
 	".dmg": 270_000_000,
 	".zip": 263_000_000,
-	".exe": 242_000_000,
+	".exe": 248_000_000,
 	".deb": 226_000_000,
 };
 
