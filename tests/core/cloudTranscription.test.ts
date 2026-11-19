@@ -32,6 +32,41 @@ async function chooseSoniox(core: Core) {
   await core.updateSettings({ device: { transcriptionRoute: "soniox" } });
 }
 
+function scriptedSoniox() {
+  const sockets: {
+    close(): void;
+    progress(ms: number): void;
+    say(text: string, start: number, end: number): void;
+    audio: Buffer[];
+  }[] = [];
+  const cloud: CloudConnect = (_url, _key, events) => {
+    const audio: Buffer[] = [];
+    const hear = (message: object) => events.message(JSON.stringify(message));
+    sockets.push({
+      audio,
+      close: () => events.closed(1006),
+      progress: (ms) => hear({ total_audio_proc_ms: ms }),
+      say(text, start, end) {
+        hear({
+          tokens: [
+            { text, start_ms: start, end_ms: end, speaker: "1", is_final: true },
+            { text: "<end>", is_final: true },
+          ],
+        });
+      },
+    });
+    queueMicrotask(() => events.open());
+    return {
+      send(data) {
+        if (typeof data !== "string") audio.push(Buffer.from(data));
+        if (data === "") hear({ finished: true });
+      },
+      close() {},
+    };
+  };
+  return { sockets, cloud };
+}
+
 /** The Qwen key in Models, for a region ("cn": Beijing, the first; "intl": Singapore), and Qwen chosen for meetings. */
 async function chooseQwen(core: Core, endpoint?: "cn" | "intl") {
   await core.saveChatProvider({
@@ -631,11 +666,138 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     expect(cues.map((cue) => cue.text)).toEqual([text]);
   });
 
+  test.each([
+    ["The first draft.", "The final draft."],
+    ["先讨论初稿。", "最后定稿了。"],
+  ])("a brief disconnect keeps %s once and resumes at its original time", async (first, second) => {
+    const { cloud, sockets } = scriptedSoniox();
+    const { core, record } = await transcribingCore(await createTempDataFolder(), {
+      cloud,
+      capture: { microphone: "denied" },
+    });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (t) => t.cloud === "soniox");
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    record(3000, ["system"]);
+    await vi.waitFor(() => expect(sockets[0]?.audio.length).toBeGreaterThan(0));
+    const original = sockets[0];
+    if (!original) throw new Error("No system stream");
+    original.say(first, 100, 1293);
+    await until(core, meeting.id, (t) => t.lines === 1);
+    const tail = Buffer.concat(original.audio).subarray(1293 * 32);
+    expect(tail.length).toBeGreaterThan(0);
+    original.close();
+    record(1000, ["system"]);
+    await vi.waitFor(() => expect(sockets[1]?.audio.length).toBeGreaterThan(0), { timeout: 6000 });
+    const next = sockets[1];
+    if (!next) throw new Error("No replacement system stream");
+    const sent = Buffer.concat(next.audio);
+    expect(sent.length).toBeGreaterThan(tail.length);
+    expect(sent.subarray(0, tail.length).equals(tail)).toBe(true);
+    next.say(second, 207, 1207);
+    const live = await until(core, meeting.id, (t) => t.lines === 2);
+    expect(live).toMatchObject({ cloud: "soniox", fellBack: null });
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (t) => t.state === "saved");
+    if (!saved.savedPath) throw new Error("Transcript missing");
+    const { cues } = readVtt(readFileSync(saved.savedPath, "utf8"));
+    expect(cues.map((c) => [c.text, c.startMs, c.endMs])).toEqual([
+      [first, 100, 1293],
+      [second, 1500, 2500],
+    ]);
+    expect(Buffer.concat(next.audio).length).toBe((4000 - 1293) * 32);
+    expect(cues.map((cue) => cue.speaker)).toEqual(["Them", "Them"]);
+    expect(sockets).toHaveLength(2);
+  });
+
+  test("a disconnect beyond the replay window recovers the whole unfinished turn locally", async () => {
+    const { cloud, sockets } = scriptedSoniox();
+    const { core, record } = await transcribingCore(await createTempDataFolder(), { cloud });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (t) => t.cloud === "soniox");
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    for (let step = 0; step < 8; step++) {
+      record(5000, ["system"]);
+      await vi.waitFor(() =>
+        expect(Buffer.concat(sockets[0]?.audio ?? []).length).toBeGreaterThan(
+          ((step + 1) * 5000 - 1000) * 32,
+        ),
+      );
+      const socket = sockets[0];
+      if (!socket) throw new Error("No system stream");
+      socket.progress(Buffer.concat(socket.audio).length / 32);
+    }
+    sockets[0]?.close();
+    await until(core, meeting.id, (t) => t.fellBack?.reason === "dropped");
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (t) => t.state === "saved");
+    if (!saved.savedPath) throw new Error("Transcript missing");
+    const { cues } = readVtt(readFileSync(saved.savedPath, "utf8"));
+    expect(cues[0]?.startMs).toBeLessThan(1000);
+    expect(cues.at(-1)?.endMs).toBeGreaterThan(39000);
+    expect(sockets).toHaveLength(1);
+  });
+
+  test("after a second loss the healthy source recovers only past its own last words", async () => {
+    const { cloud, sockets } = scriptedSoniox();
+    const { core, record } = await transcribingCore(await createTempDataFolder(), { cloud });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (t) => t.cloud === "soniox");
+    record(6000);
+    await vi.waitFor(() => expect(sockets.filter((s) => s.audio.length > 0)).toHaveLength(2));
+    const [healthy, lost] = sockets;
+    if (!healthy || !lost) throw new Error("Missing one side of the call");
+    healthy.say("Here is the original date.", 200, 2900);
+    lost.say("I heard the plan.", 200, 1000);
+    await until(core, meeting.id, (t) => t.lines === 2);
+    lost.close();
+    healthy.say("Please review the new deadline.", 3100, 5200);
+    await until(core, meeting.id, (t) => t.lines === 3);
+    await vi.waitFor(() => expect(sockets[2]?.audio.length).toBeGreaterThan(0), { timeout: 6000 });
+    sockets[2]?.close();
+    await until(core, meeting.id, (t) => t.fellBack?.reason === "dropped");
+    record(4000);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (t) => t.state === "saved");
+    if (!saved.savedPath) throw new Error("Transcript missing");
+    const { cues } = readVtt(readFileSync(saved.savedPath, "utf8"));
+    const confirmed = cues.find((c) => c.text === "Please review the new deadline.");
+    expect(confirmed?.endMs).toBe(5200);
+    expect(
+      cues.filter((c) => c.speaker === confirmed?.speaker && c.startMs < 5200).map((c) => c.text),
+    ).toEqual(["Here is the original date.", "Please review the new deadline."]);
+    expect(sockets).toHaveLength(3);
+  });
+
   test("the connection dropping hands the live audio to this computer: the gap is marked, the bar says when, and Stop fills it in", async () => {
     const dataDir = await createTempDataFolder();
-    const { core, record } = await transcribingCore(dataDir, {
-      engine: { cloud: { dropAfterMs: 5 * SECOND } },
-    });
+    const initial = createFakeCloud({ dropAfterMs: 5 * SECOND });
+    let offline = false;
+    const cloud: CloudConnect = (url, key, events, auth) => {
+      if (offline) {
+        queueMicrotask(() => events.closed(1006));
+        return { send() {}, close() {} };
+      }
+      return initial(
+        url,
+        key,
+        {
+          ...events,
+          closed(code, reason) {
+            if (code === 1006) offline = true;
+            events.closed(code, reason);
+          },
+        },
+        auth,
+      );
+    };
+    const { core, record } = await transcribingCore(dataDir, { cloud });
     await chooseSoniox(core);
     const meeting = await core.createMeeting();
     await core.startMeeting({ meetingId: meeting.id });

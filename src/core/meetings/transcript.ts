@@ -23,7 +23,8 @@
  *
  * Where the User chose a cloud service (#141), the live audio goes to it
  * instead, each chunk through the cloud's send gate and counted against the
- * monthly cap first. A lost connection, the service refusing its key, or its
+ * monthly cap first. A brief Soniox disconnect reopens the affected stream once with its
+ * unconfirmed audio. A persistent loss, the service refusing its key, or its
  * account out of credit, hands the live audio to this computer: what the cloud
  * hadn't given text for is a gap, filled in after Stop. At the cap, the cloud's
  * streams finish what they were sent. When the gate closes (Local mode, consent
@@ -84,6 +85,7 @@ import { whileOpen } from "../whileOpen";
 import type { AudioPart } from "./audioFiles";
 import { echoedBy, isEcho, repeats } from "./echoLines";
 import type { CaptureHealthRecords } from "./health";
+import { SonioxReplay, transientSonioxLoss } from "./sonioxReplay";
 import { isCall, type SpeakerPass } from "./speakerPass";
 import { createTracks, type TrackedAudio, type Tracks } from "./tracks";
 import type { MeetingWords } from "./words";
@@ -153,6 +155,9 @@ interface LiveStream {
   heardMs: number;
   /** A cloud stream's audio held in the core until its connection opens; absent once it has. */
   waiting?: Int16Array[];
+  replay?: SonioxReplay;
+  separateAfterStop?: boolean;
+  retryTimeout?: ReturnType<typeof setTimeout>;
 }
 
 interface Finishing {
@@ -205,6 +210,7 @@ interface Reading {
   baseMs: number;
   source: AudioSource;
   speaker(): string | null;
+  separateAfterStop?: boolean;
   doneMs?: number;
   /** A cloud stream lost before its last lines came. */
   lost?: boolean;
@@ -552,6 +558,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     speaker: string | null;
     callSound: boolean;
     reading?: Reading;
+    separateAfterStop?: boolean;
   } | null {
     for (const state of states.values()) {
       const live = state.live;
@@ -561,6 +568,7 @@ export function createTranscripts(options: TranscriptsOptions) {
           return {
             state,
             baseMs: own.baseMs,
+            separateAfterStop: own.separateAfterStop,
             live: true,
             source,
             speaker: speakerOf(source, state.callHeard === true, state.memo),
@@ -574,6 +582,7 @@ export function createTranscripts(options: TranscriptsOptions) {
           state,
           live: false,
           baseMs: reading.baseMs,
+          separateAfterStop: reading.separateAfterStop,
           source: reading.source,
           speaker: reading.speaker(),
           // Its microphone is "Me" exactly when the computer's sound was recorded with it.
@@ -672,16 +681,10 @@ export function createTranscripts(options: TranscriptsOptions) {
     const found = owner(segment.stream);
     if (!found) return;
     const { state, baseMs, live } = found;
+    const label = found.separateAfterStop ? undefined : segment.speaker;
     const speaker =
-      segment.speaker && found.speaker !== null
-        ? voiceOf(
-            state,
-            segment.stream,
-            found.source,
-            found.callSound,
-            segment.speaker,
-            segment.final,
-          )
+      label && found.speaker !== null
+        ? voiceOf(state, segment.stream, found.source, found.callSound, label, segment.final)
         : found.speaker;
     const startMs = baseMs + segment.startMs;
     const text = options.lineText
@@ -716,7 +719,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     };
     if (text && (live || !alreadySaid(state, cue))) {
       addCue(state, cue);
-      if (segment.speaker && speaker === SPEAKER_THEM) state.firstVoice.add(cue);
+      if (label && speaker === SPEAKER_THEM) state.firstVoice.add(cue);
     }
     if (segment.failed) {
       health.add(state.meetingId, {
@@ -880,17 +883,73 @@ export function createTranscripts(options: TranscriptsOptions) {
     health.add(state.meetingId, { kind: "switched", atMs, from, to, reason });
   }
 
-  function heardLost(stream: string, loss: CloudLoss): void {
+  function heardLost(stream: string, loss: CloudLoss, code?: number): void {
     if (closed) return;
     const found = owner(stream);
     if (!found) return;
-    log.warn("transcript.cloudLost", { meetingId: found.state.meetingId, loss });
+    log.warn("transcript.cloudLost", {
+      meetingId: found.state.meetingId,
+      source: found.source,
+      loss,
+      code,
+    });
     if (found.reading) {
       found.reading.lost = true;
       return;
     }
     const live = found.state.live;
-    if (live) leaveCloud(found.state, live, loss);
+    if (!live) return;
+    if (
+      live.engine === "soniox" &&
+      loss === "dropped" &&
+      transientSonioxLoss(code) &&
+      reconnect(found.state, live, found.source)
+    )
+      return;
+    leaveCloud(found.state, live, loss);
+  }
+
+  function reconnect(state: State, live: Live, source: AudioSource): boolean {
+    const old = live.streams[source];
+    if (!old?.replay || !live.started || live.pendingFrom !== null) return false;
+    const waiting = old.replay.from(Math.round((old.doneMs - old.baseMs) * SAMPLE_RATE_MS));
+    if (!waiting) return false;
+    const replacement: LiveStream = {
+      stream: streamName(`${state.meetingId}:${++streams}`, source),
+      baseMs: old.doneMs,
+      doneMs: old.doneMs,
+      heardMs: old.doneMs,
+      // Soniox numbers voices afresh on each connection. Only the acoustic pass can
+      // match these voices to people already heard before the disconnect.
+      separateAfterStop: Object.keys(state.voices ?? {}).some((key) =>
+        key.startsWith(`${old.stream}:`),
+      ),
+      waiting,
+    };
+    live.streams[source] = replacement;
+    state.partials.delete(old.stream);
+    options.changed();
+    const stillWaiting = () =>
+      !closed &&
+      state.live === live &&
+      live.started &&
+      live.pendingFrom === null &&
+      live.streams[source] === replacement &&
+      replacement.waiting;
+    setTimeout(() => {
+      if (!stillWaiting() || !live.cloud) return;
+      const reason = gateClosed(live) ?? (counted(live, live.cloud.openMs) ? null : "cap");
+      if (reason) {
+        leaveCloud(state, live, reason);
+        return;
+      }
+      replacement.retryTimeout = setTimeout(() => {
+        if (stillWaiting()) leaveCloud(state, live, "dropped");
+      }, 4000);
+      log.info("transcript.cloudReconnecting", { meetingId: state.meetingId, source });
+      transcriber.open(replacement.stream, live.cloud.stream);
+    }, 1000);
+    return true;
   }
 
   // Dropped, refused, out of credit or the gate closed: the cloud's streams are dropped, nothing
@@ -911,7 +970,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       const lost = { fromMs: live.doneMs, toMs: Math.max(live.doneMs, live.pushedMs) };
       if (live.started && live.pendingFrom === null && lost.toMs > lost.fromMs) {
         if (failed) state.gaps.push({ ...lost, reason: "cloud" });
-        state.pending = addRange(state.pending, lost);
+        for (const source of SOURCES) {
+          const own = live.streams[source];
+          if (own)
+            state.pending = addRange(state.pending, { fromMs: own.doneMs, toMs: atMs, source });
+        }
       }
     }
     if (reason === "refused" && live.cloud) options.cloud?.refuse(route, live.cloud.stream);
@@ -978,6 +1041,14 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (!counted(live, msOf(own.waiting))) {
       leaveCloud(found.state, live, "cap");
       return;
+    }
+    if (own.retryTimeout) {
+      clearTimeout(own.retryTimeout);
+      delete own.retryTimeout;
+      log.info("transcript.cloudReconnected", {
+        meetingId: found.state.meetingId,
+        source: found.source,
+      });
     }
     const waiting = own.waiting;
     delete own.waiting;
@@ -1119,11 +1190,13 @@ export function createTranscripts(options: TranscriptsOptions) {
           doneMs: audio.atMs,
           heardMs: audio.atMs,
           ...(live.cloud && { waiting: [] }),
+          ...(live.engine === "soniox" && { replay: new SonioxReplay(BEHIND_MS * SAMPLE_RATE_MS) }),
         };
         live.streams[source] = own;
         if (live.cloud) transcriber.open(own.stream, live.cloud.stream);
         else tellWords(state, own.stream);
       }
+      own.replay?.push(samples);
       if (own.waiting) own.waiting.push(samples);
       else transcriber.push(own.stream, samples);
     }
@@ -1148,6 +1221,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       baseMs: own.baseMs,
       doneMs: own.doneMs,
       source: "microphone",
+      separateAfterStop: own.separateAfterStop,
       speaker: () => speakerOf("microphone", state.callHeard === true, state.memo),
     };
     state.catchUps.set(own.stream, reading);
@@ -1609,6 +1683,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         baseMs: own.baseMs,
         doneMs: own.doneMs,
         source,
+        separateAfterStop: own.separateAfterStop,
         speaker: () => speakerOf(source, state.callHeard === true, state.memo),
       };
       ending.push({ stream: own.stream, reading });

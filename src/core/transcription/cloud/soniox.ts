@@ -8,7 +8,7 @@
 import type { CloudLoss } from "../../adapters";
 import { cleanSpeech } from "../speechText";
 import { CLOSES, endsAfter, endsBefore, startsWord } from "./lineEnds";
-import { createLiveStream, heldWords, type LiveLink, pcmBytes } from "./live";
+import { closedLoss, createLiveStream, heldWords, type LiveLink, pcmBytes } from "./live";
 import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -54,6 +54,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
   let line: Line | null = null;
   let nextId = 1;
   let finalMs = 0;
+  let lastWordEndMs = 0;
 
   function close(): void {
     const done = line;
@@ -61,6 +62,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     if (!done || done.tokens.length === 0) return;
     const first = done.tokens[0] as Token;
     const last = done.tokens.at(-1) as Token;
+    lastWordEndMs = Math.max(lastWordEndMs, last.end);
     report.segment({
       stream,
       id: done.id,
@@ -74,10 +76,10 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
     });
   }
 
-  function interrupted(link: LiveLink, loss: CloudLoss): void {
+  function interrupted(link: LiveLink, loss: CloudLoss, code?: number): void {
     close();
-    report.progress(finalMs);
-    link.lose(loss);
+    report.progress(Math.max(finalMs, lastWordEndMs));
+    link.lose(loss, code);
   }
 
   function add(token: Token): void {
@@ -132,7 +134,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
       if (typeof message.error_code === "number") {
         // A context it won't take is a bad request, its first answer.
         if (message.error_code === 400 && link.retryWithoutWords()) return;
-        interrupted(link, lossOf(message.error_code));
+        interrupted(link, lossOf(message.error_code), message.error_code);
         return;
       }
       const tokens = (Array.isArray(message.tokens) ? message.tokens : [])
@@ -164,7 +166,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
         });
       }
       const open = line?.tokens[0];
-      const doneMs = open ? Math.min(open.start, finalMs) : finalMs;
+      const doneMs = Math.max(lastWordEndMs, open ? Math.min(open.start, finalMs) : finalMs);
       const processedMs = message.total_audio_proc_ms;
       report.progress(
         doneMs,
@@ -186,8 +188,8 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
       interrupted(link, "dropped");
     },
     // A close before the service's "finished" leaves audio for the Meeting to replay.
-    closed(_code, _reason, link) {
-      interrupted(link, "dropped");
+    closed(code, _reason, link) {
+      interrupted(link, closedLoss(code), code);
     },
   });
 }
