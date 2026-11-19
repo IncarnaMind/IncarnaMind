@@ -1,12 +1,14 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { AgentClient, AgentClientId, AgentPairing } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import type { Read } from "../../useRead";
 import type { JustSetUp } from "../agents/AgentPairingRow";
 import { clientName, doneWords, helpUrl } from "../agents/agentWords";
 import { ConnectAgentFields, useAgentConnection } from "../agents/ConnectAgentFields";
+import { ReadProblem } from "../ReadProblem";
 import { buttonStyle } from "../ui";
 import { WorksRow } from "./SetupPanel";
 
@@ -25,7 +27,7 @@ export function AgentWays({
   clients,
   pairings,
 }: {
-  clients: readonly AgentClient[];
+  clients: Exclude<Read<readonly AgentClient[]>, { state: "loading" }>;
   pairings: readonly AgentPairing[];
 }) {
   const t = useT();
@@ -35,6 +37,16 @@ export function AgentWays({
   const [chosen, setChosen] = useState<AgentClient | null>(null);
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
   const connection = useAgentConnection();
+  const list = useRef<HTMLFieldSetElement>(null);
+  // Try again goes once the agents are listed: the focus moves on to the first of them.
+  const failed = useRef(clients.state === "failed");
+  useEffect(() => {
+    if (clients.state === "failed") failed.current = true;
+    else if (failed.current) {
+      failed.current = false;
+      if (document.activeElement === document.body) list.current?.querySelector("input")?.focus();
+    }
+  }, [clients.state]);
 
   const allow = async (client: AgentClient, choice: Parameters<typeof connection.connect>[1]) => {
     const done = await connection.connect(client, choice, { enable: true });
@@ -96,37 +108,49 @@ export function AgentWays({
           </div>
         );
       })}
-      <fieldset className="m-0 grid grid-cols-2 gap-2 border-0 p-0 max-[520px]:grid-cols-1">
-        <legend className="sr-only">{t("setupPage.ai.agents")}</legend>
-        {clients.map((client) => (
-          <label
-            key={client.id}
-            data-testid="setup-agent"
-            data-value={client.id}
-            className="flex min-h-9 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-3 py-1.5 shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover has-[input:checked]:shadow-[inset_0_0_0_2px_var(--color-ink)]"
-          >
-            <input
-              type="radio"
-              name={`${id}-agent`}
-              value={client.id}
-              checked={chosen?.id === client.id}
-              onChange={() => {
-                connection.clearProblem();
-                setChosen(client);
-              }}
-              className="size-4 shrink-0 accent-ink"
-            />
-            <span className="min-w-0 flex-1 truncate text-ui font-semibold text-ink">
-              {clientName(client, t)}
-            </span>
-            {client.installed && (
-              <span className="shrink-0 text-[12px] leading-4 text-ink-meta">
-                {t("setupPage.agent.found")}
+      {clients.state === "failed" && (
+        <ReadProblem
+          words={t("setupPage.agents.failed")}
+          read={clients}
+          testId="setup-agents-problem"
+        />
+      )}
+      {clients.state === "ready" && (
+        <fieldset
+          ref={list}
+          className="m-0 grid grid-cols-2 gap-2 border-0 p-0 max-[520px]:grid-cols-1"
+        >
+          <legend className="sr-only">{t("setupPage.ai.agents")}</legend>
+          {clients.data.map((client) => (
+            <label
+              key={client.id}
+              data-testid="setup-agent"
+              data-value={client.id}
+              className="flex min-h-9 min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-3 py-1.5 shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover has-[input:checked]:shadow-[inset_0_0_0_2px_var(--color-ink)]"
+            >
+              <input
+                type="radio"
+                name={`${id}-agent`}
+                value={client.id}
+                checked={chosen?.id === client.id}
+                onChange={() => {
+                  connection.clearProblem();
+                  setChosen(client);
+                }}
+                className="size-4 shrink-0 accent-ink"
+              />
+              <span className="min-w-0 flex-1 truncate text-ui font-semibold text-ink">
+                {clientName(client, t)}
               </span>
-            )}
-          </label>
-        ))}
-      </fieldset>
+              {client.installed && (
+                <span className="shrink-0 text-[12px] leading-4 text-ink-meta">
+                  {t("setupPage.agent.found")}
+                </span>
+              )}
+            </label>
+          ))}
+        </fieldset>
+      )}
       {chosen && (
         <div
           data-testid="setup-agent-connect"

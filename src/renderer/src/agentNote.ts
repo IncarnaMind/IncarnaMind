@@ -10,6 +10,7 @@ import { noteWriterOf } from "../../shared/noteWriter";
 import { core } from "./core";
 import { homeReading, type NoteState } from "./noteState";
 import { useAppStore } from "./store";
+import { type Read, useRead } from "./useRead";
 import { wallsOf } from "./walls";
 
 /** A Note an agent wrote, and how its check stands; null `state` before anything was checked. */
@@ -39,16 +40,14 @@ export function useAgentPairings(): AgentPairing[] | null {
 }
 
 /** The agents IncarnaMind can be set up in, those on this computer first (src/core/agents/clients.ts). */
-export function useAgentClients(): AgentClient[] | null {
-  const reportError = useAppStore((state) => state.reportError);
-  const [clients, setClients] = useState<AgentClient[] | null>(clientsRead);
-  useEffect(() => {
+export function useAgentClients(): Read<AgentClient[]> {
+  const read = useRead("The agents IncarnaMind can be set up in", () =>
     core.listAgentClients().then((list) => {
       clientsRead = list;
-      setClients(list);
-    }, reportError);
-  }, [reportError]);
-  return clients;
+      return list;
+    }),
+  );
+  return read.state === "loading" && clientsRead ? { state: "ready", data: clientsRead } : read;
 }
 
 /** The User's own AI is connected, and no model in IncarnaMind works yet. */

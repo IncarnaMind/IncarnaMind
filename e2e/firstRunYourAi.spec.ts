@@ -9,6 +9,7 @@ import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
   catchCopies,
+  controlReads,
   copied,
   createDataFolder,
   frontMind,
@@ -316,6 +317,36 @@ test("connecting the AI the User has in the step: no key, no Sorting, the agent'
   await row.getByTestId("agent-disconnect").click();
   await expect(page.getByTestId("agent-pairing")).toHaveCount(0);
   expect((await core(window).agents()).pairings).toEqual([]);
+});
+
+// protects=the step works on a cold start where the agents on this computer can't be listed: it says so where the agents would be, with Try again, and a model is set up as before; fails_when=the step, or its Back and Set up later, is missing, or the problem has no way to try again
+test("agents that can't be listed: the step says so in their place, and a model still sets up", async () => {
+  const window = await launch();
+  await atStep(window, "work");
+  await controlReads(app as ElectronApplication, "core:listAgentClients", { failing: true });
+  await window.reload();
+  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  const ai = await atStep(window, "ai");
+  await expect(ai.getByRole("heading", { level: 2 })).toHaveText([
+    "Use the AI you already have",
+    "Use a model in IncarnaMind",
+  ]);
+  const problem = ai.getByTestId("setup-agents-problem");
+  await expect(problem).toContainText("Couldn\u2019t list the agents on this computer");
+  await expect(ai.getByTestId("setup-agent")).toHaveCount(0);
+  await expect(ai.getByTestId("setup-back")).toBeVisible();
+  await expect(ai.getByTestId("setup-skip")).toBeVisible();
+  await stills(window, "7-agents-unlisted");
+
+  await controlReads(app as ElectronApplication, "core:listAgentClients", { failing: false });
+  await problem.getByTestId("setup-agents-problem-retry").press("Enter");
+  await expect(ai.locator('[data-testid="setup-agent"][data-value="claude-code"]')).toBeVisible();
+  await expect(problem).toHaveCount(0);
+  await expect(ai.getByTestId("setup-agent").first().locator("input")).toBeFocused();
+
+  await useLocalChatModel(window);
+  await expect(ai.getByTestId("setup-ai-works")).toBeVisible();
+  await expect(ai.getByTestId("setup-next")).toBeEnabled();
 });
 
 // protects=a Note the agent writes ticks the card's second step, and once the agent's check lands the third opens the Note at its first mark that needs a look; fails_when=the step ticks on a Note the agent didn't write, before its check lands, or opens the Note anywhere but at its mark

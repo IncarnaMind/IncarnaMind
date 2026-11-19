@@ -3134,6 +3134,7 @@ export const zhCN = {
   "setupPage.ai.services": "选择服务",
   "setupPage.ai.agents": "用你已经在用的 AI",
   "setupPage.ai.inApp": "在 IncarnaMind 里用一个模型",
+  "setupPage.agents.failed": "未能列出这台电脑上的智能体",
   "setupPage.agent.found": "在这台电脑上",
   "setupPage.agent.connected": "已连接{agent}",
   "setupPage.sorting.title": "整理和初步核对",

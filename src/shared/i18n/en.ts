@@ -3291,6 +3291,7 @@ export const en = {
   // The step's two ways to an AI (#3362): the one the User already has, then a model here.
   "setupPage.ai.agents": "Use the AI you already have",
   "setupPage.ai.inApp": "Use a model in IncarnaMind",
+  "setupPage.agents.failed": "Couldn\u2019t list the agents on this computer",
   "setupPage.agent.found": "On this computer",
   "setupPage.agent.connected": "{agent} is connected",
   "setupPage.sorting.title": "Sorting and first checks",

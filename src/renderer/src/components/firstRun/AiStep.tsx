@@ -104,8 +104,8 @@ export function AiStep({ place }: { place: StepPlace }) {
     requestAnimationFrame(() => keyField.current?.focus());
   };
   const toggle = (way: Way) => setOpen(open === way ? null : way);
-  // The step opens whole, its first choice focused: in the setup these were read on its first step.
-  if (clients === null || pairings === null) return null;
+  // The step opens whole, its first choice focused: in the setup they were read on its first step.
+  if (clients.state === "loading") return null;
 
   if (view.kind !== "main") {
     const crumb = { label: t("setupPage.ai.title"), onClick: () => backToMore(setView) };
@@ -226,7 +226,7 @@ export function AiStep({ place }: { place: StepPlace }) {
         </>
       }
     >
-      <AgentWays clients={clients} pairings={pairings} />
+      <AgentWays clients={clients} pairings={pairings ?? []} />
       <h2 id="setup-in-app" className="-mb-2 text-ui font-semibold text-ink">
         {t("setupPage.ai.inApp")}
       </h2>
