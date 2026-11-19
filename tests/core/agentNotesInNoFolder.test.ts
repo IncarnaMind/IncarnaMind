@@ -26,6 +26,12 @@ const TIDES = [
 ].join("\n");
 const BUDGET = "# Budget\n\nThe harbour budget sets aside money for dredging the channel.\n";
 
+const BOARD = [
+  "# Harbour board",
+  "",
+  "Neap tides have the largest range of the month, the harbour board found.",
+].join("\n");
+
 const SPRING = "Spring tides come twice in every month.";
 const NEAP = "Neap tides have the largest range of the month.";
 const NOTE = [SPRING, NEAP].join("\n\n");
@@ -70,11 +76,29 @@ function refusal(result: unknown): string {
 /** A fresh profile: no Folder and no Document, connecting agents on. */
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
 
-async function fresh(calls: ModelCall[] = [], language: "en" | "zh-CN" = "en", examples = false) {
-  const started = await startAgentsCore(
-    checkingModel(PLANS, calls),
-    examples ? { paths: { examples: EXAMPLES } } : {},
-  );
+async function fresh(
+  calls: ModelCall[] = [],
+  language: "en" | "zh-CN" = "en",
+  examples = false,
+  held?: { until: Promise<void>; arrived: number },
+) {
+  const model = checkingModel(PLANS, calls);
+  if (held) {
+    // Every request waits for `held.until`: a test does something while the check is under way.
+    const generate = model.doGenerate.bind(model);
+    const stream = model.doStream.bind(model);
+    model.doGenerate = async (options) => {
+      held.arrived++;
+      await held.until;
+      return generate(options);
+    };
+    model.doStream = async (options) => {
+      held.arrived++;
+      await held.until;
+      return stream(options);
+    };
+  }
+  const started = await startAgentsCore(model, examples ? { paths: { examples: EXAMPLES } } : {});
   const { core } = started;
   if (language !== "en") await core.updateSettings({ user: { language } });
   await core.setAgentsEnabled(true);
@@ -426,6 +450,57 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: note.mindId } }),
     );
     expect(given.sentences.map((each) => each.text)).toEqual([SPRING, NEAP]);
+  });
+
+  // protects=IncarnaMind's check for an agent reads only the Documents admitted as it began: one filed where the agent may not read during the run is never searched or sent; fails_when=a run with no scope of its own searches every Document at each search, so a Document the agent wasn't given decides a verdict it sees
+  it("checks for the agent against the Documents admitted as it began, whatever arrives during the run", async () => {
+    let release = () => {};
+    const held = {
+      until: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+      arrived: 0,
+    };
+    const calls: ModelCall[] = [];
+    const { core, add, connect } = await fresh(calls, "en", false, held);
+    await add("Tides.md", TIDES);
+    const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
+    const made = await write(agent);
+    const checking = agent.callTool({ name: "check_mind", arguments: { mindId: made.mindId } });
+    // The check has begun, its Documents admitted, and its first request waits.
+    await vi.waitFor(() => expect(held.arrived).toBeGreaterThan(0));
+    // Under way: a Document that would decide a sentence lands in a Folder the agent wasn't given.
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    const secret = await add("Harbour board.md", BOARD);
+    await core.assignDocumentGroup(secret.id, finance.id);
+    release();
+    const result = await checking;
+    const said = JSON.stringify(result);
+    expect(said).not.toMatch(/Harbour board|harbour board found/);
+    expect(calls.length).toBeGreaterThan(0);
+    // Nothing of it was searched, sent to the model or given back to the agent.
+    for (const call of calls) {
+      expect(call.prompt).not.toContain("harbour board found");
+      expect(JSON.stringify(call.results)).not.toContain("Harbour board");
+    }
+  });
+
+  // protects=the agent's own check searches only what it may read at each search; fails_when=a Document filed out of its reach during its own check is found by its search
+  it("searches only its reach at each call while it checks its Note itself", async () => {
+    const { core, add, connect } = await fresh();
+    await add("Tides.md", TIDES);
+    const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
+    const made = await write(agent);
+    structured(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+    );
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    const secret = await add("Harbour board.md", BOARD);
+    await core.assignDocumentGroup(secret.id, finance.id);
+    const { passages } = structured<{ passages: { documentId: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "neap tides largest range" } }),
+    );
+    expect(passages.map((each) => each.documentId)).not.toContain(secret.id);
   });
 
   // protects=an agent the User gave Folders and not Not in a Folder keeps exactly its reach; fails_when=it can write in no Folder, or reach a Note there, its own included
