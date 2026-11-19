@@ -84,6 +84,27 @@ describe("A verdict handed over in cite (#3381)", () => {
     });
   });
 
+  test("an overstated verdict keeps its quote, and ends the check with that call", async () => {
+    const { result, runs } = await check(
+      "Spring tides come at every new moon and every full moon, without fail.",
+      (call) => search(sentenceOf(call)),
+      (_call, passage) => ({
+        calls: [
+          cite(passage, [SPRING], {
+            verdict: "overstated",
+            explanation: "Tides says when spring tides happen, not that they never fail.",
+          }),
+        ],
+      }),
+    );
+
+    expect(runs).toHaveLength(2);
+    expect(result).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { word: "overstated", found: true, quoted: { quote: SPRING } },
+    });
+  });
+
   test("beside a verdict written in the same turn, the call's is read, and the written Change lines still offer their correction", async () => {
     const { result, runs } = await check(
       CONTRADICTED,

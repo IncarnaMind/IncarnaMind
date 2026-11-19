@@ -280,6 +280,9 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     read.verdict === "supported" && figures.length > 0;
   const recorded = (read: ReadVerdict) =>
     (read.evidence ?? []).some((marker) => session.tools.hasRecord?.(marker) ?? false);
+  // The verdict the search-again ask is for (#3381): one resting on a quote it recorded is not.
+  const saysNotStated = (read: ReadVerdict) =>
+    read.verdict === "unsupported" && (read.word ?? "not-found") === "not-found" && !recorded(read);
   // Each asks the model once, for something its reply lacks; none of them reads its verdict.
   const turnChecks: TurnCheck[] = [
     {
@@ -293,10 +296,12 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     },
     {
       name: "search-again",
-      check: (text) =>
-        looked() && searches() <= 1 && readVerdict(text)?.verdict === "unsupported"
+      check(text) {
+        const read = readVerdict(text);
+        return read && looked() && searches() <= 1 && saysNotStated(read)
           ? { claims: [], note: SEARCH_AGAIN }
-          : null,
+          : null;
+      },
     },
     {
       name: "cite-first",
