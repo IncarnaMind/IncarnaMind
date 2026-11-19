@@ -6,7 +6,7 @@
  * takes the change back, last first, while its Note is shown.
  */
 import { create } from "zustand";
-import type { AgentNoteChange } from "../../core/api";
+import type { AgentChangeStep, AgentNoteChange } from "../../core/api";
 import { core } from "./core";
 import { groupsMerged, isShown } from "./layoutSlice";
 import type { WordsInLine } from "./lineNames";
@@ -55,18 +55,52 @@ const nameOf = (mindId: string) => {
   return mind ? mind.title || mind.autoTitle : "";
 };
 
+/** Each Note's changes on the app's Undo, by Note: the ones taken back go once the agent changes it again. */
+const offered = new Map<string, Undoable[]>();
+
+/**
+ * Takes a change back, or does it again, exactly as the core did: a step with nothing of its change
+ * left, or no longer the Note's last, leaves the stack, and its line says which change it was.
+ */
+async function stepOf(
+  change: AgentNoteChange,
+  step: "undo" | "redo",
+  run: () => Promise<AgentChangeStep>,
+): Promise<void> {
+  const done = await run();
+  if (done === "done") return;
+  const mind = nameOf(change.mindId);
+  throw new UndoRefused(
+    (t) =>
+      done === "nothing-left"
+        ? t(step === "undo" ? "agents.note.nothingToUndo" : "agents.note.nothingToRedo", {
+            name: change.agent,
+            mind,
+          })
+        : t("agents.note.undoGone"),
+    null,
+  );
+}
+
 /** Puts the change on the app's Undo, which ⌘Z and ⇧⌘Z pass over while its Note isn't shown. */
 function offerUndo(change: AgentNoteChange, step: string): void {
-  const gone = () => new UndoRefused((t) => t("agents.note.undoGone"), null);
+  // The core forgets the steps taken back once the agent changes the Note again: Redo can't reach them.
+  const before = offered.get(change.mindId) ?? [];
+  for (const each of before) {
+    if (useUndo.getState().undone.includes(each)) useUndo.getState().withdraw(each);
+  }
   const undoable: Undoable = {
     said: (t, cut) => agentNoteWords(change, nameOf(change.mindId))(t, cut),
-    undo: async () => {
-      if (!(await core.undoAgentChange(step))) throw gone();
-    },
-    redo: async () => {
-      if (!(await core.redoAgentChange(step))) throw gone();
-    },
+    undo: () => stepOf(change, "undo", () => core.undoAgentChange(step)),
+    redo: () => stepOf(change, "redo", () => core.redoAgentChange(step)),
   };
+  offered.set(change.mindId, [
+    ...before.filter((each) => {
+      const { done, undone } = useUndo.getState();
+      return done.includes(each) || undone.includes(each);
+    }),
+    undoable,
+  ]);
   const recheck = () => {
     const { done, undone, running } = useUndo.getState();
     if (!done.includes(undoable) && !undone.includes(undoable)) {

@@ -8313,6 +8313,10 @@ export const en = {
   "agents.note.added.one": "{name} added 1 paragraph to “{mind}”",
   "agents.note.added": "{name} added {count} paragraphs to “{mind}”",
   "agents.note.edited": "{name} changed “{mind}”",
+  "agents.note.nothingToUndo":
+    "Nothing of {name}’s change to “{mind}” is left to undo: what it changed was deleted since.",
+  "agents.note.nothingToRedo":
+    "Nothing of {name}’s change to “{mind}” is left to redo: what it changed was deleted since.",
   "agents.note.undoGone":
     "This change can’t be undone any more. The note’s History has its version from before it.",
   "agents.create.text": "the text",

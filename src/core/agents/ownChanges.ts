@@ -1,24 +1,37 @@
 /**
  * An outside agent's changes to a Note it wrote apply at once (#3371), each one step of Undo. No
- * window made them, so no editor's history holds them: the core keeps them, a Yjs Undo of their
- * own per Note, and a window's ⌘Z takes them back, last first, as it does its own. A step of a
- * Note whose document has left memory since can't be taken back; the Checkpoint saved before it
- * can still be restored.
+ * window made them, so no editor's history holds them: the core keeps them, and a window's ⌘Z
+ * takes them back, last first, as it does its own. Each change has a Yjs Undo of its own: Yjs
+ * passes over a step with nothing left to take back (what it changed was deleted since) to the one
+ * before it, so with one Undo for them all a press could take back a change it didn't name. A step
+ * of a Note whose document has left memory since can't be taken back; the Checkpoint saved before
+ * it can still be restored.
  */
 import * as Y from "yjs";
 import { originMaps } from "../../shared/blockOrigins";
-import { MIND_CONTENT_FIELD, MIND_REVISIONS_FIELD, MIND_TEXT_ORIGINS_FIELD } from "../api";
+import {
+  type AgentChangeStep,
+  MIND_CONTENT_FIELD,
+  MIND_REVISIONS_FIELD,
+  MIND_TEXT_ORIGINS_FIELD,
+} from "../api";
 import type { MindContent } from "../mindContent";
+
+interface Step {
+  id: string;
+  /** Holds this change alone: it tracks only the origin the change was written with. */
+  manager: Y.UndoManager;
+}
 
 interface NoteSteps {
   doc: Y.Doc;
-  manager: Y.UndoManager;
-  /** What the agent's changes are written with: the one origin `manager` takes steps of. */
-  origin: object;
   /** The steps ⌘Z takes back, the last one last; and those ⇧⌘Z does again. */
-  done: string[];
-  undone: string[];
+  done: Step[];
+  undone: Step[];
 }
+
+/** The most steps a Note keeps: each listens to every change of its Note while it is kept. */
+const MAX_STEPS = 50;
 
 export type OwnChanges = ReturnType<typeof createOwnChanges>;
 
@@ -31,55 +44,51 @@ export function createOwnChanges(
   const docOf = (mindId: string): Y.Doc | null =>
     content.read(mindId, (blocks) => blocks.doc ?? null);
 
+  const forget = (steps: readonly Step[]) => {
+    for (const step of steps) step.manager.destroy();
+  };
+
   const stepsOf = (mindId: string): NoteSteps | null => {
     const doc = docOf(mindId);
     if (!doc) return null;
     const kept = notes.get(mindId);
     if (kept?.doc === doc) return kept;
-    kept?.manager.destroy();
-    const origin = {};
-    const manager = new Y.UndoManager(
-      [
-        doc.getXmlFragment(MIND_CONTENT_FIELD),
-        ...originMaps(doc),
-        doc.getMap(MIND_TEXT_ORIGINS_FIELD),
-        doc.getMap(MIND_REVISIONS_FIELD),
-      ],
-      { captureTimeout: 0, trackedOrigins: new Set([origin]) },
-    );
-    const steps: NoteSteps = { doc, manager, origin, done: [], undone: [] };
-    notes.set(mindId, steps);
+    if (kept) forget([...kept.done, ...kept.undone]);
+    const note: NoteSteps = { doc, done: [], undone: [] };
+    notes.set(mindId, note);
     doc.once("destroy", () => {
-      if (notes.get(mindId) === steps) notes.delete(mindId);
-      manager.destroy();
+      if (notes.get(mindId) === note) notes.delete(mindId);
+      forget([...note.done, ...note.undone]);
     });
-    return steps;
+    return note;
   };
 
-  /** The Note's steps, while its document is the one in memory now. */
-  const live = (mindId: string): NoteSteps | null => {
-    const steps = notes.get(mindId);
-    if (!steps || !content.isLoaded(mindId) || docOf(mindId) !== steps.doc) return null;
-    return steps;
-  };
-
-  const mindOf = (stepId: string, stack: "done" | "undone"): string | null => {
-    for (const [mindId, steps] of notes) if (steps[stack].at(-1) === stepId) return mindId;
+  /** The Note's steps and the one named, while its document is the one in memory now. */
+  const find = (stepId: string, from: "done" | "undone") => {
+    for (const [mindId, note] of notes) {
+      const step = note[from].at(-1);
+      if (step?.id !== stepId) continue;
+      if (!content.isLoaded(mindId) || docOf(mindId) !== note.doc) return null;
+      return { mindId, note, step };
+    }
     return null;
   };
 
-  /** Takes a step back, or does it again, then stores and sends what that changed. */
-  const move = (stepId: string, from: "done" | "undone"): boolean => {
-    const mindId = mindOf(stepId, from);
-    const steps = mindId === null ? null : live(mindId);
-    if (mindId === null || !steps) return false;
+  /** Takes the named step back, or does it again: only it, and only the Note's last one. */
+  const move = (stepId: string, from: "done" | "undone"): AgentChangeStep => {
+    const found = find(stepId, from);
+    if (!found) return "unavailable";
+    const { mindId, note, step } = found;
     // Outside any other transaction: Yjs files a step taken back only in a transaction of its own.
-    const moved = from === "done" ? steps.manager.undo() !== null : steps.manager.redo() !== null;
+    const moved = from === "done" ? step.manager.undo() : step.manager.redo();
     content.edit(mindId, () => undefined);
-    if (!moved) return false;
-    steps[from].pop();
-    steps[from === "done" ? "undone" : "done"].push(stepId);
-    return true;
+    note[from].pop();
+    if (moved === null) {
+      step.manager.destroy();
+      return "nothing-left";
+    }
+    note[from === "done" ? "undone" : "done"].push(step);
+    return "done";
   };
 
   return {
@@ -91,20 +100,40 @@ export function createOwnChanges(
       mindId: string,
       change: (blocks: Y.XmlFragment) => T,
     ): { value: T; step: string | null } {
-      const steps = stepsOf(mindId);
-      const before = steps?.manager.undoStack.length ?? 0;
-      const value = content.edit(mindId, change, steps?.origin);
-      if (!steps || steps.manager.undoStack.length === before) return { value, step: null };
-      const step = newId();
-      steps.done.push(step);
-      steps.undone = [];
-      return { value, step };
+      const note = stepsOf(mindId);
+      if (!note) return { value: content.edit(mindId, change), step: null };
+      const origin = {};
+      const manager = new Y.UndoManager(
+        [
+          note.doc.getXmlFragment(MIND_CONTENT_FIELD),
+          ...originMaps(note.doc),
+          note.doc.getMap(MIND_TEXT_ORIGINS_FIELD),
+          note.doc.getMap(MIND_REVISIONS_FIELD),
+        ],
+        { captureTimeout: 0, trackedOrigins: new Set([origin]) },
+      );
+      let value: T;
+      try {
+        value = content.edit(mindId, change, origin);
+      } catch (error) {
+        manager.destroy();
+        throw error;
+      }
+      if (manager.undoStack.length === 0) {
+        manager.destroy();
+        return { value, step: null };
+      }
+      const id = newId();
+      forget(note.undone.splice(0));
+      note.done.push({ id, manager });
+      forget(note.done.splice(0, Math.max(0, note.done.length - MAX_STEPS)));
+      return { value, step: id };
     },
 
     /** Takes a step back: only the Note's last one done, while its document is in memory. */
-    undo: (stepId: string): boolean => move(stepId, "done"),
+    undo: (stepId: string): AgentChangeStep => move(stepId, "done"),
 
     /** Does a step again: only the Note's last one taken back, before the agent's next change. */
-    redo: (stepId: string): boolean => move(stepId, "undone"),
+    redo: (stepId: string): AgentChangeStep => move(stepId, "undone"),
   };
 }

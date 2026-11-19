@@ -7846,6 +7846,8 @@ export const zhCN = {
   "agents.note.added.one": "{name} 在“{mind}”中添加了 1 个段落",
   "agents.note.added": "{name} 在“{mind}”中添加了 {count} 个段落",
   "agents.note.edited": "{name} 修改了“{mind}”",
+  "agents.note.nothingToUndo": "{name} 对“{mind}”的修改已没有可撤销的内容：它改动的部分已被删除。",
+  "agents.note.nothingToRedo": "{name} 对“{mind}”的修改已没有可重做的内容：它改动的部分已被删除。",
   "agents.note.undoGone": "这次修改已无法撤销。可在笔记的“历史版本”中找到修改前的版本。",
   "agents.create.text": "正文",
   "agents.create.folder": "给出 folderId：list_minds 列出的文件夹之一。",

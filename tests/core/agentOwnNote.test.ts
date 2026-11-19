@@ -171,12 +171,12 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
     ]);
     expect(steps).toHaveLength(3);
     // Last first: an earlier one isn't taken back over a later one.
-    expect(await core.undoAgentChange(steps[0] ?? "")).toBe(false);
+    expect(await core.undoAgentChange(steps[0] ?? "")).toBe("unavailable");
     for (const [index, step] of [...steps.entries()].reverse()) {
-      expect(await core.undoAgentChange(step)).toBe(true);
+      expect(await core.undoAgentChange(step)).toBe("done");
       await expect.poll(() => linesOf(client)).toEqual(states[index]);
     }
-    expect(await core.redoAgentChange(steps[0] ?? "")).toBe(true);
+    expect(await core.redoAgentChange(steps[0] ?? "")).toBe("done");
     await expect.poll(() => linesOf(client)).toEqual(states[1]);
 
     // Its activity list says each changed the Note, never that a change waits.
@@ -328,5 +328,119 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
     ).toBe("笔记中没有 ¶4：¶0 是标题，段落为 ¶1 到 ¶3。");
     const client = await connectToMind(core, mindId);
     expect(linesOf(client)).toEqual(["Tide report", "Dated 4 December 2025.", OPENING, RANGE]);
+  });
+});
+
+/** The Note's paragraph that holds `words`, as the User's window holds it. */
+function paragraphWith(client: MindClient, words: string): Y.XmlElement {
+  for (const block of client.blocks.toArray()) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    const content = block.get(0);
+    if (!(content instanceof Y.XmlText)) continue;
+    const plain = (content.toDelta() as { insert: unknown }[])
+      .map((run) => (typeof run.insert === "string" ? run.insert : ""))
+      .join("");
+    if (plain.includes(words)) return block;
+  }
+  throw new Error(`No paragraph holds “${words}”.`);
+}
+
+/** The User deletes the whole paragraph that holds `words`. */
+function deleteParagraph(client: MindClient, words: string): void {
+  const paragraph = paragraphWith(client, words);
+  client.blocks.delete(client.blocks.toArray().indexOf(paragraph), 1);
+}
+
+describe("Undo and Redo of an agent's change to a Note it wrote (#3371)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  /** A Note the agent wrote, then changed twice: ¶1 (`a`) and then ¶2 (`b`). */
+  async function changedTwice(language: "en" | "zh-CN" = "en") {
+    const started = await paired(language);
+    const { core, agent, told } = started;
+    const mindId = await write(agent);
+    const client = await connectToMind(core, mindId);
+    let { version } = await readNamed(agent, mindId);
+    for (const changes of [
+      [{ paragraph: "¶1", text: "Tides turn twice a day." }],
+      [{ paragraph: "¶2", text: "Ranges vary through the month." }],
+    ]) {
+      ({ version } = structured<Proposed>(await change(agent, mindId, version, changes)));
+    }
+    await expect.poll(() => linesOf(client)).toContain("Ranges vary through the month.");
+    const [a = "", b = ""] = told.flatMap((each) => (each.step ? [each.step] : []));
+    return { ...started, mindId, client, a, b };
+  }
+
+  // protects=one press takes back the change it names and no other; fails_when=Undo of a change whose paragraph is gone takes back an earlier change instead, or the steps offered stop matching what Undo does
+  it("take back only the change Undo names: one whose paragraph is gone takes back nothing, and says so", async () => {
+    const { core, client, a, b } = await changedTwice();
+    deleteParagraph(client, "Ranges vary");
+    await client.settled();
+
+    expect(await core.undoAgentChange(b)).toBe("nothing-left");
+    expect(linesOf(client)).toEqual(["Tide report", "Tides turn twice a day."]);
+    // It is gone from the steps: the next press is the change before it, which goes back.
+    expect(await core.undoAgentChange(b)).toBe("unavailable");
+    expect(await core.redoAgentChange(b)).toBe("unavailable");
+    expect(await core.undoAgentChange(a)).toBe("done");
+    await expect.poll(() => linesOf(client)).toEqual(["Tide report", OPENING]);
+    expect(await core.redoAgentChange(a)).toBe("done");
+    await expect.poll(() => linesOf(client)).toEqual(["Tide report", "Tides turn twice a day."]);
+  });
+
+  // protects=Redo does again the change it names and no other; fails_when=Redo of a change whose paragraph is gone does another change again
+  it("do again only the change Redo names", async () => {
+    const { core, client, a, b } = await changedTwice();
+    expect(await core.undoAgentChange(b)).toBe("done");
+    expect(await core.undoAgentChange(a)).toBe("done");
+    await expect.poll(() => linesOf(client)).toEqual(["Tide report", OPENING, RANGE]);
+    deleteParagraph(client, OPENING);
+    await client.settled();
+
+    expect(await core.redoAgentChange(a)).toBe("nothing-left");
+    expect(linesOf(client)).toEqual(["Tide report", RANGE]);
+    expect(await core.redoAgentChange(b)).toBe("done");
+    await expect
+      .poll(() => linesOf(client))
+      .toEqual(["Tide report", "Ranges vary through the month."]);
+  });
+
+  // protects=what the User typed inside the agent's change stays when Undo takes the change back; fails_when=Undo takes the User's words too, or another change
+  it("keep what the User typed inside the change it takes back", async () => {
+    const { core, client, b } = await changedTwice();
+    typeBefore(client, " through the month", " widely");
+    await client.settled();
+
+    expect(await core.undoAgentChange(b)).toBe("done");
+    await expect.poll(() => linesOf(client)).not.toContain("Ranges vary widely through the month.");
+    const [title, first, second] = linesOf(client);
+    expect([title, first]).toEqual(["Tide report", "Tides turn twice a day."]);
+    expect(second).toContain("widely");
+    expect(second).not.toContain("Ranges vary");
+    expect(second?.replace(" widely", "")).toBe(RANGE);
+  });
+
+  // protects=restoring a version, or disconnecting the agent, leaves Undo safe; fails_when=either throws, or Undo then changes the restored Note
+  it("after a version is restored take back nothing of it, and outlast the agent's disconnection", async () => {
+    const { core, client, mindId, pairing, a, b } = await changedTwice();
+    const { checkpoints } = await core.listCheckpoints(mindId);
+    const first = checkpoints.filter((each) => each.reason === "accept").at(-1);
+    if (!first) throw new Error("No Checkpoint before the first change.");
+    await core.restoreCheckpoint(mindId, first.id);
+    await expect.poll(() => linesOf(client)).toEqual(["Tide report", OPENING, RANGE]);
+    expect(await core.undoAgentChange(b)).toBe("nothing-left");
+    expect(await core.undoAgentChange(a)).toBe("nothing-left");
+    expect(linesOf(client)).toEqual(["Tide report", OPENING, RANGE]);
+
+    const again = await changedTwice();
+    await again.core.disconnectAgent(again.pairing.id);
+    expect(await again.core.undoAgentChange(again.b)).toBe("done");
+    await expect
+      .poll(() => linesOf(again.client))
+      .toEqual(["Tide report", "Tides turn twice a day.", RANGE]);
+    expect(pairing.id).not.toBe(again.pairing.id);
   });
 });

@@ -12617,6 +12617,13 @@ export interface AgentNoteChange {
   step: string | null;
 }
 
+/**
+ * What became of an Undo or Redo of an agent's change (#3371): "done"; "nothing-left", nothing of
+ * the change is left to take back or do again, as what it changed was deleted since, so the step is
+ * gone; "unavailable", it isn't the Note's last step, or the Note has left memory since.
+ */
+export type AgentChangeStep = "done" | "nothing-left" | "unavailable";
+
 // ---------------------------------------------------------------------------
 
 export interface CoreApi {
@@ -13148,12 +13155,12 @@ export interface CoreApi {
   /** Lets go of a core-applied change's in-session Review and Undo records. */
   releaseAskedChanges(undoId: string): Promise<void>;
   /**
-   * Takes back an outside agent's change to a Note it wrote (#3371): only the Note's last one still
-   * done, while the Note is in memory. False when it can't be taken back here.
+   * Takes back an outside agent's change to a Note it wrote (#3371), that one and no other: only
+   * the Note's last one still done, while the Note is in memory.
    */
-  undoAgentChange(step: string): Promise<boolean>;
+  undoAgentChange(step: string): Promise<AgentChangeStep>;
   /** Does an agent's change taken back again: only the Note's last one, before its next change. */
-  redoAgentChange(step: string): Promise<boolean>;
+  redoAgentChange(step: string): Promise<AgentChangeStep>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
