@@ -351,7 +351,13 @@ describe("outside agents", () => {
       folders: { id: string; name: string; documents: number; minds: unknown[] }[];
     }>(await agent.callTool({ name: "list_minds", arguments: {} }));
     expect(listed.folders).toEqual([
-      { id: draftsFolder.id, name: "Drafts", documents: 1, minds: [] },
+      {
+        id: draftsFolder.id,
+        name: "Drafts",
+        documents: 1,
+        documentList: [{ id: drafts.id, name: drafts.name, kind: "markdown" }],
+        minds: [],
+      },
     ]);
     const found = structured<SearchOut>(
       await agent.callTool({ name: "search", arguments: { query: "harbour" } }),
@@ -370,7 +376,16 @@ describe("outside agents", () => {
       folders: { id: string; name: string; documents: number; minds: unknown[] }[];
     }>(await wallAgent.callTool({ name: "list_minds", arguments: {} }));
     expect(wholeListed.folders).toEqual([
-      { id: client.id, name: "Client A", documents: 2, minds: [] },
+      {
+        id: client.id,
+        name: "Client A",
+        documents: 2,
+        documentList: [
+          { id: drafts.id, name: drafts.name, kind: "markdown" },
+          { id: filed.id, name: filed.name, kind: "markdown" },
+        ],
+        minds: [],
+      },
     ]);
     const wholeFound = structured<SearchOut>(
       await wallAgent.callTool({ name: "search", arguments: { query: "harbour" } }),
@@ -417,7 +432,16 @@ describe("outside agents", () => {
     const listed = structured<{
       folders: { id: string; name: string; documents: number; minds: unknown[] }[];
     }>(await agent.callTool({ name: "list_minds", arguments: {} }));
-    expect(listed.folders).toEqual([{ id: clientA.id, name: "Client A", documents: 1, minds: [] }]);
+    // The inner wall's Moon is neither counted nor named.
+    expect(listed.folders).toEqual([
+      {
+        id: clientA.id,
+        name: "Client A",
+        documents: 1,
+        documentList: [{ id: harbour.id, name: harbour.name, kind: "markdown" }],
+        minds: [],
+      },
+    ]);
     const found = structured<SearchOut>(
       await agent.callTool({ name: "search", arguments: { query: "harbour" } }),
     );

@@ -8236,7 +8236,7 @@ export const en = {
   "consent.data.scoped-passages":
     "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; and, for a search, which page of results it is and whether more follow",
   "consent.data.scoped-minds":
-    "The shared Folders’ names, internal ids and Document counts, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
+    "The shared Folders’ names, internal ids and Document counts, with each Document’s name, kind and internal id, the names, internal ids and last-change times of the notes in them when the agent lists them, and the part of a note it reads, with where the next part starts",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
   "consent.flow.web-search": "Web search",
   "consent.flow.web-search.purpose": "search the web for your Questions",
@@ -8417,7 +8417,7 @@ export const en = {
   "agents.reason.too-many": "it had reached its limit for the hour",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders and the notes in them; with Not in a Folder, also the notes it writes there. Listing them sends each Folder’s name, internal id and Document count, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders and the notes in them; with Not in a Folder, also the notes it writes there. Listing them sends each Folder’s name and internal id, the name, kind and internal id of each Document in it, and each note’s name, internal id and last-change time. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",

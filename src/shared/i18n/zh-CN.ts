@@ -7785,7 +7785,7 @@ export const zhCN = {
   "consent.data.scoped-passages":
     "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多",
   "consent.data.scoped-minds":
-    "共享文件夹的名称、内部 ID 和文档数；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置",
+    "共享文件夹的名称、内部 ID 和文档数，以及其中每个文档的名称、类型和内部 ID；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间；智能体读取时，笔记的部分内容，以及下一部分的起始位置",
   "consent.data.answers": "IncarnaMind 对智能体所提问题的回答，以及其中的引文",
   "consent.flow.web-search": "联网搜索",
   "consent.flow.web-search.purpose": "为你的问题联网搜索",
@@ -7946,7 +7946,7 @@ export const zhCN = {
   "agents.reason.too-many": "已达到一小时内的上限",
   "agents.connect.title": "允许{agent}读取你的文档？",
   "agents.connect.body":
-    "它可以读取你所选的文件夹和其中的笔记；选了“不在文件夹中”时，还能读取它自己写在那里的笔记。列出时会发送每个文件夹的名称、内部 ID 和文档数，以及每篇笔记的名称、内部 ID 和最后修改时间。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
+    "它可以读取你所选的文件夹和其中的笔记；选了“不在文件夹中”时，还能读取它自己写在那里的笔记。列出时会发送每个文件夹的名称和内部 ID、其中每个文档的名称、类型和内部 ID，以及每篇笔记的名称、内部 ID 和最后修改时间。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
   "agents.connect.name": "名称",
   "agents.connect.namePlaceholder": "我的智能体",
   "agents.connect.folders": "它可以读取的文件夹",

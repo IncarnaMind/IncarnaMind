@@ -185,6 +185,8 @@ export interface AgentMindList {
     name: string;
     /** How many Documents it holds. */
     documents: number;
+    /** Its Documents by name, the first `MAX_LISTED_DOCUMENTS`: never their text (#3363, #3364). */
+    documentList: { id: string; name: string; kind: string }[];
     minds: { id: string; title: string; updatedAt: string }[];
   }[];
 }
@@ -424,6 +426,8 @@ export const MAX_NOTES_AN_HOUR = 20;
 export const MAX_CHECKS_AN_HOUR = 20;
 /** The most results one `report_check` takes: more than a Note an agent writes holds. */
 const MAX_REPORTED_SENTENCES = 2000;
+/** The most Documents `list_minds` names in one Folder; `documents` counts them all. */
+export const MAX_LISTED_DOCUMENTS = 50;
 /** The most claims `check_mind` lists as needing a look. */
 export const MAX_CHECKED_CLAIMS = 60;
 /**
@@ -486,6 +490,8 @@ export interface AgentAccessDeps {
   show(place: AgentCitationShown): void;
   /** The Minds there are. */
   minds(): Mind[];
+  /** These Documents' names and kinds, those that are live, in this order. */
+  documentsNamed(documentIds: readonly string[]): { id: string; name: string; kind: string }[];
   /** The live Documents' names: what a Citation is shown with, when its Document was renamed since. */
   liveDocuments(): readonly LiveDocument[];
   /** Reads a Mind's Blocks, leaving it unloaded if it was. */
@@ -1410,13 +1416,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         const minds = deps.minds();
         const folderIds = deps.foldersInScope(pairing.folderIds);
+        const listed = (documentIds: string[]) => ({
+          documents: documentIds.length,
+          documentList: deps
+            .documentsNamed(documentIds)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .slice(0, MAX_LISTED_DOCUMENTS),
+        });
         const folders: AgentMindList["folders"] = deps
           .folders()
           .filter((folder) => folderIds.includes(folder.id))
           .map((folder) => ({
             id: folder.id,
             name: folder.name,
-            documents: deps.documentsIn([folder.id]).length,
+            ...listed(deps.documentsIn([folder.id])),
             minds: minds
               .filter((mind) => mind.folderId === folder.id)
               .map((mind) => ({
@@ -1429,7 +1442,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           folders.push({
             id: NOT_IN_A_FOLDER_ID,
             name: t("library.unsorted"),
-            documents: deps.documentsIn([NOT_IN_A_FOLDER_ID]).length,
+            ...listed(deps.documentsIn([NOT_IN_A_FOLDER_ID])),
             minds: minds
               .filter(
                 (mind) =>

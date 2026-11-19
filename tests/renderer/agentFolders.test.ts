@@ -74,6 +74,19 @@ describe("what an agent may be allowed to read", () => {
     expect(onlyNotInAFolder(rows)).toBe(true);
   });
 
+  test("leaves the app's own examples out of Not in a Folder, as an agent never reads them there (#3364)", () => {
+    const [own, example] = [doc(), doc()] as [Document, Document];
+    const isExample = (document: Document) => document === example;
+    expect(agentFolderRows([], [own, example], [], false, isExample)).toEqual([
+      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 1 },
+    ]);
+    // With only the examples, there is nothing of the User's yet: Not in a Folder, for what comes.
+    expect(agentFolderRows([board], [example], [], false, isExample)).toEqual([
+      { id: "board", name: "Board", documents: 0 },
+      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 },
+    ]);
+  });
+
   test("counts a Document whose Folder is gone, or that was never filed, as in none", () => {
     const [gone, never, none] = [doc(), doc(), doc()] as [Document, Document, Document];
     const rows = agentFolderRows(

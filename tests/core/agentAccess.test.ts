@@ -47,6 +47,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       throw new Error("Not called.");
     },
     minds: () => [],
+    documentsNamed: () => [],
     liveDocuments: () => [],
     mindBlocks: () => {
       throw new Error("Not called.");

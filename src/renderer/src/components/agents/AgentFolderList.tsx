@@ -2,8 +2,7 @@ import { useMemo } from "react";
 import { type AgentFolderRow, agentFolderRows, onlyNotInAFolder } from "../../agentFolders";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
-import { isListedDocument } from "../../meetingTranscript";
-import { useAppStore } from "../../store";
+import { allExamples, isExampleDocument, isOwnDocument, useAppStore } from "../../store";
 import { FolderLineIcon } from "../lineIcons";
 
 /** What an agent may be allowed to read now: the Folders, then Not in a Folder (see `agentFolderRows`). */
@@ -11,11 +10,15 @@ export function useAgentFolderRows(enabled = true, keepUnfiled = false): AgentFo
   const folders = useAppStore((state) => state.library?.groups);
   const assignments = useAppStore((state) => state.library?.assignments);
   const documents = useAppStore((state) => state.documents);
-  return useMemo(
-    () =>
-      enabled ? agentFolderRows(folders ?? [], documents, assignments ?? [], keepUnfiled) : [],
-    [enabled, folders, assignments, documents, keepUnfiled],
-  );
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
+  return useMemo(() => {
+    if (!enabled) return [];
+    const made = allExamples({ examples, otherExamples });
+    return agentFolderRows(folders ?? [], documents, assignments ?? [], keepUnfiled, (document) =>
+      isExampleDocument(document, made),
+    );
+  }, [enabled, folders, assignments, documents, keepUnfiled, examples, otherExamples]);
 }
 
 /**
@@ -35,7 +38,9 @@ export function AgentFolderList({
 }) {
   const t = useT();
   const language = useLanguage();
-  const anyDocument = useAppStore((state) => state.documents.some(isListedDocument));
+  const anyDocument = useAppStore((state) =>
+    state.documents.some((document) => isOwnDocument(document, allExamples(state))),
+  );
 
   return (
     <>

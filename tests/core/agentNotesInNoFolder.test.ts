@@ -4,7 +4,8 @@
  * the MCP SDK's own client, as Claude Code or Codex call it. The agent reaches the Notes in no
  * Folder that it wrote itself and no other, and nothing of a Document outside what it was given.
  */
-import { beforeAll, describe, expect, it } from "vitest";
+import { resolve } from "node:path";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -41,7 +42,13 @@ const PLANS: Record<string, Plan> = {
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
 
 interface Listed {
-  folders: { id: string; name: string; documents: number; minds: { id: string }[] }[];
+  folders: {
+    id: string;
+    name: string;
+    documents: number;
+    documentList: { id: string; name: string; kind: string }[];
+    minds: { id: string }[];
+  }[];
 }
 
 function structured<T>(result: unknown): T {
@@ -61,8 +68,13 @@ function refusal(result: unknown): string {
 }
 
 /** A fresh profile: no Folder and no Document, connecting agents on. */
-async function fresh(calls: ModelCall[] = [], language: "en" | "zh-CN" = "en") {
-  const started = await startAgentsCore(checkingModel(PLANS, calls));
+const EXAMPLES = resolve(__dirname, "../../resources/examples");
+
+async function fresh(calls: ModelCall[] = [], language: "en" | "zh-CN" = "en", examples = false) {
+  const started = await startAgentsCore(
+    checkingModel(PLANS, calls),
+    examples ? { paths: { examples: EXAMPLES } } : {},
+  );
   const { core } = started;
   if (language !== "en") await core.updateSettings({ user: { language } });
   await core.setAgentsEnabled(true);
@@ -259,8 +271,13 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
     const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
     await core.assignDocumentGroup(budget.id, finance.id);
 
+    const tides = (await core.listDocuments()).find((each) => each.id !== budget.id);
     expect(await list(agent)).toEqual([
-      expect.objectContaining({ id: NOT_IN_A_FOLDER_ID, documents: 1 }),
+      expect.objectContaining({
+        id: NOT_IN_A_FOLDER_ID,
+        documents: 1,
+        documentList: [{ id: tides?.id, name: "Tides", kind: "markdown" }],
+      }),
     ]);
     const { passages } = structured<{ passages: { documentId: string }[] }>(
       await agent.callTool({ name: "search", arguments: { query: "harbour budget dredging" } }),
@@ -286,6 +303,67 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
         }),
       ),
     ).toBe("That Folder isn’t shared with this agent. Share more in Settings → Agents.");
+  });
+
+  // protects=an agent sees which Documents it may read, by name and kind, as IncarnaMind's own check does (#3363), and never one outside its reach; fails_when=a list names a Document of a Folder it wasn't given, or none of those it may read
+  it("lists the Documents it may read, by name and kind, and none it may not", async () => {
+    const { core, add, connect } = await fresh();
+    const tides = await add("Tides.md", TIDES);
+    const budget = await add("Budget.md", BUDGET);
+    const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+    await core.assignDocumentGroup(budget.id, finance.id);
+    const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
+    const { agent: accountant } = await connect([finance.id], "Cursor");
+
+    const everything = JSON.stringify(await list(agent));
+    expect(await list(agent)).toEqual([
+      expect.objectContaining({
+        documents: 1,
+        documentList: [{ id: tides.id, name: "Tides", kind: "markdown" }],
+      }),
+    ]);
+    expect(everything).not.toContain(budget.id);
+    expect(everything).not.toContain("Budget");
+    expect(await list(accountant)).toEqual([
+      expect.objectContaining({
+        id: finance.id,
+        documentList: [{ id: budget.id, name: "Budget", kind: "markdown" }],
+      }),
+    ]);
+  });
+
+  // protects=the app's own example is not the User's Documents, so an agent given Not in a Folder neither lists nor reads it, and still checks its Note against the User's own; fails_when=an agent summarises the example as the User's, or its Note's check is refused because of the example
+  it("leaves the app's own examples out of Not in a Folder", async () => {
+    const { core, add, connect } = await fresh([], "en", true);
+    const made = await core.createExamples();
+    const examples = await vi.waitFor(
+      async () => {
+        const read = await core.listDocuments({ linkedFolderId: made.linkedFolderId ?? "" });
+        expect(read.length).toBeGreaterThan(0);
+        expect(read.every((each) => each.status === "ready")).toBe(true);
+        return read;
+      },
+      { timeout: 30_000 },
+    );
+    const tides = await add("Tides.md", TIDES);
+    const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
+
+    expect(await list(agent)).toEqual([
+      expect.objectContaining({
+        documents: 1,
+        documentList: [{ id: tides.id, name: "Tides", kind: "markdown" }],
+      }),
+    ]);
+    const { passages } = structured<{ passages: { documentId: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "Northwind Retail net debt" } }),
+    );
+    const exampleIds = new Set(examples.map((each) => each.id));
+    expect(passages.filter((each) => exampleIds.has(each.documentId))).toEqual([]);
+    const note = await write(agent);
+    const given = structured<{ sentences: { text: string }[] }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: note.mindId } }),
+    );
+    expect(given.sentences.map((each) => each.text)).toEqual([SPRING, NEAP]);
   });
 
   // protects=an agent the User gave Folders and not Not in a Folder keeps exactly its reach; fails_when=it can write in no Folder, or reach a Note there, its own included

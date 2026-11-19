@@ -5607,8 +5607,9 @@ export function createCore(adapters: CoreAdapters): Core {
             ? []
             : (resolveScope({ folderIds: folders, tagIds: [], documentIds: [] }) ?? []);
         if (!allowed.includes(NOT_IN_A_FOLDER_ID)) return filed;
-        const walled = new Set(walledDocuments());
-        const unfiled = library.unfiledDocumentIds().filter((id) => !walled.has(id));
+        // The app's own examples are not the User's Documents, in no Folder or out of one (#3364).
+        const leftOut = new Set([...walledDocuments(), ...examples.made().documentIds]);
+        const unfiled = library.unfiledDocumentIds().filter((id) => !leftOut.has(id));
         return [...new Set([...filed, ...unfiled])];
       },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
@@ -5621,6 +5622,10 @@ export function createCore(adapters: CoreAdapters): Core {
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
       minds: () => minds.list().filter((mind) => isKnownKind(mind.kind)),
+      documentsNamed: (documentIds) =>
+        documents
+          .getMany(documentIds)
+          .map((document) => ({ id: document.id, name: document.name, kind: document.kind })),
       liveDocuments: () => documents.names(),
       mindBlocks: (mindId, look) => content.peek(mindId, look),
       editMind: (mindId, change) => content.edit(mindId, change),

@@ -23,13 +23,15 @@ export interface AgentFolderRow {
 /**
  * Every Folder in the order given, then Not in a Folder, as the Library lists them: while it
  * holds a Document, while there is no Document at all, the place an agent can start from
- * (#3364), or while `keepUnfiled`, an agent's choice that can be taken back.
+ * (#3364), or while `keepUnfiled`, an agent's choice that can be taken back. The app's own
+ * examples are never among Not in a Folder's (`isExample`), as an agent never reads them there.
  */
 export function agentFolderRows(
   folders: readonly LibraryGroup[],
   documents: readonly Document[],
   assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId">[],
   keepUnfiled = false,
+  isExample: (document: Document) => boolean = () => false,
 ): AgentFolderRow[] {
   const folderOf = new Map(assignments.map((each) => [each.documentId, each.groupId]));
   const listed = documents.filter(isListedDocument);
@@ -43,7 +45,7 @@ export function agentFolderRows(
   const known = new Set(folders.map((folder) => folder.id));
   const loose = listed.filter((document) => {
     const id = folderOf.get(document.id) ?? null;
-    return id === null || !known.has(id);
+    return (id === null || !known.has(id)) && !isExample(document);
   });
   return [
     ...folders.map((folder) => ({
@@ -51,7 +53,7 @@ export function agentFolderRows(
       name: folder.name,
       documents: counts.get(folder.id) ?? 0,
     })),
-    ...(loose.length > 0 || listed.length === 0 || keepUnfiled
+    ...(loose.length > 0 || listed.every(isExample) || keepUnfiled
       ? [{ id: NOT_IN_A_FOLDER_ID, name: null, documents: loose.length }]
       : []),
   ];
