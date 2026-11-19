@@ -2142,16 +2142,19 @@ async function* toolLoop(
   };
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
-  /** What each `cite` call was given, by the call's id. */
+  /** What each `cite` call that ran was given, by the call's id. */
   const citeInputs = new Map<string, Record<string, unknown>>();
-  /** The reply the `cite` calls of one turn hand over (`AnswerTools.citeReply`), or null. */
+  /**
+   * The reply a turn hands over (`AnswerTools.citeReply`), which ends it: its calls are all `cite`,
+   * each taken with nothing to fix, and one carries the reply. Null for any other turn.
+   */
   const handedOver = (callIds: readonly string[]): string | null => {
     const inputs = callIds.flatMap((id): Record<string, unknown>[] => {
       const input = citeInputs.get(id);
-      return input ? [input] : [];
+      return input && askedForFixes.get(id) === false ? [input] : [];
     });
     const carried = request.documents.citeReply;
-    if (!carried || inputs.length === 0) return null;
+    if (!carried || inputs.length === 0 || inputs.length < callIds.length) return null;
     const markers = inputs.flatMap((input) =>
       parseRecords(input.citations).map(({ marker }) => marker),
     );
@@ -2431,13 +2434,7 @@ async function* toolLoop(
       }
       if (signal.aborted) return true;
       if (step.calls.length > 0 && step.calls.every((call) => endedTurn.has(call.id))) return true;
-      if (
-        handedOver(step.calls.map((call) => call.id)) !== null &&
-        step.calls.every(
-          (call) => offered.get(call.tool) === cite && askedForFixes.get(call.id) === false,
-        )
-      )
-        return true;
+      if (handedOver(step.calls.map((call) => call.id)) !== null) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
       const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
@@ -2493,11 +2490,11 @@ async function* toolLoop(
         break;
       }
       case "tool-call": {
+        stepCalls.push(event.id);
         const called = offered.get(event.tool);
         if (!called) break;
         calls.set(event.id, called);
         stepTools.push(called);
-        stepCalls.push(event.id);
         if (called === search) searched = true;
         if (called === search && searching++ === 0) {
           yield { type: "phase", phase: "searching" };

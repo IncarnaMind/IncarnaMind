@@ -200,7 +200,7 @@ describe("A verdict handed over in cite (#3381)", () => {
     expect(result).toMatchObject({ verdict: "supported", evidence: { quote: SPRING } });
   });
 
-  test("a quote its Document doesn't hold doesn't count: the model is asked to fix it, and with no fix the verdict is hidden", async () => {
+  test("a quote its Document doesn't hold doesn't count: the model is asked to fix it, and with no reply after, the verdict it handed over with that quote doesn't stand", async () => {
     const { result, runs } = await check(
       SUPPORTED,
       (call) => search(sentenceOf(call)),
@@ -216,7 +216,59 @@ describe("A verdict handed over in cite (#3381)", () => {
     );
 
     expect(runs).toHaveLength(3);
-    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "empty" });
+  });
+
+  test("a verdict handed over beside a quote that must be fixed doesn't stand: the call that fixes it decides", async () => {
+    const WEEK = "Harbours publish the times of high water every week.";
+    const HARBOUR_SAYS = "Tides says harbours publish them every year, not every week.";
+    const { result, runs } = await check(
+      CONTRADICTED,
+      (call) => search(sentenceOf(call)),
+      (_call, passage) => ({
+        calls: [
+          cite(passage, [WEEK], { verdict: "supported", explanation: "Tides says so. [^1]" }),
+        ],
+      }),
+      (_call, passage) => ({
+        calls: [
+          cite(passage, [HARBOUR], {
+            verdict: "contradicted",
+            explanation: `${HARBOUR_SAYS} [^1]`,
+            change: "every week",
+            to: "every year [^1]",
+          }),
+        ],
+      }),
+    );
+
+    expect(runs).toHaveLength(3);
+    expect(result).toMatchObject({
+      verdict: "contradicted",
+      says: HARBOUR_SAYS,
+      evidence: { quote: HARBOUR, check: "found" },
+      correction: { from: "every week", choices: [{ wording: "every year" }] },
+    });
+  });
+
+  test("a verdict handed over beside a quote that must be fixed never stands by itself once the quote is fixed", async () => {
+    const { result, runs } = await check(
+      CONTRADICTED,
+      (call) => search(sentenceOf(call)),
+      (_call, passage) => ({
+        calls: [
+          cite(passage, ["Harbours publish the times of high water every week."], {
+            verdict: "supported",
+            explanation: "Tides says so. [^1]",
+          }),
+        ],
+      }),
+      (_call, passage) => ({ calls: [cite(passage, [HARBOUR])] }),
+      () => ({ text: "" }),
+    );
+
+    expect(runs).toHaveLength(4);
+    expect(result.verdict).toBe("not-checked");
   });
 
   test("a quote fixed in the next call, with the verdict again, ends the check there", async () => {
