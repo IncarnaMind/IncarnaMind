@@ -44,11 +44,12 @@ interface TabPlace {
 }
 
 /**
- * A tab a Mind's delete closed, and where it was, for the restore that puts it back: the same
- * rule closes and reopens, in every window, whatever way the Mind was deleted.
+ * A tab a Mind's or a Canvas's delete closed, and where it was, for the restore that puts it back:
+ * the same rule closes and reopens, in every window, whatever way it was deleted.
  */
 interface GoneTab extends TabPlace {
-  mindId: string;
+  /** The Mind's or the Canvas's id. */
+  ownerId: string;
   windowId: string;
   shown: boolean;
   focused: boolean;
@@ -849,8 +850,8 @@ class WindowState {
   }
 
   /**
-   * A tab a Mind's delete closed, back in its group at its place, shown again if it was and its
-   * group focused again if it was; true when that changed the layout.
+   * A tab a delete closed, back in its group at its place, shown again if it was and its group
+   * focused again if it was; true when that changed the layout.
    */
   putBack(entry: GoneTab): boolean {
     const { layout } = this;
@@ -995,7 +996,7 @@ export function createLayouts(deps: LayoutDependencies) {
     return removed;
   };
 
-  /** By Mind, the tabs its delete closed in each window, until a restore puts them back. */
+  /** By Mind or Canvas, the tabs its delete closed in each window, until a restore puts them back. */
   const gone = new Map<string, GoneTab[]>();
   /** How many closes have happened, so a restore puts back the last-closed first (see `GoneTab`). */
   let closes = 0;
@@ -1046,25 +1047,27 @@ export function createLayouts(deps: LayoutDependencies) {
     },
 
     /**
-     * Closes the tabs of Minds deleted since, in every window open, keeping where each was so a
-     * restore puts it back. A deleted Document's tab stays until closed: its viewer says what
-     * happened.
+     * Closes the tabs of Minds and Canvases deleted since, in every window open, keeping where
+     * each was so a restore puts it back. A deleted Document's tab stays until closed: its viewer
+     * says what happened.
      */
-    forgetDeletedMinds(): void {
-      const deletedMind = (item: TabItem): string | null => {
-        if (item.kind !== "mind" && item.kind !== "figures") return null;
-        return deps.mindExists(item.mindId) ? null : item.mindId;
+    closeDeleted(): void {
+      const deletedOwner = (item: TabItem): string | null => {
+        if (item.kind === "mind" || item.kind === "figures")
+          return deps.mindExists(item.mindId) ? null : item.mindId;
+        if (item.kind === "canvas") return deps.canvasExists(item.canvasId) ? null : item.canvasId;
+        return null;
       };
       for (const [windowId, state] of windows) {
         const { layout } = state;
         const closed = layout.groups.flatMap((group, groupIndex) =>
           group.tabs.flatMap((tab, index) => {
-            const mindId = deletedMind(tab.item);
-            return mindId === null
+            const ownerId = deletedOwner(tab.item);
+            return ownerId === null
               ? []
               : [
                   {
-                    mindId,
+                    ownerId,
                     windowId,
                     tab,
                     groupId: group.id,
@@ -1080,30 +1083,33 @@ export function createLayouts(deps: LayoutDependencies) {
         if (closed.length === 0) continue;
         closes += 1;
         for (const entry of closed) {
-          gone.set(entry.mindId, [...(gone.get(entry.mindId) ?? []), entry]);
+          gone.set(entry.ownerId, [...(gone.get(entry.ownerId) ?? []), entry]);
         }
-        prune(layout, (item) => deletedMind(item) === null);
+        prune(layout, (item) => deletedOwner(item) === null);
         tidy(layout);
         save(windowId, state);
       }
     },
 
-    /** Drops what a delete kept for Minds no restore will put back: deleted for good, or restored elsewhere. */
-    forgetMinds(mindIds: readonly string[]): void {
-      for (const mindId of mindIds) gone.delete(mindId);
+    /**
+     * Drops what a delete kept for Minds and Canvases no restore will put back: deleted for good, or
+     * restored elsewhere.
+     */
+    forgetClosed(ids: readonly string[]): void {
+      for (const id of ids) gone.delete(id);
     },
 
     /**
-     * Puts back the tabs each restored Mind's delete closed, in every window they were open in,
-     * where they were and as they were. A Mind deleted before this session has none kept: its undo
-     * went with the session.
+     * Puts back the tabs each restored Mind's or Canvas's delete closed, in every window they were
+     * open in, where they were and as they were. One deleted before this session has none kept: its
+     * undo went with the session.
      */
-    reopenMinds(mindIds: readonly string[]): void {
+    reopenClosed(ids: readonly string[]): void {
       const byWindow = new Map<string, GoneTab[]>();
-      for (const mindId of mindIds) {
-        const entries = gone.get(mindId);
+      for (const id of ids) {
+        const entries = gone.get(id);
         if (!entries) continue;
-        gone.delete(mindId);
+        gone.delete(id);
         for (const entry of entries) {
           byWindow.set(entry.windowId, [...(byWindow.get(entry.windowId) ?? []), entry]);
         }

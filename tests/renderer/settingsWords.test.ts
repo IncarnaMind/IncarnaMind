@@ -82,7 +82,8 @@ const ERROR =
 const CONSENT_FACTS = [
   "agents.connect.allUnfiled",
   "agents.connect.body",
-  // What the leave to write allows: a check of its notes goes to the User's AI model (#3317).
+  // What the leave to write allows: a check of its notes goes to the User's AI model (#3317), and
+  // IncarnaMind copies the files it names for a Canvas (#3406).
   "agents.propose.hint",
   "connectors.directory.where.body",
   "connectors.form.sends",

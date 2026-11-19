@@ -4,13 +4,10 @@ import { readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { type AddressInfo, createServer as createTcpServer } from "node:net";
 import { join } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
-import { type CoreBridge, NOT_IN_A_FOLDER_ID } from "../src/core/api";
+import { expect, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
-  acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -20,6 +17,7 @@ import {
   removeDataFolder,
   urlsOpened,
 } from "./app";
+import { connectCanvasAgent, inCanvas, publishCanvas, showCanvasTab } from "./canvases";
 
 test.skip(
   !SHOW_AGENT_CONNECTION,
@@ -82,55 +80,6 @@ async function standIns() {
   };
 }
 
-/** Claude Code, connected with leave to write in no Folder, as Settings connects it. */
-async function connectedAgent(window: Page): Promise<Client> {
-  await acceptPlainTextKeys(window);
-  const launch = await window.evaluate(async (unfiled) => {
-    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    await bridge.setAgentsEnabled(true);
-    return (await bridge.connectAgent({ name: "Claude Code", folderIds: [unfiled], propose: true }))
-      .launch;
-  }, NOT_IN_A_FOLDER_ID);
-  const agent = new Client({ name: "test-agent", version: "1.0.0" });
-  await agent.connect(new StdioClientTransport({ ...launch, stderr: "pipe" }));
-  return agent;
-}
-
-async function publish(agent: Client, title: string, html: string, paths: string[] = []) {
-  const result = (await agent.callTool({
-    name: "publish_canvas",
-    arguments: { title, html, files: paths },
-  })) as {
-    isError?: boolean;
-    structuredContent?: { canvasId: string };
-    content?: { text?: string }[];
-  };
-  expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
-  return result.structuredContent?.canvasId ?? "";
-}
-
-/** Shows a Canvas's tab, opened behind, and its page's address once it is drawn. */
-async function show(window: Page, canvasId: string): Promise<string> {
-  await window.locator(`[data-testid="canvas-tab"][data-canvas-id="${canvasId}"]`).click();
-  const frame = window.locator(
-    `[data-testid="canvas-view"][data-canvas-id="${canvasId}"] [data-testid="canvas-frame"]`,
-  );
-  await expect(frame).toBeAttached();
-  return (await frame.getAttribute("src")) ?? "";
-}
-
-/** What a Canvas's page set on itself, read from the main process; null until it is there. */
-const inPage = (app: ElectronApplication, url: string, expression: string) =>
-  app.evaluate(
-    async ({ webContents }, { url, expression }) => {
-      const guest = webContents
-        .getAllWebContents()
-        .find((each) => each.getType() === "webview" && each.getURL() === url);
-      return guest ? ((await guest.executeJavaScript(expression)) as unknown) : null;
-    },
-    { url, expression },
-  );
-
 /** Every file's path under a folder. */
 const everyFile = async (folder: string): Promise<string[]> =>
   (await readdir(folder, { recursive: true, withFileTypes: true }))
@@ -151,7 +100,7 @@ test("a Canvas reaches no network, no file, no part of the app and no other Canv
   const { app, window } = await launchApp(dataDir, { home, sandboxed: true });
   try {
     await dismissChatSetup(window);
-    const agent = await connectedAgent(window);
+    const agent = await connectCanvasAgent(window);
     const looked = join(dataDir, "net-log.json");
     await app.evaluate(({ netLog }, file) => netLog.startLogging(file), looked);
     const prefetched = `canvas-probe-${randomUUID()}.example`;
@@ -159,7 +108,7 @@ test("a Canvas reaches no network, no file, no part of the app and no other Canv
     // One pixel: a Canvas's own picture draws, another Canvas's never does.
     await writeFile(join(files, "chart.png"), Buffer.from(PIXEL, "base64"));
     await writeFile(join(files, "app.js"), "window.ownScript = true;");
-    const other = await publish(agent, "Other", "<p>Another Canvas</p>", [
+    const other = await publishCanvas(agent, "Other", "<p>Another Canvas</p>", [
       join(files, "chart.png"),
     ]);
     const otherUrl = (
@@ -169,7 +118,7 @@ test("a Canvas reaches no network, no file, no part of the app and no other Canv
       )
     ).url;
     const { web, tcp, udp } = network;
-    const probes = await publish(
+    const probes = await publishCanvas(
       agent,
       "Probes",
       `<!doctype html><html><head><meta charset="utf-8">
@@ -252,7 +201,7 @@ body { background: url("${web}/background.png"); font-family: Probe; }
     top: window.top === window,
     parent: window.parent === window,
     opener: window.opener,
-    bridge: Object.keys(window.incarnamindCanvas || {}),
+    bridge: typeof window.incarnamindCanvas,
     secure: window.isSecureContext,
     clipboard: typeof navigator.clipboard,
     serviceWorker: typeof navigator.serviceWorker,
@@ -266,11 +215,11 @@ body { background: url("${web}/background.png"); font-family: Probe; }
 </script></body></html>`,
       [join(files, "chart.png"), join(files, "app.js")],
     );
-    const url = await show(window, probes);
+    const url = await showCanvasTab(window, probes);
     await expect
-      .poll(() => inPage(app, url, "window.probes ?? null"), { timeout: 30_000 })
+      .poll(() => inCanvas(app, url, "window.probes ?? null"), { timeout: 30_000 })
       .not.toBeNull();
-    const results = (await inPage(app, url, "window.probes")) as Record<string, string>;
+    const results = (await inCanvas(app, url, "window.probes")) as Record<string, string>;
     const { reach, pictures, ...attempts } = results;
     expect(attempts).toEqual(
       Object.fromEntries(Object.keys(attempts).map((name) => [name, "refused"])),
@@ -285,7 +234,7 @@ body { background: url("${web}/background.png"); font-family: Probe; }
       top: true,
       parent: true,
       opener: null,
-      bridge: ["openCitation"],
+      bridge: "undefined",
       secure: false,
       clipboard: "undefined",
       serviceWorker: "undefined",
@@ -295,7 +244,7 @@ body { background: url("${web}/background.png"); font-family: Probe; }
     });
 
     // Still at its own address, in a window still at the app's; nothing downloaded, nothing opened.
-    expect(await inPage(app, url, "location.href")).toBe(url);
+    expect(await inCanvas(app, url, "location.href")).toBe(url);
     expect(await window.evaluate(() => location.protocol)).toMatch(/^(file|http):$/);
     expect(await everyFile(home)).not.toContainEqual(expect.stringContaining("kept"));
     expect(await urlsOpened(app)).toEqual([]);
@@ -315,9 +264,9 @@ test("a Canvas never goes anywhere: a website it tries to open is only offered, 
   const { app, window } = await launchApp(dataDir, { home, sandboxed: true });
   try {
     await dismissChatSetup(window);
-    const agent = await connectedAgent(window);
+    const agent = await connectCanvasAgent(window);
     const { web } = network;
-    const canvasId = await publish(
+    const canvasId = await publishCanvas(
       agent,
       "Links",
       `<!doctype html><meta charset="utf-8"><p id="here">Links</p>
@@ -336,12 +285,12 @@ steps.forEach((step, at) => setTimeout(step, 150 * (at + 1)));
 setTimeout(() => { window.tried = true; }, 150 * (steps.length + 2));
 </script>`,
     );
-    const url = await show(window, canvasId);
+    const url = await showCanvasTab(window, canvasId);
     await expect
-      .poll(() => inPage(app, url, "window.tried ?? null"), { timeout: 20_000 })
+      .poll(() => inCanvas(app, url, "window.tried ?? null"), { timeout: 20_000 })
       .toBe(true);
-    expect(await inPage(app, url, "location.href")).toBe(url);
-    expect(await inPage(app, url, "document.getElementById('here')?.textContent")).toBe("Links");
+    expect(await inCanvas(app, url, "location.href")).toBe(url);
+    expect(await inCanvas(app, url, "document.getElementById('here')?.textContent")).toBe("Links");
 
     const offer = window.getByTestId("canvas-link");
     await expect(offer).toContainText("This Canvas links to 127.0.0.1");
@@ -366,12 +315,12 @@ test("a Canvas that loops forever or takes memory without end never holds the wi
   });
   try {
     await dismissChatSetup(window);
-    const agent = await connectedAgent(window);
+    const agent = await connectCanvasAgent(window);
     await newMind(window);
     await enterContent(window);
     const notes = await frontMind(window).getAttribute("data-mind-id");
-    const loop = await publish(agent, "Loop", "<p>Loop</p><script>while (true) {}</script>");
-    const memory = await publish(
+    const loop = await publishCanvas(agent, "Loop", "<p>Loop</p><script>while (true) {}</script>");
+    const memory = await publishCanvas(
       agent,
       "Memory",
       `<p>Memory</p><script>
@@ -381,7 +330,7 @@ setInterval(() => { for (let i = 0; i < 8; i++) kept.push(new Uint8Array(16 * 10
     );
 
     // While the page that never stops is on screen, the window answers at once.
-    const looping = await show(window, loop);
+    const looping = await showCanvasTab(window, loop);
     await expect
       .poll(() =>
         app.evaluate(
@@ -401,7 +350,7 @@ setInterval(() => { for (let i = 0; i < 8; i++) kept.push(new Uint8Array(16 * 10
       timeout: 5_000,
     });
 
-    await show(window, memory);
+    await showCanvasTab(window, memory);
     await expect(window.getByTestId("canvas-stopped")).toHaveText(
       /This Canvas stopped: it used more memory than a Canvas may\./,
       { timeout: 30_000 },
@@ -411,54 +360,6 @@ setInterval(() => { for (let i = 0; i < 8; i++) kept.push(new Uint8Array(16 * 10
     await enterContent(window);
     await window.keyboard.type(" Still.");
     await expect(frontMind(window).getByTestId("mind-editor")).toContainText("Still here. Still.");
-    await agent.close();
-  } finally {
-    await app.close();
-  }
-});
-
-test("a Canvas's one way out carries its height and a Citation to open, and every other shape or sender is dropped and logged", async () => {
-  test.setTimeout(90_000);
-  const { app, window } = await launchApp(dataDir, { home, sandboxed: true });
-  try {
-    await dismissChatSetup(window);
-    const agent = await connectedAgent(window);
-    const canvasId = await publish(
-      agent,
-      "Bridge",
-      `<!doctype html><meta charset="utf-8"><div style="height: 2400px">Tall</div><script>
-const open = (value) => { try { incarnamindCanvas.openCitation(value); } catch (error) {} };
-[42, { cite: "[cite:k3x9a2b7]" }, "<img src=x onerror=alert(1)>", "[cite:k3x9a2b7] more", null].forEach(open);
-open("[cite:k3x9a2b7]");
-try { window.postMessage({ kind: "height", height: 1 }, "*"); top.postMessage({ kind: "cite", cite: "[cite:k3x9a2b7]" }, "*"); } catch (error) {}
-window.sent = true;
-</script>`,
-    );
-    const url = await show(window, canvasId);
-    const view = window.locator(`[data-testid="canvas-view"][data-canvas-id="${canvasId}"]`);
-    await expect
-      .poll(async () => Number(await view.getAttribute("data-canvas-height")))
-      .toBeGreaterThan(2400);
-    await expect.poll(() => inPage(app, url, "window.sent ?? null")).toBe(true);
-    await expect.poll(() => logLines("canvas.citationAsked")).toHaveLength(1);
-    await expect
-      .poll(() => logLines("canvas.messageDropped"))
-      .toEqual([expect.stringContaining("bad-cite")]);
-
-    // From any other sender, the right shape is dropped too: here the app's own window.
-    await app.evaluate(({ BrowserWindow, ipcMain }) => {
-      const [main] = BrowserWindow.getAllWindows();
-      if (!main) throw new Error("No window.");
-      ipcMain.emit(
-        "canvas:message",
-        { sender: main.webContents, senderFrame: main.webContents.mainFrame },
-        { kind: "height", height: 5 },
-      );
-    });
-    await expect
-      .poll(async () => (await logLines("canvas.messageDropped")).join("\n"))
-      .toContain("unknown-sender");
-    expect(Number(await view.getAttribute("data-canvas-height"))).toBeGreaterThan(2400);
     await agent.close();
   } finally {
     await app.close();

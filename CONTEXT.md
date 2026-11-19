@@ -249,7 +249,7 @@ A saved copy of a Note as it was just before an AI change, or after a pause in w
 _Avoid_: snapshot, version, backup, undo
 
 **Recently deleted**:
-Where a deleted Note, Conversation, Document, Folder or Tag waits for 30 days, from where it can be restored or deleted permanently. Deleting never touches the User's files.
+Where a deleted Note, Conversation, Document, Folder, Tag or Canvas waits for 30 days, from where it can be restored or deleted permanently. Deleting never touches the User's files.
 _Avoid_: trash, bin, archive
 
 **Undo line**:

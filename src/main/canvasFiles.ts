@@ -89,6 +89,10 @@ export function createCanvasFiles(
       }
     },
 
+    async remove(hash) {
+      await rm(pathOf(hash), { force: true });
+    },
+
     async read(hash) {
       try {
         return new Uint8Array(await readFile(pathOf(hash)));

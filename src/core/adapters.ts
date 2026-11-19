@@ -198,6 +198,8 @@ export interface CanvasFiles {
   write(hash: string, bytes: Uint8Array): Promise<void>;
   /** The bytes kept under `hash`; null when there are none. */
   read(hash: string): Promise<Uint8Array | null>;
+  /** Removes what is kept under `hash`, once no version keeps it; nothing when there is none. */
+  remove(hash: string): Promise<void>;
 }
 
 export type NamedFile =

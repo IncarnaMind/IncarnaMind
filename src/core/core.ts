@@ -6,8 +6,9 @@ import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { meetingTimeAt } from "../shared/blockTimes";
+import { canvasHostOf } from "../shared/canvases";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
-import { parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
+import { citedLocation, parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import {
   chosenExportMarks,
@@ -22,7 +23,7 @@ import { graphemeBoundary } from "../shared/graphemes";
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { formatLocation, parseCitedArea, parseLocation } from "../shared/locations";
+import { formatLocation, parseCitedArea, parseLocation, type Translate } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import { isPartialMeetingFill } from "../shared/meetingFill";
 import {
@@ -780,6 +781,28 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     newId: () => crypto.randomUUID(),
     changed: (list) => events.emit("canvases.changed", list),
+    markerWords: (cited) => {
+      const t: Translate = (key, params) => translate(settings.get().language, key, params);
+      const live = new Map(documents.names().map((document) => [document.id, document]));
+      const labels = new Map(
+        cited.map((citation, at) => {
+          const document = live.get(citation.documentId);
+          const where = citedLocation(citation, t, document ? [document] : null);
+          return [
+            citation.token,
+            t("canvas.cite.label", {
+              n: at + 1,
+              document: document?.name ?? citation.documentName,
+              location: where ?? "",
+            }),
+          ];
+        }),
+      );
+      return {
+        label: (token) => labels.get(token) ?? "",
+        notFound: t("canvas.cite.notFound"),
+      };
+    },
   });
   /** The Mind, if this version may write to it: not one of a kind a newer version made. */
   const writableMind = (mindId: unknown): Mind => {
@@ -2776,7 +2799,7 @@ export function createCore(adapters: CoreAdapters): Core {
     for (const meetingId of meetingIds) meetingFill.halt(meetingId);
     content.removed(deleted.id, at);
     mindsChanged();
-    layouts.forgetDeletedMinds();
+    layouts.closeDeleted();
   };
 
   /** Sends a conversation to Recently deleted; what an Answer being written has is kept, before it goes. */
@@ -2788,30 +2811,42 @@ export function createCore(adapters: CoreAdapters): Core {
 
   /** Sends a Folder and the Folders inside it to Recently deleted; what they held goes to Not in a Folder. */
   const removeFolder = (id: unknown, at: string = now()) => {
-    const deletion = db.transaction(() => {
+    const { canvasesLeft, ...deletion } = db.transaction(() => {
       const folder = library.folder(id);
       const leftMinds: Record<string, string[]> = {};
       const leftConversations: Record<string, string[]> = {};
+      const leftCanvases: Record<string, string[]> = {};
       const mindIds: string[] = [];
       const conversationIds: string[] = [];
+      let canvasesLeft = false;
       for (const folderId of library.subtree(folder.id)) {
         const left = minds.leaveFolder(folderId);
         const leftChats = conversations.leaveFolder(folderId);
+        const leftPages = canvases.leaveFolder(folderId);
         leftMinds[folderId] = left.map((mind) => mind.id);
         leftConversations[folderId] = leftChats.map((conversation) => conversation.id);
+        leftCanvases[folderId] = leftPages.map((canvas) => canvas.id);
         mindIds.push(...left.filter((item) => item.live).map((item) => item.id));
         conversationIds.push(...leftChats.filter((item) => item.live).map((item) => item.id));
+        canvasesLeft ||= leftPages.some((canvas) => canvas.live);
       }
       const { assignments } = library.delete(
         folder.id,
-        { minds: leftMinds, conversations: leftConversations },
+        { minds: leftMinds, conversations: leftConversations, canvases: leftCanvases },
         at,
       );
-      return { assignments, mindIds, conversationIds };
+      return { assignments, mindIds, conversationIds, canvasesLeft };
     });
     if (deletion.mindIds.length > 0) mindsChanged();
     if (deletion.conversationIds.length > 0) conversationsChanged();
+    if (canvasesLeft) canvases.announce();
     return deletion;
+  };
+
+  /** Sends a Canvas to Recently deleted (#3406); its tabs close in every window, as a Mind's do. */
+  const removeCanvas = (canvasId: unknown, at: string = now()) => {
+    canvases.remove(typeof canvasId === "string" ? canvasId : "", at);
+    layouts.closeDeleted();
   };
 
   /** Sends a Tag to Recently deleted. */
@@ -4229,10 +4264,15 @@ export function createCore(adapters: CoreAdapters): Core {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
       wordImports.resume(mindIds);
-      if (reopen) layouts.reopenMinds(mindIds);
-      else layouts.forgetMinds(mindIds);
+      if (reopen) layouts.reopenClosed(mindIds);
+      else layouts.forgetClosed(mindIds);
     },
-    mindsForgotten: (mindIds) => layouts.forgetMinds(mindIds),
+    canvases,
+    canvasesRestored: (canvasIds, reopen) => {
+      if (reopen) layouts.reopenClosed(canvasIds);
+      else layouts.forgetClosed(canvasIds);
+    },
+    forgotten: (ids) => layouts.forgetClosed(ids),
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -4253,7 +4293,8 @@ export function createCore(adapters: CoreAdapters): Core {
       library.allDocumentIds(id).length === 0 &&
       library.subtree(id).length === 1 &&
       !db.get("SELECT 1 FROM minds WHERE folder_id = ? AND deleted_at IS NULL", [id]) &&
-      !db.get("SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL", [id]),
+      !db.get("SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL", [id]) &&
+      !db.get("SELECT 1 FROM canvases WHERE folder_id = ? AND deleted_at IS NULL", [id]),
     saved: ({ filed, folderIds, tagged, tagsMade }) => {
       library.moved(filed);
       for (const folderId of folderIds) checks.folderContentsChanged(folderId);
@@ -4373,6 +4414,11 @@ export function createCore(adapters: CoreAdapters): Core {
     console.error("Deleting what waited 30 days in Recently deleted failed.", error);
   }
   documents.dropPurged().catch((error: unknown) => console.error(error));
+  canvases
+    .dropPurged()
+    .catch((error: unknown) =>
+      console.error("Removing the files of Canvases deleted permanently failed.", error),
+    );
 
   /**
    * What tagging may use changed (a model, a key, local mode): Automatic picks
@@ -4802,7 +4848,7 @@ export function createCore(adapters: CoreAdapters): Core {
       });
       content.removed(deleted.id, at);
       mindsChanged();
-      layouts.forgetDeletedMinds();
+      layouts.closeDeleted();
     },
     restoreMind: (mindId) =>
       recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
@@ -7285,6 +7331,7 @@ export function createCore(adapters: CoreAdapters): Core {
         else if (item.kind === "conversation") removeConversation(item.id, at);
         else if (item.kind === "folder") removeFolder(item.id, at);
         else if (item.kind === "tag") removeTag(item.id, at);
+        else if (item.kind === "canvas") removeCanvas(item.id, at);
       }
     },
     undoCommands: async (run) => commandSteps.undo(run),
@@ -7298,6 +7345,7 @@ export function createCore(adapters: CoreAdapters): Core {
         sources.dropPurged(),
         wordImports.dropPurged(),
         documents.dropPurged(),
+        canvases.dropPurged(),
       ]);
       transcripts?.dropPurged();
       // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
@@ -8071,7 +8119,48 @@ export function createCore(adapters: CoreAdapters): Core {
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
     listCanvases: async () => canvases.forWindows(),
-    showCanvas: async (canvasId) => canvases.show(typeof canvasId === "string" ? canvasId : ""),
+    showCanvas: async (canvasId, version) =>
+      canvases.show(
+        typeof canvasId === "string" ? canvasId : "",
+        Number.isInteger(version) ? version : undefined,
+      ),
+    listCanvasVersions: async (canvasId) =>
+      canvases.versions(typeof canvasId === "string" ? canvasId : ""),
+    restoreCanvasVersion: async (canvasId, version) => {
+      if (!Number.isInteger(version))
+        throw new NotFoundError({ key: "error.canvas.versionNotFound" });
+      const { pairingId: _, ...canvas } = canvases.restoreVersion(
+        typeof canvasId === "string" ? canvasId : "",
+        version,
+      );
+      return canvas;
+    },
+    canvasCitation: async (frameUrl, token) => {
+      const host = typeof frameUrl === "string" ? canvasHostOf(frameUrl) : null;
+      const found = host && typeof token === "string" ? canvases.citation(host, token) : null;
+      if (!found) return null;
+      const { citation, number } = found;
+      const now = recheckCitation(documents, {
+        documentId: citation.documentId,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        location: citation.location,
+        contentHash: citation.contentHash,
+      });
+      return {
+        documentId: citation.documentId,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        location: citation.location,
+        contentHash: citation.contentHash,
+        check: now.check,
+        checkReason: now.checkReason,
+        number,
+      };
+    },
+    deleteCanvas: async (canvasId) => removeCanvas(canvasId),
     canvasShowing: (host) => canvases.showing(host),
     serveCanvas: (host, path) => canvases.served(host, path),
     getAgentLaunch: (pairingId) => agents.launch(pairingId),

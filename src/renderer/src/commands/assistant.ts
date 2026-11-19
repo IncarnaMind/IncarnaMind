@@ -1,5 +1,6 @@
 import type { AssistantDock, ConversationAnswer } from "../../../core/api";
 import { answerBlocks, hasText } from "../../../shared/answerBlocks";
+import { KEYS_FROM_CANVASES } from "../../../shared/commands";
 import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
 import { copyAnswer, notesToAdd } from "../answerEditors";
@@ -218,7 +219,7 @@ export const assistantCommands: readonly Command[] = [
     id: "composer.focus",
     assistant: false,
     label: "command.composer.focus",
-    shortcut: { keys: "CmdOrCtrl+J" },
+    shortcut: { keys: KEYS_FROM_CANVASES["composer.focus"] },
     group: "main",
     top: 10,
     reversible: true,

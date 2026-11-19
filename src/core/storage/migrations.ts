@@ -3165,8 +3165,12 @@ export const migrations: readonly Migration[] = [
     // A version's HTML and files are kept in the data folder's Canvases/, each under the SHA-256 of
     // its bytes (core/canvases), so a file two versions share is kept once. files is JSON:
     // [{ name, hash, type, size }], name as the HTML refers to it, type its media type found from
-    // its bytes. pairing_id is the outside agent's pairing that published it: a Canvas in no Folder
-    // is reached by that pairing alone, as a Note it wrote there is (#3364).
+    // its bytes. citations is JSON: the Citations IncarnaMind minted for the agent that its text
+    // cites, as minted. pairing_id is the outside agent's pairing that published it: a Canvas in
+    // no Folder is reached by that pairing alone, as a Note it wrote there is (#3364). A version
+    // the User restored has no pairing and no agent, and names the version it restored. A Canvas
+    // deleted permanently keeps its row as a tombstone (purged_at), as a Note does; its versions go
+    // once the files no other Canvas keeps are removed.
     sql: `
       CREATE TABLE canvases (
         id TEXT PRIMARY KEY NOT NULL,
@@ -3176,7 +3180,8 @@ export const migrations: readonly Migration[] = [
         agent TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        deleted_at TEXT
+        deleted_at TEXT,
+        purged_at TEXT
       ) STRICT;
       CREATE INDEX canvases_by_folder ON canvases (folder_id) WHERE deleted_at IS NULL;
 
@@ -3187,7 +3192,10 @@ export const migrations: readonly Migration[] = [
         title TEXT NOT NULL,
         html_hash TEXT NOT NULL,
         files TEXT NOT NULL DEFAULT '[]',
-        pairing_id TEXT NOT NULL,
+        citations TEXT NOT NULL DEFAULT '[]',
+        pairing_id TEXT,
+        agent TEXT,
+        restored_from INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         deleted_at TEXT

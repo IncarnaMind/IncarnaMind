@@ -1,7 +1,7 @@
 /**
  * A Canvas (#3406): a page an outside agent wrote, drawn in a `<webview>` of its own session and
  * scheme. What the main process, the Canvas's preload and the window share: its address, the one
- * channel out of it and the two messages that channel carries, and the limits of what it holds.
+ * channel out of it and the one message it carries, and the limits of what it holds.
  */
 
 /** The scheme a Canvas is served from: its own, privileged only as standard (src/main/canvases.ts). */
@@ -12,14 +12,6 @@ export const CANVAS_PARTITION = "canvas";
 
 /** The one channel from a Canvas's preload to the main process. */
 export const CANVAS_CHANNEL = "canvas:message";
-
-/** What the Canvas's preload exposes to its page, and nothing besides. */
-export const CANVAS_BRIDGE_KEY = "incarnamindCanvas";
-
-export interface CanvasPageBridge {
-  /** Asks IncarnaMind to open a Citation the agent wrote in the page, as `[cite:…]`. */
-  openCitation(cite: string): void;
-}
 
 /** A showing of a Canvas is known by a random host, minted for it, that no page can guess. */
 const FRAME_HOST = /^[0-9a-f]{32}$/;
@@ -48,11 +40,11 @@ export const CANVAS_LIMITS = {
   nameCharacters: 200,
 } as const;
 
-/** The tallest page a Canvas may say it is, in CSS pixels. */
-export const MAX_CANVAS_HEIGHT = 1_000_000;
-
-/** The two messages a Canvas sends, and nothing else. */
-export type CanvasMessage = { kind: "height"; height: number } | { kind: "cite"; cite: string };
+/** The one message a Canvas sends: the User pressed the marker of the Citation with this token. */
+export interface CanvasMessage {
+  kind: "cite";
+  token: string;
+}
 
 /** Why a message from a Canvas was dropped, as the log names it. */
 export type CanvasDrop =
@@ -60,11 +52,10 @@ export type CanvasDrop =
   | "not-an-object"
   | "unknown-kind"
   | "extra-fields"
-  | "bad-height"
-  | "bad-cite"
+  | "bad-token"
   | "too-many";
 
-const CITE = /^\[cite:[a-z0-9]{1,32}\]$/;
+const TOKEN = /^[a-z0-9]{1,32}$/;
 
 /** A message from a Canvas, checked by its shape alone: exactly its fields, each of its type. */
 export function readCanvasMessage(
@@ -75,38 +66,34 @@ export function readCanvasMessage(
   }
   const prototype: unknown = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return { dropped: "not-an-object" };
-  const fields = Object.keys(value);
   const record = value as Record<string, unknown>;
-  if (record.kind === "height") {
-    if (fields.length !== 2 || !("height" in record)) return { dropped: "extra-fields" };
-    const { height } = record;
-    return typeof height === "number" &&
-      Number.isFinite(height) &&
-      height >= 0 &&
-      height <= MAX_CANVAS_HEIGHT
-      ? { message: { kind: "height", height: Math.ceil(height) } }
-      : { dropped: "bad-height" };
-  }
-  if (record.kind === "cite") {
-    if (fields.length !== 2 || !("cite" in record)) return { dropped: "extra-fields" };
-    const { cite } = record;
-    return typeof cite === "string" && CITE.test(cite)
-      ? { message: { kind: "cite", cite } }
-      : { dropped: "bad-cite" };
-  }
-  return { dropped: "unknown-kind" };
+  if (record.kind !== "cite") return { dropped: "unknown-kind" };
+  if (Object.keys(record).length !== 2 || !("token" in record)) return { dropped: "extra-fields" };
+  return typeof record.token === "string" && TOKEN.test(record.token)
+    ? { message: { kind: "cite", token: record.token } }
+    : { dropped: "bad-token" };
 }
 
 /**
- * What the main process tells the window about a Canvas it shows, by the showing's host: its height
- * or a Citation it asked to open; a website it tried to open, which is only offered to the User; or
- * that it stopped, crashed or past its memory.
+ * What the main process tells the window about a Canvas it shows, by the showing's host: a Citation
+ * the User pressed in it, or one of the window's own keys; a website it tried to open, which is only
+ * offered to the User; or that it stopped, crashed or past its memory.
  */
 export type CanvasFrameNews =
-  | { host: string; kind: "height"; height: number }
-  | { host: string; kind: "cite"; cite: string }
+  | { host: string; kind: "cite"; token: string }
+  | ({ host: string; kind: "key" } & CanvasKey)
   | { host: string; kind: "link"; url: string }
   | { host: string; kind: "stopped"; reason: "memory" | "crashed" };
+
+/** A key pressed in a Canvas that is the window's own (`KEYS_FROM_CANVASES`, or Esc), to press there. */
+export interface CanvasKey {
+  key: string;
+  code: string;
+  meta: boolean;
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+}
 
 /** A website a Canvas may offer the User to open in their browser: web and mail addresses alone. */
 export function offeredLink(url: string): string | null {

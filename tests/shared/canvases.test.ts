@@ -1,12 +1,11 @@
 /**
- * What a Canvas may send out (#3406): exactly two messages, each checked by its shape alone, and
- * everything else dropped with its reason; the address of a showing; the links offered to the User.
+ * What a Canvas may send out (#3406): one message, checked by its shape alone, and everything else
+ * dropped with its reason; the address of a showing; the links offered to the User.
  */
 import { describe, expect, it } from "vitest";
 import {
   canvasFrameUrl,
   canvasHostOf,
-  MAX_CANVAS_HEIGHT,
   offeredLink,
   readCanvasMessage,
 } from "../../src/shared/canvases";
@@ -14,40 +13,35 @@ import {
 const HOST = "0123456789abcdef0123456789abcdef";
 
 describe("A message from a Canvas", () => {
-  it("is its height or a Citation to open, and nothing more", () => {
-    expect(readCanvasMessage({ kind: "height", height: 1200.4 })).toEqual({
-      message: { kind: "height", height: 1201 },
-    });
-    expect(readCanvasMessage({ kind: "cite", cite: "[cite:k3x9a2b7]" })).toEqual({
-      message: { kind: "cite", cite: "[cite:k3x9a2b7]" },
+  it("is the token of a Citation the User pressed, and nothing more", () => {
+    expect(readCanvasMessage({ kind: "cite", token: "k3x9a2b7" })).toEqual({
+      message: { kind: "cite", token: "k3x9a2b7" },
     });
   });
 
   it("of any other shape is dropped, with why", () => {
     const shapes: [unknown, string][] = [
       [null, "not-an-object"],
-      ["height", "not-an-object"],
+      ["k3x9a2b7", "not-an-object"],
       [42, "not-an-object"],
-      [[{ kind: "height", height: 10 }], "not-an-object"],
+      [[{ kind: "cite", token: "k3x9a2b7" }], "not-an-object"],
       [new Date(), "not-an-object"],
-      [Object.create({ kind: "height", height: 10 }), "not-an-object"],
+      [Object.create({ kind: "cite", token: "k3x9a2b7" }), "not-an-object"],
       [{}, "unknown-kind"],
+      [{ kind: "height", height: 10 }, "unknown-kind"],
       [{ kind: "open", url: "https://example.com" }, "unknown-kind"],
       [{ kind: "navigate", to: "file:///etc/passwd" }, "unknown-kind"],
-      [{ kind: "HEIGHT", height: 10 }, "unknown-kind"],
-      [{ kind: "height" }, "extra-fields"],
-      [{ kind: "height", height: 10, html: "<img src=x onerror=alert(1)>" }, "extra-fields"],
-      [{ kind: "height", size: 10 }, "extra-fields"],
-      [{ kind: "height", height: "10" }, "bad-height"],
-      [{ kind: "height", height: -1 }, "bad-height"],
-      [{ kind: "height", height: Number.NaN }, "bad-height"],
-      [{ kind: "height", height: Number.POSITIVE_INFINITY }, "bad-height"],
-      [{ kind: "height", height: MAX_CANVAS_HEIGHT + 1 }, "bad-height"],
-      [{ kind: "cite", cite: "k3x9a2b7" }, "bad-cite"],
-      [{ kind: "cite", cite: "[cite:k3x9a2b7] and more" }, "bad-cite"],
-      [{ kind: "cite", cite: '<a href="https://example.com">[cite:k3x9a2b7]</a>' }, "bad-cite"],
-      [{ kind: "cite", cite: { toString: () => "[cite:k3x9a2b7]" } }, "bad-cite"],
-      [{ kind: "cite", cite: "[cite:k3x9a2b7]", documentId: "x" }, "extra-fields"],
+      [{ kind: "CITE", token: "k3x9a2b7" }, "unknown-kind"],
+      [{ kind: "cite" }, "extra-fields"],
+      [{ kind: "cite", token: "k3x9a2b7", html: "<img src=x onerror=alert(1)>" }, "extra-fields"],
+      [{ kind: "cite", cite: "[cite:k3x9a2b7]" }, "extra-fields"],
+      [{ kind: "cite", token: "[cite:k3x9a2b7]" }, "bad-token"],
+      [{ kind: "cite", token: "K3X9A2B7" }, "bad-token"],
+      [{ kind: "cite", token: "k3x9a2b7 more" }, "bad-token"],
+      [{ kind: "cite", token: "x".repeat(33) }, "bad-token"],
+      [{ kind: "cite", token: "" }, "bad-token"],
+      [{ kind: "cite", token: 42 }, "bad-token"],
+      [{ kind: "cite", token: { toString: () => "k3x9a2b7" } }, "bad-token"],
     ];
     for (const [shape, reason] of shapes) {
       expect(readCanvasMessage(shape), JSON.stringify(shape)).toEqual({ dropped: reason });

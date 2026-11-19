@@ -67,6 +67,7 @@ import {
   type Mind,
   NOT_IN_A_FOLDER_ID,
 } from "../api";
+import { citedTokens } from "../canvases/markers";
 import type { CheckRecord } from "../checkRecord";
 import type { CitationSource } from "../documents";
 import { keywordTerms } from "../documents/keywords";
@@ -1551,6 +1552,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
     placeToWriteIn,
+    cited: (pairing, html) => {
+      const inScope = new Set(scopeOf(pairing, undefined));
+      return citedTokens(html).map((token) => {
+        const kept = deps.citations.find(pairing.id, token);
+        if (!kept || !inScope.has(kept.documentId)) return { token, citation: null };
+        const { pairingId: _, ...citation } = kept;
+        return { token, citation };
+      });
+    },
   });
 
   return {

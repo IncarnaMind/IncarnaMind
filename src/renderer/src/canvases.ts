@@ -16,3 +16,16 @@ export async function loadCanvases(): Promise<void> {
 }
 
 core.on("canvases.changed", (canvases) => useCanvases.setState({ canvases }));
+
+/** Where each Canvas shown in this window is drawn now, by its id: for what asks about it. */
+const drawnAt = new Map<string, string>();
+
+export const canvasFrameOf = (canvasId: string): string | null => drawnAt.get(canvasId) ?? null;
+
+/** Says where a Canvas is drawn, until the returned function says it no longer is. */
+export function drawnCanvas(canvasId: string, frameUrl: string): () => void {
+  drawnAt.set(canvasId, frameUrl);
+  return () => {
+    if (drawnAt.get(canvasId) === frameUrl) drawnAt.delete(canvasId);
+  };
+}

@@ -1715,14 +1715,16 @@ export function createLibrary(options: {
     },
     /**
      * Deletes a Folder and the Folders inside it: their Documents go to Not in a Folder, as the
-     * Minds and conversations the caller took out of them did, and all are recorded folder by
-     * folder so that restoring it puts them back. `at`: when Undo of a Restore deletes it again.
+     * Minds, conversations and Canvases the caller took out of them did, and all are recorded
+     * folder by folder so that restoring it puts them back. `at`: when Undo of a Restore deletes it
+     * again.
      */
     delete(
       id: unknown,
       taken: {
         minds?: Readonly<Record<string, readonly string[]>>;
         conversations?: Readonly<Record<string, readonly string[]>>;
+        canvases?: Readonly<Record<string, readonly string[]>>;
       } = {},
       at: string = now(),
     ): Pick<FolderDeletion, "assignments"> {
@@ -1734,7 +1736,7 @@ export function createLibrary(options: {
       const written = now();
       const record = (
         folderId: string,
-        kind: "document" | "mind" | "conversation",
+        kind: "document" | "mind" | "conversation" | "canvas",
         itemId: string,
       ) =>
         db.run(
@@ -1764,6 +1766,9 @@ export function createLibrary(options: {
         for (const [folderId, ids] of Object.entries(taken.conversations ?? {})) {
           for (const conversationId of ids) record(folderId, "conversation", conversationId);
         }
+        for (const [folderId, ids] of Object.entries(taken.canvases ?? {})) {
+          for (const canvasId of ids) record(folderId, "canvas", canvasId);
+        }
         db.run(
           "UPDATE document_groups SET group_id = NULL, updated_at = ? WHERE group_id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL",
           [at, JSON.stringify(folders)],
@@ -1776,14 +1781,15 @@ export function createLibrary(options: {
     },
     /**
      * Brings back a deleted Folder, the Folders deleted with it and the Documents its deletion
-     * took out that are in no Folder now. Returns each restored Folder's Minds and conversations,
-     * for the caller to put back. Throws if a name is taken or the Library is full. Run in the
-     * caller's transaction, then `restored`.
+     * took out that are in no Folder now. Returns each restored Folder's Minds, conversations and
+     * Canvases, for the caller to put back. Throws if a name is taken or the Library is full. Run
+     * in the caller's transaction, then `restored`.
      */
     restore(id: string): {
       folders: string[];
       minds: { folderId: string; ids: string[] }[];
       conversations: { folderId: string; ids: string[] }[];
+      canvases: { folderId: string; ids: string[] }[];
       /** Folders put at the top level, the Folder they were in still deleted. */
       toTopLevel: string[];
     } {
@@ -1870,7 +1876,7 @@ export function createLibrary(options: {
           tags: [],
         })),
       );
-      const taken = (kind: "mind" | "conversation") => {
+      const taken = (kind: "mind" | "conversation" | "canvas") => {
         const byFolder = new Map<string, string[]>();
         for (const row of db.all<{ folder_id: string; item_id: string }>(
           "SELECT folder_id, item_id FROM deleted_folder_items WHERE folder_id IN (SELECT value FROM json_each(?)) AND item_kind = ? AND deleted_at IS NULL",
@@ -1884,6 +1890,7 @@ export function createLibrary(options: {
         folders,
         minds: taken("mind"),
         conversations: taken("conversation"),
+        canvases: taken("canvas"),
         toTopLevel,
       };
       db.run(

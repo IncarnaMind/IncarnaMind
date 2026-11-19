@@ -10,12 +10,14 @@ import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type { AgentCanvasChange, AgentToolName, Effect } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
 import {
+  type CanvasCitation,
   type Canvases,
   CanvasesUnavailableError,
   type CanvasFileRecord,
   type RefusedFile,
   type StoredCanvas,
 } from "../canvases";
+import { tokensOutsideText } from "../canvases/markers";
 import { networkReferences } from "../canvases/references";
 import type { AdmittedPairing } from "./access";
 import { AgentRefusedError, text, whole } from "./refusals";
@@ -30,6 +32,9 @@ const HOUR_MS = 3_600_000;
 /** The longest path of a file an agent names. */
 const MAX_PATH_CHARS = 4096;
 const MB = 1024 * 1024;
+/** A picture or font inline in the page, as a `data:` address. */
+const INLINE_DATA = /data:[\w.+-]+\/[\w.+-]+(?:;[\w=.+-]+)*,[^"'\s)>]*/g;
+const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
 
 export interface CanvasesInput {
   title?: unknown;
@@ -51,6 +56,8 @@ export interface AgentCanvasPublished {
   version: number;
   /** The files the version has, by the names the HTML refers to them by. */
   files: string[];
+  /** Each `[cite:…]` its text cites, and whether it is one IncarnaMind gave this agent. */
+  citations: { cite: string; found: boolean }[];
   refused: CanvasRefusal[];
 }
 
@@ -102,6 +109,14 @@ export interface CanvasToolContext {
   reached(pairing: AdmittedPairing): ReadonlySet<string>;
   /** Where it may write: a Folder it reaches by `folderId`, or none; a refusal otherwise. */
   placeToWriteIn(pairing: AdmittedPairing, folderId: unknown): { id: string | null; name: string };
+  /**
+   * The Citations the HTML's text cites, each token with the Citation IncarnaMind minted for this
+   * pairing of a Document it reaches, or null.
+   */
+  cited(
+    pairing: AdmittedPairing,
+    html: string,
+  ): { token: string; citation: CanvasCitation | null }[];
 }
 
 const WRITES_LIBRARY: Effect = { action: "write", scope: { kind: "library" } };
@@ -122,10 +137,16 @@ export function createCanvasTools(context: CanvasToolContext) {
 
   const htmlOf = (value: unknown): string => {
     const html = text(value, "html", Number.MAX_SAFE_INTEGER);
-    if (new TextEncoder().encode(html).byteLength > CANVAS_LIMITS.htmlBytes) {
+    // A picture an agent draws in the cloud can only come inline: it counts toward the Canvas's
+    // whole size, not its page's.
+    const page = utf8Bytes(html.replace(INLINE_DATA, ""));
+    if (page > CANVAS_LIMITS.htmlBytes || utf8Bytes(html) > CANVAS_LIMITS.totalBytes) {
       throw new AgentRefusedError(
         "invalid",
-        t("agents.canvas.htmlTooLarge", { max: CANVAS_LIMITS.htmlBytes / MB }),
+        t("agents.canvas.htmlTooLarge", {
+          max: CANVAS_LIMITS.htmlBytes / MB,
+          total: CANVAS_LIMITS.totalBytes / MB,
+        }),
       );
     }
     return html;
@@ -191,6 +212,10 @@ export function createCanvasTools(context: CanvasToolContext) {
       item: address,
       reason: t("agents.canvas.refused.network"),
     })),
+    ...(html === null ? [] : tokensOutsideText(html)).map((token) => ({
+      item: `[cite:${token}]`,
+      reason: t("agents.canvas.refused.notInText"),
+    })),
   ];
 
   const unavailable = (error: unknown): never => {
@@ -202,6 +227,17 @@ export function createCanvasTools(context: CanvasToolContext) {
 
   const names = (files: readonly CanvasFileRecord[]) => files.map((file) => file.name);
 
+  const citationsOf = (pairing: AdmittedPairing, html: string) => {
+    const cited = context.cited(pairing, html);
+    return {
+      kept: cited.flatMap(({ citation }) => (citation ? [citation] : [])),
+      told: cited.map(({ token, citation }) => ({
+        cite: `[cite:${token}]`,
+        found: citation !== null,
+      })),
+    };
+  };
+
   return {
     publishCanvas(input: CanvasesInput): Promise<AgentCanvasPublished> {
       const named = typeof input?.title === "string" ? input.title.trim() : "";
@@ -212,11 +248,13 @@ export function createCanvasTools(context: CanvasToolContext) {
         const paths = pathsOf(input?.files);
         const folder = context.placeToWriteIn(pairing, input?.folderId);
         withinHourlyLimit(pairing);
+        const citations = citationsOf(pairing, html);
         const { canvas, files, refused } = await deps.canvases
           .publish({
             title,
             html,
             paths,
+            citations: citations.kept,
             folderId: folder.id,
             pairingId: pairing.id,
             agent: pairing.name,
@@ -235,6 +273,7 @@ export function createCanvasTools(context: CanvasToolContext) {
             folder: folder.name,
             version: canvas.version,
             files: names(files),
+            citations: citations.told,
             refused: refusals(refused, html),
           },
           count: 1,
@@ -284,12 +323,15 @@ export function createCanvasTools(context: CanvasToolContext) {
           throw new AgentRefusedError("invalid", t("agents.canvas.nothing"));
         }
         withinHourlyLimit(pairing);
+        const citations = html === undefined ? null : citationsOf(pairing, html);
         const updated = await deps.canvases
           .update(canvas.id, basedOn, {
             paths,
             pairingId: pairing.id,
+            agent: pairing.name,
             ...(title !== undefined && { title }),
-            ...(html !== undefined && { html }),
+            ...(html !== undefined &&
+              citations && { html: { text: html, citations: citations.kept } }),
           })
           .catch(unavailable);
         if (updated.kind === "stale") {
@@ -311,6 +353,7 @@ export function createCanvasTools(context: CanvasToolContext) {
             folder: folderName(canvas.folderId),
             version: updated.canvas.version,
             files: names(updated.files),
+            citations: citations?.told ?? [],
             refused: refusals(updated.refused, html ?? null),
           },
           count: 1,

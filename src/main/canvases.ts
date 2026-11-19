@@ -17,6 +17,7 @@ import {
   type BrowserWindow,
   type CustomScheme,
   type IpcMainEvent,
+  type IpcMainInvokeEvent,
   ipcMain,
   session,
   type WebContents,
@@ -35,6 +36,8 @@ import {
   offeredLink,
   readCanvasMessage,
 } from "../shared/canvases";
+import { KEYS_FROM_CANVASES } from "../shared/commands";
+import { keysForm } from "../shared/keyForms";
 
 /** Registered with the app's other privileged schemes, before it is ready (index.ts). */
 export const CANVAS_SCHEME_PRIVILEGES: CustomScheme = {
@@ -51,6 +54,26 @@ const MEMORY_CHECK_MS = 1000;
 const MESSAGES_A_SECOND = 30;
 /** A drop's reason is logged once in this long for each Canvas, with how many there were. */
 const DROPS_LOGGED_EVERY_MS = 10_000;
+
+const MAC = process.platform === "darwin";
+
+/** The window's own keys a Canvas passes on, in `keysForm`'s form. */
+const WINDOW_KEYS = new Set(
+  Object.values(KEYS_FROM_CANVASES).map((keys) =>
+    keysForm(typeof keys === "string" ? keys : MAC ? keys.mac : keys.other, MAC),
+  ),
+);
+
+const formOf = (input: Electron.Input) =>
+  [
+    input.meta && "meta",
+    input.control && "ctrl",
+    input.alt && "alt",
+    input.shift && "shift",
+    input.code,
+  ]
+    .filter(Boolean)
+    .join("+");
 
 const policy = (host: string) => {
   const own = `${CANVAS_SCHEME}://${host}`;
@@ -119,6 +142,8 @@ interface Guest {
 
 export interface CanvasOptions {
   log: Logger;
+  /** Whether a call comes from the app's own page. */
+  trusted(event: IpcMainInvokeEvent): boolean;
   /** Test builds lower it, so a test sees a Canvas stopped without using a gigabyte. */
   memoryLimitMb?: number;
 }
@@ -214,6 +239,27 @@ export async function serveCanvases(core: Core, options: CanvasOptions): Promise
     contents.on("will-navigate", (event) => event.preventDefault());
     contents.on("will-redirect", (event) => event.preventDefault());
     contents.on("will-attach-webview", (event) => event.preventDefault());
+    // The window's own shortcuts still work here; every other key is the page's. Esc is both: it
+    // closes what the page has open, and what the window has.
+    contents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown" || input.isAutoRepeat) return;
+      const esc =
+        input.key === "Escape" && !input.meta && !input.control && !input.alt && !input.shift;
+      if (!esc && !WINDOW_KEYS.has(formOf(input))) return;
+      const host = hostOf(contents);
+      if (!host) return;
+      if (!esc) event.preventDefault();
+      tell(contents, {
+        host,
+        kind: "key",
+        key: input.key,
+        code: input.code,
+        meta: input.meta,
+        ctrl: input.control,
+        alt: input.alt,
+        shift: input.shift,
+      });
+    });
     contents.on("render-process-gone", (_event, details) => {
       const host = hostOf(contents);
       if (details.reason === "clean-exit" || !host) return;
@@ -293,7 +339,7 @@ export async function serveCanvases(core: Core, options: CanvasOptions): Promise
       dropped(guest, read.dropped);
       return;
     }
-    if (read.message.kind === "cite") log.info("canvas.citationAsked");
+    log.info("canvas.citationAsked");
     tell(event.sender, { host, ...read.message });
   });
 }

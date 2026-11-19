@@ -643,7 +643,7 @@ app.whenReady().then(async () => {
   }
   started.resolve(core);
   exposeCore(core);
-  await serveCanvases(core, { log: logger, ...testCanvasMemory() });
+  await serveCanvases(core, { log: logger, trusted: isFromOurRenderer, ...testCanvasMemory() });
   followAppearance(core, app.getPath("userData"), logger);
   const settleQuit = guardQuit(
     core,

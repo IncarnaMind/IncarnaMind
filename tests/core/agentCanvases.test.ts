@@ -265,6 +265,94 @@ describe("Canvases an outside agent publishes", () => {
     ).toMatch(/may only read/);
   });
 
+  it("cite with the tokens IncarnaMind gave the agent: each a marker that opens its own Citation alone", async () => {
+    const { core, coast, writer } = await twoAgents();
+    const agent = await connectLegacyAgent(writer.launch);
+    const found = structured<{ passages: { cite: string | null }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "spring tides twice a month" } }),
+    );
+    const cite = found.passages.find((each) => each.cite)?.cite ?? "";
+    expect(cite).toMatch(/^\[cite:[a-z0-9]+\]$/);
+    const token = cite.slice(6, -1);
+    const html = `<p>Spring tides come twice a month ${cite}.</p><p>Made up [cite:zz999999].</p>`;
+    const published = structured<Published & { citations: { cite: string; found: boolean }[] }>(
+      await publish(agent, { title: "Tides", html, folderId: coast.id }),
+    );
+    expect(published.citations).toEqual([
+      { cite, found: true },
+      { cite: "[cite:zz999999]", found: false },
+    ]);
+
+    const { url } = await core.showCanvas(published.canvasId);
+    const host = new URL(url).hostname;
+    const page = new TextDecoder().decode((await core.serveCanvas(host, "/"))?.bytes);
+    expect(page).toContain(`data-token="${token}">[1]</incarnamind-cite>`);
+    expect(page).toContain("Citation 1: Tides");
+    expect(page).toContain(">[citation not found]</incarnamind-cite>");
+    expect(page).not.toContain("[cite:");
+    // Read back, the agent gets its own text, tokens and all.
+    expect(
+      structured<Read>(
+        await agent.callTool({ name: "read_canvas", arguments: { canvasId: published.canvasId } }),
+      ).html,
+    ).toBe(html);
+
+    expect(await core.canvasCitation(url, token)).toMatchObject({
+      quote: expect.stringContaining("Spring tides"),
+      check: "found",
+      number: 1,
+    });
+    expect(await core.canvasCitation(url, "zz999999")).toBeNull();
+    // A token of another Canvas, or an address minted for none, opens nothing here.
+    const other = structured<Published>(
+      await publish(agent, { title: "Other", html: "<p>None.</p>", folderId: coast.id }),
+    );
+    expect(
+      await core.canvasCitation((await core.showCanvas(other.canvasId)).url, token),
+    ).toBeNull();
+    expect(await core.canvasCitation(`incarnamind-canvas://${"0".repeat(32)}/`, token)).toBeNull();
+  });
+
+  it("keep every version, and the User brings an earlier one back as a version of its own", async () => {
+    const { core, coast, writer } = await twoAgents();
+    const agent = await connectLegacyAgent(writer.launch);
+    const { canvasId } = structured<Published>(
+      await publish(agent, { title: "Tides", html: "<p>First.</p>", folderId: coast.id }),
+    );
+    structured<Published>(
+      await agent.callTool({
+        name: "update_canvas",
+        arguments: { canvasId, version: 1, html: "<p>Second.</p>", title: "Tides, shorter" },
+      }),
+    );
+    expect(await core.listCanvasVersions(canvasId)).toEqual([
+      expect.objectContaining({ number: 2, title: "Tides, shorter", agent: "Claude Code" }),
+      expect.objectContaining({
+        number: 1,
+        title: "Tides",
+        agent: "Claude Code",
+        restoredFrom: null,
+      }),
+    ]);
+    const first = await core.showCanvas(canvasId, 1);
+    expect(first.version).toBe(1);
+    const shown = await core.serveCanvas(new URL(first.url).hostname, "/");
+    expect(new TextDecoder().decode(shown?.bytes)).toBe("<p>First.</p>");
+
+    const restored = await core.restoreCanvasVersion(canvasId, 1);
+    expect(restored).toMatchObject({ version: 3, title: "Tides" });
+    expect((await core.listCanvasVersions(canvasId))[0]).toMatchObject({
+      number: 3,
+      agent: null,
+      restoredFrom: 1,
+    });
+    // The agent reads what the User brought back, and builds on it.
+    expect(
+      structured<Read>(await agent.callTool({ name: "read_canvas", arguments: { canvasId } })),
+    ).toMatchObject({ version: 3, html: "<p>First.</p>" });
+    await expect(core.restoreCanvasVersion(canvasId, 9)).rejects.toThrow();
+  });
+
   it("are refused with a plain line where they can't be kept, and past the HTML's limit", async () => {
     const started = await startAgentsCore(replyingModel());
     const core: Core = started.core;
@@ -280,6 +368,11 @@ describe("Canvases an outside agent publishes", () => {
     );
     expect(
       refusal(await publish(agent, { title: "Tides", html: "x".repeat(2 * 1024 * 1024 + 1) })),
-    ).toBe("The HTML is larger than 2 MB, the most a Canvas holds.");
+    ).toMatch(/^The page is larger than 2 MB without its inline pictures, or 25 MB with them:/);
+    // A picture inline counts toward the Canvas's whole size, not its page's.
+    const picture = `<img src="data:image/png;base64,${"A".repeat(3 * 1024 * 1024)}">`;
+    expect(refusal(await publish(agent, { title: "Tides", html: picture }))).toBe(
+      "This copy of IncarnaMind can’t keep Canvases.",
+    );
   });
 });
