@@ -80,12 +80,13 @@ import {
 import type { SnapshotFile } from "../documents/web";
 import type { PaceTimers } from "../sources/pace";
 import type { CloudAudioMeter, CloudTranscription } from "../transcription/cloud/routes";
+import { transientSonioxLoss } from "../transcription/cloud/soniox";
 import type { TranscriptionModel } from "../transcription/model";
 import { whileOpen } from "../whileOpen";
 import type { AudioPart } from "./audioFiles";
 import { echoedBy, isEcho, repeats } from "./echoLines";
 import type { CaptureHealthRecords } from "./health";
-import { SonioxReplay, transientSonioxLoss } from "./sonioxReplay";
+import { SonioxReplay } from "./sonioxReplay";
 import { isCall, type SpeakerPass } from "./speakerPass";
 import { createTracks, type TrackedAudio, type Tracks } from "./tracks";
 import type { MeetingWords } from "./words";

@@ -36,10 +36,3 @@ export class SonioxReplay {
     return remaining;
   }
 }
-
-export function transientSonioxLoss(code?: number): boolean {
-  return (
-    code !== undefined &&
-    [408, 413, 500, 502, 503, 504, 1000, 1001, 1005, 1006, 1011, 1012, 1013, 1014].includes(code)
-  );
-}

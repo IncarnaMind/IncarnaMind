@@ -13,6 +13,13 @@ import type { CloudStreamHandle, CloudStreamOptions } from "./stream";
 
 export const SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 
+export function transientSonioxLoss(code?: number): boolean {
+  return (
+    code !== undefined &&
+    [408, 413, 500, 502, 503, 504, 1000, 1001, 1005, 1006, 1011, 1012, 1013, 1014].includes(code)
+  );
+}
+
 /** The key is wrong, or may not use the service; or the account has no credit left. */
 const lossOf = (errorCode: number): CloudLoss =>
   errorCode === 401 || errorCode === 403 ? "refused" : errorCode === 402 ? "credit" : "dropped";
@@ -77,8 +84,12 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
   }
 
   function interrupted(link: LiveLink, loss: CloudLoss, code?: number): void {
-    close();
-    report.progress(Math.max(finalMs, lastWordEndMs));
+    // A fresh connection needs the whole unfinished line to recognize its first words.
+    if (link.finishing || !transientSonioxLoss(code)) {
+      const hadLine = line !== null;
+      close();
+      report.progress(hadLine ? lastWordEndMs : Math.max(finalMs, lastWordEndMs));
+    }
     link.lose(loss, code);
   }
 
@@ -165,7 +176,7 @@ export function createSonioxStream(options: CloudStreamOptions): CloudStreamHand
           }),
         });
       }
-      const open = line?.tokens[0];
+      const open = said[0];
       const doneMs = Math.max(lastWordEndMs, open ? Math.min(open.start, finalMs) : finalMs);
       const processedMs = message.total_audio_proc_ms;
       report.progress(
