@@ -4,7 +4,7 @@
  * apart (the computer's sound online, the room's otherwise) is written as a Meeting's 10-second
  * parts and separated by the pass's own engine (`createSherpaSeparator`); the Transcript's lines
  * are cut as the transcription process cuts them, with Silero VAD, and labelled by the pass's
- * own rule (`labelled`), the microphone's "Me" online. Each case's labelled lines are written as
+ * own speaker labels and word-aligned splits, the microphone's "Me" online. Each case's labelled lines are written as
  * a hypothesis for eval/meetings' scorer, which gives DER; they carry no text, so its error
  * rate means nothing here.
  *
@@ -29,7 +29,6 @@ import { silentLogger } from "../../src/core/activityLog";
 import type { Cue } from "../../src/core/documents/formats/vtt";
 import { downloadModel } from "../../src/core/embedding/download";
 import { writePart } from "../../src/core/meetings/audioFiles";
-import { labelled } from "../../src/core/meetings/speakerPass";
 import {
   CLUSTER_THRESHOLD,
   createSherpaSeparator,
@@ -43,6 +42,7 @@ import { SPEAKER_ME, SPEAKER_THEM, SPEAKER_UNKNOWN } from "../../src/shared/spea
 import { evalCache } from "../lib/cache";
 import { readCases } from "../meetings/cache";
 import { readHypothesis } from "../meetings/hypotheses";
+import { afterCallLines, transcriptCues } from "./lines";
 
 const DEFAULT_CASES = join(evalCache(), "meetings", "cases");
 const CASES = resolve(process.env.INCARNAMIND_EVAL_MEETING_CASES ?? DEFAULT_CASES);
@@ -171,14 +171,7 @@ async function linesIn(folder: string, id: string, call: boolean): Promise<Cue[]
   const hypothesis = await readHypothesis(folder, id);
   if (!hypothesis) return null;
   const until = MINUTES > 0 ? MINUTES * 60 : Number.POSITIVE_INFINITY;
-  return hypothesis.segments
-    .filter((segment) => segment.start < until)
-    .map((segment) => ({
-      startMs: segment.start * 1000,
-      endMs: Math.min(segment.end, until) * 1000,
-      text: segment.text,
-      speaker: segment.speaker ?? (call ? SPEAKER_THEM : SPEAKER_UNKNOWN),
-    }));
+  return transcriptCues(hypothesis, call, until);
 }
 
 const asSegments = (
@@ -248,7 +241,7 @@ describe.runIf(existsSync(CASES))("The speaker pass on the meeting audio set", (
             ...(await linesOf(each.separate, vad, call ? SPEAKER_THEM : SPEAKER_UNKNOWN)),
           ]
         ).sort((a, b) => a.startMs - b.startMs);
-        const final = labelled(cues, turns, call) ?? cues;
+        const final = afterCallLines(cues, turns, call);
         const audio = each.separate.length / RATE;
         const hypothesis = {
           case: each.id,

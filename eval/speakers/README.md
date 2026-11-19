@@ -1,6 +1,6 @@
 # Telling speakers apart after the call
 
-How well, and how fast, the speaker pass (#138) tells a Meeting's voices apart on this computer: pyannote's segmentation-3.0 and 3D-Speaker's CAM++ through sherpa-onnx-node's speaker diarization, on the CPU. It runs the pass's own code: `createSherpaSeparator` in `src/core/transcription/diarization.ts` reads the audio as a Meeting keeps it, in 10-second parts, and `labelled` in `src/core/meetings/speakerPass.ts` gives the Transcript's lines their labels.
+How well, and how fast, the speaker pass (#138) tells a Meeting's voices apart on this computer: pyannote's segmentation-3.0 and 3D-Speaker's CAM++ through sherpa-onnx-node's speaker diarization, on the CPU. It runs the pass's own code: `createSherpaSeparator` in `src/core/transcription/diarization.ts` reads the audio as a Meeting keeps it, in 10-second parts, and `speakerLabels` in `src/core/meetings/speakerPass.ts` assigns speakers. When a saved line has word times and two distinct voices, the scorer reads the same splits as the Transcript view. Older results without word times support one speaker per line.
 
 ## Running it
 
@@ -83,7 +83,7 @@ Soniox (`stt-rt-v6`) numbers the speakers of each stream as they speak. Whether 
 
 The November 18 cloud comparison also included the retired ASCEND mixes. They combined separate conversations. Their 33.9% to 58.8% and 29.2% to 28.8% results do not measure real two-person conversations.
 
-On November 19, both corrected bilingual dialogues were sent to Soniox `stt-rt-v6` at speaking pace. Each duration started a separate stream and ran the app's speaker pass on just that audio. Each cell gives live DER → after-call DER for one run. Both stages found both people in all six runs.
+On November 19, both corrected bilingual dialogues were sent to Soniox `stt-rt-v6` at speaking pace. Each duration started a separate stream and ran the app's speaker pass on just that audio. These saved results contain whole lines without word times. Each cell gives live DER → whole-line after-call DER for one run. Both stages found both people in all six runs.
 
 | ASCEND participants | Full duration | First minute | First 3 minutes | Full conversation |
 |---|---:|---:|---:|---:|
@@ -91,6 +91,8 @@ On November 19, both corrected bilingual dialogues were sent to Soniox `stt-rt-v
 | 3 and 4 | 24:05 | 6.9% → 5.5% | 7.2% → 7.7% | 5.2% → 5.4% |
 
 The two full conversations had 20.54 and 0.32 seconds of annotated overlap. Their mixed-language transcription error rates (MER) were 16.9% and 8.5%. The eight original English and Chinese comparisons above were reproduced from their archived outputs.
+
+A separate run transcribed the full paired conversations with Qwen3-ASR 0.6B int8 and the streaming Zipformer word times. Of 536 final lines, 482 had aligned words. Using the same acoustic turns for each comparison, word-aligned attribution split one more line in each recording. DER for speakers 17/18 changed from 12.25% to 12.22%, and for 3/4 from 3.19% to 3.32%. A 120-second replay of the first conversation through Start, Stop and indexing saved 33 cues and displayed 34 speaker-labelled parts. Each part from the evaluator matched the saved Transcript in text, times and speaker.
 
 ### Simultaneous speech in the four-person Mandarin room recording
 
