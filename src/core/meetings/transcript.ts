@@ -219,8 +219,9 @@ interface Reading {
 
 interface Heard {
   startMs: number;
+  endMs: number;
   text: string;
-  id: number;
+  id: number | null;
   speaker: string | null;
 }
 
@@ -691,13 +692,17 @@ export function createTranscripts(options: TranscriptsOptions) {
     const text = options.lineText
       ? options.lineText(segment.text, meetingWords(state).here)
       : segment.text;
+    const previous = state.partials.get(segment.stream);
+    const endMs = baseMs + segment.endMs;
     if (!segment.final) {
       if (!live || state.state !== "live") return;
-      state.partials.set(segment.stream, { startMs, text, id: segment.id, speaker });
+      // Keep the visible draft while the new connection is still rehearing earlier words.
+      if (previous?.id === null && endMs < previous.endMs) return;
+      state.partials.set(segment.stream, { startMs, endMs, text, id: segment.id, speaker });
       partialChanged(state);
       return;
     }
-    if (live && state.partials.get(segment.stream)?.id === segment.id) {
+    if (live && (previous?.id === null || previous?.id === segment.id)) {
       state.partials.delete(segment.stream);
     }
     const heard = segment.words ?? [];
@@ -713,7 +718,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     );
     const cue: Cue = {
       startMs,
-      endMs: baseMs + segment.endMs,
+      endMs,
       text,
       speaker,
       ...(words.length > 0 && { words }),
@@ -783,6 +788,11 @@ export function createTranscripts(options: TranscriptsOptions) {
     const own = live.streams[found.source];
     if (!own) return;
     own.doneMs = Math.max(own.doneMs, found.baseMs + doneMs);
+    const partial = state.partials.get(stream);
+    if (partial?.id === null && own.doneMs >= partial.endMs) {
+      state.partials.delete(stream);
+      partialChanged(state);
+    }
     own.heardMs = Math.max(own.heardMs, own.doneMs, found.baseMs + heardMs);
     const streams = Object.values(live.streams);
     live.doneMs = Math.max(live.doneMs, Math.min(...streams.map((each) => each.doneMs)));
@@ -928,7 +938,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       waiting,
     };
     live.streams[source] = replacement;
-    state.partials.delete(old.stream);
+    const partial = state.partials.get(old.stream);
+    if (partial) {
+      state.partials.delete(old.stream);
+      state.partials.set(replacement.stream, { ...partial, id: null });
+    }
     options.changed();
     const stillWaiting = () =>
       !closed &&
@@ -1208,6 +1222,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     const own = live.streams.microphone;
     if (!own) return;
     delete live.streams.microphone;
+    if (state.partials.delete(own.stream)) partialChanged(state);
     if (own.waiting) {
       // A cloud stream that never opened has sent nothing: this computer transcribes its stretch.
       transcriber.drop(own.stream);

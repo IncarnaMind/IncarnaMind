@@ -751,7 +751,19 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       const next = sockets[1];
       if (!next) throw new Error("Missing replacement stream");
       expect(Buffer.concat(next.audio)).toEqual(Buffer.concat(original.audio).subarray(1100 * 32));
+      expect((await transcriptOf(core, meeting.id)).partials.map((p) => p.text)).toEqual([
+        prefix + rest,
+      ]);
+      next.hear({
+        tokens: [{ text: prefix, start_ms: 0, end_ms: 700, is_final: false }],
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect((await transcriptOf(core, meeting.id)).partials.map((p) => p.text)).toEqual([
+        prefix + rest,
+      ]);
       next.say(prefix + rest, 0, 2000);
+      const resumed = await until(core, meeting.id, (t) => t.lines === 2);
+      expect(resumed.partials).toEqual([]);
       await core.stopMeeting(meeting.id);
       const saved = await until(core, meeting.id, (t) => t.state === "saved");
       if (!saved.savedPath) throw new Error("Transcript missing");
@@ -767,6 +779,30 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
       ]);
     },
   );
+
+  test("a replacement that confirms silence clears the old draft without saving it", async () => {
+    const { cloud, sockets } = scriptedSoniox();
+    const { core, record } = await transcribingCore(await createTempDataFolder(), { cloud });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (t) => t.cloud === "soniox");
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    record(2000, ["system"]);
+    await vi.waitFor(() => expect(sockets[0]?.audio.length).toBeGreaterThan(0));
+    const first = sockets[0];
+    if (!first) throw new Error("Missing system stream");
+    first.hear({ tokens: [{ text: "A draft", start_ms: 200, end_ms: 900, is_final: false }] });
+    await until(core, meeting.id, (t) => t.partials.length === 1);
+    first.close();
+    await vi.waitFor(() => expect(sockets[1]?.audio.length).toBeGreaterThan(0), { timeout: 6000 });
+    expect((await transcriptOf(core, meeting.id)).partials[0]?.text).toBe("A draft");
+    sockets[1]?.hear({ tokens: [], final_audio_proc_ms: 1000 });
+    await until(core, meeting.id, (t) => t.partials.length === 0);
+    await core.stopMeeting(meeting.id);
+    const empty = await until(core, meeting.id, (t) => t.state === "empty");
+    expect(empty.lines).toBe(0);
+  });
 
   test("a disconnect beyond the replay window recovers the whole unfinished turn locally", async () => {
     const { cloud, sockets } = scriptedSoniox();
