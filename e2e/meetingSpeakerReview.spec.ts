@@ -240,6 +240,16 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
       toMs: first.endMs,
       source: "system",
     };
+    await window.evaluate(() => {
+      const sources: AudioBufferSourceNode[] = [];
+      const create = AudioContext.prototype.createBufferSource;
+      AudioContext.prototype.createBufferSource = function () {
+        const source = create.call(this);
+        sources.push(source);
+        return source;
+      };
+      Object.assign(globalThis, { reviewAudioSources: sources });
+    });
     await external
       .getByRole("button", { name: /^Listen to computer audio from / })
       .first()
@@ -247,6 +257,23 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     const player = window.getByTestId("transcript-player");
     await expect(player).toBeVisible();
     await expect.poll(async () => (await activity()).audioReads).toEqual([clip]);
+    // Keep the replay check independent of the machine's audio renderer.
+    await expect
+      .poll(() =>
+        window.evaluate(() => {
+          const { reviewAudioSources } = globalThis as unknown as {
+            reviewAudioSources: AudioBufferSourceNode[];
+          };
+          return reviewAudioSources.length;
+        }),
+      )
+      .toBe(1);
+    await window.evaluate(() => {
+      const { reviewAudioSources } = globalThis as unknown as {
+        reviewAudioSources: AudioBufferSourceNode[];
+      };
+      reviewAudioSources[0]?.dispatchEvent(new Event("ended"));
+    });
     const end = paddedClockTime(first.endMs);
     await expect(player.getByTestId("transcript-player-time")).toHaveText(`${end} / ${end}`);
     await expect(player).not.toHaveAttribute("data-playing", "true");
@@ -316,13 +343,13 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
       await api.restore([{ kind: "mind", id: mindId }], { reopen: true });
     }, meeting.mindId);
     await expect.poll(async () => (await meetings(window)).length).toBe(1);
-    const chip = window.getByTestId("meeting-view-chip");
-    await expect(chip).toBeVisible();
+    const note = window
+      .getByTestId("mind-list-item")
+      .and(window.locator(`[data-mind-id="${meeting.mindId}"]`));
+    await pointAndClick(window, note);
+    await pointAndClick(window, window.getByTestId("meeting-view-chip"));
+    await pointAndClick(window, window.getByTestId("meeting-view-transcript"));
     const restored = window.getByTestId("meeting-note-transcript");
-    if (!(await restored.isVisible())) {
-      await pointAndClick(window, chip);
-      await pointAndClick(window, window.getByTestId("meeting-view-transcript"));
-    }
     await restored.getByRole("button", { name: "复核发言人…" }).press("Enter");
     await expect(restored.getByRole("button", { name: "发送给 Soniox 并复核" })).toBeVisible();
     await expect(
