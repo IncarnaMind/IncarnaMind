@@ -24,7 +24,7 @@ export async function testAndSaveKey({
   service: string;
   key: string;
   endpoint: string | null;
-  keepDefault?: boolean;
+  keepDefault?: boolean | "always";
 }): Promise<KeySaved> {
   const modelId = catalogProvider(service)?.roles.answers;
   if (!modelId) return { kind: "unknown" };

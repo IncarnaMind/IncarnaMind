@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
 import { CheckLineIcon, ChevronLeftLineIcon, CloseLineIcon } from "../lineIcons";
@@ -48,6 +48,18 @@ export function SetupPanel({
 }) {
   const t = useT();
   const body = useRef<HTMLDivElement>(null);
+  const [stuck, setStuck] = useState(false);
+  // A step taller than the window keeps its foot in view, over a rule, so Continue is always in
+  // reach (#3362): it sits 1px past the edge it sticks to, so stuck is seen as not wholly in view.
+  const footing = useCallback((foot: HTMLDivElement | null) => {
+    if (!foot) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setStuck((entry?.intersectionRatio ?? 1) < 1),
+      { threshold: [1] },
+    );
+    observer.observe(foot);
+    return () => observer.disconnect();
+  }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each new step or view takes the focus once.
   useEffect(() => {
     const within = body.current;
@@ -116,8 +128,12 @@ export function SetupPanel({
       </div>
       {foot && (
         <div
+          ref={footing}
           data-testid="setup-foot"
-          className="flex flex-wrap items-center gap-2 px-6 pt-3.5 pb-5"
+          data-stuck={stuck || undefined}
+          className={`sticky -bottom-px z-10 flex flex-wrap items-center gap-2 rounded-b-[12px] bg-sheet px-6 pt-3.5 pb-5 ${
+            stuck ? "shadow-[0_-1px_0_var(--color-rule)]" : ""
+          }`}
         >
           {foot}
         </div>

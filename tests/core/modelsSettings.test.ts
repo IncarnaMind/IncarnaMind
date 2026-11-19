@@ -93,6 +93,19 @@ describe("Adding a provider", () => {
       "anthropic",
     ]);
   });
+
+  // protects=a key kept to sort for a User whose own AI answers gives them no Answers model (#3362); fails_when=it becomes the Answers model because there was none
+  test("with keepDefault always, keeps none as none: the key is kept for something else alone", async () => {
+    const core = startCore(await createTempDataFolder(), { keychain: createMemoryKeychain() });
+    await core.saveChatProvider({
+      kind: "openai",
+      apiKey: "sk-test",
+      modelId: "gpt-6-luna",
+      keepDefault: "always",
+    });
+    expect((await core.getSettings()).user.chatModel).toBeNull();
+    expect((await core.listChatProviders()).map((each) => each.kind)).toEqual(["openai"]);
+  });
 });
 
 describe("The model menu", () => {

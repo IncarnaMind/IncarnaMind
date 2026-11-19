@@ -240,14 +240,24 @@ const GETTING_STARTED_STEPS = [
   "seen",
   "recorded",
   "notesWritten",
+  "agentNoteSeen",
 ];
 
 // Progress kept before the ready Question (#123) has no `askedReady`; `get` reads it as not asked.
 // Progress kept before the mistake had its own step has no `mistakeSeen`; `get` takes it from
 // `citationChecked`, so a first open already finished stays finished. A device that exported no
 // note, or showed no first-run card, has no `exported` or `seen`: both read as false. Nor had it
-// the meetings card's steps (#3296): `recorded` and `notesWritten` read as false.
-const ADDED_LATER = ["askedReady", "mistakeSeen", "exported", "seen", "recorded", "notesWritten"];
+// the meetings card's steps (#3296): `recorded` and `notesWritten` read as false, nor the agent
+// card's (#3362): `agentNoteSeen` does too.
+const ADDED_LATER = [
+  "askedReady",
+  "mistakeSeen",
+  "exported",
+  "seen",
+  "recorded",
+  "notesWritten",
+  "agentNoteSeen",
+];
 const isGettingStarted = (value: unknown): value is GettingStarted =>
   isRecord(value) &&
   Object.keys(value).every((key) => GETTING_STARTED_STEPS.includes(key)) &&
@@ -282,6 +292,7 @@ const deviceScope: Scope<DeviceSettings> = {
       seen: false,
       recorded: false,
       notesWritten: false,
+      agentNoteSeen: false,
     },
     work: [],
     setupFinished: false,

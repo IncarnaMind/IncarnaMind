@@ -880,7 +880,9 @@ export function createChat(options: {
       const server = parseServer(input);
       const apiKey = parseApiKey(input.apiKey, server);
       const modelId = parseModelId(input.modelId);
-      const makeDefault = input.keepDefault !== true || settings.get().user.chatModel === null;
+      const makeDefault =
+        input.keepDefault !== "always" &&
+        (input.keepDefault !== true || settings.get().user.chatModel === null);
 
       const existing = rowByServer(server);
       const id = existing?.id ?? randomUUID();
