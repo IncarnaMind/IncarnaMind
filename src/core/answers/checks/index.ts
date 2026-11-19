@@ -147,7 +147,7 @@ import {
 import { createVerify, type NoDocuments, type VerifyOptions } from "./verify";
 import { waitLine } from "./waitLine";
 import { createContradictionWatch, type WatchOptions } from "./watch";
-import { citeFoundPassages, createWrittenCheck, type WrittenCheckOptions } from "./written";
+import { createWrittenCheck, type WrittenCheckOptions } from "./written";
 
 /**
  * What the "checks" flow sends: the sentences checked, with their paragraphs,
@@ -1185,8 +1185,8 @@ export function createChecks(options: ChecksOptions) {
           if (signal.aborted) return;
           if ("result" in outcome && outcome.result.verdict !== "not-checked") checked++;
           const at = options.now().toISOString();
-          const kept = content.edit(mindId, (blocks) => {
-            const changed = updateCheck(blocks, sentence.id, (check) =>
+          const kept = content.edit(mindId, (blocks) =>
+            updateCheck(blocks, sentence.id, (check) =>
               "result" in outcome
                 ? noteResult(
                     check,
@@ -1206,10 +1206,8 @@ export function createChecks(options: ChecksOptions) {
                     outcome.reason,
                     outcome.detail,
                   ),
-            );
-            if (changed && "result" in outcome) citeFoundPassages(blocks, sentence.id);
-            return changed;
-          });
+            ),
+          );
           if (kept) retainEvidence(mindId);
         },
       },
@@ -1343,7 +1341,6 @@ export function createChecks(options: ChecksOptions) {
     firstReading,
     withResult: noteResult,
     retainEvidence,
-    landed: citeFoundPassages,
     settleStopped,
     track,
   });

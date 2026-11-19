@@ -1,10 +1,11 @@
 /**
  * A Passage the check of the assistant's own sentence found rides in that change while the change
- * still waits there for the User (#3019), and goes into the assistant's words as their Citation
- * once it is accepted (#3358). Rejected, nothing is left; edited while its check runs, the sentence
- * is the User's, and the check writes nothing into it.
+ * still waits there for the User (#3019), and once it is accepted goes in as the sentence's
+ * Citation only in a paragraph the change added whole, which Undo of the change takes away whole
+ * (#3358). Rejected, nothing is left; edited while its check runs, or rewritten inside a paragraph
+ * that was there, the sentence is the User's, and the check writes nothing into it.
  */
-import type { JSONContent } from "@tiptap/core";
+import { getSchema, type JSONContent } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
@@ -13,9 +14,14 @@ import {
   type CitationAttributes,
   type Document,
   GENERATED_MARK,
+  MIND_REVISIONS_FIELD,
 } from "../../src/core";
 import { EDIT_INSTRUCTIONS, EDIT_INSTRUCTIONS_NAMED } from "../../src/core/edits/prompt";
+import { writeAccepted } from "../../src/renderer/src/editor/arrivedChanges";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import { noteHealth } from "../../src/renderer/src/editor/healthCounts";
+import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { originMaps } from "../../src/shared/blockOrigins";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant } from "../helpers/assistant";
 import { checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -300,5 +306,117 @@ describe("A change that rewrites words inside a paragraph", { timeout: 30_000 },
       expect(shownIn(client).map((claim) => claim.shown)).toEqual([{ state: "supported" }]);
     }
     expect(calls.length).toBe(asked);
+  });
+});
+
+/**
+ * The window's way of applying a change, as a step its Undo takes back (`writeAccepted`); what
+ * the User types after it is done as `typed`, each its own step.
+ */
+function appliedAsTheWindowDoes(client: MindClient) {
+  const tracked = { applying: true };
+  const history = new Y.UndoManager(
+    [client.blocks, ...originMaps(client.doc), client.doc.getMap(MIND_REVISIONS_FIELD)],
+    { captureTimeout: 0, trackedOrigins: new Set([tracked]) },
+  );
+  const requests = new Set(pendingProposals(client.blocks).map((each) => each.request));
+  writeAccepted(client.doc, requests, { aside: true }, tracked, getSchema(noteExtensions()));
+  const typed = (change: () => void) => client.doc.transact(change, tracked);
+  return { history, typed };
+}
+
+describe("Undo of a change that added a paragraph whole", { timeout: 30_000 }, () => {
+  // protects=when the assistant's change adds a paragraph whole, the window applies it, and the check then lands Supported with a Passage its Citation doesn't hold, the Passage goes in as the paragraph's Citation; Undo of the change takes the paragraph away with that Citation, also when the User has typed into the paragraph since, and Redo puts the paragraph back (#3358); fails_when=no Citation goes in, or Undo leaves the Citation or the assistant's words behind; no_claim=a change inside a paragraph that was there, held below.
+  test.each([
+    ["as applied", false],
+    ["typed into since", true],
+  ] as const)("%s", async (_kind, typeInto) => {
+    let window: ReturnType<typeof appliedAsTheWindowDoes> | undefined;
+    const { client } = await heldWrite(SENTENCE, OTHER, (note) => {
+      window = appliedAsTheWindowDoes(note);
+      if (!typeInto) return;
+      const paragraph = note.blocks.toArray().find((block) => block instanceof Y.XmlElement);
+      const end = paragraph?.get(paragraph.length - 1);
+      if (end instanceof Y.XmlText) window.typed(() => end.insert(end.length, " It is calm."));
+    });
+    if (!window) throw new Error("The change wasn't applied.");
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    const landed = textOf(readMind(client));
+    expect(landed[0]?.endsWith(typeInto ? ". It is calm." : ".")).toBe(true);
+    expect(citationsIn(client).map((each) => [each.quote, each.foundByCheck ?? null])).toEqual([
+      [OTHER, null],
+      [expect.stringContaining(LINE), true],
+    ]);
+
+    window.history.undo();
+    if (typeInto) window.history.undo();
+    await client.settled();
+    expect(textOf(readMind(client))).toEqual([]);
+    expect(citationsIn(client)).toEqual([]);
+
+    window.history.redo();
+    await client.settled();
+    expect(textOf(readMind(client))).toEqual(landed);
+  });
+});
+
+describe("Undo of a change that rewrote the assistant's words inside a paragraph", {
+  timeout: 30_000,
+}, () => {
+  // protects=when the assistant's change rewrites words inside a paragraph that was already there (its own earlier text, accepted), the change is applied, and a check then lands Supported on them with a Passage their Citation doesn't hold, the check writes nothing into that paragraph: Undo of the change brings the paragraph back exactly as it was, with no Citation left behind, and Redo puts the rewrite back; the sentence reads Supported, not yet cited, counted with what can be cited (#3358); fails_when=the check cites inside the rewritten words, so Undo leaves its Citation or words behind; no_claim=a Block the change added whole, which Undo takes away with whatever is in it.
+  test.each([
+    ["the check of what the assistant writes", true],
+    ["Check this Note", false],
+  ] as const)("%s", async (_kind, onWrite) => {
+    const edit = {
+      tool: "edit_mind",
+      input: { part: "Tides", content: `## Tides\n\n${written(SENTENCE)}` },
+    };
+    const { model, held, release } = assistant(OTHER, edit, onWrite);
+    const { core, mind, client } = await noteWith(model, accepted);
+    if (!onWrite) await core.updateSettings({ user: { checkAssistantWrites: false } });
+    const before = textOf(readMind(client));
+    const answered = askAssistant(core, { text: "Say what the tides do here", mindId: mind.id });
+    if (onWrite) await held;
+    else await answered;
+    await turns();
+    expect(pendingProposals(client.blocks).length).toBeGreaterThan(0);
+    const { history } = appliedAsTheWindowDoes(client);
+    await client.settled();
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    const rewritten = textOf(readMind(client));
+    expect(rewritten).not.toEqual(before);
+    if (onWrite) {
+      release();
+      await answered;
+    } else {
+      await core.checkSentences({
+        requestId: crypto.randomUUID(),
+        mindId: mind.id,
+        action: "check-against-documents",
+        from: { blockId: "accepted", offset: 0 },
+        to: { blockId: "accepted", offset: 1 },
+      });
+    }
+    await turns();
+    await client.settled();
+    expect(citationsIn(client).filter((each) => each.foundByCheck)).toEqual([]);
+    expect(textOf(readMind(client))).toEqual(rewritten);
+    expect(shownIn(client).map((claim) => claim.shown)).toEqual([
+      { state: "not-checked", reason: "found-elsewhere" },
+    ]);
+    const health = noteHealth(readMind(client), {
+      claims: shownIn(client),
+      citationCheck: () => "found",
+    });
+    expect(health.notYetCited).toHaveLength(1);
+
+    history.undo();
+    await client.settled();
+    expect(textOf(readMind(client))).toEqual(before);
+    expect(citationsIn(client).filter((each) => each.foundByCheck)).toEqual([]);
+    history.redo();
+    await client.settled();
+    expect(textOf(readMind(client))).toEqual(rewritten);
   });
 });

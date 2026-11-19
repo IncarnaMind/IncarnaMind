@@ -25,10 +25,11 @@ import {
 /*
  * After a check only what needs the reader is marked (#3358): what needs a look and what wasn't
  * checked keep their marks, a Supported sentence has none, and a Passage the check found becomes a
- * Citation, in the assistant's words as the check lands and in the User's only by Add all, one
- * Undo. "Show every check result", kept with the Note, brings every mark back. The scripted model
- * (src/main/fakeChat/checks.ts) backs a sentence with the line it shares three words with and finds
- * one that shares none unsupported. Set INCARNAMIND_QUIET_STILLS to a folder to save the stills.
+ * Citation in a paragraph the assistant's change adds whole as its check lands, and elsewhere only
+ * by Add all, one Undo. "Show every check result", kept with the Note, brings every mark back. The
+ * scripted model (src/main/fakeChat/checks.ts) backs a sentence with the line it shares three words
+ * with and finds one that shares none unsupported. Set INCARNAMIND_QUIET_STILLS to a folder to save
+ * the stills.
  */
 
 const STILLS = process.env.INCARNAMIND_QUIET_STILLS;
@@ -86,7 +87,7 @@ async function almanac(window: Page) {
   return found;
 }
 
-test("after a check only what needs a look is marked; the assistant's sentence gets its Citation, the User's can be cited; every result comes back and is kept", async () => {
+test("after a check only what needs a look is marked; the sentences written before it can be cited; every result comes back and is kept", async () => {
   test.setTimeout(300_000);
   await writeFile(join(sources, "Harbour Almanac 2026.md"), ALMANAC);
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -152,41 +153,43 @@ test("after a check only what needs a look is marked; the assistant's sentence g
   await expect(editorOf(window).locator(".claim-wash--unsupported")).toHaveCount(1);
   await expect(editorOf(window).locator(".claim-wash--worked-out")).toHaveCount(0);
 
-  // The assistant's sentence carries the Passage its check rests on as its Citation, and the quote
-  // opens from it; the User's own sentence is left as written.
-  const text = await noteText(window);
-  expect(text[1]).toBe(`Ships longer than 120 metres need a pilot to enter[${PILOT}].`);
-  expect(text[2]).toBe("The north pier was rebuilt after the winter storms.");
-  const lines = editorOf(window).locator(":scope > p");
-  await pointAndClick(window, lines.nth(1).getByTestId("citation"));
-  await expect(window.getByTestId("citation-found-by-check")).toBeVisible();
-  await expect(window.locator('[data-testid="citation-card"]')).toContainText(PILOT);
-  await window.keyboard.press("Escape");
+  // The check writes no Citation into words written before it, the assistant's or the User's.
+  const written = [
+    "Ships longer than 120 metres need a pilot to enter.",
+    "The north pier was rebuilt after the winter storms.",
+  ];
+  expect((await noteText(window)).slice(1, 3)).toEqual(written);
 
   // The foot line keeps what needs a look first and says what can be cited.
   const badge = window.getByTestId("check-badge");
   await expect(badge).toHaveAttribute("data-state", "needs-look");
   await expect(badge.getByTestId("check-badge-open")).toHaveAccessibleName(
-    "Checks: 1 needs a look and 1 can be cited",
+    "Checks: 1 needs a look and 2 can be cited",
   );
   const panel = await checkCard(window);
   const row = panel.getByTestId("health-notYetCited");
-  await expect(row).toContainText("1 can be cited");
-  await expect(row.getByTestId("found-passages-add")).toHaveAccessibleName("Add");
+  await expect(row).toContainText("2 can be cited");
+  await expect(row.getByTestId("found-passages-add")).toHaveAccessibleName("Add all");
 
-  // Add all cites the User's sentence in one step, and one Undo takes it back.
+  // Add all cites both in one step, the quote opens from the Citation, and one Undo takes both back.
   await pointAndClick(window, row.getByTestId("found-passages-add"));
   await expect
-    .poll(async () => (await noteText(window))[2])
-    .toBe(`The north pier was rebuilt after the winter storms[${PIER}].`);
+    .poll(async () => (await noteText(window)).slice(1, 3))
+    .toEqual([
+      `Ships longer than 120 metres need a pilot to enter[${PILOT}].`,
+      `The north pier was rebuilt after the winter storms[${PIER}].`,
+    ]);
   await expect(panel.getByTestId("health-notYetCited")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  const lines = editorOf(window).locator(":scope > p");
+  await pointAndClick(window, lines.nth(1).getByTestId("citation"));
+  await expect(window.getByTestId("citation-found-by-check")).toBeVisible();
+  await expect(window.locator('[data-testid="citation-card"]')).toContainText(PILOT);
   await window.keyboard.press("Escape");
   await pointAndClick(window, lines.last());
   await focusSettled(window, editorOf(window));
   await window.keyboard.press("ControlOrMeta+z");
-  await expect
-    .poll(async () => (await noteText(window))[2])
-    .toBe("The north pier was rebuilt after the winter storms.");
+  await expect.poll(async () => (await noteText(window)).slice(1, 3)).toEqual(written);
 
   // The switch is named and reached with the keyboard on the card, and brings every mark back.
   const again = await checkCard(window);
@@ -288,8 +291,9 @@ const STILL_WORDS = {
 } as const;
 
 /**
- * The Note as a check of it leaves it, in `language`: the assistant's sentence carries the Passage
- * its check found as its Citation, and the User's own Supported sentence cites nothing yet.
+ * The Note as checks leave it, in `language`: the sentence the assistant's change added carries
+ * the Passage its check found as its Citation, and the User's own Supported sentence cites nothing
+ * yet.
  */
 function stillNote(
   language: "en" | "zh-CN",
