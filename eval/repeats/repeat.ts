@@ -12,20 +12,21 @@ import * as Y from "yjs";
 import type { ChatModelChoice, ClaimCheckAttributes, Core, SearchScope } from "../../src/core";
 import { MIND_CONTENT_FIELD } from "../../src/core";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
-import { coveredPart, saysNotFound } from "../../src/shared/claimChecks";
+import { coveredPart, namedReason, saysNotFound } from "../../src/shared/claimChecks";
 import { setMindScope } from "../../src/shared/mindScope";
 import { connectToMind } from "../../tests/helpers/mindClient";
 import { note, readMind, writeMind } from "../../tests/helpers/minds";
 
 /**
- * How a sentence's check shows on its card: "partly" names what the Documents
- * support with a quote, "differs" quotes a line that says something
- * different, "absent" says where the check looked and didn't find it, and
- * "unsupported" is the card headed Unsupported with nothing to quote.
+ * How a sentence's check shows on its card: "overstated" and "partly" are headed with the word its
+ * model named (a "partly" made before #3081 names what the Documents support with a quote),
+ * "differs" quotes a line that says something different, "absent" says where the check looked
+ * and didn't find it, and "unsupported" is the card headed Unsupported with nothing to quote.
  */
 export type Outcome =
   | "supported"
   | "contradicted"
+  | "overstated"
   | "partly"
   | "differs"
   | "absent"
@@ -53,7 +54,10 @@ export function outcomeOf(check: ClaimCheckAttributes | undefined): Outcome {
   if (check.state === "supported" || check.state === "contradicted") return check.state;
   if (check.state !== "unsupported") return "not-checked";
   if (check.evidence) return "differs";
-  if (coveredPart(check.unsupported)) return "partly";
+  // The card is headed with the word the model named before it says nothing was found (#3390).
+  const named = namedReason(check.unsupported);
+  if (named === "overstated") return "overstated";
+  if (named === "partly-supported" || coveredPart(check.unsupported)) return "partly";
   // The eval's sentences carry no Citations, and saysNotFound decides the Not found card for the app.
   return saysNotFound({ state: "unsupported" }, check, 0) ? "absent" : "unsupported";
 }

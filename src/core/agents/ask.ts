@@ -26,8 +26,9 @@ type Say = (key: MessageKey, params?: MessageParams) => string;
 
 export interface AgentAskOptions {
   /** The agents the User can ask about this Note now (`createAgents().askable`). */
-  askable(mindId: string | null): AgentPairing[];
+  askable(mindId: string | null, documentId?: string): AgentPairing[];
   minds(): Mind[];
+  meetingTranscript(meetingId: string, mindId: string): string | null;
   /** Opens a link in the agent's app; null where this copy of IncarnaMind can't. */
   openLink: ((url: string) => Promise<void>) | null;
   say: Say;
@@ -39,6 +40,7 @@ export function agentRequest(
   note: { title: string; mindId: string } | null,
   ask: AgentAsk,
   say: Say,
+  meeting?: { transcriptId: string; propose: boolean },
 ): string {
   if (ask.kind === "question" && note === null) {
     return say("agents.ask.request.questionAlone", { question: ask.text });
@@ -46,6 +48,13 @@ export function agentRequest(
   if (note === null) throw new InvalidInputError({ key: "error.agent.askRequest" });
   const named = { title: quotedName(note.title), mindId: note.mindId };
   switch (ask.kind) {
+    case "meeting":
+      if (!meeting) throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
+      return say("agents.ask.request.meeting", {
+        ...named,
+        transcriptId: meeting.transcriptId,
+        action: say(meeting.propose ? "agents.ask.meeting.propose" : "agents.ask.meeting.reply"),
+      });
     case "question":
       return say("agents.ask.request.question", { ...named, question: ask.text });
     case "note":
@@ -69,6 +78,8 @@ const words = (value: unknown): string => {
 function parseAsk(value: unknown): AgentAsk {
   if (!isRecord(value)) throw new InvalidInputError({ key: "error.agent.askRequest" });
   switch (value.kind) {
+    case "meeting":
+      return { kind: "meeting", meetingId: words(value.meetingId) };
     case "question":
       return { kind: "question", text: words(value.text) };
     case "note":
@@ -99,7 +110,22 @@ export function createAgentAsk(options: AgentAskOptions) {
       const note = mind
         ? { title: mindName(mind) || options.say("mind.untitled"), mindId: mind.id }
         : null;
-      const text = agentRequest(note, ask, options.say);
+      const transcriptId =
+        ask.kind === "meeting" && note
+          ? options.meetingTranscript(ask.meetingId, note.mindId)
+          : null;
+      if (
+        transcriptId &&
+        !options.askable(mindId, transcriptId).some((each) => each.id === pairingId)
+      ) {
+        throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
+      }
+      const text = agentRequest(
+        note,
+        ask,
+        options.say,
+        transcriptId ? { transcriptId, propose: pairing.propose } : undefined,
+      );
       const link = promptLinkFor(pairing.client, text);
       if (link && options.openLink) {
         try {

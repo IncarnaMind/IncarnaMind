@@ -51,6 +51,11 @@ export function sharedWithOf(folders: readonly Placed[]): Map<string, string[]> 
   );
 }
 
+/** The Folders an agent given `chosen` reads: those, and the Folders inside them up to a wall. */
+export function foldersReached(folders: readonly Placed[], chosen: readonly string[]): string[] {
+  return [...chosen.filter((id) => id !== NOT_IN_A_FOLDER_ID), ...sharedInside(folders, chosen)];
+}
+
 /** The Folders an agent given `chosen` reads besides those it was given: the Folders inside them. */
 export function sharedInside(folders: readonly Placed[], chosen: readonly string[]): string[] {
   const sharedWith = sharedWithOf(folders);

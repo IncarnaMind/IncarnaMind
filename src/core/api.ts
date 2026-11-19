@@ -3728,6 +3728,8 @@ export interface DeviceSettings {
   tips: Record<string, number>;
   /** What a Meeting records unless the start block says otherwise: the computer's sound too ("Me and them"), or only the microphone. */
   meetingSystemAudio: boolean;
+  /** The connected agent chosen for notes after Stop on this device. */
+  meetingNotesAgentId: string | null;
   /**
    * "Keep a meeting's audio" (#687): a Meeting that starts recording while it is on keeps its
    * audio until the User deletes it, instead of for a day. Off by default; turning it on or off
@@ -11956,7 +11958,9 @@ export interface MeetingFillStretch {
  * it is instead, a line a paragraph ("transcript"), and `problem` says why.
  */
 export interface MeetingFill {
-  state: "waiting" | "filling" | "filled" | "undone" | "failed" | "off";
+  state: "waiting" | "filling" | "filled" | "undone" | "failed" | "off" | "own-ai";
+  /** The pairing chosen at Stop. Its request is opened only by the User. */
+  agentId?: string;
   /**
    * Under the User's lines ("notes"), or in sections because they wrote none; a voice memo's
    * note tidied ("memo") or its Transcript as it is ("transcript"). Null before it knows.
@@ -12609,6 +12613,7 @@ export type AskVerdict = (typeof ASK_VERDICTS)[number];
  * a look, the words they typed in the chat box, or only the Note named, to go on in their AI.
  */
 export type AgentAsk =
+  | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentence: string; verdict: AskVerdict }
   | { kind: "question"; text: string }
   | { kind: "note" };
@@ -15092,7 +15097,7 @@ export interface CoreApi {
   /** A paired agent's settings to paste again, e.g. into a second copy of it. */
   copyAgentSetup(pairingId: string): Promise<Extract<AgentSetupResult, { kind: "copy" }>>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
-  listAgentsToAsk(mindId: string | null): Promise<AgentPairing[]>;
+  listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
   /**
    * Ask your AI (#3373): a short request in the interface language, for the User to send in their
    * own AI. Its app opens with the request typed where it documents a link for that; otherwise the

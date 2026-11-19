@@ -6,6 +6,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import type { AnalysisJob } from "../../src/shared/analysis";
 import {
   buildAgentShim,
@@ -155,6 +156,7 @@ async function library() {
     core,
     runtime,
     connect,
+    recordMeeting,
     folders: { coast, engineering, yard, legal, drafts, hidden, archived },
     documents: { timetable, gearbox, slipway, claim, draft, archive },
     notes: { refitPlan, claimNotes, draftNote, archiveNote },
@@ -403,5 +405,29 @@ describe("an agent given a Folder", { timeout: 120_000 }, () => {
         (await search(agent, "claim settle Gwavas gearbox ferry")).map((each) => each.documentId),
       ),
     ).toEqual(new Set([documents.claim.id, documents.draft.id, meetings.claimCall.transcriptId]));
+  });
+
+  // protects=a meeting's notes go to the User's own AI (#3396) for a meeting in a Folder inside the agent's, never one behind a wall there or in no Folder; fails_when=the offer or the request follows the exact Folders granted, or lets a walled or unfiled meeting through
+  it("offers a meeting in a Folder inside its own to the User's AI, never one behind a wall or in no Folder", async () => {
+    const { core, connect, recordMeeting, folders, meetings } = await library();
+    const crewCall = await recordMeeting(null, "Crew call");
+    await connect("Claude Code", [folders.coast.id, NOT_IN_A_FOLDER_ID]);
+    const offered = async (meeting: { mindId: string; transcriptId: string }) =>
+      (await core.listAgentsToAsk(meeting.mindId, meeting.transcriptId)).map((each) => each.name);
+    expect(await offered(meetings.refitCall)).toEqual(["Claude Code"]);
+    expect(await offered(meetings.claimCall)).toEqual([]);
+    expect(await offered(crewCall)).toEqual([]);
+
+    const [pairing] = (await core.getAgents()).pairings;
+    const held = await core.listMeetings();
+    const ask = (mindId: string) =>
+      core.askAgent({
+        mindId,
+        pairingId: pairing?.id ?? "",
+        ask: { kind: "meeting", meetingId: held.find((each) => each.mindId === mindId)?.id ?? "" },
+      });
+    await expect(ask(meetings.refitCall.mindId)).resolves.toBeDefined();
+    await expect(ask(meetings.claimCall.mindId)).rejects.toThrow();
+    await expect(ask(crewCall.mindId)).rejects.toThrow();
   });
 });

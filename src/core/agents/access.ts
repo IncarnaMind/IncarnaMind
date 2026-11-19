@@ -942,6 +942,10 @@ function placeChanges(asked: readonly AskedChange[], note: NamedNote, t: Say): N
     if (n === null) throw new AgentRefusedError("invalid", t("agents.propose.firstAdd"));
     const at = note.paragraphs.findIndex((paragraph) => paragraph.name === `¶${n}`);
     if (at < 0) {
+      if (note.paragraphs.length === 0 && n === 0 && change.kind === "add") {
+        before = n;
+        return { kind: "add", after: null, text: change.text };
+      }
       throw new AgentRefusedError(
         "invalid",
         note.paragraphs.length === 0
@@ -1020,6 +1024,37 @@ export const pairingReaches = (
     ? reached.has(NOT_IN_A_FOLDER_ID) && pairingWrote(deps, pairing, mind.id)
     : reached.has(mind.folderId);
 
+/**
+ * The Documents filed in these Folders, of those the pairing reaches, a Transcript among them only
+ * while the pairing reaches its Note: its words are its Note's (#3384, #3394). `reached`: the
+ * pairing's `reachedFolders`, when the caller has them.
+ */
+export function documentsForPairing(
+  deps: AgentAccessDeps,
+  pairing: AdmittedPairing,
+  folderIds: readonly string[],
+  reached: ReadonlySet<string> = reachedFolders(deps, pairing),
+): string[] {
+  const documentIds = deps.documentsIn(folderIds);
+  const held = deps.noteTranscripts();
+  if (held.length === 0) return documentIds;
+  const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
+  const apart = new Set(
+    held
+      .filter(({ mindId }) => {
+        const mind = minds.get(mindId);
+        // No Note it wrote is older than the pairing, which spares reading the others' records.
+        return (
+          !mind ||
+          (mind.folderId === null && mind.createdAt < pairing.createdAt) ||
+          !pairingReaches(deps, pairing, mind, reached)
+        );
+      })
+      .map(({ documentId }) => documentId),
+  );
+  return documentIds.filter((id) => !apart.has(id));
+}
+
 // ---------------------------------------------------------------------------
 // The implementation
 
@@ -1094,29 +1129,6 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   }
 
   /**
-   * These Documents, a Transcript among them only while the pairing reaches its Note: its words
-   * are its Note's, and the User's Notes are shared only with their Folder (#3384).
-   */
-  const withTheirNotes = (
-    pairing: AdmittedPairing,
-    reached: ReadonlySet<string>,
-    documentIds: string[],
-  ): string[] => {
-    const held = deps.noteTranscripts();
-    if (held.length === 0) return documentIds;
-    const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
-    const apart = new Set(
-      held
-        .filter((each) => {
-          const mind = minds.get(each.mindId);
-          return !mind || !noteReached(pairing, mind, reached);
-        })
-        .map((each) => each.documentId),
-    );
-    return documentIds.filter((id) => !apart.has(id));
-  };
-
-  /**
    * The Documents a call may read: everything its pairing reaches, or only what the Folders it
    * names hold, the Folders inside them included.
    */
@@ -1126,7 +1138,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     }
     const reached = reachedFolders(deps, pairing);
     const holding = (folders: Iterable<string>) =>
-      withTheirNotes(pairing, reached, deps.documentsIn([...folders]));
+      documentsForPairing(deps, pairing, [...folders], reached);
     if (folderIds === undefined) return holding(reached);
     if (!Array.isArray(folderIds) || !folderIds.every((id) => typeof id === "string")) {
       throw new AgentRefusedError("invalid", "folderIds must be a list of Folder ids.");
@@ -1289,10 +1301,6 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const wrote = (pairing: AdmittedPairing, mindId: string) => pairingWrote(deps, pairing, mindId);
   const reaches = (pairing: AdmittedPairing, mind: Mind, reached?: ReadonlySet<string>) =>
     pairingReaches(deps, pairing, mind, reached);
-  // No Note it wrote is older than the pairing, which spares reading the others' records.
-  const noteReached = (pairing: AdmittedPairing, mind: Mind, reached: ReadonlySet<string>) =>
-    (mind.folderId !== null || mind.createdAt >= pairing.createdAt) &&
-    reaches(pairing, mind, reached);
 
   /**
    * A Mind in the pairing's Folders, or in no Folder when the pairing wrote it and reads the
@@ -2055,6 +2063,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             const cause =
               deps.versions.get(key) === note.version ? "changedByYou" : "changedByUser";
             throw new AgentRefusedError("changed", t(`agents.problem.${cause}`));
+          }
+          if (note.paragraphs.length === 0 && waitingChanges(blocks) > 0) {
+            throw new AgentRefusedError("waiting", t("agents.propose.firstWaiting"));
           }
           const proposed = proposeNamed(blocks, note, placeChanges(asked, note, t), {
             request,

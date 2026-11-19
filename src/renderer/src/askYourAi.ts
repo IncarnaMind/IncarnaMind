@@ -13,7 +13,8 @@ import { useAppStore } from "./store";
 
 const NONE: readonly AgentPairing[] = [];
 /** The key of the agents for no Note: a question in the assistant with none in focus. */
-const keyOf = (mindId: string | null) => mindId ?? "";
+const keyOf = (mindId: string | null, documentId?: string) =>
+  documentId ? `${mindId}/${documentId}` : (mindId ?? "");
 
 const useAskable = create<{ byMind: Readonly<Record<string, readonly AgentPairing[]>> }>()(() => ({
   byMind: {},
@@ -27,14 +28,18 @@ export const useAgentsToAsk = (mindId: string | null): readonly AgentPairing[] =
   useAskable((state) => state.byMind[keyOf(mindId)] ?? NONE);
 
 /** As `useAgentsToAsk`, and null until they are first read, so nothing shows that would change. */
-export const useAgentsToAskRead = (mindId: string | null): readonly AgentPairing[] | null =>
-  useAskable((state) => state.byMind[keyOf(mindId)] ?? null);
+export const useAgentsToAskRead = (
+  mindId: string | null,
+  documentId?: string,
+): readonly AgentPairing[] | null =>
+  useAskable((state) => state.byMind[keyOf(mindId, documentId)] ?? null);
 
 /**
  * Reads the agents for `mindId` while it is shown, and again as agents change and as the Note
- * moves Folder, so a card or a line has them before it is opened.
+ * or the Folders around it move or gain a wall, which change what an agent reads (#3394), so a
+ * card or a line has them before it is opened.
  */
-export function useReadAgentsToAsk(mindId: string | null): void {
+export function useReadAgentsToAsk(mindId: string | null, documentId?: string): void {
   const folderId = useAppStore((state) =>
     mindId === null ? null : (state.minds.find((mind) => mind.id === mindId)?.folderId ?? null),
   );
@@ -42,18 +47,22 @@ export function useReadAgentsToAsk(mindId: string | null): void {
   useEffect(() => {
     let current = true;
     const read = () => {
-      core.listAgentsToAsk(mindId).then((agents) => {
+      core.listAgentsToAsk(mindId, documentId).then((agents) => {
         if (!current) return;
-        useAskable.setState(({ byMind }) => ({ byMind: { ...byMind, [keyOf(mindId)]: agents } }));
+        useAskable.setState(({ byMind }) => ({
+          byMind: { ...byMind, [keyOf(mindId, documentId)]: agents },
+        }));
       }, useAppStore.getState().reportError);
     };
     read();
     const stop = core.on("agents.changed", read);
+    const stopLibrary = core.on("library.changed", read);
     return () => {
       current = false;
       stop();
+      stopLibrary();
     };
-  }, [mindId, folderId]);
+  }, [mindId, folderId, documentId]);
 }
 
 const noModelIn = (state: ReturnType<typeof useAppStore.getState>) =>

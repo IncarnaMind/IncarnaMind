@@ -8414,6 +8414,8 @@ export const en = {
   "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
   "agents.propose.version": "Give the version read_mind returned with named.",
   "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
+  "agents.propose.firstWaiting":
+    "The first paragraphs are already waiting for review. Let the user review them before proposing more.",
   "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
   "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
   "agents.propose.outOfRange.titled":
@@ -8582,6 +8584,25 @@ export const en = {
   "agents.ask.copied": "Copied. Paste it into {agent}.",
   "agents.ask.fixCommand": "Ask your AI to fix this sentence",
   "agents.ask.noteCommand": "Ask your AI about this note",
+  "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
+  "agents.ask.request.meeting":
+    "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite the transcript for each item and check the citations yourself. Preserve my notes. {action}",
+  "agents.ask.meeting.propose":
+    "After checking the complete draft, propose the summary once as an addition at the end of this note, using ¶0+ if it has no named paragraphs.",
+  "agents.ask.meeting.reply": "Give me the summary here in the chat.",
+  "meetings.notesAgent.setting": "AI for meeting notes",
+  "meetings.notesAgent.detail":
+    "With your own AI, you open the request after the meeting and send it there.",
+  "meetings.notesAgent.default": "IncarnaMind model when available",
+  "meetings.notesAgent.disconnected": "Disconnected AI",
+  "meetings.notesAgent.open": "Prepare notes with {agent}",
+  "meetings.notesAgent.ready": "Your meeting transcript is ready.",
+  "meetings.notesAgent.needsAccess":
+    "{agent} needs access to the folders holding both the meeting note and its transcript.",
+  "meetings.notesAgent.unshared":
+    "To use {agent}, move this meeting note to a folder shared with it.",
+  "meetings.notesAgent.unavailable": "Reconnect your AI or resume its access in Settings.",
+  "meetings.notesAgent.settings": "Agent settings",
   "agents.ask.request.fix":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
   "agents.ask.request.question":
