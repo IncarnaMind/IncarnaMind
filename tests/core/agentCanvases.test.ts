@@ -1,0 +1,285 @@
+/**
+ * Canvases an outside agent publishes (#3406), through the shim the app ships with the MCP SDK's own
+ * client, as Claude Code or Codex call it: it publishes only where it may write, reads and updates
+ * what it reaches, and an update built on an older version is refused with the newest. The files a
+ * version uses are read from the paths named in that call alone, and any other agent outside its
+ * reach can't list, read or update it, nor learn it is there.
+ */
+import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { beforeAll, describe, expect, it } from "vitest";
+import type { Core } from "../../src/core";
+import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
+import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
+import { createTempDataFolder } from "../helpers/core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { replyingModel } from "../helpers/models";
+
+type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
+
+interface Published {
+  canvasId: string;
+  title: string;
+  folder: string;
+  version: number;
+  files: string[];
+  refused: { item: string; reason: string }[];
+}
+
+interface Read {
+  canvasId: string;
+  title: string;
+  version: number;
+  html: string;
+  offset: number;
+  nextOffset: number | null;
+  files: { name: string; type: string; size: number }[];
+}
+
+interface Listed {
+  folders: { id: string; canvases?: { id: string; title: string; version: number }[] }[];
+}
+
+function structured<T>(result: unknown): T {
+  const { isError, structuredContent, content } = result as {
+    isError?: boolean;
+    structuredContent?: unknown;
+    content?: { text?: string }[];
+  };
+  expect(isError ?? false, content?.[0]?.text).toBe(false);
+  return structuredContent as T;
+}
+
+function refusal(result: unknown): string {
+  const { isError, content } = result as { isError?: boolean; content?: { text?: string }[] };
+  expect(isError).toBe(true);
+  return content?.[0]?.text ?? "";
+}
+
+/** A PNG's first bytes: what the file is told by, whatever its name says. */
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+const PAGE = '<!doctype html><title>Tides</title><img src="chart.png"><p>Spring tides.</p>';
+
+/**
+ * A core with "Coast" and "Finance", each with a Document; "Claude Code" may write in Coast and in
+ * no Folder, "Codex" may read Finance alone. `files`: a folder of files an agent can name.
+ */
+async function twoAgents() {
+  const kept = await createTempDataFolder();
+  const started = await startAgentsCore(replyingModel(), {
+    canvasFiles: createCanvasFiles(join(kept, "Canvases")),
+  });
+  const { core } = started;
+  const sources = await createSourceFolder();
+  const [tides, budget] = await addAndProcess(core, [
+    await writeSourceFile(sources, "Tides.md", "# Tides\n\nSpring tides come twice a month.\n"),
+    await writeSourceFile(sources, "Budget.md", "# Budget\n\nDredging costs 4 million.\n"),
+  ]);
+  if (!tides || !budget) throw new Error("The Documents weren't added.");
+  const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
+  const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
+  await core.assignDocumentGroup(tides.id, coast.id);
+  await core.assignDocumentGroup(budget.id, finance.id);
+  await core.setAgentsEnabled(true);
+  const writer = await core.connectAgent({
+    name: "Claude Code",
+    folderIds: [coast.id, NOT_IN_A_FOLDER_ID],
+    propose: true,
+  });
+  const reader = await core.connectAgent({ name: "Codex", folderIds: [finance.id] });
+  const files = await createSourceFolder();
+  await writeFile(join(files, "chart.png"), PNG);
+  return { ...started, core, coast, finance, writer, reader, files };
+}
+
+const publish = (agent: Agent, args: Record<string, unknown>) =>
+  agent.callTool({ name: "publish_canvas", arguments: args });
+
+describe("Canvases an outside agent publishes", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  it("are published in a Folder it may write in, read back and updated on the version read", async () => {
+    const { core, coast, writer, files } = await twoAgents();
+    const agent = await connectLegacyAgent(writer.launch);
+    const changed: string[] = [];
+    core.on("agents.canvasChanged", (change) => changed.push(`${change.kind} ${change.version}`));
+
+    const published = structured<Published>(
+      await publish(agent, {
+        title: "Tide report",
+        html: PAGE,
+        files: [join(files, "chart.png")],
+        folderId: coast.id,
+      }),
+    );
+    expect(published).toMatchObject({
+      title: "Tide report",
+      folder: "Coast",
+      version: 1,
+      files: ["chart.png"],
+      refused: [],
+    });
+    expect(await core.listCanvases()).toEqual([
+      expect.objectContaining({
+        id: published.canvasId,
+        title: "Tide report",
+        folderId: coast.id,
+        agent: "Claude Code",
+        version: 1,
+      }),
+    ]);
+
+    const read = structured<Read>(
+      await agent.callTool({ name: "read_canvas", arguments: { canvasId: published.canvasId } }),
+    );
+    expect(read).toMatchObject({ version: 1, html: PAGE, nextOffset: null });
+    expect(read.files).toEqual([{ name: "chart.png", type: "image/png", size: PNG.byteLength }]);
+
+    const updated = structured<Published>(
+      await agent.callTool({
+        name: "update_canvas",
+        arguments: { canvasId: published.canvasId, version: 1, html: `${PAGE}<p>Neap tides.</p>` },
+      }),
+    );
+    // The file it named before stays: only what an update names changes.
+    expect(updated).toMatchObject({ version: 2, files: ["chart.png"], refused: [] });
+    const stale = refusal(
+      await agent.callTool({
+        name: "update_canvas",
+        arguments: { canvasId: published.canvasId, version: 1, title: "Tides" },
+      }),
+    );
+    expect(stale).toBe(
+      "This Canvas is at version 2 now, not 1. Read it with read_canvas and build on that version.",
+    );
+    expect(changed).toEqual(["published 1", "updated 2"]);
+
+    const listed = structured<Listed>(await agent.callTool({ name: "list_minds", arguments: {} }));
+    expect(listed.folders.find((folder) => folder.id === coast.id)?.canvases).toEqual([
+      expect.objectContaining({ id: published.canvasId, title: "Tide report", version: 2 }),
+    ]);
+  });
+
+  it("are drawn only at an address minted for a showing, with only their own version's files", async () => {
+    const { core, writer, files } = await twoAgents();
+    const agent = await connectLegacyAgent(writer.launch);
+    const { canvasId } = structured<Published>(
+      await publish(agent, { title: "Tides", html: PAGE, files: [join(files, "chart.png")] }),
+    );
+    const { url, version } = await core.showCanvas(canvasId);
+    expect(version).toBe(1);
+    const host = new URL(url).hostname;
+    expect(host).toMatch(/^[0-9a-f]{32}$/);
+    expect(core.canvasShowing(host)).toBe(canvasId);
+    expect(core.canvasShowing("0".repeat(32))).toBeNull();
+
+    const page = await core.serveCanvas(host, "/");
+    expect(new TextDecoder().decode(page?.bytes)).toBe(PAGE);
+    expect(page?.type).toBe("text/html; charset=utf-8");
+    expect((await core.serveCanvas(host, "/chart.png"))?.type).toBe("image/png");
+    for (const path of ["/../chart.png", "/%2e%2e/incarnamind.db", "/missing.png", "/%E0%A4%A"]) {
+      expect(await core.serveCanvas(host, path)).toBeNull();
+    }
+    // Another showing of the same Canvas has an address of its own.
+    expect((await core.showCanvas(canvasId)).url).not.toBe(url);
+  });
+
+  it("read only the paths named, and refuse a link, a folder, a device and a file too large in one line each", async () => {
+    const { writer, files } = await twoAgents();
+    const agent = await connectLegacyAgent(writer.launch);
+    const secret = join(await createSourceFolder(), "secret.png");
+    await writeFile(secret, PNG);
+    await symlink(secret, join(files, "linked.png"));
+    await mkdir(join(files, "folder.png"));
+    await writeFile(join(files, "big.png"), new Uint8Array(10 * 1024 * 1024 + 1));
+    await writeFile(join(files, "notes.html"), "<p>another page</p>");
+    const named = [
+      join(files, "linked.png"),
+      join(files, "folder.png"),
+      join(files, "nothing-here.png"),
+      join(files, "big.png"),
+      join(files, "notes.html"),
+      "chart.png",
+      ...(process.platform === "win32" ? [] : ["/dev/zero"]),
+    ];
+
+    const published = structured<Published>(
+      await publish(agent, {
+        title: "Tides",
+        html: `${PAGE}<link rel="stylesheet" href="https://fonts.example/a.css">`,
+        files: named,
+      }),
+    );
+    expect(published.files).toEqual([]);
+    const reasons = Object.fromEntries(published.refused.map((each) => [each.item, each.reason]));
+    // Nothing more of a path that can't be read is told: a link, a folder, a missing file and a
+    // device read alike.
+    for (const path of [
+      join(files, "linked.png"),
+      join(files, "folder.png"),
+      join(files, "nothing-here.png"),
+      "chart.png",
+      ...(process.platform === "win32" ? [] : ["/dev/zero"]),
+    ]) {
+      expect(reasons[path]).toBe("can’t be read");
+    }
+    expect(reasons[join(files, "big.png")]).toBe("is larger than 10 MB, the most one file may be");
+    expect(reasons[join(files, "notes.html")]).toBe(
+      "isn’t a picture, a font, a style sheet, a script or a data file (CSV, JSON or text)",
+    );
+    expect(reasons["https://fonts.example/a.css"]).toMatch(/^is on the network/);
+  });
+
+  it("are out of reach of another agent, which can't list, read or update them, nor tell they are there", async () => {
+    const { coast, writer, reader } = await twoAgents();
+    const agent = await connectLegacyAgent(writer.launch);
+    const other = await connectLegacyAgent(reader.launch);
+    const inCoast = structured<Published>(
+      await publish(agent, { title: "Coast", html: PAGE, folderId: coast.id }),
+    );
+    const unfiled = structured<Published>(
+      await publish(agent, { title: "Mine", html: PAGE, folderId: NOT_IN_A_FOLDER_ID }),
+    );
+    expect(unfiled.folder).toBe("Not in a Folder");
+
+    const listed = structured<Listed>(await other.callTool({ name: "list_minds", arguments: {} }));
+    expect(listed.folders.flatMap((folder) => folder.canvases ?? [])).toEqual([]);
+    const unknown = "00000000-0000-4000-8000-000000000000";
+    for (const canvasId of [inCoast.canvasId, unfiled.canvasId, unknown]) {
+      expect(refusal(await other.callTool({ name: "read_canvas", arguments: { canvasId } }))).toBe(
+        "No such Canvas in the Folders shared with this agent.",
+      );
+    }
+    // It may only read, so it publishes nowhere and updates nothing.
+    expect(refusal(await publish(other, { title: "Mine", html: PAGE }))).toMatch(/may only read/);
+    expect(
+      refusal(
+        await other.callTool({
+          name: "update_canvas",
+          arguments: { canvasId: inCoast.canvasId, version: 1, html: PAGE },
+        }),
+      ),
+    ).toMatch(/may only read/);
+  });
+
+  it("are refused with a plain line where they can't be kept, and past the HTML's limit", async () => {
+    const started = await startAgentsCore(replyingModel());
+    const core: Core = started.core;
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [NOT_IN_A_FOLDER_ID],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    expect(refusal(await publish(agent, { title: "Tides", html: PAGE }))).toBe(
+      "This copy of IncarnaMind can’t keep Canvases.",
+    );
+    expect(
+      refusal(await publish(agent, { title: "Tides", html: "x".repeat(2 * 1024 * 1024 + 1) })),
+    ).toBe("The HTML is larger than 2 MB, the most a Canvas holds.");
+  });
+});

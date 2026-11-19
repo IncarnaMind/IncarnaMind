@@ -249,7 +249,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "List Notes",
       description:
-        "List the shared Folders with their Documents and the User's Notes (in Not in a Folder, yours).",
+        "List the shared Folders with their Documents, the User's Notes and Canvases (in Not in a Folder, yours).",
       inputSchema: z.object({}),
       outputSchema: z.object({
         folders: z.array(
@@ -269,6 +269,16 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
                 voiceMemo: heldCall.optional(),
               }),
             ),
+            canvases: z
+              .array(
+                z.object({
+                  id: z.string(),
+                  title: z.string(),
+                  version: z.number(),
+                  updatedAt: z.string(),
+                }),
+              )
+              .optional(),
           }),
         ),
       }),
@@ -586,6 +596,88 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       annotations: { ...READ_ONLY, idempotentHint: false },
     },
     (input, ctx) => answer(() => access.runAnalysis(input, ctx.mcpReq.signal)),
+  );
+
+  const canvasOut = z.object({
+    canvasId: z.string(),
+    title: z.string(),
+    folder: z.string(),
+    version: z.number(),
+    files: z.array(z.string()),
+    refused: z.array(z.object({ item: z.string(), reason: z.string() })),
+  });
+  const canvasFiles = z
+    .array(z.string())
+    .optional()
+    .describe("Paths of the files it uses; the HTML names each by its file name.");
+  // It adds a Canvas, or a version of one: every version before it is kept.
+  const publishes = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  } as const;
+
+  server.registerTool(
+    tool("publish_canvas"),
+    {
+      title: "Publish a Canvas",
+      description:
+        "Show the User a page you wrote as a Canvas in IncarnaMind: HTML with its own styles and scripts, and no network. Refused unless the User let this agent write.",
+      inputSchema: z.object({
+        title: z.string(),
+        html: z.string(),
+        files: canvasFiles,
+        folderId: z.string().optional().describe("An id from list_minds."),
+      }),
+      outputSchema: canvasOut,
+      annotations: publishes,
+    },
+    (input) => answer(() => access.publishCanvas(input)),
+  );
+
+  server.registerTool(
+    tool("read_canvas"),
+    {
+      title: "Read a Canvas",
+      description:
+        "Read a Canvas's HTML, files and version. Long pages come in parts: pass nextOffset back as offset.",
+      inputSchema: z.object({
+        canvasId: z.string(),
+        offset: z.number().int().min(0).optional(),
+      }),
+      outputSchema: z.object({
+        canvasId: z.string(),
+        title: z.string(),
+        folder: z.string(),
+        version: z.number(),
+        html: z.string(),
+        offset: z.number(),
+        nextOffset: z.number().nullable(),
+        files: z.array(z.object({ name: z.string(), type: z.string(), size: z.number() })),
+      }),
+      annotations: READ_ONLY,
+    },
+    (input) => answer(() => access.readCanvas(input)),
+  );
+
+  server.registerTool(
+    tool("update_canvas"),
+    {
+      title: "Change a Canvas",
+      description:
+        "Publish a Canvas's next version on the version you read: its html, title or files (added, or replacing one of a name). Refused if it changed since.",
+      inputSchema: z.object({
+        canvasId: z.string(),
+        version: z.number().int().min(1),
+        title: z.string().optional(),
+        html: z.string().optional(),
+        files: canvasFiles,
+      }),
+      outputSchema: canvasOut,
+      annotations: publishes,
+    },
+    (input) => answer(() => access.updateCanvas(input)),
   );
 
   return server;

@@ -2200,6 +2200,16 @@ export const en = {
   "editor.pageBreak.unavailable": "A page break goes in text, not in a Question, a table or code.",
 
   "viewer.label": "Document viewer",
+  // A Canvas an outside agent wrote, shown in a tab (#3406). The interface's word for it is Canvas.
+  "canvas.untitled": "Canvas",
+  "canvas.frame": "Canvas “{title}” by {agent}",
+  "canvas.link": "This Canvas links to {site}.",
+  "canvas.link.open": "Open in Browser",
+  "canvas.link.dismiss": "Dismiss",
+  "canvas.stopped.memory": "This Canvas stopped: it used more memory than a Canvas may.",
+  "canvas.stopped.crashed": "This Canvas stopped working.",
+  "canvas.stopped.again": "Show Again",
+  "canvas.deleted": "This Canvas was deleted.",
   "viewer.keep": "Keep open",
   "viewer.keepTip": "Keep this tab open (or double-click its tab)",
   "viewer.pdf.failed": "This PDF couldn’t be opened.",
@@ -5874,6 +5884,7 @@ export const en = {
   "error.organize.invalid": "This Organize request couldn’t be read. Try Organize again.",
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
+  "error.canvas.notFound": "That Canvas doesn’t exist or has been deleted.",
   "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
   "error.layout.conversation": "The assistant shows a conversation, or a New chat.",
@@ -8397,6 +8408,27 @@ export const en = {
   "agents.note.undoGone":
     "This change can’t be undone any more. The note’s History has its version from before it.",
   "agents.create.text": "the text",
+  // A Canvas an outside agent publishes (#3406), and why one is refused, for the agent to pass on.
+  "agents.canvas.notFound": "No such Canvas in the Folders shared with this agent.",
+  "agents.canvas.stale":
+    "This Canvas is at version {current} now, not {given}. Read it with read_canvas and build on that version.",
+  "agents.canvas.tooMany":
+    "This agent has published {max} Canvas versions in the last hour, which is the most it may. Try again later.",
+  "agents.canvas.htmlTooLarge": "The HTML is larger than {max} MB, the most a Canvas holds.",
+  "agents.canvas.paths": "Give files as a list of the full paths of files on this computer.",
+  "agents.canvas.version": "Give version: the version read_canvas returned.",
+  "agents.canvas.nothing": "Give html, title or files to change.",
+  "agents.canvas.unavailable": "This copy of IncarnaMind can’t keep Canvases.",
+  "agents.canvas.refused.unreadable": "can’t be read",
+  "agents.canvas.refused.too-large": "is larger than {max} MB, the most one file may be",
+  "agents.canvas.refused.type":
+    "isn’t a picture, a font, a style sheet, a script or a data file (CSV, JSON or text)",
+  "agents.canvas.refused.name": "has no name the page can refer to it by",
+  "agents.canvas.refused.same-name": "has the name of another file named in this call",
+  "agents.canvas.refused.too-many": "would give the Canvas more than {max} files",
+  "agents.canvas.refused.total": "would take the Canvas past {max} MB in all",
+  "agents.canvas.refused.network":
+    "is on the network, which a Canvas never reaches: give the file in files and refer to it by its name",
   "agents.create.folder": "Give folderId: one of the Folders list_minds lists.",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
@@ -8511,6 +8543,9 @@ export const en = {
   "agents.activity.report_check": "Checked the note “{text}” itself",
   "agents.activity.calculate": "Worked out “{text}”",
   "agents.activity.run_analysis": "Ran code for “{text}”",
+  "agents.activity.publish_canvas": "Published the Canvas “{text}”",
+  "agents.activity.read_canvas": "Read the Canvas “{text}”",
+  "agents.activity.update_canvas": "Changed the Canvas “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",

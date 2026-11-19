@@ -126,8 +126,11 @@ function parseItem(value: unknown): TabItem {
     if (value.kind === "document" && isId(value.documentId)) {
       return { kind: "document", documentId: value.documentId };
     }
+    if (value.kind === "canvas" && isId(value.canvasId)) {
+      return { kind: "canvas", canvasId: value.canvasId };
+    }
   }
-  throw new InvalidInputError("A tab shows a Note, the Library, Home or a Document.");
+  throw new InvalidInputError("A tab shows a Note, the Library, Home, a Document or a Canvas.");
 }
 
 function parseCitation(value: unknown): TabCitation {
@@ -450,7 +453,9 @@ const sameItem = (a: TabItem, b: TabItem): boolean =>
     ? a.mindId === (b as typeof a).mindId
     : a.kind === "document"
       ? a.documentId === (b as typeof a).documentId
-      : true);
+      : a.kind === "canvas"
+        ? a.canvasId === (b as typeof a).canvasId
+        : true);
 
 function emptyLayout(newId: () => string): Layout {
   const group: LayoutGroup = { id: newId(), tabs: [], activeTabId: null, width: 1 };
@@ -913,6 +918,7 @@ export interface LayoutDependencies {
   writeValue(key: string, value: unknown): void;
   mindExists(mindId: string): boolean;
   documentExists(documentId: string): boolean;
+  canvasExists(canvasId: string): boolean;
   changed(windowId: string, layout: WindowLayout): void;
   newId?: () => string;
 }
@@ -934,7 +940,9 @@ export function createLayouts(deps: LayoutDependencies) {
     oneTabEach(item) ||
     (item.kind === "mind" || item.kind === "figures"
       ? deps.mindExists(item.mindId)
-      : deps.documentExists(item.documentId));
+      : item.kind === "canvas"
+        ? deps.canvasExists(item.canvasId)
+        : deps.documentExists(item.documentId));
 
   /**
    * The tabs the app had before groups (the Minds open, and the Library's tab),

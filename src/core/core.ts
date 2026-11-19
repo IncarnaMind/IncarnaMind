@@ -174,6 +174,7 @@ import {
 import { createApprovals } from "./approvals";
 import { createBackgroundQueue } from "./backgroundQueue";
 import { createCalendars } from "./calendars";
+import { createCanvases } from "./canvases";
 import { describeModel } from "./chatModelNames";
 import { createCheckpoints } from "./checkpoints";
 import { createCheckRecord } from "./checkRecord";
@@ -463,6 +464,16 @@ export interface Core extends CoreApi, CoreEventSource {
    * NotFoundError for anything else.
    */
   openDocumentImage(documentId: string, path: string): Promise<DocumentImage>;
+  /**
+   * The Canvas a showing's host (`showCanvas`) draws (#3406), while it is live; null for a host
+   * minted for none. For the host's guards on the Canvas's session, so not on the bridge.
+   */
+  canvasShowing(host: string): string | null;
+  /**
+   * What a showing's address answers at `path` (#3406): its version's HTML at "/", and its files
+   * by name; null for anything else. For the host's scheme handler, so not on the bridge.
+   */
+  serveCanvas(host: string, path: string): Promise<{ bytes: Uint8Array; type: string } | null>;
   /**
    * Rewrites the keyword rows of Documents an older version indexed, one
    * Document per transaction, on the Document-processing worker and never on
@@ -762,6 +773,14 @@ export function createCore(adapters: CoreAdapters): Core {
       return result;
     };
   const minds = createMinds(db, now);
+  // Pages outside agents publish (#3406), kept with their versions; the host draws them.
+  const canvases = createCanvases({
+    db,
+    ...(adapters.canvasFiles && { files: adapters.canvasFiles }),
+    now,
+    newId: () => crypto.randomUUID(),
+    changed: (list) => events.emit("canvases.changed", list),
+  });
   /** The Mind, if this version may write to it: not one of a kind a newer version made. */
   const writableMind = (mindId: unknown): Mind => {
     const mind = minds.get(mindId);
@@ -4753,6 +4772,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     documentExists: (documentId) => documents.getMany([documentId]).length > 0,
+    canvasExists: (canvasId) => canvases.get(canvasId) !== null,
     changed: (windowId, layout) => events.emit("layout.changed", { windowId, layout }),
   });
   // The example Mind: its Citations are checked once its Documents have been read.
@@ -5764,6 +5784,8 @@ export function createCore(adapters: CoreAdapters): Core {
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId) => checkRecord.build(mindId),
       show: (place) => events.emit("agents.citationShown", place),
+      canvases,
+      canvasChanged: (change) => events.emit("agents.canvasChanged", change),
     },
     skillInstalled: (client) => skillInstalled(home, client),
     changed: (value) => events.emit("agents.changed", value),
@@ -8048,6 +8070,10 @@ export function createCore(adapters: CoreAdapters): Core {
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
+    listCanvases: async () => canvases.forWindows(),
+    showCanvas: async (canvasId) => canvases.show(typeof canvasId === "string" ? canvasId : ""),
+    canvasShowing: (host) => canvases.showing(host),
+    serveCanvas: (host, path) => canvases.served(host, path),
     getAgentLaunch: (pairingId) => agents.launch(pairingId),
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),

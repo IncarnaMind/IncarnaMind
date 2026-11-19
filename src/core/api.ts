@@ -4021,6 +4021,39 @@ export interface SettingsPatch {
 }
 
 // ---------------------------------------------------------------------------
+// Canvases (#3406): pages an outside agent writes, which IncarnaMind shows and keeps with their
+// versions. The User can't edit one; the agent that may write where it is publishes each version.
+
+export interface Canvas {
+  id: string;
+  title: string;
+  /** Its Folder; null when it is Not in a Folder. */
+  folderId: string | null;
+  /** The agent that published it, as the User had named its pairing then. */
+  agent: string;
+  /** Its newest version: 1 at its first publish, one more at each update. */
+  version: number;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Where a window draws a Canvas's newest version: an address that only this showing knows. */
+export interface CanvasFrame {
+  url: string;
+  version: number;
+}
+
+/** An outside agent published a Canvas, or a new version of one. */
+export interface AgentCanvasChange {
+  canvasId: string;
+  /** The agent, as the User named its pairing. */
+  agent: string;
+  kind: "published" | "updated";
+  version: number;
+}
+
+// ---------------------------------------------------------------------------
 // Tabs and groups: everything that opens is a tab, in up to three groups side
 // by side, as VS Code's editor groups. Each window keeps its own layout.
 
@@ -4033,7 +4066,8 @@ export type TabItem =
   | { kind: "figures"; mindId: string }
   | { kind: "library" }
   | { kind: "home" }
-  | { kind: "document"; documentId: string };
+  | { kind: "document"; documentId: string }
+  | { kind: "canvas"; canvasId: string };
 
 /**
  * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
@@ -12494,6 +12528,9 @@ export const AGENT_TOOLS = [
   "report_check",
   "calculate",
   "run_analysis",
+  "publish_canvas",
+  "read_canvas",
+  "update_canvas",
 ] as const;
 
 /**
@@ -15104,6 +15141,13 @@ export interface CoreApi {
    * request comes back to copy. Nothing is sent.
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
+  /** The live Canvases (#3406), newest first. */
+  listCanvases(): Promise<Canvas[]>;
+  /**
+   * Where to draw a live Canvas's newest version (#3406): an address minted for this showing alone.
+   * NotFoundError for one deleted or unknown.
+   */
+  showCanvas(canvasId: string): Promise<CanvasFrame>;
 }
 
 /**
@@ -15371,6 +15415,10 @@ export interface CoreEvents {
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
   "agents.noteChanged": AgentNoteChange;
+  /** The live Canvases changed: one was published or updated (#3406). */
+  "canvases.changed": Canvas[];
+  /** An outside agent published a Canvas, or a new version of one (#3406). */
+  "agents.canvasChanged": AgentCanvasChange;
 }
 
 export type CoreEventName = keyof CoreEvents;
@@ -15852,6 +15900,8 @@ const methods: Record<CoreApiMethod, true> = {
   copyAgentSetup: true,
   listAgentsToAsk: true,
   askAgent: true,
+  listCanvases: true,
+  showCanvas: true,
 };
 
 /** Every method of CoreApi, used to wire the IPC bridge. */

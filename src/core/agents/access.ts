@@ -57,7 +57,6 @@ import {
   type AgentActivity,
   type AgentCitationShown,
   type AgentNoteChange,
-  type AgentProblem,
   type AgentToolName,
   BLOCK_ID_ATTRIBUTE,
   type Citation,
@@ -77,6 +76,14 @@ import { isRecord } from "../errors";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { insertBlocks } from "../noteAdding";
+import {
+  type AgentCanvasListed,
+  type AgentCanvasPublished,
+  type AgentCanvasText,
+  type CanvasesInput,
+  type CanvasToolDeps,
+  createCanvasTools,
+} from "./canvases";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
 import {
@@ -90,6 +97,7 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
+import { AgentRefusedError, text, whole } from "./refusals";
 import {
   type AgentAnalysed,
   type AgentCalculated,
@@ -232,6 +240,8 @@ export interface AgentMindList {
       meeting?: AgentHeldCall;
       voiceMemo?: AgentHeldCall;
     }[];
+    /** The Canvases in it the agent reaches (#3406), when there are any. */
+    canvases?: AgentCanvasListed[];
   }[];
 }
 
@@ -477,18 +487,17 @@ export interface AgentAccess {
   calculate(input: AgentCalculateInput): Promise<AgentCalculated>;
   /** Runs code over what the agent may read, in IncarnaMind's sandbox (#3363). */
   runAnalysis(input: AgentAnalysisInput, signal?: AbortSignal): Promise<AgentAnalysed>;
+  /** Publishes a Canvas where the agent may write (#3406): its version 1. */
+  publishCanvas(input: CanvasesInput): Promise<AgentCanvasPublished>;
+  /** A Canvas the agent reaches, its newest version's HTML a part at a time. */
+  readCanvas(input: { canvasId?: unknown; offset?: unknown }): Promise<AgentCanvasText>;
+  /** A Canvas's next version, built on the one the agent read. */
+  updateCanvas(
+    input: CanvasesInput & { canvasId?: unknown; version?: unknown },
+  ): Promise<AgentCanvasPublished>;
 }
 
-/** Why a call was refused or failed, in the interface language, for the agent to pass on. */
-export class AgentRefusedError extends Error {
-  constructor(
-    readonly problem: AgentProblem,
-    message: string,
-  ) {
-    super(message);
-    this.name = "AgentRefusedError";
-  }
-}
+export { AgentRefusedError } from "./refusals";
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -676,6 +685,11 @@ export interface AgentAccessDeps {
   /** A new random id, for a request of changes and the Proposals it writes. */
   newId(): string;
   reportError(error: unknown): void;
+  /** The Canvases outside agents publish (#3406). */
+  canvases: CanvasToolDeps["canvases"];
+  /** Tells the windows an agent published a Canvas, or a new version of one. */
+  canvasChanged: CanvasToolDeps["canvasChanged"];
+  doneSince: CanvasToolDeps["doneSince"];
 }
 
 /**
@@ -781,24 +795,6 @@ function bestSentence(text: string, terms: readonly string[]): string | null {
     }
   }
   return best === null ? null : clip(best, READY_QUOTE_CHARS).replace(/…$/, "");
-}
-
-function text(value: unknown, what: string, max: number): string {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new AgentRefusedError("invalid", `${what} must be text.`);
-  }
-  if (value.length > max) {
-    throw new AgentRefusedError("invalid", `${what} is longer than ${max} characters.`);
-  }
-  return value.trim();
-}
-
-function whole(value: unknown, what: string, min: number, max: number, fallback: number): number {
-  if (value === undefined) return fallback;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
-    throw new AgentRefusedError("invalid", `${what} must be a whole number from ${min} to ${max}.`);
-  }
-  return value;
 }
 
 /**
@@ -1549,6 +1545,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
   };
 
+  const canvasTools = createCanvasTools({
+    deps,
+    t,
+    call,
+    reached: (pairing) => reachedFolders(deps, pairing),
+    placeToWriteIn,
+  });
+
   return {
     search(input, signal) {
       const query = typeof input?.query === "string" ? input.query : "";
@@ -1806,6 +1810,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               .slice(0, MAX_LISTED_DOCUMENTS),
           };
         };
+        const canvasesIn = (folderId: string) => {
+          const canvases = canvasTools.listedIn(pairing, folderId);
+          return canvases.length > 0 ? { canvases } : {};
+        };
         // No Note it wrote is older than the pairing, which spares reading the others' records.
         const yours = (mind: Mind) =>
           mind.createdAt >= pairing.createdAt && wrote(pairing, mind.id);
@@ -1858,6 +1866,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               minds: minds
                 .filter((mind) => mind.folderId === folder.id)
                 .map((mind) => row(mind, yours(mind), inFolder)),
+              ...canvasesIn(folder.id),
             };
           });
         if (reached.has(NOT_IN_A_FOLDER_ID)) {
@@ -1869,6 +1878,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             minds: minds
               .filter((mind) => mind.folderId === null && yours(mind))
               .map((mind) => row(mind, true, new Set(documentIds))),
+            ...canvasesIn(NOT_IN_A_FOLDER_ID),
           });
         }
         return {
@@ -2472,6 +2482,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         return { ...done, count: done.result.id === null ? 0 : 1 };
       });
     },
+
+    publishCanvas: canvasTools.publishCanvas,
+    readCanvas: canvasTools.readCanvas,
+    updateCanvas: canvasTools.updateCanvas,
   };
 }
 
