@@ -301,6 +301,7 @@ const deviceScope: Scope<DeviceSettings> = {
     suggestionOffers: 0,
     tips: {},
     meetingSystemAudio: true,
+    meetingNotesAgentId: null,
     keepMeetingAudio: false,
     transcriptionRoute: null,
     checkDecisionModel: null,
@@ -330,6 +331,7 @@ const deviceScope: Scope<DeviceSettings> = {
       typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100,
     tips: isTipCounts,
     meetingSystemAudio: isBoolean,
+    meetingNotesAgentId: (value): value is string | null => value === null || isNonBlankText(value),
     keepMeetingAudio: isBoolean,
     transcriptionRoute: (value): value is TranscriptionRoute | null =>
       value === null || TRANSCRIPTION_ROUTES.some((route) => route === value),
