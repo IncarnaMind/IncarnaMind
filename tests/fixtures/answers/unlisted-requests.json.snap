@@ -5294,7 +5294,7 @@
          "contradicted",
          "own view"
         ],
-        "description": "Your verdict, as your reply's Verdict line gives it, when this call ends the check."
+        "description": "Your verdict, as your reply's Verdict line gives it: given here, the check ends with this call."
        },
        "explanation": {
         "type": "string",
@@ -5305,7 +5305,7 @@
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. To finish, you may give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would: the check then ends with that call, its quotes the evidence, and needs no reply."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would, and write beside it only the Working and Change lines your reply needs: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {
@@ -5430,7 +5430,7 @@
          "contradicted",
          "own view"
         ],
-        "description": "Your verdict, as your reply's Verdict line gives it, when this call ends the check."
+        "description": "Your verdict, as your reply's Verdict line gives it: given here, the check ends with this call."
        },
        "explanation": {
         "type": "string",
@@ -5441,7 +5441,7 @@
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. To finish, you may give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would: the check then ends with that call, its quotes the evidence, and needs no reply."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would, and write beside it only the Working and Change lines your reply needs: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {
@@ -5603,7 +5603,7 @@
          "contradicted",
          "own view"
         ],
-        "description": "Your verdict, as your reply's Verdict line gives it, when this call ends the check."
+        "description": "Your verdict, as your reply's Verdict line gives it: given here, the check ends with this call."
        },
        "explanation": {
         "type": "string",
@@ -5614,7 +5614,7 @@
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. To finish, you may give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would: the check then ends with that call, its quotes the evidence, and needs no reply."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would, and write beside it only the Working and Change lines your reply needs: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {
@@ -5809,7 +5809,7 @@
          "contradicted",
          "own view"
         ],
-        "description": "Your verdict, as your reply's Verdict line gives it, when this call ends the check."
+        "description": "Your verdict, as your reply's Verdict line gives it: given here, the check ends with this call."
        },
        "explanation": {
         "type": "string",
@@ -5820,7 +5820,7 @@
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. To finish, you may give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would: the check then ends with that call, its quotes the evidence, and needs no reply."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would, and write beside it only the Working and Change lines your reply needs: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {

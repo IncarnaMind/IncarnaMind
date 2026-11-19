@@ -362,7 +362,7 @@ export const CITE_REPLY: CiteReply = {
       type: "string",
       enum: [...VERDICTS],
       description:
-        "Your verdict, as your reply's Verdict line gives it, when this call ends the check.",
+        "Your verdict, as your reply's Verdict line gives it: given here, the check ends with this call.",
     },
     explanation: {
       type: "string",
@@ -370,7 +370,7 @@ export const CITE_REPLY: CiteReply = {
     },
   },
   description:
-    "To finish, you may give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would: the check then ends with that call, its quotes the evidence, and needs no reply.",
+    "Give your verdict and explanation in the call that records the quotes deciding the sentence, as your reply's Verdict and Explanation lines would, and write beside it only the Working and Change lines your reply needs: the check ends with that call, its quotes the evidence.",
   reply(inputs, markers) {
     const given = inputs.findLast(
       ({ verdict }) => typeof verdict === "string" && verdictIn(verdict.trim()) !== null,
