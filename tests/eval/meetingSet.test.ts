@@ -76,6 +76,7 @@ describe("The meeting set's pins", () => {
       }
       if (c.source === "ascend") {
         const pair = sources.ascend[c.recording]?.pair ?? [];
+        expect(pair, c.id).toHaveLength(2);
         expect(new Set(pair.map((p) => p.speaker)).size, c.id).toBe(2);
         for (const participant of pair)
           expect(sources.files, c.id).toHaveProperty(participant.source);

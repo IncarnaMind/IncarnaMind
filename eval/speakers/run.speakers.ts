@@ -19,7 +19,7 @@
  *   eval/meetings): the pass labels its lines, text and all, in place of Silero VAD's, as it does
  *   after a Meeting that route transcribed. A case the folder lacks is left out.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -88,7 +88,9 @@ function samplesOf(path: string): Int16Array {
 }
 
 async function casesIn(folder: string): Promise<Case[]> {
-  const ids = folder === DEFAULT_CASES ? (await readCases()).map((c) => c.id) : readdirSync(folder);
+  const fromCache =
+    existsSync(DEFAULT_CASES) && realpathSync(folder) === realpathSync(DEFAULT_CASES);
+  const ids = fromCache ? (await readCases()).map((c) => c.id) : readdirSync(folder);
   return ids
     .filter((id) => !ONLY || ONLY.includes(id))
     .sort()
