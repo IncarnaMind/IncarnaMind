@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { compressors } from "hyparquet-compressors";
 import { describe, expect, test } from "vitest";
 import { roomRecording } from "../../eval/meetings/ami";
-import { ascendSession } from "../../eval/meetings/ascend";
+import { ascendSession, ascendSpeaker } from "../../eval/meetings/ascend";
 import { meetingsCache } from "../../eval/meetings/cache";
 
 const pinned = JSON.parse(
@@ -19,6 +19,7 @@ async function cached(id: string): Promise<string | null> {
   }
 }
 const ascend = await cached("ascend-test");
+const partner = await cached("ascend-train-2");
 const ami = await cached("ami-sdm-test-0");
 
 describe("Reading Parquet, as the corpora ship it", () => {
@@ -27,13 +28,39 @@ describe("Reading Parquet, as the corpora ship it", () => {
     expect(new TextDecoder().decode(compressors.SNAPPY?.(literal, 5))).toBe("hello");
   });
 
-  test.skipIf(!ascend)("an ASCEND session is laid out again from the cached file", async () => {
-    const session = await ascendSession(ascend as string, 3);
-    expect(session.speakers).toBe(2);
-    expect(session.reference.segments).toHaveLength(356);
-    expect(session.length / 16_000 / 60).toBeGreaterThan(21);
-    expect(session.reference.segments.every((s) => s.track === "conversation")).toBe(true);
+  test("speakers in different dialogues with the same session number cannot be mixed", () => {
+    const turn = (line: number, start: number) => ({
+      line,
+      start,
+      text: "hello",
+      samples: new Float32Array(16_000),
+    });
+    const first = { speaker: 17, utterances: [turn(3818, 1), turn(3823, 5)] };
+    const unrelated = { speaker: 3, utterances: [turn(6487, 1), turn(6489, 5)] };
+    expect(() => ascendSession(first, unrelated)).toThrow(/no interleaved dialogue/);
+    const partner = { speaker: 18, utterances: [turn(3812, 0), turn(3820, 3)] };
+    const session = ascendSession(first, partner);
+    expect(session.reference.segments.map(({ speaker, start }) => [speaker, start])).toEqual([
+      ["spk18", 0],
+      ["spk17", 1],
+      ["spk18", 3],
+      ["spk17", 5],
+    ]);
   });
+
+  test.skipIf(!ascend || !partner)(
+    "a complete ASCEND dialogue is assembled across two cached splits",
+    async () => {
+      if (!ascend || !partner) throw new Error("Missing pinned ASCEND files.");
+      const left = await ascendSpeaker(ascend, 3, 3);
+      const right = await ascendSpeaker(partner, 3, 4);
+      const session = ascendSession(left, right);
+      expect(session.speakers).toBe(2);
+      expect(session.reference.segments).toHaveLength(321);
+      expect(session.length / 16_000 / 60).toBeGreaterThan(24);
+      expect(session.reference.segments.every((s) => s.track === "conversation")).toBe(true);
+    },
+  );
 
   test.skipIf(!ami)(
     "a meeting's room recording is read from its row of the cached file",
