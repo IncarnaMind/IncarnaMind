@@ -48,6 +48,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     },
     minds: () => [],
     documentsNamed: () => [],
+    duplicatedFrom: () => null,
     liveDocuments: () => [],
     mindBlocks: () => {
       throw new Error("Not called.");

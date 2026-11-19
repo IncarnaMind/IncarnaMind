@@ -490,6 +490,8 @@ export interface AgentAccessDeps {
   show(place: AgentCitationShown): void;
   /** The Minds there are. */
   minds(): Mind[];
+  /** The Mind a Mind was duplicated from; null for one that is no copy. */
+  duplicatedFrom(mindId: string): string | null;
   /** These Documents' names and kinds, those that are live, in this order. */
   documentsNamed(documentIds: readonly string[]): { id: string; name: string; kind: string }[];
   /** The live Documents' names: what a Citation is shown with, when its Document was renamed since. */
@@ -997,10 +999,21 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const readsUnfiled = (pairing: AdmittedPairing) =>
     deps.foldersInScope(pairing.folderIds).includes(NOT_IN_A_FOLDER_ID);
 
-  /** Whether the pairing wrote the Mind, as `create_mind` records it in the Mind. */
-  const wrote = (pairing: AdmittedPairing, mindId: string) =>
-    deps.mindBlocks(mindId, (blocks) => (blocks.doc ? noteWriterOf(blocks.doc) : null))
-      ?.pairingId === pairing.id;
+  /**
+   * Whether the pairing wrote this Mind, as `create_mind` records it in the Mind. A copy carries
+   * the record, so it holds only for the Mind it names; one that names none, kept before records
+   * did, holds for a Mind that is no copy, as a duplicate is the one way a Mind's content is
+   * copied into another (#3364).
+   */
+  const wrote = (pairing: AdmittedPairing, mindId: string): boolean => {
+    const writer = deps.mindBlocks(mindId, (blocks) =>
+      blocks.doc ? noteWriterOf(blocks.doc) : null,
+    );
+    if (writer?.pairingId !== pairing.id) return false;
+    return writer.mindId === undefined
+      ? deps.duplicatedFrom(mindId) === null
+      : writer.mindId === mindId;
+  };
 
   /**
    * A Mind in the pairing's Folders, or in no Folder when the pairing wrote it and reads the
@@ -1087,10 +1100,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
     }
     const mind = mindInScope(pairing, text(mindId, "mindId", 200));
-    const writer = deps.mindBlocks(mind.id, (blocks) =>
-      blocks.doc ? noteWriterOf(blocks.doc) : null,
-    );
-    if (writer?.pairingId !== pairing.id) {
+    if (!wrote(pairing, mind.id)) {
       throw new AgentRefusedError("invalid", t("agents.check.notYours"));
     }
     return mind;
@@ -1735,6 +1745,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             source: "outside-agent",
             agent: pairing.name,
             pairingId: pairing.id,
+            mindId: mind.id,
             createdAt: deps.now(),
           });
         });

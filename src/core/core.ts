@@ -5622,6 +5622,7 @@ export function createCore(adapters: CoreAdapters): Core {
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
       minds: () => minds.list().filter((mind) => isKnownKind(mind.kind)),
+      duplicatedFrom: (mindId) => minds.duplicatedFrom(mindId),
       documentsNamed: (documentIds) =>
         documents
           .getMany(documentIds)

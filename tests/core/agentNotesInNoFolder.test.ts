@@ -7,13 +7,13 @@
 import { resolve } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Core } from "../../src/core";
-import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
+import { MIND_WRITER_FIELD, NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
-import { connectToMind } from "../helpers/mindClient";
+import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
 
@@ -259,6 +259,68 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
         );
       }
     }
+  });
+
+  // protects=a Note the User copied from the agent's is the User's: what they add to it never reaches the agent; fails_when=the copied writer record lets the agent list, read, change or check the copy
+  it("can't reach a copy the User made of its Note, nor what they wrote in it", async () => {
+    const { core, add, connect } = await fresh();
+    await add("Tides.md", TIDES);
+    const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
+    const own = await write(agent);
+    const copy = await core.duplicateMind(own.mindId);
+    expect(copy.folderId).toBeNull();
+    const client = await connectToMind(core, copy.id);
+    appendParagraph(client, "My private plans for the harbour sale.");
+    await client.settled();
+
+    expect((await list(agent)).flatMap((each) => each.minds.map((listed) => listed.id))).toEqual([
+      own.mindId,
+    ]);
+    for (const [name, args] of [
+      ["read_mind", { mindId: copy.id }],
+      ["read_mind", { mindId: copy.id, named: true }],
+      [
+        "propose_changes",
+        { mindId: copy.id, version: "v", changes: [{ paragraph: "¶1", text: "x" }] },
+      ],
+      ["check_mind_yourself", { mindId: copy.id }],
+      ["check_mind", { mindId: copy.id }],
+    ] as const) {
+      const said = refusal(await agent.callTool({ name, arguments: args }));
+      expect(said, name).toBe(
+        "No such passage, Document, note or Citation in the Folders shared with this agent.",
+      );
+    }
+    const read = structured<{ markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: own.mindId } }),
+    );
+    expect(read.markdown).not.toContain("private plans");
+  });
+
+  // protects=a Note an agent wrote before its record named the Note stays the agent's, and only that Note; fails_when=such a Note is lost to its agent, or a copy of it counts as the agent's
+  it("counts a record that names no Note for the Note itself, never for a copy of it", async () => {
+    const { core, add, connect } = await fresh();
+    await add("Tides.md", TIDES);
+    const { agent, pairing } = await connect([NOT_IN_A_FOLDER_ID]);
+    const older = await core.createMind({ title: "Older summary" });
+    const client = await connectToMind(core, older.id);
+    client.doc.getMap<unknown>(MIND_WRITER_FIELD).set("agent", {
+      source: "outside-agent",
+      agent: pairing.name,
+      pairingId: pairing.id,
+      createdAt: older.createdAt,
+    });
+    appendParagraph(client, SPRING);
+    await client.settled();
+    const copy = await core.duplicateMind(older.id);
+
+    expect((await list(agent)).flatMap((each) => each.minds.map((listed) => listed.id))).toEqual([
+      older.id,
+    ]);
+    structured(await agent.callTool({ name: "read_mind", arguments: { mindId: older.id } }));
+    expect(
+      refusal(await agent.callTool({ name: "read_mind", arguments: { mindId: copy.id } })),
+    ).toMatch(/No such passage/);
   });
 
   // protects=Documents in a Folder the agent wasn't given stay unknown to it, through a list, a check task or a refusal; fails_when=a count, a name or a passage of such a Document reaches the agent
