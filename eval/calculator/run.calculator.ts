@@ -833,6 +833,7 @@ async function agentPath(setup: Setup) {
             verdict: string;
             cites: string[];
             run: string | null;
+            working: { figure?: string } | null;
             explanation: string | null;
             answer: unknown;
           }[]
@@ -846,6 +847,7 @@ async function agentPath(setup: Setup) {
               verdict: string;
               cites?: string[];
               run?: string;
+              working?: { figure?: string };
               explanation?: string;
             }[];
           };
@@ -860,6 +862,7 @@ async function agentPath(setup: Setup) {
                 verdict: result.verdict,
                 cites: result.cites ?? [],
                 run: result.run ?? null,
+                working: result.working ?? null,
                 explanation: result.explanation ?? null,
                 answer: each.refused ?? each.result,
               },
@@ -881,7 +884,12 @@ async function agentPath(setup: Setup) {
           const mark = marks.get(sentence.text) ?? null;
           const said = reported.get(sentence.text) ?? [];
           const last = said.at(-1);
-          const rests = last?.run ? figures.find((figure) => figure.id === last.run) : undefined;
+          // The figure a verdict rests on: a calculation's (main), or the agent's own working's.
+          const rests = last?.working?.figure
+            ? { id: "working", label: "", result: last.working.figure, working: "" }
+            : last?.run
+              ? figures.find((figure) => figure.id === last.run)
+              : undefined;
           const scored = scoreCheck(sentence.each, rests ? [rests.result] : [], [
             mark?.workedOut,
             mark?.says,

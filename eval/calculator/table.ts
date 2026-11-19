@@ -7,7 +7,8 @@
  *
  * A wrong figure shown as worked out or Supported: an Answer's calculated figure that is the
  * case's value in another unit or a known wrong value; a wrong sentence marked Supported; and on
- * an agent's card, the calculation a verdict rests on showing such a figure.
+ * an agent's card, the line of working of the calculation or working a mark rests on showing such
+ * a figure.
  *
  * node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/tsResolve.mjs \
  *   eval/calculator/table.ts <file.jsonl>...
@@ -66,7 +67,10 @@ interface Scored {
 const wrongShown = ({ row, outcome }: Scored): boolean =>
   (row.which === "wrong" && row.mark?.shown === "supported") ||
   (row.path === "answer" && outcome.wrongWorkedOut.length > 0) ||
-  (row.path === "agent" && row.restsOn != null && outcome.wrongWorkedOut.length > 0);
+  (row.path === "agent" &&
+    row.restsOn != null &&
+    row.mark?.workedOut != null &&
+    outcome.wrongWorkedOut.length > 0);
 
 const voided = (row: Row) =>
   row.failedRequests.length > 0 || row.status === "timed-out" || row.status === "failed";
