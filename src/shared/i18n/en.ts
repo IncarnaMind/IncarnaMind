@@ -8586,10 +8586,10 @@ export const en = {
   "agents.ask.noteCommand": "Ask your AI about this note",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
-    "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite the transcript for each item and check the citations yourself. Preserve my notes. {action}",
+    "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",
   "agents.ask.meeting.propose":
-    "After checking the complete draft, propose the summary once as an addition at the end of this note, using ¶0+ if it has no named paragraphs.",
-  "agents.ask.meeting.reply": "Give me the summary here in the chat.",
+    "Once checked, use propose_changes once to append the summary to this existing note, using ¶0+ if it has no named paragraphs. This proposal is the only change requested.",
+  "agents.ask.meeting.reply": "Return the checked summary here in chat only.",
   "meetings.notesAgent.setting": "AI for meeting notes",
   "meetings.notesAgent.detail":
     "With your own AI, you open the request after the meeting and send it there.",
