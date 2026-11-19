@@ -716,24 +716,74 @@ function whole(value: unknown, what: string, min: number, max: number, fallback:
  */
 function uncitedIn(texts: readonly string[], counts: (token: string) => boolean): string[] {
   const CITED = "\u0000";
-  // A token that doesn't count goes with the space before it, as the sentence reads without it.
-  const spacedToken = new RegExp(`[ \\t]*${CITATION_TOKEN.source}`, "g");
-  // A token written after a sentence's full stop cites that sentence, not the one after it (#3378).
-  const afterTheStop = new RegExp(`([.!?。！？]+["'”’)\\]]*)(${CITED}+)`, "g");
   return texts
     .flatMap((each) =>
       sentencesOf(
-        each
-          .replace(/^#{1,6}\s.*$/gm, "")
-          .replace(/^\s*\|.*$/gm, "")
-          .replace(/^\s*(?:>\s*)*(?:[-*+]|\d{1,9}[.)])?\s+/gm, "")
-          .replace(spacedToken, (_whole, token: string) => (counts(token) ? CITED : ""))
-          .replace(afterTheStop, "$2$1"),
+        marksBeforeTheirStop(
+          citationMarks(
+            each
+              .replace(/^#{1,6}\s.*$/gm, "")
+              .replace(/^\s*\|.*$/gm, "")
+              .replace(/^\s*(?:>\s*)*(?:[-*+]|\d{1,9}[.)])?\s+/gm, ""),
+            counts,
+            CITED,
+          ),
+          CITED,
+        ),
       ),
     )
     .filter((sentence) => !sentence.includes(CITED) && makesAClaim(sentence))
     .slice(0, MAX_UNCITED)
     .map((sentence) => clip(sentence, 200));
+}
+
+// Scanned by hand, never by a pattern that backtracks: a draft runs to `MAX_DRAFT_CHARS`, and a
+// long run of spaces or full stops with no token after it took a pattern seconds (#3378).
+
+/**
+ * `text` with each token that `counts` as `mark`, and each that doesn't gone, each with the spaces
+ * before it, as the sentence reads without it.
+ */
+function citationMarks(text: string, counts: (token: string) => boolean, mark: string): string {
+  let out = "";
+  let at = 0;
+  for (const match of text.matchAll(CITATION_TOKEN)) {
+    let end = match.index;
+    while (end > at && (text[end - 1] === " " || text[end - 1] === "\t")) end--;
+    out += text.slice(at, end) + (counts(match[1] ?? "") ? mark : "");
+    at = match.index + match[0].length;
+  }
+  return out + text.slice(at);
+}
+
+const STOPS = new Set([".", "!", "?", "。", "！", "？"]);
+const CLOSERS = new Set(['"', "'", "”", "’", ")", "]"]);
+
+/**
+ * `text` with each `mark` written after a sentence's full stop moved before it: a Citation there
+ * cites that sentence, not the next.
+ */
+function marksBeforeTheirStop(text: string, mark: string): string {
+  let out = "";
+  let copied = 0;
+  let at = 0;
+  while (at < text.length) {
+    if (!STOPS.has(text.charAt(at))) {
+      at++;
+      continue;
+    }
+    let end = at;
+    while (STOPS.has(text.charAt(end))) end++;
+    while (CLOSERS.has(text.charAt(end))) end++;
+    let marked = end;
+    while (marked < text.length && text.charAt(marked) === mark) marked++;
+    if (marked > end) {
+      out += text.slice(copied, at) + text.slice(end, marked) + text.slice(at, end);
+      copied = marked;
+    }
+    at = marked;
+  }
+  return out + text.slice(copied);
 }
 
 /** A change as asked, its paragraph's name read but not yet found in the Note. */
