@@ -362,7 +362,8 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
     await expect(card.getByTestId("first-open-agent-look")).toHaveText(
       "Its marks show here once Claude Code has checked the note.",
     );
-    await expect(card.getByTestId("first-open-agent-look-open")).toHaveCount(0);
+    // The note opens from here before its check too, but the step waits for the check.
+    await expect(card.getByTestId("first-open-agent-look-open")).toBeVisible();
     await stills(window, "5-card-agent-second-done");
 
     const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(

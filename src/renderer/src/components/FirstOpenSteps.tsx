@@ -481,12 +481,14 @@ function AgentLook({
             count: new Intl.NumberFormat(language).format(look),
           })
         : t("firstOpen.step.agentLook.all");
+  // The line and its button, one under the other, as tall as the open step before it: the card keeps
+  // the height of its tallest state, so a shorter one would leave a band under it (#3362).
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="flex flex-col items-start gap-2">
       <p data-testid={testId} className="text-[13px] leading-5 text-ink-secondary">
         {words}
       </p>
-      {note && agentChecked(note) && (
+      {note && (
         <button
           type="button"
           data-testid={testId === undefined ? undefined : `${testId}-open`}
