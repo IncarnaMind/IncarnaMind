@@ -40,7 +40,13 @@ import { unreadFiguresOf } from "../../../shared/unreadFigures";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
-import { askAgent, useAgentsToAsk, useNoModel } from "../askYourAi";
+import {
+  askAgent,
+  askedAbout,
+  useAgentRequests,
+  useAgentsToAsk,
+  useNoModel,
+} from "../askYourAi";
 import {
   addAsCitation,
   addPartCitations,
@@ -78,6 +84,7 @@ import { useAppStore } from "../store";
 import {
   applyDocumentWording,
   applyFigure,
+  askedSentenceOf,
   askVerdictOf,
   checkStateKey,
   cutSentence,
@@ -296,6 +303,9 @@ export function ClaimMark({
   const label = ownNoteOnly ? t("claim.ownNote") : t("claim.mark.label", { state: heading });
   const agents = useAgentsToAsk(mindId);
   const noModel = useNoModel();
+  const requests = useAgentRequests(mindId);
+  const askedSentence = comparableSentence(sentenceOf(editor, claim));
+  const asked = askedAbout(requests, agents, claim.check.id, askedSentence);
 
   /** `now`: the keyboard's focus shows or hides the card at once; the pointer waits (#3102). */
   const hold = useCallback((source: string, on: boolean, now = false) => {
@@ -664,11 +674,13 @@ export function ClaimMark({
               }}
               ask={askVerdictOf(editor, claim) === null ? [] : agents}
               askFirst={noModel}
+              asked={
+                asked &&
+                t(asked.read ? "agents.ask.read" : "agents.ask.waiting", { agent: asked.agent })
+              }
               onAsk={(agent) => {
-                const verdict = askVerdictOf(editor, claim);
-                const sentence = comparableSentence(sentenceOf(editor, claim));
-                if (verdict && sentence)
-                  void askAgent(agent, mindId, { kind: "fix", sentence, verdict });
+                const sentence = askedSentenceOf(editor, claim);
+                if (sentence) void askAgent(agent, mindId, { kind: "fix", sentences: [sentence] });
                 done();
               }}
             />
@@ -852,6 +864,7 @@ export function ClaimCard({
   onUse,
   ask = NO_AGENTS,
   askFirst = false,
+  asked = null,
   onAsk,
 }: {
   /** The key that goes into the card, the last thing in it (#3102). */
@@ -896,6 +909,8 @@ export function ClaimCard({
   ask?: readonly AgentPairing[];
   /** No model is set up: asking the first is the card's first action, the others under its ⋯. */
   askFirst?: boolean;
+  /** Whom the User asked to fix it and whether that agent read the request, in a line (#3419). */
+  asked?: string | null;
   onAsk?(agent: AgentPairing): void;
 }) {
   const origin = useCitedOrigin();
@@ -1997,6 +2012,11 @@ export function ClaimCard({
           )
         );
       })}
+      {asked && (
+        <p data-testid="claim-asked" className="citation-card-note">
+          {asked}
+        </p>
+      )}
       {(buttons.length > 0 || chooseCitation) && (
         <div className="citation-card-actions">
           <CardButtons buttons={buttons} />

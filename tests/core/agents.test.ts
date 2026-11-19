@@ -609,6 +609,7 @@ describe("outside agents", () => {
         "propose_changes",
         "read_mind",
         "read_passages",
+        "read_request",
         "report_check",
         "run_analysis",
         "search",

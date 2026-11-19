@@ -6,7 +6,7 @@ import { agentSocketPath } from "../../src/core/agents";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
-import { agentsAdapter } from "../helpers/agents";
+import { agentsAdapter, connectLegacyAgent, resultText } from "../helpers/agents";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { replyingModel, scriptedModels } from "../helpers/models";
 import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
@@ -82,7 +82,12 @@ test.each(["en", "zh-CN"] as const)(
     expect(openLink).not.toHaveBeenCalled();
     expect(models.specs).toHaveLength(0);
     await expect(reopened.askAgent(request)).resolves.toEqual({ kind: "opened" });
-    const prompt = new URL(openLink.mock.calls[0]?.[0] ?? "").searchParams.get("prompt");
+    // The line names the meeting's Note; the rest waits for the agent's read_request (#3419).
+    const line = new URL(openLink.mock.calls[0]?.[0] ?? "").searchParams.get("prompt");
+    expect(line).not.toContain(meeting.mindId);
+    expect(line).not.toContain(sentence);
+    const agent = await connectLegacyAgent(await reopened.getAgentLaunch(pairing.id));
+    const prompt = resultText(await agent.callTool({ name: "read_request", arguments: {} }));
     expect(prompt).toContain(meeting.mindId);
     expect(prompt).toContain(documentId);
     expect(prompt).toContain("check_citations");

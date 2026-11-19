@@ -26,6 +26,7 @@ import {
   type AgentLaunch,
   type AgentPairing,
   type AgentProblem,
+  type AgentRequest,
   type AgentSettings,
   type AgentToolName,
   type ConnectedAgent,
@@ -51,6 +52,7 @@ import {
 } from "./access";
 import { createAgentCitations } from "./citations";
 import type { ServedConnection } from "./mcp";
+import { createAgentRequests, type KeptRequest } from "./requests";
 import { type AgentListener, listenForAgents } from "./socket";
 import { createAgentWorkings } from "./workings";
 
@@ -110,6 +112,7 @@ export interface AgentsOptions {
     | "workings"
     | "versions"
     | "citations"
+    | "requests"
     | "clock"
     | "now"
     | "newId"
@@ -119,6 +122,8 @@ export interface AgentsOptions {
   skillInstalled(client: string | null): boolean;
   changed(settings: AgentSettings): void;
   called(activity: AgentActivity): void;
+  /** A request to the User's own AI was made or read (#3419). */
+  requested(request: AgentRequest): void;
   reportError(error: unknown): void;
 }
 
@@ -143,6 +148,7 @@ interface ActivityRow {
   document_ids: string;
   effects: string;
   duration_ms: number;
+  request_id: string | null;
   created_at: string;
 }
 
@@ -168,7 +174,7 @@ const toPairing = (row: PairingRow): AgentPairing => ({
 const isTool = (tool: string): tool is AgentToolName =>
   (AGENT_TOOLS as readonly string[]).includes(tool);
 
-const toActivity = (row: ActivityRow): AgentActivity => ({
+const toActivity = (row: ActivityRow, request: string | null): AgentActivity => ({
   id: row.id,
   pairingId: row.pairing_id,
   tool: isTool(row.tool) ? row.tool : "search",
@@ -176,10 +182,21 @@ const toActivity = (row: ActivityRow): AgentActivity => ({
   outcome: row.outcome === "refused" || row.outcome === "failed" ? row.outcome : "done",
   problem: (row.problem as AgentProblem | null) ?? null,
   count: row.result_count,
+  request,
   documentIds: parseList<string>(row.document_ids),
   effects: parseList<Effect>(row.effects),
   durationMs: row.duration_ms,
   at: row.created_at,
+});
+
+/** A request as the windows see it: its text is the agent's to read. */
+const shownRequest = (kept: KeptRequest): AgentRequest => ({
+  id: kept.id,
+  pairingId: kept.pairingId,
+  mindId: kept.mindId,
+  sentences: kept.sentences,
+  createdAt: kept.createdAt,
+  readAt: kept.readAt,
 });
 
 const digest = (token: string) => createHash("sha256").update(token).digest();
@@ -187,6 +204,7 @@ const digest = (token: string) => createHash("sha256").update(token).digest();
 export function createAgents(options: AgentsOptions) {
   const { db } = options;
   const citations = createAgentCitations(db, options.now);
+  const requests = createAgentRequests(db, options.now, randomUUID);
   /** Tokens read from ../secrets, by pairing, so a connection needn't read the keychain. */
   const tokens = new Map<string, string>();
   /** The connections being served, by pairing (null: a token that belongs to none). */
@@ -391,15 +409,15 @@ export function createAgents(options: AgentsOptions) {
   const admit = (pairingId: string) => admissible(pairingId, touch);
 
   /** Keeps a call for the activity list, and lets the list's oldest go. */
-  const record = (activity: Omit<AgentActivity, "id" | "at">) => {
+  const record = (activity: Omit<AgentActivity, "id" | "at" | "request">, requestId?: string) => {
     if (!findPairing(activity.pairingId)) return;
     const at = options.now();
     const id = randomUUID();
     db.transaction(() => {
       db.run(
         `INSERT INTO agent_activity (id, pairing_id, tool, summary, outcome, problem, result_count,
-           document_ids, effects, duration_ms, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           document_ids, effects, duration_ms, request_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           activity.pairingId,
@@ -411,6 +429,7 @@ export function createAgents(options: AgentsOptions) {
           JSON.stringify(activity.documentIds),
           JSON.stringify(activity.effects),
           activity.durationMs,
+          requestId ?? null,
           at,
           at,
         ],
@@ -423,7 +442,8 @@ export function createAgents(options: AgentsOptions) {
         [at, at, activity.pairingId, activity.pairingId, BigInt(ACTIVITY_KEPT)],
       );
     });
-    options.called({ ...activity, id, at });
+    const request = requestId ? (requests.texts([requestId]).get(requestId) ?? null) : null;
+    options.called({ ...activity, request, id, at });
   };
 
   /** Counted from the calls kept, those the activity list has let go too. */
@@ -445,6 +465,14 @@ export function createAgents(options: AgentsOptions) {
     workings: createAgentWorkings(),
     versions: new Map(),
     citations,
+    requests: {
+      ofPairing: requests.ofPairing,
+      markRead: (id) => {
+        const read = requests.markRead(id);
+        if (read) options.requested(shownRequest(read));
+        return read;
+      },
+    },
     clock: options.clock,
     now: options.now,
     newId: randomUUID,
@@ -617,6 +645,7 @@ export function createAgents(options: AgentsOptions) {
            WHERE pairing_id = ? AND deleted_at IS NULL`,
           [at, at, pairing.id],
         );
+        requests.forget(pairing.id, at);
       });
       tokens.delete(pairing.id);
       options.consent.revoke("agents", serviceOf(pairing).id);
@@ -647,15 +676,34 @@ export function createAgents(options: AgentsOptions) {
 
     activity(pairingIdInput: unknown): AgentActivity[] {
       const pairing = requirePairing(pairingIdInput);
-      return db
-        .all<ActivityRow>(
-          `SELECT id, pairing_id, tool, summary, outcome, problem, result_count, document_ids,
-             effects, duration_ms, created_at
-           FROM agent_activity WHERE pairing_id = ? AND deleted_at IS NULL
-           ORDER BY created_at DESC, rowid DESC LIMIT ?`,
-          [pairing.id, BigInt(ACTIVITY_KEPT)],
-        )
-        .map(toActivity);
+      const rows = db.all<ActivityRow>(
+        `SELECT id, pairing_id, tool, summary, outcome, problem, result_count, document_ids,
+           effects, duration_ms, request_id, created_at
+         FROM agent_activity WHERE pairing_id = ? AND deleted_at IS NULL
+         ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+        [pairing.id, BigInt(ACTIVITY_KEPT)],
+      );
+      const texts = requests.texts(
+        rows.flatMap((row) => (row.request_id === null ? [] : [row.request_id])),
+      );
+      return rows.map((row) =>
+        toActivity(row, row.request_id === null ? null : (texts.get(row.request_id) ?? null)),
+      );
+    },
+
+    /**
+     * Keeps what a request to the User's own AI holds beyond its line, for this pairing to read
+     * with `read_request` (#3419).
+     */
+    keepRequest(request: Parameters<typeof requests.keep>[0]): AgentRequest {
+      const kept = shownRequest(requests.keep(request));
+      options.requested(kept);
+      return kept;
+    },
+
+    /** The requests made about a Note, of the agents still connected, the newest first (#3419). */
+    requestsFor(mindId: string): AgentRequest[] {
+      return requests.forMind(mindId).map(shownRequest);
     },
 
     /** Local mode was turned on or off: pairings are paused or go on. */

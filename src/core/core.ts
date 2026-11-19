@@ -5768,6 +5768,7 @@ export function createCore(adapters: CoreAdapters): Core {
     skillInstalled: (client) => skillInstalled(home, client),
     changed: (value) => events.emit("agents.changed", value),
     called: (activity) => events.emit("agents.activity", activity),
+    requested: (request) => events.emit("agents.request", request),
     reportError: (error) => console.error(error),
   });
   agentsLocalModeChanged = () => agents.localModeChanged();
@@ -5804,6 +5805,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
     minds: () => minds.list(),
+    keepRequest: (request) => agents.keepRequest(request),
     openLink: adapters.agents?.openLink ?? null,
     say: (key, params) => translate(settings.get().language, key, params),
     log: adapters.log ?? silentLogger,
@@ -8048,6 +8050,8 @@ export function createCore(adapters: CoreAdapters): Core {
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
+    listAgentRequests: async (mindId) =>
+      typeof mindId === "string" ? agents.requestsFor(mindId) : [],
     getAgentLaunch: (pairingId) => agents.launch(pairingId),
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),

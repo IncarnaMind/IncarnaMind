@@ -7872,6 +7872,10 @@ export const zhCN = {
   "agents.problem.chat-consent":
     "IncarnaMind 的 AI 模型尚未获得允许。在 IncarnaMind 中提一个问题即可允许。",
   "agents.problem.answer-failed": "IncarnaMind 无法回答：{message}",
+  "agents.problem.noRequest":
+    "IncarnaMind 中没有等你读取的请求：每条请求只能读取一次。请按用户写的内容处理，或请用户在 IncarnaMind 中重新发送。",
+  "agents.problem.requestOutOfReach":
+    "这条请求涉及的笔记你现在无法读取。请告诉用户在“设置 → 智能体”中与你共享它所在的文件夹，然后再问一次。",
   "agents.problem.invalid": "IncarnaMind 无法读取这个请求。",
   "agents.problem.failed": "IncarnaMind 出了点问题。再试一次。",
   "agents.answer.notFound": "[未找到引文]",
@@ -8025,6 +8029,9 @@ export const zhCN = {
   "agents.activity.report_check": "自己核对了笔记“{text}”",
   "agents.activity.calculate": "推算了“{text}”",
   "agents.activity.run_analysis": "为“{text}”运行了代码",
+  "agents.activity.read_request": "读取了你关于“{text}”的请求",
+  "agents.activity.read_request.none": "查找你的请求",
+  "agents.activity.request": "查看请求",
   "agents.activity.count.one": "1 条结果",
   "agents.activity.count.other": "{count} 条结果",
   "agents.activity.changes.one": "1 处修订待你处理",
@@ -8095,6 +8102,10 @@ export const zhCN = {
   "agents.ask.copied": "已复制，粘贴到{agent}中即可。",
   "agents.ask.fixCommand": "让你的 AI 修改这句话",
   "agents.ask.noteCommand": "就这篇笔记问你的 AI",
+  "agents.ask.fixAllCommand": "让你的 AI 修改所有标出的句子",
+  "agents.ask.fixAll": "交给{agent}修改这 {count} 句",
+  "agents.ask.waiting": "等{agent}读取你的请求。",
+  "agents.ask.read": "{agent}已读取你的请求。",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
     "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",
@@ -8111,12 +8122,18 @@ export const zhCN = {
   "meetings.notesAgent.unshared": "要用 {agent} 整理，请将这篇会议笔记移到已与它共享的文件夹。",
   "meetings.notesAgent.unavailable": "请在设置中重新连接 AI 或恢复访问权限。",
   "meetings.notesAgent.settings": "智能体设置",
+  "agents.ask.line.fix": "把 IncarnaMind 在笔记{title}里标出来的那句改好。",
+  "agents.ask.line.fixAll": "把 IncarnaMind 在笔记{title}里标出来的 {count} 句改好。",
+  "agents.ask.line.note": "关于我在 IncarnaMind 中的笔记{title}：",
+  "agents.ask.line.question": "关于我在 IncarnaMind 中的笔记{title}：\n\n{question}",
+  "agents.ask.line.questionAlone": "请根据我在 IncarnaMind 中的文档回答：\n\n{question}",
+  "agents.ask.line.meeting": "整理我在 IncarnaMind 中的会议笔记{title}。",
   "agents.ask.request.fix":
     "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，这句话{verdict}：\n\n{sentence}\n\n请根据我的文档改正这句话，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
-  "agents.ask.request.question":
-    "关于我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）：\n\n{question}",
-  "agents.ask.request.questionAlone": "请根据我在 IncarnaMind 中的文档回答：\n\n{question}",
-  "agents.ask.request.note": "关于我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）：",
+  "agents.ask.request.fixAll":
+    "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，有 {count} 句需要留意：\n\n{sentences}\n\n请根据我的文档逐句改正，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
+  "agents.ask.request.fixAll.item": "{n}. 这句话{verdict}：{sentence}",
+  "agents.ask.request.note": "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
   "agents.ask.verdict.unsupported": "没有依据",
   "agents.ask.verdict.contradicted": "与我的文档矛盾",
   "agents.ask.verdict.not-found": "在我的文档中找不到",

@@ -3158,6 +3158,35 @@ export const migrations: readonly Migration[] = [
           END;
     `,
   },
+  {
+    version: 145,
+    description: "Requests to the User's own AI, kept for that agent to read (#3419)",
+    sql: `
+      -- What the User asked their own AI about a Note, beyond the line typed in the agent's app:
+      -- which Note, which sentences, what the check found and what to do, as text the agent
+      -- reads once with read_request (read_at). sentences is the JSON list a fix names, each with
+      -- the check result it was asked on ({sentence, checkId}). On this device only, as
+      -- agent_pairings is.
+      CREATE TABLE agent_requests (
+        id TEXT PRIMARY KEY NOT NULL,
+        pairing_id TEXT NOT NULL,
+        mind_id TEXT NOT NULL,
+        sentences TEXT NOT NULL DEFAULT '[]',
+        text TEXT NOT NULL,
+        read_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX agent_requests_by_pairing ON agent_requests (pairing_id, created_at)
+        WHERE deleted_at IS NULL;
+      CREATE INDEX agent_requests_by_mind ON agent_requests (mind_id, created_at)
+        WHERE deleted_at IS NULL;
+
+      -- The request a read_request call read, which its activity row shows.
+      ALTER TABLE agent_activity ADD COLUMN request_id TEXT;
+    `,
+  },
 ];
 
 /**
