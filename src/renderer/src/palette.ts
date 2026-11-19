@@ -61,6 +61,7 @@ const NOTHING: CommandContext = { selection: [], focus: null, surface: "palette"
 function objectShown(item: TabItem | undefined): ObjectRef | null {
   if (item?.kind === "mind") return { kind: "mind", id: item.mindId };
   if (item?.kind === "document") return { kind: "document", id: item.documentId };
+  if (item?.kind === "canvas") return { kind: "canvas", id: item.canvasId };
   return null;
 }
 

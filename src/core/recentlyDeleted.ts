@@ -1,13 +1,14 @@
 /**
  * Recently deleted (CONTEXT.md), and putting back what was deleted, merged or untagged.
  *
- * Deleting marks rows deleted (ADR-0003), a Mind, conversation, Document, Folder or Tag together
- * with the rows that go with it, all at the same moment: restoring one brings back the rows whose
- * `deleted_at` is its own. A Mind's Meeting goes with it, and its Transcript Document, which isn't
- * listed apart from the Mind and is deleted permanently with it (#1253). Deleting permanently, by
- * the User or `RECENTLY_DELETED_DAYS` after at start-up, drops that content and keeps the row as a
- * tombstone (`purged_at`), which can't be restored. Nothing here reads or writes the User's files. A Document's text that a Citation
- * still quotes stays (ADR-0010), as the text kept of an unlinked Document does.
+ * Deleting marks rows deleted (ADR-0003), a Mind, conversation, Document, Folder, Tag or Canvas
+ * together with the rows that go with it, all at the same moment: restoring one brings back the
+ * rows whose `deleted_at` is its own. A Mind's Meeting goes with it, and its Transcript Document,
+ * which isn't listed apart from the Mind and is deleted permanently with it (#1253). Deleting
+ * permanently, by the User or `RECENTLY_DELETED_DAYS` after at start-up, drops that content and
+ * keeps the row as a tombstone (`purged_at`), which can't be restored. Nothing here reads or writes
+ * the User's files. A Document's text that a Citation still quotes stays (ADR-0010), as the text
+ * kept of an unlinked Document does.
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { isTagColour } from "../shared/tagColours";
@@ -24,6 +25,7 @@ import {
   type RestoreResult,
   type TagLinkState,
 } from "./api";
+import type { Canvases } from "./canvases";
 import type { Conversations } from "./conversations";
 import type { createDocuments } from "./documents";
 import { NOTE_FIGURE_CHECKPOINT_PREFIX } from "./documents/retention";
@@ -42,12 +44,23 @@ const TABLES: Readonly<Record<DeletedKind, string>> = {
   document: "documents",
   folder: "library_groups",
   tag: "tags",
+  canvas: "canvases",
 };
 
 const KINDS: readonly DeletedKind[] = DELETED_KINDS;
 
 /** A name as `mindName` and `conversationName` give it: the title typed, else the one it gave itself. */
 const OWN_NAME = "CASE WHEN title <> '' THEN title ELSE auto_title END";
+
+/** The column each kind's name is read from. */
+const NAMES: Readonly<Record<DeletedKind, string>> = {
+  mind: OWN_NAME,
+  conversation: OWN_NAME,
+  document: "name",
+  folder: "name",
+  tag: "name",
+  canvas: "title",
+};
 
 const earliestRestorable = (now: string) =>
   new Date(Date.parse(now) - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -191,6 +204,15 @@ function purge(
   }
   if (kind === "tag") db.run(`DELETE FROM document_tags WHERE tag_id ${IN}`, [list]);
   if (kind === "folder") db.run(`DELETE FROM deleted_folder_items WHERE folder_id ${IN}`, [list]);
+  if (kind === "canvas") {
+    // Each version keeps only its files' hashes, until `Canvases.dropPurged` removes the files.
+    db.run(
+      `UPDATE canvas_versions SET title = '', citations = '[]', updated_at = ?
+       WHERE canvas_id IN (SELECT id FROM canvases
+         WHERE id ${IN} AND deleted_at IS NOT NULL AND purged_at IS NULL)`,
+      [at, list],
+    );
+  }
   db.run(
     `UPDATE ${TABLES[kind]} SET purged_at = ?, updated_at = ?
      WHERE id ${IN} AND deleted_at IS NOT NULL AND purged_at IS NULL`,
@@ -248,8 +270,12 @@ export function createRecentlyDeleted(options: {
   };
   /** The Minds a restore brought back, and whether their tabs come back with them (Undo). */
   mindsRestored(mindIds: readonly string[], reopen: boolean): void;
-  /** Minds gone for good: what the layout kept for their tabs goes. */
-  mindsForgotten(mindIds: readonly string[]): void;
+  /** Canvases (#3406): deleted, restored and put back in a restored Folder as Minds are. */
+  canvases: Pick<Canvases, "restore" | "returnToFolder" | "announce">;
+  /** The Canvases a restore brought back, and whether their tabs come back with them (Undo). */
+  canvasesRestored(canvasIds: readonly string[], reopen: boolean): void;
+  /** Minds and Canvases gone for good: what the layout kept for their tabs goes. */
+  forgotten(ids: readonly string[]): void;
   conversationsChanged(): void;
   tagsChanged(): void;
   tagged(documentIds: string[]): void;
@@ -259,7 +285,7 @@ export function createRecentlyDeleted(options: {
 
   const rowOf = (kind: DeletedKind, id: string) =>
     db.get<DeletedRow>(
-      `SELECT ${kind === "mind" || kind === "conversation" ? OWN_NAME : "name"} AS name,
+      `SELECT ${NAMES[kind]} AS name,
          ${kind === "tag" ? "kind" : "NULL"} AS kind, deleted_at, purged_at
        FROM ${TABLES[kind]} WHERE id = ?`,
       [id],
@@ -274,7 +300,9 @@ export function createRecentlyDeleted(options: {
           ? say("mind.untitled")
           : kind === "conversation"
             ? say("conversation.untitled")
-            : "";
+            : kind === "canvas"
+              ? say("canvas.untitled")
+              : "";
 
   /** The Transcript Documents deleted with a Mind, at its time. */
   function documentsWith(mindId: string, deletedAt: string): string[] {
@@ -340,10 +368,10 @@ export function createRecentlyDeleted(options: {
         linkedFolderId: document?.linkedFolderId ?? null,
       });
       const items = [
-        ...(["mind", "conversation"] as const).flatMap((kind) =>
+        ...(["mind", "conversation", "canvas"] as const).flatMap((kind) =>
           db
             .all<{ id: string; name: string; deleted_at: string; group_id: string | null }>(
-              `SELECT id, ${OWN_NAME} AS name, deleted_at,
+              `SELECT id, ${NAMES[kind]} AS name, deleted_at,
                  COALESCE(folder_id, ${wasIn(kind, TABLES[kind])}) AS group_id
                FROM ${TABLES[kind]}
                WHERE deleted_at >= ? AND purged_at IS NULL`,
@@ -426,6 +454,8 @@ export function createRecentlyDeleted(options: {
           toTopLevel: [] as string[],
           tags: false,
           tagged: new Set<string>(),
+          canvasIds: [] as string[],
+          canvases: false,
         };
         const coming = new Set<string>();
         // Documents go back together, in one statement a table (#1349), before whatever comes
@@ -485,7 +515,16 @@ export function createRecentlyDeleted(options: {
                   restored.conversations = true;
                 }
               }
+              for (const group of taken.canvases) {
+                if (options.canvases.returnToFolder(group.ids, group.folderId)) {
+                  restored.canvases = true;
+                }
+              }
               restored.folders = true;
+            } else if (kind === "canvas") {
+              options.canvases.restore(ref.id);
+              restored.canvasIds.push(ref.id);
+              restored.canvases = true;
             } else {
               if (tags.holderOnRestore(row))
                 throw new InvalidInputError({
@@ -522,6 +561,8 @@ export function createRecentlyDeleted(options: {
         library.resume();
       }
       if (done.folders) library.restored();
+      if (done.canvases) options.canvases.announce();
+      if (done.canvasIds.length > 0) options.canvasesRestored(done.canvasIds, reopen);
       if (done.tags || sourcesChanged) options.tagsChanged();
       if (done.tagged.size > 0) options.tagged([...done.tagged]);
       const audio = options.meetings.restored(done.meetings);
@@ -581,7 +622,10 @@ export function createRecentlyDeleted(options: {
       // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
       const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
       for (const mindId of minds) content.forget(mindId);
-      if (minds.length > 0) options.mindsForgotten(minds);
+      const withTabs = refs.flatMap(({ kind, id }) =>
+        kind === "mind" || kind === "canvas" ? [id] : [],
+      );
+      if (withTabs.length > 0) options.forgotten(withTabs);
       return minds;
     },
   };

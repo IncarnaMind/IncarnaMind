@@ -4035,13 +4035,14 @@ export async function checkpointsOfNewestNote(window: Page): Promise<number> {
  */
 export async function coreState(window: Page): Promise<unknown> {
   return (await coreOf(window)).evaluate(async (core) => {
-    const [minds, documents, library, tags, linkedFolders, deleted] = await Promise.all([
+    const [minds, documents, library, tags, linkedFolders, deleted, canvases] = await Promise.all([
       core.listMinds(),
       core.listDocuments(),
       core.getLibrary(),
       core.listTags(),
       core.listLinkedFolders(),
       core.listDeleted(),
+      core.listCanvases(),
     ]);
     // A Document's highlights and notes (#327), so a change to one is seen and taken back.
     const annotations = await Promise.all(
@@ -4055,6 +4056,7 @@ export async function coreState(window: Page): Promise<unknown> {
       tags,
       linkedFolders,
       deleted,
+      canvases,
       annotations: Object.fromEntries(annotations),
     };
     const progress = ["tagging", "taggingError"];

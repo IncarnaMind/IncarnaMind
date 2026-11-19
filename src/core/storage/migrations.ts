@@ -3158,6 +3158,52 @@ export const migrations: readonly Migration[] = [
           END;
     `,
   },
+  {
+    version: 145,
+    description:
+      "Canvases: pages an outside agent writes, each publish a version of its own (#3406)",
+    // A version's HTML and files are kept in the data folder's Canvases/, each under the SHA-256 of
+    // its bytes (core/canvases), so a file two versions share is kept once. files is JSON:
+    // [{ name, hash, type, size }], name as the HTML refers to it, type its media type found from
+    // its bytes. citations is JSON: the Citations IncarnaMind minted for the agent that its text
+    // cites, as minted. pairing_id is the outside agent's pairing that published it: a Canvas in
+    // no Folder is reached by that pairing alone, as a Note it wrote there is (#3364). A version
+    // the User restored has no pairing and no agent, and names the version it restored. A Canvas
+    // deleted permanently keeps its row as a tombstone (purged_at), as a Note does; its versions go
+    // once the files no other Canvas keeps are removed.
+    sql: `
+      CREATE TABLE canvases (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        folder_id TEXT,
+        pairing_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        purged_at TEXT
+      ) STRICT;
+      CREATE INDEX canvases_by_folder ON canvases (folder_id) WHERE deleted_at IS NULL;
+
+      CREATE TABLE canvas_versions (
+        id TEXT PRIMARY KEY NOT NULL,
+        canvas_id TEXT NOT NULL REFERENCES canvases (id),
+        number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        html_hash TEXT NOT NULL,
+        files TEXT NOT NULL DEFAULT '[]',
+        citations TEXT NOT NULL DEFAULT '[]',
+        pairing_id TEXT,
+        agent TEXT,
+        restored_from INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX canvas_versions_by_number ON canvas_versions (canvas_id, number)
+        WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

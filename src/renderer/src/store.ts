@@ -47,6 +47,7 @@ import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
 import { attentionOrder } from "./attention";
+import { canvasOf, loadCanvases } from "./canvases";
 import {
   deleted,
   documentsAdded,
@@ -386,6 +387,8 @@ export interface AppState extends LayoutSlice {
    */
   duplicateMind(id: string): Promise<void>;
   deleteMind(id: string): Promise<void>;
+  /** Moves a Canvas to Recently deleted (#3406), with Undo; its tabs close. */
+  deleteCanvas(id: string): Promise<void>;
   /** Shows a failure that happened outside a store action, e.g. while saving an edit. */
   reportError(error: unknown): void;
   /**
@@ -1235,6 +1238,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
           documentsRead,
+          loadCanvases(),
         ]);
         const reloaded = windowLoadedBefore();
         // Minds made before this setting existed count as an earlier launch.
@@ -1637,6 +1641,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         },
         async () => {
           for (const id of ids("mind")) await get().deleteMind(id);
+          for (const id of ids("canvas")) await get().deleteCanvas(id);
           if (ids("document").length > 0) await get().deleteDocuments(ids("document"));
           for (const id of ids("folder")) await get().deleteFolder(id);
         },
@@ -1803,6 +1808,14 @@ export const useAppStore = create<AppState>()((set, get) => {
             remove,
           ),
         );
+      }),
+
+    deleteCanvas: (id) =>
+      attempt(async () => {
+        const title = canvasOf(id)?.title ?? "";
+        const remove = () => core.deleteCanvas(id);
+        await remove();
+        push(deleted((t) => title || t("canvas.untitled"), [{ kind: "canvas", id }], remove));
       }),
 
     reportError(error) {
@@ -2500,6 +2513,17 @@ core.on("answer.finished", ({ answerId, status }) => {
 core.on("chatReadiness.changed", (chatReadiness) => {
   pushed("chatReadiness");
   useAppStore.setState({ chatReadiness });
+});
+
+// A Canvas an agent publishes opens behind the tab in front, as a Note it writes does (#3406).
+core.on("agents.canvasChanged", (change) => {
+  if (change.kind !== "published") return;
+  void useAppStore.getState().changeLayout({
+    type: "open",
+    item: { kind: "canvas", canvasId: change.canvasId },
+    where: { in: "group" },
+    behind: true,
+  });
 });
 
 // An outside agent asked to show one of its Citations (#351): it opens beside the Mind, at its quote.

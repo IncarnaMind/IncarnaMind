@@ -4,6 +4,7 @@ import { ADDABLE_FILES_ACCEPT } from "../../../shared/addFilesAction";
 import { displayName, sourceOf } from "../../../shared/documentNames";
 import { isProcessing } from "../../../shared/documentStatus";
 import type { MessageKey } from "../../../shared/i18n";
+import { useCanvases } from "../canvases";
 import { useDocumentPlace } from "../documentPlaces";
 import { documentStatusText } from "../documentStatus";
 import { useDraggedRef, useDragSource } from "../dragDrop";
@@ -139,13 +140,15 @@ export function DocumentsSection() {
     return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
   });
   const addDocuments = useAppStore((state) => state.addDocuments);
-  const treeIsEmpty = useAppStore(
-    (state) =>
-      !state.documents.some(isListedDocument) &&
-      state.minds.length === 0 &&
-      (state.library?.groups.length ?? 0) === 0 &&
-      state.linkedFolders.length === 0,
-  );
+  const noCanvases = useCanvases((state) => state.canvases.length === 0);
+  const treeIsEmpty =
+    useAppStore(
+      (state) =>
+        !state.documents.some(isListedDocument) &&
+        state.minds.length === 0 &&
+        (state.library?.groups.length ?? 0) === 0 &&
+        state.linkedFolders.length === 0,
+    ) && noCanvases;
   const picker = useRef<HTMLInputElement>(null);
   const tree = useRef<HTMLDivElement>(null);
   const treeKeys = useTreeKeyboard(tree);
