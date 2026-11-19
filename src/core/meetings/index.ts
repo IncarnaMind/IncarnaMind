@@ -1239,8 +1239,15 @@ export function createMeetings(options: MeetingsOptions) {
      * `readStretch`. NotFoundError once its audio is deleted or its files are gone.
      */
     readAudio(input: unknown): MeetingAudioStretch {
-      const { meetingId, fromMs, toMs } = isRecord(input) ? input : {};
-      if (typeof fromMs !== "number" || typeof toMs !== "number" || !(toMs > fromMs)) {
+      const { meetingId, fromMs, toMs, source } = isRecord(input) ? input : {};
+      if (
+        typeof fromMs !== "number" ||
+        typeof toMs !== "number" ||
+        !Number.isFinite(fromMs) ||
+        !Number.isFinite(toMs) ||
+        !(toMs > fromMs) ||
+        (source !== undefined && source !== "system")
+      ) {
         throw new InvalidInputError({ key: "error.meeting.audioStretch" });
       }
       const row = rowOf(meetingId);
@@ -1248,7 +1255,14 @@ export function createMeetings(options: MeetingsOptions) {
       const to = Math.min(toMs, from + MAX_STRETCH_MS);
       const samples =
         row.audio_deleted_at === null && row.status === "stopped"
-          ? readStretch(folderOf(row.id), from, to)
+          ? readStretch(
+              folderOf(row.id),
+              from,
+              to,
+              source
+                ? listParts(folderOf(row.id)).filter((part) => part.source === source)
+                : undefined,
+            )
           : null;
       if (!samples) throw new NotFoundError({ key: "error.meeting.audioGone" });
       return { fromMs: from, toMs: to, sampleRate: MEETING_SAMPLE_RATE, samples };

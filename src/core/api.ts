@@ -14898,11 +14898,16 @@ export interface CoreApi {
    */
   readMeetingAudio(input: {
     meetingId: string;
+    /** A speaker review plays just the computer sound that Soniox heard. */
+    source?: "system";
     fromMs: number;
     toMs: number;
   }): Promise<MeetingAudioStretch>;
   getMeetingSpeakerReview(meetingId: string): Promise<MeetingSpeakerReviewQuote>;
-  reviewMeetingSpeakers(input: { meetingId: string; confirmed: true }): Promise<MeetingSpeakerReviewResult>;
+  reviewMeetingSpeakers(input: {
+    meetingId: string;
+    confirmed: true;
+  }): Promise<MeetingSpeakerReviewResult>;
   cancelMeetingSpeakerReview(meetingId: string): Promise<void>;
   /** The cloud services that can transcribe meeting audio (#141), and whether each has a key. */
   listTranscriptionServices(): Promise<TranscriptionServices>;
