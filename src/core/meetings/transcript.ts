@@ -1495,12 +1495,6 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (state.speakers !== "due") options.saved?.(state.meetingId);
   }
 
-  // In a room the voices a cloud service told apart as they spoke stand, for now: over them the
-  // pass is far better on meetings of four and far worse on a two-person conversation in two
-  // languages (#138, eval/speakers/README.md).
-  const toldApartInRoom = (state: State) =>
-    Object.keys(state.voices ?? {}).some((key) => key.includes(":microphone:"));
-
   // A Transcript whose who's who is set, by the User or by an earlier pass, keeps it: the User's
   // names and lines hang on its labels (#138), and a pass run again would move them.
   const named = (state: State) =>
@@ -1513,12 +1507,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     if (!pass || state.separating || closed) return;
     // Once a cloud service numbers the other side's voices, no line says "Them".
     const call = state.callHeard === true || isCall(state.cues);
-    if (
-      !state.savedPath ||
-      options.audioDeleted(state.meetingId) ||
-      (!call && toldApartInRoom(state)) ||
-      named(state)
-    ) {
+    if (!state.savedPath || options.audioDeleted(state.meetingId) || named(state)) {
       settle(state, "done");
       return;
     }
