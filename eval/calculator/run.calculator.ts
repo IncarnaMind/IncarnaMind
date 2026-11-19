@@ -29,7 +29,7 @@ import {
   wrapLanguageModel,
 } from "ai";
 import { expect, test } from "vitest";
-import type { AnalysisRuntime, ChatModelFactory, Core } from "../../src/core";
+import type { AnalysisRuntime, ChatModelFactory, ConversationAnswer, Core } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
 import { costOf, inCurrency } from "../../src/core/cost/price";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
@@ -71,6 +71,8 @@ const PATHS = (process.env.CALC_PATHS ?? "answer,check,agent")
 const CHOSEN = process.env.CALC_CASES?.split(",").map((each) => each.trim());
 const CAP_USD = Number(process.env.CALC_CAP_USD ?? "1");
 const DRY = process.env.CALC_DRY === "1";
+/** CALC_NOTE_CHECK=1: an Answer whose figure leaves out its scale or unit is put in a Note and checked. */
+const NOTE_CHECK = process.env.CALC_NOTE_CHECK === "1";
 /** Requests at once: enough to finish a round in minutes, few enough to stay under the key's limit. */
 const AT_ONCE = 4;
 const AGENTS_AT_ONCE = 3;
@@ -419,6 +421,11 @@ async function answerPath(setup: Setup) {
       const { text, figures } = readAnswer(answerBlocks(answer));
       const mine = heard.filter((request) => request.key === each.id);
       const scored = scoreAnswer(each, text, figures);
+      const leftOut =
+        scored.figure.chars !== null &&
+        (scored.figure.unitShown !== "right" ||
+          scored.wrongWorkedOut.some((reason) => /left out|unit:/.test(reason)));
+      const noteCheck = NOTE_CHECK && leftOut ? await checkedInNote(core, each, answer) : null;
       out("answer", {
         arm: ARM,
         round: ROUND,
@@ -435,6 +442,7 @@ async function answerPath(setup: Setup) {
         failedRequests: failedOf(mine),
         ...scored,
         text,
+        noteCheck,
         shownFigures: figures,
         figures: answer.figures.map((figure) => ({
           marker: figure.marker,
@@ -474,6 +482,38 @@ async function answerPath(setup: Setup) {
     };
   } finally {
     await opened.close();
+  }
+}
+
+/**
+ * The Answer put in a Note of a Folder that holds only its case's Document, as a User adds it, and
+ * checked with IncarnaMind's own check: each sentence's mark, the figure's first.
+ */
+async function checkedInNote(core: Core, each: CalculatorCase, answer: ConversationAnswer) {
+  const folder = await core.createLibraryGroup({ name: `${each.id} ${ROUND}`, description: "" });
+  const documentId = (await core.listDocuments()).find(
+    (doc) => doc.name === each.document.name,
+  )?.id;
+  if (documentId) await core.moveToFolder({ documentIds: [documentId], folderId: folder.id });
+  const mind = await core.createMind({ title: "Answer", folderId: folder.id });
+  const client = await connectToMind(core, mind.id);
+  try {
+    writeMind(client, answerBlocks(answer));
+    await client.settled();
+    await core.checkMind({
+      requestId: `${ARM}-${ROUND}-note-${mind.id}`,
+      mindId: mind.id,
+      mode: "all",
+    });
+    const marks = [...(await marksOf(core, client, folder.id)).entries()].map(
+      ([sentence, mark]) => ({ sentence, ...mark }),
+    );
+    const shown = answer.figures[0]?.shown ?? "";
+    return [...marks].sort(
+      (a, b) => Number(b.sentence.includes(shown)) - Number(a.sentence.includes(shown)),
+    );
+  } finally {
+    await core.deleteMind(mind.id);
   }
 }
 
