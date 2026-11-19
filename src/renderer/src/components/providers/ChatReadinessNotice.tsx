@@ -4,6 +4,7 @@ import {
   SIGN_IN_ROUTES,
   wayBackLabel,
 } from "../../../../core/providers/signInRoutes";
+import { useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
 import { signInAgain } from "../../chatGptSignIn";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
@@ -158,17 +159,22 @@ export function ReadinessLine({
 
 /**
  * Shown in a Mind while Questions can't be asked, with a way to fix it.
- * Answers (#29) disable asking with the same explanation.
+ * Answers (#29) disable asking with the same explanation. With no model and the User's own AI
+ * connected, the page stays bare: that AI is asked from a check's card, the chat box and ⌘K (#3373).
  */
-export function ChatReadinessNotice() {
+export function ChatReadinessNotice({ mindId }: { mindId: string }) {
   const t = useT();
   const readiness = useAppStore((state) => state.chatReadiness);
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAskRead(mindId);
   // The setup card already says it.
   const settingUp = useSettingUp();
   if (!readiness || readiness.ready || settingUp) return null;
   // Local mode's refusal is said once, in the composer where the Question was asked (#1511): a
   // second line above the page would move the page.
   if (readiness.reason === "local-mode") return null;
+  // Until the agents are read, nothing shows that could go a moment later.
+  if (readiness.reason === "no-provider" && agents?.length !== 0) return null;
   return (
     <ReadinessLine
       readiness={readiness}

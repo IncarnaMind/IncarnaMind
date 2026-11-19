@@ -5877,6 +5877,7 @@ export const en = {
   "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
   "error.layout.conversation": "The assistant shows a conversation, or a New chat.",
+  "error.layout.foldedBy": "The assistant can be folded only by you, or for your own AI.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
   "error.mind.notFromWord":
     "This note wasn’t imported from a Word file, so it has no original to add.",
@@ -6341,6 +6342,8 @@ export const en = {
   "error.linkedFolder.taken":
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
+  "error.agent.cantAsk": "That agent can’t read this note now.",
+  "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.agent.nameEmpty": "Give the agent a name.",
   "error.firstRun.work": "Those aren’t kinds of work the setup asks about.",
   "error.firstRun.noPicks": "There are no picks to send.",
@@ -7791,6 +7794,7 @@ export const en = {
   "assistant.more": "More for the assistant",
   "assistant.fold": "Fold the assistant",
   "assistant.unfold": "Show the assistant ({shortcut})",
+  "assistant.unfold.plain": "Show the assistant",
   "assistant.move": "Drag to move the assistant: dock it, or drop it to float",
   "assistant.moveMenu": "Move assistant",
   "assistant.dock.right": "Dock on the right",
@@ -8567,6 +8571,28 @@ export const en = {
   "agents.done.unreadable":
     "The settings file of {agent} couldn’t be read, so it was left alone. The settings are copied: paste them into {path}.",
   "agents.done.undo": "Undo",
+  "agents.ask.action": "Ask {agent}",
+  "agents.ask.pill": "Ask {agent}",
+  "agents.ask.more": "More ways to ask",
+  "agents.ask.useModel": "Use a model in IncarnaMind\u2026",
+  "agents.ask.others": "Ask another AI",
+  "agents.ask.setUpModel": "Set up a model",
+  "agents.ask.copied": "Copied. Paste it into {agent}.",
+  "agents.ask.fixCommand": "Ask your AI to fix this sentence",
+  "agents.ask.noteCommand": "Ask your AI about this note",
+  "agents.ask.request.fix":
+    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
+  "agents.ask.request.question":
+    "In IncarnaMind, about my note {title} (mindId: {mindId}):\n\n{question}",
+  "agents.ask.request.questionAlone": "From my Documents in IncarnaMind:\n\n{question}",
+  "agents.ask.request.note": "In IncarnaMind, about my note {title} (mindId: {mindId}):",
+  "agents.ask.verdict.unsupported": "has no support in my Documents",
+  "agents.ask.verdict.contradicted": "is contradicted by my Documents",
+  "agents.ask.verdict.not-found": "isn’t found in my Documents",
+  "agents.ask.verdict.overstated": "is overstated",
+  "agents.ask.verdict.partly-supported": "is only partly supported",
+  "agents.ask.verdict.units-may-differ": "may not use the units my Documents use",
+  "agents.ask.verdict.record-cite": "has a record cite that needs a look",
   "agents.bundle.description":
     "Search your IncarnaMind Documents and cite them, with every quote checked.",
   "figure.points": "{value} percentage points",

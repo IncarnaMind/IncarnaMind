@@ -4,6 +4,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
 import { copyAnswer, notesToAdd } from "../answerEditors";
 import { useAnswers } from "../answers";
+import { askAgent } from "../askYourAi";
 import { shownDock } from "../assistantPlace";
 import { useComposer } from "../composer";
 import {
@@ -24,6 +25,7 @@ import { billingUrlOfProvider, keyProviderOf, useKeyRefusals } from "../keyRefus
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
 import { removedModelNow } from "../modelInUse";
 import { requestModelMenu } from "../modelMenu";
+import { ownAiPillNow } from "../ownAiPanel";
 import { exampleMindIds, useAppStore } from "../store";
 import {
   assistantHandle,
@@ -83,6 +85,13 @@ export function focusComposer(): void {
  * the selection. With words selected in a Document, it asks about them.
  */
 function askOrEdit(): void {
+  // As the pill it is shown on: with only their own AI and the assistant folded, the User asks it (#3373).
+  const pill = ownAiPillNow();
+  const [agent] = pill?.agents ?? [];
+  if (pill && agent) {
+    void askAgent(agent, pill.mindId, { kind: "note" });
+    return;
+  }
   const viewer = viewerHandleInUse("selection", useAppStore.getState().layout);
   if (viewer?.ask) {
     viewer.ask();

@@ -24,6 +24,7 @@ import {
 } from "../../../shared/searchScope";
 import { useAnswers } from "../answers";
 import { queueAsk } from "../askQueue";
+import { useAgentsToAsk, useReadAgentsToAsk } from "../askYourAi";
 import { composerHandle, useHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { SearchIcon, StopIcon } from "../components/icons";
@@ -83,6 +84,7 @@ import { AnswerAnnouncer } from "./AnswerAnnouncer";
 import { AskedQuoteChips } from "./AskedQuotes";
 import { AskProblem } from "./AskProblem";
 import { AskQueued } from "./AskQueued";
+import { ComposerAskAgent } from "./ComposerAskAgent";
 import { ComposerPlus } from "./ComposerPlus";
 import { EditStatus } from "./EditStatus";
 import { ExplainQueued } from "./ExplainQueued";
@@ -227,6 +229,12 @@ export function Composer({
     });
   }, [key]);
   const problem = useAnswers((state) => state.blocked[composerKey(mindId)]);
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAsk(mindId);
+  const offersAgent =
+    problem?.kind === "not-ready" &&
+    problem.readiness.reason === "no-provider" &&
+    agents.length > 0;
   const skills = useAppStore((state) => state.skills);
   const field = useRef<HTMLTextAreaElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -897,7 +905,8 @@ export function Composer({
         </>
       )}
       <AskQueued draftKey={key} />
-      {problem && (
+      {offersAgent && <ComposerAskAgent agents={agents} draftKey={key} mindId={mindId} />}
+      {problem && !offersAgent && (
         <AskProblem
           problem={problem}
           testIds={{

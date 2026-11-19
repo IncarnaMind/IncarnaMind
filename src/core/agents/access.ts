@@ -934,6 +934,33 @@ interface Done<T> {
   effects?: Effect[];
 }
 
+type ReachDeps = Pick<AgentAccessDeps, "foldersInScope" | "mindBlocks" | "duplicatedFrom">;
+
+const readsNoFolder = (deps: ReachDeps, pairing: AdmittedPairing) =>
+  deps.foldersInScope(pairing.folderIds).includes(NOT_IN_A_FOLDER_ID);
+
+/**
+ * Whether the pairing wrote this Mind, as `create_mind` records it in the Mind. A copy carries
+ * the record, so it holds only for the Mind it names; one that names none, kept before records
+ * did, holds for a Mind that is no copy, as a duplicate is the one way a Mind's content is
+ * copied into another (#3364).
+ */
+function pairingWrote(deps: ReachDeps, pairing: AdmittedPairing, mindId: string): boolean {
+  const writer = deps.mindBlocks(mindId, (blocks) =>
+    blocks.doc ? noteWriterOf(blocks.doc) : null,
+  );
+  if (writer?.pairingId !== pairing.id) return false;
+  return writer.mindId === undefined
+    ? deps.duplicatedFrom(mindId) === null
+    : writer.mindId === mindId;
+}
+
+/** Whether `read_mind` reads this Mind for the pairing: in its Folders, or in none when it wrote it there. */
+export const pairingReaches = (deps: ReachDeps, pairing: AdmittedPairing, mind: Mind): boolean =>
+  mind.folderId === null
+    ? readsNoFolder(deps, pairing) && pairingWrote(deps, pairing, mind.id)
+    : deps.foldersInScope(pairing.folderIds).includes(mind.folderId);
+
 // ---------------------------------------------------------------------------
 // The implementation
 
@@ -1158,29 +1185,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
   };
 
-  const readsUnfiled = (pairing: AdmittedPairing) =>
-    deps.foldersInScope(pairing.folderIds).includes(NOT_IN_A_FOLDER_ID);
-
-  /**
-   * Whether the pairing wrote this Mind, as `create_mind` records it in the Mind. A copy carries
-   * the record, so it holds only for the Mind it names; one that names none, kept before records
-   * did, holds for a Mind that is no copy, as a duplicate is the one way a Mind's content is
-   * copied into another (#3364).
-   */
-  const wrote = (pairing: AdmittedPairing, mindId: string): boolean => {
-    const writer = deps.mindBlocks(mindId, (blocks) =>
-      blocks.doc ? noteWriterOf(blocks.doc) : null,
-    );
-    if (writer?.pairingId !== pairing.id) return false;
-    return writer.mindId === undefined
-      ? deps.duplicatedFrom(mindId) === null
-      : writer.mindId === mindId;
-  };
-
-  const reaches = (pairing: AdmittedPairing, mind: Mind): boolean =>
-    mind.folderId === null
-      ? readsUnfiled(pairing) && wrote(pairing, mind.id)
-      : deps.foldersInScope(pairing.folderIds).includes(mind.folderId);
+  const readsUnfiled = (pairing: AdmittedPairing) => readsNoFolder(deps, pairing);
+  const wrote = (pairing: AdmittedPairing, mindId: string) => pairingWrote(deps, pairing, mindId);
+  const reaches = (pairing: AdmittedPairing, mind: Mind) => pairingReaches(deps, pairing, mind);
 
   /**
    * A Mind in the pairing's Folders, or in no Folder when the pairing wrote it and reads the

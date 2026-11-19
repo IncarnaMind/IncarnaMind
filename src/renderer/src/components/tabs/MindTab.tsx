@@ -13,6 +13,7 @@ import { assistantTabOf } from "../../layoutSlice";
 import { useMeetingOf } from "../../meetings";
 import { hasMeetingViews, useMeetingNoteView } from "../../meetingViews";
 import { useWritingProperties } from "../../mindStyles";
+import { useOwnAiPillShown } from "../../ownAiPanel";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
@@ -60,10 +61,13 @@ export function MindTab({ mindId }: { mindId: string }) {
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
-  const pill = useQuietAssistant();
-  // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
+  const quietPill = useQuietAssistant();
+  const ownAiPill = useOwnAiPillShown();
+  const pill = ownAiPill || quietPill;
+  // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527); the
+  // longer pill of the User's own AI reaches the check's badge in one narrow group too (#3373).
   const besidePill = useAppStore(
-    (state) => pill && !merged && (state.layout?.groups.length ?? 0) > 1,
+    (state) => pill && (merged ? ownAiPill : (state.layout?.groups.length ?? 0) > 1),
   );
   const review = useReviewShown(mindId);
   const reviewShown = transcriptShown ? "closed" : review.shown;
@@ -106,7 +110,7 @@ export function MindTab({ mindId }: { mindId: string }) {
                 <EventBar mindId={mind.id} />
                 <MeetingInMind mindId={mind.id} />
                 {/* The example works without a chat model: it says so in its Answer instead. */}
-                {!isExample && <ChatReadinessNotice />}
+                {!isExample && <ChatReadinessNotice mindId={mind.id} />}
                 <ComposerDockContext.Provider value={read ? assistantSlot : null}>
                   <PageSlotsContext.Provider
                     value={{

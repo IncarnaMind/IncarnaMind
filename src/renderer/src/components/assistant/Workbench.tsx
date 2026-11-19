@@ -33,6 +33,7 @@ import { ComposerDockContext } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { useCardWidth } from "../../layoutSlice";
 import { useSettingUp } from "../../modelSetup";
+import { useFoldForOwnAi, useOwnAiPill } from "../../ownAiPanel";
 import { useQuestionRoom } from "../../questionRoom";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useAppStore } from "../../store";
@@ -44,6 +45,7 @@ import { UndoPill } from "../UndoPill";
 import { AskPill } from "./AskPill";
 import { Assistant } from "./Assistant";
 import { FloatResize } from "./FloatResize";
+import { OwnAiPill } from "./OwnAiPill";
 import { SnapZones } from "./SnapZones";
 import { useAssistantDrag } from "./useAssistantDrag";
 
@@ -74,6 +76,8 @@ export function Workbench({
   const place = useAppStore((state) => state.layout?.assistant) ?? DEFAULT_ASSISTANT;
   const placeAssistant = useAppStore((state) => state.placeAssistant);
   const quiet = useQuietAssistant();
+  useFoldForOwnAi();
+  const ownAiPill = useOwnAiPill();
   const viewport = useWindowSize();
   /** Sizes while the User drags a line or an edge, before they are kept. */
   const [preview, setPreview] = useState<Partial<AssistantPlace> | null>(null);
@@ -187,7 +191,7 @@ export function Workbench({
         </ComposerDockContext.Provider>
         {cardOverlay}
         <UndoPill />
-        {quiet && <AskPill />}
+        {ownAiPill ? <OwnAiPill {...ownAiPill} /> : quiet && <AskPill />}
       </div>
       {quiet || dock === "float" ? null : folded ? (
         <div aria-hidden="true" className="workbench-gap" />

@@ -59,7 +59,8 @@ export interface LayoutSlice {
   changeLayout(change: LayoutChange, options?: { quiet?: boolean }): Promise<WindowLayout | null>;
   /**
    * Moves, resizes, folds or unfolds the assistant: shown at once, then kept
-   * through the core (and put back as the core has it if it refuses).
+   * through the core (and put back as the core has it if it refuses). A fold or an unfold is the
+   * User's own unless `foldedBy` says otherwise.
    */
   placeAssistant(place: Partial<AssistantPlace>): Promise<void>;
   /** Starts typing a tab's name in it, or stops (null). */
@@ -106,9 +107,13 @@ export function createLayoutSlice(
         return null;
       }
     },
-    async placeAssistant(place) {
+    async placeAssistant(asked) {
       const layout = get().layout;
       if (!layout) return;
+      const place: Partial<AssistantPlace> =
+        asked.folded !== undefined && asked.foldedBy === undefined
+          ? { ...asked, foldedBy: "user" }
+          : asked;
       const placing = ++placings;
       set({ layout: { ...layout, assistant: { ...layout.assistant, ...place } } });
       try {

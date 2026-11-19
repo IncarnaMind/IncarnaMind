@@ -4167,6 +4167,12 @@ export interface AssistantPlace {
   dock: AssistantDock;
   /** Folded: a 44px rail on a side, or only its header at the bottom or floating. */
   folded: boolean;
+  /**
+   * Who folded or unfolded it last (#3373): "user", the User themselves, whose choice then holds;
+   * "agent", the app, folding it for a User whose own AI is connected and who set up no model.
+   * Absent for neither, as in a layout kept before this was.
+   */
+  foldedBy?: "user" | "agent" | null;
   /** A side dock's width, in CSS pixels. */
   width: number;
   /** A bottom dock's height, in CSS pixels. */
@@ -12586,6 +12592,37 @@ export interface SetUpAgent {
   result: AgentSetupResult;
 }
 
+/** What a check said of a sentence that needs a look, as a request to the User's own AI names it (#3373). */
+export const ASK_VERDICTS = [
+  "unsupported",
+  "contradicted",
+  "not-found",
+  "overstated",
+  "partly-supported",
+  "units-may-differ",
+  "record-cite",
+] as const;
+export type AskVerdict = (typeof ASK_VERDICTS)[number];
+
+/**
+ * What the User asks their own AI from IncarnaMind (#3373): to fix a sentence of the Note that needs
+ * a look, the words they typed in the chat box, or only the Note named, to go on in their AI.
+ */
+export type AgentAsk =
+  | { kind: "fix"; sentence: string; verdict: AskVerdict }
+  | { kind: "question"; text: string }
+  | { kind: "note" };
+
+export interface AskAgentInput {
+  pairingId: string;
+  /** The Note it is about, named by its title and its id; null for a question about no Note. */
+  mindId: string | null;
+  ask: AgentAsk;
+}
+
+/** "opened": the agent's app opened with the request typed in it; "copy": `text`, for the User to paste. */
+export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string };
+
 /** An outside agent asked IncarnaMind to show one of its Citations (`show_citation`). */
 export interface AgentCitationShown extends DocumentPlace {
   documentId: string;
@@ -15054,6 +15091,14 @@ export interface CoreApi {
   undoAgentSetup(pairingId: string): Promise<void>;
   /** A paired agent's settings to paste again, e.g. into a second copy of it. */
   copyAgentSetup(pairingId: string): Promise<Extract<AgentSetupResult, { kind: "copy" }>>;
+  /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
+  listAgentsToAsk(mindId: string | null): Promise<AgentPairing[]>;
+  /**
+   * Ask your AI (#3373): a short request in the interface language, for the User to send in their
+   * own AI. Its app opens with the request typed where it documents a link for that; otherwise the
+   * request comes back to copy. Nothing is sent.
+   */
+  askAgent(input: AskAgentInput): Promise<AskAgentResult>;
 }
 
 /**
@@ -15800,6 +15845,8 @@ const methods: Record<CoreApiMethod, true> = {
   setUpAgent: true,
   undoAgentSetup: true,
   copyAgentSetup: true,
+  listAgentsToAsk: true,
+  askAgent: true,
 };
 
 /** Every method of CoreApi, used to wire the IPC bridge. */

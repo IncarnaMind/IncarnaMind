@@ -12,7 +12,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type * as Y from "yjs";
-import type { ClaimCalculation, ClaimCheckPart, ClaimPartSpan } from "../../../core/api";
+import type {
+  AgentPairing,
+  ClaimCalculation,
+  ClaimCheckPart,
+  ClaimPartSpan,
+} from "../../../core/api";
 import { citedName, citedSpeakers, shownDocumentName } from "../../../shared/citations";
 import {
   checkedScope,
@@ -35,6 +40,7 @@ import { unreadFiguresOf } from "../../../shared/unreadFigures";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
+import { askAgent, useAgentsToAsk, useNoModel } from "../askYourAi";
 import {
   addAsCitation,
   addPartCitations,
@@ -72,6 +78,7 @@ import { useAppStore } from "../store";
 import {
   applyDocumentWording,
   applyFigure,
+  askVerdictOf,
   checkStateKey,
   cutSentence,
   cutUnsupported,
@@ -182,6 +189,7 @@ const TONE: Record<ClaimMarkState, string> = {
 };
 
 const NO_DECISION: CitationDecision = { kind: "none" };
+const NO_AGENTS: readonly AgentPairing[] = [];
 
 const CARD_MENU = '[data-testid="check-menu"]';
 
@@ -286,6 +294,8 @@ export function ClaimMark({
   // A check or an Edit with AI under way would write over the words a correction changes.
   const corrections = running || editing ? [] : correctionsFor(editor, claim);
   const label = ownNoteOnly ? t("claim.ownNote") : t("claim.mark.label", { state: heading });
+  const agents = useAgentsToAsk(mindId);
+  const noModel = useNoModel();
 
   /** `now`: the keyboard's focus shows or hides the card at once; the pointer waits (#3102). */
   const hold = useCallback((source: string, on: boolean, now = false) => {
@@ -652,6 +662,15 @@ export function ClaimMark({
                 applyFigure(editor, mindId, doc, claim);
                 done(true);
               }}
+              ask={askVerdictOf(editor, claim) === null ? [] : agents}
+              askFirst={noModel}
+              onAsk={(agent) => {
+                const verdict = askVerdictOf(editor, claim);
+                const sentence = comparableSentence(sentenceOf(editor, claim));
+                if (verdict && sentence)
+                  void askAgent(agent, mindId, { kind: "fix", sentence, verdict });
+                done();
+              }}
             />
           </Popover>,
           document.body,
@@ -831,6 +850,9 @@ export function ClaimCard({
   onCorrect,
   use,
   onUse,
+  ask = NO_AGENTS,
+  askFirst = false,
+  onAsk,
 }: {
   /** The key that goes into the card, the last thing in it (#3102). */
   hint: ReactNode;
@@ -870,6 +892,11 @@ export function ClaimCard({
   onCorrect(span: ClaimPartSpan | null): void;
   use: boolean;
   onUse(): void;
+  /** The agents the User can ask to fix the sentence (#3373), the one connected or used last first. */
+  ask?: readonly AgentPairing[];
+  /** No model is set up: asking the first is the card's first action, the others under its ⋯. */
+  askFirst?: boolean;
+  onAsk?(agent: AgentPairing): void;
 }) {
   const origin = useCitedOrigin();
   const t = useT();
@@ -1224,8 +1251,19 @@ export function ClaimCard({
   const offersDocuments = notFound && verified === null && mindId !== null;
   const menuButton = () =>
     rootRef.current?.querySelector<HTMLElement>('[data-testid="check-menu"]') ?? null;
+  const asks = ask.map(
+    (agent, index): CardAction => ({
+      key: `ask-${agent.id}`,
+      testId: "claim-ask-agent",
+      label: t("agents.ask.action", { agent: agent.name }),
+      primary: askFirst && index === 0,
+      menuOnly: !askFirst || index > 0,
+      onClick: () => onAsk?.(agent),
+    }),
+  );
   const actions = (
     [
+      ...(askFirst ? asks : []),
       addable.length >= 2 && {
         key: "add-all",
         testId: "claim-parts-add-all",
@@ -1352,6 +1390,7 @@ export function ClaimCard({
         label: t("claim.checkAgain"),
         onClick: () => onCheckAgain(),
       },
+      ...(askFirst ? [] : asks),
     ] as (CardAction | false | null | undefined | "" | 0)[]
   ).filter((action): action is CardAction => Boolean(action));
   // A fix that belongs to one part sits with that part when the card has another fix (#2869).

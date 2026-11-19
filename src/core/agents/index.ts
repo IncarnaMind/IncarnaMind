@@ -45,6 +45,7 @@ import {
   AgentRefusedError,
   createAgentAccess,
   createCheckRuns,
+  pairingReaches,
 } from "./access";
 import { createAgentCitations } from "./citations";
 import type { ServedConnection } from "./mcp";
@@ -363,7 +364,8 @@ export function createAgents(options: AgentsOptions) {
     changed();
   };
 
-  const admit = (pairingId: string): AdmittedPairing => {
+  /** The pairing as a call is let in now; `use` notes the call, which a mere look at it isn't. */
+  const admissible = (pairingId: string, use?: (pairingId: string) => void): AdmittedPairing => {
     if (closed) throw refusal("off");
     const pairing = findPairing(pairingId);
     if (!pairing) throw refusal("unpaired");
@@ -372,7 +374,7 @@ export function createAgents(options: AgentsOptions) {
     if (options.consent.status("agents", serviceOf(pairing)) !== "accepted") {
       throw refusal("consent");
     }
-    touch(pairing.id);
+    use?.(pairing.id);
     const live = new Set(options.access.folders().map((folder) => folder.id));
     const folderIds = pairing.folderIds.filter((id) => id === NOT_IN_A_FOLDER_ID || live.has(id));
     assertFoldersCanShare(folderIds);
@@ -384,6 +386,7 @@ export function createAgents(options: AgentsOptions) {
       propose: pairing.propose,
     };
   };
+  const admit = (pairingId: string) => admissible(pairingId, touch);
 
   /** Keeps a call for the activity list, and lets the list's oldest go. */
   const record = (activity: Omit<AgentActivity, "id" | "at">) => {
@@ -519,6 +522,33 @@ export function createAgents(options: AgentsOptions) {
 
     /** How the server starts with this token (see `AgentLaunch`). */
     launchFor,
+
+    /**
+     * The agents the User can ask about this Note now (#3373): each would be let in, and reads it
+     * as `read_mind` does; with no Note, each that would be let in. The one connected or used
+     * last comes first.
+     */
+    askable(mindId: string | null): AgentPairing[] {
+      const mind =
+        mindId === null ? null : options.access.minds().find((each) => each.id === mindId);
+      if (mind === undefined) return [];
+      const latest = (pairing: AgentPairing) =>
+        pairing.lastUsedAt !== null && pairing.lastUsedAt > pairing.createdAt
+          ? pairing.lastUsedAt
+          : pairing.createdAt;
+      return livePairings()
+        .reverse()
+        .filter((pairing) => {
+          try {
+            const admitted = admissible(pairing.id);
+            return mind === null || pairingReaches(accessDeps, admitted, mind);
+          } catch (error) {
+            if (error instanceof AgentRefusedError) return false;
+            throw error;
+          }
+        })
+        .sort((a, b) => latest(b).localeCompare(latest(a)));
+    },
 
     async setEnabled(value: unknown): Promise<AgentSettings> {
       if (typeof value !== "boolean") throw new InvalidInputError("enabled must be true or false.");

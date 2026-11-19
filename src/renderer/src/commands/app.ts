@@ -26,6 +26,7 @@ import { addDocumentCommands } from "./addDocuments";
 import { analysisCommands } from "./analysis";
 import { answerTableCommands } from "./answerTables";
 import { appearanceCommands } from "./appearance";
+import { askYourAiCommands } from "./askYourAi";
 import { assistantCommands } from "./assistant";
 import { bibliographyCommands } from "./bibliography";
 import { blockCommands, noteOfBlock } from "./blocks";
@@ -564,6 +565,7 @@ const appCommands: readonly Command[] = [
   ...proposalCommands,
   ...reviewCommands,
   ...checkCommands,
+  ...askYourAiCommands,
 ];
 
 for (const command of appCommands) commands.register(command);

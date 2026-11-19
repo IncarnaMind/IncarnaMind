@@ -216,7 +216,7 @@ describe("Open the current version leaves the assistant as the page it opens fro
     await opened.openCurrentVersionOf(page);
     await openDocument.mock.results[0]?.value;
     expect(openDocument.mock.calls[0]?.[0]).toMatchObject({ currentVersion: true });
-    expect(placeAssistant).toHaveBeenCalledWith({ folded: true });
+    expect(placeAssistant).toHaveBeenCalledWith({ folded: true, foldedBy: null });
   });
 
   test("a page whose origin was not kept, as one saved before it was, is taken as opened from a Note", async () => {
@@ -224,7 +224,7 @@ describe("Open the current version leaves the assistant as the page it opens fro
     const { origin: _origin, ...kept } = citation;
     await opened.openCurrentVersionOf({ ...rest, citation: kept });
     await openDocument.mock.results[0]?.value;
-    expect(placeAssistant).toHaveBeenCalledWith({ folded: true });
+    expect(placeAssistant).toHaveBeenCalledWith({ folded: true, foldedBy: null });
   });
 
   test("the current version it opens keeps the origin, so another round stays as the first", async () => {

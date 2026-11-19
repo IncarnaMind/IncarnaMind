@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { ErrorWording } from "../../core/errors";
-import type { MessageKey } from "../../shared/i18n";
+import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { describeError } from "./errors";
 import type { Words } from "./lineNames";
 
@@ -48,6 +48,7 @@ export interface NoticeAction {
 export interface Confirmation {
   id: number;
   message: MessageKey;
+  params?: MessageParams;
 }
 
 interface NoticesState {
@@ -58,7 +59,7 @@ interface NoticesState {
   showError(error: unknown, action?: NoticeAction): void;
   dismissError(id: number): void;
   /** Shows what worked for a few seconds; the next one takes its place. */
-  confirm(message: MessageKey): void;
+  confirm(message: MessageKey, params?: MessageParams): void;
   dismissConfirmation(): void;
 }
 
@@ -99,10 +100,10 @@ export function createNotices(clock: Clock = systemClock) {
     dismissError(id) {
       set((state) => ({ errors: state.errors.filter((each) => each.id !== id) }));
     },
-    confirm(message) {
+    confirm(message, params) {
       clock.clearTimeout(timer);
       const id = ++ids;
-      set({ confirmation: { id, message } });
+      set({ confirmation: { id, message, ...(params && { params }) } });
       timer = clock.setTimeout(() => {
         if (get().confirmation?.id === id) set({ confirmation: null });
       }, CONFIRMATION_SHOWN_MS);

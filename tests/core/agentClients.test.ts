@@ -5,7 +5,11 @@
  */
 import { describe, expect, it } from "vitest";
 import type { AgentLaunch } from "../../src/core";
-import { AGENT_CLIENT_DEFINITIONS, clientDefinition } from "../../src/core/agents/clients";
+import {
+  AGENT_CLIENT_DEFINITIONS,
+  clientDefinition,
+  promptLinkFor,
+} from "../../src/core/agents/clients";
 import { AGENT_CLIENT_IDS } from "../../src/core/api";
 
 const LAUNCH: AgentLaunch = {
@@ -119,5 +123,30 @@ describe("the agents IncarnaMind is set up in", () => {
       workbuddy: null,
       other: null,
     });
+  });
+
+  // protects=only the agents whose own documentation gives a link that types a prompt and doesn't send it have one, in the form the page gives, within its limit (#3373); fails_when=an agent gets a link its page doesn't give, the form drifts, or a prompt past the limit is linked
+  it("gives a prompt link only where the agent's documentation gives one, within its limit", () => {
+    expect(AGENT_CLIENT_DEFINITIONS.filter((each) => each.prompt).map((each) => each.id)).toEqual([
+      "claude-desktop",
+      "claude-code",
+      "codex",
+      "cursor",
+    ]);
+    expect(promptLinkFor("claude-desktop", "Fix it?")).toBe("claude://claude.ai/new?q=Fix%20it%3F");
+    expect(promptLinkFor("claude-code", "Fix it?")).toBe("claude-cli://open?q=Fix%20it%3F");
+    expect(promptLinkFor("codex", "Fix it?")).toBe("codex://new?prompt=Fix%20it%3F");
+    expect(promptLinkFor("cursor", "Fix it?")).toBe(
+      "cursor://anysphere.cursor-deeplink/prompt?text=Fix%20it%3F",
+    );
+    expect(promptLinkFor("claude-code", "a".repeat(5_000))).not.toBeNull();
+    expect(promptLinkFor("claude-code", "a".repeat(5_001))).toBeNull();
+    // Cursor counts the whole link once encoded: a Chinese character takes nine.
+    expect(promptLinkFor("cursor", "渡".repeat(1_200))).toBeNull();
+    expect(promptLinkFor("cursor", "渡".repeat(1_000))).not.toBeNull();
+    for (const id of ["vscode", "opencode", "gemini-cli", "other"]) {
+      expect(promptLinkFor(id, "Fix it?"), id).toBeNull();
+    }
+    expect(promptLinkFor(null, "Fix it?")).toBeNull();
   });
 });
