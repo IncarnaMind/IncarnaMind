@@ -232,12 +232,12 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     await expect(external.getByRole("listitem").nth(1)).toContainText(
       "This line changed since the review.",
     );
-    const first = result.suggestions[0];
-    if (!first) throw new Error("Missing first line.");
+    const listened = result.suggestions[2];
+    if (!listened || listened.startMs === 0) throw new Error("Missing a later line to play.");
     const clip = {
       meetingId: meeting.id,
-      fromMs: first.startMs,
-      toMs: first.endMs,
+      fromMs: listened.startMs,
+      toMs: listened.endMs,
       source: "system",
     };
     await window.evaluate(() => {
@@ -251,8 +251,9 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
       Object.assign(globalThis, { reviewAudioSources: sources });
     });
     await external
+      .getByRole("listitem")
+      .nth(2)
       .getByRole("button", { name: /^Listen to computer audio from / })
-      .first()
       .press("Enter");
     const player = window.getByTestId("transcript-player");
     await expect(player).toBeVisible();
@@ -274,7 +275,7 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
       };
       reviewAudioSources[0]?.dispatchEvent(new Event("ended"));
     });
-    const end = paddedClockTime(first.endMs);
+    const end = paddedClockTime(listened.endMs);
     await expect(player.getByTestId("transcript-player-time")).toHaveText(`${end} / ${end}`);
     await expect(player).not.toHaveAttribute("data-playing", "true");
     const togglePlayer = player.getByTestId("transcript-player-toggle");
