@@ -5,6 +5,7 @@
  * A meeting whose Note the agent may not read is never listed, searched, cited or counted, and
  * nothing of it comes back in a refusal. Meetings are recorded with the fake capture and engine.
  */
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
@@ -15,7 +16,12 @@ import type { AnalysisJob } from "../../src/shared/analysis";
 import { formatFullDateTime } from "../../src/shared/dates";
 import { agentsAdapter, buildAgentShim, connectLegacyAgent, resultText } from "../helpers/agents";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import {
   inProcessTranscriber,
   NO_TRANSCRIPTION_FILES,
@@ -287,6 +293,42 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     const [documents, notes] = listsGiven(runtime.jobs[0]);
     expect(documents).toEqual([expect.stringMatching(/^Timetable \| markdown \| Coast/)]);
     expect(notes).toEqual([expect.stringMatching(/^Meeting about the harbour \| Coast/)]);
+  });
+
+  // protects=only a Transcript's Passage is placed as a Citation of it is; any other Document's keeps the place it had before (#3384); fails_when=read_passages narrows a web page's or a text file's Location to what its whole text covers
+  it("places any other Document's Passage where it was placed before", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, { agents: await agentsAdapter(dataDir) });
+    const page = await core.saveWebPage({
+      address: "https://reader.example/tea",
+      html: readFileSync(new URL("../fixtures/web/article.html", import.meta.url), "utf8"),
+    });
+    if (page.outcome !== "saved") throw new Error("The web page wasn't saved.");
+    await waitForProcessing(core, [page.document.id]);
+    const [log] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createSourceFolder(),
+        "Log.txt",
+        Array.from(
+          { length: 400 },
+          (_, at) => `Line ${at + 1}: the ferry crossed in calm water.`,
+        ).join("\n"),
+      ),
+    ]);
+    if (!log) throw new Error("The log wasn't added.");
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
+    for (const id of [page.document.id, log.id]) await core.assignDocumentGroup(id, coast.id);
+    await core.setAgentsEnabled(true);
+    const agent = await connectLegacyAgent(
+      (await core.connectAgent({ name: "Claude Code", folderIds: [coast.id] })).launch,
+    );
+    const placed = async (documentId: string) =>
+      structured<{ passages: { location: string | null }[] }>(
+        await agent.callTool({ name: "read_passages", arguments: { documentId, after: 1 } }),
+      ).passages.map((each) => each.location);
+    // As before: a web page's section, and the lines of each Passage's Units.
+    expect(await placed(page.document.id)).toEqual(["§ Start"]);
+    expect(await placed(log.id)).toEqual(["lines 1–50", "lines 1–100"]);
   });
 
   // protects=a meeting goes where its Note goes: one whose Note the agent can't read, in a Folder not shared, in a sub-Folder, in no Folder or behind a wall, is never listed, searched, cited or counted, and the refusal says nothing of it; fails_when=Not in a Folder or a shared Folder's tree hands the agent a Transcript whose Note it may not read, or a refusal tells such a meeting apart from an id that never was

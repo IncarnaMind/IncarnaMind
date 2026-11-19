@@ -1102,9 +1102,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     return passage;
   };
 
-  /** Where a Passage is, as `cite` places a Citation of all of it: in a Transcript, who said its first line. */
+  /** Where a Passage is; a Transcript's as `cite` places a Citation of all of it, by who said its first line. */
   const passageLocation = (passage: WindowedPassage) => {
-    const whole = deps.citing.citeQuote(passage.passageId, passage.text);
+    const whole =
+      passage.documentKind === "transcript"
+        ? deps.citing.citeQuote(passage.passageId, passage.text)
+        : null;
     return whole?.check === "found"
       ? label(whole.location, whole.pageFrom, whole.pageTo, passage.documentId)
       : label(deps.citing.locate(passage), passage.pageFrom, passage.pageTo, passage.documentId);
