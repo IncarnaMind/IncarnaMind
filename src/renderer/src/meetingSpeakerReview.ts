@@ -22,6 +22,7 @@ type ReviewPhase =
     };
 
 interface Review {
+  documentId: string;
   owner: string | null;
   phase: ReviewPhase;
 }
@@ -43,11 +44,14 @@ function failed(error: unknown): ReviewPhase {
   return { kind: "failed", error };
 }
 
-export function openSpeakerReview(meetingId: string, owner: string) {
+export function openSpeakerReview(meetingId: string, documentId: string, owner: string) {
   const review = reviewOf(meetingId);
-  if (review && (review.phase.kind !== "quote" || review.owner === owner)) {
+  if (
+    review?.documentId === documentId &&
+    (review.phase.kind !== "quote" || review.owner === owner)
+  ) {
     setReview(meetingId, { ...review, owner });
-  } else void quoteSpeakerReview(meetingId, owner);
+  } else void quoteSpeakerReview(meetingId, documentId, owner);
 }
 
 export function hideSpeakerReview(meetingId: string, owner: string) {
@@ -55,9 +59,9 @@ export function hideSpeakerReview(meetingId: string, owner: string) {
   if (review?.owner === owner) setReview(meetingId, { ...review, owner: null });
 }
 
-export async function quoteSpeakerReview(meetingId: string, owner: string) {
+export async function quoteSpeakerReview(meetingId: string, documentId: string, owner: string) {
   const phase = { kind: "quoting" } as const;
-  setReview(meetingId, { owner, phase });
+  setReview(meetingId, { documentId, owner, phase });
   try {
     const quote = await core.getMeetingSpeakerReview(meetingId);
     update(meetingId, phase, { kind: "quote", quote });
@@ -72,7 +76,11 @@ export async function runSpeakerReview(meetingId: string) {
   const phase = { kind: "running" } as const;
   setReview(meetingId, { ...review, phase });
   try {
-    const result = await core.reviewMeetingSpeakers({ meetingId, confirmed: true });
+    const result = await core.reviewMeetingSpeakers({
+      meetingId,
+      confirmed: true,
+      ...(review.phase.quote.cached && { reuseOnly: true as const }),
+    });
     update(meetingId, phase, { kind: "result", result, decisions: {}, applying: null });
   } catch (error) {
     update(meetingId, phase, failed(error));
@@ -115,3 +123,27 @@ export async function decideSpeakerSuggestion(
     decisions: { ...phase.decisions, [index]: next },
   });
 }
+
+function discardReviews(keep: (meetingId: string, review: Review) => boolean) {
+  useMeetingSpeakerReview.setState((state) => {
+    const entries = Object.entries(state);
+    const kept = entries.filter(([meetingId, review]) => keep(meetingId, review));
+    return kept.length === entries.length ? state : Object.fromEntries(kept);
+  }, true);
+}
+
+core.on("meetings.changed", (meetings) => {
+  const documents = new Map(
+    meetings.map((meeting) => [meeting.id, meeting.transcript?.documentId]),
+  );
+  discardReviews((meetingId, review) => documents.get(meetingId) === review.documentId);
+});
+core.on("documents.removed", (removed) => {
+  const ids = new Set(removed);
+  discardReviews((_meetingId, review) => !ids.has(review.documentId));
+});
+core.on("document.status", (document) => {
+  if (document.fileStatus === "missing") {
+    discardReviews((_meetingId, review) => review.documentId !== document.id);
+  }
+});

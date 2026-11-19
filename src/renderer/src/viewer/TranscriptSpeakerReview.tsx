@@ -37,7 +37,7 @@ export function TranscriptSpeakerReview({
   document,
   cues,
   lines,
-  playFrom,
+  playClip,
   trigger,
 }: {
   meetingId: string;
@@ -45,7 +45,7 @@ export function TranscriptSpeakerReview({
   document: Document;
   cues: readonly Cue[];
   lines: readonly TranscriptLine[];
-  playFrom: ((ms: number) => void) | null;
+  playClip: ((startMs: number, endMs: number) => void) | null;
   trigger: RefObject<HTMLButtonElement | null>;
 }) {
   const t = useT();
@@ -73,7 +73,7 @@ export function TranscriptSpeakerReview({
     label: t("meetings.review.tryAgain"),
     onClick: () => {
       panel.current?.focus();
-      void quoteSpeakerReview(meetingId, owner);
+      void quoteSpeakerReview(meetingId, document.id, owner);
     },
   };
   const who = (label: string) => nameOf(document.speakers, label) ?? speakerName(label, t);
@@ -130,16 +130,16 @@ export function TranscriptSpeakerReview({
     : null;
   const running = review?.phase.kind === "running" || review?.phase.kind === "cancelling";
   return (
-    <div className="shrink-0 border-b border-rule bg-sheet px-4 py-1.5 text-[13px] leading-5">
+    <div className="max-h-[75%] shrink-0 overflow-auto border-b border-rule bg-sheet px-4 py-1.5 text-[13px] leading-5">
       <button
         ref={trigger}
         type="button"
         aria-expanded={expanded}
         aria-controls={expanded ? panelId : undefined}
         className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-        onClick={() => (expanded ? close() : openSpeakerReview(meetingId, owner))}
+        onClick={() => (expanded ? close() : openSpeakerReview(meetingId, document.id, owner))}
       >
-        {t(running ? "meetings.review.running" : "meetings.review.open")}
+        {t(running && !expanded ? "meetings.review.running" : "meetings.review.open")}
       </button>
       {phase && (
         <section
@@ -168,14 +168,18 @@ export function TranscriptSpeakerReview({
           )}
           {quote?.available && (
             <div className="space-y-1">
-              <p className="text-ink-secondary">{t("meetings.review.disclosure")}</p>
-              <p className="text-ink-meta">
-                {t("meetings.review.duration", { duration: durationLabel(quote.durationMs, t) })}
-                {estimate && <> · {estimate}</>}
+              <p className="text-ink-secondary">
+                {t(quote.cached ? "meetings.review.cached" : "meetings.review.disclosure")}
               </p>
+              {!quote.cached && (
+                <p className="text-ink-meta">
+                  {t("meetings.review.duration", { duration: durationLabel(quote.durationMs, t) })}
+                  {estimate && <> · {estimate}</>}
+                </p>
+              )}
               <LineAction
                 action={{
-                  label: t("meetings.review.confirm"),
+                  label: t(quote.cached ? "meetings.review.viewCached" : "meetings.review.confirm"),
                   onClick: () => {
                     panel.current?.focus();
                     void runSpeakerReview(meetingId);
@@ -237,7 +241,7 @@ export function TranscriptSpeakerReview({
                 <p role="status" className="text-ink-meta">
                   {t("meetings.review.suggestions")}
                 </p>
-                <ol className="mt-1 max-h-[38vh] overflow-y-auto divide-y divide-rule">
+                <ol className="mt-1 divide-y divide-rule">
                   {phase.result.suggestions.map((suggestion, index) => {
                     const decision = phase.decisions[index];
                     const current =
@@ -270,12 +274,12 @@ export function TranscriptSpeakerReview({
                         </p>
                         <p className="break-words text-ink">{suggestion.text}</p>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                          {playFrom && (current || resolved) && (
+                          {playClip && (current || resolved) && (
                             <LineAction
                               action={{
                                 label: t("meetings.review.listen"),
                                 ariaLabel: t("meetings.review.listenAt", { time }),
-                                onClick: () => playFrom(suggestion.startMs),
+                                onClick: () => playClip(suggestion.startMs, suggestion.endMs),
                               }}
                             />
                           )}

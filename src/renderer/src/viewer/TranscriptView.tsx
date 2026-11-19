@@ -517,9 +517,9 @@ function TranscriptContent({
       },
       canReviewSpeakers: () => reviewable,
       reviewSpeakers: () => {
-        if (!reviewable || !meetingId) return;
+        if (!nameable || !reviewable || !meetingId) return;
         reviewTrigger.current?.focus();
-        openSpeakerReview(meetingId, owner);
+        openSpeakerReview(meetingId, nameable.id, owner);
       },
       split: async () => {
         const row = activeRow();
@@ -719,18 +719,29 @@ function TranscriptContent({
         {aside}
       </ViewerHeader>
       {meeting && hasLines && <TranscriptHeadLine playable={playable} />}
-      {reviewable && nameable && meetingId && (
-        <TranscriptSpeakerReview
-          meetingId={meetingId}
-          owner={owner}
-          document={nameable}
-          cues={transcript.cues}
-          lines={lines}
-          playFrom={playable ? playFrom : null}
-          trigger={reviewTrigger}
-        />
-      )}
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {reviewable && nameable && meetingId && (
+          <TranscriptSpeakerReview
+            meetingId={meetingId}
+            owner={owner}
+            document={nameable}
+            cues={transcript.cues}
+            lines={lines}
+            playClip={
+              playable
+                ? (startMs, endMs) =>
+                    void useTranscriptPlayer
+                      .getState()
+                      .play(meetingId, startMs, durationMs, owner, {
+                        startMs,
+                        endMs,
+                        source: "system",
+                      })
+                : null
+            }
+            trigger={reviewTrigger}
+          />
+        )}
         <div
           ref={scroller}
           data-testid="viewer-transcript"
