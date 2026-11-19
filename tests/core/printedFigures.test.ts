@@ -26,7 +26,7 @@ import { localExecutorAt } from "../helpers/codeRunner";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { codeToolOn, scriptedModel, scriptedModels } from "../helpers/models";
+import { scriptedModel, scriptedModels } from "../helpers/models";
 
 type Language = "en" | "zh-CN";
 
@@ -66,7 +66,6 @@ function replyingModel(calls: readonly Call[], reply: (passages: ShownPassage[])
 
 async function setUp(model: MockLanguageModelV4, language: Language, analysis?: FakeAnswer) {
   const core: Core = startCore(await createTempDataFolder(), {
-    ...codeToolOn(),
     createChatModel: scriptedModels(model).createChatModel,
     analysisRuntime: createFakeAnalysisRuntime({ answer: () => analysis ?? {} }),
     executor: await localExecutorAt(),

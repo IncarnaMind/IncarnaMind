@@ -1,6 +1,6 @@
 # Calculations evaluation
 
-Whether a model asked for a figure gives it as a calculated figure (ADR-0021), reads the right inputs, and keeps a number a Document states as stated, measured per model and language (#441). Its results decide which models are offered the `calculate` Tool: the `calculates` fact in `src/core/providers/catalog/overrides.ts`.
+Whether a model asked for a figure gives it as a calculated figure (ADR-0021), reads the right inputs, and keeps a number a Document states as stated, measured per model and language (#441). Its results decided which models were offered the `calculate` Tool until every model that calls Tools was (#3357); a model it shows misusing the Tool is switched off by its `calculates` fact in `src/core/providers/catalog/overrides.ts`.
 
 ## The Documents
 

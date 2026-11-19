@@ -225,9 +225,6 @@ async function coreFor(language: RowsDataset["language"], analysisRuntime: Analy
   const core = startCore(await createTempDataFolder(), {
     createChatModel: realModel,
     analysisRuntime,
-    ...(PROVIDER === "deepseek" && {
-      modelFacts: () => ({ calculates: true, analysisTool: true, checkCalculates: true }),
-    }),
   });
   core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
   await core.updateSettings({ user: { language } });
