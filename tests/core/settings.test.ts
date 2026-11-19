@@ -100,6 +100,7 @@ describe("Settings", () => {
           seen: false,
           recorded: false,
           notesWritten: false,
+          agentNoteSeen: false,
         },
         work: [],
         setupFinished: false,
@@ -238,6 +239,7 @@ describe("Settings", () => {
         seen: false,
         recorded: false,
         notesWritten: false,
+        agentNoteSeen: false,
       },
       work: [],
       setupFinished: false,
@@ -439,6 +441,7 @@ describe("Settings", () => {
       seen: false,
       recorded: false,
       notesWritten: false,
+      agentNoteSeen: false,
     });
   });
 
@@ -470,6 +473,7 @@ describe("Settings", () => {
         seen: false,
         recorded: false,
         notesWritten: false,
+        agentNoteSeen: false,
       });
       after.close();
     }
@@ -539,6 +543,7 @@ describe("Settings", () => {
         seen: false,
         recorded: true,
         notesWritten: false,
+        agentNoteSeen: true,
       },
       work: ["legal", "finance"] as WorkKind[],
       setupFinished: true,

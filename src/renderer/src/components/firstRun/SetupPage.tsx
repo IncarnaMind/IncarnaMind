@@ -1,6 +1,7 @@
 import { useState } from "react";
 import appIcon from "../../../../../build/icon/png/128x128.png";
 import type { WorkKind } from "../../../../core/api";
+import { useAgentClients, useAgentPairings } from "../../agentNote";
 import { useAppStore } from "../../store";
 import { ConsentDialog } from "../ConsentDialog";
 import { ErrorNotices } from "../ErrorNotices";
@@ -36,6 +37,9 @@ export function SetupSteps({
   const [work, setWork] = useState<WorkKind[]>([]);
   const [sent, setSent] = useState(first?.picksSent === true);
   const [ending, setEnding] = useState(false);
+  // Read on the first step shown, so Your AI has its agents as it opens.
+  useAgentClients();
+  useAgentPairings();
   const place: StepPlace = {
     steps,
     at,

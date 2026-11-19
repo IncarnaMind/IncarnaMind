@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { DecisionHost, DecisionHostStatus } from "../../../../core/api";
 import { JEV_SERVICE } from "../../../../core/providers/jev";
 import { sortingSwitchOn } from "../../../../shared/libraryModels";
+import { useAgentAlone } from "../../agentNote";
 import { core } from "../../core";
 import { useDecisionHosts } from "../../decisionHosts";
 import { useLanguage, useT } from "../../i18n";
@@ -49,6 +50,8 @@ export function SortingStep({ place }: { place: StepPlace }) {
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const switchOn = useAppStore((state) => !state.library || sortingSwitchOn(state.library));
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
+  // The User's own AI, and no model here: a key kept for sorting serves sorting alone (#3362).
+  const agentAlone = useAgentAlone();
   const sorting = useSorting();
   const [hosts, setHosts] = useDecisionHosts();
   const [choice, setChoice] = useState<Choice>(localOnly ? "local" : "decision");
@@ -94,7 +97,11 @@ export function SortingStep({ place }: { place: StepPlace }) {
   const asksAccount = setUp && status?.account != null && !status.account.value;
   // A chat provider's key kept here becomes the Answers model where there is none yet.
   const answersToo =
-    asksKey && status?.key === "provider" && status.provider !== null && chatModel === null;
+    asksKey &&
+    status?.key === "provider" &&
+    status.provider !== null &&
+    chatModel === null &&
+    !agentAlone;
   const serviceName =
     host === "jev" ? JEV_SERVICE.name : status ? hostName(status, language) : null;
   const keyName =
@@ -134,7 +141,7 @@ export function SortingStep({ place }: { place: StepPlace }) {
         service: status.provider,
         key: typed,
         endpoint: defaultRegion(status.provider, language) || null,
-        keepDefault: true,
+        keepDefault: agentAlone ? "always" : true,
       });
       if (saved.kind === "refused") return refusalWords(saved.error, status.provider, t);
       if (saved.kind === "unknown") return t("setup.key.unrecognised");
@@ -360,6 +367,11 @@ export function SortingStep({ place }: { place: StepPlace }) {
                 {t("setupPage.sorting.local.none")}
               </p>
             ))}
+      {agentAlone && (
+        <p data-testid="setup-sorting-agent-alone" className={lineClass}>
+          {t("setupPage.sorting.agentAlone")}
+        </p>
+      )}
     </SetupPanel>
   );
 }

@@ -92,12 +92,12 @@ test("off by default; Connect asks once, writes Codex's settings as shown, and U
     await enabled.click();
     await expect(enabled).toBeChecked();
     const list = page.getByTestId("agents-list");
-    // Only the first-class agents and "Other agent".
-    await expect(list.getByTestId("agent-client")).toHaveCount(7);
+    // Those found here and the most used, and "Other agent"; the rest are found by typing.
+    await expect(list.getByTestId("agent-client")).toHaveCount(8);
     await expect(page.getByTestId("agents-clients")).toContainText("can’t reach IncarnaMind");
     const codex = list.locator('[data-client="codex"]');
     await expect(codex).toContainText("ChatGPT app and Codex");
-    await expect(codex).toContainText("ordinary Chat mode doesn’t use it");
+    await expect(codex).toContainText("Works in the ChatGPT desktop app, not on the web.");
     await expect(codex).toContainText(
       "IncarnaMind adds itself to the settings of the ChatGPT app or Codex",
     );
@@ -426,6 +426,8 @@ test("Disconnect takes away the settings file Connect made, and the agent stays 
         .getByTestId("agent-client")
         .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-client")));
     const before = await order();
+    const search = page.getByTestId("agents-list-search");
+    await search.fill("workbuddy");
     await list.locator('[data-client="workbuddy"]').getByTestId("agent-connect").click();
     const dialog = window.getByTestId("connect-agent-dialog");
     await acceptPlainTextKeys(window, dialog);
@@ -437,6 +439,7 @@ test("Disconnect takes away the settings file Connect made, and the agent stays 
     await page.getByTestId("agent-pairing").getByTestId("agent-disconnect").click();
     await expect(page.getByTestId("agent-pairing")).toHaveCount(0);
     await expect(stat(join(home, ".workbuddy"))).rejects.toThrow(/ENOENT/);
+    await search.fill("");
     await expect.poll(order).toEqual(before);
   } finally {
     await app.close();
@@ -466,11 +469,11 @@ test("Local mode pauses agents, and the page reads in Chinese at a narrow window
     await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await expect(window.getByTestId("local-only")).toBeFocused();
     await showSettingsPage(window, "agents");
-    // The first-class agents and "Other agent" (其他智能体), and nothing spills out at either width.
+    // The agents listed first and "Other agent" (其他智能体), and nothing spills out at either width.
     const list = page.getByTestId("agents-list");
-    await expect(list.getByTestId("agent-client")).toHaveCount(7);
+    await expect(list.getByTestId("agent-client")).toHaveCount(8);
     await expect(list.locator('[data-client="other"]')).toContainText("其他智能体");
-    await expect(list.locator('[data-client="codex"]')).toContainText("普通对话模式不会用到");
+    await expect(list.locator('[data-client="codex"]')).toContainText("不适用于网页版");
     const fitsPage = () =>
       page
         .getByTestId("settings-page-agents")

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentClient, AgentSettings } from "../../../../core/api";
 import { core } from "../../core";
-import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
@@ -11,9 +10,11 @@ import {
   SettingsSwitchRow,
 } from "../settings/SettingsGroup";
 import { buttonStyle, noticeClass, pageIntroClass } from "../ui";
+import { AgentFinder } from "./AgentFinder";
 import { AgentPairingRow, type JustSetUp } from "./AgentPairingRow";
 import { clientName, clientNote, setupWords } from "./agentWords";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
+import { type AgentChoice, useAgentConnection } from "./ConnectAgentFields";
 
 /**
  * Settings → Agents (#351, experimental): the User's own AI agent (Claude,
@@ -35,8 +36,7 @@ export function AgentsSettings() {
   const [settings, setSettings] = useState<AgentSettings | null>(null);
   const [clients, setClients] = useState<AgentClient[] | null>(null);
   const [connecting, setConnecting] = useState<AgentClient | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const connection = useAgentConnection();
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
 
   useEffect(() => {
@@ -49,31 +49,11 @@ export function AgentsSettings() {
 
   const turn = (enabled: boolean) => core.setAgentsEnabled(enabled).then(setSettings, reportError);
 
-  const allow = async (
-    client: AgentClient,
-    folderIds: string[],
-    name: string,
-    propose: boolean,
-  ) => {
-    setBusy(true);
-    setProblem(null);
-    try {
-      const { pairing, result } = await core.setUpAgent({
-        client: client.id,
-        folderIds,
-        ...(name && { name }),
-        propose,
-      });
-      setJustSetUp({ pairingId: pairing.id, result });
-      setConnecting(null);
-      // The agent is connected either way: "Copy settings" in its details copies it again.
-      if (result.kind === "copy")
-        await navigator.clipboard.writeText(result.text).catch(reportError);
-    } catch (error) {
-      setProblem(errorMessage(error, t));
-    } finally {
-      setBusy(false);
-    }
+  const allow = async (client: AgentClient, choice: AgentChoice) => {
+    const done = await connection.connect(client, choice);
+    if (!done) return;
+    setJustSetUp(done);
+    setConnecting(null);
   };
 
   const clientRow = (client: AgentClient) => (
@@ -165,20 +145,22 @@ export function AgentsSettings() {
             </>
           }
         >
-          <SettingsGroup data-testid="agents-list">{clients.map(clientRow)}</SettingsGroup>
+          <AgentFinder clients={clients} testId="agents-list">
+            {(shown) => (
+              <SettingsGroup data-testid="agents-list">{shown.map(clientRow)}</SettingsGroup>
+            )}
+          </AgentFinder>
         </SettingsSection>
       )}
 
       <ConnectAgentDialog
         client={connecting}
-        busy={busy}
-        problem={problem}
-        onAllow={(folderIds, name, propose) =>
-          connecting && void allow(connecting, folderIds, name, propose)
-        }
+        busy={connection.busy}
+        problem={connection.problem}
+        onAllow={(choice) => connecting && void allow(connecting, choice)}
         onClose={() => {
           setConnecting(null);
-          setProblem(null);
+          connection.clearProblem();
         }}
       />
     </section>

@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import type { ChatProvider } from "../../../../core/api";
 import type { KeyTarget } from "../../../../core/providers/catalog/keyForms";
+import { useAgentClients, useAgentPairings } from "../../agentNote";
 import { useAnswers } from "../../answers";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
@@ -22,6 +23,7 @@ import { SendsLine } from "../providers/SendsLine";
 import { ChatGptPlanWay, LocalWay } from "../providers/SetupWays";
 import { providerName, savedProviderFor } from "../providers/shared";
 import { buttonStyle } from "../ui";
+import { AgentWays } from "./AgentWays";
 import { KeysStay, SetupPanel, type StepPlace, WorksRow } from "./SetupPanel";
 
 type View =
@@ -42,11 +44,12 @@ function backToMore(setView: (view: View) => void) {
 }
 
 /**
- * The setup's second step (#3296): the User's AI. A key is recognised by its form and works at
- * once; the other ways follow, cloud first and a model on this computer last. "More services…"
- * opens the directory in the step, and a service chosen there is set up in it, so the setup is
- * never left. Continue waits for a model that works; "Set up later" asks for one where it is first
- * needed instead.
+ * The setup's second step (#3296): the User's AI, two ways (#3362). First the AI they already
+ * have, connected as Settings › Agents connects it (`AgentWays`); then a model in IncarnaMind: a
+ * key is recognised by its form and works at once, and the other ways follow, cloud first and a
+ * model on this computer last. "More services…" opens the directory in the step, and a service
+ * chosen there is set up in it, so the setup is never left. Continue waits for either way to
+ * work; "Set up later" asks for a model where it is first needed instead.
  */
 export function AiStep({ place }: { place: StepPlace }) {
   const t = useT();
@@ -54,7 +57,9 @@ export function AiStep({ place }: { place: StepPlace }) {
   const chinese = language === "zh-CN";
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
   const readiness = useAppStore((state) => state.chatReadiness);
-  const ready = readiness?.ready === true;
+  const pairings = useAgentPairings();
+  const clients = useAgentClients();
+  const ready = readiness?.ready === true || (pairings?.length ?? 0) > 0;
   const [view, setView] = useState<View>({ kind: "main" });
   const [open, setOpen] = useState<Way | null>(null);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
@@ -86,11 +91,12 @@ export function AiStep({ place }: { place: StepPlace }) {
     return () => window.removeEventListener("keydown", leave);
   }, [away]);
   // A model that starts working while a service is set up brings the step back, with it set.
-  const wasReady = useRef(ready);
+  const modelReady = readiness?.ready === true;
+  const wasReady = useRef(modelReady);
   useEffect(() => {
-    if (ready && !wasReady.current) setView({ kind: "main" });
-    wasReady.current = ready;
-  }, [ready]);
+    if (modelReady && !wasReady.current) setView({ kind: "main" });
+    wasReady.current = modelReady;
+  }, [modelReady]);
 
   const main = () => setView({ kind: "main" });
   const useKeyInstead = () => {
@@ -98,6 +104,8 @@ export function AiStep({ place }: { place: StepPlace }) {
     requestAnimationFrame(() => keyField.current?.focus());
   };
   const toggle = (way: Way) => setOpen(open === way ? null : way);
+  // The step opens whole, its first choice focused: in the setup they were read on its first step.
+  if (clients.state === "loading") return null;
 
   if (view.kind !== "main") {
     const crumb = { label: t("setupPage.ai.title"), onClick: () => backToMore(setView) };
@@ -218,6 +226,10 @@ export function AiStep({ place }: { place: StepPlace }) {
         </>
       }
     >
+      <AgentWays clients={clients} pairings={pairings ?? []} />
+      <h2 id="setup-in-app" className="-mb-2 text-ui font-semibold text-ink">
+        {t("setupPage.ai.inApp")}
+      </h2>
       <div className="flex flex-col gap-2">
         {localOnly ? (
           <ProblemLine
@@ -247,9 +259,9 @@ export function AiStep({ place }: { place: StepPlace }) {
         {readiness?.ready && <ModelWorks />}
       </div>
       <div className="flex flex-col gap-2">
-        <h2 id="setup-other" className="text-[13px] leading-5 font-semibold text-ink-secondary">
+        <h3 id="setup-other" className="text-[13px] leading-5 font-semibold text-ink-secondary">
           {t("setup.other")}
-        </h2>
+        </h3>
         {/* Neither plan is sold in mainland China, which the Chinese interface stands for, so
             there they come after the other services (#2865); this computer is last either way. */}
         <ul aria-labelledby="setup-other" className="flex flex-col gap-2">

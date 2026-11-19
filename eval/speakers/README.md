@@ -76,7 +76,7 @@ Soniox (`stt-rt-v6`) numbers the speakers of each stream as they speak. Whether 
 | mixed-conversation-test-3 | 2 | 29.2%, 5 s | 28.8%, 2 s |
 
 - **Online:** the service gave the other side two, one, one and two numbers where three, three, three and two people spoke (the fourth is the microphone, which stays "Me"); the pass is better on all four, English 50.4% to 19.7% and Chinese 19.5% to 12.3% together. On the first minute and the first 3 minutes of the four, no case is worse. So after a call the pass labels a cloud Transcript too (`src/core/meetings/transcript.ts`).
-- **In a room:** the pass is far better on the four meetings of four, and far worse on one of the two conversations: mixed-conversation-test-1, two people changing between Mandarin and English, comes out as three voices, where the service's two numbers were nearly all right. Until that is decided a room's cloud Transcript keeps the service's numbers.
+- **In a room:** the pass is far better on the four meetings of four, and far worse on one of the two conversations: mixed-conversation-test-1, two people changing between Mandarin and English, comes out as three voices, where the service's two numbers were nearly all right. Over all six, the speech given the wrong speaker falls from 2,291 s to 650 s. The project owner decided on 2026-11-19 that a room's cloud Transcript is labelled by the pass too, as a call's is.
 - The service's numbers also start again at each new connection, so a person can get a second number after a reconnect; the pass hears the whole recording at once.
 
 ## The models' licences
