@@ -44,6 +44,7 @@ export function MoveToPicker({
   name,
   current,
   forFolder,
+  offeredFolderIds,
   onChoose,
   onCreate,
   onClose,
@@ -56,6 +57,7 @@ export function MoveToPicker({
   current: string | null | undefined;
   /** Set while a Folder is moved: itself, so it and the Folders inside it can't be chosen. */
   forFolder?: LibraryGroup | undefined;
+  offeredFolderIds?: readonly string[];
   onChoose(folderId: string | null): void;
   /** Given, a name typed that no Folder has is offered as a new Folder to move into. */
   onCreate?(folderName: string): void;
@@ -63,26 +65,31 @@ export function MoveToPicker({
 }) {
   const t = useT();
   const all = useAppStore((state) => state.library?.groups) ?? [];
-  const groups = forFolder
-    ? all.filter((group) => !isInsideFolder(all, group.id, forFolder.id))
+  const candidates = offeredFolderIds
+    ? all.filter((folder) => offeredFolderIds.includes(folder.id))
     : all;
-  const topLevel: PickerOption<Choice>[] = forFolder
-    ? [
-        {
-          id: null,
-          label: t("folder.topLevel"),
-          data: { "data-folder-id": "" },
-          icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
-        },
-      ]
-    : [
-        {
-          id: null,
-          label: t("library.unsorted"),
-          data: { "data-folder-id": "" },
-          icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta opacity-60" />,
-        },
-      ];
+  const groups = forFolder
+    ? candidates.filter((group) => !isInsideFolder(all, group.id, forFolder.id))
+    : candidates;
+  const topLevel: PickerOption<Choice>[] = offeredFolderIds
+    ? []
+    : forFolder
+      ? [
+          {
+            id: null,
+            label: t("folder.topLevel"),
+            data: { "data-folder-id": "" },
+            icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
+          },
+        ]
+      : [
+          {
+            id: null,
+            label: t("library.unsorted"),
+            data: { "data-folder-id": "" },
+            icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta opacity-60" />,
+          },
+        ];
   const matching = (query: string): PickerSection<Choice>[] => {
     const words = queryWords(query);
     if (words.length === 0) return [{ options: [...topLevel, ...treeOptions(groups, "", t)] }];

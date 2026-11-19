@@ -5355,6 +5355,7 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
+    notesAgentId: () => settings.get().device.meetingNotesAgentId,
     content,
     meetings,
     userName: () => settings.get().user.authorName,
@@ -5380,7 +5381,12 @@ export function createCore(adapters: CoreAdapters): Core {
       const choice = await chat.answeringModel(modelInUseIn(mindId) ?? undefined);
       const readiness = await chat.readiness(choice);
       if (!readiness.ready) {
+        const agent =
+          readiness.reason === "no-provider"
+            ? (agents.askable(mindId)[0] ?? agents.askable(null)[0])
+            : undefined;
         return {
+          ...(agent && { agentId: agent.id }),
           problem:
             readiness.reason === "local-mode"
               ? {
@@ -5786,7 +5792,20 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (error) => console.error(error),
   });
   const agentAsk = createAgentAsk({
-    askable: (mindId) => agents.askable(mindId),
+    meetingTranscript(meetingId, mindId) {
+      try {
+        const meeting = meetings.get(meetingId);
+        return meeting.mindId === mindId &&
+          meeting.kind === "meeting" &&
+          meeting.transcript?.state === "saved"
+          ? meeting.transcript.documentId
+          : null;
+      } catch (error) {
+        if (error instanceof NotFoundError) return null;
+        throw error;
+      }
+    },
+    askable: (mindId, documentId) => agents.askable(mindId, documentId),
     minds: () => minds.list(),
     openLink: adapters.agents?.openLink ?? null,
     say: (key, params) => translate(settings.get().language, key, params),
@@ -8029,8 +8048,8 @@ export function createCore(adapters: CoreAdapters): Core {
     setUpAgent: (input) => agentSetup.setUp(input),
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),
     copyAgentSetup: (pairingId) => agentSetup.settingsFor(pairingId),
-    listAgentsToAsk: async (mindId) =>
-      agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null),
+    listAgentsToAsk: async (mindId, documentId) =>
+      agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
     getAgentLaunch: (pairingId) => agents.launch(pairingId),
     listAgentActivity: async (pairingId) => agents.activity(pairingId),

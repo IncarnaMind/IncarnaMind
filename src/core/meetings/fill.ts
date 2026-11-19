@@ -171,7 +171,7 @@ export function lacking(
 
 export type FillRoute =
   | { model: ChatModelChoice; local: boolean; windowTokens: number | null }
-  | { problem: MeetingFillProblem };
+  | { problem: MeetingFillProblem; agentId?: string };
 
 type Routed = Extract<FillRoute, { model: ChatModelChoice }>;
 
@@ -240,6 +240,7 @@ export interface MeetingFillOptions {
   checkpoint(mindId: string): void;
   /** Whether a call's notes start while its speakers are told apart (#2773). */
   startsBeforeSpeakers(): boolean;
+  notesAgentId(): string | null;
   language(): Language;
   /** The notes are in: a system notification, unless the Mind is on screen. */
   filled(meeting: Meeting): void;
@@ -1346,6 +1347,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
       return;
     }
+    if (meeting.fill?.agentId) {
+      set(meetingId, { state: "own-ai", problem: null });
+      return;
+    }
     let route: FillRoute;
     try {
       route = await options.route(meeting.mindId);
@@ -1359,7 +1364,12 @@ export function createMeetingFill(options: MeetingFillOptions) {
     // Its note went to Recently deleted meanwhile: the fill waits for it to come back (`restored`).
     if (closed || meetings.isDeleted(meetingId)) return;
     if ("problem" in route && meeting.kind === "meeting") {
-      set(meetingId, { state: "off", problem: route.problem });
+      set(
+        meetingId,
+        route.agentId
+          ? { state: "own-ai", agentId: route.agentId, problem: null }
+          : { state: "off", problem: route.problem },
+      );
       return;
     }
     const controller = new AbortController();
@@ -1514,10 +1524,13 @@ export function createMeetingFill(options: MeetingFillOptions) {
     stopped(meetingId: string): void {
       // A copy that can't transcribe has no Transcript to wait for, and one that heard nothing
       // is finished, empty, at Stop.
-      const transcript = meetings.get(meetingId).transcript;
+      const meeting = meetings.get(meetingId);
+      const transcript = meeting.transcript;
+      const agentId = meeting.kind === "meeting" ? options.notesAgentId() : null;
       const transcribed = transcript !== null && transcript.state !== "empty";
       meetings.setFill(meetingId, {
         state: transcribed ? "waiting" : "off",
+        ...(agentId && { agentId }),
         mode: null,
         local: false,
         problem: transcribed

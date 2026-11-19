@@ -7934,6 +7934,7 @@ export const zhCN = {
   "agents.propose.textTooLong": "{name} 的文字超过 {max} 个字符。",
   "agents.propose.version": "给出 read_mind 加 named 时返回的 version。",
   "agents.propose.firstAdd": "¶+ 会添加在上一处修改之后，先写明一个段落。",
+  "agents.propose.firstWaiting": "首批段落已在等待确认。请等用户处理后再建议添加。",
   "agents.propose.noParagraphs": "笔记中没有 {name}：这篇笔记没有可命名的段落。",
   "agents.propose.outOfRange": "笔记中没有 {name}：段落为 ¶1 到 ¶{count}。",
   "agents.propose.outOfRange.titled": "笔记中没有 {name}：¶0 是标题，段落为 ¶1 到 ¶{count}。",
@@ -8092,6 +8093,22 @@ export const zhCN = {
   "agents.ask.copied": "已复制，粘贴到{agent}中即可。",
   "agents.ask.fixCommand": "让你的 AI 修改这句话",
   "agents.ask.noteCommand": "就这篇笔记问你的 AI",
+  "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
+  "agents.ask.request.meeting":
+    "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，并由你自己核对引用。保留我写的笔记。{action}",
+  "agents.ask.meeting.propose":
+    "请先核对完整草稿，再一次性建议将整理结果追加到笔记末尾。如果没有带编号的段落，请用 ¶0+ 添加。",
+  "agents.ask.meeting.reply": "请直接在这里给我整理结果。",
+  "meetings.notesAgent.setting": "整理会议笔记的 AI",
+  "meetings.notesAgent.detail": "选择自己的 AI 后，会后点开整理请求，在那个应用里发送。",
+  "meetings.notesAgent.default": "优先使用 IncarnaMind 配置的模型",
+  "meetings.notesAgent.disconnected": "已断开连接的 AI",
+  "meetings.notesAgent.open": "用 {agent} 整理会议笔记",
+  "meetings.notesAgent.ready": "会议转写稿已就绪。",
+  "meetings.notesAgent.needsAccess": "{agent} 需要能读取会议笔记和转写稿各自所在的文件夹。",
+  "meetings.notesAgent.unshared": "要用 {agent} 整理，请将这篇会议笔记移到已与它共享的文件夹。",
+  "meetings.notesAgent.unavailable": "请在设置中重新连接 AI 或恢复访问权限。",
+  "meetings.notesAgent.settings": "智能体设置",
   "agents.ask.request.fix":
     "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，这句话{verdict}：\n\n{sentence}\n\n请根据我的文档改正这句话，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
   "agents.ask.request.question":
