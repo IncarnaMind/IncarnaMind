@@ -8473,6 +8473,8 @@ export const en = {
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
   "agents.pairing.proposes": "Can write notes there; its changes wait for you",
+  "agents.pairing.inside": "Also reads the Folders inside: {folders}",
+  "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
   "agents.pairing.renameLabel": "Name of {agent}",
@@ -8530,7 +8532,7 @@ export const en = {
   "agents.reason.no-python": "this computer can’t run code for it",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders and the notes in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes it writes there. Listing them sends each Folder’s name and internal id, the name, kind and internal id of each Document in it, and each note’s name, internal id and last-change time, with when a meeting started. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders, with the Folders inside them, and the notes and meetings in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, and each note’s name, internal id and last-change time, with when a meeting started. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",

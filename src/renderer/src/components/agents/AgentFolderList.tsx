@@ -3,7 +3,7 @@ import { type AgentFolderRow, agentFolderRows, onlyNotInAFolder } from "../../ag
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
 import { allExamples, isExampleDocument, isOwnDocument, useAppStore } from "../../store";
-import { FolderLineIcon } from "../lineIcons";
+import { FolderLineIcon, LockLineIcon } from "../lineIcons";
 
 /** What an agent may be allowed to read now: the Folders, then Not in a Folder (see `agentFolderRows`). */
 export function useAgentFolderRows(enabled = true, keepUnfiled = false): AgentFolderRow[] {
@@ -22,9 +22,12 @@ export function useAgentFolderRows(enabled = true, keepUnfiled = false): AgentFo
 }
 
 /**
- * The choices of what an agent may read, ticked in place: each Folder with its
- * Documents, Not in a Folder last. With no Document at all, Not in a Folder is
- * the one choice: the Documents the User adds there next (#3364).
+ * The choices of what an agent may read, ticked in place: each Folder under the one it is inside,
+ * with the Documents an agent given it reads, Not in a Folder last. With no Document at all, Not
+ * in a Folder is the one choice: the Documents the User adds there next (#3364).
+ * A ticked Folder shares those inside it (#3394): they show ticked and fixed, saying so, as a
+ * choice another one covers does elsewhere, and come back to their own choice once it is
+ * unticked. A walled Folder is its own choice, with the lock the sidebar gives it.
  * The same list is in the connect dialog and in a connected agent's Folders….
  */
 export function AgentFolderList({
@@ -50,17 +53,25 @@ export function AgentFolderList({
       >
         {rows.map((row) => {
           const name = row.name ?? t("library.unsorted");
+          const sharer = row.sharedWith.find((id) => chosen.has(id));
+          const sharedBy = sharer ? (rows.find((each) => each.id === sharer)?.name ?? "") : null;
+          const withWords =
+            sharedBy === null ? undefined : t("agents.folders.sharedWith", { folder: sharedBy });
           return (
             <label
               key={row.id}
               data-testid="agent-folder-row"
-              className="flex min-h-[34px] shrink-0 cursor-pointer items-center gap-2.5 px-3 text-[13px] leading-5 text-ink"
+              data-shared-with={sharer}
+              style={{ paddingInlineStart: `${12 + row.depth * 16}px` }}
+              className={`flex min-h-[34px] shrink-0 items-center gap-2.5 pr-3 text-[13px] leading-5 text-ink ${sharer ? "cursor-default" : "cursor-pointer"}`}
             >
               <input
                 type="checkbox"
                 data-testid="agent-folder"
                 data-folder={row.id}
-                checked={chosen.has(row.id)}
+                checked={sharer !== undefined || chosen.has(row.id)}
+                disabled={sharer !== undefined}
+                aria-description={withWords}
                 onChange={(event) => onToggle(row.id, event.target.checked)}
                 className="size-4 shrink-0 accent-ink"
               />
@@ -70,6 +81,26 @@ export function AgentFolderList({
               <span className="min-w-0 flex-1 truncate" title={name}>
                 {name}
               </span>
+              {row.walled && (
+                <span
+                  data-testid="agent-folder-wall"
+                  role="img"
+                  aria-label={t("folder.wall.title")}
+                  title={t("folder.wall.title")}
+                  className="flex shrink-0"
+                >
+                  <LockLineIcon className="size-3.5 text-ink-meta" />
+                </span>
+              )}
+              {withWords && (
+                <span
+                  data-testid="agent-folder-shared-with"
+                  className="min-w-0 max-w-[45%] shrink truncate text-[12px] leading-4 text-ink-meta"
+                  title={withWords}
+                >
+                  {withWords}
+                </span>
+              )}
               <span
                 data-testid="agent-folder-count"
                 className="shrink-0 text-[12px] leading-4 tabular-nums text-ink-meta"

@@ -7,6 +7,8 @@ import {
   type LibraryGroup,
   NOT_IN_A_FOLDER_ID,
 } from "../../../../core/api";
+import { unitsOf } from "../../../../shared/i18n/join";
+import { sharedInside } from "../../agentFolders";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
@@ -93,6 +95,11 @@ export function AgentPairingRow({
     ...folders.filter((folder) => chosen.includes(folder.id)).map((folder) => folder.name),
     ...(chosen.includes(NOT_IN_A_FOLDER_ID) ? [t("library.unsorted")] : []),
   ];
+  // What a pairing made before #3394 reaches now too, named on its row (#3394).
+  const inside = sharedInside(folders, chosen);
+  const insideNames = folders
+    .filter((folder) => inside.includes(folder.id))
+    .map((folder) => folder.name);
   const setFolder = (folderId: string, on: boolean) => {
     const next = on ? [...chosen, folderId] : chosen.filter((id) => id !== folderId);
     setChosen(next);
@@ -143,6 +150,11 @@ export function AgentPairingRow({
           <span data-testid="agent-pairing-reads" className="block">
             {readsLine(names, t, language)}
           </span>
+          {insideNames.length > 0 && (
+            <span data-testid="agent-pairing-inside" className="block">
+              {t("agents.pairing.inside", { folders: unitsOf(insideNames, language) })}
+            </span>
+          )}
           {propose && (
             <span data-testid="agent-pairing-proposes" className="block">
               {t("agents.pairing.proposes")}

@@ -5,7 +5,11 @@ import {
   type LibraryGroup,
   NOT_IN_A_FOLDER_ID,
 } from "../../src/core/api";
-import { agentFolderRows, onlyNotInAFolder } from "../../src/renderer/src/agentFolders";
+import {
+  agentFolderRows,
+  onlyNotInAFolder,
+  sharedInside,
+} from "../../src/renderer/src/agentFolders";
 
 let next = 0;
 const doc = (): Document => ({ id: `doc-${++next}` }) as Document;
@@ -19,6 +23,16 @@ const folder = (id: string, name = id): LibraryGroup => ({
   keepInside: false,
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-01T00:00:00.000Z",
+});
+
+/** A row at the top level, outside every wall. */
+const top = (id: string, name: string | null, documents: number) => ({
+  id,
+  name,
+  documents,
+  depth: 0,
+  walled: false,
+  sharedWith: [],
 });
 
 const filed = (document: Document, groupId: string | null) =>
@@ -39,38 +53,36 @@ describe("what an agent may be allowed to read", () => {
       [filed(a, "finance"), filed(b, "finance"), filed(c, "board")],
     );
     expect(rows).toEqual([
-      { id: "board", name: "Board", documents: 1 },
-      { id: "finance", name: "Finance", documents: 2 },
-      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 1 },
+      top("board", "Board", 1),
+      top("finance", "Finance", 2),
+      top(NOT_IN_A_FOLDER_ID, null, 1),
     ]);
     expect(onlyNotInAFolder(rows)).toBe(false);
   });
 
   test("leaves Not in a Folder out while every Document is filed, unless the agent has it", () => {
     const a = doc();
-    expect(agentFolderRows([board], [a], [filed(a, "board")])).toEqual([
-      { id: "board", name: "Board", documents: 1 },
-    ]);
+    expect(agentFolderRows([board], [a], [filed(a, "board")])).toEqual([top("board", "Board", 1)]);
     expect(agentFolderRows([board], [a], [filed(a, "board")], true)).toEqual([
-      { id: "board", name: "Board", documents: 1 },
-      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 },
+      top("board", "Board", 1),
+      top(NOT_IN_A_FOLDER_ID, null, 0),
     ]);
   });
 
   test("with no Document at all, Not in a Folder is offered, the place an agent starts from (#3364)", () => {
     expect(agentFolderRows([board], [], [])).toEqual([
-      { id: "board", name: "Board", documents: 0 },
-      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 },
+      top("board", "Board", 0),
+      top(NOT_IN_A_FOLDER_ID, null, 0),
     ]);
     const rows = agentFolderRows([], [], []);
-    expect(rows).toEqual([{ id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 }]);
+    expect(rows).toEqual([top(NOT_IN_A_FOLDER_ID, null, 0)]);
     expect(onlyNotInAFolder(rows)).toBe(true);
   });
 
   test("with no Folders, Not in a Folder is the only choice, and holds every Document", () => {
     const documents = [doc(), doc(), doc()];
     const rows = agentFolderRows([], documents, []);
-    expect(rows).toEqual([{ id: NOT_IN_A_FOLDER_ID, name: null, documents: 3 }]);
+    expect(rows).toEqual([top(NOT_IN_A_FOLDER_ID, null, 3)]);
     expect(onlyNotInAFolder(rows)).toBe(true);
   });
 
@@ -78,12 +90,12 @@ describe("what an agent may be allowed to read", () => {
     const [own, example] = [doc(), doc()] as [Document, Document];
     const isExample = (document: Document) => document === example;
     expect(agentFolderRows([], [own, example], [], false, isExample)).toEqual([
-      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 1 },
+      top(NOT_IN_A_FOLDER_ID, null, 1),
     ]);
     // With only the examples, there is nothing of the User's yet: Not in a Folder, for what comes.
     expect(agentFolderRows([board], [example], [], false, isExample)).toEqual([
-      { id: "board", name: "Board", documents: 0 },
-      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 0 },
+      top("board", "Board", 0),
+      top(NOT_IN_A_FOLDER_ID, null, 0),
     ]);
   });
 
@@ -94,16 +106,48 @@ describe("what an agent may be allowed to read", () => {
       [gone, never, none],
       [filed(gone, "deleted"), filed(none, null)],
     );
-    expect(rows.at(-1)).toEqual({ id: NOT_IN_A_FOLDER_ID, name: null, documents: 3 });
+    expect(rows.at(-1)).toEqual(top(NOT_IN_A_FOLDER_ID, null, 3));
   });
 
   test("counts tens of thousands of Documents in none", () => {
     const documents = Array.from({ length: 20_000 }, doc);
     const [first] = documents as [Document];
     const rows = agentFolderRows([board], documents, [filed(first, "board")]);
-    expect(rows).toEqual([
-      { id: "board", name: "Board", documents: 1 },
-      { id: NOT_IN_A_FOLDER_ID, name: null, documents: 19_999 },
+    expect(rows).toEqual([top("board", "Board", 1), top(NOT_IN_A_FOLDER_ID, null, 19_999)]);
+  });
+
+  // protects=a ticked Folder shares the Folders inside it up to a wall, and each row counts what an agent given it reads (#3394); fails_when=an inner Folder is listed apart from its parent, a walled Folder is shared by the one above it, or a count takes in a wall's Documents
+  test("lists each Folder under the one it is inside, shared with those above it up to a wall", () => {
+    const place = (id: string, parentId: string | null, keepInside = false): LibraryGroup => ({
+      ...folder(id, id[0]?.toUpperCase() + id.slice(1)),
+      parentId,
+      keepInside,
+    });
+    const folders = [
+      place("coast", null),
+      place("yard", "engineering"),
+      place("legal", "coast", true),
+      place("engineering", "coast"),
+      place("drafts", "legal"),
+    ];
+    const [a, b, c, d] = [doc(), doc(), doc(), doc()] as [Document, Document, Document, Document];
+    const rows = agentFolderRows(
+      folders,
+      [a, b, c, d],
+      [filed(a, "coast"), filed(b, "yard"), filed(c, "legal"), filed(d, "drafts")],
+    );
+    expect(
+      rows.map((row) => [row.id, row.depth, row.walled, row.sharedWith, row.documents]),
+    ).toEqual([
+      ["coast", 0, false, [], 2],
+      ["legal", 1, true, [], 2],
+      ["drafts", 2, false, ["legal"], 1],
+      ["engineering", 1, false, ["coast"], 1],
+      ["yard", 2, false, ["engineering", "coast"], 1],
     ]);
+    expect(sharedInside(folders, ["coast"]).sort()).toEqual(["engineering", "yard"]);
+    expect(sharedInside(folders, ["legal"])).toEqual(["drafts"]);
+    expect(sharedInside(folders, ["engineering"])).toEqual(["yard"]);
+    expect(sharedInside(folders, ["coast", "engineering"])).toEqual(["yard"]);
   });
 });
