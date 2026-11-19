@@ -2605,14 +2605,20 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     tags: {
       list: () => tags.list().map((tag) => ({ id: tag.id, name: tag.name })),
-      create: (name, description) => {
-        // Research makes this one, not the User: at 0 it waits in Manage Tags.
-        const tag = tags.create({ name, description }, false);
-        tagsChanged();
-        return tag.id;
-      },
-      apply: (documentId, tagIds) => {
-        if (tags.addAutomatic(documentId, tagIds)) announceTagged([documentId]);
+      propose: (proposals) => {
+        const hashes = new Map(
+          documents
+            .getMany(proposals.map((proposal) => proposal.documentId))
+            .map((document) => [document.id, document.contentHash]),
+        );
+        organizeReview.proposeTags(
+          { origin: "assistant", runId: null },
+          proposals.map((proposal) => ({
+            documentId: proposal.documentId,
+            contentHash: hashes.get(proposal.documentId) ?? null,
+            tags: [...proposal.tags],
+          })),
+        );
       },
     },
     notes: {

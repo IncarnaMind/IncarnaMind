@@ -310,7 +310,7 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   await expect(progress.getByTestId("task-progress-meta")).toHaveText(/^Done in \d+ min$/);
   const folderName = folderNameOf(TOPIC);
   await expect(progress.getByTestId("task-progress-steps")).toContainText(
-    `1 source saved in “${folderName}”`,
+    `1 source saved in “${folderName}”; its Tags wait in Suggested Tags`,
   );
   await expect(progress.getByTestId("task-progress-steps")).toContainText(
     "Wrote a cited draft as 2 changes in “Credit memo”",
@@ -319,7 +319,7 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
     "1 source saved · 2 changes proposed",
   );
 
-  // The page it read is a Document filed into a new Folder named for the research, with a Tag.
+  // The page it read is a Document filed into a new Folder named for the research.
   const state = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return {
@@ -334,8 +334,9 @@ test("Research… plans in the tray: the steps edited in place, the sources, whe
   expect(state.library.assignments.find((each) => each.documentId === page?.id)?.groupId).toBe(
     filed?.id,
   );
-  const tea = state.tags.find((each) => each.name === "Tea");
-  expect(page?.tags.map((each) => each.tagId)).toContain(tea?.id);
+  // Its Tag waits in the Review (#2890): none is made, and the page has none, until the User confirms.
+  expect(state.tags.find((each) => each.name === "Tea")).toBeUndefined();
+  expect(page?.tags).toEqual([]);
   await expect(window.getByTestId("sidebar").getByText(folderName)).toBeVisible();
 
   // The draft waits in the Mind as changes to accept, its Citation found; Review brings it into view.
