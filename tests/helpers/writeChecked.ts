@@ -311,15 +311,17 @@ export interface KeyWrite {
 /**
  * `writes` writes of `count` sentences, one after another in one session, checked as the app
  * checks them, on a key shaped as `key`: each check request takes `replyMs`, and one the key has
- * no room for is refused as the provider refuses it, an HTTP 429 the AI SDK may send again.
+ * no room for is refused as the provider refuses it, an HTTP 429 the AI SDK may send again. With
+ * `states`, each reply says what is left of the key's minute, as for `keyNotes`.
  */
 export const keyWrites = (
   count: number,
   replyMs: number,
   key: KeyShape,
   writes = 2,
+  states = false,
 ): Promise<KeyWrite[]> =>
-  onKey(replyMs, key, false, writes, async (hold, timers) => {
+  onKey(replyMs, key, states, writes, async (hold, timers) => {
     const { core, write } = await writeChecked(count, hold, timers);
     return { core, run: write };
   });
