@@ -264,6 +264,11 @@ export interface AgentProposed {
   citations: AgentCheckedCitation[];
   /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
   uncited: string[];
+  /**
+   * In a Note this agent wrote, how many of its sentences hold no check result now, and that
+   * `check_mind_yourself` gives them (#3378); null when none do, and in any other Note.
+   */
+  next: string | null;
 }
 
 export interface AgentCreateInput {
@@ -544,8 +549,8 @@ export interface AgentAccessDeps {
     mindId: string,
     footnote: (attributes: Record<string, unknown>) => { source: string; unverified: boolean },
   ): string;
-  /** A new Mind in a Folder, or in none; `headed`, its text starts with its name as a heading. */
-  createMind(title: string, folderId: string | null, headed: boolean): Mind;
+  /** A new, empty Mind in a Folder, or in none; with no `title`, its text names it. */
+  createMind(title: string, folderId: string | null): Mind;
   /** How many Notes the pairing wrote since `since` (ISO 8601, UTC). */
   notesWrittenSince(pairingId: string, since: string): number;
   /** IncarnaMind's Answer to a Question from these Documents, on the default chat model. */
@@ -711,21 +716,74 @@ function whole(value: unknown, what: string, min: number, max: number, fallback:
  */
 function uncitedIn(texts: readonly string[], counts: (token: string) => boolean): string[] {
   const CITED = "\u0000";
-  // A token that doesn't count goes with the space before it, as the sentence reads without it.
-  const spacedToken = new RegExp(`[ \\t]*${CITATION_TOKEN.source}`, "g");
   return texts
     .flatMap((each) =>
       sentencesOf(
-        each
-          .replace(/^#{1,6}\s.*$/gm, "")
-          .replace(/^\s*\|.*$/gm, "")
-          .replace(/^\s*(?:>\s*)*(?:[-*+]|\d{1,9}[.)])?\s+/gm, "")
-          .replace(spacedToken, (_whole, token: string) => (counts(token) ? CITED : "")),
+        marksBeforeTheirStop(
+          citationMarks(
+            each
+              .replace(/^#{1,6}\s.*$/gm, "")
+              .replace(/^\s*\|.*$/gm, "")
+              .replace(/^\s*(?:>\s*)*(?:[-*+]|\d{1,9}[.)])?\s+/gm, ""),
+            counts,
+            CITED,
+          ),
+          CITED,
+        ),
       ),
     )
     .filter((sentence) => !sentence.includes(CITED) && makesAClaim(sentence))
     .slice(0, MAX_UNCITED)
     .map((sentence) => clip(sentence, 200));
+}
+
+// Scanned by hand, never by a pattern that backtracks: a draft runs to `MAX_DRAFT_CHARS`, and a
+// long run of spaces or full stops with no token after it took a pattern seconds (#3378).
+
+/**
+ * `text` with each token that `counts` as `mark`, and each that doesn't gone, each with the spaces
+ * before it, as the sentence reads without it.
+ */
+function citationMarks(text: string, counts: (token: string) => boolean, mark: string): string {
+  let out = "";
+  let at = 0;
+  for (const match of text.matchAll(CITATION_TOKEN)) {
+    let end = match.index;
+    while (end > at && (text[end - 1] === " " || text[end - 1] === "\t")) end--;
+    out += text.slice(at, end) + (counts(match[1] ?? "") ? mark : "");
+    at = match.index + match[0].length;
+  }
+  return out + text.slice(at);
+}
+
+const STOPS = new Set([".", "!", "?", "。", "！", "？"]);
+const CLOSERS = new Set(['"', "'", "”", "’", ")", "]"]);
+
+/**
+ * `text` with each `mark` written after a sentence's full stop moved before it: a Citation there
+ * cites that sentence, not the next.
+ */
+function marksBeforeTheirStop(text: string, mark: string): string {
+  let out = "";
+  let copied = 0;
+  let at = 0;
+  while (at < text.length) {
+    if (!STOPS.has(text.charAt(at))) {
+      at++;
+      continue;
+    }
+    let end = at;
+    while (STOPS.has(text.charAt(end))) end++;
+    while (CLOSERS.has(text.charAt(end))) end++;
+    let marked = end;
+    while (marked < text.length && text.charAt(marked) === mark) marked++;
+    if (marked > end) {
+      out += text.slice(copied, at) + text.slice(end, marked) + text.slice(at, end);
+      copied = marked;
+    }
+    at = marked;
+  }
+  return out + text.slice(copied);
 }
 
 /** A change as asked, its paragraph's name read but not yet found in the Note. */
@@ -1769,6 +1827,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         const citations = [...tokens.values()].map((each) => each.report);
         const { markdown, nextOffset } = page(mind, written.now.text, 0);
+        const left = own ? deps.checkTask(mind.id, inScope) : null;
+        const unchecked = left?.ok ? left.value.sentences.length : 0;
         return {
           result: {
             mindId: mind.id,
@@ -1781,6 +1841,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             citations,
             // As the change's bar counts them, from what was written, the Citations kept too.
             uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
+            next:
+              unchecked === 0
+                ? null
+                : t(unchecked === 1 ? "agents.propose.unchecked.one" : "agents.propose.unchecked", {
+                    count: unchecked,
+                  }),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
           count: own ? null : written.waiting,
@@ -1828,10 +1894,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (!(error instanceof ChangeRefused)) throw error;
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
         }
-        // A text that begins with a heading of its own keeps that one alone.
-        const mind = deps.createMind(title, folder.id, !/^\s*#{1,6}\s/.test(written));
+        // Named by its title heading, as a Note written in the window is, so the name follows the
+        // heading whoever changes it (#3378). A text that begins with a heading of its own keeps
+        // that one alone; one that begins with none gets `title` as its heading. Only a text that
+        // begins with a section's heading keeps `title` as a name of its own.
+        const ownHeading = /^\s*#{1,6}\s/.test(written);
+        const titleHeading = /^\s*#[ \t]+\S/.test(written);
+        const mind = deps.createMind(ownHeading && !titleHeading ? title : "", folder.id);
+        const heading = {
+          type: "heading",
+          attrs: { level: 1 },
+          content: [{ type: "text", text: title }],
+        };
         deps.editMind(mind.id, (blocks) => {
-          insertBlocks(blocks, nodes);
+          insertBlocks(blocks, ownHeading ? nodes : [heading, ...nodes]);
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {
             const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
@@ -1855,10 +1931,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           tables: 0,
           step: null,
         });
+        const made = deps.minds().find((each) => each.id === mind.id);
         return {
           result: {
             mindId: mind.id,
-            title: mindName(mind) || title,
+            title: (made && mindName(made)) || title,
             folder: folder.name,
             citations: [...tokens.values()].map((each) => each.report),
             uncited: uncitedIn([written], (token) => tokens.get(token)?.cited?.citable === true),

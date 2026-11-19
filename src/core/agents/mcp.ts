@@ -46,8 +46,8 @@ export const SERVER_INSTRUCTIONS = [
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`, which returns the Note as it is now with its new version. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User to accept or reject.",
   "In a Note you wrote, the paragraphs `read_mind` marks as the User's are theirs: leave them as they are unless the User asks you to change them.",
   "To hand the User a new document, `create_mind` writes it as a Note of its own, which they see at once.",
-  "To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with `check_mind_yourself`, not with a search of your own: it gives the Note's sentences and how to judge them. Judge each from the Documents and hand your results back with `report_check`, which marks the Note for the User. Tell them what needs a look.",
-  "`check_mind` is IncarnaMind's own check, on the User's AI model there: only when they ask for it.",
+  "To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with `check_mind_yourself`, not with `check_mind` or a search of your own: it gives the Note's sentences and how to judge them. Judge each from the Documents and hand your results back with `report_check`, which marks the Note for the User. Tell them what needs a look.",
+  "`check_mind` is IncarnaMind's own check instead, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general.",
 ].join("\n");
 
 const passageId = z.string().describe("A passageId from search or read_passages.");
@@ -342,6 +342,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         version: z.string(),
         citations: z.array(checkedCitationOut),
         uncited: z.array(z.string()),
+        next: z.string().nullable(),
       }),
       // In a Note the agent wrote it changes the Note, one step the User's Undo takes back; in any
       // other it writes only Proposals, which change the Note once the User accepts them.
@@ -390,9 +391,9 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
   server.registerTool(
     tool("check_mind"),
     {
-      title: "Check a Note you wrote",
+      title: "IncarnaMind's own check of a Note you wrote",
       description:
-        "Check a Note you wrote with create_mind: every claim in it, cited or not, against the User's Documents, on their own AI model. They see the marks in the Note. Returns each claim that needs a look, with what the Document says. When status is running, call again. Tell the User what needs a look.",
+        "IncarnaMind's own check of a Note you wrote, on an AI model set up in IncarnaMind (refused if none is): only when the User asks for IncarnaMind's own check. It marks every claim against their Documents, returning each that needs a look with what the Document says. When status is running, call again.",
       inputSchema: z.object({ mindId: z.string() }),
       outputSchema: z.object({
         mindId: z.string(),
@@ -444,7 +445,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Check a Note you wrote, with your own model",
       description:
-        "Call this first when the User asks you to check or verify a Note you wrote with create_mind, or right after you write one. Returns its sentences that have no result yet and how to judge them with your own model. Then hand your results back with report_check.",
+        "Check a Note you wrote with create_mind, when the User asks you to check or verify it or right after you write it: returns its sentences that hold no result yet and how to judge them with your own model. Hand your results back with report_check.",
       inputSchema: z.object({ mindId: z.string() }),
       outputSchema: z.object({
         mindId: z.string(),

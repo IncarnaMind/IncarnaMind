@@ -246,7 +246,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
     calls.length = 0;
 
     expect(refusal(await check(agent, mindId))).toBe(
-      "IncarnaMind’s AI model isn’t allowed to check yet. Check a note in IncarnaMind to allow it.",
+      "IncarnaMind’s AI model isn’t allowed to check yet. Check the note with check_mind_yourself instead; for IncarnaMind’s own check, the User checks a note in IncarnaMind to allow it.",
     );
     expect(asked).toEqual([]);
     expect(calls).toEqual([]);

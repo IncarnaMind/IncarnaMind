@@ -17,6 +17,7 @@ import {
 import { MindReadOnlyError } from "../../src/core/errors";
 import { activityWords } from "../../src/renderer/src/components/agents/agentWords";
 import { translate } from "../../src/shared/i18n";
+import { mindName } from "../../src/shared/naming";
 import { pendingProposals } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -44,6 +45,7 @@ interface Proposed {
   waitingInNote: number;
   markdown: string;
   version: string;
+  next: string | null;
 }
 
 interface Listed {
@@ -209,7 +211,7 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
       [{ paragraph: "¶2", text: "The range changes through the month." }],
     ]) {
       const done = structured<Proposed>(await change(agent, mind.id, version, changes));
-      expect(done).toMatchObject({ status: "waiting", waiting: 1 });
+      expect(done).toMatchObject({ status: "waiting", waiting: 1, next: null });
       counts.push(done.waitingInNote);
       ({ version } = done);
     }
@@ -312,6 +314,29 @@ describe("an agent's changes to a Note it wrote (#3371)", () => {
       await change(other, mine, version, [{ paragraph: "¶1", text: "Tides turn." }]),
     );
     expect(done.status).toBe("waiting");
+  });
+
+  // protects=the sidebar names the Note as its page does after the agent rewrites the title, and a name the User chose stays; fails_when=the sidebar keeps the old title, or the User's own name is replaced
+  it("renames the Note when it rewrites the title the Note was named by, and keeps a name the User gave it", async () => {
+    const { core, agent } = await paired();
+    const nameOf = async (mindId: string) => {
+      const mind = (await core.listMinds()).find((each) => each.id === mindId);
+      return mind && mindName(mind);
+    };
+    const titled = await write(agent, "Tide report");
+    const renamed = await write(agent, "Tide notes");
+    await core.renameMind(renamed, "My survey");
+
+    for (const mindId of [titled, renamed]) {
+      const { version } = await readNamed(agent, mindId);
+      structured<Proposed>(
+        await change(agent, mindId, version, [{ paragraph: "¶0", text: "# Spring tide survey" }]),
+      );
+      const client = await connectToMind(core, mindId);
+      await expect.poll(() => linesOf(client)[0]).toBe("Spring tide survey");
+    }
+    expect(await nameOf(titled)).toBe("Spring tide survey");
+    expect(await nameOf(renamed)).toBe("My survey");
   });
 
   // protects=the title is never a numbered paragraph, so "the second paragraph" means the second under it; fails_when=the title is ¶1 or read_mind gives it twice

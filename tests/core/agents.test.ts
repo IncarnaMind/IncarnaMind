@@ -142,6 +142,8 @@ describe("outside agents", () => {
           text: [
             "## When tides are high",
             `Spring tides come at new and full moon ${first?.cite}. The moon is made of cheese and nobody cites it.`,
+            // Cited after its full stop, as agents often write it: the Citation is this sentence's.
+            `- Spring tides come twice in every month. ${first?.cite}`,
             "| Tide type | When it comes in the month |",
             "| --- | --- |",
           ].join("\n"),
@@ -162,6 +164,25 @@ describe("outside agents", () => {
       documentIds: [tides.id],
       effects: [{ action: "read", scope: { kind: "documents" } }],
     });
+  });
+
+  // protects=a draft of any length is checked at once, never holding up the app; fails_when=a long run of full stops or spaces with no Citation after it takes seconds to read
+  it("check a draft as long as they may send at once, however its full stops and spaces run", async () => {
+    const { launch } = await pairedToCoast();
+    const agent = await connectLegacyAgent(launch);
+    for (const text of [
+      `Spring tides come at new and full moon${"!".repeat(99_000)}`,
+      `Spring tides come at new and full moon${" ".repeat(99_000)}and neap tides between.`,
+    ]) {
+      const started = performance.now();
+      const checked = structured<{ uncited: string[] }>(
+        await agent.callTool({ name: "check_citations", arguments: { text } }),
+      );
+      // Far above the few milliseconds it takes, and far below the seconds a pattern that
+      // backtracks took on such a run, so a slow machine doesn't fail it.
+      expect(performance.now() - started).toBeLessThan(3_000);
+      expect(checked.uncited[0]).toMatch(/^Spring tides come at new and full moon/);
+    }
   });
 
   it("cite a quote copied from a Passage, and give none for a quote that isn't there", async () => {

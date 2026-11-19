@@ -187,7 +187,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       });
       expect(checked.isError).toBe(true);
       expect((checked.content as { text: string }[])[0]?.text).toBe(
-        "No AI model is ready in IncarnaMind to check with. Set one up in Settings › AI.",
+        "No AI model is ready in IncarnaMind for its own check. Check the note with check_mind_yourself instead; for IncarnaMind’s own check, the User sets up a model in Settings › AI.",
       );
     } finally {
       await agent.close();

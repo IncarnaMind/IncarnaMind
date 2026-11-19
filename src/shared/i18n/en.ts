@@ -8313,9 +8313,9 @@ export const en = {
   "agents.check.beyondReach":
     "This note is checked against Documents outside the Folders shared with this agent, so it can’t be checked for it. The User can check it in IncarnaMind.",
   "agents.check.notReady":
-    "No AI model is ready in IncarnaMind to check with. Set one up in Settings › AI.",
+    "No AI model is ready in IncarnaMind for its own check. Check the note with check_mind_yourself instead; for IncarnaMind’s own check, the User sets up a model in Settings › AI.",
   "agents.check.consent":
-    "IncarnaMind’s AI model isn’t allowed to check yet. Check a note in IncarnaMind to allow it.",
+    "IncarnaMind’s AI model isn’t allowed to check yet. Check the note with check_mind_yourself instead; for IncarnaMind’s own check, the User checks a note in IncarnaMind to allow it.",
   "agents.check.failed": "IncarnaMind couldn’t check the note: {message}",
   "agents.check.tooMany":
     "This agent has started {max} checks in the last hour, which is the most it may. Try again later.",
@@ -8380,6 +8380,11 @@ export const en = {
     "The text for {name} leaves out a <removed> tag the User typed there, which would take their words out, so nothing was written. Keep each tag as the paragraph has it.",
   "agents.propose.misnamed":
     "The text for {name} doesn’t say clearly which paragraph it replaces, so nothing was written.",
+  // After an agent's change to a note it wrote, what is left to check (#3378).
+  "agents.propose.unchecked.one":
+    "1 sentence of the note holds no check result now: check it before you finish, with check_mind_yourself, which gives only that one.",
+  "agents.propose.unchecked":
+    "{count} sentences of the note hold no check result now: check them before you finish, with check_mind_yourself, which gives only those.",
   "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",
