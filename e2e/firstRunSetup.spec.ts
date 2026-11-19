@@ -259,7 +259,8 @@ test("a pasted key works at once, More services… stays in the setup, and sorti
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
   const field = ai.getByTestId("setup-key");
-  await expect(field).toBeFocused();
+  // The AI the User already has comes first (#3362): its first choice takes the focus.
+  await expect(ai.getByTestId("setup-agent").first().locator("input")).toBeFocused();
   await expect(ai.getByTestId("setup-keys-stay")).toHaveText("Keys stay on this computer.");
   await expect(ai.getByTestId("setup-next")).toBeDisabled();
   // The other ways: cloud first, a model on this computer last.
@@ -382,7 +383,7 @@ test("Settings › AI with nothing set: the lede, then No AI yet, whose Set up s
     "Meetings",
   ]);
   await expect(panelOf(window).getByTestId("setup-back")).toHaveCount(0);
-  await expect(dialog.getByTestId("setup-key")).toBeFocused();
+  await expect(dialog.getByTestId("setup-agent").first().locator("input")).toBeFocused();
   await shot(window, "setup-dialog-ai-en-1440");
   // Esc in More services goes back to the step; Esc again closes the dialog.
   await dialog.getByTestId("setup-way-more-open").click();

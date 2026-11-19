@@ -33,18 +33,20 @@ const linkClass =
 /**
  * Get started's foot after the first run's setup (#3296): one line of what the setup set, with
  * where it changes; and, once the steps are done, what to try next in the User's work, merged
- * across their picks.
+ * across their picks. `agent`: the User's own AI, connected (#3362).
  */
 export function CardTail({
   work,
   mindId,
   live,
   done,
+  agent,
 }: {
   work: readonly WorkKind[];
   mindId: string;
   live: boolean;
   done: boolean;
+  agent: string | null;
 }) {
   const t = useT();
   const reportError = useAppStore((state) => state.reportError);
@@ -78,7 +80,7 @@ export function CardTail({
         data-testid={live ? "first-open-set" : undefined}
         className="text-[12px] leading-[18px] text-ink-meta"
       >
-        <WhatWasSet /> ·{" "}
+        <WhatWasSet agent={agent} /> ·{" "}
         <button
           type="button"
           data-testid={live ? "first-open-set-change" : undefined}
@@ -92,7 +94,7 @@ export function CardTail({
   );
 }
 
-function WhatWasSet() {
+function WhatWasSet({ agent }: { agent: string | null }) {
   const t = useT();
   const nameOf = useModelNames();
   const readiness = useAppStore((state) => state.chatReadiness);
@@ -102,7 +104,9 @@ function WhatWasSet() {
     ? t("firstOpen.set.answers", {
         model: nameOf(readiness.modelId, readiness.provider.id).name,
       })
-    : t("firstOpen.set.noAi");
+    : agent !== null
+      ? t("firstOpen.set.agent", { agent })
+      : t("firstOpen.set.noAi");
   const sorting =
     !classifier || classifier.kind === "automatic"
       ? t("firstOpen.set.sorting.none")

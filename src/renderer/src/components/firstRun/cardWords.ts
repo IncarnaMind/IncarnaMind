@@ -2,15 +2,26 @@ import type { WorkKind } from "../../../../core/api";
 import type { CommandId } from "../../../../shared/commands";
 import type { MessageKey } from "../../../../shared/i18n";
 
-/** A step of Get started: the standard three, or the meetings card's first two (#3296). */
-export type CardStep = "files" | "question" | "citation" | "record" | "notes";
+/**
+ * A step of Get started: the standard three, the meetings card's first two (#3296), or the last
+ * two of the card for a User whose own AI is connected (#3362).
+ */
+export type CardStep =
+  | "files"
+  | "question"
+  | "citation"
+  | "record"
+  | "notes"
+  | "agentAsk"
+  | "agentLook";
 
 const STANDARD: readonly CardStep[] = ["files", "question", "citation"];
 const MEETINGS: readonly CardStep[] = ["record", "notes", "citation"];
+const AGENT: readonly CardStep[] = ["files", "agentAsk", "agentLook"];
 
-/** The card's steps, in order, for the work the User picked first. */
-export const cardStepsOf = (work: WorkKind | undefined): readonly CardStep[] =>
-  work === "meetings" ? MEETINGS : STANDARD;
+/** The card's steps, in order: the agent's while one is connected, else for the work picked first. */
+export const cardStepsOf = (work: WorkKind | undefined, agent = false): readonly CardStep[] =>
+  agent ? AGENT : work === "meetings" ? MEETINGS : STANDARD;
 
 export interface StepWords {
   title: MessageKey;
@@ -27,6 +38,14 @@ const isWorded = (work: WorkKind | undefined): work is Worded =>
 
 /** A step's words in the User's work; Something else, or no pick, keeps the standard ones. */
 export function stepWords(work: WorkKind | undefined, step: CardStep): StepWords {
+  if (step === "agentAsk" || step === "agentLook") {
+    return {
+      title: `firstOpen.step.${step}.title`,
+      done: `firstOpen.step.${step}.done`,
+      body: null,
+      example: null,
+    };
+  }
   if (step === "record") {
     return {
       title: "firstOpen.work.meetings.record",

@@ -3656,6 +3656,8 @@ export interface GettingStarted {
   recorded: boolean;
   /** A Meeting's notes were written from its Transcript: the meetings card's second step (#3296). */
   notesWritten: boolean;
+  /** The User opened the Note their own AI wrote, after its check: the agent card's last step (#3362). */
+  agentNoteSeen: boolean;
 }
 
 /** A decision model on a host, as the User chose it for checks. */

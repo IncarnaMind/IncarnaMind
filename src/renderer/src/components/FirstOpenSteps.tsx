@@ -9,6 +9,7 @@ import {
 import type { WorkKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { fitName } from "../../../shared/naming";
+import { type AgentNote, openAtFirstLook, useAgentNote, useAgentPairings } from "../agentNote";
 import { type AskBlock, useAnswers } from "../answers";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
@@ -18,6 +19,7 @@ import { askReadyQuestion, stopReadyAsk, useConversations, useReadyAsk } from ".
 import { AskProblem } from "../editor/AskProblem";
 import { goToCitation } from "../editor/citationMark";
 import { goToMistake } from "../editor/mistakeMark";
+import { focusQuietly } from "../editor/quietFocus";
 import { useLanguage, useT } from "../i18n";
 import { useMeetings } from "../meetings";
 import { openModelSetup } from "../modelSetup";
@@ -33,6 +35,7 @@ import {
   ChatLineIcon,
   CheckLineIcon,
   CloseLineIcon,
+  CopyLineIcon,
   MicLineIcon,
   NoteLineIcon,
   PlusLineIcon,
@@ -72,6 +75,8 @@ const DO_ICONS: Record<StepKey, typeof PlusLineIcon> = {
   files: PlusLineIcon,
   record: MicLineIcon,
   notes: NoteLineIcon,
+  agentAsk: CopyLineIcon,
+  agentLook: CheckLineIcon,
 };
 
 const NO_WORK: readonly WorkKind[] = [];
@@ -160,8 +165,13 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
     (state) => state.examples?.group === "credit" || state.examples?.group === "tea",
   );
   const meetings = useMeetings((state) => state.meetings);
+  // The User's own AI leads the card once one is connected, a model in IncarnaMind or not (#3362).
+  const pairings = useAgentPairings();
+  const agent = pairings?.at(-1)?.name ?? null;
+  const agentNote = useAgentNote(pairings ?? []);
+  const [copied, setCopied] = useState(false);
   const lead = work[0];
-  const steps = cardStepsOf(lead);
+  const steps = cardStepsOf(lead, agent !== null);
   const addFiles = useRef<HTMLButtonElement>(null);
   const card = useRef<HTMLElement>(null);
   // The ready Question's button goes once it is asked: the focus moves on to the next step.
@@ -199,6 +209,8 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
     citation: progress.citationChecked,
     record: progress.recorded,
     notes: progress.notesWritten,
+    agentAsk: agentNote !== null,
+    agentLook: progress.agentNoteSeen,
   };
   const current = steps.find((key) => !done[key]);
   const liveState = (key: StepKey): StepState =>
@@ -217,11 +229,24 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
     if (newest) useAppStore.getState().openMind(newest.mindId);
     else startRecording();
   };
+  const copyAgentLine = () => {
+    navigator.clipboard.writeText(t("firstOpen.agent.line")).then(
+      () => setCopied(true),
+      (error: unknown) => useAppStore.getState().reportError(error),
+    );
+  };
+  // Seen only once its check has landed: before that there is nothing yet to look at.
+  const openAgentNote = () => {
+    if (!agentNote) return;
+    openAtFirstLook(agentNote.mindId, focusQuietly);
+    if (agentChecked(agentNote)) updateGettingStarted({ agentNoteSeen: true });
+  };
 
   const layer = (stateOf: (key: StepKey) => StepState, hasModel: boolean, live: boolean) => {
     const allDone = steps.every((key) => stateOf(key) === "done");
-    // Done means a first checked Answer of one's own can come: the ready Question needs no model (#1027).
-    const setUp = allDone && hasModel;
+    // Done means a first checked Answer of one's own can come: the ready Question needs no model
+    // (#1027), and the User's own AI checks what it writes (#3362).
+    const setUp = allDone && (hasModel || agent !== null);
     const only = (testId: string) => (live ? testId : undefined);
     const body = (key: StepKey) => {
       const words = stepWords(lead, key).body;
@@ -310,6 +335,37 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
         </>
       ),
       notes: body("notes"),
+      agentAsk: (
+        <>
+          <p className="text-[13px] leading-5 text-ink-secondary">
+            {t("firstOpen.agent.paste", { agent: agent ?? "" })}
+          </p>
+          <div className="flex items-start gap-2 rounded-md bg-chip py-1.5 pr-1.5 pl-2.5">
+            <p
+              data-testid={only("first-open-agent-line")}
+              className="min-w-0 flex-1 py-1 text-[13px] leading-5 text-ink select-text"
+            >
+              {t("firstOpen.agent.line")}
+            </p>
+            <button
+              type="button"
+              data-testid={only("first-open-agent-copy")}
+              onClick={copyAgentLine}
+              className={`${buttonStyle("secondary", "sm")} shrink-0`}
+            >
+              {t(live && copied ? "agents.pairing.copied" : "agents.pairing.copy")}
+            </button>
+          </div>
+        </>
+      ),
+      agentLook: (
+        <AgentLook
+          note={agentNote}
+          agent={agent ?? ""}
+          testId={only("first-open-agent-look")}
+          onOpen={openAgentNote}
+        />
+      ),
     };
     const onDo: Record<StepKey, () => void> = {
       files: () => void pickDocuments(),
@@ -317,6 +373,8 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
       citation: () => goToCitation(),
       record: startRecording,
       notes: openNotes,
+      agentAsk: copyAgentLine,
+      agentLook: openAgentNote,
     };
     return (
       <>
@@ -353,7 +411,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </Step>
           ))}
         </ol>
-        {allDone && !hasModel && !setupFinished && (
+        {allDone && !hasModel && agent === null && !setupFinished && (
           <div className="flex flex-col items-start gap-2 pt-3">
             <p className="text-[13px] leading-5 text-ink-secondary">{t("firstOpen.model.body")}</p>
             <button
@@ -366,7 +424,9 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
             </button>
           </div>
         )}
-        {setupFinished && <CardTail work={work} mindId={mindId} live={live} done={allDone} />}
+        {setupFinished && (
+          <CardTail work={work} mindId={mindId} live={live} done={allDone} agent={agent} />
+        )}
       </>
     );
   };
@@ -390,6 +450,52 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
           {layer((key) => stateAt(steps, at, key), hasModel, false)}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Whether a check has landed on the agent's Note: one sentence or more has its result. */
+const agentChecked = (note: AgentNote): boolean =>
+  note.state !== null && note.state.kind !== "not-checked";
+
+/** The agent card's last step: what the check found, or that it is still to come. */
+function AgentLook({
+  note,
+  agent,
+  testId,
+  onOpen,
+}: {
+  note: AgentNote | null;
+  agent: string;
+  testId: string | undefined;
+  onOpen(): void;
+}) {
+  const t = useT();
+  const language = useLanguage();
+  const look = note?.state?.look ?? 0;
+  const words =
+    !note || !agentChecked(note)
+      ? t("firstOpen.step.agentLook.waiting", { agent })
+      : look > 0
+        ? t(look === 1 ? "firstOpen.step.agentLook.look.one" : "firstOpen.step.agentLook.look", {
+            count: new Intl.NumberFormat(language).format(look),
+          })
+        : t("firstOpen.step.agentLook.all");
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <p data-testid={testId} className="text-[13px] leading-5 text-ink-secondary">
+        {words}
+      </p>
+      {note && agentChecked(note) && (
+        <button
+          type="button"
+          data-testid={testId === undefined ? undefined : `${testId}-open`}
+          onClick={onOpen}
+          className={buttonStyle("primary", "sm")}
+        >
+          {t("firstOpen.step.agentLook.open")}
+        </button>
+      )}
     </div>
   );
 }

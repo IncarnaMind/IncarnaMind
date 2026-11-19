@@ -54,6 +54,26 @@ describe("Get started in the User's work", () => {
   });
 });
 
+describe("Get started for a User whose own AI is connected (#3362)", () => {
+  test("in every work: add Documents, ask that AI for a document, see what needs a look", () => {
+    for (const work of [undefined, ...WORK_KINDS]) {
+      expect(cardStepsOf(work, true), String(work)).toEqual(["files", "agentAsk", "agentLook"]);
+    }
+    const titles = (language: "en" | "zh-CN") =>
+      cardStepsOf(undefined, true).map((step) =>
+        translate(language, stepWords(undefined, step).title),
+      );
+    expect(titles("en")).toEqual([
+      "Add your Documents",
+      "Ask your AI for a document",
+      "See what needs a look",
+    ]);
+    expect(titles("zh-CN")).toEqual(["添加你的文档", "让你的 AI 写一份文档", "查看需要留意的地方"]);
+    expect(translate("en", stepWords("finance", "agentAsk").done)).toBe("Your AI wrote a note");
+    expect(translate("en", stepWords("finance", "files").title)).toBe("Add your files");
+  });
+});
+
 describe("what Get started offers next", () => {
   test("three at most, each pick's first before any pick's second", () => {
     expect(nextFeatures(["legal", "research"])).toEqual(["compare", "citationStyle", "exportWord"]);
