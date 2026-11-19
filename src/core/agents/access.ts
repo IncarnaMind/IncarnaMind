@@ -214,7 +214,9 @@ export interface AgentMindList {
   folders: {
     id: string;
     name: string;
-    /** How many Documents it holds. */
+    /** Its names from the outermost Folder the agent reaches it in, when that is another (#3394). */
+    path?: string;
+    /** How many Documents are filed in it, not in the Folders inside it, each listed apart. */
     documents: number;
     /** Its Documents by name, the first `MAX_LISTED_DOCUMENTS`: never their text (#3363, #3364). */
     documentList: { id: string; name: string; kind: string }[];
@@ -554,12 +556,17 @@ export interface AgentAccessDeps {
   /** The pairing, if it may call now; otherwise throws `AgentRefusedError`. */
   admit(pairingId: string): AdmittedPairing;
   /** The live Folders. */
-  folders(): { id: string; name: string; keepInside: boolean }[];
+  folders(): { id: string; name: string; parentId: string | null; keepInside: boolean }[];
   /** The walled Folder a Folder is behind, or is; null outside every wall. */
   wallOf(folderId: string): string | null;
-  /** The Folder ids a pairing may read after Folder walls are applied. */
+  /** The Folder ids a pairing may be granted after Folder walls are applied. */
   foldersInScope(folderIds: readonly string[]): string[];
-  /** The ids of the live Documents in these Folders; `NOT_IN_A_FOLDER_ID` stands for those in no Folder now. */
+  /** A live Folder and the live Folders inside it up to the next wall, its own wall aside. */
+  foldersInside(folderId: string): string[];
+  /**
+   * The ids of the live Documents filed in exactly these Folders, never those inside them;
+   * `NOT_IN_A_FOLDER_ID` stands for those in no Folder now.
+   */
   documentsIn(folderIds: readonly string[]): string[];
   /** Every live Transcript that belongs to a Note (#2528). */
   noteTranscripts(): readonly NoteTranscript[];
@@ -731,6 +738,15 @@ export function sentencesOf(text: string): string[] {
 }
 
 const HAN = /\p{Script=Han}/gu;
+
+/** Folders in the order of their paths: each right after the one it is inside. */
+function comparePaths(a: readonly string[], b: readonly string[]): number {
+  for (let at = 0; at < Math.min(a.length, b.length); at++) {
+    const order = (a[at] ?? "").localeCompare(b[at] ?? "");
+    if (order !== 0) return order;
+  }
+  return a.length - b.length;
+}
 
 /** Long enough to be a claim: four words, or ten Chinese characters. */
 function makesAClaim(sentence: string): boolean {
@@ -956,10 +972,23 @@ interface Done<T> {
   effects?: Effect[];
 }
 
-type ReachDeps = Pick<AgentAccessDeps, "foldersInScope" | "mindBlocks" | "duplicatedFrom">;
+type ReachDeps = Pick<
+  AgentAccessDeps,
+  "foldersInScope" | "foldersInside" | "mindBlocks" | "duplicatedFrom"
+>;
 
-const readsNoFolder = (deps: ReachDeps, pairing: AdmittedPairing) =>
-  deps.foldersInScope(pairing.folderIds).includes(NOT_IN_A_FOLDER_ID);
+/**
+ * Everything a pairing reaches, by Folder (#3394): each Folder it was granted, as walls allow, with
+ * the Folders inside it up to the next wall, and `NOT_IN_A_FOLDER_ID` when it was granted that.
+ * Its Documents and its Notes are those in these Folders, and a meeting goes with its Note.
+ */
+export function reachedFolders(deps: ReachDeps, pairing: AdmittedPairing): Set<string> {
+  return new Set(
+    deps
+      .foldersInScope(pairing.folderIds)
+      .flatMap((id) => (id === NOT_IN_A_FOLDER_ID ? [id] : deps.foldersInside(id))),
+  );
+}
 
 /**
  * Whether the pairing wrote this Mind, as `create_mind` records it in the Mind. A copy carries
@@ -977,11 +1006,19 @@ function pairingWrote(deps: ReachDeps, pairing: AdmittedPairing, mindId: string)
     : writer.mindId === mindId;
 }
 
-/** Whether `read_mind` reads this Mind for the pairing: in its Folders, or in none when it wrote it there. */
-export const pairingReaches = (deps: ReachDeps, pairing: AdmittedPairing, mind: Mind): boolean =>
+/**
+ * Whether `read_mind` reads this Mind for the pairing: in a Folder it reaches, or in none when it
+ * wrote it there. `reached`: the pairing's `reachedFolders`, when the caller has them.
+ */
+export const pairingReaches = (
+  deps: ReachDeps,
+  pairing: AdmittedPairing,
+  mind: Mind,
+  reached: ReadonlySet<string> = reachedFolders(deps, pairing),
+): boolean =>
   mind.folderId === null
-    ? readsNoFolder(deps, pairing) && pairingWrote(deps, pairing, mind.id)
-    : deps.foldersInScope(pairing.folderIds).includes(mind.folderId);
+    ? reached.has(NOT_IN_A_FOLDER_ID) && pairingWrote(deps, pairing, mind.id)
+    : reached.has(mind.folderId);
 
 // ---------------------------------------------------------------------------
 // The implementation
@@ -1060,7 +1097,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
    * These Documents, a Transcript among them only while the pairing reaches its Note: its words
    * are its Note's, and the User's Notes are shared only with their Folder (#3384).
    */
-  const withTheirNotes = (pairing: AdmittedPairing, documentIds: string[]): string[] => {
+  const withTheirNotes = (
+    pairing: AdmittedPairing,
+    reached: ReadonlySet<string>,
+    documentIds: string[],
+  ): string[] => {
     const held = deps.noteTranscripts();
     if (held.length === 0) return documentIds;
     const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
@@ -1068,28 +1109,41 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       held
         .filter((each) => {
           const mind = minds.get(each.mindId);
-          return !mind || !noteReached(pairing, mind);
+          return !mind || !noteReached(pairing, mind, reached);
         })
         .map((each) => each.documentId),
     );
     return documentIds.filter((id) => !apart.has(id));
   };
 
-  /** The Documents a call may read: its pairing's Folders, or only those of them it names. */
+  /**
+   * The Documents a call may read: everything its pairing reaches, or only what the Folders it
+   * names hold, the Folders inside them included.
+   */
   const scopeOf = (pairing: AdmittedPairing, folderIds: unknown): string[] => {
     if (pairing.folderIds.length === 0) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
-    const effective = deps.foldersInScope(pairing.folderIds);
-    if (folderIds === undefined) return withTheirNotes(pairing, deps.documentsIn(effective));
+    const reached = reachedFolders(deps, pairing);
+    const holding = (folders: Iterable<string>) =>
+      withTheirNotes(pairing, reached, deps.documentsIn([...folders]));
+    if (folderIds === undefined) return holding(reached);
     if (!Array.isArray(folderIds) || !folderIds.every((id) => typeof id === "string")) {
       throw new AgentRefusedError("invalid", "folderIds must be a list of Folder ids.");
     }
-    if (folderIds.length === 0) return withTheirNotes(pairing, deps.documentsIn(effective));
-    if (!folderIds.every((id) => effective.includes(id))) {
+    if (folderIds.length === 0) return holding(reached);
+    if (!folderIds.every((id) => reached.has(id))) {
       throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
     }
-    return withTheirNotes(pairing, deps.documentsIn(folderIds));
+    return holding(
+      new Set(
+        folderIds.flatMap((id) =>
+          id === NOT_IN_A_FOLDER_ID
+            ? [id]
+            : deps.foldersInside(id).filter((each) => reached.has(each)),
+        ),
+      ),
+    );
   };
 
   /** A live Passage of these Documents, or a refusal that tells nothing of the others. */
@@ -1232,12 +1286,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
   };
 
-  const readsUnfiled = (pairing: AdmittedPairing) => readsNoFolder(deps, pairing);
   const wrote = (pairing: AdmittedPairing, mindId: string) => pairingWrote(deps, pairing, mindId);
-  const reaches = (pairing: AdmittedPairing, mind: Mind) => pairingReaches(deps, pairing, mind);
+  const reaches = (pairing: AdmittedPairing, mind: Mind, reached?: ReadonlySet<string>) =>
+    pairingReaches(deps, pairing, mind, reached);
   // No Note it wrote is older than the pairing, which spares reading the others' records.
-  const noteReached = (pairing: AdmittedPairing, mind: Mind) =>
-    (mind.folderId !== null || mind.createdAt >= pairing.createdAt) && reaches(pairing, mind);
+  const noteReached = (pairing: AdmittedPairing, mind: Mind, reached: ReadonlySet<string>) =>
+    (mind.folderId !== null || mind.createdAt >= pairing.createdAt) &&
+    reaches(pairing, mind, reached);
 
   /**
    * A Mind in the pairing's Folders, or in no Folder when the pairing wrote it and reads the
@@ -1337,22 +1392,24 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   };
 
   /**
-   * Where a new Note goes: the Folder named, of the pairing's, or its only one; else no Folder,
-   * named or not, when the pairing reads the Documents there (#3364).
+   * Where a new Note goes: the Folder named, of those the pairing reaches, the Folders inside its
+   * own included (#3394), or the one it was granted; else no Folder, named or not, when the
+   * pairing reads the Documents there (#3364).
    */
   const placeToWriteIn = (
     pairing: AdmittedPairing,
     folderId: unknown,
   ): { id: string | null; name: string } => {
-    const shared = deps.foldersInScope(pairing.folderIds);
-    const folders = deps.folders().filter((folder) => shared.includes(folder.id));
-    const unfiled = shared.includes(NOT_IN_A_FOLDER_ID);
+    const granted = deps.foldersInScope(pairing.folderIds);
+    const reached = reachedFolders(deps, pairing);
+    const folders = deps.folders().filter((folder) => reached.has(folder.id));
+    const unfiled = reached.has(NOT_IN_A_FOLDER_ID);
     const none = { id: null, name: t("library.unsorted") };
     if (folders.length === 0 && !unfiled) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
     if (folderId === undefined) {
-      const [only, ...others] = folders;
+      const [only, ...others] = folders.filter((folder) => granted.includes(folder.id));
       if (only && others.length === 0) return only;
       if (!only) return none;
       throw new AgentRefusedError("invalid", t("agents.create.folder"));
@@ -1429,16 +1486,16 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   /** Everything the pairing may read now: its Documents, its Folders and the Notes there it reaches. */
   const reachOf = (pairing: AdmittedPairing) => {
     let minds: Set<string> | null = null;
+    const reached = reachedFolders(deps, pairing);
     return {
       documentIds: new Set(scopeOf(pairing, undefined)),
-      folderIds: new Set(
-        deps.foldersInScope(pairing.folderIds).filter((id) => id !== NOT_IN_A_FOLDER_ID),
-      ),
+      folderIds: new Set([...reached].filter((id) => id !== NOT_IN_A_FOLDER_ID)),
+      unfiled: reached.has(NOT_IN_A_FOLDER_ID),
       get mindIds(): Set<string> {
         minds ??= new Set(
           deps
             .minds()
-            .filter((mind) => reaches(pairing, mind))
+            .filter((mind) => reaches(pairing, mind, reached))
             .map((mind) => mind.id),
         );
         return minds;
@@ -1461,12 +1518,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           folderIds: [...reach.folderIds],
           mindIds: [...reach.mindIds].filter((id) => id !== checking),
         };
+        // Named as the User granted them: a Folder inside one is part of it.
+        const granted = deps.foldersInScope(pairing.folderIds);
         const names = [
           ...deps
             .folders()
-            .filter((folder) => reach.folderIds.has(folder.id))
+            .filter((folder) => granted.includes(folder.id))
             .map((folder) => folder.name),
-          ...(readsUnfiled(pairing) ? [t("library.unsorted")] : []),
+          ...(reach.unfiled ? [t("library.unsorted")] : []),
         ];
         const source: LibrarySource = {
           kind: "scope",
@@ -1726,7 +1785,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
         }
         const minds = deps.minds();
-        const folderIds = deps.foldersInScope(pairing.folderIds);
+        const reached = reachedFolders(deps, pairing);
         const held = deps.noteTranscripts();
         const transcripts = new Set(held.map((each) => each.documentId));
         const listed = (documentIds: string[]) => {
@@ -1760,22 +1819,40 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             ...(mark && (call?.kind === "memo" ? { voiceMemo: mark } : { meeting: mark })),
           };
         };
-        const folders: AgentMindList["folders"] = deps
-          .folders()
-          .filter((folder) => folderIds.includes(folder.id))
-          .map((folder) => {
+        // Each Folder it reaches holds only what is filed in it, so the counts add up; one inside
+        // another it reaches says where it is, as `run_analysis` names its path (#3394).
+        const all = deps.folders();
+        const byId = new Map(all.map((folder) => [folder.id, folder]));
+        const pathOf = (folder: (typeof all)[number]): string[] => {
+          const names = [folder.name];
+          const seen = new Set([folder.id]);
+          for (let at = folder.parentId; at !== null && reached.has(at) && !seen.has(at); ) {
+            const above = byId.get(at);
+            if (!above) break;
+            seen.add(at);
+            names.unshift(above.name);
+            at = above.parentId;
+          }
+          return names;
+        };
+        const folders: AgentMindList["folders"] = all
+          .filter((folder) => reached.has(folder.id))
+          .map((folder) => ({ folder, path: pathOf(folder) }))
+          .sort((a, b) => comparePaths(a.path, b.path))
+          .map(({ folder, path }) => {
             const documentIds = deps.documentsIn([folder.id]);
             const inFolder = new Set(documentIds);
             return {
               id: folder.id,
               name: folder.name,
+              ...(path.length > 1 && { path: path.join(" / ") }),
               ...listed(documentIds),
               minds: minds
                 .filter((mind) => mind.folderId === folder.id)
                 .map((mind) => row(mind, yours(mind), inFolder)),
             };
           });
-        if (folderIds.includes(NOT_IN_A_FOLDER_ID)) {
+        if (reached.has(NOT_IN_A_FOLDER_ID)) {
           const documentIds = deps.documentsIn([NOT_IN_A_FOLDER_ID]);
           folders.push({
             id: NOT_IN_A_FOLDER_ID,
