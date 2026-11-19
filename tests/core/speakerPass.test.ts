@@ -3,11 +3,12 @@ import { describe, expect, test, vi } from "vitest";
 import type { Core, SpeakerSeparator } from "../../src/core";
 import { type Cue, readVtt } from "../../src/core/documents/formats/vtt";
 import { labelled, speakerLabels } from "../../src/core/meetings/speakerPass";
-import { partsOf, speakerOf, splitsHold } from "../../src/shared/speakers";
+import { lineKey, partsOf, speakerOf, splitsHold } from "../../src/shared/speakers";
 import { createTempDataFolder } from "../helpers/core";
 import {
   fakeSeparator,
   recordedCall,
+  savedCues,
   toldCues,
   transcribingCore,
   until,
@@ -84,6 +85,13 @@ describe("The labels the speaker pass gives (#138)", () => {
     const call = [line(0, "Them"), line(2000, "Them"), line(4000, "Them")];
     expect(labelled(call, [{ startMs: 0, endMs: 500, voice: 0 }], true)).toBeNull();
     expect(labelled(call, [], true)).toBeNull();
+    const room = [line(0, "Speaker ?")];
+    const first = { startMs: 100, endMs: 800, voice: 1 };
+    const second = { startMs: 300, endMs: 900, voice: 2 };
+    expect(speakerLabels(room, [second, first], false)).toBeNull();
+    expect(
+      speakerLabels(room, [second, first, { startMs: 1100, endMs: 1300, voice: 2 }], false),
+    ).toMatchObject({ lines: { [lineKey(0, "Speaker ?")]: "Speaker 1" } });
   });
 
   // protects=the voices a cloud service numbered as they spoke are not final: the pass gives every line of the side it tells apart its voice, whatever the service called it, in a call and in a room, one voice heard on the other side is "Them" again, and the who's who is kept by the file's own labels, so a Citation of such a line follows; fails_when=a line keeps the service's voice where the pass heard another, a "Me" line changes, one voice stays two speakers, or the who's who is kept by the new label; no_claim=which of the two is right on real audio, which eval/speakers measures.
@@ -452,6 +460,31 @@ describe("The speaker pass after the call (#138)", { timeout: 60_000 }, () => {
       "speakers",
     );
     kept.core.close();
+  });
+
+  test("Stop keeps the saved room lines when simultaneous voices leave most speech uncovered", async () => {
+    const separator: SpeakerSeparator = {
+      async separate({ parts }) {
+        return parts.flatMap(({ offsetMs }) =>
+          Array.from({ length: 100 }, (_, i) => offsetMs + i * 100).flatMap((startMs) => [
+            { startMs, endMs: startMs + 35, voice: 0 },
+            { startMs, endMs: startMs + 35, voice: 1 },
+          ]),
+        );
+      },
+    };
+    const { core, meeting } = await recordedCall(
+      await createTempDataFolder(),
+      { speakerSeparator: separator, capture: { system: "denied" } },
+      ["microphone"],
+    );
+    try {
+      const saved = await savedCues(core, meeting.id);
+      expect(new Set(saved.map((cue) => cue.speaker))).toEqual(new Set(["Speaker ?"]));
+      expect(await toldCues(core, meeting.id)).toEqual(saved);
+    } finally {
+      core.close();
+    }
   });
 
   // protects=after a failed pass, Try again runs it again while the audio is kept, and its labels replace the old ones; once the audio is deleted, nothing offers it; fails_when=Try again does nothing, the problem stays after a pass that worked, or it is offered with no audio left; no_claim=why the first pass failed.

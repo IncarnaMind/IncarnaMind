@@ -29,7 +29,7 @@ const separated = (cue: Cue, call: boolean) =>
 
 type TimeRange = Pick<Cue, "startMs" | "endMs">;
 
-const overlap = (cue: TimeRange, turn: VoiceTurn) =>
+const overlap = (cue: TimeRange, turn: TimeRange) =>
   Math.max(0, Math.min(cue.endMs, turn.endMs) - Math.max(cue.startMs, turn.startMs));
 
 const distance = (cue: Cue, turn: VoiceTurn) =>
@@ -59,15 +59,17 @@ export function labelled(
 ): Cue[] | null {
   let speech = 0;
   let covered = 0;
+  const speechRanges: TimeRange[] = [];
+  for (const { startMs, endMs } of turns.toSorted((a, b) => a.startMs - b.startMs)) {
+    const last = speechRanges.at(-1);
+    if (last && startMs <= last.endMs) last.endMs = Math.max(last.endMs, endMs);
+    else speechRanges.push({ startMs, endMs });
+  }
   const voices = cues.map((cue) => {
     if (!separated(cue, call)) return null;
     speech += cue.endMs - cue.startMs;
-    const shared = sharedVoices(cue, turns);
-    covered += Math.min(
-      cue.endMs - cue.startMs,
-      [...shared.values()].reduce((a, b) => a + b, 0),
-    );
-    return mostOverlap(shared);
+    covered += speechRanges.reduce((sum, range) => sum + overlap(cue, range), 0);
+    return mostOverlap(sharedVoices(cue, turns));
   });
   if (speech === 0 || covered / speech < MIN_COVERED) return null;
   const names = new Map<number, string>();

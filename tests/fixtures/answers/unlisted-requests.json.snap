@@ -5283,13 +5283,41 @@
           "passage"
          ]
         }
+       },
+       "verdict": {
+        "type": "string",
+        "enum": [
+         "supported",
+         "overstated",
+         "partly supported",
+         "not found",
+         "contradicted",
+         "own view"
+        ],
+        "description": "What your reply's Verdict line would say: given, the check ends with this call."
+       },
+       "explanation": {
+        "type": "string",
+        "description": "What your reply's Explanation line would say, where it has one."
+       },
+       "working": {
+        "type": "string",
+        "description": "What your reply's Working line would say, where it has one."
+       },
+       "change": {
+        "type": "string",
+        "description": "What your reply's Change 1 line would say, where it has one."
+       },
+       "to": {
+        "type": "string",
+        "description": "What your reply's To 1 line would say, where it has one."
        }
       },
       "required": [
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your reply in the call that records the quotes deciding the sentence, each of its lines in the field named for it, as the reply would write it: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {
@@ -5403,13 +5431,41 @@
           "passage"
          ]
         }
+       },
+       "verdict": {
+        "type": "string",
+        "enum": [
+         "supported",
+         "overstated",
+         "partly supported",
+         "not found",
+         "contradicted",
+         "own view"
+        ],
+        "description": "What your reply's Verdict line would say: given, the check ends with this call."
+       },
+       "explanation": {
+        "type": "string",
+        "description": "What your reply's Explanation line would say, where it has one."
+       },
+       "working": {
+        "type": "string",
+        "description": "What your reply's Working line would say, where it has one."
+       },
+       "change": {
+        "type": "string",
+        "description": "What your reply's Change 1 line would say, where it has one."
+       },
+       "to": {
+        "type": "string",
+        "description": "What your reply's To 1 line would say, where it has one."
        }
       },
       "required": [
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your reply in the call that records the quotes deciding the sentence, each of its lines in the field named for it, as the reply would write it: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {
@@ -5560,13 +5616,41 @@
           "passage"
          ]
         }
+       },
+       "verdict": {
+        "type": "string",
+        "enum": [
+         "supported",
+         "overstated",
+         "partly supported",
+         "not found",
+         "contradicted",
+         "own view"
+        ],
+        "description": "What your reply's Verdict line would say: given, the check ends with this call."
+       },
+       "explanation": {
+        "type": "string",
+        "description": "What your reply's Explanation line would say, where it has one."
+       },
+       "working": {
+        "type": "string",
+        "description": "What your reply's Working line would say, where it has one."
+       },
+       "change": {
+        "type": "string",
+        "description": "What your reply's Change 1 line would say, where it has one."
+       },
+       "to": {
+        "type": "string",
+        "description": "What your reply's To 1 line would say, where it has one."
        }
       },
       "required": [
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your reply in the call that records the quotes deciding the sentence, each of its lines in the field named for it, as the reply would write it: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {
@@ -5750,13 +5834,41 @@
           "passage"
          ]
         }
+       },
+       "verdict": {
+        "type": "string",
+        "enum": [
+         "supported",
+         "overstated",
+         "partly supported",
+         "not found",
+         "contradicted",
+         "own view"
+        ],
+        "description": "What your reply's Verdict line would say: given, the check ends with this call."
+       },
+       "explanation": {
+        "type": "string",
+        "description": "What your reply's Explanation line would say, where it has one."
+       },
+       "working": {
+        "type": "string",
+        "description": "What your reply's Working line would say, where it has one."
+       },
+       "change": {
+        "type": "string",
+        "description": "What your reply's Change 1 line would say, where it has one."
+       },
+       "to": {
+        "type": "string",
+        "description": "What your reply's To 1 line would say, where it has one."
        }
       },
       "required": [
        "citations"
       ]
      },
-     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead."
+     "description": "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead. Give your reply in the call that records the quotes deciding the sentence, each of its lines in the field named for it, as the reply would write it: the check ends with that call, its quotes the evidence."
     }
    ],
    "toolChoice": {

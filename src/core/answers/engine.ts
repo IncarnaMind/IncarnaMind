@@ -286,6 +286,8 @@ export interface AnswerTools {
   readDocument?(request: ReadDocumentRequest): Promise<SearchResultForModel>;
   /** Takes Citation records; returns what to tell the model about them. */
   cite(records: readonly CitationRecordInput[], options?: CiteOptions): string;
+  /** A reply with a form of its own that `cite` may carry (a check's verdict, #3381). */
+  readonly citeReply?: CiteReply;
   /** Whether a valid record was taken for this marker: the engine places its marker if the model left it out. */
   hasRecord?(marker: number): boolean;
   /** The records taken so far, each by the Passage it quotes and its quote as taken. */
@@ -348,6 +350,19 @@ export interface AnswerTools {
   citeFigures?(text: string): string;
   /** `text` with each mark of a row the file sets aside that the model copied into it said in words (#1979). */
   setAsideInWords?(text: string): string;
+}
+
+/**
+ * A reply handed over in `cite` (`AnswerTools.citeReply`): a turn whose calls are all `cite`, each
+ * taken with nothing to fix, ends with it, read as the reply written in that turn would be.
+ */
+export interface CiteReply {
+  /** The fields `cite` takes for it, beside its records. */
+  properties: Record<string, unknown>;
+  /** What `cite`'s description adds about it. */
+  description: string;
+  /** The reply one turn's `cite` inputs hand over, with the markers they record as its evidence; null: none. */
+  reply(inputs: readonly Record<string, unknown>[], markers: readonly number[]): string | null;
 }
 
 /** What a Run still owes, by marker (`AnswerTools.owed`). */
@@ -1896,11 +1911,10 @@ export function documentTools(
         : null,
     cite: {
       ...own(DOCUMENT_TOOLS.cite),
-      description:
-        "Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead.",
+      description: `Record the Citations of your Answer: for each marker such as [^1], the Passage, where its quote is (a page, slide, section, or rows or lines, or two in a row), and a short quote copied word for word from the Passage. To keep a Citation already shown with an id, like [Tides, p. 3 · C2], give its id as the passage instead.${documents.citeReply ? ` ${documents.citeReply.description}` : ""}`,
       inputSchema: {
         type: "object",
-        properties: { citations: recordsSchema },
+        properties: { citations: recordsSchema, ...documents.citeReply?.properties },
         required: ["citations"],
       },
       effects: () => [],
@@ -2128,6 +2142,24 @@ async function* toolLoop(
   };
   /** Whether the reply of `cite` or `calculate` to each call asked the model to fix what it gave, by the call's id. */
   const askedForFixes = new Map<string, boolean>();
+  /** What each `cite` call that ran was given, by the call's id. */
+  const citeInputs = new Map<string, Record<string, unknown>>();
+  /**
+   * The reply a turn hands over (`AnswerTools.citeReply`), which ends it: its calls are all `cite`,
+   * each taken with nothing to fix, and one carries the reply. Null for any other turn.
+   */
+  const handedOver = (callIds: readonly string[]): string | null => {
+    const inputs = callIds.flatMap((id): Record<string, unknown>[] => {
+      const input = citeInputs.get(id);
+      return input && askedForFixes.get(id) === false ? [input] : [];
+    });
+    const carried = request.documents.citeReply;
+    if (!carried || inputs.length === 0 || inputs.length < callIds.length) return null;
+    const markers = inputs.flatMap((input) =>
+      parseRecords(input.citations).map(({ marker }) => marker),
+    );
+    return carried.reply(inputs, [...new Set(markers)]);
+  };
   const writesMinds = request.tools.some((each) => each.provider.kind === "minds");
   const endedTurn = new Set<string>();
   // A text whose figures the reader gave up on ends the Run before the model hears of it: the
@@ -2164,6 +2196,7 @@ async function* toolLoop(
         : result.trim() !== "";
       if (tool.untrustedResult && read) tainted = true;
       if (tool === cite) {
+        citeInputs.set(context.toolCallId, input);
         askedForFixes.set(context.toolCallId, asksForFixes(result));
         // Records for text a Mind will hold come first; an Answer's come with its text (#489).
         if (request.writeThenCite && !writesMinds && !MARKER.test(keptText + stepText)) {
@@ -2245,8 +2278,9 @@ async function* toolLoop(
   /** Text of the current step, and of every step before it that was kept. */
   let stepText = "";
   let keptText = "";
-  /** The Tools the current step called. */
+  /** The Tools the current step called, and its calls' ids. */
   let stepTools: Tool[] = [];
+  let stepCalls: string[] = [];
   /** An earlier step wrote the Answer and recorded its Citations: text with markers after that is a second copy. */
   let answered = false;
   /** As the Run engine ends steps: the text written beside `cite` or `calculate` alone. */
@@ -2400,6 +2434,7 @@ async function* toolLoop(
       }
       if (signal.aborted) return true;
       if (step.calls.length > 0 && step.calls.every((call) => endedTurn.has(call.id))) return true;
+      if (handedOver(step.calls.map((call) => call.id)) !== null) return true;
       const recordsOnly =
         step.calls.length > 0 && step.calls.every((call) => recording(offered.get(call.tool)));
       const reply = (text: string) => MARKER.test(text) && (request.isReply?.(text) ?? true);
@@ -2455,6 +2490,7 @@ async function* toolLoop(
         break;
       }
       case "tool-call": {
+        stepCalls.push(event.id);
         const called = offered.get(event.tool);
         if (!called) break;
         calls.set(event.id, called);
@@ -2502,11 +2538,15 @@ async function* toolLoop(
       case "step-finished": {
         steps++;
         yield { type: "usage", usage: event.usage };
+        // After the turn's own text, so where both give a verdict the call's, written last, is read.
+        const handed = handedOver(stepCalls);
+        if (handed !== null) stepText += `${keptText + stepText === "" ? "" : "\n\n"}${handed}`;
         // Text before a call with a Tool-call card (a search, a Skill, a Connector's Tool), or
         // before records or figures with no marker in it, was a preamble.
         const recorded = stepTools.some(recording);
         const preamble =
-          stepTools.some((each) => !recording(each)) || (recorded && !MARKER.test(stepText));
+          stepTools.some((each) => !recording(each)) ||
+          (recorded && !MARKER.test(stepText) && handed === null);
         // After `cite` or `calculate` asked for fixes to an Answer written beside it, the model
         // writes the Answer again.
         const again = answered && MARKER.test(stepText);
@@ -2573,6 +2613,7 @@ async function* toolLoop(
         }
         stepText = "";
         stepTools = [];
+        stepCalls = [];
         break;
       }
       case "refused":

@@ -94,6 +94,35 @@ describe("Before a check says a sentence isn't found (#1608)", () => {
     expect(checked.runs).toBe(checked.askedAgain + 2);
   });
 
+  test("“not found” on no quote is asked to search again, as the older “unsupported” is", async () => {
+    const checked = await check({
+      verdict: "not found",
+      again: { query: "spring tides new moon full moon", plan: FOUND },
+    });
+
+    expect(checked.askedAgain).toBeGreaterThan(0);
+    expect(checked.check?.state).toBe("supported");
+  });
+
+  test.each([
+    {
+      verdict: "overstated",
+      says: "Tides says when spring tides come, not that they are the biggest.",
+    },
+    { verdict: "partly supported", says: "Tides doesn't say they are the biggest." },
+    { verdict: "not found", says: "Tides says when spring tides come, not how big they are." },
+  ] as const)("$verdict on a quote it recorded isn't sent back to search", async (plan) => {
+    const checked = await check({
+      ...plan,
+      quote: "Spring tides happen at new moon and at full moon",
+      again: { query: "tide size lunar month", plan: FOUND },
+    });
+
+    expect(checked.askedAgain).toBe(0);
+    expect(checked.queries).toEqual([SENTENCE]);
+    expect(checked.check?.state).toBe("unsupported");
+  });
+
   test("a check that finds its Passage sends nothing more", async () => {
     const found = await check(FOUND);
 
