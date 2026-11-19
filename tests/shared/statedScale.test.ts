@@ -1,7 +1,7 @@
 /**
- * A page's stated scale (`statedScale`), read only on the lines that may state one, is what
- * reading the whole page gave: the first currency next to a scale token, else the first
- * statement with a scale (#2365).
+ * A page's scale (`pageScale`), read only on the lines that may state one, is what reading the
+ * whole page gave: the first currency next to a scale token, else the first statement with a
+ * scale, else the first form that reads two ways (#2365).
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
@@ -12,7 +12,6 @@ import {
   figureContextOf,
   pageScale,
   readStatedUnits,
-  statedScale,
   unsettledScales,
 } from "../../src/shared/figures";
 
@@ -45,21 +44,12 @@ const expectSameAsWholePage = (
 ) => {
   const differing = texts.flatMap((text) =>
     contexts(text).flatMap((context) => {
-      const whole = wholePageScale(text, context);
-      const lines = statedScale(text, context);
-      return whole === lines ? [] : [{ text: text.slice(0, 300), whole, lines }];
-    }),
-  );
-  expect(differing).toEqual([]);
-  // The forms that read two ways (#2365), read only on the lines that may state a scale too.
-  const unsettledDiffering = texts.flatMap((text) =>
-    contexts(text).flatMap((context) => {
       const whole = wholePageScale(text, context) ?? unsettledScales(text, context)[0] ?? null;
       const lines = pageScale(text, context);
       return whole === lines ? [] : [{ text: text.slice(0, 300), whole, lines }];
     }),
   );
-  expect(unsettledDiffering).toEqual([]);
+  expect(differing).toEqual([]);
 };
 
 const ROOT = join(__dirname, "../..");
@@ -242,7 +232,7 @@ test("a rupee scale is read, and a form that reads two ways is the page's scale 
     "Rs. Mio.",
     "Rs Tsd.",
   ];
-  expect(rupees.map((form) => statedScale(`Revenue\n${form}\nTotal 5,000`))).toEqual(rupees);
+  expect(rupees.map((form) => pageScale(`Revenue\n${form}\nTotal 5,000`))).toEqual(rupees);
   expect(pageScale("Revenue in MM\nTotal $5,000")).toBe("in MM");
   expect(pageScale("Revenue in MM\nAll figures in thousands")).toBe("in thousands");
   expect(pageScale("Revenue in MM\nAmounts in £'000")).toBe("£'000");
@@ -258,7 +248,7 @@ describe("footnote marks and line breaks beside a scale", () => {
       "EUR k\u24d1",
       "\u2071\0Mrd HK$",
     ];
-    expect(texts.map((text) => statedScale(text))).toEqual([
+    expect(texts.map((text) => pageScale(text))).toEqual([
       "m USD",
       "m USD",
       "k EUR",
@@ -270,7 +260,7 @@ describe("footnote marks and line breaks beside a scale", () => {
 
   test("a currency and a scale token on two lines state no scale, read whole or by line", () => {
     expect(wholePageScale("USD\nm")).toBeNull();
-    expect(statedScale("USD\nm")).toBeNull();
+    expect(pageScale("USD\nm")).toBeNull();
   });
 });
 
@@ -279,7 +269,7 @@ describe("a page written as one long line", () => {
 
   test("states the same scale as reading it whole", () => {
     expectSameAsWholePage([line, `${line}Revenue in millions`, `单位：万元 ${line}`], () => [{}]);
-    expect(statedScale(`${line}Revenue in millions`)).toBe("in millions");
+    expect(pageScale(`${line}Revenue in millions`)).toBe("in millions");
   });
 });
 
@@ -287,25 +277,23 @@ describe("only the lines that may state a scale are normalised", () => {
   const filler = "Spring tides come twice a month.\n".repeat(100_000);
 
   test("a 3.3 MB page that states none is not normalised at all", () => {
-    expect(statedScale(filler)).toBeNull();
+    expect(pageScale(filler)).toBeNull();
     expect(work.normalised).toBe(0);
-    expect(statedScale("Spring tides come twice a month.\nRevenue in millions")).toBe(
-      "in millions",
-    );
+    expect(pageScale("Spring tides come twice a month.\nRevenue in millions")).toBe("in millions");
     expect(work.normalised).toBe(19);
   });
 
   test("a 3.3 MB page with one scale line normalises only that line", () => {
     const page = `${filler}Revenue in millions of dollars\n${filler}`;
-    expect(statedScale(page)).toBe("in millions of dollars");
+    expect(pageScale(page)).toBe("in millions of dollars");
     expect(work.normalised).toBe(30);
   });
 
   test("a Chinese page that writes no currency or scale character is not normalised", () => {
     const page = "收入同比增长，利润率保持稳定。\n".repeat(100_000);
-    expect(statedScale(page)).toBeNull();
+    expect(pageScale(page)).toBeNull();
     expect(work.normalised).toBe(0);
-    expect(statedScale("收入同比增长。\n单位：万吨")).toBe("单位：万吨");
+    expect(pageScale("收入同比增长。\n单位：万吨")).toBe("单位：万吨");
     expect(work.normalised).toBe(13);
   });
 });

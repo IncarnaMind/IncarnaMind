@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type FigureUnit, measureOf, readFigures, writesMeasure } from "../../src/shared/figures";
+import { type FigureUnit, measureOf, readFigures } from "../../src/shared/figures";
 
 const read = (text: string) =>
   readFigures(text).map(({ chars, unit }) => [
@@ -33,20 +33,11 @@ describe("the watt and the watt-hour by themselves (#2997)", () => {
     expect(read(text)).toEqual(figures);
   });
 
-  // protects=the watt and the watt-hour measure power and energy, and a Document that writes only them writes the measure for a figure in them and for no other, so "（瓦）" is no unit for a figure in 千瓦; fails_when="W" or "瓦时" has no measure, "数值（瓦）" writes power for a figure in 千瓦, or "31瓦片" writes it for one in 瓦; no_claim=converting watts to kilowatts.
-  test("they measure power and energy, written only for a figure in them", () => {
+  // protects=the watt and the watt-hour measure power and energy; fails_when="W" or "瓦时" has no measure; no_claim=converting watts to kilowatts.
+  test("they measure power and energy", () => {
     for (const word of ["W", "瓦", "watts"]) expect(measureOf(unit(word)), word).toBe("power");
     for (const word of ["Wh", "瓦时", "watt-hours", "watt hours"])
       expect(measureOf(unit(word)), word).toBe("energy");
-    expect(writesMeasure("数值（瓦）", "power")).toBe(false);
-    expect(writesMeasure("数值（瓦）", "power", unit("瓦"))).toBe(true);
-    expect(writesMeasure("数值（瓦）", "power", unit("千瓦"))).toBe(false);
-    expect(writesMeasure("Power (W)", "power", unit("W"))).toBe(true);
-    expect(writesMeasure("Power (W)", "power", unit("kW"))).toBe(false);
-    expect(writesMeasure("Energy (Wh)", "energy", unit("Wh"))).toBe(true);
-    expect(writesMeasure("Energy (Wh)", "energy", unit("kWh"))).toBe(false);
-    expect(writesMeasure("Power (kW)", "power", unit("W"))).toBe(true);
-    expect(writesMeasure("屋顶用了31瓦片。", "power", unit("瓦"))).toBe(false);
   });
 });
 

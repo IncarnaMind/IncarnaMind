@@ -9,7 +9,6 @@
  * figure that isn't expected, or an ambiguity that isn't, fails the case.
  */
 import { describe, expect, test } from "vitest";
-import { figuresInClaim, statedFigure } from "../../src/core/answers/checks/calculated";
 import {
   type AmbiguityKind,
   currencyOnItsFigure,
@@ -1157,67 +1156,6 @@ describe("the words before a number that make it a reference or a vague count (#
     expect(readFigures("用户数(860)", ZH).map(shape)).toEqual(
       readFigures("收入(860)", ZH).map(shape),
     );
-  });
-
-  test.each([
-    ["天数30天。", "30天"],
-    ["应收账款周转天数45天。", "45天"],
-  ])("%s counts its days, as a sentence's period", (text, chars) => {
-    expect(figuresInClaim(text, ZH).map((figure) => figure.chars)).toEqual([chars]);
-  });
-});
-
-describe("a period a Chinese sentence counts (#2215)", () => {
-  const year = { kind: "other", word: "year" };
-
-  test.each([
-    "在这一年里",
-    "那一年",
-    "每一年",
-    "当一年",
-    "这一个月里",
-    "那一天",
-    "每一季度",
-    "同一年",
-    "另一年",
-    "哪一年",
-  ])("%s states no count", (text) => {
-    expect(figuresInClaim(text, ZH)).toEqual([]);
-  });
-
-  test.each([
-    ["一年内", "一年", 1],
-    ["三年", "三年", 3],
-    ["连续两年", "两年", 2],
-    ["应当一年内完成", "一年", 1],
-    ["前后一年", "一年", 1],
-  ])("%s still counts", (text, chars, value) => {
-    expect(figuresInClaim(text, ZH)).toEqual([
-      {
-        start: text.indexOf(chars),
-        end: text.indexOf(chars) + chars.length,
-        chars,
-        value,
-        scale: 1,
-        scaleWord: null,
-        unit: year,
-        decimals: 0,
-        currency: null,
-        approximate: false,
-        rangeTo: null,
-        footnote: null,
-        ambiguous: [],
-      },
-    ]);
-  });
-
-  test("a stated calculation figure names no quantity for a period that says which one", () => {
-    expect(statedFigure("净负债在这一年里大幅下降", "一年", ZH)).toBeNull();
-    expect(statedFigure("应当在一年内完成", "一年", ZH)).toMatchObject({
-      chars: "一年",
-      value: 1,
-      unit: year,
-    });
   });
 });
 

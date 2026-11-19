@@ -34,7 +34,6 @@
  * Pure, with no Node or DOM imports: the core, the renderer and a later
  * phone build share it.
  */
-import { graphemeBoundary } from "./graphemes";
 import { SIMPLIFIED } from "./hanVariants";
 import { INVISIBLE, normaliseWithOffsets } from "./text";
 
@@ -2369,9 +2368,11 @@ function* linesHintingScales(text: string): Generator<string> {
 }
 
 /**
- * The scale a page states, for its scale marker: what `statedScale` gives, else the first form
- * that reads more than one way (`unsettledScales`); null when it states neither. Each line that
- * may state a scale is normalised once for both.
+ * The scale a page states, for its scale marker: the first currency next to a scale token
+ * (`currencyScaleMarker`), else the first statement with a scale (`readStatedUnits`), else the
+ * first form that reads more than one way (`unsettledScales`); null when it states none. Only the
+ * lines that may state a scale are normalised, once each, so a long page that states none is read
+ * in one pass of a regular expression.
  */
 export function pageScale(text: string, context: FigureContext = {}): string | null {
   const settled = settle(context);
@@ -2387,27 +2388,6 @@ export function pageScale(text: string, context: FigureContext = {}): string | n
     unsettled ??= unsettledIn(prepared, line, statements)[0] ?? null;
   }
   return stated ?? unsettled;
-}
-
-/**
- * The scale `text` states, as written: the first currency next to a scale token
- * (`currencyScaleMarker`), else the first statement with a scale (`readStatedUnits`); null when
- * it states none. Only the lines that may state one are normalised, so a long page that states
- * none is read in one pass of a regular expression.
- */
-export function statedScale(text: string, context: FigureContext = {}): string | null {
-  const settled = settle(context);
-  let stated: string | null = null;
-  for (const line of linesHintingScales(text)) {
-    const prepared = prepare(line);
-    const marker = CURRENCY_SCALE.exec(prepared.s)?.[0];
-    if (marker !== undefined) return marker;
-    stated ??=
-      statedUnitsOf(prepared, line, statementsIn(prepared, line, settled)).find(
-        (each) => each.scale !== 1,
-      )?.chars ?? null;
-  }
-  return stated;
 }
 
 // Numerals -------------------------------------------------------------------
@@ -4202,91 +4182,6 @@ const BARE_WATTS: typeof MEASURES = {
   energy: { symbols: "", words: "Wh|watt[- ]hours?|瓦时" },
 };
 
-// A symbol states its measure only where it is a unit, never as a letter or a character inside a word ("don't", e.g., T-shirt, 克服, 单位：克林工厂, 27m3).
-const HAN = "[\\u3400-\\u9fff\\uf900-\\ufaff]";
-const WHOLE_NAME = `(?!${HAN})`;
-// A rate after a bare figure may go on with a particle ("540/吨的货物", "540/吨左右", "540/吨钢") but not a word ("2026/克林工厂").
-const NAME_END = `(?:(?!${HAN})|(?=的|计|以|左右|、|和|与|及|或|钢))`;
-// The words a symbol begins ("每升高", "每克拉", "美元/升级"), which a free name after 每 or a currency must not run into; a figure's own unit stays free ("50升到油箱", "3米其余").
-const WORD_START: Readonly<Record<string, string>> = {
-  克: "服|隆|制|拉",
-  升: "高|级|值|至(?![0-9])|温|降|迁",
-  米: "其林|兰|饭|粒",
-};
-const wordStart = (symbol: string) => {
-  const words = WORD_START[symbol];
-  return words ? `(?!${words})` : "";
-};
-// A Latin symbol stands alone, or is attached to a figure: a letter, apostrophe, dot or hyphen joins it to a word ("e.g.", "T-shirt"), a digit after it makes a product ("27m3"), and a Han scale or text beside it doesn't ("10万t", "60,000t左右").
-const latinSymbol = (symbol: string) =>
-  [
-    `[0-9百千万亿][ \\u00a0\\-]?${symbol}(?![A-Za-z\\p{N}])(?![.\\-]\\p{L})`,
-    `(?<![\\p{L}'’ʼ.\\-])${symbol}(?![\\p{L}\\p{N}])(?![.\\-]\\p{L})`,
-  ].join("|");
-// NFKC reads fullwidth digits as these; 百千万亿 scale a figure ("5.4万吨", "五万四千吨").
-const HAN_AFTER_FIGURE = `[0-9百千万亿][ \\u00a0]?`;
-const HAN_AFTER_RATE = `[0-9百千万亿][ \\u00a0]?[/⁄][ \\u00a0]?`;
-// A price's currency before the slash leaves the unit free: "元/吨和运费", "美元/吨"; 元 at the end of 单元 is no currency.
-const PRICE_CURRENCY = `(?:${CURRENCY_TOKEN.source}|(?<![单多公纪])元|(?<![汤团])圆|円)`;
-const HAN_AFTER_CURRENCY = `${PRICE_CURRENCY}\\s*[/⁄][ \\u00a0]?`;
-const HAN_AFTER_SLASH = `[/⁄][ \\u00a0]?`;
-const HAN_AFTER_NUMERAL = `[〇零一二三四五六七八九十两][ \\u00a0]?`;
-const HAN_AFTER_LABEL = `(?:单位\\s*(?:[:：]|为|是))\\s*`;
-const HAN_AFTER_EACH = `每[ \\u00a0]?`;
-// After a bare slash, a lone numeral or a label, a Han symbol must end its name there; a digit, 每 or a currency's slash leaves it free unless a word begins there ("54,000吨的货物", "每吨成本", "元/吨和运费").
-const hanSymbol = (symbol: string) =>
-  [
-    `${HAN_AFTER_FIGURE}${symbol}`,
-    `${HAN_AFTER_RATE}${symbol}${NAME_END}`,
-    `${HAN_AFTER_CURRENCY}${symbol}${wordStart(symbol)}`,
-    `${HAN_AFTER_SLASH}${symbol}${WHOLE_NAME}`,
-    `${HAN_AFTER_NUMERAL}${symbol}${WHOLE_NAME}`,
-    `${HAN_AFTER_LABEL}${symbol}${WHOLE_NAME}`,
-    `${HAN_AFTER_EACH}${symbol}${wordStart(symbol)}`,
-    `[(（]\\s*(?:[^)）\\n]{0,8}[/⁄][ \\u00a0]*)?${symbol}${WHOLE_NAME}[^)）\\n]{0,10}[)）]`,
-  ].join("|");
-
-// After 每 a Han symbol's name is free, so one the word segmenter joins to what follows begins a
-// word and is no unit: 米 in 每米勒公司, 升 in 每升学 (#2251). After a currency's slash it stays with
-// the words above: the segmenter joins 升至 in "8元/升至10元".
-const HAN_SYMBOLS = [...Object.values(MEASURES), ...Object.values(BARE_WATTS)]
-  .flatMap(({ symbols }) => symbols.split("|"))
-  .filter((symbol) => new RegExp(`^${HAN}`).test(symbol))
-  .map((symbol) => symbol.charAt(0))
-  .join("");
-const FREE_HAN_SYMBOL = new RegExp(`${HAN_AFTER_EACH}[${HAN_SYMBOLS}](?=${HAN})`, "gu");
-function withoutWordStarts(written: string): string {
-  let kept = written;
-  for (const found of written.matchAll(FREE_HAN_SYMBOL)) {
-    const at = found.index + found[0].length - 1;
-    const [first] = words.segment(written.slice(at, at + 12));
-    if (first && first.segment.length > 1) kept = `${kept.slice(0, at)}\u0000${kept.slice(at + 1)}`;
-  }
-  return kept;
-}
-
-const measureRule = ({ symbols, words }: { symbols: string; words: string }) => {
-  const word = `(?<![A-Za-z])(?:${words})(?![A-Za-z])`;
-  const singles = symbols.split("|").filter(Boolean);
-  const latin = singles.filter((symbol) => /^[A-Za-z]$/.test(symbol)).map(latinSymbol);
-  const han = singles.filter((symbol) => !/^[A-Za-z]$/.test(symbol)).map(hanSymbol);
-  return new RegExp([word, ...latin, ...han].join("|"), "iu");
-};
-
-const WRITES_BARE_WATTS: Readonly<Record<string, RegExp>> = Object.fromEntries(
-  Object.entries(BARE_WATTS).map(([name, units]) => [name, measureRule(units)]),
-);
-
-// The sign counts after letters ("YoY%", "Chgpp"); a word only where no letter runs into it ("apps").
-const WRITES: Readonly<Record<string, RegExp>> = {
-  percent: /[%‰]|(?<![A-Za-z])(?:per[ \n]?cent|percent|pcts?)(?![A-Za-z])|百分之|百分比/i,
-  points:
-    /个百分点|百分点|个基点|基点|个点|(?:pp|bp)(?![A-Za-z])|(?<![A-Za-z])(?:percentage[ \n]points?|points?|pts?|ppts?|pps|bps|basis[ \n]points?|p\.p\.)(?![A-Za-z])/i,
-  ...Object.fromEntries(
-    Object.entries(MEASURES).map(([name, units]) => [name, measureRule(units)]),
-  ),
-};
-
 const measureIn = (measures: typeof MEASURES, unit: FigureUnit) =>
   unit.kind === "other"
     ? Object.entries(measures).find(([, { symbols, words }]) =>
@@ -4298,23 +4193,6 @@ const measureIn = (measures: typeof MEASURES, unit: FigureUnit) =>
 export function measureOf(unit: FigureUnit): string | null {
   if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
   return measureIn(MEASURES, unit) ?? measureIn(BARE_WATTS, unit) ?? null;
-}
-
-/**
- * Whether `text` writes any unit of `measure`: a word ("tonnes"), a Latin symbol that stands alone
- * ("54,000 t", "540 €/t", "(t, 2024)"), or, in Chinese, a symbol that names the unit after a figure,
- * a slash, a lone numeral or a unit line ("54,000吨", "元/吨", "一吨", "单位：吨"). Converting one
- * unit into another isn't attempted. The watt and the watt-hour by themselves count only for a
- * figure in them, whose unit is `of`.
- */
-export function writesMeasure(text: string, measure: string, of?: FigureUnit): boolean {
-  const written = withoutWordStarts(text.normalize("NFKC"));
-  if (WRITES[measure]?.test(written)) return true;
-  return (
-    of !== undefined &&
-    measureIn(BARE_WATTS, of) === measure &&
-    (WRITES_BARE_WATTS[measure]?.test(written) ?? false)
-  );
 }
 
 // A bare "$" or "dollars" says a dollar, not which one, in every language (#2226).
@@ -4334,8 +4212,6 @@ const NAMES_A_DOLLAR = new RegExp(
 export const bareDollar = (figure: Figure): boolean =>
   BARE_DOLLAR.test(signOf(figure) ?? "") && !NAMES_A_DOLLAR.test(figure.chars.normalize("NFKC"));
 
-export const isDollar = (code: string): boolean => ANY_DOLLAR.includes(code);
-
 /** Whether `statement` gives a dollar by a bare "$" or "dollars": "Amount ($)", "($m)", "金额（$）". */
 export function bareDollarStatement(statement: StatedUnit): boolean {
   if (statement.unit.kind !== "currency" || !ANY_DOLLAR.includes(statement.unit.code)) return false;
@@ -4343,25 +4219,6 @@ export function bareDollarStatement(statement: StatedUnit): boolean {
   return (
     /(?<![A-Za-z])\$|(?<![A-Za-z])dollars?(?![A-Za-z])/i.test(chars) && !NAMES_A_DOLLAR.test(chars)
   );
-}
-
-/**
- * Every dollar `reading` of `figure` may be when nothing says which: by its own bare "$", or by a
- * bare "$" in the heading or unit line of `text` it is read under. Null when it is in a named one.
- */
-export function unsaidDollars(
-  figure: Figure,
-  reading: Reading,
-  text: string,
-  context: FigureContext,
-): readonly string[] | null {
-  if (reading.unit.kind !== "currency" || !ANY_DOLLAR.includes(reading.unit.code)) return null;
-  if (figure.currency !== null) return bareDollar(figure) ? ANY_DOLLAR : null;
-  const { code } = reading.unit;
-  const stated = readStatedUnits(text, context).filter(
-    ({ unit }) => unit.kind === "currency" && unit.code === code,
-  );
-  return stated.length > 0 && stated.every(bareDollarStatement) ? ANY_DOLLAR : null;
 }
 
 /**
@@ -4443,97 +4300,6 @@ function currencyMentions(
       add([stated.unit.code], -1);
   }
   return found;
-}
-
-/** The most characters of a Document line the card shows, a window around the words that name the currency (#2226). */
-const CURRENCY_LINE_CHARS_AT_MOST = 120;
-/** The most naming lines looked in, so a Document that names a currency on every line stays fast (#2226). */
-const MOST_CLAUSE_LINES = 200;
-
-const clauseWindow = (line: string, at: number, chars: number): string => {
-  if (line.length <= chars) return line.trim();
-  const room = chars - 2;
-  const from = Math.max(0, Math.min(at - Math.floor(room / 2), line.length - room));
-  const start = graphemeBoundary(line, from);
-  const end = graphemeBoundary(line, Math.min(line.length, start + room));
-  return `${start > 0 ? "…" : ""}${line.slice(start, end).trim()}${end < line.length ? "…" : ""}`;
-};
-
-/** `at`'s line among starts sorted by position, the last start at or before it. */
-const lineAt = (starts: readonly number[], at: number): number => {
-  let low = 0;
-  let high = starts.length - 1;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    if ((starts[mid] as number) <= at) low = mid;
-    else high = mid - 1;
-  }
-  return low;
-};
-
-/** The original line's offset for a position in its normalised words ("™" grows to "TM", "½" to "1⁄2"). */
-const originalOffset = (line: string, at: number): number => {
-  let seen = 0;
-  let offset = 0;
-  for (const char of line) {
-    if (seen >= at) break;
-    seen += normaliseCurrencies(char).length;
-    offset += char.length;
-  }
-  return offset;
-};
-
-/**
- * The earliest line of `written` that names which currency one of `codes` is, by the same words,
- * codes, headings, unit lines and definitions `namedCurrencies` reads when asked `which`, and that
- * `accept` takes when it is given: at most `CURRENCY_LINE_CHARS_AT_MOST` characters around those
- * words; null when no line does (#2226).
- */
-export function currencyNamingLine(
-  written: string,
-  context: FigureContext,
-  codes: ReadonlySet<string>,
-  accept?: (line: string) => boolean,
-): string | null {
-  const text = normaliseCurrencies(written);
-  const settled = settle(context);
-  const lines = written.split(LINE_BREAK);
-  const starts: number[] = [];
-  let start = 0;
-  for (const line of text.split(LINE_BREAK)) {
-    starts.push(start);
-    start += line.length + 1;
-  }
-  const unitLines = new Map<string, number>();
-  const unitLineFor = (code: string): number => {
-    const known = unitLines.get(code);
-    if (known !== undefined) return known;
-    const found = lines.findIndex(
-      (line) =>
-        UNIT_LINE.test(line) &&
-        readStatedUnits(line, context).some(
-          (stated) => stated.unit.kind === "currency" && stated.unit.code === code,
-        ),
-    );
-    unitLines.set(code, found);
-    return found;
-  };
-  const candidates = new Map<number, number>();
-  for (const { code, at } of currencyMentions(text, context, settled, true, true)) {
-    if (!codes.has(code)) continue;
-    const index = at < 0 ? unitLineFor(code) : lineAt(starts, at);
-    if (index < 0) continue;
-    const within = at < 0 ? 0 : at - (starts[index] as number);
-    const known = candidates.get(index);
-    if (known === undefined || within < known) candidates.set(index, within);
-  }
-  for (const index of [...candidates.keys()].sort((a, b) => a - b).slice(0, MOST_CLAUSE_LINES)) {
-    const line = lines[index] ?? "";
-    if (line.trim() === "" || (accept && !accept(line))) continue;
-    const within = originalOffset(line, candidates.get(index) ?? 0);
-    return clauseWindow(line, within, CURRENCY_LINE_CHARS_AT_MOST);
-  }
-  return null;
 }
 
 /** The end of a run of digits and separators that isn't a number, so none of it is read. */
