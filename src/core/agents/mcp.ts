@@ -43,7 +43,8 @@ export const SERVER_INSTRUCTIONS = [
   "For a question about them, `search` first, never your memory: read a Passage's neighbours with `read_passages` if you need them, cite each claim with its token, and call `check_citations` on your draft before you finish.",
   "`ask` is for when you want IncarnaMind's whole Answer, with checked Citations, in one call (it can take a minute): pass its answer on with its tokens.",
   "When the User wants to see a source, `show_citation` opens it in IncarnaMind.",
-  "To change a Note, read it with `read_mind` and `named`, then `propose_changes`: your changes wait for the User to accept or reject, and never apply by themselves.",
+  "To change a Note, read it with `read_mind` and `named`, then `propose_changes`, which returns the Note as it is now with its new version. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User to accept or reject.",
+  "In a Note you wrote, the paragraphs `read_mind` marks as the User's are theirs: leave them as they are unless the User asks you to change them.",
   "To hand the User a new document, `create_mind` writes it as a Note of its own, which they see at once.",
   "To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with `check_mind_yourself`, not with a search of your own: it gives the Note's sentences and how to judge them. Judge each from the Documents and hand your results back with `report_check`, which marks the Note for the User. Tell them what needs a look.",
   "`check_mind` is IncarnaMind's own check, on the User's AI model there: only when they ask for it.",
@@ -249,7 +250,14 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
             name: z.string(),
             documents: z.number(),
             documentList: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string() })),
-            minds: z.array(z.object({ id: z.string(), title: z.string(), updatedAt: z.string() })),
+            minds: z.array(
+              z.object({
+                id: z.string(),
+                title: z.string(),
+                updatedAt: z.string(),
+                yours: z.literal(true).optional(),
+              }),
+            ),
           }),
         ),
       }),
@@ -263,7 +271,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Read a Note",
       description:
-        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
+        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
       inputSchema: z.object({
         mindId: z.string(),
         offset: z.number().int().min(0).optional(),
@@ -307,9 +315,9 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
   server.registerTool(
     tool("propose_changes"),
     {
-      title: "Propose changes to a Note",
+      title: "Change a Note",
       description:
-        "Propose changes to a Note you read with read_mind and named. Each change names its paragraph: ¶3 with text rewrites ¶3 and with remove takes it out; ¶3+ adds new paragraphs after ¶3; ¶+ adds after the change before. Write Markdown, citing only with IncarnaMind's [cite:…] tokens. Nothing changes until the User accepts.",
+        "Change a Note read with read_mind and named. Each change names its paragraph: ¶3 with text rewrites ¶3 and with remove takes it out; ¶3+ adds new paragraphs after ¶3; ¶+ adds after the change before. Write Markdown, citing only with IncarnaMind's [cite:…] tokens. In Notes you wrote they apply at once; elsewhere they wait for the User.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
@@ -326,11 +334,17 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       }),
       outputSchema: z.object({
         mindId: z.string(),
+        status: z.enum(["applied", "waiting"]),
         waiting: z.number(),
+        waitingInNote: z.number(),
+        markdown: z.string(),
+        nextOffset: z.number().nullable(),
+        version: z.string(),
         citations: z.array(checkedCitationOut),
         uncited: z.array(z.string()),
       }),
-      // It writes only Proposals, which change the Note once the User accepts them.
+      // In a Note the agent wrote it changes the Note, one step the User's Undo takes back; in any
+      // other it writes only Proposals, which change the Note once the User accepts them.
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,

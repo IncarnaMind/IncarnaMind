@@ -12600,6 +12600,23 @@ export interface AgentActivity {
   at: string;
 }
 
+/**
+ * A Note an outside agent wrote, or changed at once because it wrote it (#3371), for the windows
+ * to bring up and say where the Library's work shows.
+ */
+export interface AgentNoteChange {
+  mindId: string;
+  /** The agent, as the User named its pairing. */
+  agent: string;
+  kind: "wrote" | "changed";
+  /** What a change did, as the assistant's changes count it: paragraphs changed, added, and tables. */
+  changed: number;
+  added: number;
+  tables: number;
+  /** The step of Undo that takes a change back (`undoAgentChange`); null for a Note it wrote. */
+  step: string | null;
+}
+
 // ---------------------------------------------------------------------------
 
 export interface CoreApi {
@@ -13130,6 +13147,13 @@ export interface CoreApi {
   redoAskedChanges(undoId: string): Promise<AskedChangeTransition | null>;
   /** Lets go of a core-applied change's in-session Review and Undo records. */
   releaseAskedChanges(undoId: string): Promise<void>;
+  /**
+   * Takes back an outside agent's change to a Note it wrote (#3371): only the Note's last one still
+   * done, while the Note is in memory. False when it can't be taken back here.
+   */
+  undoAgentChange(step: string): Promise<boolean>;
+  /** Does an agent's change taken back again: only the Note's last one, before its next change. */
+  redoAgentChange(step: string): Promise<boolean>;
   /**
    * "Add to note" (#201) into a Mind that isn't open in the editor: Blocks at the
    * end of its note (in place of its empty last line), each Citation in them
@@ -15228,6 +15252,8 @@ export interface CoreEvents {
   "agents.activity": AgentActivity;
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
+  /** An outside agent wrote a Note, or changed one it wrote (#3371). */
+  "agents.noteChanged": AgentNoteChange;
 }
 
 export type CoreEventName = keyof CoreEvents;
@@ -15303,6 +15329,8 @@ const methods: Record<CoreApiMethod, true> = {
   undoAskedChanges: true,
   redoAskedChanges: true,
   releaseAskedChanges: true,
+  undoAgentChange: true,
+  redoAgentChange: true,
   undoAddToNote: true,
   listNoteConversations: true,
   getSettings: true,

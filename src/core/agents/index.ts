@@ -103,6 +103,7 @@ export interface AgentsOptions {
     | "record"
     | "notesWrittenSince"
     | "checkRuns"
+    | "versions"
     | "citations"
     | "clock"
     | "now"
@@ -434,6 +435,7 @@ export function createAgents(options: AgentsOptions) {
     record,
     notesWrittenSince,
     checkRuns: createCheckRuns(),
+    versions: new Map(),
     citations,
     clock: options.clock,
     now: options.now,

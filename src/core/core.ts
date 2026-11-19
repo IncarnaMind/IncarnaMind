@@ -66,6 +66,7 @@ import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
+import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -5567,6 +5568,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Outside agents (#351): the User's own agent, paired in Settings, reads its Folders over the
   // socket and gets Citations IncarnaMind minted and checked. Off until the User turns it on.
   const { home } = adapters.paths;
+  const agentChanges = createOwnChanges(content, () => crypto.randomUUID());
   const agents = createAgents({
     offered: adapters.agents?.offered ?? true,
     log: adapters.log ?? silentLogger,
@@ -5630,23 +5632,32 @@ export function createCore(adapters: CoreAdapters): Core {
       liveDocuments: () => documents.names(),
       mindBlocks: (mindId, look) => content.peek(mindId, look),
       editMind: (mindId, change) => content.edit(mindId, change),
+      editOwnMind: (mindId, change) => agentChanges.write(mindId, change),
+      checkpoint: (mindId) => {
+        checkpoints.save(mindId, "accept");
+      },
+      noteChanged: (change) => events.emit("agents.noteChanged", change),
       mindMarkdown: (mindId, footnote) => {
         const mind = minds.get(mindId);
         const { language } = settings.get();
         // Someone's changes from a Word file read as changes, as the assistant reads them (#734).
-        const blocks = content.peek(mind.id, (fragment) =>
-          readBlocks(fragment, {
-            includeQuestions: true,
-            footnote,
-            trimBeforeCitation: true,
-            ...(fragment.doc && wordFileOf(fragment.doc)
-              ? { review: theirChangesReading(fragment.doc) }
-              : {}),
-          }),
-        );
-        return renderMarkdown(mind.title || mind.autoTitle, blocks, exportLabels(language), {
-          pictures: false,
-        }).text;
+        const { blocks, titled } = content.peek(mind.id, (fragment) => {
+          const first = fragment.get(0);
+          return {
+            blocks: readBlocks(fragment, {
+              includeQuestions: true,
+              footnote,
+              trimBeforeCitation: true,
+              ...(fragment.doc && wordFileOf(fragment.doc)
+                ? { review: theirChangesReading(fragment.doc) }
+                : {}),
+            }),
+            titled: first instanceof Y.XmlElement && first.nodeName === "heading",
+          };
+        });
+        // A heading that opens the Note is its title already: it is read once (#3371).
+        const title = titled ? "" : mind.title || mind.autoTitle;
+        return renderMarkdown(title, blocks, exportLabels(language), { pictures: false }).text;
       },
       createMind: (title, folderId, headed) =>
         makeMind(parseCreateMindInput({ title, folderId }), { headed }),
@@ -6112,6 +6123,8 @@ export function createCore(adapters: CoreAdapters): Core {
     applyAskedChanges: async (input) => askedChanges.apply(input),
     undoAskedChanges: async (undoId) => askedChanges.undo(undoId),
     redoAskedChanges: async (undoId) => askedChanges.redo(undoId),
+    undoAgentChange: async (step) => agentChanges.undo(step),
+    redoAgentChange: async (step) => agentChanges.redo(step),
     releaseAskedChanges: async (undoId) => askedChanges.release(undoId),
     addToNote: (input) => noteAdding.add(input),
     undoAddToNote: async (input) => noteAdding.undo(input),

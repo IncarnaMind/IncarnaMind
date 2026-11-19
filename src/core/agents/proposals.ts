@@ -21,10 +21,11 @@
  * once each. The changes are written as every model's change is (../proposals/apply): tried on
  * a copy of the Note, checked, and refused whole, with the reason, when a part can't be written.
  * Who made them is recorded with them; their text is marked third-party once the User accepts it
- * (`decideProposals`), and read as such while it waits.
+ * (`decideProposals`), and read as such while it waits. In a Note the agent wrote, its caller
+ * accepts them at once (#3371).
  */
 import * as Y from "yjs";
-import { asGenerated } from "../../shared/aiText";
+import { asGenerated, INLINE_CODE_MARK } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
 import { REFUSAL_WORDS } from "../../shared/changeRefusals";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
@@ -42,6 +43,7 @@ import { emphasisOf, markdownToBlocks, withoutEmphasisEscapes } from "../answers
 import {
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
+  GENERATED_MARK,
   MIND_CONTENT_FIELD,
   type OutsideAgentRequest,
   PROPOSAL_ATTRIBUTE,
@@ -66,13 +68,15 @@ type Attributes = Record<string, unknown>;
 
 /** A paragraph of a Note as an agent reads it by name. */
 export interface NamedParagraph {
-  /** "¶3". */
+  /** "¶3"; the Note's title line, when it has one, is "¶0" (#3371). */
   name: string;
   blockId: string;
   /** Its text as the agent reads it: a kind's marker ("## ", "- "), each Citation as its token. */
   text: string;
   /** Why it can't be changed now: changes wait in it, or an Answer is being written there. */
   held: "waiting" | "busy" | null;
+  /** Words the User wrote in it: all of them, some, or none that can be told (`NamedOptions.users`). */
+  users: "wrote" | "changed" | null;
 }
 
 export interface NamedNote {
@@ -90,6 +94,20 @@ export interface NamedWords {
   /** Before the words of a paragraph with changes waiting, and of one being written. */
   waiting: string;
   busy: string;
+}
+
+export interface NamedOptions {
+  /**
+   * A heading that opens the Note is its title, "¶0", as a page has no title field: the
+   * paragraphs are counted from the first under it (#3371).
+   */
+  title?: boolean;
+  /**
+   * Before the words of a paragraph the User wrote, and of one they changed: told apart by the AI
+   * text mark, which the User's typing never carries. A title line is never marked: the one a Note
+   * is made with from its name carries no mark, whoever named it.
+   */
+  users?: { wrote: string; changed: string };
 }
 
 /**
@@ -195,14 +213,39 @@ function shownText(selection: Selection, words: NamedWords): string {
   );
 }
 
+/** Whether a paragraph's words are the User's: every one, some, or none (or none that can be told). */
+function usersWordsIn(element: Y.XmlElement): NamedParagraph["users"] {
+  let theirs = 0;
+  let ai = 0;
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
+      if (typeof run.insert !== "string") continue;
+      const attributes = run.attributes ?? {};
+      // Waiting words aren't in the Note yet, and code never carries the AI text mark.
+      if (hasMarkIn(PROPOSAL_INSERT_MARK, attributes) || INLINE_CODE_MARK in attributes) continue;
+      const counted = run.insert.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+      if (attributes[GENERATED_MARK] != null) ai += counted;
+      else theirs += counted;
+    }
+  }
+  if (theirs === 0) return null;
+  return ai === 0 ? "wrote" : "changed";
+}
+
 /**
  * The Note's paragraphs and headings by name, at any depth, as `textBlocks` lists them: a
  * table's cells, a list's items and an Answer's paragraphs too. An empty one has no name, nor
  * one a Proposal adds, which isn't in the Note yet.
  */
-export function namedNote(blocks: Y.XmlFragment, words: NamedWords): NamedNote {
+export function namedNote(
+  blocks: Y.XmlFragment,
+  words: NamedWords,
+  options: NamedOptions = {},
+): NamedNote {
   const paragraphs: NamedParagraph[] = [];
   const seen = new Set<string>();
+  let titled = false;
   for (const { element } of textBlocks(blocks)) {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (typeof blockId !== "string" || blockId === "" || seen.has(blockId)) continue;
@@ -213,16 +256,34 @@ export function namedNote(blocks: Y.XmlFragment, words: NamedWords): NamedNote {
     const held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
     const text = read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element));
     if (text.trim() === "") continue;
-    paragraphs.push({ name: paragraphName(paragraphs.length), blockId, text, held });
+    const title =
+      options.title === true &&
+      paragraphs.length === 0 &&
+      element.nodeName === "heading" &&
+      blocks.get(0) === element;
+    titled ||= title;
+    paragraphs.push({
+      name: title ? "¶0" : paragraphName(paragraphs.length - (titled ? 1 : 0)),
+      blockId,
+      text,
+      held,
+      users: options.users && !title ? usersWordsIn(element) : null,
+    });
   }
   const line = (paragraph: NamedParagraph) =>
-    paragraph.held === null
-      ? `${paragraph.name} ${paragraph.text}`
-      : `${paragraph.name} ${paragraph.held === "busy" ? words.busy : words.waiting} ${paragraph.text}`;
+    [
+      paragraph.name,
+      paragraph.held === null ? null : paragraph.held === "busy" ? words.busy : words.waiting,
+      paragraph.users === null ? null : options.users?.[paragraph.users],
+      paragraph.text,
+    ]
+      .filter((part) => part !== null && part !== undefined)
+      .join(" ");
   const version = targetHash(
     paragraphs
       .map(
-        (paragraph) => `${paragraph.blockId}\u0000${paragraph.held ?? ""}\u0000${paragraph.text}`,
+        (paragraph) =>
+          `${paragraph.blockId}\u0000${paragraph.held ?? ""}\u0000${paragraph.users ?? ""}\u0000${paragraph.text}`,
       )
       .join("\u0001"),
   );
@@ -257,6 +318,8 @@ export interface ProposeOptions {
   /** What a token it can't cite with reads as. */
   notFound: string;
   newId(): string;
+  /** Given, a Checkpoint of the Note just before the changes reach it: they apply at once (#3371). */
+  checkpoint?(): void;
 }
 
 /** A change that can't be written as it is, in the interface language's words: nothing was written. */
@@ -569,6 +632,7 @@ export function proposeNamed(
     mindId: doc.guid,
     request: options.request,
     made,
+    ...(options.checkpoint && { checkpoint: options.checkpoint }),
   });
   const outcome = change.write((copy) => writeNamed(copy, note, changes, options));
   switch (outcome.kind) {
