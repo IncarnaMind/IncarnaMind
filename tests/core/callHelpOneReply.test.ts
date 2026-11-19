@@ -144,11 +144,14 @@ const LONG_CALL = Array.from(
 );
 const AUDIT = "We need the pilot live before our audit in June.";
 
+/** Words said in every line of `LONG_CALL`: at many moments of the call. */
+const SAID_OFTEN = "the drivers get the new sheets the evening before";
+
 /**
- * Sums the call up in one reply, citing its last line to the first Passage of the Transcript,
- * which doesn't hold it, as a model that can't be told so may.
+ * Sums the call up in one reply, citing `quote` to the first Passage of the Transcript, which
+ * doesn't hold its last line, at `location` if given, as a model that can't be told so may.
  */
-function citesTheFirstPassage(calls: ModelCall[]) {
+function citesTheFirstPassage(calls: ModelCall[], quote = AUDIT, location?: string) {
   return scriptedModel(
     (call) => {
       calls.push(call);
@@ -156,7 +159,7 @@ function citesTheFirstPassage(calls: ModelCall[]) {
       if (!call.json || !first) return { text: "" };
       return {
         text: JSON.stringify({
-          citations: [{ marker: 1, passage: first.id, quote: AUDIT }],
+          citations: [{ marker: 1, passage: first.id, quote, ...(location && { location }) }],
           answer: "- They need the pilot live before their June audit [^1]",
           more: "",
         }),
@@ -164,6 +167,30 @@ function citesTheFirstPassage(calls: ModelCall[]) {
     },
     { judgesItsAnswers: true },
   );
+}
+
+/** The long call heard, Sum up pressed: its reply and the requests made. */
+async function summedUp(model: (calls: ModelCall[]) => ReturnType<typeof scriptedModel>) {
+  const calls: ModelCall[] = [];
+  const dataDir = await createTempDataFolder();
+  const models = scriptedModels(model(calls));
+  const { core, record } = await transcribingCore(dataDir, {
+    createChatModel: models.createChatModel,
+    engine: { lines: [], theirLines: [...LONG_CALL, AUDIT] },
+    answerPaths: { answersInOneReply: () => true },
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const meeting = await core.createMeeting();
+  await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+  record(60_000);
+  await until(core, meeting.id, (transcript) => transcript.lines >= LONG_CALL.length + 1);
+  const result = await core.askMeetingHelp({ meetingId: meeting.id, kind: "sum" });
+  if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
+  await answerEnded(core, result.answerId);
+  const { messages } = await core.getConversation(result.conversation.id);
+  const answer = messages.find((message) => message.id === result.answerId);
+  if (answer?.kind !== "answer") throw new Error("No Answer.");
+  return { answer, calls };
 }
 
 /** The requests that wrote the reply: not a judge's. */
@@ -189,34 +216,28 @@ describe("A call-help press in one reply (#3354)", { timeout: 60_000 }, () => {
 
   // protects=a one-reply answer can't be told it named the wrong Passage, so a quote another Passage of the same Transcript holds is cited where it was said and its Citation is found; fails_when=the Citation stays not found; no_claim=a quote another Document holds, which stays as named.
   test("a call's line the reply cites to the wrong Passage of its Transcript is found where it was said", async () => {
-    const calls: ModelCall[] = [];
-    const dataDir = await createTempDataFolder();
-    const models = scriptedModels(citesTheFirstPassage(calls));
-    const { core, record } = await transcribingCore(dataDir, {
-      createChatModel: models.createChatModel,
-      engine: { lines: [], theirLines: [...LONG_CALL, AUDIT] },
-      answerPaths: { answersInOneReply: () => true },
-    });
-    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-    const meeting = await core.createMeeting();
-    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
-    record(60_000);
-    await until(core, meeting.id, (transcript) => transcript.lines >= LONG_CALL.length + 1);
-
-    const result = await core.askMeetingHelp({ meetingId: meeting.id, kind: "sum" });
-    if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
-    await answerEnded(core, result.answerId);
-    const { messages } = await core.getConversation(result.conversation.id);
-    const answer = messages.find((message) => message.id === result.answerId);
+    const { answer, calls } = await summedUp((calls) => citesTheFirstPassage(calls));
 
     const transcript = shownPassages(
       block(writing(calls)[0]?.prompt ?? "", "live-transcript") ?? "",
     );
     expect(transcript.length).toBeGreaterThan(1);
     expect(transcript[0]?.text).not.toContain(AUDIT);
-    expect(answer?.kind === "answer" && answer.citations).toEqual([
-      expect.objectContaining({ quote: AUDIT, check: "found" }),
-    ]);
+    expect(answer.citations).toEqual([expect.objectContaining({ quote: AUDIT, check: "found" })]);
+  });
+
+  // protects=a one-reply answer can't be told its time is wrong, so a line said once, cited at a time nothing was said, is found where it was said; fails_when=it stays not found; no_claim=a time that holds the words, which is kept as named.
+  test("a line said once, cited at a time nothing was said, is found where it was said", async () => {
+    const { answer } = await summedUp((calls) => citesTheFirstPassage(calls, AUDIT, "9:00"));
+
+    expect(answer.citations).toEqual([expect.objectContaining({ quote: AUDIT, check: "found" })]);
+  });
+
+  // protects=words said at several moments, cited at a time nothing was said, are never shown as found at one of them (#2306); fails_when=a found Citation of them appears; no_claim=whether the record is dropped or kept not found, which is as before.
+  test("words said at many moments, cited at a time nothing was said, are never found at one of them", async () => {
+    const { answer } = await summedUp((calls) => citesTheFirstPassage(calls, SAID_OFTEN, "9:00"));
+
+    expect(answer.citations.filter((citation) => citation.check === "found")).toEqual([]);
   });
 
   // protects=on a model offered calculate (ADR-0021), a one-reply answer is asked for its calculations in its JSON and the app works its figure out from the cited numbers, as the loop's calculate does; fails_when=the one-reply form tells it there is no calculator, or the figure isn't worked out; no_claim=how often a model gives calculations.

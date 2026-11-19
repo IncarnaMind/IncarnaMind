@@ -36,6 +36,16 @@ No reply on either arm of any run showed nothing or broke the form. Results: `ev
 - **What Sonnet still loses on its second run:** a quote whose time is not where the line was said, which the fallback leaves as named (#2306), and twice an option that leaves out the Document's price that today's path cites.
 - **Sol, over its two runs:** judged right 46 → 44 and cited 51 → 49 of 60, within main's own spread between two samples of the same path (25 and 22 judged right). On typed questions it was right once more often.
 
+## Claude Sonnet 5.5, a third run (2026-11-19, marks written before it)
+
+A one-reply Transcript quote said at no time its record names is now cited where it was said, if the call holds it at one moment only (never for a corrected quote, #2306). Sonnet again, today against one reply, the same marks with every earlier `today` sample:
+
+| | First whole option | Done | Cited | Judged right | Every Citation found | False Supported | Verdict |
+|---|---|---|---|---|---|---|---|
+| Claude Sonnet 5.5, 3rd | 5.1 → 2.8 s | 5.1 → 3.5 s | 30 → 30 | **29 → 25** | 30 → 29 | 12 → 11 | **misses** (judged right) |
+
+The fix did what it was for (cited 30 → 26 on the second run, 30 → 30 now), but four replies were judged partly right where today's were right, and none the other way. Over three runs Sonnet lost on a different measure each time, so it stays on the loop.
+
 ## On screen, on the ChatGPT plan
 
 A development build in a kept test profile signed in to the plan, real speech through a fake microphone, live text on Soniox, 13 Documents, the ask bar's three prompts pressed twice; times from the click to the reply's end.
