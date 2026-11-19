@@ -1,16 +1,21 @@
-/**
- * ASCEND (CC BY-SA 4.0): two people talking, in Mandarin with English words and sentences
- * mixed in, as Hong Kong students do. The corpus is cut into utterances; each file's name says
- * the session, the speaker and when in the session the utterance starts, so a session can be
- * laid out again as one conversation.
- */
+/** ASCEND (CC BY-SA 4.0) records each participant on a separate microphone. */
 import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 import { monoSamples } from "../lib/wav";
 import { audioOf, readRows, text } from "./parquet";
 import { type Clip, overlayClips } from "./tracks";
 import type { Reference } from "./types";
 
-const NAME = /^ses(\d+)_spk(\d+)_L\d+_([\d.]+)_([\d.]+)\.wav$/;
+const NAME = /^ses(\d+)_spk(\d+)_L(\d+)_([\d.]+)_([\d.]+)\.wav$/;
+
+interface Utterance extends Clip {
+  line: number;
+  text: string;
+}
+
+interface SpeakerTrack {
+  speaker: number;
+  utterances: Utterance[];
+}
 
 export interface AscendSession {
   clips: Clip[];
@@ -19,39 +24,67 @@ export interface AscendSession {
   speakers: number;
 }
 
-export async function ascendSession(path: string, session: number): Promise<AscendSession> {
-  const meta = await readRows(path, ["transcription", "session_id"]);
-  const rows = meta.flatMap((row, index) => (Number(row.session_id) === session ? [index] : []));
-  if (rows.length === 0) throw new Error(`${path} has no session ${session}.`);
-  const from = rows[0] as number;
-  const to = (rows[rows.length - 1] as number) + 1;
-  const audio = await readRows(path, ["audio"], { from, to });
-  const clips: Clip[] = [];
-  const segments: Reference["segments"] = [];
-  audio.forEach((row, offset) => {
-    if (Number(meta[from + offset]?.session_id) !== session) return;
-    const { bytes, name } = audioOf(row.audio);
+export async function ascendSpeaker(
+  path: string,
+  session: number,
+  speaker: number,
+): Promise<SpeakerTrack> {
+  const meta = await readRows(path, ["transcription", "session_id", "original_speaker_id"]);
+  const indices = meta.flatMap((row, i) =>
+    Number(row.session_id) === session && Number(row.original_speaker_id) === speaker ? [i] : [],
+  );
+  const first = indices[0];
+  const last = indices.at(-1);
+  if (first === undefined || last === undefined)
+    throw new Error(`No ASCEND speaker ${speaker} in session ${session} of ${path}.`);
+  const audio = await readRows(path, ["audio"], { from: first, to: last + 1 });
+  const utterances = indices.map((index) => {
+    const { bytes, name } = audioOf(audio[index - first]?.audio);
     const match = NAME.exec(name);
-    if (!match) throw new Error(`${name} isn't named as ASCEND's utterances are.`);
-    const start = Number(match[3]);
-    const samples = monoSamples(bytes, name);
-    clips.push({ start, samples });
-    segments.push({
-      start,
-      end: start + samples.length / MEETING_SAMPLE_RATE,
-      speaker: `spk${match[2]}`,
-      text: text(meta[from + offset]?.transcription),
-      track: "conversation",
-    });
+    if (!match || Number(match[1]) !== session || Number(match[2]) !== speaker)
+      throw new Error(
+        `Unexpected ASCEND utterance ${name} for speaker ${speaker} in session ${session}.`,
+      );
+    return {
+      line: Number(match[3]),
+      start: Number(match[4]),
+      samples: monoSamples(bytes, name),
+      text: text(meta[index]?.transcription),
+    };
   });
-  segments.sort((a, b) => a.start - b.start || a.end - b.end || a.speaker.localeCompare(b.speaker));
+  return { speaker, utterances };
+}
+
+export function ascendSession(left: SpeakerTrack, right: SpeakerTrack): AscendSession {
+  const lines = (track: SpeakerTrack) => track.utterances.map((turn) => turn.line);
+  const a = lines(left);
+  const b = lines(right);
+  // Session numbers repeat across pairs. Only partners have interleaved source line numbers.
+  if (
+    left.speaker === right.speaker ||
+    Math.max(Math.min(...a), Math.min(...b)) >= Math.min(Math.max(...a), Math.max(...b))
+  )
+    throw new Error(
+      `ASCEND speakers ${left.speaker} and ${right.speaker} have no interleaved dialogue.`,
+    );
+  const clips = [...left.utterances, ...right.utterances];
+  const segments = [left, right]
+    .flatMap(({ speaker, utterances }) =>
+      utterances.map(({ start, samples, text }) => ({
+        start,
+        end: start + samples.length / MEETING_SAMPLE_RATE,
+        speaker: `spk${speaker}`,
+        text,
+        track: "conversation" as const,
+      })),
+    )
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.speaker.localeCompare(b.speaker));
   const end = Math.max(...segments.map((segment) => segment.end));
-  const length = Math.ceil((end + 0.5) * MEETING_SAMPLE_RATE);
   return {
     clips,
     reference: { format: 1, segments },
-    length,
-    speakers: new Set(segments.map((segment) => segment.speaker)).size,
+    length: Math.ceil((end + 0.5) * MEETING_SAMPLE_RATE),
+    speakers: 2,
   };
 }
 

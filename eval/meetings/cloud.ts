@@ -84,6 +84,10 @@ export async function transcribeOnCloud(
   const length = Math.max(...Object.values(tracks).map((samples) => samples.length));
   const started = Date.now();
   for (let at = 0; at < length; at += FRAME) {
+    if (lost.length > 0) {
+      for (const [, handle] of handles) handle.drop();
+      break;
+    }
     for (const [stream, handle] of handles) {
       const frame = (tracks[stream] as Float32Array).subarray(at, at + FRAME);
       if (frame.length > 0) handle.push(toInt16(frame));
