@@ -71,6 +71,11 @@ const passageOut = z.object({
   text: z.string(),
 });
 
+const heldCall = z.object({
+  started: z.string().nullable(),
+  transcript: z.string().describe("Its Transcript's documentId."),
+});
+
 const checkedCitationOut = z.object({
   cite: z.string(),
   check: z.enum(["found", "not-found", "cant-check", "unknown"]),
@@ -259,6 +264,8 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
                 title: z.string(),
                 updatedAt: z.string(),
                 yours: z.literal(true).optional(),
+                meeting: heldCall.optional(),
+                voiceMemo: heldCall.optional(),
               }),
             ),
           }),
