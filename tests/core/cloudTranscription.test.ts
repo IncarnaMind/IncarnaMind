@@ -867,6 +867,35 @@ describe("Cloud transcription with the User's own key", { timeout: 60_000 }, () 
     expect(sockets).toHaveLength(3);
   });
 
+  test("a paused microphone does not extend the cloud gap left by a failed remote retry", async () => {
+    const { cloud, sockets } = scriptedSoniox();
+    const { core, record } = await transcribingCore(await createTempDataFolder(), { cloud });
+    await chooseSoniox(core);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (t) => t.cloud === "soniox");
+    record(6000);
+    await vi.waitFor(() => expect(sockets.filter((s) => s.audio.length > 0)).toHaveLength(2));
+    const [mic, remote] = sockets;
+    if (!mic || !remote) throw new Error("Missing one side of the call");
+    mic.say("I heard you.", 100, 1000);
+    remote.say("The final delivery is Friday.", 2000, 5000);
+    await until(core, meeting.id, (t) => t.lines === 2);
+    await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
+    record(1000, ["system"]);
+    remote.close();
+    await vi.waitFor(() => expect(sockets[2]?.audio.length).toBeGreaterThan(0), { timeout: 6000 });
+    sockets[2]?.close();
+    await until(core, meeting.id, (t) => t.fellBack?.reason === "dropped");
+    record(3000, ["system"]);
+    await core.stopMeeting(meeting.id);
+    const saved = await until(core, meeting.id, (t) => t.state === "saved");
+    if (!saved.savedPath) throw new Error("Transcript missing");
+    const { cues, gaps } = readVtt(readFileSync(saved.savedPath, "utf8"));
+    expect(cues.filter((cue) => cue.text === "The final delivery is Friday.")).toHaveLength(1);
+    expect(gaps.map((gap) => gap.reason)).toEqual(["muted"]);
+  });
+
   test("the connection dropping hands the live audio to this computer: the gap is marked, the bar says when, and Stop fills it in", async () => {
     const dataDir = await createTempDataFolder();
     const initial = createFakeCloud({ dropAfterMs: 5 * SECOND });

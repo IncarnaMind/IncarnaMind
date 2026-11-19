@@ -982,14 +982,15 @@ export function createTranscripts(options: TranscriptsOptions) {
       if (live.started) finishStreams(state, live, atMs);
     } else {
       dropped = dropStreams(live);
-      const lost = { fromMs: live.doneMs, toMs: Math.max(live.doneMs, live.pushedMs) };
-      if (live.started && live.pendingFrom === null && lost.toMs > lost.fromMs) {
-        if (failed) state.gaps.push({ ...lost, reason: "cloud" });
+      if (live.started && live.pendingFrom === null) {
+        let fromMs = atMs;
         for (const source of SOURCES) {
           const own = live.streams[source];
-          if (own)
-            state.pending = addRange(state.pending, { fromMs: own.doneMs, toMs: atMs, source });
+          if (!own) continue;
+          fromMs = Math.min(fromMs, own.doneMs);
+          state.pending = addRange(state.pending, { fromMs: own.doneMs, toMs: atMs, source });
         }
+        if (failed && fromMs < atMs) state.gaps.push({ fromMs, toMs: atMs, reason: "cloud" });
       }
     }
     if (reason === "refused" && live.cloud) options.cloud?.refuse(route, live.cloud.stream);
