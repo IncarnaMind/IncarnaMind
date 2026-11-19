@@ -13,9 +13,11 @@ import { ClaimOutline } from "./ClaimOutline";
 import { useCardPlace } from "./checkPlace";
 import { textBlockEdited } from "./citationNumbers";
 import {
-  foundElsewhere,
+  everyResultShown,
   markOf,
+  markShown,
   type ShownClaim,
+  setClaimEveryResult,
   setClaimInline,
   setClaimRooms,
   shownClaims,
@@ -34,6 +36,7 @@ import {
 import { OpinionCard } from "./OpinionCard";
 import { positionOf } from "./proposalReview";
 import { scrollMindTo } from "./reviewPick";
+import { useEveryCheckResult } from "./useEveryCheckResult";
 
 /** When an Answer finishes, its checks appear one after another, this far apart. */
 const REVEAL_STEP_MS = 40;
@@ -145,6 +148,8 @@ interface Measured {
   state: ClaimMarkState;
   /** Null for a sentence checked before its run marks it (`useEarlyChecks`): it has no card yet. */
   claim: ShownClaim | null;
+  /** Whether it shows (`markShown`): one that doesn't keeps its place as its card's anchor. */
+  shown: boolean;
   /** The vertical middle of the sentence's first line, from the top of the column. */
   middle: number;
   /** The first line's box, from the top of the column. */
@@ -173,7 +178,7 @@ function lineOf(mark: Measured, widths: ReadonlyMap<string, number>): MarkLine {
     middle: mark.middle,
     left: mark.startLeft,
     width: (mark.claim && widths.get(mark.claim.check.id)) ?? PLAIN_MARK_WIDTH,
-    silent: mark.state === "not-checked" && !(mark.claim && foundElsewhere(mark.claim)),
+    silent: !mark.shown,
   };
 }
 
@@ -224,6 +229,7 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
       mark.top === other.top &&
       mark.left === other.left &&
       mark.inline === other.inline &&
+      mark.shown === other.shown &&
       mark.delay === other.delay &&
       mark.claim?.check === other.claim?.check &&
       mark.claim?.sentence.text === other.claim?.sentence.text
@@ -232,11 +238,12 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
 
 /**
  * The column of sentence checks in the right margin, the Mind's signature:
- * one 18px mark for each sentence that has been checked, its verdict, level
- * with the sentence's first line, so the checks can be scanned down the page
- * (see `ClaimMark`). Sentences that start on one line put their marks side by
- * side, and one that would pass the pane's edge goes under the line's first
- * mark (`marginMarks.ts`). A Citation's own check isn't here: it shows on its
+ * an 18px mark for each checked sentence that needs the reader, or for each
+ * one with every result shown (`markShown`, #3358), level with the sentence's
+ * first line, so the checks can be scanned down the page (see `ClaimMark`).
+ * Sentences that start on one line put their marks side by side, and one that
+ * would pass the pane's edge goes under the line's first mark
+ * (`marginMarks.ts`). A Citation's own check isn't here: it shows on its
  * marker, in the text.
  *
  * It is an overlay beside the editor that measures the sentences: again after
@@ -316,6 +323,11 @@ export function MarginChecks({
     return () => observer.disconnect();
   }, [editor]);
 
+  const everyResult = useEveryCheckResult(mind.doc);
+  useEffect(() => {
+    if (!editor.isDestroyed) setClaimEveryResult(editor.view, everyResult);
+  }, [editor, everyResult]);
+
   /** Places the marks again once one has rendered at a width the last measure didn't know. */
   const relayout = useCallback(() => {
     const last = margin.current;
@@ -336,11 +348,7 @@ export function MarginChecks({
     const element = layer.current;
     if (!element) return;
     const shown = new Set(
-      marks.flatMap((mark) =>
-        mark.claim && (mark.state !== "not-checked" || foundElsewhere(mark.claim))
-          ? [mark.claim.check.id]
-          : [],
-      ),
+      marks.flatMap((mark) => (mark.claim && mark.shown ? [mark.claim.check.id] : [])),
     );
     const drawn = new Map<string, number>();
     for (const mark of element.querySelectorAll<HTMLElement>("[data-claim]")) {
@@ -387,6 +395,7 @@ export function MarginChecks({
       const folded = foldedNow.current;
       const measured: Measured[] = [];
       const revealing = new Set<string>();
+      const everyResult = everyResultShown(editor.state);
       for (const claim of shownClaims(editor.state)) {
         const state = markOf(claim);
         let coords: SentenceBox | null;
@@ -402,6 +411,7 @@ export function MarginChecks({
           key: `claim:${claim.check.id}`,
           state,
           claim,
+          shown: markShown(claim, everyResult),
           middle: (coords.top + coords.bottom) / 2 - rect.top,
           lineTop: coords.top - rect.top,
           lineBottom: coords.bottom - rect.top,
@@ -409,7 +419,7 @@ export function MarginChecks({
           inlineLeft: folded ? Math.round(coords.at - rect.left + INLINE_GAP) : null,
           delay: null,
         };
-        if (seen.current.get(mark.key) === "checking" && state !== "checking")
+        if (seen.current.get(mark.key) === "checking" && state !== "checking" && mark.shown)
           revealing.add(mark.key);
         seen.current.set(mark.key, state);
         measured.push(mark);
@@ -428,6 +438,7 @@ export function MarginChecks({
           key: `early:${sentence.key}`,
           state: "checking",
           claim: null,
+          shown: true,
           middle: (coords.top + coords.bottom) / 2 - rect.top,
           lineTop: coords.top - rect.top,
           lineBottom: coords.bottom - rect.top,
@@ -574,6 +585,7 @@ export function MarginChecks({
           } as CSSProperties
         }
         inline={mark.inline}
+        shown={mark.shown}
         onRevealed={() => {
           reveals.current.delete(`${mark.key}:${mark.state}`);
           setMarks((drawn) =>

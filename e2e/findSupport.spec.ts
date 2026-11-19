@@ -13,6 +13,7 @@ import {
   importWordFromMenu,
   interceptOpenDialog,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   openCardMenu,
@@ -21,6 +22,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  showEveryCheckResult,
   slideSelect,
   useLocalChatModel,
 } from "./app";
@@ -126,6 +128,8 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
 
   await expect(marks(window)).toHaveCount(2);
+  // This test is about where both marks stand: the ✓ shows with every result (#3358).
+  await showEveryCheckResult(window);
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
   const unsupported = marks(window).and(window.locator('[data-check="unsupported"]'));
   await expect(supported).toHaveAttribute("data-addable", "true");
@@ -153,8 +157,9 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect((await checkCard(window)).getByTestId("health-look")).toContainText(
     "1 needs a look",
   );
-  await expect((await checkCard(window)).getByTestId("health-supported")).toContainText(
-    "1 supported",
+  // The supported one cites nothing yet: it is the one that can be cited (#3358).
+  await expect((await checkCard(window)).getByTestId("health-notYetCited")).toContainText(
+    "1 can be cited",
   );
   await screenshot(window, "check-results-en");
 
@@ -169,6 +174,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect(card).toBeHidden();
 
   // The supported one shows the Passage found, and adds it as the sentence's Citation in one click.
+  await markShownFor(window, supported);
   await pointAt(window, supported);
   await expect(card.getByTestId("claim-badge")).toHaveText("Supported");
   await expect(card.getByTestId("claim-quote")).toHaveText(
@@ -240,6 +246,7 @@ test("Find sources… waits in the card's one ⋯, once, whether or not the Mind
   await expect(card).toBeHidden();
 
   // A Citation of the paper makes the Mind one that cites a work: still once, in the ⋯ (#2869).
+  await markShownFor(window, supported);
   await pointAndClick(window, supported);
   await pointAndClick(window, card.getByTestId("claim-add-citation"));
   await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
@@ -323,8 +330,8 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   const contradicted = marks(window).and(window.locator('[data-check="contradicted"]'));
   const notChecked = marks(window).and(window.locator('[data-check="not-checked"]'));
   await expect(contradicted).toBeVisible();
-  // A sentence not checked yet has no mark on the page; its card opens from the row.
-  await expect(notChecked).toBeHidden();
+  // A sentence not checked keeps its quiet grey ring (#3358).
+  await expect(notChecked).toBeVisible();
   // In a narrow Mind the mark moves into the text, at its sentence's end.
   const lineBox = await line.boundingBox();
   const markBox = await contradicted.boundingBox();
@@ -372,6 +379,7 @@ test("A supported sentence's card names the Document as it is named now, after a
   await checkAll(window, line, "Spring tides", "full moon.", "check-against-documents");
   const supported = marks(window).and(window.locator('[data-check="supported"]'));
   const card = window.getByTestId("claim-card");
+  await markShownFor(window, supported);
   await pointAt(window, supported);
   await expect(card.getByTestId("claim-source")).toHaveText(/^Tides · /);
 
@@ -387,6 +395,7 @@ test("A supported sentence's card names the Document as it is named now, after a
   await window.keyboard.press("Enter");
   await expect(viewerTitle).toHaveText("Tides of the coast");
 
+  await markShownFor(window, supported);
   await pointAt(window, supported);
   await expect(card.getByTestId("claim-source")).toHaveText(/^Tides of the coast · /);
 });

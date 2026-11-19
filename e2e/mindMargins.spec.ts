@@ -20,6 +20,7 @@ import {
   setGroupBeside,
   setLanguage,
   setWindowSize,
+  showEveryCheckResult,
   sizeMind,
   sizeNote,
   slideSelect,
@@ -188,6 +189,8 @@ for (const language of ["en", "zh-CN"] as const) {
       },
     );
     await expect(finishedBadge).toHaveAttribute("data-state", "needs-look", { timeout: 60_000 });
+    // Where both marks stand, the ✓ included, which shows with every result (#3358).
+    await showEveryCheckResult(window);
     // Resizing the Note across the 760px fold, both ways, never changes what its checks say.
     for (const across of [800, 700, 800]) {
       await sizeMind(app, window, across);

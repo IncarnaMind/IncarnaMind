@@ -15,6 +15,7 @@ import {
   dismissChatSetup,
   exportFromMenu,
   launchApp,
+  markShownFor,
   nameMind,
   newMind,
   openCardMenu,
@@ -216,6 +217,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const card = window.getByTestId("claim-card");
     const between = sentence.slice(first.length, at);
     const end = sentence.slice(at + second.length);
+    await markShownFor(window, mark);
     await expect(mark).toContainText("+");
 
     // One row's add: its Passage after its own words, and ⌘Z takes back that add alone.
@@ -234,6 +236,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => written(window)).toBe(sentence);
 
     // Add all: each part's Passage after its words, as one step of Undo.
+    await markShownFor(window, mark);
     await pointAndClick(window, mark);
     await pointAndClick(
       window,

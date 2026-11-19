@@ -60,7 +60,7 @@ const WORDS = {
     supported: "22 supported",
     supportedAfter: "22 supported",
     look: "1 needs a look",
-    uncited: "1 supported",
+    uncited: "1 can be cited",
   },
   "zh-CN": {
     request: "添加核对用的收入表格",
@@ -73,7 +73,7 @@ const WORDS = {
     supported: "22 句有依据",
     supportedAfter: "22 句有依据",
     look: "1 句需要留意",
-    uncited: "1 句有依据",
+    uncited: "1 句可添加引用",
   },
 } as const;
 
@@ -193,9 +193,10 @@ for (const language of ["en", "zh-CN"] as const) {
     const allDone = await checkCard(window);
     await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(allDone.getByTestId("health-look")).toHaveCount(0);
-    // Supported with no Citation yet is done: nothing holds back "Everything checked" (#2831).
+    // Supported with no Citation yet is done: nothing holds back "Everything checked" (#2831),
+    // and it is the one that can be cited (#3358).
     await expect(allDone.getByTestId("health-all-checked")).toBeVisible();
-    await expect(allDone.getByTestId("health-supported")).toContainText(words.uncited);
+    await expect(allDone.getByTestId("health-notYetCited")).toContainText(words.uncited);
     await expect(allDone.getByTestId("health-noCitation")).toHaveCount(0);
     await screenshot(window, `check-counts-all-${language}`);
     await app.close();

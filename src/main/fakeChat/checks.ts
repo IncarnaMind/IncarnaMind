@@ -112,7 +112,7 @@ const supported = (explanation: string): Reply => ({
 
 /**
  * A check of one sentence (#96): it searches for the sentence, then takes the Passage line that
- * shares the most words with it and cites it. Three shared words or more support it, unless the
+ * shares the most words with it, among equals the one with the sentence's numbers, and cites it. Three shared words or more support it, unless the
  * sentence has a number the line doesn't while the line has numbers: that contradicts it, and the
  * sentence's first such number changes to the line's first. Fewer leave it unsupported, as does a
  * sentence that says more than its line (`SAYS_MORE_THAN_ITS_LINE`); one it takes for its writer's
@@ -146,9 +146,13 @@ export function checkReply(prompt: Prompt): Reply {
   }
   if (/\bno reason\b/i.test(sentence) || SAYS_MORE_THAN_ITS_LINE.test(sentence)) return UNSUPPORTED;
   const words = checkWords(sentence);
+  // Lines that differ only in their numbers ("Revenue in Q2 was €2 million.") tie on words: the
+  // one with the sentence's own numbers is the line it is about, as a model reading it whole takes.
+  const sameNumbers = (line: string) =>
+    numbers(sentence).some((number) => numbers(line).includes(number));
   let best: { record: Record<string, unknown>; line: string; shared: number } | null = null;
   for (const passage of passagesIn(searched)) {
-    const found = recordFor(passage, sentence, 1);
+    const found = recordFor(passage, sentence, 1, sameNumbers);
     const line = typeof found?.record.quote === "string" ? found.record.quote : "";
     const shared = checkWords(line).filter((word) => words.includes(word)).length;
     if (found && (!best || shared > best.shared)) best = { record: found.record, line, shared };

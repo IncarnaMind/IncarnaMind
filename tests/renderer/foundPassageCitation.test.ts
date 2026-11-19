@@ -19,7 +19,12 @@ import {
   MIND_CONTENT_FIELD,
 } from "../../src/core";
 import { CitationNumbers } from "../../src/renderer/src/editor/citationNumbers";
-import { ClaimChecks, claimsOf, shownClaims } from "../../src/renderer/src/editor/claimChecks";
+import {
+  ClaimChecks,
+  claimsOf,
+  markShown,
+  shownClaims,
+} from "../../src/renderer/src/editor/claimChecks";
 import { checkRows, noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { translate } from "../../src/shared/i18n";
@@ -369,10 +374,10 @@ describe("All together from the check's result line", { timeout: 30_000 }, () =>
 describe("Supported, not yet cited, in its own words and counted apart", {
   timeout: 30_000,
 }, () => {
-  // protects=a sentence whose ✓ waits on its Passage reads "Supported, not yet cited" on its mark and card, has a row of its own in the check card, is never among the supported nor among those to check, and makes the Note's state "1 not yet cited", never Not checked nor the green Checked, in English and Chinese; once added, it is supported and the Note is Checked (#3019); fails_when=it is worded or counted as Not checked or as supported, or the Note shows Checked while it waits; no_claim=the row's look.
+  // protects=a sentence whose ✓ waits on its Passage reads "Supported, not yet cited" on its card, is in the check card's row of what can be cited, is never among the supported nor among those to check, and makes the Note's state "1 can be cited", never Not checked nor the green Checked, in English and Chinese; once added, it is supported and the Note is Checked (#3019, #3358); fails_when=it is worded or counted as Not checked or as supported, or the Note shows Checked while it waits; no_claim=the row's look.
   test.each([
-    ["en", "Supported, not yet cited", "1 supported, not yet cited", "1 not yet cited"],
-    ["zh-CN", "有依据，尚未引用", "1 句有依据，尚未引用", "1 句尚未引用"],
+    ["en", "Supported, not yet cited", "1 can be cited", "1 can be cited"],
+    ["zh-CN", "有依据，尚未引用", "1 句可添加引用", "1 句可添加引用"],
   ] as const)("%s", async (language, heading, row, badge) => {
     const { editor } = await checked(
       (tides) => [
@@ -395,7 +400,7 @@ describe("Supported, not yet cited, in its own words and counted apart", {
       ["supported", 1],
       ["notYetCited", 1],
     ]);
-    expect(translate(language, "checks.row.notYetCited.one")).toBe(row);
+    expect(translate(language, "checks.row.canBeCited.one")).toBe(row);
     const state = noteStateOf(health());
     expect(state?.kind).toBe("not-yet-cited");
     expect(
@@ -405,5 +410,78 @@ describe("Supported, not yet cited, in its own words and counted apart", {
     expect(addFoundCitations(editor)).toBe(1);
     expect(health()).toMatchObject({ supported: 2, notYetCited: [] });
     expect(noteStateOf(health())?.kind).toBe("checked");
+  });
+});
+
+const plain = (id: string, sentence: string): JSONContent => ({
+  type: "paragraph",
+  attrs: { id },
+  content: [{ type: "text", text: sentence }],
+});
+
+describe("What the User wrote can be cited, all in one step", { timeout: 30_000 }, () => {
+  // protects=a Supported sentence the User wrote with no Citation is left as written and shows no mark, as a sentence Supported, not yet cited shows none; both count as can be cited, in the card's one row and the Note's state; Add all cites every one in one step and one Undo takes them all away; a sentence edited since its check keeps its mark, is not counted and is not cited; with every result shown each mark is back (#3358); fails_when=the check writes into the User's words, a Supported mark shows by default, the count misses one or counts the edited sentence, Add all cites the edited sentence, or Undo takes back only part; no_claim=the row's look.
+  test("Add all cites a supported sentence with no Citation and one not yet cited, one Undo for both", async () => {
+    const { editor, calls, tides } = await checked(
+      (tides) => [
+        plain("mine", SENTENCE),
+        cited("waiting", SENTENCE_ZH, citationOf(tides, OTHER_ZH)),
+        plain("edited", SENTENCE),
+      ],
+      ["mine", "waiting", "edited"],
+    );
+    const asked = calls.length;
+    expect(citationsIn(editor).map((each) => each.quote)).toEqual([OTHER_ZH]);
+    const edited = shownClaims(editor.state).find((each) => each.place?.blockId === "edited");
+    if (!edited) throw new Error("The edited sentence has no check.");
+    editor.commands.insertContentAt(edited.sentence.from + "Tides".length, " always");
+    const states = () =>
+      shownClaims(editor.state).map((each) => [each.place?.blockId, each.shown.state]);
+    expect(states()).toEqual([
+      ["mine", "supported"],
+      ["waiting", "not-checked"],
+      ["edited", "needs-recheck"],
+    ]);
+    // Only what needs the reader shows: the edited sentence's ↻.
+    expect(shownClaims(editor.state).map((claim) => markShown(claim, false))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(shownClaims(editor.state).map((claim) => markShown(claim, true))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    const health = () =>
+      noteHealth(editor.state.doc, {
+        claims: shownClaims(editor.state),
+        citationCheck: () => "found",
+      });
+    const mine = shownClaims(editor.state)[0];
+    expect(health()).toMatchObject({ citable: [mine?.from], notYetCited: [expect.any(Number)] });
+    expect(checkRows(health()).find((each) => each.row === "notYetCited")?.places).toHaveLength(2);
+    expect(noteStateOf(health())).toMatchObject({ canBeCited: 2 });
+    const before = editor.getJSON();
+
+    expect(addFoundCitations(editor)).toBe(2);
+    expect(states()).toEqual([
+      ["mine", "supported"],
+      ["waiting", "supported"],
+      ["edited", "needs-recheck"],
+    ]);
+    expect(citationsIn(editor).map((each) => [each.documentId, each.foundByCheck ?? null])).toEqual(
+      [
+        [tides.id, true],
+        [tides.id, null],
+        [tides.id, true],
+      ],
+    );
+    expect(health()).toMatchObject({ citable: [], notYetCited: [] });
+
+    editor.commands.undo();
+    expect(editor.getJSON()).toEqual(before);
+    expect(noteStateOf(health())).toMatchObject({ canBeCited: 2 });
+    expect(calls.length).toBe(asked);
   });
 });

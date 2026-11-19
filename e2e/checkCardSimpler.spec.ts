@@ -11,6 +11,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   openCardMenu,
@@ -505,6 +506,7 @@ for (const [language, width] of [
       ],
     ]);
     const card = window.getByTestId("claim-card");
+    await markShownFor(window, window.getByTestId("claim-mark"));
     await pointAndClick(window, window.getByTestId("claim-mark"));
     await expect(card.getByTestId("claim-badge")).toHaveText(t("claim.state.supported"));
     await expect(card.getByTestId("claim-sentence")).toHaveText(`“${text}”`);
@@ -574,8 +576,8 @@ for (const [language, width] of [
       ]),
     );
     const card = window.getByTestId("claim-card");
-    // Each card opens from the keyboard, with the caret in its sentence: a sentence not checked
-    // has no mark on the page, and the pointer never rests over another sentence's mark.
+    // Each card opens from the keyboard, with the caret in its sentence: a Supported sentence
+    // shows no mark by default, and the pointer never rests over another sentence's mark.
     const open = async (words: string) => {
       await window.getByTestId("mind-editor").evaluate((dom, sentence) => {
         const editor = (dom as unknown as { editor: Editor }).editor;

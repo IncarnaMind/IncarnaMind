@@ -42,14 +42,14 @@ const WORDS = {
     notChecked: "4 not checked",
     checking: "4 being checked",
     foot: (done: number) => `Checking ${done} of 4`,
-    supported: "3 supported",
+    canBeCited: "3 can be cited",
     look: "1 needs a look",
   },
   "zh-CN": {
     notChecked: "4 句未核对",
     checking: "4 句正在核对",
     foot: (done: number) => `正在核对 ${done}/4`,
-    supported: "3 句有依据",
+    canBeCited: "3 句可添加引用",
     look: "1 句需要留意",
   },
 } as const;
@@ -82,7 +82,7 @@ const countOf = async (card: Locator, row: string): Promise<number> => {
 /** The rows' counts together: each sentence once, the own-notes line under supported aside. */
 const rowsTogether = async (card: Locator): Promise<number> => {
   const counts = await Promise.all(
-    ["look", "supported", "checking", "toCheck"].map((row) => countOf(card, row)),
+    ["look", "supported", "notYetCited", "checking", "toCheck"].map((row) => countOf(card, row)),
   );
   return counts.reduce((sum, count) => sum + count, 0);
 };
@@ -141,14 +141,19 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(left).toBeGreaterThan(0);
     await expect(foot).toHaveText(words.foot(4 - left));
     await expect.poll(() => rowsTogether(card)).toBe(4);
-    expect((await countOf(card, "supported")) + (await countOf(card, "look"))).toBe(4 - left);
+    expect(
+      (await countOf(card, "supported")) +
+        (await countOf(card, "notYetCited")) +
+        (await countOf(card, "look")),
+    ).toBe(4 - left);
     // The rows say what moved: no line under them counts the landed sentences a second time.
     await expect(card.locator(".check-card-note")).toHaveCount(0);
 
     await releaseChecks(app);
     await expect(card.getByTestId("health-checking")).toHaveCount(0);
     await expect(foot).toHaveCount(0);
-    await expect(card.getByTestId("health-supported")).toContainText(words.supported);
+    // Supported, but citing nothing yet: the row of what can be cited holds them (#3358).
+    await expect(card.getByTestId("health-notYetCited")).toContainText(words.canBeCited);
     await expect(card.getByTestId("health-look")).toContainText(words.look);
     await expect.poll(() => rowsTogether(card)).toBe(4);
     await app.close();

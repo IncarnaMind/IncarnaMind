@@ -84,6 +84,22 @@ function restingPassage(part: Judged): CitationAttributes | null {
 }
 
 /**
+ * The Passage a Supported part rests on that no Citation of the sentence is on yet, as a check
+ * found it: one more Citation there leaves no two on the same words (#3358). Null when there is
+ * none, or a Citation already overlaps it, which the card widens or replaces instead.
+ */
+export function passageToAdd(
+  part: Judged & Pick<ClaimCheckPart, "restsOnPassage">,
+  citations: readonly HeldCitation[],
+): CitationAttributes | null {
+  if (part.restsOnPassage) return null;
+  const passage = restingPassage(part);
+  if (passage?.check !== "found") return null;
+  const place = placeOf(passage);
+  return citations.some((citation) => overlapsCitation(placeOf(citation), place)) ? null : passage;
+}
+
+/**
  * Whether a part's ✓ rests on a Passage the sentence's Citations don't hold: it shows none until
  * that Passage is one of them (#3019).
  */

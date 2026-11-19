@@ -6,7 +6,7 @@ import { offerEditorUndo } from "./editorUndo";
 import { NotYetCitedIcon } from "./icons";
 
 /**
- * The check card's row of sentences Supported, not yet cited (#3019), with its action on it: Add
+ * The check card's row of sentences that can be cited (#3019, #3358), with its action on it: Add
  * all, or Add for one, makes each Passage its part's Citation, as one Undo, and Next moves to the
  * next such sentence as the other rows do. Add changes the Note's text and nothing else: no viewer
  * opens, and the caret and the scroll stay where they are.

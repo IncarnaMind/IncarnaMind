@@ -202,14 +202,14 @@ function searchTheWeb(mindId: string, sentence: string): void {
 
 /**
  * A sentence check's mark in the margin (#96), level with the sentence's
- * first line: a quiet tick with "+" when the Passage found can become its
- * Citation (a plain tick when the card changes the sentence's own Citation
- * instead), an amber "!", an outlined red "≠", a grey ring when it wasn't
+ * first line: an amber "!", an outlined red "≠", a grey ring when it wasn't
  * checked, ↻ when it needs a re-check, a dashed ring around what a decision
- * model's first reading leans to while no verdict stands (#3118). Hovering or
- * focusing it shows its card, and clicking keeps the card until it is
- * dismissed; Esc closes it and puts the caret back in the sentence. While the
- * card is open, its sentence is outlined.
+ * model's first reading leans to while no verdict stands (#3118); with every
+ * result shown (#3358), a quiet tick, with "+" when the Passage found can
+ * become its Citation. A mark that doesn't show keeps its place, unseen, as
+ * its card's anchor. Hovering or focusing it shows its card, and clicking
+ * keeps the card until it is dismissed; Esc closes it and puts the caret back
+ * in the sentence. While the card is open, its sentence is outlined.
  */
 export function ClaimMark({
   claim,
@@ -220,6 +220,7 @@ export function ClaimMark({
   reveal,
   onRevealed,
   inline = false,
+  shown,
 }: {
   claim: ShownClaim;
   editor: Editor;
@@ -230,6 +231,8 @@ export function ClaimMark({
   onRevealed(): void;
   /** A folded Mind draws it in the text, at its sentence's end (`MarginChecks`). */
   inline?: boolean;
+  /** Whether it shows on the page (`markShown`). */
+  shown: boolean;
 }) {
   const t = useT();
   const state = claim.shown.state;
@@ -240,8 +243,6 @@ export function ClaimMark({
   const awaiting = foundElsewhere(claim);
   // What a decision model's first reading leans to, while no verdict stands behind it (#3118).
   const leaning = firstReadingShown(claim);
-  // A sentence not checked yet has no mark on the page (D276): its button stays, unseen, as its card's anchor (#1941).
-  const silent = mark === "not-checked" && !awaiting && !leaning;
   const id = claim.check.id;
   const place = useCardPlace(mindId);
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
@@ -424,6 +425,7 @@ export function ClaimMark({
         data-waiting={awaiting || undefined}
         data-leaning={leaning?.verdict}
         data-own-note={ownNoteOnly || undefined}
+        data-quiet={shown ? undefined : true}
         className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
         aria-label={label}
@@ -478,11 +480,11 @@ export function ClaimMark({
         {leaning ? (
           <FirstReadingIcon verdict={leaning.verdict} className="margin-check-icon" />
         ) : (
-          !silent && (
+          shown && (
             <ClaimMarkIcon state={mark} ownNoteOnly={ownNoteOnly} className="margin-check-icon" />
           )
         )}
-        {plus && <span aria-hidden="true">+</span>}
+        {shown && plus && <span aria-hidden="true">+</span>}
       </button>
       {open && outlineLayer && <ClaimOutline editor={editor} id={id} layer={outlineLayer} />}
       {open &&

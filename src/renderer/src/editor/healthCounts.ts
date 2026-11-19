@@ -54,6 +54,7 @@ import { readProposalAttribute } from "../../../shared/proposals";
 import { INLINE_NODE, isClaim, onlyNamesItsTable } from "../../../shared/sentences";
 import { onlyNamesItsSource } from "../../../shared/sourceNames";
 import {
+  canBeCited,
   claimPlaces,
   foundElsewhere,
   keptSpans,
@@ -126,6 +127,11 @@ export interface NoteHealth {
    * Passage it found is their Citation. Counted apart: never supported, never to check.
    */
   notYetCited: number[];
+  /**
+   * The supported claims with a Passage their check found that no Citation of theirs is on yet
+   * (#3358): they count among the supported, and the card offers them with the ones above.
+   */
+  citable: number[];
   /** The sentences the check found to be their writer's own view (#3322): checked, never a look. */
   ownViews: number[];
   checkable: number;
@@ -358,6 +364,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
     ownNotes: [],
     supportedAt: [],
     notYetCited: [],
+    citable: [],
     ownViews: [],
     checkable: 0,
     supported: 0,
@@ -463,6 +470,14 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
         if (kind !== "chart" && supportedByOwnNotesOnly(claim.check)) health.ownNotes.push(from);
         if (kind !== "chart" && isClaim(text) && citations.length === 0)
           health.noCitation.push(from);
+        if (
+          missing.length === 0 &&
+          canBeCited(
+            claim,
+            citations.map((each) => each.attributes),
+          )
+        )
+          health.citable.push(from);
       }
       if (unsupported || contradicted) {
         health.lookClaims.push(from);
@@ -499,7 +514,8 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
  * The check card's rows (#2831): its sentences, each in one row by its one state, so the rows add
  * up to the sentences a check reads. What needs a look (unsupported, contradicted, or a Citation
  * not found: its own card says which), what is supported, with the ones only the User's own notes
- * back named under it (`ownNotes`, of the supported), what is Supported, not yet cited (#3019),
+ * back named under it (`ownNotes`, of the supported), what can be cited: Supported, not yet cited
+ * (#3019), and supported with a Passage to add (#3358),
  * what is its writer's own view (#3322), what is being checked and what isn't checked, the
  * sentences the last whole check couldn't sort among them (named on that check's line too). Each
  * counts once, in its worst state: needs a look, then not checked, then supported, so an Analysis
@@ -527,13 +543,16 @@ export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly
   const toCheck = distinct.flatMap((pos) =>
     Array.from({ length: Math.max(1, columns.get(pos) ?? 0) }, () => pos),
   );
-  const supportedAt = health.supportedAt.filter((pos) => !look.has(pos) && !notChecked.has(pos));
+  const citable = new Set(health.citable);
+  const supportedAt = health.supportedAt.filter(
+    (pos) => !look.has(pos) && !notChecked.has(pos) && !citable.has(pos),
+  );
   const supported = new Set(supportedAt);
   const places: Record<CheckRow, readonly number[]> = {
     look: health.lookClaims,
     supported: supportedAt,
     ownNotes: health.ownNotes.filter((pos) => supported.has(pos)),
-    notYetCited: health.notYetCited,
+    notYetCited: [...health.notYetCited, ...health.citable].sort((a, b) => a - b),
     ownViews: health.ownViews,
     checking: health.checking,
     toCheck,

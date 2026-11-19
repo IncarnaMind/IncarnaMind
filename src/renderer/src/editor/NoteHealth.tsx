@@ -77,6 +77,7 @@ const NO_HEALTH: Health = {
   ownNotes: [],
   supportedAt: [],
   notYetCited: [],
+  citable: [],
   ownViews: [],
   checkable: 0,
   supported: 0,
@@ -194,7 +195,7 @@ const ROW_WORDS = {
   look: "checks.row.look",
   supported: "checks.row.supported",
   ownNotes: "checks.row.ownNotes",
-  notYetCited: "checks.row.notYetCited",
+  notYetCited: "checks.row.canBeCited",
   ownViews: "checks.row.ownViews",
   checking: "checks.row.checking",
   toCheck: "checks.row.notChecked",
@@ -285,7 +286,9 @@ export function HealthCard({
   // brings can land below it, and is scrolled into view where it lands (#3019).
   const notYetCitedRow = useRef<HTMLDivElement>(null);
   const allCheckedLine = useRef<HTMLParagraphElement>(null);
-  const waitingShown = running === undefined && placesOf("notYetCited").length > 0;
+  // Only a sentence Supported, not yet cited keeps the Note from Checked: a ✓ that cites nothing yet
+  // waits in the row without taking the body's scroll from the rows above it (#3358).
+  const waitingShown = running === undefined && health.notYetCited.length > 0;
   const allCheckedShown = running === undefined && summary?.kind === "all";
   const allCheckedWords = allCheckedHead(state, t, language);
   useEffect(() => {

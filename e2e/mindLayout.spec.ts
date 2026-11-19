@@ -25,6 +25,7 @@ import {
   setGroupBeside,
   setLanguage,
   setWindowSize,
+  showEveryCheckResult,
   sizeMind,
   slideSelect,
   slideToHandle,
@@ -229,7 +230,9 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await expect(markers.nth(2)).toHaveAttribute("data-check", "not-found");
 
   // The right margin holds a sentence's own check, never a Citation's: the markers carry theirs.
-  // Its one mark is the added sentence's, with the verdict the Answer's judgement gave it (#2313).
+  // Its one mark is the added sentence's, with the verdict the Answer's judgement gave it (#2313),
+  // a ✓ that shows with every result (#3358).
+  await showEveryCheckResult(window);
   const margin = window.locator(".mind-editor-frame").getByTestId("margin-checks");
   await expect(margin.getByRole("button")).toHaveCount(1);
   const sentenceMark = margin.getByTestId("claim-mark");
@@ -652,6 +655,8 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(await (await box(window.getByTestId("assistant"))).width).toBeCloseTo(320, 0);
     const marks = card.getByTestId("claim-mark");
     await expect(marks).toHaveCount(2);
+    // Both ✓, which show with every result (#3358).
+    await showEveryCheckResult(window);
     await expect(marks.first()).toBeVisible();
     expect((await box(column)).width, "the Mind is under the old 900px fold").toBeLessThan(900);
     const wide = await gutters();

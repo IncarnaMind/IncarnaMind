@@ -21,6 +21,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   pointAndClick,
@@ -29,6 +30,7 @@ import {
   setLanguage,
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
+  showEveryCheckResult,
 } from "./app";
 
 const WORDS = {
@@ -236,8 +238,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(markOf(window, "worked")).toHaveAttribute("data-check", "supported");
       await expect(markOf(window, "wrong")).toHaveAttribute("data-check", "contradicted");
       await expect(markOf(window, "view")).toHaveAttribute("data-check", "own-view");
-      // The Note: a dotted line under the sentence worked out, a wash on the contradiction, and
-      // nothing on the view, which only the margin marks.
+      // By default only what needs a look is marked: the contradiction's mark and wash (#3358).
+      await expect(window.locator('[data-testid="claim-mark"]:not([data-quiet])')).toHaveCount(1);
+      await expect.poll(() => washed(window)).toBe(words.wrong);
+      // With every result: a dotted line under the sentence worked out, a wash on the
+      // contradiction, and nothing on the view, which only the margin marks.
+      await showEveryCheckResult(window);
       await expect.poll(() => washed(window, "worked-out")).toBe(words.worked);
       expect(await washed(window, "contradicted")).toBe(words.wrong);
       expect(await washed(window)).toBe(words.worked + words.wrong);
@@ -245,6 +251,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const card = window.getByTestId("claim-card");
       // The view's card: named as one, what the Document holds on it, every quote, and no fix.
+      await markShownFor(window, markOf(window, "view"));
       await pointAndClick(window, markOf(window, "view"));
       await expect(card.getByTestId("claim-badge")).toHaveText(
         translate(language, "claim.state.own-view"),
@@ -259,6 +266,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
 
       // Worked out: headed so, the working before the two quotes it used.
+      await markShownFor(window, markOf(window, "worked"));
       await pointAndClick(window, markOf(window, "worked"));
       await expect(card.getByTestId("claim-badge")).toHaveText(
         translate(language, "claim.state.workedOut"),
@@ -281,7 +289,9 @@ for (const language of ["en", "zh-CN"] as const) {
         translate(language, "checks.row.ownViews.one"),
       );
       await expect(health.getByTestId("health-look")).toHaveAttribute("data-count", "1");
-      await expect(health.getByTestId("health-supported")).toHaveAttribute("data-count", "2");
+      // Both Supported sentences cite nothing yet, so the row of what can be cited holds them (#3358).
+      await expect(health.getByTestId("health-notYetCited")).toHaveAttribute("data-count", "2");
+      await expect(health.getByTestId("health-supported")).toHaveCount(0);
       await screenshot(window, `where-from-rows-${language}`);
       await window.keyboard.press("Escape");
 
@@ -292,6 +302,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const typed = window.locator('[data-testid="claim-mark"][data-check="own-view"]');
       await expect(typed).toHaveCount(1, { timeout: 30_000 });
       expect(await washed(window)).toBe("");
+      await markShownFor(window, typed);
       await pointAndClick(window, typed);
       await expect(card.getByTestId("claim-badge")).toHaveText(
         translate(language, "claim.state.own-view"),

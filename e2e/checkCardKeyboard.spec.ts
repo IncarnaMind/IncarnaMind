@@ -12,6 +12,7 @@ import {
   dismissChatSetup,
   focusSettled,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   pointAndClick,
@@ -552,6 +553,8 @@ for (const language of ["en", "zh-CN"] as const) {
     // Tab out of the text reaches the margin mark (past the sentence's Citation chip); Enter on it
     // opens the card with the focus on its first action.
     const mark = window.getByTestId("claim-mark").first();
+    // A Supported sentence's mark is reached so only with every result shown (#3358).
+    await markShownFor(window, mark);
     // The browser starts Tab from where the User last clicked or focused, which a caret set by the
     // page doesn't always move: sometimes it started past the mark and ended in a Citation's card.
     const sentence = await editor.locator(":scope > p").first().boundingBox();

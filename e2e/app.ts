@@ -3137,6 +3137,28 @@ export async function openPageMenu(window: Page): Promise<Locator> {
 }
 
 /**
+ * Turns on "Show every check result" for the Note in view (#3358), from its ⋯ menu as the User
+ * does: every checked sentence shows its mark again, for a spec about a mark that only shows so.
+ */
+export async function showEveryCheckResult(window: Page): Promise<void> {
+  const menu = await openPageMenu(window);
+  const toggle = menu.getByTestId("page-every-result");
+  if ((await toggle.getAttribute("aria-checked")) !== "true") await pointAndClick(window, toggle);
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+}
+
+/**
+ * Shows every check result first when `mark` shows only so (#3358): for a spec about the card of a
+ * Supported sentence, which the User opens from its mark with every result shown.
+ */
+export async function markShownFor(window: Page, mark: Locator): Promise<void> {
+  if ((await mark.getAttribute("data-quiet")) !== null) await showEveryCheckResult(window);
+  await expect(mark).toBeVisible();
+}
+
+/**
  * The More › submenu of an object's menu that is open, opened with a click on its row, as a person
  * opens it. Its items sit beside the menu, not inside it.
  */

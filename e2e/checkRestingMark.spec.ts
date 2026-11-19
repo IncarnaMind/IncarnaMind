@@ -11,6 +11,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   openCardMenu,
@@ -204,6 +205,7 @@ for (const [language, width] of [
     const mark = (id: string) => window.locator(`[data-testid="claim-mark"][data-claim="${id}"]`);
     const card = window.getByTestId("claim-card");
     const open = async (id: keyof typeof marks) => {
+      await markShownFor(window, mark(id));
       await pointAndClick(window, mark(id));
       await expect(card).toBeVisible();
       await expect(card.getByTestId("claim-sentence")).toHaveText(`“${words[id]}”`);

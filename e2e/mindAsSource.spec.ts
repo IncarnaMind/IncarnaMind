@@ -12,6 +12,7 @@ import {
   frontMind,
   launchApp,
   leaveText,
+  markShownFor,
   motionSettled,
   newMind,
   openMoreMenu,
@@ -214,6 +215,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // A ticked box, not the green tick: this support is the User's own note alone.
       await expect(mark).toHaveAttribute("data-own-note", "true");
       await expect(mark).toHaveAttribute("aria-label", words.supported);
+      await markShownFor(window, mark);
       await pointAndClick(window, mark);
       const claim = window.getByTestId("claim-card");
       await expect(claim.getByTestId("claim-badge")).toContainText(words.supported);

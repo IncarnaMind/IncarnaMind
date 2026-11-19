@@ -31,6 +31,7 @@ import { useMindStylePanel } from "../mindStylePanel";
 import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
 import { openDocumentBeside } from "../verify";
+import { EveryResultSwitch } from "./EveryResultSwitch";
 import { LookMenuItems } from "./LookMenu";
 import { MindSourceFoot } from "./MindSourceFoot";
 import { MindCounts } from "./WordCount";
@@ -44,7 +45,8 @@ import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin"
  * "Review their changes" for one with someone's changes or comments; Review
  * changes for the last AI edit applied, while it can be restored (#1795); and
  * at its foot which agent wrote a Mind an outside agent wrote, and when
- * (#3306), the counts and the switch that shows the count while writing.
+ * (#3306), the counts and the switch that shows the count while writing, and
+ * the switch that shows every check result (#3358).
  */
 export function PageMenu({
   editor,
@@ -302,6 +304,11 @@ export function PageMenu({
               </p>
             )}
             <MindCounts editor={editor} doc={doc} switchable={!readOnly} />
+            {!readOnly && (
+              <div className="page-menu-foot">
+                <EveryResultSwitch doc={doc} inMenu testId="page-every-result" />
+              </div>
+            )}
           </>
         }
       />

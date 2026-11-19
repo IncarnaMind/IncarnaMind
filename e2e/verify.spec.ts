@@ -170,8 +170,8 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect(marks(window).and(window.locator('[data-check="contradicted"]'))).toHaveCount(1);
   await expect(marks(window).and(window.locator('[data-check="unsupported"]'))).toHaveCount(1);
   const notChecked = marks(window).and(window.locator('[data-check="not-checked"]'));
-  // A claim not checked yet has no mark on the page: its card opens from the row and from the shortcut.
-  await expect(notChecked).toBeHidden();
+  // A claim not checked keeps its quiet grey ring (#3358); its card opens from the row and from the shortcut too.
+  await expect(notChecked).toBeVisible();
   await screenshot(window, "verify-results-en");
 
   // Where its text came from is in the page's ⋯ menu.

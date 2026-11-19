@@ -10,6 +10,7 @@ import {
   GENERATED_MARK,
 } from "../../src/core";
 import { claimsOf, foundElsewhere } from "../../src/renderer/src/editor/claimChecks";
+import { noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { pendingProposals } from "../../src/shared/proposals";
 import { askAssistant } from "../helpers/assistant";
 import { checkingModel, checkReply, isCheckRun, type Plan } from "../helpers/checks";
@@ -21,10 +22,11 @@ import { editMind, readMind, resolveChanges, writeMind } from "../helpers/minds"
 import { judgesNothing, type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 
 /*
- * A Passage a check finds that the sentence's Citations don't hold becomes a Citation in three
- * ways only (#3019): inside the assistant's own change, in an Answer, or by the User's click. A
- * check of a sentence in the Note writes nothing into its text and leaves no waiting change; its
- * mark keeps the model's own verdict, which the Note reads against its Citations as they stand.
+ * A Passage a check finds that the sentence's Citations don't hold becomes a Citation in the
+ * assistant's own write as it lands, in an Answer, or by the User's click (#3019, #3358). A check
+ * of the User's own sentence, or of words the assistant wrote before, writes nothing into its text
+ * and leaves no waiting change; its mark keeps the model's own verdict, which the Note reads
+ * against its Citations as they stand.
  */
 
 const LINE = "The tide turns twice a day.";
@@ -182,6 +184,63 @@ describe("A check of a sentence in the Note writes nothing into it", { timeout: 
     const [now] = shownIn(client);
     expect(now?.check.state).toBe("supported");
     expect(now && foundElsewhere(now)).toBe(true);
+  });
+});
+
+const GENERATED = [{ type: GENERATED_MARK }];
+
+/** A paragraph holding `sentence` with no Citation, in the assistant's words. */
+const written = (id: string, sentence: string): JSONContent => ({
+  type: "paragraph",
+  attrs: { id },
+  content: [{ type: "text", text: sentence, marks: GENERATED }],
+});
+
+/** How many sentences of the Note have a Passage to cite, as its foot line counts them. */
+const citableIn = (client: MindClient) =>
+  noteHealth(readMind(client), { claims: shownIn(client), citationCheck: () => "found" }).citable
+    .length;
+
+describe("A check the User asks for writes nothing into the assistant's words either", {
+  timeout: 30_000,
+}, () => {
+  // protects=a check of a sentence the assistant wrote with no Citation, no longer waiting in its change, run by the User on the sentence or by Check this Note, writes no Citation into it and leaves no waiting change, as with the User's own words, since Undo of the write that put the words there would leave a Citation behind; it reads Supported with a Passage to cite, in English and Chinese (#3358); fails_when=the check adds a Citation to the words or proposes one, or the sentence isn't counted as one that can be cited; no_claim=a check of the assistant's write as it lands, held below and in foundPassageChange.
+  test.each([
+    ["in English", SENTENCE],
+    ["in Chinese", SENTENCE_ZH],
+  ] as const)("%s", async (_language, sentence) => {
+    const { core, client, mind } = await setUpWithDocuments(checkingModel(PLANS), [TIDES]);
+    writeMind(client, [written("s", sentence)]);
+    await client.settled();
+    const before = textOf(readMind(client));
+
+    await checkParagraph(core, mind.id, "s", (before[0] ?? "").length);
+    await client.settled();
+
+    expect(textOf(readMind(client))).toEqual(before);
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(shownIn(client).map((claim) => claim.shown)).toEqual([{ state: "supported" }]);
+    expect(citableIn(client)).toBe(1);
+  });
+
+  test("Check this Note", async () => {
+    const { core, client, mind } = await setUpWithDocuments(checkingModel(PLANS), [TIDES]);
+    writeMind(client, [
+      written("ai", SENTENCE),
+      { type: "paragraph", attrs: { id: "mine" }, content: [{ type: "text", text: SENTENCE_ZH }] },
+    ]);
+    await client.settled();
+
+    await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "changed" });
+    await client.settled();
+
+    expect(textOf(readMind(client))).toEqual([SENTENCE, SENTENCE_ZH]);
+    expect(pendingProposals(client.blocks)).toEqual([]);
+    expect(shownIn(client).map((claim) => claim.shown)).toEqual([
+      { state: "supported" },
+      { state: "supported" },
+    ]);
+    expect(citableIn(client)).toBe(2);
   });
 });
 

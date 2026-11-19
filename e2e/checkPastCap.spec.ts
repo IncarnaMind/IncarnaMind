@@ -106,10 +106,10 @@ test("a sentence past the most one write checks says why, in English and Chinese
     await motionSettled(window);
   };
   await expect(marks).toHaveCount(2);
-  // A sentence the write left unchecked has no mark on the page, and its Citation that
+  // A sentence the write left unchecked keeps the quiet grey ring (#3358), and its Citation that
   // isn't found has its own state on its marker: the two never disagree.
   await expect(marks.last()).toHaveAttribute("data-check", "not-checked");
-  await expect(marks.last()).toBeHidden();
+  await expect(marks.last()).toBeVisible();
   const marker = editor.getByTestId("citation-chip");
   await expect(marker).toHaveAttribute("data-check", "not-found");
   await expect(marker.locator(".citation-marker-icon")).toBeVisible();

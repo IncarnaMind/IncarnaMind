@@ -33,7 +33,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
-import { restsElsewhere } from "../../../shared/citedNow";
+import { passageToAdd } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";
 import { isOwnView, partsWrittenBy, planOf } from "../../../shared/claimParts";
 import { readTableBinding } from "../../../shared/figureRuns";
@@ -392,9 +392,10 @@ interface FoundCitation {
 }
 
 /**
- * The Passages a check of a sentence the assistant wrote found for its Supported parts that its
- * Citations don't hold (#3019): each becomes that part's Citation inside the assistant's own change,
- * in its number series, accepted or rejected with the rest. The verdict stays the model's.
+ * The Passages a check of a sentence the assistant wrote found for its Supported parts that no
+ * Citation of it is on yet (#3019, #3358): each becomes that part's Citation, in its number series,
+ * as if the assistant had cited it, inside its own change while that waits. The verdict stays the
+ * model's.
  */
 function foundCitations(
   sentence: Sentence,
@@ -402,8 +403,7 @@ function foundCitations(
   result: ClaimCheckResult,
 ): FoundCitation[] {
   return (result.parts ?? []).flatMap((part) => {
-    if (!restsElsewhere(part, sentence.citations, claim)) return [];
-    const evidence = part.evidence[part.decidingEvidence ?? 0];
+    const evidence = part.verdict === "supported" ? passageToAdd(part, sentence.citations) : null;
     return evidence
       ? [
           {
@@ -435,18 +435,18 @@ function waitingBlock(element: Y.XmlElement, change: string): boolean {
 
 /**
  * The sentence `from`..`to` of a paragraph's content as the Note holds it, each found Passage's
- * Citation after its part's words (`at`, in the paragraph's offsets), and how many went in. One
- * goes in only inside the write's change while it still waits, as part of it: after words that
- * change inserts (the nearest words before it, past any Citation), or in a Block it adds. After
- * words the User accepted, or their own, a check writes nothing (#3019); the sentence reads found
- * elsewhere, with Add as Citation on its card.
+ * Citation after its part's words (`at`, in the paragraph's offsets), and how many went in. Inside
+ * the write's change while it still waits, one goes in as part of it: after words that change
+ * inserts (the nearest words before it, past any Citation), or in a Block it adds. Elsewhere one
+ * goes in only with `assistant`: the assistant's own words in a Block the write added whole (#3358).
+ * Anywhere else a check writes nothing (#3019), and the card and the Note's foot line offer it.
  */
 function withFound(
   content: readonly NodeJSON[],
   from: number,
   to: number,
   found: readonly { at: number; citation: CitationAttributes }[],
-  change: { request: string; block: boolean },
+  change: { request: string; block: boolean; assistant: boolean },
 ): { nodes: NodeJSON[]; added: number } {
   const out: NodeJSON[] = [];
   let added = 0;
@@ -457,7 +457,7 @@ function withFound(
     if (!points.has(at) || cited.has(at)) return;
     cited.add(at);
     const ref = waitingInsert(beside, change.request);
-    if (!ref && !change.block) return;
+    if (!ref && !change.block && !change.assistant) return;
     for (const each of found.filter((one) => one.at === at)) {
       added++;
       out.push({
@@ -608,12 +608,13 @@ function placeOf(
 /**
  * Lands one sentence in the Mind: marked where it is, its words as they are; once the User has
  * changed them, its mark shows its check needs doing again. The Passages its check found go in as
- * its parts' Citations only inside the write's change `change` while it still waits there for the
- * User; once they accepted, rejected or changed it, its words are theirs and a check writes nothing
- * into them (#3019). A sentence of opinion only loses the mark it was checked under. With `owner`,
- * the check's request, it lands only while that check's mark is still the sentence's: a newer
- * check of it the User asked for keeps its own. False when the sentence is gone from the Mind or
- * another check has it.
+ * its parts' Citations inside the write's change `change` while it still waits there for the
+ * User, and once it is accepted only in the assistant's words of a Block the write added whole
+ * (`added`, #3358), which Undo of the write takes away whole. Elsewhere a check writes nothing into
+ * the words (#3019): Undo of a rewrite inside a paragraph would leave the Citation behind. A
+ * sentence of opinion only loses the mark it was checked under. With `owner`, the check's request,
+ * it lands only while that check's mark is still the sentence's: a newer check of it the User
+ * asked for keeps its own. False when the sentence is gone from the Mind or another check has it.
  */
 function land(
   blocks: Y.XmlFragment,
@@ -621,6 +622,7 @@ function land(
   change: string,
   landing: Landing,
   owner: string | null,
+  added: ReadonlySet<string>,
 ): boolean {
   const { sentence } = landing;
   const element = paragraphIn(blocks, ids, sentence.path);
@@ -638,16 +640,16 @@ function land(
     recordOpinions(blocks, [{ ...now, parts: landing.opinion }]);
     return true;
   }
-  const mark = landing.mark(
-    blocks,
-    writtenByAssistant(blocks, { element, from: place.from, to: place.to }),
-  );
+  const assistant = writtenByAssistant(blocks, { element, from: place.from, to: place.to });
+  const mark = landing.mark(blocks, assistant);
   const found = place.same ? foundPlaces(blocks, element, place, landing.found ?? []) : [];
   if (found.length > 0) {
     const content = inlineOf(element);
+    const [top] = sentence.path;
     const cited = withFound(content, place.from, place.to, found, {
       request: change,
       block: waitingBlock(element, change),
+      assistant: assistant && top !== undefined && added.has(ids[top] ?? ""),
     });
     if (cited.added > 0) {
       syncContent(element, replaced(content, place.from, place.to, withMark(cited.nodes, mark)));
@@ -914,6 +916,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
         sentences.map((sentence) => [sentence, markOn(note, input.ids, sentence)]),
       ),
     }));
+    const addedWhole = new Set(
+      shape.changed.flatMap(({ id, before }) => (before === null ? [id] : [])),
+    );
     // Readied as IncarnaMind quits, the model's readiness reads the closed database: that is
     // the check ending, not failing.
     const allowed = await options.prepare(input.prepared).catch((error: unknown) => {
@@ -1033,7 +1038,9 @@ export function createWrittenCheck(options: WrittenCheckOptions) {
       const found: boolean[] = [];
       input.edit((note) => {
         for (const { landing, outcome } of landings)
-          found.push(land(note, input.ids, input.write, landing, outcome ? request : null));
+          found.push(
+            land(note, input.ids, input.write, landing, outcome ? request : null, addedWhole),
+          );
       });
       let outcomes = 0;
       for (const [index, { landing, outcome }] of landings.entries()) {

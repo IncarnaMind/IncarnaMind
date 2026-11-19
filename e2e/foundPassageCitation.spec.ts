@@ -10,6 +10,7 @@ import {
   dismissChatSetup,
   focusSettled,
   launchApp,
+  markShownFor,
   motionSettled,
   newMind,
   openCardMenu,
@@ -22,9 +23,10 @@ import {
 
 /*
  * A sentence whose check found a Passage its Citation doesn't hold reads Supported, not yet cited
- * (#3019): the check writes nothing into the Note, the card is the Supported card with the grey
- * ring and its own line, the check card has one row for these sentences with Add all on it, in
- * view as the check ends, and the badge names them. Add as Citation on the card or Add all on the
+ * (#3019): the check writes nothing into the User's Note, the card is the Supported card with the
+ * grey ring and its own line, which shows on the page with every result (#3358), the check card
+ * has one row of what can be cited with Add all on it, in view as the check ends, and the badge
+ * names them. Add as Citation on the card or Add all on the
  * row shows the ✓ at once, each one Undo, changing the Note and nothing else, and the Citation
  * added says the check found it. The scripted model (src/main/fakeChat/checks.ts) backs a sentence
  * with the line of a Document that shares the most words with it, and finds unsupported one that
@@ -49,14 +51,14 @@ const WORDS = {
   en: {
     heading: "Supported, not yet cited",
     line: "This passage backs the sentence, but the sentence doesn’t cite it yet.",
-    row: "2 supported, not yet cited",
+    row: "2 can be cited",
     addAll: "Add all",
-    badge: "2 not yet cited",
+    badge: "2 can be cited",
     found: "Found by a check of this sentence",
     mixed: {
       look: "1 needs a look",
       supported: "1 supported",
-      waiting: "1 supported, not yet cited",
+      waiting: "1 can be cited",
     },
     mixedBadge: "1 needs a look",
     add: "Add",
@@ -64,11 +66,11 @@ const WORDS = {
   "zh-CN": {
     heading: "有依据，尚未引用",
     line: "这个段落支持这句话，但尚未添加为引用。",
-    row: "2 句有依据，尚未引用",
+    row: "2 句可添加引用",
     addAll: "全部添加",
-    badge: "2 句尚未引用",
+    badge: "2 句可添加引用",
     found: "核对这句话时找到",
-    mixed: { look: "1 句需要留意", supported: "1 句有依据", waiting: "1 句有依据，尚未引用" },
+    mixed: { look: "1 句需要留意", supported: "1 句有依据", waiting: "1 句可添加引用" },
     mixedBadge: "需要留意 1 处",
     add: "添加",
   },
@@ -250,6 +252,7 @@ for (const [language, width] of [
     await screenshot(window, `${language}-badge`, badge);
 
     // One at a time: Add as Citation on the card, the ✓ at once, and Undo takes it back.
+    await markShownFor(window, marks(window).nth(0));
     const card = await openCard(window, marks(window).nth(0));
     await expect(card.getByTestId("claim-badge")).toHaveText(words.heading);
     await expect(card.getByTestId("claim-not-yet-cited")).toHaveText(words.line);
