@@ -36,7 +36,8 @@ export const useAgentsToAskRead = (
 
 /**
  * Reads the agents for `mindId` while it is shown, and again as agents change and as the Note
- * moves Folder, so a card or a line has them before it is opened.
+ * or the Folders around it move or gain a wall, which change what an agent reads (#3394), so a
+ * card or a line has them before it is opened.
  */
 export function useReadAgentsToAsk(mindId: string | null, documentId?: string): void {
   const folderId = useAppStore((state) =>
@@ -55,11 +56,11 @@ export function useReadAgentsToAsk(mindId: string | null, documentId?: string): 
     };
     read();
     const stop = core.on("agents.changed", read);
-    const stopLibrary = documentId ? core.on("library.changed", read) : undefined;
+    const stopLibrary = core.on("library.changed", read);
     return () => {
       current = false;
       stop();
-      stopLibrary?.();
+      stopLibrary();
     };
   }, [mindId, folderId, documentId]);
 }

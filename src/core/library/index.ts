@@ -1493,6 +1493,8 @@ export function createLibrary(options: {
     deletedWith,
     wallOf,
     wallsOf,
+    /** A live Folder and the live Folders inside it up to the next wall, that Folder's own excluded. */
+    treeFolderIds: tree,
     treeDocumentIds(folderId: string): string[] {
       return [...new Set(tree(folderId).flatMap((id) => filedDocumentIdsOf(id)))];
     },

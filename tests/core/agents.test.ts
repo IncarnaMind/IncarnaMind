@@ -396,15 +396,23 @@ describe("outside agents", () => {
     const wholeListed = structured<{
       folders: { id: string; name: string; documents: number; minds: unknown[] }[];
     }>(await wallAgent.callTool({ name: "list_minds", arguments: {} }));
+    // The wall and the Folders inside it, each with what is filed in it (#3394).
     expect(wholeListed.folders).toEqual([
+      { id: client.id, name: "Client A", documents: 0, documentList: [], minds: [] },
       {
-        id: client.id,
-        name: "Client A",
-        documents: 2,
-        documentList: [
-          { id: drafts.id, name: drafts.name, kind: "markdown" },
-          { id: filed.id, name: filed.name, kind: "markdown" },
-        ],
+        id: draftsFolder.id,
+        name: "Drafts",
+        path: "Client A / Drafts",
+        documents: 1,
+        documentList: [{ id: drafts.id, name: drafts.name, kind: "markdown" }],
+        minds: [],
+      },
+      {
+        id: filedFolder.id,
+        name: "Filed",
+        path: "Client A / Filed",
+        documents: 1,
+        documentList: [{ id: filed.id, name: filed.name, kind: "markdown" }],
         minds: [],
       },
     ]);
