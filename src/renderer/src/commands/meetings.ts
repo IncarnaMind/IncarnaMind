@@ -313,6 +313,15 @@ export const meetingCommands: readonly Command[] = [
           : { reason: "meetings.command.noSpeaker" },
     run: () => transcriptHandle.current?.changeSpeaker(),
   },
+  {
+    id: "meeting.reviewSpeakers",
+    label: "meetings.review.open",
+    group: "main",
+    // This opens the confirmation. The remote upload starts only when the User confirms it.
+    reversible: true,
+    when: () => transcriptHandle.current?.canReviewSpeakers() ?? false,
+    run: () => transcriptHandle.current?.reviewSpeakers(),
+  },
   showViewCommand("showNotes", "notes", "meetings.views.showNotes"),
   showViewCommand("showMyNotes", "mine", "meetings.views.showMine"),
   showViewCommand("showTranscript", "transcript", "meetings.views.showTranscript"),

@@ -117,6 +117,7 @@ export function speakersIn(
 }
 
 const NUMBERED = /^(?:Speaker|Them) (\d+)$/;
+export const isNumberedVoice = (label: string) => NUMBERED.test(label);
 
 /** The label for a new Speaker: the first "Speaker N" no line, name or reassignment has taken. */
 function newSpeakerLabel(speakers: TranscriptSpeakers, lines: readonly TranscriptLine[]): string {

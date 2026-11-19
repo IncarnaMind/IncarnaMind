@@ -465,6 +465,7 @@ export interface AppState extends LayoutSlice {
     speakers: TranscriptSpeakers,
     said: WordsInLine,
     name?: Undoable["name"],
+    expected?: SpeakersExpectation,
   ): Promise<SpeakersStep | null>;
   /** To Recently deleted, at once, with one undo line for all of them. */
   deleteDocuments(ids: readonly string[]): Promise<void>;
@@ -535,6 +536,11 @@ const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
  */
 export interface SpeakersStep {
   amend(speakers: TranscriptSpeakers): Promise<void>;
+}
+
+interface SpeakersExpectation {
+  expectedSpeakers: TranscriptSpeakers | null;
+  expectedContentHash: string;
 }
 
 /** Puts a Document in the list: in place if it's there, otherwise first. */
@@ -1928,11 +1934,14 @@ export const useAppStore = create<AppState>()((set, get) => {
       speakers,
       said,
       name = (t) => t("transcript.speaker.change"),
+      expected,
     ) => {
       let step: SpeakersStep | null = null;
-      await attempt(async () => {
-        const before = get().documents.find((each) => each.id === documentId)?.speakers ?? null;
-        const put = async (to: TranscriptSpeakers | null) => {
+      const save = async () => {
+        const before = expected
+          ? expected.expectedSpeakers
+          : (get().documents.find((each) => each.id === documentId)?.speakers ?? null);
+        const put = async (to: TranscriptSpeakers | null, guard?: SpeakersExpectation) => {
           const shown = (value: TranscriptSpeakers | null) =>
             set((state) => ({
               documents: state.documents.map((each) =>
@@ -1940,26 +1949,31 @@ export const useAppStore = create<AppState>()((set, get) => {
               ),
             }));
           const was = get().documents.find((each) => each.id === documentId)?.speakers ?? null;
-          shown(to);
+          if (!guard) shown(to);
           try {
             const document = await core.setTranscriptSpeakers({
               documentId,
               speakers: to ?? { labels: {}, lines: {} },
+              ...guard,
             });
             documentUpdates.flush();
             set((state) => ({ documents: upsert(state.documents, document) }));
+            return document.speakers;
           } catch (error) {
-            shown(was);
+            if (!guard) shown(was);
             throw error;
           }
         };
         let after = speakers;
-        await put(speakers);
+        let written = await put(speakers, expected);
+        const putAgain = async (to: TranscriptSpeakers | null) => {
+          written = await put(to, expected && { ...expected, expectedSpeakers: written });
+        };
         const change: Undoable = {
           said,
           name,
-          undo: () => put(before),
-          redo: () => put(after),
+          undo: () => putAgain(before),
+          redo: () => putAgain(after),
         };
         push(change);
         step = {
@@ -1970,11 +1984,13 @@ export const useAppStore = create<AppState>()((set, get) => {
                 await get().setTranscriptSpeakers(documentId, next, said, name);
                 return;
               }
+              await putAgain(next);
               after = next;
-              await put(next);
             }),
         };
-      });
+      };
+      if (expected) await save();
+      else await attempt(save);
       return step;
     },
 

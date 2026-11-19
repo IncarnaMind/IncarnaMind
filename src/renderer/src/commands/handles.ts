@@ -199,6 +199,8 @@ export const transcriptHandle: Handle<{
   hasLine(): boolean;
   addLine(): Promise<void>;
   canChangeSpeaker(): boolean;
+  canReviewSpeakers(): boolean;
+  reviewSpeakers(): void;
   changeSpeaker(): void;
   canPlay(): true | MessageKey;
   play(): void;

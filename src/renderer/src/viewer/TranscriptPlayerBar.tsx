@@ -17,7 +17,9 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
   );
   if (!playback) return null;
   const { toggle, stop } = useTranscriptPlayer.getState();
-  const { positionMs, durationMs, playing, failure } = playback;
+  const { positionMs, durationMs, playing, failure, clip } = playback;
+  const startMs = clip?.startMs ?? 0;
+  const endMs = clip ? Math.min(clip.endMs, durationMs) : durationMs;
   const wording = failure === null ? null : describeError(failure).wording;
   return (
     <fieldset
@@ -50,11 +52,13 @@ export function TranscriptPlayerBar({ owner }: { owner: string }) {
       {failure === null ? (
         <>
           <span data-testid="transcript-player-time" className="tabular-nums whitespace-nowrap">
-            {paddedClockTime(positionMs)} / {paddedClockTime(durationMs)}
+            {paddedClockTime(positionMs)} / {paddedClockTime(endMs)}
           </span>
           <span aria-hidden="true" className="transcript-player-track">
             <span
-              style={{ transform: `scaleX(${durationMs > 0 ? positionMs / durationMs : 0})` }}
+              style={{
+                transform: `scaleX(${endMs > startMs ? (positionMs - startMs) / (endMs - startMs) : 0})`,
+              }}
             />
           </span>
           <span className="text-[12px] whitespace-nowrap text-ink-meta">

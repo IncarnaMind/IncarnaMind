@@ -20,6 +20,7 @@ import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
+import { openSpeakerReview } from "../meetingSpeakerReview";
 import { isLive, useMeetings } from "../meetings";
 import { durationLabel } from "../meetingTime";
 import { type SpeakersStep, useAppStore, type ViewerTarget } from "../store";
@@ -33,6 +34,7 @@ import { FileStates } from "./FileStates";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import { TranscriptHeadLine } from "./TranscriptHeadLine";
 import { TranscriptPlayerBar } from "./TranscriptPlayerBar";
+import { TranscriptSpeakerReview } from "./TranscriptSpeakerReview";
 import { TranscriptTurn } from "./TranscriptTurn";
 import { fileLineOf, lineId, type PartRow, type TurnRow, turnRowsOf } from "./transcriptTurnRows";
 import { piecesBetween, wordPieces } from "./transcriptWords";
@@ -350,6 +352,8 @@ function TranscriptContent({
     document?.kind === "transcript"
       ? document
       : null;
+  const reviewTrigger = useRef<HTMLButtonElement>(null);
+  const reviewable = nameable !== null && meetingId !== null && transcript.cues.length > 0;
   // A saved Transcript plays while its audio is kept; never while it records (#138).
   const playable =
     meeting?.status === "stopped" && state === "saved" && meeting.audio.kept && document !== null;
@@ -511,12 +515,29 @@ function TranscriptContent({
         const first = row?.pieces.find((piece) => piece.word);
         return row && at !== null && first && at > first.at ? true : "meetings.command.noWord";
       },
+      canReviewSpeakers: () => reviewable,
+      reviewSpeakers: () => {
+        if (!nameable || !reviewable || !meetingId) return;
+        reviewTrigger.current?.focus();
+        openSpeakerReview(meetingId, nameable.id, owner);
+      },
       split: async () => {
         const row = activeRow();
         if (row && caretRef.current?.line === row.id) await splitAt(row, caretRef.current.at);
       },
     }),
-    [activeRow, addLine, meeting, meetingId, nameable, owner, playFrom, playable, splitAt],
+    [
+      activeRow,
+      addLine,
+      meeting,
+      meetingId,
+      nameable,
+      owner,
+      playFrom,
+      playable,
+      reviewable,
+      splitAt,
+    ],
   );
   useHandle(transcriptHandle, lend);
   const firstId = parts[0]?.id;
@@ -698,7 +719,29 @@ function TranscriptContent({
         {aside}
       </ViewerHeader>
       {meeting && hasLines && <TranscriptHeadLine playable={playable} />}
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {reviewable && nameable && meetingId && (
+          <TranscriptSpeakerReview
+            meetingId={meetingId}
+            owner={owner}
+            document={nameable}
+            cues={transcript.cues}
+            lines={lines}
+            playClip={
+              playable
+                ? (startMs, endMs) =>
+                    void useTranscriptPlayer
+                      .getState()
+                      .play(meetingId, startMs, durationMs, owner, {
+                        startMs,
+                        endMs,
+                        source: "system",
+                      })
+                : null
+            }
+            trigger={reviewTrigger}
+          />
+        )}
         <div
           ref={scroller}
           data-testid="viewer-transcript"

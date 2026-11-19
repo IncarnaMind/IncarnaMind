@@ -12,6 +12,7 @@ import {
   closeSync,
   fsyncSync,
   mkdirSync,
+  openAsBlob,
   openSync,
   readdirSync,
   readSync,
@@ -224,6 +225,47 @@ export function readStretch(
     }
   }
   return mixed;
+}
+
+/** A WAV of only the computer's sound, retaining Meeting time through gaps and pauses. */
+export async function systemRecording(
+  parts: readonly AudioPart[],
+  durationMs: number,
+  signal: AbortSignal,
+): Promise<Blob> {
+  const sampleAt = (ms: number) => Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
+  const samples = sampleAt(durationMs);
+  const silence = new Blob([new Uint8Array(PART_SAMPLES * BYTES_PER_SAMPLE)]);
+  const chunks: Blob[] = [new Blob([Uint8Array.from(wavHeader(samples))])];
+  let written = 0;
+  const pad = (until: number) => {
+    while (written < until) {
+      const length = Math.min(until - written, PART_SAMPLES);
+      chunks.push(silence.slice(0, length * BYTES_PER_SAMPLE));
+      written += length;
+    }
+  };
+  for (const part of parts) {
+    if (part.source !== "system") continue;
+    signal.throwIfAborted();
+    const start = sampleAt(part.offsetMs);
+    const end = Math.min(samples, start + sampleAt(part.durationMs));
+    if (end <= written) continue;
+    pad(Math.min(start, samples));
+    const blob = await openAsBlob(part.path);
+    if (blob.size !== WAV_HEADER_BYTES + sampleAt(part.durationMs) * BYTES_PER_SAMPLE) {
+      throw new Error("The saved audio changed.");
+    }
+    chunks.push(
+      blob.slice(
+        WAV_HEADER_BYTES + (written - start) * BYTES_PER_SAMPLE,
+        WAV_HEADER_BYTES + (end - start) * BYTES_PER_SAMPLE,
+      ),
+    );
+    written = end;
+  }
+  pad(samples);
+  return new Blob(chunks, { type: "audio/wav" });
 }
 
 /** How much of a recording is mixed and written at a time: a part's length. */

@@ -655,6 +655,46 @@ export function createMeter(options: {
       });
     },
 
+    /** A fixed-price audio job reserves its quoted cost before any audio leaves the computer. */
+    audioJob(providerId: string, modelId: string, cost: Money) {
+      const allowed = () => {
+        const cap = options.cap();
+        if (!cap) return true;
+        const spent = againstCap(cap.currency, monthStart(now()));
+        return (
+          spent < cap.amount &&
+          spent + inCurrency(cost.amount, cost.currency, cap.currency) <= cap.amount
+        );
+      };
+      return {
+        allowed,
+        reserve() {
+          return db.transaction(() => {
+            if (!allowed()) return null;
+            const id = randomUUID();
+            const at = now().toISOString();
+            db.run(
+              `INSERT INTO model_requests (id, provider_id, model_id, flow, billing, status, currency,
+                 reserved, created_at, updated_at)
+               VALUES (?, ?, ?, 'transcription', 'per-token', 'reserved', ?, ?, ?, ?)`,
+              [id, providerId, modelId, cost.currency, cost.amount, at, at],
+            );
+            return (submitted: boolean) =>
+              db.run(
+                `UPDATE model_requests SET status = ?, cost = ?, updated_at = ? WHERE id = ?
+                 AND status IN ('reserved', 'settled')`,
+                [
+                  submitted ? "settled" : "interrupted",
+                  submitted ? cost.amount : 0,
+                  now().toISOString(),
+                  id,
+                ],
+              );
+          });
+        },
+      };
+    },
+
     /**
      * Audio sent to a cloud transcription service on one stretch of recording, one record a
      * month, its cost growing as audio is counted. `add` counts audio about to be sent, and

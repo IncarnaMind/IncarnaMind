@@ -191,6 +191,7 @@ export async function transcribingCore(
     transcriptionModelSource = NO_TRANSCRIPTION_FILES,
     cloud,
     cloudFetch,
+    transcriptionReviewFetch,
     systemLanguages,
     answerPaths,
     notesBeforeSpeakers,
@@ -210,6 +211,7 @@ export async function transcribingCore(
     cloud?: CloudConnect;
     /** Gladia's session requests, to watch them; the pretend service's by default. */
     cloudFetch?: CloudServing["fetch"];
+    transcriptionReviewFetch?: CoreAdapters["transcriptionReviewFetch"];
     /** The idle unload (#2673): a short wait, and what an idle engine's process ending looks like. */
     serving?: ServingOptions;
     /** Another engine than the fake one, e.g. one whose loading the test holds. */
@@ -271,6 +273,7 @@ export async function transcribingCore(
     transcriber: engineHost.transcriber,
     transcriptionModelSource,
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
+    ...(transcriptionReviewFetch && { transcriptionReviewFetch }),
     now: clock.now,
     ...(models && { createChatModel: models.createChatModel }),
     ...(createChatModel && { createChatModel }),
