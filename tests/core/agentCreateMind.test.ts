@@ -131,8 +131,10 @@ describe("a Note an outside agent writes (#3306)", () => {
 
     const minds = await core.listMinds();
     expect(minds).toHaveLength(before.length + 1);
+    // Named by its title heading, as a Note written in the window is: no name of its own.
     expect(minds.find((mind) => mind.id === made.mindId)).toMatchObject({
-      title: "Tide report",
+      title: "",
+      autoTitle: "Tide report",
       folderId: coast.id,
     });
 

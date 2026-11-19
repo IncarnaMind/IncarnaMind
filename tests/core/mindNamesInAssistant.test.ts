@@ -11,7 +11,7 @@ import { GENERATED_MARK } from "../../src/core/api";
 import { answerEnded, setUpWithDocuments } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
-import { editMind, note, writeMind } from "../helpers/minds";
+import { note, writeMind } from "../helpers/minds";
 import {
   type ModelCall,
   promptOf,
@@ -117,7 +117,7 @@ describe("The User's Minds in the assistant", { timeout: 30_000 }, () => {
     const brief = (await core.listMinds()).find((mind) => mind.title === "Launch brief");
     if (!brief) throw new Error("The Answer made no Launch brief.");
     const briefClient = await connectToMind(core, brief.id);
-    editMind(briefClient, (blocks) => [...blocks, note("My own words.")]);
+    writeMind(briefClient, [note("My own words.")]);
     await briefClient.settled();
     await ask(core, "What can you do?");
     expect(lastSent(model)).toMatch(/^The User's Notes: "Launch brief", "Project plan"\n\n/);

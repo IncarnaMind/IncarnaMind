@@ -5659,8 +5659,7 @@ export function createCore(adapters: CoreAdapters): Core {
         const title = titled ? "" : mind.title || mind.autoTitle;
         return renderMarkdown(title, blocks, exportLabels(language), { pictures: false }).text;
       },
-      createMind: (title, folderId, headed) =>
-        makeMind(parseCreateMindInput({ title, folderId }), { headed }),
+      createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
         answers.answerOutside(question, documentIds, signal),
       checkNote: (mindId, documentIds) =>

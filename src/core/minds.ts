@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { cutTitle } from "../shared/naming";
 import {
   type ChatModelChoice,
   type CreateMindInput,
@@ -169,23 +168,14 @@ export function createMinds(db: Database, now: () => string) {
       return { ...mind, title: newTitle, updatedAt: at };
     },
 
-    /**
-     * Sets the name taken from the Mind's text. A title that was that name goes, so the Mind is
-     * named by its text from then on, as one with no title is, whoever changed it (#3378); any
-     * other title stays. Returns whether the name changed; `updatedAt` stays.
-     */
+    /** Sets the name taken from the Mind's text. Returns whether it changed; `updatedAt` stays. */
     setAutoTitle(mindId: string, autoTitle: string): boolean {
-      const row = db.get<{ title: string; auto_title: string }>(
-        "SELECT title, auto_title FROM minds WHERE id = ? AND deleted_at IS NULL",
+      const row = db.get<{ auto_title: string }>(
+        "SELECT auto_title FROM minds WHERE id = ? AND deleted_at IS NULL",
         [mindId],
       );
       if (!row || row.auto_title === autoTitle) return false;
-      const follows = row.auto_title !== "" && cutTitle(row.title) === row.auto_title;
-      db.run("UPDATE minds SET auto_title = ?, title = ? WHERE id = ?", [
-        autoTitle,
-        follows ? "" : row.title,
-        mindId,
-      ]);
+      db.run("UPDATE minds SET auto_title = ? WHERE id = ?", [autoTitle, mindId]);
       return true;
     },
 

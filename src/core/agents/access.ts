@@ -549,8 +549,8 @@ export interface AgentAccessDeps {
     mindId: string,
     footnote: (attributes: Record<string, unknown>) => { source: string; unverified: boolean },
   ): string;
-  /** A new Mind in a Folder, or in none; `headed`, its text starts with its name as a heading. */
-  createMind(title: string, folderId: string | null, headed: boolean): Mind;
+  /** A new, empty Mind in a Folder, or in none; with no `title`, its text names it. */
+  createMind(title: string, folderId: string | null): Mind;
   /** How many Notes the pairing wrote since `since` (ISO 8601, UTC). */
   notesWrittenSince(pairingId: string, since: string): number;
   /** IncarnaMind's Answer to a Question from these Documents, on the default chat model. */
@@ -1844,15 +1844,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (!(error instanceof ChangeRefused)) throw error;
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
         }
-        // A text that begins with a heading of its own keeps that one alone. A title heading names
-        // the Note, as one typed in the window does, and its name follows it (#3378).
-        const mind = deps.createMind(
-          /^\s*#[ \t]+\S/.test(written) ? "" : title,
-          folder.id,
-          !/^\s*#{1,6}\s/.test(written),
-        );
+        // Named by its title heading, as a Note written in the window is, so the name follows the
+        // heading whoever changes it (#3378). A text that begins with a heading of its own keeps
+        // that one alone; one that begins with none gets `title` as its heading. Only a text that
+        // begins with a section's heading keeps `title` as a name of its own.
+        const ownHeading = /^\s*#{1,6}\s/.test(written);
+        const titleHeading = /^\s*#[ \t]+\S/.test(written);
+        const mind = deps.createMind(ownHeading && !titleHeading ? title : "", folder.id);
+        const heading = {
+          type: "heading",
+          attrs: { level: 1 },
+          content: [{ type: "text", text: title }],
+        };
         deps.editMind(mind.id, (blocks) => {
-          insertBlocks(blocks, nodes);
+          insertBlocks(blocks, ownHeading ? nodes : [heading, ...nodes]);
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {
             const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
