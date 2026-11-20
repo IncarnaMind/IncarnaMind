@@ -354,6 +354,48 @@ describe("an agent and a Note with tabs", () => {
     ]);
   });
 
+  it("proposes a tab holding only a picture as one change with the picture", async () => {
+    const { core, agent, mind } = await paired();
+    const read = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    const proposed = structured<{ waiting: number }>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: read.version,
+          changes: [
+            {
+              paragraph: "¶2+",
+              text: `${fence("Plan")}\n\n![Deck plan](data:image/png;base64,${PNG})`,
+            },
+          ],
+        },
+      }),
+    );
+    expect(proposed.waiting).toBe(1);
+    const client = await connectToMind(core, mind.id);
+    const [tabBlock, picture] = client.blocks.toArray().slice(-2) as Y.XmlElement[];
+    expect([tabBlock?.nodeName, picture?.nodeName]).toEqual([NOTE_TAB_NODE, PICTURE_NODE]);
+    const proposalOf = (block: Y.XmlElement | undefined) =>
+      (block?.getAttribute(PROPOSAL_ATTRIBUTE) as unknown as { id: string } | undefined)?.id;
+    const shared = proposalOf(picture);
+    expect(shared).toBeDefined();
+    expect(proposalOf(tabBlock)).toBe(shared);
+    client.doc.transact(() => {
+      decideProposals(client.blocks, (each) => each.id === shared, "reject");
+    }, "user");
+    await client.settled();
+    expect(await shapeOf(core, mind.id)).toEqual([
+      "tab Summary",
+      "heading",
+      "paragraph",
+      "tab Fleet",
+      "paragraph",
+    ]);
+  });
+
   it("rejecting a proposed tab takes it out with what it held", async () => {
     const { core, agent, mind } = await paired();
     const read = structured<{ version: string }>(

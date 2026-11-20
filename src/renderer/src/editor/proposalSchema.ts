@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import {
+  NOTE_BLOCK_TYPES,
   NOTE_TAB_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
@@ -13,28 +14,19 @@ import { ySyncOf } from "../../../shared/markKeys";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 
 /**
- * The node types that can carry a `proposal` attribute: Blocks a Proposal
- * adds or removes whole, and the inline nodes it adds or removes in a text
- * (see `PROPOSAL_ATTRIBUTE`).
+ * The node types that can carry a `proposal` attribute: every Block of a Note, and a tab's start
+ * (#3414), which a Proposal adds or removes whole, with a list item, a comparison table, and the
+ * inline nodes it adds or removes in a text (see `PROPOSAL_ATTRIBUTE`).
  */
 export const PROPOSAL_NODE_TYPES = [
-  "paragraph",
-  "heading",
-  "blockquote",
-  "bulletList",
-  "orderedList",
+  ...NOTE_BLOCK_TYPES,
+  NOTE_TAB_NODE,
   "listItem",
-  "codeBlock",
-  "blockMath",
-  "horizontalRule",
-  "table",
-  "chart",
   "comparisonTable",
   "citation",
   "footnote",
   "inlineMath",
   "hardBreak",
-  NOTE_TAB_NODE,
 ] as const;
 
 /**

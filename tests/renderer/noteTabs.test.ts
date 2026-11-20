@@ -74,6 +74,9 @@ const tab = (id: string, title: string): JSONContent => ({
   type: "noteTab",
   attrs: { id, title },
 });
+/** A PNG of one pixel. */
+const PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const cited = (value: string, check: "found" | "not-found"): JSONContent => ({
   type: "paragraph",
   content: [
@@ -414,5 +417,34 @@ describe("tabs in a Note", () => {
     const proposals = proposalsIn(editor.state.doc);
     expect(proposals).toHaveLength(1);
     expect(proposals[0]).toMatchObject({ id: "costs", block: "insert", added: "Fuel cost more." });
+  });
+
+  test("a proposed tab holding only a picture keeps one Proposal on both, which the picture shows", () => {
+    const doc = new Y.Doc();
+    const proposal = blockProposal({ id: "plan", request: "agent" }, "insert", "");
+    const editor = noteWith(
+      [
+        tab("summary", "Summary"),
+        paragraph("Sailings ran on time."),
+        { type: "noteTab", attrs: { id: "plan", title: "Plan", proposal } },
+        { type: "picture", attrs: { src: PIXEL, alt: "Deck plan", proposal } },
+      ],
+      doc,
+    );
+    editor.view.dispatch(editor.state.tr.insertText("Most ", 3));
+    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    for (const at of [2, 3]) {
+      const block = blocks.get(at);
+      expect(block instanceof Y.XmlElement && block.getAttribute(PROPOSAL_ATTRIBUTE)).toEqual(
+        proposal,
+      );
+    }
+    const proposals = proposalsIn(editor.state.doc);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toMatchObject({ id: "plan", block: "insert" });
+    const picture = editor.state.doc.child(3);
+    expect(picture.type.name).toBe("picture");
+    const at = editor.state.doc.content.size - picture.nodeSize;
+    expect(proposals[0]?.ranges.some((range) => range.from <= at && at < range.to)).toBe(true);
   });
 });

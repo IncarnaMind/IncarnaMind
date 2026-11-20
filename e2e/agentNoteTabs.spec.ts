@@ -6,6 +6,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
+  acceptPlainTextKeys,
   catchCopies,
   closeSettings,
   copied,
@@ -108,6 +109,7 @@ test("a tab an agent proposes waits with its first paragraph: Accept keeps it, â
     await setWindowSize(app, window, 1280, 800);
     const harbour = await withHarbour(window);
     await catchCopies(window);
+    await acceptPlainTextKeys(window);
     const mindId = await writeNote(window, "Harbourline Ferries", [
       { tab: "Summary" },
       { heading: "Harbourline Ferries", level: 1 },
