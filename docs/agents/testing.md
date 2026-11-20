@@ -7,7 +7,7 @@ How the checks themselves work is in [`checks.md`](checks.md): each CI and night
 ## What runs where
 
 - **On your computer:** `npm run typecheck`, `npm run lint`, and the unit test files that cover what you changed (`npx vitest run <files>`).
-- **On a pull request:** typecheck and lint, the unit tests that import a file you changed, and only the smoke specs the pull request adds or changes. A draft runs nothing until it is marked ready, and a change to documents only runs nothing.
+- **On a pull request:** typecheck and lint, the unit tests that import a file you changed, and only the smoke specs the pull request adds or changes. A draft runs nothing until it is marked ready. A change to a Markdown file runs every unit test, because tests read the documents as text; a change to ADRs or pictures only runs nothing.
 - **Every night and before a release:** every test, the packaged app's checks and the real models. A red night is fixed before new work.
 - **Specs your change reaches but doesn't edit:** `node scripts/run-specs.mjs --os macos --repeat 3 e2e/undoPill.spec.ts` runs them from your pushed branch on a clean GitHub machine (Linux, macOS or Windows). Use it for UI specs instead of your own computer, and always for behaviour only macOS or only Windows has.
 - **A spec runs on a test build only:** `npx electron-vite build --mode test`, in your own worktree, right before the run. Any other build ignores the fakes, so a Meeting would record with the real microphone (#2941).
