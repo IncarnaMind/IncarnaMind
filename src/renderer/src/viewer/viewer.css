@@ -182,24 +182,28 @@
     }
   }
 
-  /* The outline: rows like the sidebar's, the entry for the page in view on a sheet. */
+  /*
+   * The outline: rows like the sidebar's, muted; the entry being read in ink with a thin line at
+   * its left (#3414), never the accent of the focus ring, so where you are and where the keyboard
+   * is never look alike.
+   */
   .pdf-outline {
     @apply w-[200px] max-w-[45%] shrink-0 overflow-y-auto border-r border-rule bg-frame p-2 text-[13px] leading-5;
   }
   .pdf-outline-row {
-    @apply flex h-7 items-center rounded-md text-ink-secondary;
+    @apply relative flex h-7 items-center rounded-md text-ink-meta;
 
     &:hover {
       @apply bg-hover;
     }
   }
-  .pdf-outline-row--nested {
-    @apply text-ink-meta;
-  }
-  .pdf-outline-row--current,
-  .pdf-outline-row--current:hover {
-    @apply bg-sheet font-semibold text-ink;
-    box-shadow: inset 0 0 0 1px var(--color-rule);
+  .pdf-outline-row--current {
+    @apply text-ink;
+
+    &::before {
+      content: "";
+      @apply absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-ink;
+    }
   }
   .pdf-outline-title {
     @apply h-full min-w-0 flex-1 truncate rounded-md pr-2 text-left;

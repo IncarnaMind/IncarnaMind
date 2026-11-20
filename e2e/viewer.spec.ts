@@ -320,10 +320,10 @@ test("in a narrow viewer with the outline open, Fit width fits the page in the w
   await items.filter({ hasText: "Coastal Flood Risk Review" }).getByTestId("open-document").click();
   const docx = viewer.getByTestId("viewer-docx");
   await expect(docx).toHaveAttribute("data-rendered", "yes");
-  await viewer.getByTestId("viewer-outline-button").click();
-  await expect(viewer.getByTestId("viewer-outline")).toBeVisible();
+  await viewer.getByTestId("outline-button").click();
+  await expect(viewer.getByTestId("outline")).toBeVisible();
   // Its icon is a list, not Show sidebar's window, and they have their own tooltips.
-  const outlineButton = viewer.getByTestId("viewer-outline-button");
+  const outlineButton = viewer.getByTestId("outline-button");
   const sidebarButton = window.getByTestId("sidebar-toggle");
   expect(await outlineButton.locator("svg").innerHTML()).not.toBe(
     await sidebarButton.locator("svg").innerHTML(),
