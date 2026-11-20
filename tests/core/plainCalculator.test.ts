@@ -166,6 +166,30 @@ describe("The plain calculator", { timeout: 60_000 }, () => {
     expect(shown(answerBlocks(answer))).toBe("It cost ‹mark›, or ‹mark›, in 2025.");
   });
 
+  // protects=a figure rests on whole numbers of its quotes, its shown text carries the result to every digit it writes, and a comparison's says its result; fails_when=part of a longer number, a shown text whose zeros after the point aren't the result's, or a "No" for a true comparison is recorded
+  test("refuses part of a longer number, a shown text more exact than its result, and a comparison's wrong word", async () => {
+    const model = calculatingModel(
+      [
+        {
+          ...COST,
+          inputs: [{ name: "price", citation: 1, value: 31, number: "31" }],
+          formula: "price",
+          shown: "31p",
+        },
+        { ...COST, marker: 2, shown: "£16,000.0" },
+        { ...COST, marker: 3, formula: "kwh > price", shown: "No" },
+      ],
+      "It used [=1], cost [=2], and the use was larger: [=3][^1].",
+    );
+    const answer = await asked(model, "What did the bakery's electricity cost?");
+
+    const [said = ""] = told(model);
+    expect(said).toContain("[=1] price: 31 isn't in its quote, which has 52,000, 31.5");
+    expect(said).toContain('[=2] the formula gives 16,380, and shown "£16,000.0"');
+    expect(said).toContain('[=3] the formula gives yes, and shown "No" doesn\'t say so');
+    expect(answer.figures).toEqual([]);
+  });
+
   // protects=a figure an older build worked out, its unit read by rule, still opens and shows as it did, its card's line writing each input as its quote does; fails_when=an older figure's shown text or input numbers read otherwise than they were saved
   test("a figure an older build worked out still shows as it did", () => {
     const quote = "Revenue was $1,482.6 million in 2025, compared with $1,231.0 million in 2024.";

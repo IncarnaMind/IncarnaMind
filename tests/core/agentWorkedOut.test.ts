@@ -366,6 +366,51 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     ]);
   });
 
+  // protects=a sentence whose figure its Documents' numbers contradict is marked Contradicted on the working that gives the right figure; fails_when=the right working is refused because the sentence writes another figure, or the agent is asked for the sentence's figure
+  it("marks a wrong total Contradicted on the working that gives the right one", async () => {
+    const { core, agent, coast } = await paired();
+    const wrong = "The harbour took £2,100,000 in fares in spring and autumn.";
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Fares to check", markdown: wrong },
+      }),
+    );
+    const given = await task(agent, mindId);
+    expect(given.how).toMatch(
+      /for a sentence it contradicts, that right figure, not the sentence's/,
+    );
+    const spring = await passageOf(agent, "fares spring", "Harbour");
+    const [springCite = "", autumnCite = ""] = await citesOf(agent, spring, [SPRING, AUTUMN]);
+
+    const reported = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            {
+              n: 1,
+              verdict: "contradicted",
+              working: faresWorking(springCite, autumnCite),
+              explanation: "The two make £2,000,000, not £2,100,000.",
+            },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ marked: 1, unconfirmed: [] });
+    expect(await marks(core, mindId, coast.id)).toMatchObject([
+      {
+        text: wrong,
+        state: "contradicted",
+        workedOut: "1,250,000 + 750,000 = £2,000,000",
+        quotes: [SPRING, AUTUMN],
+      },
+    ]);
+  });
+
   // protects=a ✓ rests only on what IncarnaMind worked out for this agent in this check; fails_when=a made-up id, another agent's run, or one made before this check marks a sentence, or a refusal names what the run read
   it("marks nothing on a run that isn't this agent's, or isn't of this check", async () => {
     const { core, agent, codex, mindId, coast } = await paired();
