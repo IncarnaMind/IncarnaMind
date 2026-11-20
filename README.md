@@ -13,7 +13,7 @@
 
 <p align="center"><b>The artifact layer for any agent: what your AI writes, checked against your files.</b></p>
 
-<p align="center">A free, open-source desktop app for macOS, Windows and Linux.<br>Your files in one Library, sorted and searchable, your meetings with them.<br>The AI you already use writes here, and every sentence and figure is checked against the page it came from.</p>
+<p align="center">A free, open-source desktop app for macOS, Windows and Linux.<br>Your files in one Library, sorted and searchable, your meetings with them.<br>The AI you already use writes here. Then check every sentence and figure against the page it came from.</p>
 
 <p align="center">No IncarnaMind account needed. Connect Claude Code or <a href="docs/agents.md">another agent</a>, or use a model in IncarnaMind: your ChatGPT plan, your own key, or a local model through Ollama.</p>
 
@@ -122,7 +122,7 @@ You don't need an account. IncarnaMind reads your files where they are and never
 |---|---|
 | Your files, Notes and search index | Your computer |
 | Questions, writing and checks | The model you picked, with only what each needs. With Ollama, nowhere |
-| What an agent you connected reads | That agent's own AI model, under its service's terms. Only the Folders you chose, and nothing while **Keep everything on this computer** is on |
+| What an agent you connected reads from IncarnaMind | That agent's own AI model, under its service's terms. IncarnaMind gives it only the Folders you chose, and nothing while **Keep everything on this computer** is on. The agent's other tools stay under its own control |
 | Meeting audio | Transcribed on your computer |
 | Finding papers, tagging, scans, cloud transcription | Only after you say yes |
 | Usage data and crash reports | Only if you turn them on, never with your files |
