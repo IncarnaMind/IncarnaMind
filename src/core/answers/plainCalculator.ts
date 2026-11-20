@@ -428,7 +428,6 @@ export function createPlainCalculator(options: CalculationSessionOptions) {
       recorded.clear();
       failed.clear();
       calls = 0;
-      analysisNumbers.anew();
     },
 
     /** A number in a quote as an Analysis takes it (#447), read as it always was. */

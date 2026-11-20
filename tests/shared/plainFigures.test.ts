@@ -3,7 +3,7 @@
  * the result, rounded as it is written.
  */
 import { describe, expect, test } from "vitest";
-import { locate, shownCarries, workPlain } from "../../src/shared/plainFigures";
+import { locate, shownCarries, workingAddsUp, workPlain } from "../../src/shared/plainFigures";
 
 describe("A written figure carries its result by its digits", () => {
   test.each([
@@ -51,5 +51,26 @@ describe("A comparison's shown text says its result", () => {
         'the formula gives no, and shown "Yes" doesn\'t say so: write yes or no, as the result is',
       ],
     });
+  });
+});
+
+describe("A check's line of working adds up over its quotes' numbers", () => {
+  const quotes = [
+    "Revenue was 48,250 in 2025 and 44,100 in 2024 (in thousands of euros).",
+    "The rate fell from 4.1% in 2024 to 2.9% in 2025.",
+  ];
+  test.each([
+    ["48,250 − 44,100 = 4,150", true],
+    ["2025 revenue 48,250 − 2024 revenue 44,100 = 4,150, as the sentence says", true],
+    ["(48,250 − 44,100) ÷ 1000 = 4.15 million euros", true],
+    ["4.1% − 2.9% = 1.2 percentage points", true],
+    ["48,250 / 44,100 − 1 = 9.4%", true],
+    ["48,250 − 44,100 = 4,510", false],
+    ["48,520 − 44,100 = 4,420", false],
+    ["48,250 − 44,100 =", false],
+    ["the 2024 figure comes before the 2025 one", null],
+    ["48,250 is the larger", null],
+  ] as const)("%s: %s", (line, adds) => {
+    expect(workingAddsUp(line, quotes)).toBe(adds);
   });
 });

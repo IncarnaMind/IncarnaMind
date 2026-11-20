@@ -896,21 +896,6 @@ function pageCut(before: string): boolean {
 /** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
 const DASHES = /[\u2010-\u2015\u2212]/g;
 
-/**
- * The decimal mark a text read with `context` takes: its numbers' own, else its language's; null
- * when neither tells, or they disagree.
- */
-export const decimalMarkOf = (context: FigureContext): "." | "," | null => settle(context).decimal;
-
-/**
- * The reading of a "separator" ambiguity a decimal mark gives: its first reading is the one "."
- * gives, as English and Chinese write numbers (`readNumber`); a figure with one reading keeps it.
- */
-export function separatorReadingFor(ambiguity: Ambiguity, decimal: "." | ","): Reading | undefined {
-  const [point, comma] = ambiguity.readings;
-  return decimal === "," && comma ? comma : point;
-}
-
 function settle(context: FigureContext): Settled {
   const byLanguage = context.language ? languageSeparators(context.language) : null;
   const byText = context.separators ?? null;
@@ -4099,14 +4084,6 @@ const SIGN_CURRENCIES: Readonly<Record<string, readonly string[]>> = {
 
 // "￥" and "＄" are what Chinese input methods type for "¥" and "$" (#2226).
 const signOf = (figure: Figure) => figure.currency?.normalize("NFKC").trim() ?? null;
-
-/** Every currency a figure's own sign stands for in some Document: "$" or "dollars" for any dollar, "元" for yuan, or Hong Kong, Taiwan or Macau dollars. */
-export const currenciesOfSign = (figure: Figure): readonly string[] => {
-  const sign = signOf(figure);
-  // "$54,000 AUD" is in the dollar it names, not in any dollar.
-  if (sign !== null && BARE_DOLLAR.test(sign) && !bareDollar(figure)) return [];
-  return (sign !== null && (SIGN_CURRENCIES[sign] ?? SIGN_CURRENCIES[sign.toLowerCase()])) || [];
-};
 
 const longestFirst = (words: readonly string[]) => [...words].sort((a, b) => b.length - a.length);
 const CURRENCY_NAMES = new RegExp(

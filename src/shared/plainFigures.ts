@@ -193,3 +193,74 @@ export function workPlain(figure: {
     working: `${used} = ${figure.shown}${moved.length > 0 ? ` · ${moved.join(", ")}` : ""}`,
   };
 }
+
+type WorkingToken =
+  | { kind: "number"; chars: string; value: number }
+  | { kind: "sign"; text: string };
+
+// A number as `writtenNumbers` reads one, or a sign of arithmetic as a line of working writes it.
+const WORKING_TOKEN = /([0-9０-９]+(?:[.,'’\u00a0\u202f][0-9０-９]+)*)|([-+*/×÷−–()（）])/g;
+const SIGNS: Readonly<Record<string, string>> = {
+  "×": "*",
+  "÷": "/",
+  "−": "-",
+  "–": "-",
+  "（": "(",
+  "）": ")",
+};
+const YEAR = /^(?:19|20)\d{2}$/;
+
+/** The numbers and signs a line of working writes before its "=", a year beside a number left out. */
+function workingTokens(text: string): WorkingToken[] {
+  const read: WorkingToken[] = [...text.matchAll(WORKING_TOKEN)].map((found) =>
+    found[1] !== undefined
+      ? { kind: "number", chars: found[1], value: writtenValue(found[1]) }
+      : { kind: "sign", text: SIGNS[found[2] ?? ""] ?? found[2] ?? "" },
+  );
+  // "2025 revenue 48,250 − 2024 revenue 44,100": a year names a figure, it isn't one.
+  return read.filter((token, at) => {
+    if (token.kind !== "number" || !YEAR.test(token.chars)) return true;
+    return read[at + 1]?.kind !== "number" && read[at - 1]?.kind !== "number";
+  });
+}
+
+const powerOfTen = (value: number) =>
+  value > 0 && Math.abs(10 ** Math.round(Math.log10(value)) - value) <= 1e-9 * value;
+
+/**
+ * Whether a line of working adds up (#3393): the arithmetic it writes before its "=" over numbers
+ * that each stand in one of `quotes` by their digits (or are a power of ten, a change of scale),
+ * and the number right after the "=" carrying its result. Null for a line that writes no
+ * arithmetic, such as a step of plain logic.
+ */
+export function workingAddsUp(line: string, quotes: readonly string[]): boolean | null {
+  const equals = line.search(/[=＝]/);
+  if (equals < 0) return null;
+  const tokens = workingTokens(line.slice(0, equals));
+  const sign = (token: WorkingToken | undefined) =>
+    token?.kind === "sign" && /^[-+*/]$/.test(token.text);
+  if (!tokens.some((token, at) => sign(token) && tokens[at + 1] !== undefined)) return null;
+  const [result] = writtenNumbers(line.slice(equals + 1));
+  if (!result) return false;
+  // The arithmetic is the longest end of what comes before "=" that reads as a formula.
+  for (let from = 0; from < tokens.length; from++) {
+    const part = tokens.slice(from);
+    const numbers = part.filter((token) => token.kind === "number");
+    let at = 0;
+    const formula = part
+      .map((token) => (token.kind === "number" ? `n${at++}` : token.text))
+      .join(" ");
+    const worked = evaluateArithmetic(
+      formula,
+      numbers.map((token, index) => ({ name: `n${index}`, value: token.value })),
+    );
+    if (!worked.ok || typeof worked.value !== "number" || !part.some(sign)) continue;
+    const quoted = numbers.every(
+      (token) =>
+        powerOfTen(token.value) ||
+        quotes.some((quote) => locate(token.value, quote)?.inCharacters === false),
+    );
+    return quoted && shownCarries(result.chars, worked.value);
+  }
+  return false;
+}

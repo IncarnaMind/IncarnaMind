@@ -14,6 +14,7 @@
  */
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
+import { workingAddsUp } from "../../../shared/plainFigures";
 import type { AnalysisRuntime } from "../../adapters";
 import type {
   AnswerAnalysis,
@@ -392,6 +393,8 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const quotes =
     named.length > 0 ? named : found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1));
   const [quoted, ...more] = quotes;
+  const recordedQuotes = () =>
+    found(Array.from({ length: MARKERS_READ }, (_, at) => at + 1)).map((each) => each.quote);
   // A verdict with no quote of its own rests on the working, where the model worked the figure
   // out over a data file's rows: IncarnaMind confirms that the code finished, on the whole file.
   const runs = workings();
@@ -442,7 +445,9 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       unsupported: null,
       calculation: null,
       ...(working && { working }),
-      ...(read.working && { workedOut: read.working }),
+      // A line of working shows only where its arithmetic adds up over the quotes' numbers (#3393).
+      ...(read.working &&
+        workingAddsUp(read.working, recordedQuotes()) !== false && { workedOut: read.working }),
       ...court.citedCase(evidence ?? null),
       ...facts(),
       ...(more.length > 0 && { more }),
