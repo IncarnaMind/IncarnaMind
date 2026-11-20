@@ -20,11 +20,11 @@ import {
 import { markQuote, quoteNodesIn, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import "./officeFonts.css";
+import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { citedPlaceGone } from "./citedPlace";
 import { mapOfficeFontNames } from "./officeFontNames";
 import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
 import { domSelection, useSelectionReader } from "./selectedText";
-import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import { confirmDrawn, type DrawnTarget, drawnTargetOf } from "./wordPlaces";
@@ -476,7 +476,7 @@ function DocxPages({
         placeGone={citedPlaceGone(target, docx.units.length)}
       />
       <div className="flex min-h-0 flex-1">
-        {outlineOpen && <UnitOutline entries={outline} current={current} onGo={goTo} />}
+        {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
         <div
           ref={scroller}
           data-testid="viewer-docx"

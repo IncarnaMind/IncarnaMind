@@ -5,6 +5,7 @@ import type { XmlNode } from "../../../core/documents/formats/xml";
 import { documentImageUrl } from "../../../shared/documentViewer";
 import type { MessageKey } from "../../../shared/i18n";
 import { highlightsOf, useAnnotations, useDocumentAnnotations } from "../annotations";
+import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
@@ -19,7 +20,6 @@ import { FileStates } from "./FileStates";
 import { PdfView } from "./PdfView";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import { domSelection, useSelectionReader } from "./selectedText";
-import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 import { WebLookBar, WebLookLine } from "./WebLook";
@@ -436,7 +436,7 @@ function WebPageContent({
         placeGone={citedPlaceGone(target, page.units.length)}
       />
       <div className="flex min-h-0 flex-1">
-        {outlineOpen && <UnitOutline entries={outline} current={current} onGo={goTo} />}
+        {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
         <div
           ref={scroller}
           data-testid="viewer-web"
