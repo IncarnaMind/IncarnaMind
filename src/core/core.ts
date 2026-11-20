@@ -53,6 +53,7 @@ import {
 } from "../shared/mindStyle";
 import { missingNumberWords } from "../shared/missingNumbers";
 import { mindName } from "../shared/naming";
+import { recordNoteWriter } from "../shared/noteWriter";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readableQuoteText } from "../shared/readableQuote";
@@ -66,8 +67,11 @@ import { wordFileOf } from "../shared/wordFiles";
 import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
+import { createAgentFiles } from "./agentFiles";
+import { createHandOver, type HandedMarks } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
+import type { HandedClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
 import type { AgentReach } from "./agents/workings";
@@ -80,6 +84,7 @@ import { createChecks } from "./answers/checks";
 import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
+import { checkedSentences } from "./answers/checks/sentences";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -111,6 +116,7 @@ import {
   type AddedToNote,
   type AnnotationColour,
   type AnswerPlace,
+  BLOCK_ID_ATTRIBUTE,
   type CallHelpKind,
   type ChatModelChoice,
   type ChatProviderKind,
@@ -3159,6 +3165,7 @@ export function createCore(adapters: CoreAdapters): Core {
         ? documents.setNotCited(document.id, true)
         : (document ?? null);
     },
+    filePath: (documentId) => documents.filePath(documentId),
     document: (documentId) => documents.get(documentId),
     onStatus: (listener) => events.on("document.status", listener),
     readText: (documentId) => documents.readText(documentId),
@@ -5727,6 +5734,135 @@ export function createCore(adapters: CoreAdapters): Core {
   // socket and gets Citations IncarnaMind minted and checked. Off until the User turns it on.
   const { home } = adapters.paths;
   const agentChanges = createOwnChanges(content, () => crypto.randomUUID());
+  // Files outside agents hand over (#3412), each version checked as "Check someone else's file".
+  const handedFiles = createAgentFiles({ db, now, newId: () => crypto.randomUUID() });
+  const handOver = createHandOver({
+    store: handedFiles,
+    dataDir,
+    now,
+    newId: () => crypto.randomUUID(),
+    addHanded: (id, name, file, kind) => documents.addHanded(id, name, file, kind),
+    readAgain: (path) => documents.checkNow(path),
+    document: (documentId) => documents.get(documentId),
+    contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
+    setNotCited: (documentId) => void documents.setNotCited(documentId, true),
+    rename: (documentId, name) => void documents.rename(documentId, name),
+    assign: (documentId, folderId) => void library.assign(documentId, folderId),
+    verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
+    checkUnasked: (mindId) => inFlow("verify", () => checks.checkUnasked(mindId)),
+    recordWriter: (mindId, writer) =>
+      content.edit(mindId, (blocks) => {
+        if (blocks.doc) {
+          recordNoteWriter(blocks.doc, {
+            source: "outside-agent",
+            ...writer,
+            createdAt: now(),
+            mindId,
+          });
+        }
+      }),
+    marks: (mindId) => {
+      const { supported, needLook, formulas } = handedMarks(mindId);
+      return { supported, needLook: needLook.map(({ checkId: _, ...claim }) => claim), formulas };
+    },
+    say: (key, params) => translate(settings.get().language, key, params),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    log: adapters.log ?? silentLogger,
+  });
+
+  /** The words of a Block, as its text reads without marks. */
+  const textOfBlock = (element: Y.XmlElement): string =>
+    element
+      .toArray()
+      .map((child) =>
+        child instanceof Y.XmlText
+          ? child
+              .toDelta()
+              .map((part: { insert: unknown }) =>
+                typeof part.insert === "string" ? part.insert : "",
+              )
+              .join("")
+          : child instanceof Y.XmlElement
+            ? textOfBlock(child)
+            : "",
+      )
+      .join("");
+
+  /** What a handed-over file's check Note shows: its claims that need a look, where each is, its formulas. */
+  function handedMarks(
+    mindId: string,
+  ): Omit<HandedMarks, "needLook"> & { needLook: (HandedClaim & { checkId: string })[] } {
+    const say = (key: MessageKey, params?: MessageParams) =>
+      translate(settings.get().language, key, params);
+    const kind = handedFiles.ofMind(mindId)?.file.kind;
+    return content.peek(mindId, (fragment) => {
+      const verification = fragment.doc ? verificationOf(fragment.doc) : null;
+      const pages = verification?.pages ?? {};
+      // A workbook's tables each come under their sheet's name.
+      const sheets = new Map<string, string>();
+      let heading = "";
+      for (const block of fragment.toArray()) {
+        if (!(block instanceof Y.XmlElement)) continue;
+        if (block.nodeName === "heading") heading = textOfBlock(block);
+        else if (block.nodeName === "table") {
+          for (const each of block.createTreeWalker(() => true)) {
+            const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+            if (typeof id === "string") sheets.set(id, heading);
+          }
+        }
+      }
+      let supported = 0;
+      const needLook: (HandedClaim & { checkId: string })[] = [];
+      for (const { element, check, sentence } of checkedSentences(fragment)) {
+        if (check.state === "checking") continue;
+        if (check.state === "supported") {
+          supported++;
+          continue;
+        }
+        const result =
+          check.state === "unsupported" ? (check.unsupported?.word ?? "unsupported") : check.state;
+        // The writer's own view: the check doesn't rule on it, so it needs no look.
+        if (result === "own-view") continue;
+        const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
+        const page = typeof id === "string" ? pages[id] : undefined;
+        const sheet = typeof id === "string" ? sheets.get(id) : undefined;
+        const row = element.parent instanceof Y.XmlElement ? element.parent.parent : null;
+        needLook.push({
+          where:
+            kind === "xlsx" && sheet
+              ? say("agents.handOver.where.sheet", { sheet })
+              : kind === "pptx" && page !== undefined
+                ? say("agents.handOver.where.slide", { n: page })
+                : kind === "pdf" && page !== undefined
+                  ? say("agents.handOver.where.page", { n: page })
+                  : null,
+          text:
+            row instanceof Y.XmlElement && row.nodeName === "tableRow"
+              ? row
+                  .toArray()
+                  .map((cell) => (cell instanceof Y.XmlElement ? textOfBlock(cell) : ""))
+                  .join(" | ")
+              : sentence,
+          result,
+          says: check.says ?? null,
+          checkId: check.id,
+        });
+      }
+      const workbook = verification?.workbook;
+      return {
+        supported,
+        needLook,
+        formulas: workbook
+          ? {
+              workedOut: workbook.checked + (workbook.unsaved ?? 0),
+              notWorkedOut: workbook.unchecked,
+              differ: workbook.differs.map(({ cell, saved, worked }) => ({ cell, saved, worked })),
+            }
+          : null,
+      };
+    });
+  }
+
   const agents = createAgents({
     offered: adapters.agents?.offered ?? true,
     log: adapters.log ?? silentLogger,
@@ -5845,6 +5981,9 @@ export function createCore(adapters: CoreAdapters): Core {
       show: (place) => events.emit("agents.citationShown", place),
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
+      handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
+      handOver: (input) => handOver.handOver(input),
+      handedCheck: (mindId, waitMs) => handOver.handedCheck(mindId, waitMs),
     },
     skillInstalled: (client) => skillInstalled(home, client),
     changed: (value) => events.emit("agents.changed", value),
@@ -5885,6 +6024,19 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
+    handedFile(mindId) {
+      const found = handedFiles.ofMind(mindId);
+      if (!found) return null;
+      const wheres = new Map(
+        handedMarks(mindId).needLook.map((claim) => [claim.checkId, claim.where]),
+      );
+      return {
+        title: found.file.title,
+        version: found.version.number,
+        path: found.file.path,
+        whereOf: (checkId) => (checkId === null ? null : (wheres.get(checkId) ?? null)),
+      };
+    },
     minds: () => minds.list(),
     keepRequest: (request) => agents.keepRequest(request),
     openLink: adapters.agents?.openLink ?? null,
@@ -8133,6 +8285,18 @@ export function createCore(adapters: CoreAdapters): Core {
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
+    handedFileOf: async (mindId) => {
+      const found = handedFiles.ofMind(mindId);
+      if (!found) return null;
+      const { pairingId: _, path: __, ...file } = found.file;
+      return {
+        file,
+        version: found.version.number,
+        versions: handedFiles
+          .versions(found.file.id)
+          .map(({ id: _id, file: _file, ...version }) => version),
+      };
+    },
     listCanvases: async () => canvases.forWindows(),
     showCanvas: async (canvasId, version) =>
       canvases.show(

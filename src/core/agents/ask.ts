@@ -42,10 +42,25 @@ export interface AgentAskOptions {
       text: string;
     },
   ): AgentRequest;
+  /**
+   * The file an outside agent handed over that the Note checks (#3412), with where in it the check
+   * a fix names is; null for a Note that checks none.
+   */
+  handedFile(mindId: string): HandedFileAsked | null;
   /** Opens a link in the agent's app; null where this copy of IncarnaMind can't. */
   openLink: ((url: string) => Promise<void>) | null;
   say: Say;
   log: Logger;
+}
+
+/** A handed-over file a request is about: the agent fixes it in the file and hands it over again. */
+export interface HandedFileAsked {
+  title: string;
+  version: number;
+  /** The path the agent handed it over from. */
+  path: string;
+  /** Where in the file the claim a check result is on stands ("slide 4"); null when unknown. */
+  whereOf(checkId: string | null): string | null;
 }
 
 /** A request to the User's AI: the line they send, and what waits for the agent (null: nothing). */
@@ -63,6 +78,7 @@ export function agentRequest(
   ask: AgentAsk,
   say: Say,
   meeting?: { transcriptId: string; propose: boolean },
+  file?: HandedFileAsked | null,
 ): AgentRequestText {
   if (ask.kind === "question" && note === null) {
     return {
@@ -74,6 +90,9 @@ export function agentRequest(
   if (note === null) throw new InvalidInputError({ key: "error.agent.askRequest" });
   const title = quotedName(note.title);
   const named = { title, mindId: note.mindId };
+  if (file && (ask.kind === "fix" || ask.kind === "note" || ask.kind === "question")) {
+    return fileRequest(file, ask, say);
+  }
   switch (ask.kind) {
     case "meeting":
       if (!meeting) throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
@@ -134,6 +153,65 @@ export function agentRequest(
       };
     }
   }
+}
+
+/** A request about a file the agent handed over: fixed in the file, and handed over again (#3412). */
+function fileRequest(
+  file: HandedFileAsked,
+  ask: Extract<AgentAsk, { kind: "fix" | "note" | "question" }>,
+  say: Say,
+): AgentRequestText {
+  const title = quotedName(file.title);
+  const named = { title, version: file.version, path: file.path };
+  if (ask.kind !== "fix") {
+    return {
+      line:
+        ask.kind === "question"
+          ? say("agents.ask.line.question", { title, question: ask.text })
+          : say("agents.ask.line.note", { title }),
+      request: say("agents.ask.request.noteFile", named),
+      sentences: [],
+    };
+  }
+  const sentences = ask.sentences.map((each) => ({
+    sentence: each.sentence,
+    checkId: each.checkId ?? null,
+  }));
+  const whereOf = (asked: AskedSentence) => {
+    const where = file.whereOf(asked.checkId ?? null);
+    return where ? say("agents.ask.request.fixFile.where", { where }) : "";
+  };
+  const [only] = ask.sentences;
+  if (only && ask.sentences.length === 1) {
+    return {
+      line: say("agents.ask.line.fixFile", { title }),
+      request: say("agents.ask.request.fixFile", {
+        ...named,
+        where: whereOf(only),
+        sentence: quotedName(only.sentence),
+        verdict: verdictOf(only, say),
+      }),
+      sentences,
+    };
+  }
+  return {
+    line: say("agents.ask.line.fixFileAll", { title, count: ask.sentences.length }),
+    request: say("agents.ask.request.fixFileAll", {
+      ...named,
+      count: ask.sentences.length,
+      sentences: ask.sentences
+        .map((each, at) =>
+          say("agents.ask.request.fixFile.item", {
+            n: at + 1,
+            where: whereOf(each),
+            sentence: quotedName(each.sentence),
+            verdict: verdictOf(each, say),
+          }),
+        )
+        .join("\n"),
+    }),
+    sentences,
+  };
 }
 
 const words = (value: unknown): string => {
@@ -202,6 +280,7 @@ export function createAgentAsk(options: AgentAskOptions) {
         ask,
         options.say,
         transcriptId ? { transcriptId, propose: pairing.propose } : undefined,
+        note ? options.handedFile(note.mindId) : null,
       );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
       if (request !== null && note) {

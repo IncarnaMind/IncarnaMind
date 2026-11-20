@@ -44,6 +44,7 @@ import {
   sameCoverage,
   shownClaims,
 } from "./claimChecks";
+import { HandedFileLine } from "./HandedFileLine";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { useRunModel } from "./ModelChip";
 import { Counted } from "./NoteHealth";
@@ -529,6 +530,7 @@ export function VerifyCard({
   return (
     <>
       <p className="check-card-title">{t("verify.card.title")}</p>
+      <HandedFileLine mindId={mindId} />
       {brief && (
         <VerifyBrief
           editor={editor}

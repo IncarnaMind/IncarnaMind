@@ -87,6 +87,7 @@ import {
   createCanvasTools,
 } from "./canvases";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
+import { type AgentHandedFile, createHandedFileTool, type HandedFileToolDeps } from "./handedFiles";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
 import {
   HELD_PICTURE,
@@ -530,6 +531,11 @@ export interface AgentAccess {
   ): Promise<AgentCanvasPublished>;
   /** What the User asked this agent from IncarnaMind beyond the line they sent, read once (#3419). */
   readRequest(input: AgentReadRequestInput): Promise<AgentReadRequest>;
+  /**
+   * Keeps a file the agent made, named by its path, as an item with its versions, and checks it
+   * against the User's Documents (#3412).
+   */
+  handOverFile(input: { path?: unknown; folderId?: unknown }): Promise<AgentHandedFile>;
 }
 
 export { AgentRefusedError } from "./refusals";
@@ -736,6 +742,10 @@ export interface AgentAccessDeps {
   /** Tells the windows an agent published a Canvas, or a new version of one. */
   canvasChanged: CanvasToolDeps["canvasChanged"];
   doneSince: CanvasToolDeps["doneSince"];
+  /** The files outside agents hand over (#3412). */
+  handedAt: HandedFileToolDeps["handedAt"];
+  handOver: HandedFileToolDeps["handOver"];
+  handedCheck: HandedFileToolDeps["handedCheck"];
 }
 
 /**
@@ -1649,6 +1659,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       },
     };
   };
+
+  const handedFileTool = createHandedFileTool({
+    deps,
+    t,
+    call,
+    reached: (pairing) => reachedFolders(deps, pairing),
+    placeToWriteIn,
+    waitMs: deps.checkWaitMs ?? CHECK_WAIT_MS,
+  });
 
   const canvasTools = createCanvasTools({
     deps,
@@ -2617,6 +2636,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     publishCanvas: canvasTools.publishCanvas,
     readCanvas: canvasTools.readCanvas,
     updateCanvas: canvasTools.updateCanvas,
+    handOverFile: handedFileTool.handOverFile,
     readRequest(input) {
       const named = typeof input?.note === "string" ? comparableName(input.note) : "";
       const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));

@@ -3235,6 +3235,49 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE agent_activity ADD COLUMN request_id TEXT;
     `,
   },
+  {
+    version: 147,
+    description: "Files an outside agent hands over, each with its versions (#3412)",
+    sql: `
+      -- A deck, workbook, Word file or PDF an outside agent made and named by its path on this
+      -- computer. path is the path it named, by which the same file handed over again is a new
+      -- version of the same item; document_id is the Library's Document holding its newest
+      -- version. pairing_id is the agent's pairing: an item in no Folder is reached by that pairing
+      -- alone, as a Canvas is (#3364). A deleted item keeps its row with deleted_at.
+      CREATE TABLE agent_files (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        path TEXT NOT NULL,
+        folder_id TEXT,
+        pairing_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        document_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX agent_files_by_path ON agent_files (pairing_id, path) WHERE deleted_at IS NULL;
+
+      -- Each version handed over: the SHA-256 of its bytes and their size, the copy kept in the
+      -- data folder (file, relative to it), and the Note its check is in (mind_id).
+      CREATE TABLE agent_file_versions (
+        id TEXT PRIMARY KEY NOT NULL,
+        file_id TEXT NOT NULL REFERENCES agent_files (id),
+        number INTEGER NOT NULL,
+        content_hash TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        file TEXT NOT NULL,
+        mind_id TEXT,
+        agent TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX agent_file_versions_by_number ON agent_file_versions (file_id, number)
+        WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

@@ -3235,6 +3235,19 @@ export function createDocuments(options: DocumentsOptions) {
       return toDocument(row);
     },
 
+    /**
+     * Adds a file an outside agent handed over (#3412), whose copy IncarnaMind keeps in the data
+     * folder, as a Document of its own; its next version is that copy written again (`checkNow`).
+     */
+    addHanded(id: string, name: string, file: SnapshotFile, kind: DocumentKind): Document {
+      insertSnapshot(id, name, file, () => {}, kind, null);
+      announce(id);
+      process(id);
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(row);
+    },
+
     /** Whether a live Document has this content, other than `exceptDocumentId` (#335): a snapshot's file must be its own. */
     contentHashInUse(contentHash: string, exceptDocumentId: string | null = null): boolean {
       return (

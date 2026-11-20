@@ -69,6 +69,7 @@ import { answerTemperature } from "../engine";
 import { markdownToBlocks } from "../markdown";
 import type { ClaimCheckRequest } from "./claimCheck";
 import { claimsAmong } from "./findClaims";
+import type { NotAskedReason } from "./mindCheck";
 import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
 import { runChecks } from "./runChecks";
@@ -104,6 +105,18 @@ const WORKBOOK_FILE = /\.xlsx$/i;
 
 /** A file Word import takes, or refuses with its reason (an older .doc, macros). */
 const WORD_FILE = /\.(?:docx|docm|doc|dotx|dotm|dot)$/i;
+
+/** What a check started with nothing asked did: its claims checked, or why it didn't run. */
+export type UnaskedCheck =
+  | VerifyClaimsResult
+  | Exclude<FindClaimsResult, { kind: "found" }>
+  | { kind: "not-asked"; reason: NotAskedReason };
+
+/** Prepares the model a check uses, or says why there is none. */
+type PrepareModel = (choice: ChatModelChoice | null) => Promise<Prepared>;
+
+/** How the checked file reaches the Library: added from its path, or a Document it holds already. */
+type AddFile = (path: string, folderId: string | null) => Promise<Document | null>;
 
 /** The model to verify with, or why there is none (as `checkSentences` says it). */
 type Prepared =
@@ -157,6 +170,13 @@ export interface VerifyOptions extends CheckRuns {
   discardWordMind(mindId: string): Promise<void>;
   defaultModel(): ChatModelChoice | null;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
+  /**
+   * The model, when it can be used without asking the User anything (#3412: a check an outside
+   * agent starts), or why it can't: the same as a check from the window would need, asked of no one.
+   */
+  prepareUnasked(choice: ChatModelChoice | null): Promise<PreparedChatModel | NotAskedReason>;
+  /** The path of a Document's own file, for a check of one the Library holds (#3412). */
+  filePath(documentId: string): Promise<string>;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
   /** Settles once `evidenceScope` can tell every copy of the file by its text, or `stop` aborts (#2216). */
   evidenceReady(stop: AbortSignal, mindId: string): Promise<void>;
@@ -304,6 +324,7 @@ export function createVerify(options: VerifyOptions) {
     mindId: string,
     model: ChatModelChoice | null,
     signal: AbortSignal,
+    prepare: PrepareModel = options.prepare,
   ): Promise<FindClaimsResult> {
     const verification = verificationOf(mindId);
     // Claims found in part of the file would leave the rest unchecked for good.
@@ -312,7 +333,7 @@ export function createVerify(options: VerifyOptions) {
     }
     const { empty } = options.evidenceScope(mindId, false, verification);
     if (empty) return empty;
-    const ready = await options.prepare(model ?? options.defaultModel());
+    const ready = await prepare(model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted) return { kind: "cancelled" };
 
@@ -402,11 +423,12 @@ export function createVerify(options: VerifyOptions) {
   async function verifyClaims(
     input: ReturnType<typeof parseRequest>,
     signal: AbortSignal,
+    prepare: PrepareModel = options.prepare,
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
     let verification = verificationOf(mindId);
     if (verification.sortedText !== sortingInput(mindId, verification).snapshot) {
-      const found = await findClaims(mindId, input.model, signal);
+      const found = await findClaims(mindId, input.model, signal, prepare);
       if (found.kind !== "found") return found;
       verification = verificationOf(mindId);
     }
@@ -417,7 +439,7 @@ export function createVerify(options: VerifyOptions) {
     if (signal.aborted) return { kind: "cancelled" };
     const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
     if (empty) return empty;
-    const ready = await options.prepare(input.model ?? options.defaultModel());
+    const ready = await prepare(input.model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
       return { kind: "cancelled" };
@@ -521,10 +543,11 @@ export function createVerify(options: VerifyOptions) {
   async function verifyWordFile(
     path: string,
     folderId: string | null,
+    addFile: AddFile,
   ): Promise<VerifyDocumentResult> {
     const refusal = await options.wordRefusal(path);
     if (refusal) return { ok: false, reason: "word", refusal };
-    const document = await options.addFile(path, folderId);
+    const document = await addFile(path, folderId);
     if (!document) return { ok: false, reason: "word", refusal: "unreadable" };
     const { name } = options.document(document.id);
     const made = await options.importWord({ path, folderId, documentId: document.id, name });
@@ -565,8 +588,9 @@ export function createVerify(options: VerifyOptions) {
     path: string,
     folderId: string | null,
     chosen: { sheet: unknown; range: unknown; allSheets: boolean },
+    addFile: AddFile,
   ): Promise<VerifyDocumentResult> {
-    const document = await options.addFile(path, folderId);
+    const document = await addFile(path, folderId);
     if (!document) return { ok: false, reason: "unreadable" };
     if (!(await textRead(document.id))) {
       const now = options.document(document.id);
@@ -690,25 +714,17 @@ export function createVerify(options: VerifyOptions) {
     return { ok: true, mind, documentId: document.id };
   }
 
-  return {
-    async verifyDocument(input: unknown): Promise<VerifyDocumentResult> {
-      if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
-      const { path } = input;
-      if (typeof path !== "string" || path.trim() === "") {
-        throw new InvalidInputError({ key: "error.verify.noPath" });
-      }
-      const folderId = parseFolderChoice(input.folderId);
-      if (folderId !== null) options.requireFolder(folderId);
-      if (WORD_FILE.test(path)) return verifyWordFile(path, folderId);
-      if (WORKBOOK_FILE.test(path)) {
-        return verifyWorkbookFile(path, folderId, {
-          sheet: input.sheet,
-          range: input.range,
-          allSheets: input.allSheets === true,
-        });
-      }
-
-      const document = await options.addFile(path, folderId);
+  /** The file at `path` made into a Mind to check, by its kind: a Word file, a workbook, or one read as pages. */
+  async function verifyFile(
+    path: string,
+    folderId: string | null,
+    chosen: { sheet: unknown; range: unknown; allSheets: boolean },
+    addFile: AddFile,
+  ): Promise<VerifyDocumentResult> {
+    if (WORD_FILE.test(path)) return verifyWordFile(path, folderId, addFile);
+    if (WORKBOOK_FILE.test(path)) return verifyWorkbookFile(path, folderId, chosen, addFile);
+    {
+      const document = await addFile(path, folderId);
       if (!document) return { ok: false, reason: "unreadable" };
       if (!(await textRead(document.id))) {
         const now = options.document(document.id);
@@ -776,6 +792,64 @@ export function createVerify(options: VerifyOptions) {
         });
       });
       return { ok: true, mind, documentId: document.id };
+    }
+  }
+
+  const chosenOf = (input: Record<string, unknown>) => ({
+    sheet: input.sheet,
+    range: input.range,
+    allSheets: input.allSheets === true,
+  });
+
+  return {
+    async verifyDocument(input: unknown): Promise<VerifyDocumentResult> {
+      if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
+      const { path } = input;
+      if (typeof path !== "string" || path.trim() === "") {
+        throw new InvalidInputError({ key: "error.verify.noPath" });
+      }
+      const folderId = parseFolderChoice(input.folderId);
+      if (folderId !== null) options.requireFolder(folderId);
+      return verifyFile(path, folderId, chosenOf(input), options.addFile);
+    },
+
+    /**
+     * A Document the Library holds already, made into a Mind to check as `verifyDocument` makes a
+     * file (#3412: a file an outside agent handed over, kept in the data folder).
+     */
+    async verifyLibraryDocument(input: {
+      documentId: string;
+      folderId: string | null;
+      sheet?: string;
+      range?: string;
+      allSheets?: boolean;
+    }): Promise<VerifyDocumentResult> {
+      const document = options.document(input.documentId);
+      if (input.folderId !== null) options.requireFolder(input.folderId);
+      const path = await options.filePath(document.id);
+      return verifyFile(path, input.folderId, chosenOf(input), async () =>
+        options.document(document.id),
+      );
+    },
+
+    /**
+     * Finds a Mind's claims and checks them, as the window's two steps do, with a model used only
+     * when nothing need be asked of the User (#3412): an outside agent started it, and background
+     * work never asks. One verify run at a time, as the window's.
+     */
+    async checkUnasked(mindId: string): Promise<UnaskedCheck> {
+      options.requireMind(mindId);
+      const ready = await options.prepareUnasked(options.defaultModel());
+      if (typeof ready === "string") return { kind: "not-asked", reason: ready };
+      const prepared: PrepareModel = async () => ({ ok: true, prepared: ready });
+      const found = await oneAtATime(randomUUID(), mindId, (signal) =>
+        findClaims(mindId, null, signal, prepared),
+      );
+      if (found.kind !== "found") return found;
+      const requestId = randomUUID();
+      return oneAtATime(requestId, mindId, (signal) =>
+        verifyClaims({ requestId, mindId, allDocuments: false, model: null }, signal, prepared),
+      );
     },
 
     async findClaims(input: unknown): Promise<FindClaimsResult> {

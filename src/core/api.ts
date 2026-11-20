@@ -4050,6 +4050,48 @@ export interface Canvas {
   updatedAt: string;
 }
 
+/**
+ * A deck, workbook, Word file or PDF an outside agent made and handed over (#3412), kept with each
+ * version, its newest the Library's Document `documentId`, each version checked in a Note of its
+ * own as "Check someone else's file" checks one.
+ */
+export interface HandedFile {
+  id: string;
+  title: string;
+  kind: "pptx" | "xlsx" | "docx" | "pdf";
+  /** Its Folder; null when it is Not in a Folder. */
+  folderId: string | null;
+  /** The agent that handed it over, as the User had named its pairing then. */
+  agent: string;
+  /** The Library's Document holding its newest version; null before the first is read. */
+  documentId: string | null;
+  /** Its newest version: 1 at its first hand-over, one more for each with other bytes. */
+  version: number;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A version of a handed-over file (#3412). */
+export interface HandedFileVersion {
+  number: number;
+  /** The SHA-256 of its bytes. */
+  contentHash: string;
+  size: number;
+  /** The Note its check is in; null while it is made. */
+  mindId: string | null;
+  agent: string;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
+
+/** The handed-over file a check's Note is of, which version it is, and every version (#3412). */
+export interface HandedFileOfMind {
+  file: HandedFile;
+  version: number;
+  versions: HandedFileVersion[];
+}
+
 /** A version of a Canvas, as its versions list shows it. */
 export interface CanvasVersionInfo {
   /** 1 for its first publish, one more for each version after. */
@@ -12606,6 +12648,7 @@ export const AGENT_TOOLS = [
   "read_canvas",
   "update_canvas",
   "read_request",
+  "hand_over_file",
 ] as const;
 
 /**
@@ -15252,6 +15295,11 @@ export interface CoreApi {
    * IncarnaMind for that agent's `read_request` (#3419).
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
+  /**
+   * The file an outside agent handed over that this Note checks, with its versions (#3412); null
+   * for a Note that checks none.
+   */
+  handedFileOf(mindId: string): Promise<HandedFileOfMind | null>;
   /** The live Canvases (#3406), newest first. */
   listCanvases(): Promise<Canvas[]>;
   /**
@@ -16032,6 +16080,7 @@ const methods: Record<CoreApiMethod, true> = {
   copyAgentSetup: true,
   listAgentsToAsk: true,
   askAgent: true,
+  handedFileOf: true,
   listCanvases: true,
   showCanvas: true,
   listCanvasVersions: true,

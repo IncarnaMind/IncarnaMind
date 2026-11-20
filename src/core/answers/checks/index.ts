@@ -208,6 +208,7 @@ export interface ChecksOptions
     VerifyOptions,
     | "requireFolder"
     | "addFile"
+    | "filePath"
     | "document"
     | "onStatus"
     | "readText"
@@ -1315,6 +1316,7 @@ export function createChecks(options: ChecksOptions) {
   const verify = createVerify({
     ...options,
     prepare,
+    prepareUnasked,
     evidenceScope: (mindId, allDocuments, verification) =>
       scopeOf(mindId, allDocuments, { documentIds: [verification.documentId] }),
     evidenceReady,

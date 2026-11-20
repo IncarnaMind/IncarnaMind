@@ -605,6 +605,7 @@ describe("outside agents", () => {
         "check_mind_yourself",
         "cite",
         "create_mind",
+        "hand_over_file",
         "list_minds",
         "propose_changes",
         "publish_canvas",
@@ -633,14 +634,15 @@ describe("outside agents", () => {
       tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     );
     // 1,850 before calculate and run_analysis (#3363); 2,419 before the Canvases' three (#3406);
-    // 2,748 before read_request (#3419) and pictures and charts in a Note (#3413).
+    // 2,748 before read_request (#3419) and pictures and charts in a Note (#3413); hand_over_file
+    // (#3412) came within it, the words its neighbours repeated from the instructions taken out.
     expect(estimateTokens(definitions)).toBeLessThanOrEqual(2_922);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
-      // Six write: Proposals the User decides on, a new Note that changes none there is, the marks
-      // of a check on a Note the agent wrote, IncarnaMind's or the agent's own, and a Canvas or a
-      // version of one (#3406).
+      // Seven write: Proposals the User decides on, a new Note that changes none there is, the marks
+      // of a check on a Note the agent wrote, IncarnaMind's or the agent's own, a Canvas or a
+      // version of one (#3406), and a file the agent hands over, or a version of it (#3412).
       expect(tool.annotations?.readOnlyHint).toBe(
         ![
           "propose_changes",
@@ -649,6 +651,7 @@ describe("outside agents", () => {
           "report_check",
           "publish_canvas",
           "update_canvas",
+          "hand_over_file",
         ].includes(tool.name),
       );
       expect(tool.annotations?.destructiveHint).toBe(false);
