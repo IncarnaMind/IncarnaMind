@@ -18,7 +18,6 @@ import { partToCite } from "../../shared/citedNow";
 import {
   checkedSentence,
   checkJudges,
-  claimCheckShown,
   type SentenceResult,
   sentenceResultOf,
 } from "../../shared/claimChecks";
@@ -37,13 +36,8 @@ import {
 } from "../../shared/signOffs";
 import { textOriginOf } from "../../shared/textOrigins";
 import { groupsOf, isProposed } from "../aiUseStatement/figures";
-import {
-  checkedSentences,
-  citationSentences,
-  figuresNow,
-  noteTextOfMarked,
-  recordCiteNote,
-} from "../answers/checks/sentences";
+import { checkedSentences, citationSentences } from "../answers/checks/sentences";
+import { readingOf } from "../answers/checks/standing";
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
@@ -169,6 +163,8 @@ export interface RecordSources {
   readQuote(attributes: Partial<CitationAttributes>): string | null;
   /** The User, whose own check marks are theirs (#1933); null before they make one. */
   personId: string | null;
+  /** The Documents whoever the record is for reaches: an outside agent's; null for the User. */
+  reach?: ReadonlySet<string> | null;
 }
 
 interface Run {
@@ -283,9 +279,14 @@ export function readRecord(sources: RecordSources): {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
-  const { figureContexts } = figuresNow(fragment);
   const footing = noteFooting(fragment, { versions, folderId, scope });
-  const note = recordCiteNote(fragment);
+  const reading = readingOf(fragment, {
+    versions,
+    folderId,
+    scope,
+    reach: sources.reach ?? null,
+    footing,
+  });
 
   const sentences: SentenceItem[] = [];
   const recordCites: RecordCiteItem[] = [];
@@ -302,17 +303,18 @@ export function readRecord(sources: RecordSources): {
     noteText,
   } of checkedSentences(fragment)) {
     requests.push(check.request);
-    const shown = claimCheckShown(check, {
-      text: sentence,
-      citations,
-      footing,
-      versions,
-      folderId,
-      scope,
-      figureContexts,
-      note: note(place),
-      ...noteTextOfMarked({ noteText }),
-    });
+    const shown = reading.ofMarked(
+      {
+        element,
+        from,
+        to,
+        sentence,
+        citations,
+        place,
+        ...(noteText !== undefined && { noteText }),
+      },
+      check,
+    );
     const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
     const chart = element.nodeName === CHART_NODE ? ({ kind: "chart" } as const) : {};

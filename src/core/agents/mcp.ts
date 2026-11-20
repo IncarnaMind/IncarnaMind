@@ -271,7 +271,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Show a Citation",
       description:
-        "Open a [cite:…] in IncarnaMind, at its quote, for the User to see. Use it when they ask to see a source.",
+        "Open a [cite:…] in IncarnaMind at its quote, when the User asks to see a source.",
       inputSchema: z.object({ cite: z.string().describe("A [cite:…] IncarnaMind gave.") }),
       outputSchema: z.object({
         shown: z.literal(true),
@@ -666,7 +666,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Publish a Canvas",
       description:
-        "Show the User an HTML page you wrote, as a Canvas in IncarnaMind. It loads nothing from the network: put its styles and scripts in the page, and a picture in files if you have it as a file, else inline as SVG or a data: URL.",
+        "Show the User an HTML page you wrote, as a Canvas. It loads nothing from the network: put its styles and scripts in the page, and a picture in files, else inline as SVG or a data: URL.",
       inputSchema: z.object({
         title: z.string(),
         html: z.string(),
@@ -722,11 +722,58 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
   );
 
   server.registerTool(
+    tool("hand_over_file"),
+    {
+      title: "Hand over a file you made",
+      description:
+        "Give the User a .pptx, .xlsx, .docx or .pdf you made, by its path: IncarnaMind keeps each version and checks it. Changed, hand it over again; while running, call again.",
+      inputSchema: z.object({
+        path: z.string(),
+        folderId: z.string().optional(),
+      }),
+      outputSchema: z.object({
+        fileId: z.string(),
+        title: z.string(),
+        folder: z.string(),
+        version: z.number(),
+        mindId: z.string().nullable(),
+        status: z.enum(["checked", "running", "not-checked"]),
+        why: z.string().nullable(),
+        supported: z.number(),
+        needLook: z.number(),
+        claims: z.array(
+          z.object({
+            where: z.string().nullable(),
+            text: z.string(),
+            result: z.string(),
+            says: z.string().nullable(),
+          }),
+        ),
+        formulas: z
+          .object({
+            workedOut: z.number(),
+            notWorkedOut: z.number(),
+            differ: z.array(z.object({ cell: z.string(), saved: z.string(), worked: z.string() })),
+          })
+          .nullable(),
+      }),
+      // It keeps a version only when the file changed; its contents go to the User's AI model.
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    (input) => answer(() => access.handOverFile(input)),
+  );
+
+  server.registerTool(
     tool("read_request"),
     {
       title: "Read the User's request",
       description:
-        "The rest of what the User asked you from IncarnaMind: the note, the sentences it flagged with what its check found, and what to change and leave alone. Read it first when they ask you to fix what IncarnaMind flagged, or about a note or meeting in it. Each is read once.",
+        "The rest of what the User asked you from IncarnaMind: the note or file, what its check flagged, and what to change and leave alone. Each is read once.",
       inputSchema: z.object({
         note: z.string().optional().describe("The note's name, as the User wrote it."),
       }),

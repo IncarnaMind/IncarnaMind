@@ -132,6 +132,11 @@ export interface Mind {
    * Document while it holds none, as one in no Folder does (#1359).
    */
   folderId: string | null;
+  /**
+   * The Note of the newest version of a file an outside agent handed over, when this Note checks
+   * an earlier one (#3412): it has no row of its own, and opens from that Note's card.
+   */
+  supersededBy?: string;
 }
 
 /**
@@ -4050,6 +4055,48 @@ export interface Canvas {
   /** ISO 8601, UTC. */
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * A deck, workbook, Word file or PDF an outside agent made and handed over (#3412), kept with each
+ * version, its newest the Library's Document `documentId`, each version checked in a Note of its
+ * own as "Check someone else's file" checks one.
+ */
+export interface HandedFile {
+  id: string;
+  title: string;
+  kind: "pptx" | "xlsx" | "docx" | "pdf";
+  /** Its Folder; null when it is Not in a Folder. */
+  folderId: string | null;
+  /** The agent that handed it over, as the User had named its pairing then. */
+  agent: string;
+  /** The Library's Document holding its newest version; null before the first is read. */
+  documentId: string | null;
+  /** Its newest version: 1 at its first hand-over, one more for each with other bytes. */
+  version: number;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A version of a handed-over file (#3412). */
+export interface HandedFileVersion {
+  number: number;
+  /** The SHA-256 of its bytes. */
+  contentHash: string;
+  size: number;
+  /** The Note its check is in; null while it is made. */
+  mindId: string | null;
+  agent: string;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
+
+/** The handed-over file a check's Note is of, which version it is, and every version (#3412). */
+export interface HandedFileOfMind {
+  file: HandedFile;
+  version: number;
+  versions: HandedFileVersion[];
 }
 
 /** A version of a Canvas, as its versions list shows it. */
@@ -8316,6 +8363,12 @@ export interface ClaimCheckBasis {
    * them, never a scope the check didn't search.
    */
   citedOnly?: true;
+  /**
+   * A fingerprint of all the claim was judged with, its words and what stands above it (#3412):
+   * read against the line as it is now, a reading that knows it says whether the result still
+   * stands there. Absent on a check that kept none.
+   */
+  judgedWith?: string;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
@@ -12675,6 +12728,7 @@ export const AGENT_TOOLS = [
   "read_canvas",
   "update_canvas",
   "read_request",
+  "hand_over_file",
 ] as const;
 
 /**
@@ -15346,6 +15400,11 @@ export interface CoreApi {
    * IncarnaMind for that agent's `read_request` (#3419).
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
+  /**
+   * The file an outside agent handed over that this Note checks, with its versions (#3412); null
+   * for a Note that checks none.
+   */
+  handedFileOf(mindId: string): Promise<HandedFileOfMind | null>;
   /** The live Canvases (#3406), newest first. */
   listCanvases(): Promise<Canvas[]>;
   /**
@@ -16130,6 +16189,7 @@ const methods: Record<CoreApiMethod, true> = {
   copyAgentSetup: true,
   listAgentsToAsk: true,
   askAgent: true,
+  handedFileOf: true,
   listCanvases: true,
   showCanvas: true,
   listCanvasVersions: true,

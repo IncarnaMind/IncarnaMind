@@ -3,6 +3,7 @@ import {
   REQUEST_DONE_INSTRUCTIONS,
 } from "../../core/answers/claimedChanges";
 import { REMOVAL_ASKED_INSTRUCTIONS } from "../../core/edits/removalAsked";
+import { isClaim } from "../../shared/sentences";
 import { type GenerateOptions, lastUserText, systemOf } from "./prompt";
 
 /** Finding the claims of a verified document (#97) or of the User's own draft (#737), src/core/answers/checks/claims.ts. */
@@ -15,6 +16,13 @@ export const SAYS_A_VIEW = /\b(?:we|I) (?:think|believe)\b|我们认为|我认�
 
 /** The words by which it takes a sentence to be about the note it is in, which no check reads. */
 const ABOUT_THE_NOTE = /^This note\b|^这份笔记/;
+
+/**
+ * A heading, a lone number or a cell's address states nothing; a line as short with a word and a
+ * figure ("Total £8.68m.") states one.
+ */
+const statesNothing = (text: string): boolean =>
+  !isClaim(text) && !(/\p{L}{2}/u.test(text) && /\p{N}/u.test(text));
 
 export const findsClaims = (options: GenerateOptions): boolean =>
   FIND_CLAIMS.test(systemOf(options.prompt));
@@ -81,7 +89,11 @@ export function fakeClaims(
     const { number, text } = sentence;
     words.push([
       number,
-      /[?？]$|thank|谢/i.test(text) ? "no" : ABOUT_THE_NOTE.test(text) ? "note" : "claim",
+      /[?？]$|thank|谢/i.test(text) || statesNothing(text)
+        ? "no"
+        : ABOUT_THE_NOTE.test(text)
+          ? "note"
+          : "claim",
     ]);
   }
   return JSON.stringify(Object.fromEntries(undecidedLast ? words.slice(0, -1) : words));

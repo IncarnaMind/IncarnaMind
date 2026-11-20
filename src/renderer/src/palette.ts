@@ -21,6 +21,7 @@ import type { Language } from "../../core/language";
 import type { CommandId } from "../../shared/commands";
 import { displayName } from "../../shared/documentNames";
 import { translate } from "../../shared/i18n";
+import { isListedMind } from "../../shared/listedMinds";
 import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
 import { useAnnotations } from "./annotations";
@@ -323,7 +324,7 @@ export function recentGroup(
     found.kinds.flatMap(({ objects }) => objects.map((object) => [refKey(object.ref), object])),
   );
   const items = minds
-    .filter((mind) => mind.id !== inFront)
+    .filter((mind) => mind.id !== inFront && isListedMind(mind))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, SHOWN.recent)
     .flatMap((mind): PaletteItem[] => {

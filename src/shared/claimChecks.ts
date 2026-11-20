@@ -228,6 +228,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     ...(read && { read }),
     ...(text(value.fromAnswer) !== null && { fromAnswer: text(value.fromAnswer) as string }),
     ...(value.citedOnly === true && { citedOnly: true }),
+    ...(text(value.judgedWith) !== null && { judgedWith: text(value.judgedWith) as string }),
   };
   if (value.parts !== undefined && value.parts !== null) {
     const parts = readClaimParts(value.parts, check.text, check.state);
@@ -392,7 +393,11 @@ export type RecheckReason =
   /** What one of its `Id.` or `supra` refers back to reads otherwise now (#1709). */
   | "referent"
   /** A fact of the Library it rests on says otherwise now (#2525). */
-  | "library";
+  | "library"
+  /** What stands above it, which it was judged with, reads otherwise now (#3412). */
+  | "context"
+  /** It rests on a Document whoever reads it doesn't reach (#3412). */
+  | "reach";
 
 /**
  * A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows
@@ -460,6 +465,16 @@ export interface ClaimCheckNow {
   noteText?(): string;
   /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
   keptInside?: ((documentId: string) => string | null) | null;
+  /**
+   * The fingerprint of all the sentence would be judged with now (`ClaimCheckBasis.judgedWith`),
+   * read only for a result that kept one; null, or absent, where it isn't known.
+   */
+  judgedWith?(): string | null;
+  /**
+   * The Documents whoever reads the result reaches: an outside agent's (#3412). A result resting
+   * on another doesn't stand for it. Null, or absent, for the User, who reaches every Document.
+   */
+  reach?: ReadonlySet<string> | null;
 }
 
 /** A verdict a check landed, the only kind a Folder move has a result to keep (#2313). */
@@ -868,7 +883,48 @@ export function absenceBesideFact(
   );
 }
 
+/** A result and each result it holds: its figures' own and its remainder's. */
+function* resultsIn(check: ClaimCheckAttributes): Generator<ClaimCheckBasis> {
+  yield check;
+  yield* check.figures ?? [];
+  if (check.remainder) yield check.remainder;
+}
+
+/**
+ * Every Document a result rests on, cited or read whole, in the result and in each result it
+ * holds: what whoever reads it must reach.
+ */
+function reliedOn(check: ClaimCheckAttributes): string[] {
+  const readWhole = [...resultsIn(check)].flatMap((each) => [
+    ...(each.readDocuments ?? []),
+    ...(each.parts ?? []).flatMap((part) => part.readDocuments ?? []),
+  ]);
+  return [...restsOn(check), ...readWhole].flatMap((each) =>
+    typeof each.documentId === "string" ? [each.documentId] : [],
+  );
+}
+
+/**
+ * How a stored result shows now, for whoever reads it: the one reading of whether it still stands
+ * (#3412). It stands while its words and all it was judged with read the same, the Documents it
+ * read are at the versions it read, and each Document it rests on is one the reader reaches.
+ */
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
+  const shown = shownNow(check, now);
+  if (shown.state === "checking" || shown.state === "needs-recheck" || shown.state === "kept")
+    return shown;
+  const judged = check.judgedWith !== undefined ? (now.judgedWith?.() ?? null) : null;
+  if (judged !== null && judged !== check.judgedWith) {
+    return { state: "needs-recheck", why: "context" };
+  }
+  const { reach } = now;
+  if (reach && reliedOn(check).some((documentId) => !reach.has(documentId))) {
+    return { state: "needs-recheck", why: "reach" };
+  }
+  return shown;
+}
+
+function shownNow(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
     return basisShown(asCitedNow(check, now.citations ?? [], now.text), now);
   }

@@ -4,6 +4,8 @@
  * `report_check`. IncarnaMind sends nothing to a model, confirms each Citation in its Document and
  * marks the Note, where the User sees the marks.
  */
+
+import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -12,7 +14,12 @@ import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, readMind, writeMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
@@ -88,7 +95,7 @@ async function paired() {
       arguments: { title: "Tide notes", markdown: NOTE },
     }),
   );
-  return { ...started, core, coast, agent, mindId, calls };
+  return { ...started, core, coast, agent, mindId, calls, tides };
 }
 
 const task = async (agent: Agent, mindId: string) =>
@@ -286,6 +293,29 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
       [PENGUINS, "unsupported"],
     ]);
     expect((await task(agent, mindId)).sentences).toEqual([]);
+  });
+
+  // protects=a result stands for the agent's own check only while its Documents are at the versions it read: once one changed, the sentences resting on it are given out again (#3412 review); fails_when=check_mind_yourself counts a result whose Document changed since as settled and never gives the sentence again
+  it("gives a sentence out again once the Document its result rests on changed", async () => {
+    const { core, agent, mindId, tides } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice] },
+        { n: 2, verdict: "contradicted", cites: [largest] },
+        { n: 3, verdict: "not found" },
+        { n: 4, verdict: "nothing to check" },
+      ]),
+    );
+    expect((await task(agent, mindId)).sentences).toEqual([]);
+
+    await writeFile(tides.path, `${TIDES}\n\nNeap tides come in between.\n`);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [tides.id]);
+    // The two that rest on Tides; the agent's "not found" rests on no Document.
+    expect((await task(agent, mindId)).sentences.map((each) => each.text)).toEqual([SPRING, NEAP]);
   });
 
   // protects=an agent that hands back its results in parts, or again, has each part marked on the sentences it was given (#3432); fails_when=its own first report counts as the Note changing, and the rest is refused

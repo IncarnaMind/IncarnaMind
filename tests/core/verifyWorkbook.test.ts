@@ -132,7 +132,8 @@ describe("Verify a workbook", () => {
       (await core.findClaims({ requestId: crypto.randomUUID(), mindId: result.mind.id })).kind,
     ).toBe("found");
 
-    expect(sorted.flat()).toEqual([RENT, SALARIES]);
+    // The sheet's name is shown too: the model, not a rule on its length, finds it states nothing.
+    expect(sorted.flat()).toEqual(["Plan", RENT, SALARIES]);
   });
 
   test("a range checks only its cells", async () => {
@@ -352,7 +353,7 @@ describe("Verify a workbook", () => {
       (await core.findClaims({ requestId: crypto.randomUUID(), mindId: result.mind.id })).kind,
     ).toBe("found");
 
-    expect(sorted.flat()).toEqual([ROW]);
+    expect(sorted.flat()).toEqual(["Plan", ROW]);
   });
 
   // protects=a whole workbook is checked in one call, each sheet its own table, within the check's one limit on typed-in numbers (#3412); fails_when=only one sheet is read, a differing cell doesn't name its sheet, or the limit is counted a sheet at a time
