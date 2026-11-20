@@ -1550,6 +1550,22 @@ export function createLibrary(options: LibraryOptions) {
     },
 
     /**
+     * The Folders a file at `path` is inside, in its live Linked folder: its folder's first, up to
+     * the Linked folder's own; none outside one. By their ids, whether or not a scan has made them.
+     */
+    foldersAbove(path: string): string[] {
+      const owner = ownerOf(path);
+      if (!owner) return [];
+      const above: string[] = [];
+      let relative = parentOf(relativePath(owner.path, path));
+      for (;;) {
+        above.push(folderIdFor(owner.id, relative));
+        if (relative === "") return above;
+        relative = parentOf(relative);
+      }
+    },
+
+    /**
      * Reconciles these paths (e.g. a file about to be opened) now, and
      * resolves when done. While a pass is under way, which may take long, they
      * are queued for the next one instead, and it resolves at once, unless

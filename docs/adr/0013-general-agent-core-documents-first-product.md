@@ -31,7 +31,7 @@ The core is built from four parts:
 
 ### Web search's Tools (2026-10-12, #128)
 
-Two Tools of IncarnaMind's own, offered only when web search is on in Settings → Search, Local mode is off, the Answer's model's provider has a web search, and the Question asks for the web. `search_web` searches through that provider; `read_web_page` saves a page that search found as a Web page Document and gives its Passages to cite.
+Two Tools of IncarnaMind's own, offered only when web search is on in Settings → Search, Local mode is off, the Answer's model's provider has a web search, and its window holds 16,384 tokens or more. The model calls them only when the Question asks for the web, as their descriptions say; until 2026-11 a rule of words chose those Questions, and on saved runs all 7 it chose were about the User's own Documents (#3462). `search_web` searches through that provider; `read_web_page` saves a page that search found as a Web page Document and gives its Passages to cite.
 
 - **Neither asks.** A search goes to a service the User allowed (consent asks before the first). Reading fetches only an address a search of the same Run returned, so nothing the model writes, and nothing of the User's, goes with it; a made-up address is refused with a reason. So "read" from a web host runs by default (`runsByDefault`). A Tool that fetches an address the model chose sends data, and declares "network".
 - **Both read third-party text,** so the Run becomes third-party (#78).

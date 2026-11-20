@@ -739,6 +739,22 @@ export const linkedFolderCommands: readonly Command[] = [
     },
   },
   {
+    id: "linkedFolder.makeProject",
+    label: "linkedFolders.makeProject",
+    group: "main",
+    appliesTo: ["linkedFolder"],
+    when(ctx) {
+      const linked = linkedOf(ctx);
+      const groups = store().library?.groups ?? [];
+      return linked !== undefined && !groups.some((each) => each.boundFolderId === linked.folderId);
+    },
+    reversible: true,
+    run: async (ctx) => {
+      const linked = linkedOf(ctx);
+      if (linked) await store().makeProject(linked.id);
+    },
+  },
+  {
     id: "linkedFolder.download",
     label: (ctx, t) => {
       const count = linkedOf(ctx)?.onlineOnly.files ?? 0;

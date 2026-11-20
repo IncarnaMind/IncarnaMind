@@ -6,12 +6,20 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  ANALYSIS_TABLE_NODE,
+  type AnswerAnalysis,
+} from "../../src/core/api";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { checkRows, noteHealth } from "../../src/renderer/src/editor/healthCounts";
+import { noAnalysisOutput } from "../../src/shared/analysis";
+import { liveVersions, tableShownIn } from "../../src/shared/analysisTables";
 import { citationState } from "../../src/shared/citations";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingPart } from "../../src/shared/claimParts";
+import { installFigureRuns, keptBinding, retainFigureAnalysis } from "../../src/shared/figureRuns";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -37,6 +45,7 @@ const CITED = "Spring tides come twice every month.";
 const ELSEWHERE = "A spring tide has the largest range of its month.";
 const OWN = "We should survey at the spring tides.";
 const UNREAD = "The tide tables for the quay are kept elsewhere.";
+const UNMARKED = "The outer pier floods during autumn storms.";
 const TWICE = "Spring tides happen twice a month";
 const LARGEST = "The range of a spring tide is the largest of the month.";
 // A sentence whose Citation holds a Passage of Tides, backed by a Document the agent can't read.
@@ -59,6 +68,7 @@ const PLANS: Record<string, Plan> = {
   [ELSEWHERE]: { verdict: "supported", quote: LARGEST, says: "Tides says the range is largest." },
   [OWN]: { verdict: "own view", says: "A plan, not a fact." },
   [UNREAD]: { reply: { text: "It reads well to me." } },
+  [UNMARKED]: { sort: "undecided" },
   [GULLS]: { verdict: "supported", quote: GULLS_QUOTE, says: "Rivers says it of the cliffs." },
   // The sentence of two facts, as the agent writes it again with both Passages cited.
   [`${TWICE}, and the range of a spring tide is the largest of the month.`]: {
@@ -356,6 +366,191 @@ describe("an outside agent has its Note checked (#3317)", () => {
       [ELSEWHERE, "canBeCited", "supported", null, true],
       [SPRING, "canBeCited", "supported", null, true],
     ]);
+  });
+
+  // protects=check_mind's notChecked equals the Note's page count when a sentence carries no check mark or an Analysis table has columns that are not recalculated, by the page's own rule, while the counts for marked sentences don't change (#3460); fails_when=notChecked leaves out unmarked claims or non-recalculated Analysis table columns, or changes supported, needLook, canBeCited or ownViews
+  it("counts unmarked claims and Analysis table columns not recalculated in notChecked, as the Note's page does", async () => {
+    const { core, agent, coast, tides } = await paired();
+    const supportedBy = await citeToken(agent, TWICE);
+    const markdown = [
+      `${CITED.slice(0, -1)}${supportedBy}.`,
+      `${ELSEWHERE.slice(0, -1)}${supportedBy}.`,
+      SPRING,
+      NEAP,
+      PENGUINS,
+      OWN,
+      UNREAD,
+      UNMARKED,
+    ].join("\n\n");
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({ name: "create_mind", arguments: { title: "Tide notes", markdown } }),
+    );
+    const documents = await core.listDocuments();
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const countOnPage = () => {
+      const note = readMind(client);
+      const { claims, kept } = claimsOf(note, {
+        footing: "not-yet-known",
+        versions: new Map(documents.map((each) => [each.id, each.contentHash])),
+        folderId: coast.id,
+        scope: null,
+      });
+      return Object.fromEntries(
+        checkRows(
+          noteHealth(note, {
+            claims,
+            kept,
+            citationCheck: (attributes) => citationState(attributes, documents, []).check,
+            tableShown: (table) =>
+              tableShownIn(client.doc, table.toJSON(), "en", liveVersions(documents), null),
+            tableKept: (table) =>
+              keptBinding(client.doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
+          }),
+        ).map(({ row, places }) => [row, places.length]),
+      );
+    };
+
+    // Case 1: a sentence left without a check mark.
+    const withUnmarked = structured<Checked>(await check(agent, mindId));
+    await client.settled();
+    expect(claimSpans(readMind(client)).map((span) => span.sentence.text)).not.toContain(UNMARKED);
+    const unmarkedRows = countOnPage();
+    expect(unmarkedRows).toEqual({
+      look: 2,
+      supported: 1,
+      notYetCited: 2,
+      ownViews: 1,
+      toCheck: 2,
+    });
+    expect({
+      supported: withUnmarked.supported,
+      needLook: withUnmarked.needLook,
+      notChecked: withUnmarked.notChecked,
+      canBeCited: withUnmarked.canBeCited,
+      ownViews: withUnmarked.ownViews,
+    }).toEqual({
+      supported: unmarkedRows.supported,
+      needLook: unmarkedRows.look,
+      notChecked: unmarkedRows.toCheck,
+      canBeCited: unmarkedRows.notYetCited,
+      ownViews: unmarkedRows.ownViews,
+    });
+
+    // Case 2: an Analysis table with two columns that are not recalculated.
+    const binding = { id: "run-1", table: { result: "tide_summary" } };
+    const run: AnswerAnalysis = {
+      number: 1,
+      title: "Tide summary",
+      language: "python",
+      code: "result('tide_summary', …)",
+      inputs: [
+        {
+          kind: "range",
+          name: "tides",
+          citation: {
+            passageId: "p-1",
+            documentId: tides.id,
+            documentName: "Tides",
+            contentHash: tides.contentHash,
+            pageFrom: 1,
+            pageTo: 1,
+            location: { kind: "rows", sheet: "Tides", from: 1, to: 10 },
+            quote: "month\tspring\tneap",
+            check: "found",
+            checkReason: null,
+          },
+          range: "A1:C10",
+          rows: 9,
+          columns: 3,
+          rowCount: 9,
+          cut: false,
+          sha256: "a".repeat(64),
+        },
+      ],
+      versions: null,
+      codeSha256: "b".repeat(64),
+      outputSha256: "c".repeat(64),
+      end: { kind: "done" },
+      output: {
+        ...noAnalysisOutput(),
+        results: [
+          {
+            kind: "table",
+            name: "tide_summary",
+            label: "Tide summary by month",
+            unit: null,
+            table: {
+              columns: ["month", "spring", "neap"],
+              rows: [
+                ["May", 2, 2],
+                ["June", 2, 2],
+              ],
+              rowCount: 2,
+              columnCount: 3,
+            },
+          },
+        ],
+      },
+      ms: 1,
+      ranAt: "2026-11-20T09:00:00.000Z",
+      markers: { figures: [], tables: [{ result: "tide_summary", marker: 1 }], charts: [] },
+    };
+    const retained = retainFigureAnalysis(run, binding.id, [], [binding]);
+    if (!retained) throw new Error("No Analysis run retained.");
+    installFigureRuns(client.doc, [retained]);
+    const cell = (type: "tableHeader" | "tableCell", value: string) => ({
+      type,
+      attrs: { colspan: 1, rowspan: 1 },
+      content: [{ type: "paragraph", content: [{ type: "text", text: value }] }],
+    });
+    const row = (type: "tableHeader" | "tableCell", ...values: string[]) => ({
+      type: "tableRow",
+      content: values.map((value) => cell(type, value)),
+    });
+    editMind(client, (blocks) => [
+      ...blocks,
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Tide summary by month" },
+          { type: ANALYSIS_TABLE_NODE, attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: binding } },
+        ],
+      },
+      {
+        type: "table",
+        attrs: { [ANALYSIS_TABLE_ATTRIBUTE]: binding },
+        content: [
+          row("tableHeader", "month", "spring", "neap"),
+          row("tableCell", "May", "2", "2"),
+          row("tableCell", "June", "2", "2"),
+        ],
+      },
+    ]);
+    await client.settled();
+
+    const withTable = structured<Checked>(await check(agent, mindId));
+    const tableRows = countOnPage();
+    expect(tableRows).toEqual({
+      look: 2,
+      supported: 1,
+      notYetCited: 2,
+      ownViews: 1,
+      toCheck: 4,
+    });
+    expect({
+      supported: withTable.supported,
+      needLook: withTable.needLook,
+      notChecked: withTable.notChecked,
+      canBeCited: withTable.canBeCited,
+      ownViews: withTable.ownViews,
+    }).toEqual({
+      supported: tableRows.supported,
+      needLook: tableRows.look,
+      notChecked: tableRows.toCheck,
+      canBeCited: tableRows.notYetCited,
+      ownViews: tableRows.ownViews,
+    });
   });
 
   // protects=nothing of a Note goes to a service the User took checks back from, and an agent's call never puts a question on their screen (ADR-0022); fails_when=check_mind raises the consent dialog or sends while checks aren't allowed there

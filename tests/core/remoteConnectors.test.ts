@@ -338,7 +338,11 @@ describe("Signing in", { timeout: 30_000 }, () => {
       }),
     );
     // Both Tools were offered; the one that claims to only read ran without asking.
-    expect(model.doStreamCalls[0]?.tools?.map((tool) => tool.name)).toEqual([SEARCH, EDIT]);
+    expect(model.doStreamCalls[0]?.tools?.map((tool) => tool.name)).toEqual([
+      SEARCH,
+      EDIT,
+      "find_sources",
+    ]);
     expect(fake.toolCalls).toEqual([
       { tool: "search_wiki", arguments: { query: "tides" }, token: fake.issued[0]?.accessToken },
     ]);
@@ -751,7 +755,7 @@ describe("Tokens", { timeout: 30_000 }, () => {
       },
     ]);
     const next = model.doStreamCalls[failed];
-    expect(next?.tools ?? []).toEqual([]);
+    expect((next?.tools ?? []).map((tool) => tool.name)).toEqual(["find_sources"]);
     const system = String(next?.prompt.find((message) => message.role === "system")?.content);
     expect(system).toContain(
       'Connector "Wiki" needs the User to sign in again (in Settings → Connectors)',

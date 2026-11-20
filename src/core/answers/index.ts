@@ -226,7 +226,6 @@ import {
   toldTheModel,
 } from "../skills/scripts";
 import { scriptCallInput, skillTools } from "../skills/tools";
-import { asksForSources } from "../sources/intent";
 import { type PaceTimers, realTimers } from "../sources/pace";
 import { inFlow, inStep } from "../timing/flows";
 import {
@@ -256,7 +255,6 @@ import {
   mindTools,
   partSpan,
 } from "../tools/minds/tools";
-import { asksForWeb } from "../tools/web/intent";
 import { type SavedPage, webTools } from "../tools/web/tools";
 import { formulaCells } from "../workbooks/formulaCells";
 import { workbookTools } from "../workbooks/tool";
@@ -615,6 +613,12 @@ export interface CellAnswer {
 }
 
 const FIGURE_CITATIONS_FROM = 9000;
+
+/**
+ * The smallest window offered Find sources' and web search's Tools (#3462): at 8,192 tokens they
+ * would cut what an Answer can write by about 30%. The Library's Find sources stays.
+ */
+const OUTSIDE_TOOLS_WINDOW = 16_384;
 
 // With nothing to search, a model wrote what a Document says, uncited, into the User's Mind and
 // blamed its Tools (#1359).
@@ -3095,9 +3099,9 @@ export function createAnswers(options: AnswersOptions) {
           return readable.ids === null || readable.ids.includes(documentId);
         },
       };
+      const roomForOutside = !prepared.window || prepared.window.tokens >= OUTSIDE_TOOLS_WINDOW;
       for (const provider of outside ? [] : options.toolProviders) {
-        // Find sources' Tool only for a Question that asks for papers or other sources.
-        if (provider.kind === "sources" && !asksForSources(context.question)) continue;
+        if (provider.kind === "sources" && !roomForOutside) continue;
         try {
           provided.push(...(await provider.tools(controller.signal, turn)));
         } catch (error) {
@@ -3124,11 +3128,10 @@ export function createAnswers(options: AnswersOptions) {
         });
         callFinished(id, false, null);
       }
-      // Web search's Tools, only for a Question that asks for the web, with a model whose provider
-      // searches it, while the User has it on (#128).
+      // Web search's Tools, with a model whose provider searches it, while the User has it on (#128).
       const web = outside && !input.web ? undefined : options.web;
       let webService: ExternalService | null = null;
-      if (web && (input.web || asksForWeb(context.question))) {
+      if (web && (input.web || roomForOutside)) {
         try {
           webService = await web.service(model);
         } catch (error) {

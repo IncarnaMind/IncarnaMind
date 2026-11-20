@@ -15,6 +15,11 @@ export interface LibraryGroup {
   countsOwnFiles: boolean;
   /** Only this Folder's Documents and Notes may be read or cited from it. False by default. */
   keepInside: boolean;
+  /**
+   * The folder on disk it is bound to, which makes it a Project (ADR-0030): a Linked folder's own
+   * Folder or one inside it (`Folder.id`); null for a Folder bound to none.
+   */
+  boundFolderId: string | null;
   createdAt: string;
   updatedAt: string;
 }

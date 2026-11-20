@@ -59,6 +59,8 @@ export interface HandOverDeps {
   placeOf(path: string): Place;
   /** The Folder a Document is filed in; null for one in none ("Not in a Folder"). */
   filedIn(documentId: string): string | null;
+  /** The Folder a Linked folder's file at this path is filed in as it arrives (ADR-0030); null: none. */
+  filedOnArrival(path: string): string | null;
   document(documentId: string): Document;
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
@@ -277,8 +279,8 @@ export function createHandOver(deps: HandOverDeps) {
   /**
    * Refuses unless the agent reaches, as the User grants it now, the Folder the call named, the
    * item's Folder, where its Notes go, and the Folder the file's Document is filed in (#3458): it
-   * changes nothing where it has no reach. A Linked folder's file with no Document yet is in no
-   * Folder once read, as each of its files is until filed. Read again after every wait. A Linked
+   * changes nothing where it has no reach. A Linked folder's file with no Document yet is where it
+   * is filed once read: its bound Folder, or none. Read again after every wait. A Linked
    * folder the User paused isn't read, so nothing in it is handed over until it is resumed (#3499).
    */
   function requireReach(input: HandOverInput, file: StoredHandedFile | null): Place {
@@ -291,7 +293,9 @@ export function createHandOver(deps: HandOverDeps) {
       liveDocumentOf(file),
       place.linkedFolderId === null ? null : place.documentId,
     ].flatMap((id) => (id === null ? [] : [deps.filedIn(id)]));
-    if (place.linkedFolderId !== null && place.documentId === null) folders.push(null);
+    if (place.linkedFolderId !== null && place.documentId === null) {
+      folders.push(deps.filedOnArrival(input.place));
+    }
     if (folders.some((folderId) => !input.reaches(folderId))) {
       throw new AgentRefusedError("outside-scope", deps.say("agents.handOver.notShared"));
     }
