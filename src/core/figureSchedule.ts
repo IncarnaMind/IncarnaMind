@@ -33,7 +33,6 @@ import {
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
 import { memoized, perBlock } from "../shared/memo";
-import { locate } from "../shared/plainFigures";
 import {
   figureSignOffBasis,
   figureSignOffSources,
@@ -252,6 +251,10 @@ function sourceFootingOnce(...args: SourceFootingArgs): FigureSourceFooting | nu
   return once(...args);
 }
 
+/** Whether a saved input's quote still writes its number where it was read. */
+const writesAt = ({ citation, number }: FigureInput): boolean =>
+  citation.quote.slice(number.at, number.at + number.chars.length) === number.chars;
+
 function sourceFootingFor(
   total: FigureFinding,
   axis: FigureFinding["footing"][number],
@@ -421,13 +424,10 @@ function sourceFootingFor(
     if (!position) return entry;
     let input: FigureInput | null = entry.id === targetId ? stated : null;
     const represented = covered.get(entry.id)?.[0];
-    if (!input && represented) {
-      const previous = findings.get(represented)?.sourceInput;
-      // The same version of the Document: its number is confirmed by its digits in the quote again.
-      if (previous && locate(previous.number.value, previous.citation.quote, previous.number.chars))
-        input = previous;
-      if (!input) return entry;
-    }
+    const previous = represented ? findings.get(represented)?.sourceInput : null;
+    // Its place, not its value, confirms it: a cell may store more than it shows (10.4 shown as 10).
+    // One that no longer stands is read from its cell again.
+    if (!input && previous && writesAt(previous)) input = previous;
     if (!input) {
       const unit = units.find(
         (unit) =>
