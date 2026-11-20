@@ -243,8 +243,8 @@ describe("files an outside agent hands over", () => {
     expect(refusal(await handOver(readOnly, { path: deck }))).toMatch(/propose|change|write/i);
   });
 
-  // protects=Ask your AI on a handed-over file's check asks the agent to fix it in the file and hand it over again, naming the file, its version, where it was handed over from and the slide (#3412); fails_when=the request speaks of a note to edit, or loses the slide
-  it("asks the agent to fix what the check flagged in the file, on its slide, and hand it over again", async () => {
+  // protects=Ask your AI on a handed-over file's check asks the agent to fix it in the file and hand it over again, naming the file, its version, where it was handed over from, the slide and the quote the check found (#3412, #3383); fails_when=the request speaks of a note to edit, or loses the slide or the quote
+  it("asks the agent to fix what the check flagged in the file, on its slide, to what the quote says, and hand it over again", async () => {
     const { core, coast, writer, files } = await started();
     const agent = await connectLegacyAgent(writer.launch);
     const path = join(files, "Harbour review.pptx");
@@ -261,14 +261,21 @@ describe("files an outside agent hands over", () => {
       mindId,
       ask: {
         kind: "fix",
-        sentences: [{ sentence: SOUTH, verdict: "contradicted", checkId: flagged.check.id }],
+        sentences: [
+          {
+            sentence: SOUTH,
+            verdict: "contradicted",
+            checkId: flagged.check.id,
+            quote: "the south quay holds 19 boats",
+          },
+        ],
       },
     });
     const read = structured<{ request: string }>(
       await agent.callTool({ name: "read_request", arguments: {} }),
     );
     expect(read.request).toBe(
-      `In IncarnaMind, the check of the file you handed over, “Harbour review” (version 1, from ${path}), says this is contradicted by my Documents:\n\nOn slide 2: “${SOUTH}”\n\nFix it in the file from my Documents, change nothing else, and hand the file over again with hand_over_file.`,
+      `In IncarnaMind, the check of the file you handed over, “Harbour review” (version 1, from ${path}), says this is contradicted by my Documents:\n\nOn slide 2: “${SOUTH}”\n\nMy Documents say: “the south quay holds 19 boats”\nRewrite it to say what that quote says and no more: add no figure, name or claim it doesn’t give.\n\nFix it in the file from my Documents, change nothing else, and hand the file over again with hand_over_file.`,
     );
   });
 });
