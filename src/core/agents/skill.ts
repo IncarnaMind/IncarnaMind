@@ -61,9 +61,10 @@ For a page to look at, such as a report with pictures or a small dashboard, \`pu
 
 ## When you made a file for the User: hand it over
 
-A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_file\` with its full path. IncarnaMind reads that one file, keeps it with each version, and checks it against their Documents: each claim on a slide or page, each typed-in number of a sheet, each formula worked out again. It tells you what needs a look and where. Fix it in the file and hand it over again from the same path: that is its next version. While its status is "running", call it again. So that it checks well:
+A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_file\` with its full path. IncarnaMind reads that one file, keeps it with each version, and checks it against their Documents: each claim on a slide or page, each typed-in number of a sheet, each formula worked out again. It tells you what needs a look and where. While its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version, checked again on the User's AI model. Do this once on your own, then tell the User what still needs a look, and where. So that it checks well:
 
 - Put each figure in a slide's text, a table, a chart or the speaker notes, not only in a picture or a slide title.
+- Write no \`[cite:…]\` token in the file: it shows there as typed. Name the Document a figure comes from in words, in a sources line or the speaker notes.
 - Write a figure you worked out with what it comes from, in the same line: "3,450 tonnes, 50 short of the 3,500-tonne threshold".
 - One figure to a line or a cell where you can: a mark is on the whole line or row.
 - In a workbook, type each figure from a Document once, on an inputs sheet, a row each, labelled with what it is, whose and for which period, with a column naming the Document it came from; make every other number a formula of those cells.
