@@ -171,6 +171,21 @@ describe("The plain calculator", { timeout: 60_000 }, () => {
     expect(answer.figures.map((figure) => figure.shown)).toEqual(["£16,380"]);
   });
 
+  // protects=a figure's marker written after its sentence's Citation goes to its number, and no digit of a marker is taken for the figure; fails_when=the marker goes inside the Citation's marker, or a figure shows at a number whose digits only round to the result's
+  test("a marker after a Citation goes to its number, never into the Citation", async () => {
+    const model = calculatingModel(
+      [{ ...COST, inputs: [COST.inputs[0], { name: "price", citation: 1, value: 0.315 }] }],
+      "In 2025 the bakery used 52,000 kWh, and its electricity cost £16,380[^1][=1].",
+    );
+    const answer = await asked(model, "What did the bakery's electricity cost?");
+
+    expect(askedAgain(model)).toBe("");
+    expect(shown(answerBlocks(answer))).toBe(
+      "In 2025 the bakery used 52,000 kWh, and its electricity cost £16,380.",
+    );
+    expect(answer.figures.map((figure) => figure.shown)).toEqual(["£16,380"]);
+  });
+
   // protects=a figure rests only on numbers its quotes write; fails_when=a number not in its quote is shown as a calculated figure
   test("refuses a number not in its quote", async () => {
     const model = calculatingModel(

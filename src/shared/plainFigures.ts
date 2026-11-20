@@ -85,8 +85,9 @@ export function shownCarries(shown: string, result: number): boolean {
   if (size === 0) return false;
   const places = only.digits.length;
   const exponent = Math.floor(Math.log10(size));
-  // Rounding can carry into a new place: 9.96 shown as "10.0".
-  return [exponent, exponent + 1].some((top) => {
+  // Rounding can carry into a new place: 9.96 shown as "10.0"; 8.5 is never "1".
+  const carries = Math.round(size / 10 ** (exponent - places + 1)) >= 10 ** places;
+  return [exponent, ...(carries ? [exponent + 1] : [])].some((top) => {
     const scaled = size / 10 ** (top - places + 1);
     return Math.abs(scaled - Number(only.digits)) <= 0.5 + 1e-9 * scaled;
   });

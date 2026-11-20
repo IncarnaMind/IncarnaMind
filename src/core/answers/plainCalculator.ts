@@ -187,6 +187,10 @@ const codeSpans = (text: string): [number, number][] =>
     found.index + found[0].length,
   ]);
 
+/** `text` with its Citation and figure markers blanked, so their digits are never a figure's. */
+const withoutMarkers = (text: string): string =>
+  text.replace(/\[(?:\^|=)[^\]\n]{1,12}\]/g, (marker) => " ".repeat(marker.length));
+
 /** Where the sentence, line or table cell that ends `before` starts. */
 function clauseStart(before: string): number {
   let start = 0;
@@ -482,7 +486,7 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
       const value = figure.value;
       const before = out.slice(0, match.index);
       const start = clauseStart(before);
-      const found = readFigures(before.slice(start), { language })
+      const found = readFigures(withoutMarkers(before.slice(start)), { language })
         .filter((each) => shownCarries(each.chars, value))
         .at(-1);
       if (!found) continue;
