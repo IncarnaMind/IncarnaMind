@@ -38,6 +38,7 @@ export interface AgentAskOptions {
   /** Keeps what the line doesn't say, for the pairing to read (`createAgents().keepRequest`). */
   keepRequest(
     request: Pick<AgentRequest, "pairingId" | "mindId" | "sentences"> & {
+      title: string;
       text: string;
     },
   ): AgentRequest;
@@ -204,7 +205,13 @@ export function createAgentAsk(options: AgentAskOptions) {
       );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
       if (request !== null && note) {
-        options.keepRequest({ pairingId, mindId: note.mindId, sentences, text: request });
+        options.keepRequest({
+          pairingId,
+          mindId: note.mindId,
+          title: note.title,
+          sentences,
+          text: request,
+        });
       }
       const link = promptLinkFor(pairing.client, line);
       if (link && options.openLink) {

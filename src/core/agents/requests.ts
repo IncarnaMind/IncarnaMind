@@ -17,18 +17,20 @@ interface RequestRow {
   id: string;
   pairing_id: string;
   mind_id: string;
+  title: string;
   sentences: string;
   text: string;
   read_at: string | null;
   created_at: string;
 }
 
-/** A request as IncarnaMind keeps it, with the text the agent reads. */
+/** A request as IncarnaMind keeps it, with the Note's name its line gave and the text the agent reads. */
 export interface KeptRequest extends AgentRequest {
+  title: string;
   text: string;
 }
 
-const COLUMNS = "id, pairing_id, mind_id, sentences, text, read_at, created_at";
+const COLUMNS = "id, pairing_id, mind_id, title, sentences, text, read_at, created_at";
 
 function sentencesOf(json: string): AgentRequest["sentences"] {
   try {
@@ -54,6 +56,7 @@ const toRequest = (row: RequestRow): KeptRequest => ({
   id: row.id,
   pairingId: row.pairing_id,
   mindId: row.mind_id,
+  title: row.title,
   sentences: sentencesOf(row.sentences),
   text: row.text,
   createdAt: row.created_at,
@@ -67,13 +70,14 @@ export function createAgentRequests(db: Database, now: () => string, newId: () =
       const at = now();
       db.transaction(() => {
         db.run(
-          `INSERT INTO agent_requests (id, pairing_id, mind_id, sentences, text, created_at,
+          `INSERT INTO agent_requests (id, pairing_id, mind_id, title, sentences, text, created_at,
              updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             request.pairingId,
             request.mindId,
+            request.title,
             JSON.stringify(request.sentences),
             request.text,
             at,

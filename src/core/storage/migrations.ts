@@ -3210,13 +3210,15 @@ export const migrations: readonly Migration[] = [
     sql: `
       -- What the User asked their own AI about a Note, beyond the line typed in the agent's app:
       -- which Note, which sentences, what the check found and what to do, as text the agent
-      -- reads once with read_request (read_at). sentences is the JSON list a fix names, each with
+      -- reads once with read_request (read_at). title is the Note's name as the line gave it, which
+      -- the agent may name it by after a rename. sentences is the JSON list a fix names, each with
       -- the check result it was asked on ({sentence, checkId}). On this device only, as
       -- agent_pairings is.
       CREATE TABLE agent_requests (
         id TEXT PRIMARY KEY NOT NULL,
         pairing_id TEXT NOT NULL,
         mind_id TEXT NOT NULL,
+        title TEXT NOT NULL,
         sentences TEXT NOT NULL DEFAULT '[]',
         text TEXT NOT NULL,
         read_at TEXT,

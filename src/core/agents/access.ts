@@ -2533,10 +2533,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const mind = minds.get(mindId);
         return mind ? mindName(mind) || t("mind.untitled") : "";
       };
-      // The Note the User's line names, when the agent passes it on: a request about it that was
-      // read already is never made up for by another Note's, which waits for its own line.
+      // The Note the User's line names, when the agent passes it on, by the name the line gave it
+      // or its name now: a request about it that was read already is never made up for by another
+      // Note's, which waits for its own line.
       const kept = deps.requests.ofPairing(pairingId);
-      const about = kept.filter((each) => comparableName(titleOf(each.mindId)) === named);
+      const about = kept.filter((each) =>
+        [each.title, titleOf(each.mindId)].some((name) => comparableName(name) === named),
+      );
       const chosen = (named !== "" && about.length > 0 ? about : kept).find(
         (each) => each.readAt === null,
       );

@@ -280,9 +280,14 @@ describe("asking the User's own AI", () => {
       mindId: crossings.id,
       ask: { kind: "fix", sentences: [{ sentence: OTHER, verdict: "unsupported" }] },
     });
+    // Renamed since: the agent names it as the line did.
+    await core.renameMind(mind.id, "Ferry report, final");
     const agent = await connectLegacyAgent(pairing.launch);
     const none = { refused: translate("en", "agents.problem.noRequest") };
-    expect(await requestRead(agent, `“${TITLE}”`)).toMatchObject({ mindId: mind.id });
+    expect(await requestRead(agent, `“${TITLE}”`)).toMatchObject({
+      mindId: mind.id,
+      title: "Ferry report, final",
+    });
     expect(await requestRead(agent, TITLE)).toEqual(none);
     expect(await requestRead(agent, "the crossings note")).toMatchObject({
       mindId: crossings.id,
