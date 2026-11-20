@@ -15,6 +15,7 @@ import { CloseLineIcon, RecordingLineIcon } from "./lineIcons";
 import { MeetingBar, MeetingBarRoom } from "./MeetingBar";
 import { MeetingFillLine } from "./MeetingFillLine";
 import { actionParts, MetaLine } from "./MetaLine";
+import { MeetingSummary } from "./meetings/MeetingSummary";
 import { LineAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
 import { useTabPlace } from "./tabs/tabItems";
@@ -23,8 +24,8 @@ import { buttonStyle, fieldLabelClass, inputClass } from "./ui";
 /**
  * A Meeting's place in its Mind, under the title: the start block while it is
  * ready, and the meeting bar while it records or is paused, its recording
- * details (#161) opening from it. Once a call stops, the page stays bare
- * (#2527): only a problem shows here, and the rest is in the chip beside ⋯
+ * details (#161) opening from it. Once a call stops, its summary and any
+ * problems show here, and the rest is in the chip beside ⋯
  * (`MeetingViewChip`). A stopped voice memo keeps its lines about its
  * Transcript, its note and its audio here.
  */
@@ -56,6 +57,7 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   if (meeting.kind === "meeting") {
     return (
       <div className="empty:hidden mb-4">
+        {view === "notes" && <MeetingSummary meeting={meeting} />}
         <TranscriptLines meeting={meeting} className="" problemsOnly />
         <CaptureProblem meeting={meeting} onDetails={() => showMeetingDetails(meeting.mindId)} />
       </div>

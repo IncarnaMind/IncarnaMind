@@ -8608,8 +8608,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
-  "agents.pairing.proposes":
-    "Writes notes and Canvases and hands over files there; proposes changes to yours",
+  "agents.pairing.proposes": "Writes notes, Canvases and files there; proposes changes to yours",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
@@ -8794,6 +8793,24 @@ export const en = {
     "To use {agent}, move this meeting note to a folder shared with it.",
   "meetings.notesAgent.unavailable": "Reconnect your AI or resume its access in Settings.",
   "meetings.notesAgent.settings": "Agent settings",
+  "meetings.summary.setting": "Automatic meeting summary",
+  "meetings.summary.disclosure":
+    "The selected AI receives new transcript lines and the previous summary about once a minute and after you stop. Cloud requests count toward your AI’s usage.",
+  "meetings.summary.off": "Off",
+  "meetings.summary.builtin": "{model} via {provider}",
+  "meetings.summary.setup":
+    "Set up IncarnaMind AI or choose Codex or Claude Code for meeting notes.",
+  "meetings.summary.agentUnavailable": "Selected AI unavailable",
+  "meetings.summary.title": "Quick AI summary",
+  "meetings.summary.preparing": "Preparing a summary…",
+  "meetings.summary.updating": "Finishing the summary…",
+  "meetings.summary.coverage": "Covers the transcript through {time}",
+  "meetings.summary.empty": "No summary was generated.",
+  "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
+  "error.meeting.summaryUnavailable":
+    "Check the selected summary AI and its access to this meeting in Settings.",
+  "meetings.summary.failed": "Couldn’t prepare a summary.",
+  "meetings.summary.updateFailed": "Couldn’t finish the summary.",
   // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
   "agents.ask.line.fix": "Fix the sentence IncarnaMind flagged in {title}.",
   "agents.ask.line.fixAll": "Fix the {count} sentences IncarnaMind flagged in {title}.",

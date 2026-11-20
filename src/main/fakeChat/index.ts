@@ -94,11 +94,25 @@ const slowedDownOnce = new Set<string>();
 /** How long a "slow down" 429 says to wait: past the 5 s a line names a wait after. */
 const SLOW_DOWN_SECONDS = 6;
 
+function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
+  if (!systemOf(prompt).startsWith("Write a concise, standalone summary of the meeting"))
+    return null;
+  const text = lastUserText(prompt);
+  if (/上线改到\s*11\s*月\s*18\s*日/.test(text)) {
+    return "• 上线改到 11 月 18 日。\n• Dana 周五确认支付服务方的审核进度。";
+  }
+  if (text.includes("The launch moves to 18 November")) {
+    return "• The launch moves to 18 November.\n• Dana will confirm the payment provider’s review on Friday.";
+  }
+  return "The meeting opened with a discussion of the launch date.";
+}
+
 /**
  * The scripted replies to a request that doesn't ask for JSON, in order: the first that
  * doesn't return null answers it.
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
+  fakeMeetingSummary,
   fakeSentenceBatch,
   fakeRestate,
   fakePlan,

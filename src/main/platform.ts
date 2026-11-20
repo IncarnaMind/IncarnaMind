@@ -55,6 +55,7 @@ import { createCitedPageCapture } from "./citedPageCapture";
 import { createSentryCrashReporter } from "./crashReports";
 import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
+import { summarizeWithMeetingAgent } from "./meetingSummaryAgent";
 import { createElectronAudioCapture } from "./meetings/capture";
 import { createRoomSpeakerReviewer } from "./meetings/roomSpeakerReviewer";
 import { createModelRuntimeFolder } from "./modelRuntimeFolder";
@@ -1068,6 +1069,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
       ...(testAgentApplications && { applications: testAgentApplications }),
     },
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
+    summarizeWithMeetingAgent,
     transcriber: fakeTranscriber
       ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))
       : createUtilityProcessTranscriber(),

@@ -45,6 +45,8 @@ Choosing the AI model's provider (in first-run setup, in Settings → AI, or by 
 - **Research tasks** use Connectors, web search and Find sources as an Answer does, under the same consents.
 - **Providers are asked not to store your requests** where they offer that. IncarnaMind can't make them.
 
+**Automatic meeting summaries.** Settings → Meetings lets you authorize the AI chosen for meeting notes to prepare a quick summary during recording. This setting starts off. Each request carries confirmed transcript lines and the previous summary. Your chosen chat model uses its existing consent and spending settings. If you choose a connected Codex or Claude Code, its installed client uses your account, and both the Meeting Note and Transcript must be within the shared Folders. Turning off the setting stops further summary requests. A draft already prepared stays with the Meeting.
+
 ## Connections that carry nothing of yours
 
 These are listed in Settings → Privacy under "Other network traffic".

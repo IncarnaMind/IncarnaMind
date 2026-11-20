@@ -34,6 +34,7 @@
  * A voice memo (#1568) is a Meeting of the User alone: it records the microphone only, from the
  * moment it is made, in a Mind with no title, so the title line of its note names the Mind.
  */
+
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { formatDay } from "../../shared/dates";
@@ -77,6 +78,7 @@ import {
   writeRecording,
 } from "./audioFiles";
 import type { CaptureHealthRecords } from "./health";
+import type { StoredMeetingSummary } from "./liveSummary";
 import type { Transcripts } from "./transcript";
 
 /** The longest stretch of audio read at once for playing: the player asks for the next as it goes. */
@@ -134,6 +136,7 @@ interface MeetingRow {
   audio_kept_at: string | null;
   audio_deleted_at: string | null;
   fill: string | null;
+  summary: string | null;
   transcript_document_id: string | null;
   purged_at: string | null;
   created_at: string;
@@ -141,11 +144,15 @@ interface MeetingRow {
 }
 
 const COLUMNS =
-  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, transcript_document_id, purged_at, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends MeetingFill {
   blocks: string[];
+}
+
+function storedSummaryOf(row: Pick<MeetingRow, "summary">): StoredMeetingSummary | null {
+  return row.summary ? (JSON.parse(row.summary) as StoredMeetingSummary) : null;
 }
 
 function storedFillOf(row: Pick<MeetingRow, "fill">): StoredFill | null {
@@ -380,6 +387,7 @@ export function createMeetings(options: MeetingsOptions) {
       });
     }
     const current = live?.meetingId === row.id ? live : null;
+    const summary = storedSummaryOf(row)?.summary;
     return {
       id: row.id,
       mindId: row.mind_id,
@@ -408,6 +416,7 @@ export function createMeetings(options: MeetingsOptions) {
       helps: [...(help.get(row.id) ?? [])],
       helpTemplate: templates.get(row.id) ?? null,
       fill: fillOf(row),
+      ...(summary && { summary }),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -883,6 +892,7 @@ export function createMeetings(options: MeetingsOptions) {
       const at = now();
       save(id, {
         purged_at: at,
+        summary: null,
         ...(audio_deleted_at === null && { audio_deleted_at: at, audio_expires_at: null }),
       });
     }
@@ -1194,6 +1204,15 @@ export function createMeetings(options: MeetingsOptions) {
       log.info("meeting.stopped", { meetingId: row.id });
       changed();
       return toMeeting(rowOf(row.id));
+    },
+
+    storedSummary(meetingId: string): StoredMeetingSummary | null {
+      return storedSummaryOf(rowOf(meetingId));
+    },
+
+    setSummary(meetingId: string, value: StoredMeetingSummary): void {
+      save(meetingId, { summary: JSON.stringify(value) });
+      changed();
     },
 
     /** The Meeting's fill as stored (#142), with the Blocks it added. */

@@ -5,12 +5,12 @@ name: CI
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    # A change to documents only runs nothing. docs/privacy.md is not one: a unit test reads it.
+    # A change to ADRs or pictures only runs nothing. Every other document runs: unit tests read
+    # the READMEs, CONTEXT.md and the guides in docs/ as text.
     paths:
       - "**"
-      - "!*.md"
-      - "!docs/**"
-      - "docs/privacy.md"
+      - "!docs/adr/**"
+      - "!docs/images/**"
   workflow_call:
   workflow_dispatch:
 
@@ -73,13 +73,14 @@ jobs:
         with:
           packages: bubblewrap socat ripgrep
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Vitest's --changed doesn't follow a change to the dependencies, the tests' own setup or CI.
+      # Vitest's --changed doesn't follow a change to the dependencies, the tests' own setup or CI,
+      # nor to a Markdown file, which a test reads as text and never imports.
       - env:
           EVENT: ${{ github.event_name }}
         run: |
           only=()
           if [ "$EVENT" = pull_request ] && ! git diff --name-only HEAD^1 HEAD \
-            | grep -qE '^(package(-lock)?\.json|vitest\.config\.ts|tests/setup/|\.github/workflows/ci\.yml)'; then
+            | grep -qE '^(package(-lock)?\.json|vitest\.config\.ts|tests/setup/|\.github/workflows/ci\.yml)|\.md$'; then
             only=(--changed=HEAD^1 --passWithNoTests)
           fi
           npm test -- --shard=${{ matrix.shard }}/8 "${only[@]}"
