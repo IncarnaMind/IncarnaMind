@@ -33,6 +33,20 @@ describe("A file an agent names for a Canvas", () => {
     expect(await files.readNamed(join(named, "big.png"), LIMIT)).toEqual({ kind: "too-large" });
   });
 
+  // protects=the path given back is the file whose bytes were read: through a link in its folders, the place it leads to (#3499); fails_when=the bytes come from one folder and the path names another
+  it("through a link in its folders, is read and named where the link leads", async () => {
+    const { files, named } = await setUp();
+    const project = join(await createTempDataFolder(), "project");
+    await mkdir(project);
+    await writeFile(join(project, "deck.pptx"), "slides");
+    await symlink(project, join(named, "shortcut"));
+    expect(await files.readNamed(join(named, "shortcut", "deck.pptx"), LIMIT)).toEqual({
+      kind: "read",
+      bytes: new TextEncoder().encode("slides"),
+      path: join(await realpath(project), "deck.pptx"),
+    });
+  });
+
   it("reads as unreadable, and nothing more, when it is a link, a folder, a pipe, a device or not there", async () => {
     const { files, named } = await setUp();
     const outside = join(await createTempDataFolder(), "secret.txt");

@@ -54,23 +54,8 @@ export interface HandOverDeps {
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
   contentHashInUse(contentHash: string, exceptDocumentId: string | null): boolean;
-  /** Someone else's file, checked: never the evidence for its own claims, until the User cites it. */
-  setNotCited(documentId: string, notCited: boolean): void;
-  /** When the agent of this pairing was first connected; null once its pairing is gone. */
-  connectedAt(pairingId: string): string | null;
-  /**
-   * Whether a Citation that can show again points at the Document: in a Note, one in Recently
-   * deleted too, in a conversation, or kept by a feature.
-   */
-  cited(documentId: string): boolean;
-  /**
-   * Takes a Document the User never deleted out of the Library for good, at once, as Recently
-   * deleted's purge does: never listed there, since restoring it would bring the second Document
-   * back. Only for a copy whose bytes another Document and a kept version hold.
-   */
-  retire(documentId: string): void;
-  /** Points a version's check at the Document that holds the file now. */
-  repoint(mindId: string, documentId: string): void;
+  /** Someone else's file, checked: never the evidence for its own claims. */
+  setNotCited(documentId: string): void;
   rename(documentId: string, name: string): void;
   assign(documentId: string, folderId: string): void;
   verify(input: {
@@ -142,6 +127,23 @@ export function agentMadeIt(
   const connected = Date.parse(connectedAt);
   if (Date.parse(document.createdAt) < connected) return false;
   return document.modifiedAt === null || Date.parse(document.modifiedAt) >= connected;
+}
+
+/**
+ * The copy in the data folder of the file handed over last from `path` (#3499), or null. Once
+ * `path` is in a Linked folder, its scan makes that copy the file's Document there: the same
+ * Document, only at the file's place. `isCopy`: live, and in no Linked folder.
+ */
+export function handedCopyAt(
+  store: Pick<AgentFiles, "handedFrom">,
+  path: string,
+  isCopy: (documentId: string) => boolean,
+): string | null {
+  const [last] = store
+    .handedFrom(path)
+    .filter((file) => file.documentId !== null && isCopy(file.documentId))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return last?.documentId ?? null;
 }
 
 /** Whether the Document's read failed, and since `was`, as it stood before the new version. */
@@ -279,7 +281,7 @@ export function createHandOver(deps: HandOverDeps) {
       store.holding(documentId).length === 0 &&
       agentMadeIt(deps.document(documentId), input.connectedAt)
     ) {
-      deps.setNotCited(documentId, true);
+      deps.setNotCited(documentId);
     }
     store.setDocument(file.id, documentId);
     return documentId;
@@ -313,7 +315,7 @@ export function createHandOver(deps: HandOverDeps) {
       const written = await writeWholeFile(path, input.bytes, deps.now());
       const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
       documentId = document.id;
-      deps.setNotCited(documentId, true);
+      deps.setNotCited(documentId);
       if (file.folderId !== null) deps.assign(documentId, file.folderId);
       store.setDocument(file.id, documentId);
     } else if (deps.document(documentId).contentHash !== contentHash) {
@@ -435,54 +437,6 @@ export function createHandOver(deps: HandOverDeps) {
   };
 
   return {
-    /**
-     * A file a Linked folder's scan has just found, which an agent handed over (#3499): at the path
-     * a live handed file was handed from, holding exactly the bytes of one of its versions. It is that
-     * handed file's Document, not another: the handed file takes it, Not cited as its copy was left
-     * by the User, or, with none, as `agentMadeIt` says; the copy is taken out of the Library and the
-     * checks of its versions point at the folder's Document. A file edited since it was handed over
-     * holds bytes no version has: an ordinary Document, since nothing says who changed it. A copy a
-     * Citation points at stays, and so does the folder's Document beside it.
-     */
-    adopt(documentId: string): void {
-      const found = deps.document(documentId);
-      if (found.linkedFolderId === null) return;
-      const file = store
-        .handedFrom(found.path)
-        .find((each) =>
-          store.versions(each.id).some((version) => version.contentHash === found.contentHash),
-        );
-      if (!file || file.documentId === documentId) return;
-      const before = liveDocumentOf(file);
-      // The copy's Citations would no longer open: the User cited it, so both stay as they are.
-      if (before !== null && deps.cited(before)) return;
-      if (before !== null) {
-        deps.setNotCited(documentId, deps.document(before).notCited);
-        deps.retire(before);
-      } else {
-        const connectedAt = deps.connectedAt(file.pairingId);
-        if (connectedAt !== null && agentMadeIt(found, connectedAt)) {
-          deps.setNotCited(documentId, true);
-        }
-      }
-      store.setDocument(file.id, documentId);
-      for (const version of store.versions(file.id)) {
-        if (version.mindId !== null) deps.repoint(version.mindId, documentId);
-      }
-      deps.notesChanged();
-    },
-
-    /**
-     * Each handed file whose folder's Document the Library holds already beside a copy, as a scan
-     * before #3499 left them: adopted as `adopt` does a file it has just found. Run at start.
-     */
-    adoptKept(): void {
-      for (const file of store.list()) {
-        const { documentId } = deps.placeOf(file.path);
-        if (documentId !== null && documentId !== file.documentId) this.adopt(documentId);
-      }
-    },
-
     handOver(input: HandOverInput): Promise<HandOverDone> {
       const next = queue.then(() => handOverNow(input));
       queue = next.catch(() => undefined);

@@ -557,6 +557,8 @@ export interface DocumentsOptions {
   onText?: (documentId: string) => void;
   /** A scan found a new Document, announced but not yet queued for processing. */
   onFound?: (documentId: string) => void;
+  /** See `LibraryHooks.handedCopyAt`. */
+  handedCopyAt?: (path: string) => string | null;
   /** Asks iCloud Drive to download a file an ".icloud" stub stands for. */
   downloadStub?: (path: string) => Promise<void>;
   /**
@@ -2075,6 +2077,7 @@ export function createDocuments(options: DocumentsOptions) {
       },
       announce,
       added: (id) => options.onFound?.(id),
+      handedCopyAt: (path) => options.handedCopyAt?.(path) ?? null,
       moved: (ids) => {
         const moved = ids.flatMap((id) => {
           const row = find(id);

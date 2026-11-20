@@ -3,15 +3,18 @@
  * own, never a copy beside it, whichever comes first, the hand-over or the folder's scan. Handing it
  * over is the agent saying it made the file, so that Document is Not cited and no source, unless what
  * IncarnaMind recorded says the User had it first: the Library held it before the agent was first
- * connected, or the file was last modified before then. The folder's scan is called directly (its
- * watching is proved in CI); the agent calls through the shim the app ships.
+ * connected, or the file was last modified before then. A copy made while the file was in no Linked
+ * folder becomes the folder's Document once the folder's scan finds the file, the same Document.
+ * The folder's scan is called directly (its watching is proved in CI); the agent calls through the
+ * shim the app ships.
  */
-import { rename, rm, utimes, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, rename, rm, utimes, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
 import { agentMadeIt } from "../../src/core/agentFiles/handOver";
-import type { CitationAttributes } from "../../src/core/api";
+import type { CitationAttributes, Document } from "../../src/core/api";
+import { citationState } from "../../src/shared/citations";
 import { verificationOf } from "../../src/shared/verification";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { waitForProcessing } from "../helpers/documents";
@@ -22,6 +25,7 @@ import { plainDeck } from "../helpers/pptx";
 
 const EAST = "The east quay holds 31 boats.";
 const WEST = "The west quay holds 12 boats.";
+const SLIPWAY = "The slipway closes at dusk in winter.";
 const deck = (lines: string[] = [EAST]) => plainDeck([{ title: "Quay review" }, { lines }]);
 const LONG_AGO = new Date(Date.UTC(2024, 2, 1, 9, 0));
 
@@ -46,6 +50,38 @@ async function linked() {
   const agent = await connectLegacyAgent(set.writer.launch);
   const path = join(set.files, "Quay review.pptx");
   return { ...set, folder, agent, path };
+}
+
+/** The Coast Library with the deck in its project folder, which no Linked folder holds yet. */
+async function handedOutside() {
+  const set = await started();
+  const agent = await connectLegacyAgent(set.writer.launch);
+  const path = join(set.files, "Quay review.pptx");
+  await writeFile(path, deck());
+  return { ...set, agent, path };
+}
+
+/** A Note that cites the Document's second slide, as Add to note writes one. */
+async function citedInNote(core: Core, document: Document): Promise<CitationAttributes> {
+  const mind = await core.createMind({ title: "Quay notes" });
+  const client = await connectToMind(core, mind.id);
+  const cited = note("The east quay");
+  const citation: CitationAttributes = {
+    passageId: "passage",
+    documentId: document.id,
+    documentName: document.name,
+    contentHash: document.contentHash,
+    pageFrom: 2,
+    pageTo: 2,
+    location: null,
+    quote: EAST,
+    check: "found",
+    checkReason: null,
+  };
+  cited.content?.push({ type: "citation", attrs: citation });
+  writeMind(client, [cited]);
+  await client.settled();
+  return citation;
 }
 
 const after = () => new Promise((resolve) => setTimeout(resolve, 20));
@@ -316,163 +352,153 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     expect(searched).toBe(true);
   });
 
-  // protects=a file handed over from a folder the User links later is that handed file's Document when the scan finds it: one Document, Not cited as its copy was, the copy gone and its check pointed at the folder's Document (#3499); fails_when=the scan makes an ordinary Document beside the copy
-  it("a folder linked after the hand-over: the scan's Document is the handed file's, and the copy goes", async () => {
-    const { core, coast, writer, files } = await started();
-    const agent = await connectLegacyAgent(writer.launch);
-    const path = join(files, "Quay review.pptx");
-    await writeFile(path, deck());
-    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
-    const [copy] = (await quay(core)).documents;
-
-    const folder = await core.addLinkedFolder(files);
-    await core.reconcileDocuments();
-    const { documents, searched } = await quay(core);
-    expect(documents).toHaveLength(1);
-    expect(documents[0]).toMatchObject({ linkedFolderId: folder.id, notCited: true });
-    expect(documents[0]?.id).not.toBe(copy?.id);
-    expect(searched).toBe(false);
-    const kept = await core.handedFileOf(handed.mindId ?? "");
-    expect(kept?.file.documentId).toBe(documents[0]?.id);
-    expect(kept?.versions.map((each) => each.mindId)).toEqual([handed.mindId]);
-  });
-
-  // protects=a copy a Note cites is never taken away from its Citation: the scan leaves it, cited, and the folder's Document beside it, both sources by the User's choice (#3499); fails_when=the copy goes and the Note's Citation can't open it
-  it("a copy the User cited in a Note: the scan leaves it and the folder's Document beside it", async () => {
-    const { core, coast, writer, files, restart } = await started();
-    const agent = await connectLegacyAgent(writer.launch);
-    const path = join(files, "Quay review.pptx");
-    await writeFile(path, deck());
-    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
-    const [copy] = (await quay(core)).documents;
-    if (!copy) throw new Error("No Document holds the deck.");
-    await core.setNotCited(copy.id, false);
-    const mind = await core.createMind({ title: "Quay notes" });
-    const client = await connectToMind(core, mind.id);
-    const cited = note("The east quay");
-    const citation: CitationAttributes = {
-      passageId: "passage",
-      documentId: copy.id,
-      documentName: copy.name,
-      contentHash: copy.contentHash,
-      pageFrom: 2,
-      pageTo: 2,
-      location: null,
-      quote: EAST,
-      check: "found",
-      checkReason: null,
-    };
-    cited.content?.push({ type: "citation", attrs: citation });
-    writeMind(client, [cited]);
-    await client.settled();
-
-    await core.addLinkedFolder(files);
-    await core.reconcileDocuments();
-    const bothStay = async (each: Core) => {
-      const { documents, searched } = await quay(each);
-      expect(documents.map((one) => [one.linkedFolderId !== null, one.notCited]).sort()).toEqual([
-        [false, false],
-        [true, false],
-      ]);
-      expect(documents.map((one) => one.id)).toContain(copy.id);
-      expect(searched).toBe(true);
-      expect((await each.handedFileOf(handed.mindId ?? ""))?.file.documentId).toBe(copy.id);
-      expect(await each.listDeleted()).toEqual([]);
-    };
-    await bothStay(core);
-    // Nor at the next start, which joins a copy kept from before.
-    const again = await restart();
-    await bothStay(again);
-    again.close();
-  });
-
-  // protects=the copy a scan's Document takes the place of goes for good, never to Recently deleted: the User didn't delete it, and restoring it would bring the second Document back; each version's check Note still opens, on the folder's Document (#3499); fails_when=Recently deleted lists the copy, or a version's Note checks the copy
-  it("the copy that goes isn't in Recently deleted, and each version's check still opens", async () => {
-    const { core, coast, writer, files } = await started();
-    const agent = await connectLegacyAgent(writer.launch);
-    const path = join(files, "Quay review.pptx");
-    await writeFile(path, deck());
+  // protects=a file handed over from a folder the User links later: the scan makes the copy that file's Document, the same one, so nothing of it goes: its Not cited, versions, check Notes, a Citation and a highlight on it all stay; only the copy's own file in the data folder goes, the versions' copies stay (#3499); fails_when=a second Document is made beside the copy, or the copy is deleted and what pointed at it is lost
+  it("a folder linked after the hand-over: the copy becomes the folder's Document, the same one", async () => {
+    const { core, coast, agent, path, files } = await handedOutside();
     const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
     await writeFile(path, deck([EAST, WEST]));
     const second = structured<Handed>(await handOver(agent, { path }));
     const [copy] = (await quay(core)).documents;
+    if (!copy) throw new Error("No Document holds the deck.");
+    const highlight = await core.createAnnotation({
+      documentId: copy.id,
+      parts: [{ unit: 2, text: EAST }],
+      colour: "yellow",
+    });
+    const citation = await citedInNote(core, copy);
 
     const folder = await core.addLinkedFolder(files);
     await core.reconcileDocuments();
-    const { documents } = await quay(core);
-    expect(documents).toHaveLength(1);
-    expect(documents[0]).toMatchObject({ linkedFolderId: folder.id, notCited: true });
-    expect((await core.listDeleted()).map((each) => each.id)).not.toContain(copy?.id);
+    const { documents, searched } = await quay(core);
+    expect(documents).toEqual([
+      expect.objectContaining({
+        id: copy.id,
+        linkedFolderId: folder.id,
+        path: join(folder.path, "Quay review.pptx"),
+        notCited: true,
+      }),
+    ]);
+    expect(searched).toBe(false);
+    expect(await core.listDeleted()).toEqual([]);
+    expect((await core.listAnnotations(copy.id)).map((each) => each.id)).toEqual([highlight.id]);
+    expect(citationState(citation, await core.listDocuments())).toMatchObject({ check: "found" });
     for (const [handed, words] of [
       [first, EAST],
       [second, WEST],
     ] as const) {
       const kept = await core.handedFileOf(handed.mindId ?? "");
-      expect(kept?.file.documentId).toBe(documents[0]?.id);
+      expect(kept?.file.documentId).toBe(copy.id);
       expect(kept?.versions.map((each) => each.mindId)).toEqual([first.mindId, second.mindId]);
       const note = await connectToMind(core, handed.mindId ?? "");
-      expect(verificationOf(note.doc)?.documentId).toBe(documents[0]?.id);
+      expect(verificationOf(note.doc)?.documentId).toBe(copy.id);
       expect(note.blocks.toString()).toContain(words);
     }
+    expect((await readdir(dirname(copy.path))).sort()).toEqual(["v1", "v2"]);
   });
 
-  // protects=a file handed over while its Linked folder is paused is a copy; once resumed, the scan's Document is the handed file's (#3499)
-  it("a paused folder resumed: the scan's Document is the handed file's", async () => {
+  // protects=a file handed over while its Linked folder is paused is a copy; once resumed, the scan makes that copy the file's Document (#3499)
+  it("a paused folder resumed: the copy becomes the folder's Document", async () => {
     const { core, coast, agent, path, folder } = await linked();
     await core.setLinkedFolderPaused(folder.id, true);
     await writeFile(path, deck());
     structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
-    expect((await quay(core)).documents[0]?.linkedFolderId).toBeNull();
+    const [copy] = (await quay(core)).documents;
+    expect(copy?.linkedFolderId).toBeNull();
 
     await core.setLinkedFolderPaused(folder.id, false);
     await core.reconcileDocuments();
     const { documents, searched } = await quay(core);
-    expect(documents).toHaveLength(1);
-    expect(documents[0]).toMatchObject({ linkedFolderId: folder.id, notCited: true });
+    expect(documents).toEqual([
+      expect.objectContaining({ id: copy?.id, linkedFolderId: folder.id, notCited: true }),
+    ]);
     expect(searched).toBe(false);
   });
 
-  // protects=a file edited since it was handed over holds bytes no version has: the scan makes an ordinary Document of it, since nothing says who changed it (#3499)
-  it("edited since it was handed over: an ordinary Document beside the copy", async () => {
-    const { core, coast, writer, files } = await started();
-    const agent = await connectLegacyAgent(writer.launch);
-    const path = join(files, "Quay review.pptx");
-    await writeFile(path, deck());
+  // protects=the file is known by its path alone: edited since it was handed over, by the agent or the User, what it holds is the copy's Document's newest version, still Not cited (#3499); fails_when=the edited file is a second Document, searched as a source
+  it("edited since it was handed over: the copy's Document, its newest version read from the file", async () => {
+    const { core, coast, agent, path, files } = await handedOutside();
     structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const [copy] = (await quay(core)).documents;
     await writeFile(path, deck([EAST, WEST]));
     await core.addLinkedFolder(files);
     await core.reconcileDocuments();
-    const { documents } = await quay(core);
-    expect(documents.map((each) => [each.linkedFolderId !== null, each.notCited]).sort()).toEqual([
-      [false, true],
-      [true, false],
-    ]);
+    const { documents, searched } = await quay(core);
+    expect(documents).toEqual([expect.objectContaining({ id: copy?.id, notCited: true })]);
+    expect(documents[0]?.linkedFolderId).not.toBeNull();
+    expect(documents[0]?.contentHash).not.toBe(copy?.contentHash);
+    expect(searched).toBe(false);
   });
 
-  // protects=a copy the Library kept beside the folder's Document before #3499 is joined at the next start, when the folder's file holds a version the agent handed over (#3499)
-  it("a copy kept beside the folder's Document from before: joined at the next start", async () => {
-    const { core, coast, writer, files, restart } = await started();
-    const agent = await connectLegacyAgent(writer.launch);
-    const path = join(files, "Quay review.pptx");
-    await writeFile(path, deck());
+  // protects=a file of the User's own put at the path the agent handed over from is that Document's newest content, Not cited, as the owner chose: it shows on its row, and Cite this Document makes it a source (#3499); fails_when=it can't be made a source again
+  it("the User's own file put at that path: the Document's newest content, Not cited until cited", async () => {
+    const { core, coast, agent, path, files } = await handedOutside();
     structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
-    // The folder's Document made from other bytes, then given the handed ones: no scan finds it new.
-    await writeFile(path, deck([EAST, WEST]));
+    const [copy] = (await quay(core)).documents;
+    if (!copy) throw new Error("No Document holds the deck.");
+    await writeFile(path, plainDeck([{ title: "Slipway" }, { lines: [SLIPWAY] }]));
     await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [copy.id]);
+    const slipway = async () =>
+      (await core.searchEvidence("slipway dusk winter")).passages.some((passage) =>
+        passage.text.includes("slipway"),
+      );
+    expect((await quay(core)).documents).toEqual([
+      expect.objectContaining({ id: copy.id, notCited: true }),
+    ]);
+    expect(await slipway()).toBe(false);
+
+    await core.setNotCited(copy.id, false);
+    expect(await slipway()).toBe(true);
+  });
+
+  // protects=once the copy is the folder's Document, a rename on disk is followed as for any file in a Linked folder: the same Document, still the handed file's (#3499); fails_when=the renamed file is a new Document, searched as a source
+  it("renamed on disk after it became the folder's Document: the same Document", async () => {
+    const { core, coast, agent, path, files } = await handedOutside();
+    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const [copy] = (await quay(core)).documents;
+    const folder = await core.addLinkedFolder(files);
     await core.reconcileDocuments();
     await quay(core);
-    await writeFile(path, deck());
-    await core.reconcileDocuments();
-    expect((await quay(core)).documents).toHaveLength(2);
 
-    const again = await restart();
-    const { documents, searched } = await quay(again);
-    expect(documents).toHaveLength(1);
-    expect(documents[0]?.linkedFolderId).not.toBeNull();
-    expect(documents[0]?.notCited).toBe(true);
+    await rename(path, join(files, "Quay review final.pptx"));
+    await core.reconcileDocuments();
+    const { documents, searched } = await quay(core);
+    expect(documents).toEqual([
+      expect.objectContaining({
+        id: copy?.id,
+        path: join(folder.path, "Quay review final.pptx"),
+        notCited: true,
+      }),
+    ]);
     expect(searched).toBe(false);
-    expect(await again.listDeleted()).toEqual([]);
-    again.close();
+    expect((await core.handedFileOf(handed.mindId ?? ""))?.file.documentId).toBe(copy?.id);
+  });
+
+  // protects=the folder unlinked after the copy became its Document: the Document leaves the Library with its folder, as any Linked folder's Document does; the handed file's versions and their checks still open, and its next version is a copy again, still no source (#3499); fails_when=the checks are lost with the Document, or the next hand-over is refused or a source
+  it("the folder unlinked after that: the Document goes with it, the versions and checks stay", async () => {
+    const { core, coast, agent, path, files } = await handedOutside();
+    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const folder = await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    await quay(core);
+
+    await core.removeLinkedFolder(folder.id);
+    expect((await quay(core)).documents).toEqual([]);
+    expect(await core.listDeleted()).toEqual([]);
+    const kept = await core.handedFileOf(handed.mindId ?? "");
+    expect(kept?.versions.map((each) => each.mindId)).toEqual([handed.mindId]);
+    const note = await connectToMind(core, handed.mindId ?? "");
+    expect(note.blocks.toString()).toContain(EAST);
+
+    await writeFile(path, deck([EAST, WEST]));
+    expect(structured<Handed>(await handOver(agent, { path }))).toMatchObject({
+      fileId: handed.fileId,
+      version: 2,
+    });
+    const { documents, searched } = await quay(core);
+    expect(documents).toEqual([expect.objectContaining({ linkedFolderId: null, notCited: true })]);
+    expect(searched).toBe(false);
   });
 });
 

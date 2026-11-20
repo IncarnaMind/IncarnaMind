@@ -70,7 +70,7 @@ import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
-import { createHandOver, type HandedMarks } from "./agentFiles/handOver";
+import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import type { FoundClaim } from "./agents/handedFiles";
@@ -938,16 +938,6 @@ export function createCore(adapters: CoreAdapters): Core {
       else content.peekDeleted(mind.id, look);
     }
   };
-  // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
-  // conversations. Features other than Citations retain what they need too.
-  const citedUnitsOf = (documentIds: readonly string[]): CitedUnits[] => {
-    const wanted = new Set(documentIds);
-    const cited: CitedUnits[] = [];
-    eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
-    conversations.addCitedUnits(wanted, cited);
-    retention.addRetainedUnits(wanted, cited);
-    return cited;
-  };
   let noteReadAgain: ((mindId: string) => void) | undefined;
   const mindIndex = createMindIndex({
     db,
@@ -1253,15 +1243,13 @@ export function createCore(adapters: CoreAdapters): Core {
         events.emit("linkedFolders.changed", list);
         batches.linkedFoldersChanged(list);
       },
-      onFound: (documentId) => {
-        batches.found(documentId);
-        // A file an agent handed over is that handed file's Document, not a new one (#3499).
-        try {
-          handOver.adopt(documentId);
-        } catch (error) {
-          console.error(`A handed-over file couldn't take the Document ${documentId}.`, error);
-        }
-      },
+      onFound: (documentId) => batches.found(documentId),
+      handedCopyAt: (path) =>
+        handedCopyAt(
+          handedFiles,
+          path,
+          (documentId) => documents.getMany([documentId])[0]?.linkedFolderId === null,
+        ),
       onReady: (documentId) => {
         // There is something to search now: the built-in reranking model downloads, if it reranks.
         prepareRerank();
@@ -1269,7 +1257,16 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       // Tagged as soon as its text, or a scan's first pages, can be read, not once embedded (#2308).
       onText: (documentId) => documentReady(documentId),
-      citedUnits: citedUnitsOf,
+      // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
+      // conversations. Features other than Citations retain what they need too.
+      citedUnits: (documentIds) => {
+        const wanted = new Set(documentIds);
+        const cited: CitedUnits[] = [];
+        eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
+        conversations.addCitedUnits(wanted, cited);
+        retention.addRetainedUnits(wanted, cited);
+        return cited;
+      },
       // iCloud Drive before macOS 14 downloads a stub's file when asked by its command-line tool.
       ...(platform === "darwin" && {
         downloadStub: async (path: string) => {
@@ -4281,7 +4278,14 @@ export function createCore(adapters: CoreAdapters): Core {
   const recentlyDeleted = createRecentlyDeleted({
     db,
     now,
-    documentText: (documentIds) => documents.purgeText(documentIds, citedUnitsOf(documentIds)),
+    documentText: (documentIds) => {
+      const wanted = new Set(documentIds);
+      const cited: CitedUnits[] = [];
+      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
+      conversations.addCitedUnits(wanted, cited);
+      retention.addRetainedUnits(wanted, cited);
+      documents.purgeText(documentIds, cited);
+    },
     say: (key, params) => translate(settings.get().language, key, params),
     minds,
     content,
@@ -5786,21 +5790,7 @@ export function createCore(adapters: CoreAdapters): Core {
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
-    setNotCited: (documentId, notCited) => void documents.setNotCited(documentId, notCited),
-    connectedAt: (pairingId) =>
-      agents.settings().pairings.find((pairing) => pairing.id === pairingId)?.createdAt ?? null,
-    cited: (documentId) => citedUnitsOf([documentId]).length > 0,
-    retire: (documentId) =>
-      db.transaction(() => {
-        documents.delete([documentId]);
-        recentlyDeleted.deletePermanently([{ kind: "document", id: documentId }]);
-      }),
-    repoint: (mindId, documentId) =>
-      content.edit(mindId, (blocks) => {
-        const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
-        const now = settings && readVerification(settings);
-        if (settings && now) writeVerification(settings, { ...now, documentId });
-      }),
+    setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
@@ -5827,11 +5817,6 @@ export function createCore(adapters: CoreAdapters): Core {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log: adapters.log ?? silentLogger,
   });
-  try {
-    handOver.adoptKept();
-  } catch (error) {
-    console.error("Handed-over files couldn't take their Linked folders' Documents.", error);
-  }
 
   /** The words of a Block, as its text reads without marks. */
   const textOfBlock = (element: Y.XmlElement): string =>

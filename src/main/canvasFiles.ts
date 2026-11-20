@@ -50,7 +50,10 @@ export function createCanvasFiles(
         const named = await lstat(path);
         if (!named.isFile()) return UNREADABLE;
         if (named.size > maxBytes) return TOO_LARGE;
-        handle = await open(path, OPEN_FLAGS);
+        // Opened by the path given back, its folders' links resolved first: a link changed since
+        // makes it another file than lstat saw, which is refused.
+        const real = await realpath(path);
+        handle = await open(real, OPEN_FLAGS);
         const opened = await handle.stat();
         if (!opened.isFile() || opened.dev !== named.dev || opened.ino !== named.ino) {
           return UNREADABLE;
@@ -65,7 +68,7 @@ export function createCanvasFiles(
           read += bytesRead;
         }
         if (read !== opened.size) return UNREADABLE;
-        return { kind: "read", bytes: bytes.subarray(0, read), path: await realpath(path) };
+        return { kind: "read", bytes: bytes.subarray(0, read), path: real };
       } catch {
         return UNREADABLE;
       } finally {
