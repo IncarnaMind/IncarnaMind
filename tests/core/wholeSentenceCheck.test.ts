@@ -221,6 +221,61 @@ test("a verdict worked out from the Documents keeps its line of working", async 
   expect(readVerdict("Verdict: supported\nEvidence: [1]\nWorking: 无")?.working).toBeUndefined();
 });
 
+// protects=a check's line of working shows on its mark only where its arithmetic adds up over the numbers its quotes give (#3393); fails if a working whose sum is wrong, or whose number no quote holds, shows as worked out, or one that adds up is dropped
+test("a line of working shows only where its arithmetic adds up over its quotes' numbers", async () => {
+  const fares = "Spring fares came to £1,250,000 and autumn fares to £750,000.";
+  const sentences = {
+    added: "The fares came to £2,000,000 in all.",
+    misadded: "The fares came to £2,100,000 in all.",
+    misread: "The fares came to £2,270,000 in all.",
+  };
+  const plans: Record<string, Plan> = {
+    [sentences.added]: {
+      verdict: "supported",
+      quote: fares,
+      says: "The two make £2,000,000.",
+      working: "1,250,000 + 750,000 = 2,000,000",
+    },
+    [sentences.misadded]: {
+      verdict: "supported",
+      quote: fares,
+      says: "The two make £2,100,000.",
+      working: "1,250,000 + 750,000 = 2,100,000",
+    },
+    [sentences.misread]: {
+      verdict: "supported",
+      quote: fares,
+      says: "The two make £2,270,000.",
+      working: "1,520,000 + 750,000 = 2,270,000",
+    },
+  };
+  const { core, client, mind } = await setUpWithDocuments(checkingModel(plans), [
+    { name: "Fares.md", contents: fares },
+  ]);
+  writeMind(
+    client,
+    Object.values(sentences).map((text, at) => ({
+      type: "paragraph",
+      attrs: { id: `p${at}` },
+      content: [{ type: "text", text }],
+    })),
+  );
+  await client.settled();
+  await core.checkMind({ requestId: crypto.randomUUID(), mindId: mind.id, mode: "all" });
+  await client.settled();
+  const worked = new Map(
+    claimSpans(readMind(client)).map((span) => [
+      span.sentence.text,
+      span.check.parts?.[0]?.workedOut ?? null,
+    ]),
+  );
+  core.close();
+
+  expect(worked.get(sentences.added)).toBe("1,250,000 + 750,000 = 2,000,000");
+  expect(worked.get(sentences.misadded)).toBeNull();
+  expect(worked.get(sentences.misread)).toBeNull();
+});
+
 // protects=a Chinese explanation that holds a label's word before a colon ("这是作者的判断：…") is read whole, with the verdict the reply gave (#3322); fails if such a reply reads as no verdict, or its explanation is cut at the colon
 test("a Chinese explanation with a label's word inside it is read whole", () => {
   const says = "这是作者的判断：文档没有给出结论：只写了工单量会增长。";
