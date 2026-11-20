@@ -3235,6 +3235,11 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE agent_activity ADD COLUMN request_id TEXT;
     `,
   },
+  {
+    version: 147,
+    description: "A Meeting’s summary prepared during the call",
+    sql: "ALTER TABLE meetings ADD COLUMN summary TEXT;",
+  },
 ];
 
 /**

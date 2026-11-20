@@ -1518,6 +1518,11 @@ export interface CoreAdapters {
    */
   speakerSeparator?: SpeakerSeparator;
   roomSpeakerReviewer?: RoomSpeakerReviewer;
+  summarizeWithMeetingAgent?(request: {
+    client: "claude-code" | "codex";
+    prompt: string;
+    signal: AbortSignal;
+  }): Promise<string>;
   /** Where the speaker models are downloaded from. Defaults to the pinned Hugging Face revisions. */
   speakerModelSource?: { segmentation: EmbeddingModelSource; embedding: EmbeddingModelSource };
   /**

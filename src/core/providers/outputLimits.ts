@@ -27,6 +27,7 @@ export const OUTPUT_LIMITS = {
   // nothing (#3251).
   // `own`: more than a window keeps for every call's reply, so the notes' Run makes the room.
   "meeting-fill": { most: 64_000, own: true },
+  "meeting-summary": { most: 1_024 },
   "search-query": { most: 256 },
   tags: { most: 512 },
   // Several Documents tagged in one request, as Organize's run and Re-tag send them (#2339).

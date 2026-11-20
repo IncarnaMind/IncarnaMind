@@ -220,6 +220,7 @@ export function frontTabOfMind(
   layout: WindowLayout | null,
   mindId: string,
   merged: boolean,
+  accepts?: (tab: LayoutTab) => boolean,
 ): LayoutTab | null {
   if (!layout) return null;
   const focused = focusedGroupOf(layout);
@@ -227,7 +228,10 @@ export function frontTabOfMind(
   return (
     shown
       .map((group) => activeTabOf(group))
-      .find((tab) => tab?.item.kind === "mind" && tab.item.mindId === mindId) ?? null
+      .find(
+        (tab) =>
+          tab?.item.kind === "mind" && tab.item.mindId === mindId && (accepts?.(tab) ?? true),
+      ) ?? null
   );
 }
 
