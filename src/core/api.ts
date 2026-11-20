@@ -12316,6 +12316,8 @@ export type TranscriptionModelStatus = EmbeddingModelStatus;
 export interface MeetingSpeakerReviewQuote {
   /** Present for an on-device room review, zero when its files are installed. */
   roomDownloadBytes?: number;
+  /** Me and four other labels. Pick the User's other label for this review only. */
+  selfMatch?: { labels: string[]; revision: string };
   available: boolean;
   reason:
     | "audio"
@@ -15103,6 +15105,7 @@ export interface CoreApi {
     meetingId: string;
     confirmed: true;
     onDevice?: true;
+    selfMatch?: { label: string; revision: string };
     /** View a previous review without authorizing another upload. */
     reuseOnly?: true;
   }): Promise<MeetingSpeakerReviewResult>;

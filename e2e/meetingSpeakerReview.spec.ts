@@ -55,7 +55,15 @@ async function reviewService(
           available: true,
           reason: null,
           durationMs: 9000,
-          ...(result.source === "microphone" && { roomDownloadBytes: 154315111 }),
+          ...(result.source === "microphone" && {
+            roomDownloadBytes: 154315111,
+            ...(runs > 0 && {
+              selfMatch: {
+                labels: ["Speaker 1", "Speaker 2", "Speaker 3", "Speaker 4"],
+                revision: "test-four",
+              },
+            }),
+          }),
           ...(runs >= 4 ? { cached: true, estimatedUsd: 0 } : { estimatedUsd: 0.003 }),
         };
       });
@@ -66,6 +74,11 @@ async function reviewService(
         if (result.source === "microphone") {
           if (!input.onDevice || input.reuseOnly)
             throw new Error("Room review requires the on-device option.");
+          if (
+            runs > 0 &&
+            (input.selfMatch?.label !== "Speaker 2" || input.selfMatch.revision !== "test-four")
+          )
+            throw new Error("Missing the chosen speaker for this review.");
           runs++;
           return runs === 1 ? result : { ...result, suggestions: [], uncertainSpeakers: true };
         }
@@ -460,6 +473,21 @@ test("a saved room meeting offers the model download and plays the suggested mic
     await expect(items.nth(2)).toContainText("This line changed since the review.");
     await expect(items.nth(2).getByRole("button", { name: "Accept" })).toHaveCount(0);
     await panel.getByRole("button", { name: "Review again…" }).click();
+    const start = panel.getByRole("button", { name: "Download and check speakers" });
+    await expect(start).toBeDisabled();
+    const choice = panel.getByRole("combobox", { name: "Which speaker are you?" });
+    await expect(choice).toHaveValue("");
+    await shot(window, "room-review-choose-own-label");
+    await choice.selectOption({ label: "Dana (Speaker 2)" });
+    await setLanguage(window, "zh-CN");
+    const chinese = window.getByRole("region", { name: "复核发言人" });
+    await expect(chinese.getByRole("combobox", { name: "你对应哪位发言人？" })).toHaveValue(
+      "Speaker 2",
+    );
+    await shot(window, "room-review-choose-own-label-zh");
+    await setLanguage(window, "en");
+
+    await expect(start).toBeEnabled();
     await panel.getByRole("button", { name: "Download and check speakers" }).click();
     await expect(panel).toContainText("could not reliably distinguish the speakers");
     expect(await readFile(savedPath)).toEqual(original);
