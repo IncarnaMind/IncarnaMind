@@ -66,6 +66,7 @@ export function meetingSummaryRoute(options: Options) {
         return options.agent({ client: id, instructions, prompt, signal });
       }
       const guardedChat = {
+        describeModel: options.chat.describeModel,
         async prepareModel(...args: Parameters<typeof options.chat.prepareModel>) {
           const prepared = await options.chat.prepareModel(...args);
           signal.throwIfAborted();
