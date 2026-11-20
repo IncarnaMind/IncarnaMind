@@ -2846,6 +2846,7 @@ export async function pointAndClick(
   // may undo part of it), so scroll once and aim where it comes to rest, as a person would.
   // A list that redraws as the click begins swaps the element for an equal one: look again.
   let scrolled = false;
+  let centered = false;
   let box: Awaited<ReturnType<Locator["boundingBox"]>> = null;
   await expect(async () => {
     if (!scrolled) {
@@ -2878,6 +2879,21 @@ export async function pointAndClick(
       throw new Error("The element is out of the window.");
     }
     if (!held) throw new Error("The element is still moving.");
+    // Scrolled only just into view, it may lie under what floats at the view's edge, such as the
+    // check's badge at a page's foot: a person scrolls it out from under that, once, before pressing.
+    const covered =
+      !centered &&
+      (await target.evaluate((element) => {
+        if (element.closest(".viewer-selection-menu")) return false;
+        const at = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(at.left + at.width / 2, at.top + at.height / 2);
+        return hit !== null && !element.contains(hit) && !hit.contains(element);
+      }));
+    if (covered) {
+      centered = true;
+      await target.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      throw new Error("Something lies over the element: it is brought to the middle of its view.");
+    }
     box = await target.boundingBox();
     if (!box) throw new Error("The element isn't visible.");
   }).toPass();

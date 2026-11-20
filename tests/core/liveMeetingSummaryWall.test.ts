@@ -46,7 +46,7 @@ test.each([
   { provider: "cloud", local: false },
   { provider: "local", local: true },
 ])("a walled Meeting's automatic summary with a $provider model", async ({ local }) => {
-  const model = replyingModel(reply);
+  const model = replyingModel(JSON.stringify({ summary: reply, changes: [] }));
   const { core, id, summary, speak } = await setup(local, model, true);
   speak();
   await until(core, id, (state) => !!state.documentId && state.lines > 0);
@@ -65,7 +65,7 @@ test.each([
 
 test("walling a Meeting's Folder cancels a pending cloud summary and protects the final words", async () => {
   const response = Promise.withResolvers<void>();
-  const scripted = replyingModel(reply);
+  const scripted = replyingModel(JSON.stringify({ summary: reply, changes: [] }));
   const model = new MockLanguageModelV4({
     doGenerate: async (request) => {
       await response.promise;
