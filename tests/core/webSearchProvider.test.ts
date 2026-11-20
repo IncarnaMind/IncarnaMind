@@ -6,7 +6,6 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 import { CutShortError, endsAtLimit } from "../../src/core/providers/outputLimits";
 import { searchWeb } from "../../src/core/providers/webSearch";
-import { asksForWeb } from "../../src/core/tools/web/intent";
 import { translate } from "../../src/shared/i18n";
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV4["doStream"]>>;
@@ -166,23 +165,4 @@ describe("The provider's web search", () => {
       "无法联网搜索“news”",
     );
   });
-});
-
-describe("Which Questions are offered web search", () => {
-  test.each([
-    "Search the web for the latest tide tables",
-    "What do websites say about cooling parks?",
-    "Look it up online",
-    "Google the new lease rules",
-    "上网查一下最新的潮汐表",
-    "联网搜索城市公园降温",
-    "网上有什么相关报道？",
-  ])("“%s” is", (question) => expect(asksForWeb(question)).toBe(true));
-
-  test.each([
-    "How did tea reach Europe?",
-    "What does the lease say about notice?",
-    "Summarise the webinar notes",
-    "合同里关于通知期是怎么写的？",
-  ])("“%s” isn't", (question) => expect(asksForWeb(question)).toBe(false));
 });

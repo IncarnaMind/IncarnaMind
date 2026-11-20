@@ -6,6 +6,7 @@
  * sentences; the core has them from the Note's checks.
  */
 import type { CitationAttributes, CitationCheck, ClaimCheckAttributes } from "../core/api";
+import { type AnalysisTableShown, columnEarns, tableNeedsLook } from "./analysisTables";
 import {
   type CheckedSentence,
   type ClaimCheckShown,
@@ -255,6 +256,27 @@ export function countSentence(
     health.lookClaims.push(from);
     health.lookNotFound.push(...missing);
   } else lookFor(true);
+}
+
+/** Adds an Analysis's own table to the health (#2378): one look, one supported, or each column not recalculated. */
+export function countTable(health: NoteHealth, from: number, shown: AnalysisTableShown): void {
+  const { kind } = shown.state;
+  if (kind === "kept-inside" || kind === "unavailable") return;
+  health.checkable++;
+  if (tableNeedsLook(shown)) {
+    health.lookClaims.push(from);
+    return;
+  }
+  const unearned = shown.columns.filter((column) => !columnEarns(column)).length;
+  if (shown.columns.length > unearned) {
+    health.supported++;
+    health.supportedAt.push(from);
+  }
+  for (let at = 0; at < unearned; at++) {
+    health.toCheck.push(from);
+    health.failed.push(from);
+    health.notRecalculated.push(from);
+  }
 }
 
 /**

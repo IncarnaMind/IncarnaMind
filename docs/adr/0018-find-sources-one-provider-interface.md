@@ -69,7 +69,7 @@ Academic papers (checked 2026-10-11):
 
 `find_sources` (`src/core/sources/tool.ts`) runs the same search under the same consent. Its results are public records, not the User's data, so the chat flow doesn't count them as "tool-results". Its Effects are network calls to each provider's service, which consent covers, so it runs without an approval card.
 
-- **Offered only to a Question that names scholarly works or asks to find sources** (`src/core/sources/intent.ts`): papers, preprints, a DOI, 论文 or 文献; "find sources on …", "查找一些关于……的资料"; a US citation, or "find the federal regulations on …" (#304). "Published", or "article" without such a verb, doesn't count ("When are the tide tables published?", a contract's "Article 5"). Offered to every Answer, a model could send searches out, and put a consent request in front of the User, for a Question about their own Documents, and a small local model's window would carry the Tool for nothing. The Library's Find sources covers what the words miss.
+- **Offered to every Answer whose model's window holds 16,384 tokens or more** (#3462). The model reads in the Tool's description when to call it: when the User asks to find published works, never to answer from their own Documents. Consent still asks before each provider's first search. Until 2026-11 a rule of words chose the Questions offered it (#304): on saved runs, all 38 it chose were about the User's own papers, and none of the 33 Answers offered it called it. In a smaller window the Tool and its instructions would cut what an Answer can write by about 30% (2,048 tokens to 1,433 at 8,192), so it isn't offered there; the Library's Find sources is there for every window.
 - A model that cites with structured output, as small local models do (ADR-0007), is offered no Tools, so it doesn't search; its User finds sources in the Library.
 - What it finds is never cited with a marker. The Answer names the works, and the Tool-call row's "Show results" opens them in the Library to add.
 
@@ -79,7 +79,7 @@ Academic papers (checked 2026-10-11):
 - **OpenAlex's cached PDFs:** $0.01 a PDF, 10% of the keyless daily budget.
 - **PubMed Central's pages or its OA Web Service:** automated retrieval from the pages isn't allowed, and the OA Web Service is retired in 2026.
 - **Unpaywall for open copies:** OpenAlex carries its data, and it needs an email on every request.
-- **Offering the Tool to every Answer:** rejected for now, as above.
+- **A rule of words choosing the Questions offered the Tool** (#304, until 2026-11): it chose only Questions about the User's own Documents on saved runs, and it could offer the Tool only to the words it listed (#3462).
 - **Keeping found copies in the Output location (#124):** saved text and web pages live in the data folder, so found copies do too, in its "Sources" folder; otherwise the first save would ask where new files go in the middle of adding a paper. A copy deleted permanently is removed from it.
 
 ## Consequences

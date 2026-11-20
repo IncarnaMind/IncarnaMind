@@ -755,6 +755,118 @@ const COMPARABLE_ROSE_ZH = new RegExp(
   ].join(""),
 );
 
+/**
+ * Requests for published sources or the web, worded as the words the Tools were once offered by
+ * caught them and otherwise, and Questions about the User's own papers in such words (#3462).
+ */
+const OUTSIDE: readonly EverydayCase[] = [
+  ...(
+    [
+      [
+        "sources-papers-en",
+        "en",
+        "Find papers since 2022 on clustering spatial transcriptomics data, beyond these two.",
+      ],
+      [
+        "sources-papers-zh",
+        "zh-CN",
+        "帮我找几篇 2022 年以后关于空间转录组聚类的论文，这两篇之外的。",
+      ],
+      ["sources-label-en", "en", "Find the drug label for ibuprofen."],
+      [
+        "sources-regulations-en",
+        "en",
+        "Find the federal regulations on insider trading disclosures.",
+      ],
+      [
+        "sources-published-en",
+        "en",
+        "What else has been published on graph-based spatial domain detection? Look a few up for me.",
+      ],
+      ["sources-similar-zh", "zh-CN", "除了这两篇，再帮我找几篇类似的研究。"],
+      [
+        "sources-label-lookup-en",
+        "en",
+        "Look up what the FDA label says about the most ibuprofen an adult may take in a day.",
+      ],
+      [
+        "sources-registry-en",
+        "en",
+        "Is there a registered trial of metformin for long COVID? Check the trial registry.",
+      ],
+    ] as const
+  ).map(([id, language, request]) => ({
+    id: `outside-${id}`,
+    language,
+    library: "papers" as const,
+    mind: null,
+    request,
+    expected: { ...NOTHING, outside: "sources" as const },
+  })),
+  ...(
+    [
+      ["web-news-en", "en", "Search the web for this week's news about the EU AI Act."],
+      ["web-news-zh", "zh-CN", "上网查一下欧盟人工智能法案最近的进展。"],
+      ["web-weather-en", "en", "What's the weather in Shanghai this weekend? Check online."],
+      ["web-python-zh", "zh-CN", "网上有没有关于 Python 最新版本的介绍？"],
+      [
+        "web-rate-en",
+        "en",
+        "Look this up for me: what is the euro to US dollar exchange rate today?",
+      ],
+      [
+        "web-code-en",
+        "en",
+        "Check the news: has the EU published its code of practice for general-purpose AI models yet?",
+      ],
+      ["web-rate-zh", "zh-CN", "查一下今天欧元兑美元的汇率。"],
+      ["web-release-zh", "zh-CN", "帮我搜一下 Python 最新版本的发布说明。"],
+    ] as const
+  ).map(([id, language, request]) => ({
+    id: `outside-${id}`,
+    language,
+    library: "papers" as const,
+    mind: null,
+    request,
+    expected: { ...NOTHING, outside: "web" as const },
+  })),
+  ...(
+    [
+      [
+        "own-studies-en",
+        "en",
+        "Which earlier studies does the GraphST paper compare its results against?",
+      ],
+      [
+        "own-literature-en",
+        "en",
+        "What does the random neural networks tutorial say about the literature on training them?",
+      ],
+      ["own-online-en", "en", "Does the GraphST paper say where its code is available online?"],
+      ["own-online-zh", "zh-CN", "GraphST 这篇论文说它的代码在网上哪里可以找到？"],
+      [
+        "own-publications-en",
+        "en",
+        "Which publications does the tutorial cite for the original random neural network model?",
+      ],
+      ["own-datasets-zh", "zh-CN", "GraphST 论文用了哪些公开数据集？"],
+      [
+        "own-web-en",
+        "en",
+        "Does the tutorial mention any web or internet applications of random neural networks?",
+      ],
+      ["own-google-zh", "zh-CN", "这两篇论文里有没有提到谷歌？"],
+    ] as const
+  ).map(([id, language, request]) => ({
+    id: `outside-${id}`,
+    language,
+    library: "papers" as const,
+    mind: null,
+    request,
+    expected: NOTHING,
+  })),
+];
+
 export const CASES: readonly EverydayCase[] = [
   // The owner's own conversation, 2026-10-15.
   {
@@ -2101,4 +2213,5 @@ export const CASES: readonly EverydayCase[] = [
   ...SELECTED,
   ...PARTLY_GIVEN,
   ...SMALLER_SETS,
+  ...OUTSIDE,
 ];

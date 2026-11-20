@@ -9,7 +9,6 @@
  */
 import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
-import { asksForSources } from "../../src/core/sources/intent";
 import { companyName } from "../../src/core/sources/providers/common";
 import { isoDate } from "../../src/core/sources/providers/dailymed";
 import { numberedHeading } from "../../src/core/sources/providers/openfda";
@@ -494,16 +493,5 @@ describe("Drug labels and trials: the Answer's Tool", { timeout: 30_000 }, () =>
     expect(requestsTo(services, "openfda")).toHaveLength(1);
     expect(result).toContain("Found 3 works on openFDA and DailyMed");
     expect(result).toContain(`The source says: ${DISCLAIMER}`);
-  });
-
-  test("a Question that asks for drug labels or trials is offered the Tool, one about the User's own Documents isn't", () => {
-    expect(asksForSources("Find the drug label for metformin")).toBe(true);
-    expect(asksForSources("Search for clinical trials of metformin in covid")).toBe(true);
-    expect(asksForSources("What is NCT04368728?")).toBe(true);
-    expect(asksForSources("查找二甲双胍的药品说明书")).toBe(true);
-    expect(asksForSources("What does the clinical trial in my report say about dosing?")).toBe(
-      false,
-    );
-    expect(asksForSources("What is the label on the box?")).toBe(false);
   });
 });

@@ -151,6 +151,18 @@ describe("The app's first local pick at the window it chooses (#3045)", { timeou
     expect(assistant.sent).toEqual([]);
   });
 
+  // protects=Find sources' Tool goes to the 9B model's 16k window and not to its 8k one, where it would cut what an Answer can write by about 30% (#3462); fails_when=the 8k window is offered it, or the 16k one isn't; no_claim=when a model calls it, which the pull request measures.
+  test("Find sources' Tool goes to a 16k window, not to an 8k one", async () => {
+    const offered = async (memoryGb: number) =>
+      (await askedAt(memoryGb, "note")).sent.flatMap((chat) =>
+        ((chat.body.tools as { function: { name: string } }[] | undefined) ?? []).map(
+          (tool) => tool.function.name,
+        ),
+      );
+    expect(await offered(32)).toContain("find_sources");
+    expect(await offered(16)).not.toContain("find_sources");
+  });
+
   // protects=a second Question asked below an answered one in a Note is sent and reads: at 8k, where main still counted the earlier messages it would drop and refused "And neap tides?" as a Question too long ("Shorten it"), it now carries the turn just before beside the first search's room; at 16k, where the earlier Question and Answer fit, it sends them with the whole cap, as main does; fails_when=it fails as too long, or the 16k request changes; no_claim=a turn too long to keep, which the assistant's rows pin.
   test.each([
     [16, 1_990, 2_048],

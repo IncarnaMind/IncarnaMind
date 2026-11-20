@@ -761,7 +761,7 @@ export interface AgentAccessDeps {
   checkRecord(
     mindId: string,
     reach: ReadonlySet<string>,
-  ): Promise<Pick<CheckRecord, "models" | "sentences">>;
+  ): Promise<Pick<CheckRecord, "models" | "sentences"> & Partial<Pick<CheckRecord, "notChecked">>>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
   /** What IncarnaMind worked out for agents, shared by every connection (`createAgentWorkings`). */
@@ -1897,7 +1897,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         models: record.models,
         supported: counted("supported"),
         needLook: counted("look"),
-        notChecked: counted("toCheck"),
+        notChecked: counted("toCheck") + (record.notChecked ?? 0),
         canBeCited: counted("notYetCited"),
         ownViews: counted("ownViews"),
         claims,
