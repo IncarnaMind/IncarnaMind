@@ -137,6 +137,12 @@ export interface RunRequest {
    * model calls no Tool or `maxSteps` is reached.
    */
   endsAfter?(step: RunStep): boolean;
+  /**
+   * Asked after each model call whose Tool calls have returned: a model to make the calls after it
+   * with, from then on, such as `model` asked to think harder once the model itself calls for
+   * working something out (#3462). Undefined: the model stays as it is.
+   */
+  modelAfter?(step: RunStep): Promise<ChatLanguageModel | undefined> | undefined;
   /** Names the conversation, for providers that route requests to a prompt cache by a key (see ../providers/promptCache). */
   cacheKey?: string;
   signal: AbortSignal;

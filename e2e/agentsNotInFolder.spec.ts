@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
+import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
   catchCopies,
@@ -22,9 +23,10 @@ test.skip(
 );
 
 /*
- * Connecting an agent when the Library has no Folders, or no Documents (#507, #3364): the dialog
- * offers Not in a Folder, ticked when it is the only choice, with no Document yet too, for the
- * Documents added next, and a connected agent's Folders… lists Not in a Folder after the Folders. The home folder is a
+ * Connecting an agent when the Library has no Folders, or no Documents (#507, #3364, #3487): the
+ * dialog says in words that it may read all the Documents, those added next too, when it is the only
+ * choice, lists Not in a Folder after the Folders once there are any, and shows Allow and connect
+ * without scrolling; a connected agent's Folders… lists Not in a Folder after the Folders. The home folder is a
  * temporary one, and what the page copies is caught, so no agent of the User's is touched.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
  */
@@ -60,6 +62,9 @@ const WORDS = {
     allow: "Allow and connect",
     reads: (names: string) => `Reads ${names}`,
     join: ", ",
+    readsNone: translate("en", "agents.connect.reads.none", { agent: "Claude Code" }),
+    readsAll: translate("en", "agents.connect.reads.all", { agent: "Claude Code" }),
+    readsFolders: translate("en", "agents.connect.reads.folders", { agent: "Claude Code" }),
   },
   "zh-CN": {
     settings: "设置",
@@ -71,6 +76,9 @@ const WORDS = {
     allow: "允许并连接",
     reads: (names: string) => `可读取：${names}`,
     join: "、",
+    readsNone: translate("zh-CN", "agents.connect.reads.none", { agent: "Claude Code" }),
+    readsAll: translate("zh-CN", "agents.connect.reads.all", { agent: "Claude Code" }),
+    readsFolders: translate("zh-CN", "agents.connect.reads.folders", { agent: "Claude Code" }),
   },
 } as const;
 
@@ -133,6 +141,17 @@ async function isInside(inner: Locator, outer: Locator): Promise<boolean> {
   );
 }
 
+/** The whole of `target` is on screen, with nothing to scroll to reach it. */
+async function expectInView(window: Page, target: Locator): Promise<void> {
+  const size = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  const box = await target.boundingBox();
+  if (!box) throw new Error("It isn't shown.");
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(size.height);
+}
+
 /** The dialog sits inside the window, and nothing in it spills out of it. */
 async function expectFits(window: Page, dialog: Locator): Promise<void> {
   const size = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
@@ -147,10 +166,10 @@ async function expectFits(window: Page, dialog: Locator): Promise<void> {
   );
 }
 
-for (const width of [900, 1600]) {
+for (const width of [900, 1280]) {
   for (const language of ["en", "zh-CN"] as const) {
     const words = WORDS[language];
-    test(`no Documents offers Not in a Folder, ticked, for the Documents added next; with Folders it is listed after them, at ${width} px in ${LANGUAGE_NAME[language]}`, async () => {
+    test(`no Documents says it may read the ones added next, in words; with Folders Not in a Folder is listed after them, at ${width} px in ${LANGUAGE_NAME[language]}`, async () => {
       const { app, window } = await launchApp(dataDir);
       try {
         await dismissChatSetup(window);
@@ -160,45 +179,48 @@ for (const width of [900, 1600]) {
         const allow = dialog.getByTestId("connect-agent-allow");
         await expect(allow).toHaveText(words.allow);
 
-        // No Documents at all: Not in a Folder is the one choice, ticked, for what is added next.
+        // No Documents at all: no row to tick, only the words for what is added next, and the three
+        // lines, with Allow and connect in view and the rest under Details.
         const rows = dialog.getByTestId("agent-folder-row");
-        await expect(rows).toHaveCount(1);
-        const only = rows.first();
-        await expect(only).toContainText(words.notInFolder);
-        await expect(only.getByTestId("agent-folder-count")).toHaveText(words.count(0));
-        await expect(only.getByTestId("agent-folder")).toBeChecked();
-        const line = dialog.getByTestId("agent-folders-all-unfiled");
-        await expect(line).toHaveText(words.noneYet);
+        await expect(rows).toHaveCount(0);
+        const reads = dialog.getByTestId("connect-agent-reads");
+        await expect(reads).toHaveText(words.readsNone);
+        await expect(dialog.getByTestId("agent-propose")).toBeChecked({ checked: false });
+        await expect(dialog.getByTestId("connect-agent-disconnect")).toHaveText(
+          translate(language, "agents.connect.disconnect"),
+        );
+        const details = dialog.getByTestId("connect-agent-details");
+        await expect(details).not.toHaveAttribute("open", "");
+        await expect(details).toContainText(
+          translate(language, "agents.connect.body", { agent: "Claude Code" }),
+        );
+        await expect(details.getByTestId("connect-agent-skill")).toBeHidden();
         await expect(allow).toBeEnabled();
+        await expectInView(window, allow);
         await expectFits(window, dialog);
         await shot(window, `no-documents-${width}-${language}`);
         await shot(dialog, `no-documents-dialog-${width}-${language}`);
 
-        // Added: counted there, still the only choice, ticked.
+        // Opened, the rest is there.
+        await details.locator("summary").first().click();
+        await expect(details.getByTestId("connect-agent-skill")).toBeVisible();
+        await shot(dialog, `no-documents-details-dialog-${width}-${language}`);
+        await details.locator("summary").first().click();
+
+        // Added: still in words, now for all of them.
         const tides = await writeNote("Tides", "Spring tides come at new moon.");
         await window.evaluate(async (path) => {
           await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addDocuments([
             path,
           ]);
         }, tides);
-        await expect(only.getByTestId("agent-folder-count")).toHaveText(words.count(1));
-        await expect(only.getByTestId("agent-folder")).toBeChecked();
-        await expect(line).toHaveText(words.allUnfiled);
-        const [list, note] = await Promise.all([
-          dialog.getByTestId("agent-folder-list").boundingBox(),
-          line.boundingBox(),
-        ]);
-        expect((note?.y ?? 0) >= (list?.y ?? 0) + (list?.height ?? 0)).toBe(true);
+        await expect(reads).toHaveText(words.readsAll);
+        await expect(rows).toHaveCount(0);
         await expect(allow).toBeEnabled();
+        await expectInView(window, allow);
         await expectFits(window, dialog);
         await shot(window, `no-folders-${width}-${language}`);
         await shot(dialog, `no-folders-dialog-${width}-${language}`);
-
-        // Unticked, nothing is chosen: Allow waits.
-        await only.getByTestId("agent-folder").uncheck();
-        await expect(allow).toBeDisabled();
-        await only.getByTestId("agent-folder").check();
-        await expect(allow).toBeEnabled();
         await dialog.getByRole("button", { name: language === "en" ? "Cancel" : "取消" }).click();
         await expect(dialog).toBeHidden();
 
@@ -210,12 +232,12 @@ for (const width of [900, 1600]) {
           .locator('[data-client="claude-code"]')
           .getByTestId("agent-connect")
           .click();
+        await expect(reads).toHaveText(words.readsFolders);
         await expect(rows).toHaveCount(3);
         await expect(rows.nth(0)).toContainText("Coast");
         await expect(rows.nth(1)).toContainText(LONG_NAME);
         await expect(rows.nth(2)).toContainText(words.notInFolder);
         await expect(rows.nth(2).getByTestId("agent-folder-count")).toHaveText(words.count(1));
-        await expect(dialog.getByTestId("agent-folders-all-unfiled")).toBeHidden();
         for (const index of [0, 1, 2])
           await expect(rows.nth(index).getByTestId("agent-folder")).not.toBeChecked();
         await expect(allow).toBeDisabled();
@@ -276,7 +298,7 @@ for (const width of [900, 1600]) {
   }
 }
 
-test("a Library that is only a Linked folder's files lists them as Not in a Folder, and Allow connects with that scope", async () => {
+test("a Library that is only a Linked folder's files says it may read all of them, and Allow connects with Not in a Folder as its scope", async () => {
   await writeNote("Tides", "Spring tides come at new moon.");
   await writeNote("Reef", "The reef shelters young coral.");
   const { app, window } = await launchApp(dataDir);
@@ -291,11 +313,8 @@ test("a Library that is only a Linked folder's files lists them as Not in a Fold
     }, sources);
     await expectReadyDocuments(window, 2);
     const dialog = await openConnectDialog(window, "en");
-    const rows = dialog.getByTestId("agent-folder-row");
-    await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText("Not in a Folder");
-    await expect(rows.first().getByTestId("agent-folder-count")).toHaveText("2 Documents");
-    await expect(rows.first().getByTestId("agent-folder")).toBeChecked();
+    await expect(dialog.getByTestId("agent-folder-row")).toHaveCount(0);
+    await expect(dialog.getByTestId("connect-agent-reads")).toHaveText(WORDS.en.readsAll);
     await dialog.getByTestId("connect-agent-allow").click();
     await expect(dialog).toBeHidden();
     await expect(window.getByTestId("agent-pairing-reads")).toHaveText("Reads Not in a Folder");

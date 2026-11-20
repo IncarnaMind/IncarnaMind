@@ -67,6 +67,7 @@ const doc = (id: string, name: string, status: DocumentStatus = "ready"): Docume
   notCited: false,
   found: null,
   importedAs: null,
+  handedBy: null,
   createdAt: "",
   updatedAt: "",
 });

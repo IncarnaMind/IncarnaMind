@@ -45,7 +45,7 @@ Click **Connect**. Claude opens and shows IncarnaMind: click **Install**. Then s
 <a id="claude-code"></a>
 ### Claude Code
 
-Click **Connect**: IncarnaMind copies one line. Paste it into Terminal (Windows: PowerShell) and press Return. Start a new Claude Code session; `/mcp` lists IncarnaMind.
+Click **Connect**: IncarnaMind adds itself to Claude Code's settings file, `~/.claude.json`, and shows first what it adds (under **Details**). Everything else in that file stays as it is, and a copy of the file as it was is kept beside it until you disconnect. Start a new Claude Code session; `/mcp` lists IncarnaMind. If IncarnaMind can't read or change the file, it leaves it alone and copies the line to run in a terminal instead.
 
 <a id="codex"></a>
 ### ChatGPT app and Codex

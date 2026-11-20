@@ -17,7 +17,7 @@ import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
 import { SLOT, Slotted } from "../Slotted";
 import { dialogTextClass, errorTextClass, fieldLabelClass, hintClass, inputClass } from "../ui";
-import { AgentFolderList, useAgentFolderRows } from "./AgentFolderList";
+import { AgentFolderList, useAgentFolderRows, useAnyOwnDocument } from "./AgentFolderList";
 import type { JustSetUp } from "./AgentPairingRow";
 import { ProposeChoice } from "./ProposeChoice";
 
@@ -75,11 +75,12 @@ export function useAgentConnection() {
 
 /**
  * What the User reads and chooses before an agent is connected (#351), which is also their
- * consent to its data flow: what it will be able to read, where that goes (its own AI model, under
- * its service's terms, which may train on it), the Folders it may read (none chosen until the User
- * picks, unless Not in a Folder is the one choice), whether it may write notes (#352), and, for an
- * agent whose settings file IncarnaMind writes, exactly what it adds there. The same lines in the
- * connect dialog and in the setup's step (#3362); `actions` draws the press that allows.
+ * consent to its data flow, in three lines (#3487): the Folders it may read, with where that goes
+ * (its own AI model), whether it may write notes (#352), and that it can be disconnected at any
+ * time. Under Details: what else it can read and what is sent, what a write allows, and, for an
+ * agent whose settings file IncarnaMind writes, exactly what it adds there. The Folders are none
+ * chosen until the User picks, unless every Document is in none, which is said in words. The same
+ * lines in the connect dialog and in the setup's step (#3362); `actions` draws the press that allows.
  */
 export function ConnectAgentFields({
   client,
@@ -125,6 +126,7 @@ export function ConnectAgentFields({
   }, [client.id, writes, reportError]);
   const canKeepKey = storage?.canSave !== false;
 
+  const anyDocument = useAnyOwnDocument();
   const agent = name.trim() || clientInSentence(client, t);
   // Not in a Folder alone is ticked: it is every Document, so there is nothing else to choose.
   const chosen = picked ?? (onlyNotInAFolder(rows) ? ALL_UNFILED : NOTHING);
@@ -135,10 +137,20 @@ export function ConnectAgentFields({
     setPicked(next);
   };
   const allowed = rows.filter((row) => chosen.has(row.id)).map((row) => row.id);
+  const everyDocumentLoose = onlyNotInAFolder(rows);
 
   return (
     <>
-      <p className={dialogTextClass}>{t("agents.connect.body", { agent })}</p>
+      <p data-testid="connect-agent-reads" className={dialogTextClass}>
+        {t(
+          everyDocumentLoose
+            ? anyDocument
+              ? "agents.connect.reads.all"
+              : "agents.connect.reads.none"
+            : "agents.connect.reads.folders",
+          { agent },
+        )}
+      </p>
       {client.id === "other" && (
         <label className="flex flex-col gap-1">
           <span className={fieldLabelClass}>{t("agents.connect.name")}</span>
@@ -152,37 +164,64 @@ export function ConnectAgentFields({
           />
         </label>
       )}
-      <fieldset className="flex min-w-0 flex-col gap-1">
-        <legend className={fieldLabelClass}>{t("agents.connect.folders")}</legend>
-        <AgentFolderList rows={rows} chosen={chosen} onToggle={toggle} />
-      </fieldset>
-      <ProposeChoice checked={propose} onChange={setPropose} />
-      {preview && (
-        <div data-testid="connect-agent-change" className="flex flex-col gap-1">
-          <p className={dialogTextClass}>
-            <Slotted
-              message={t("agents.connect.fileChange", { path: SLOT })}
-              slot={<InlinePath path={preview.path} />}
-            />
-          </p>
-          <details>
-            <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
-              {t("agents.connect.showChange")}
-            </summary>
-            <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink">
-              {preview.change}
-            </pre>
-          </details>
+      {!everyDocumentLoose && (
+        <fieldset className="flex min-w-0 flex-col gap-1">
+          <legend className="sr-only">{t("agents.connect.folders")}</legend>
+          <AgentFolderList rows={rows} chosen={chosen} onToggle={toggle} />
+        </fieldset>
+      )}
+      <ProposeChoice
+        checked={propose}
+        onChange={setPropose}
+        hint={false}
+        noFolders={everyDocumentLoose}
+      />
+      <p data-testid="connect-agent-disconnect" className={dialogTextClass}>
+        {t("agents.connect.disconnect")}
+      </p>
+      <details data-testid="connect-agent-details" className="flex flex-col">
+        <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
+          {t("agents.connect.details")}
+        </summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <p className={dialogTextClass}>{t("agents.connect.body", { agent })}</p>
+          <p className={dialogTextClass}>{t("agents.propose.hint")}</p>
+          {preview && (
+            <div data-testid="connect-agent-change" className="flex flex-col gap-1">
+              <p className={dialogTextClass}>
+                <Slotted
+                  message={t("agents.connect.fileChange", { path: SLOT })}
+                  slot={<InlinePath path={preview.path} />}
+                />
+              </p>
+              <details data-testid="connect-agent-change-lines">
+                <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
+                  {t("agents.connect.showChange")}
+                </summary>
+                <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink">
+                  {preview.change}
+                </pre>
+              </details>
+              {preview.backup && (
+                <p data-testid="connect-agent-backup" className={dialogTextClass}>
+                  <Slotted
+                    message={t("agents.connect.backup", { path: SLOT })}
+                    slot={<InlinePath path={preview.backup} />}
+                  />
+                </p>
+              )}
+            </div>
+          )}
+          {client.skillPath && (
+            <p data-testid="connect-agent-skill" className={dialogTextClass}>
+              <Slotted
+                message={t("agents.connect.skill", { path: SLOT, agent })}
+                slot={<InlinePath path={client.skillPath} />}
+              />
+            </p>
+          )}
         </div>
-      )}
-      {client.skillPath && (
-        <p data-testid="connect-agent-skill" className={dialogTextClass}>
-          <Slotted
-            message={t("agents.connect.skill", { path: SLOT, agent })}
-            slot={<InlinePath path={client.skillPath} />}
-          />
-        </p>
-      )}
+      </details>
       {rows.length > 0 && allowed.length === 0 && (
         <p className={hintClass}>{t("agents.connect.pickOne")}</p>
       )}

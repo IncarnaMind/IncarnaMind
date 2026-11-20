@@ -47,7 +47,7 @@
 <a id="claude-code"></a>
 ### Claude Code
 
-点击“连接”：IncarnaMind 会复制一行命令。把它粘贴到终端（Windows 中为 PowerShell）中运行。新开一个 Claude Code 会话，输入 `/mcp` 即可看到 IncarnaMind。
+点击“连接”：IncarnaMind 会把自己添加到 Claude Code 的设置文件 `~/.claude.json` 中，并先在“详情”里显示添加的内容。文件里的其他内容保持原样，断开连接之前，会在旁边保留一份该文件原来的样子。新开一个 Claude Code 会话，输入 `/mcp` 即可看到 IncarnaMind。如果 IncarnaMind 无法读取或修改这个文件，它不会动这个文件，而是复制一行命令，供你在终端中运行。
 
 <a id="codex"></a>
 ### ChatGPT 应用和 Codex
