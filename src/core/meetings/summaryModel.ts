@@ -1,6 +1,6 @@
 import { generateText } from "ai";
 import { languageSpoken } from "../answers/prompt";
-import type { ChatModelChoice, MeetingSummaryItem } from "../api";
+import type { ChatModelChoice, ChatProviderKind, MeetingSummaryItem } from "../api";
 import { ChatNotReadyError, TranslatableError } from "../errors";
 import type { createChat, PreparedChatModel } from "../providers/chat";
 import { outputTokens } from "../providers/outputLimits";
@@ -69,6 +69,7 @@ export function meetingSummaryPrompt({
 
 export async function summarizeWithChat(
   chat: {
+    describeModel(choice: ChatModelChoice): { kind: ChatProviderKind } | undefined;
     prepareModel(
       ...args: Parameters<PrepareChat>
     ): Promise<Pick<PreparedChatModel, "model" | "window" | "capabilities">>;
@@ -79,7 +80,14 @@ export async function summarizeWithChat(
 ): Promise<string> {
   signal.throwIfAborted();
   if (!choice) throw new ChatNotReadyError({ ready: false, reason: "no-provider" });
-  const { model, window, capabilities } = await chat.prepareModel(choice, "chat", "off", {
+  // Revising prior commitments with thinking off loses their identity on Haiku 5.5 (#3472).
+  const thinking =
+    choice.modelId === "claude-haiku-5-5" &&
+    input.items?.some((item) => item.status === "active") &&
+    chat.describeModel(choice)?.kind === "anthropic"
+      ? "task"
+      : "off";
+  const { model, window, capabilities } = await chat.prepareModel(choice, "chat", thinking, {
     background: true,
   });
   signal.throwIfAborted();
