@@ -6,10 +6,16 @@
 import { randomUUID } from "node:crypto";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
+import * as Y from "yjs";
+import { NOTE_TAB_NODE, NOTE_TAB_TITLE_ATTRIBUTE, PICTURE_NODE } from "../../src/core/api";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { connectToMind } from "../helpers/mindClient";
-import { heading, note, writeMind } from "../helpers/minds";
+import { heading, note, readMind, writeMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
+
+/** A PNG of one pixel, as an agent gives a picture inline. */
+const PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 const tab = (title: string): JSONContent => ({
   type: "noteTab",
@@ -47,7 +53,7 @@ async function paired() {
     propose: true,
   });
   const agent = await connectLegacyAgent(launch);
-  return { agent, mind };
+  return { core, agent, mind, harbour };
 }
 
 describe("read_mind on a Note with tabs", () => {
@@ -83,5 +89,76 @@ describe("read_mind on a Note with tabs", () => {
       "Tab: Fleet",
       "¶2 Two ferries were refitted over the winter.",
     ]);
+  });
+
+  it("keeps a picture an agent adds to a Note with tabs in the tab it adds it to", async () => {
+    const { core, agent } = await paired();
+    const made = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Harbourline Ferries",
+          markdown: "Sailings ran on time.\n\nTwo ferries were refitted.",
+        },
+      }),
+    );
+    // The User makes the Note two tabs, as the panel's New tab does.
+    const client = await connectToMind(core, made.mindId);
+    const tabBlock = (title: string) => {
+      const block = new Y.XmlElement(NOTE_TAB_NODE);
+      block.setAttribute("id", randomUUID());
+      block.setAttribute(NOTE_TAB_TITLE_ATTRIBUTE, title);
+      return block;
+    };
+    client.doc.transact(() => {
+      client.blocks.insert(client.blocks.length - 1, [tabBlock("Fleet")]);
+      client.blocks.insert(0, [tabBlock("Summary")]);
+    });
+    await client.settled();
+
+    const read = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
+    );
+    expect(read.markdown.split("\n\n")).toEqual([
+      "Tab: Summary",
+      "¶0 # Harbourline Ferries",
+      "¶1 Sailings ran on time.",
+      "Tab: Fleet",
+      "¶2 Two ferries were refitted.",
+    ]);
+    const changed = structured<{ status: string; markdown: string }>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: made.mindId,
+          version: read.version,
+          changes: [{ paragraph: "¶2+", text: `![Refit](data:image/png;base64,${PNG})` }],
+        },
+      }),
+    );
+    expect(changed.status).toBe("applied");
+    expect(changed.markdown.split("\n\n").slice(3)).toEqual([
+      "Tab: Fleet",
+      "¶2 Two ferries were refitted.",
+      "![Refit](data:image/png;base64,…)",
+    ]);
+    const kinds: string[] = [];
+    readMind(await connectToMind(core, made.mindId)).forEach((block) => {
+      kinds.push(block.type.name);
+    });
+    expect(kinds).toEqual([
+      NOTE_TAB_NODE,
+      "heading",
+      "paragraph",
+      NOTE_TAB_NODE,
+      "paragraph",
+      PICTURE_NODE,
+    ]);
+
+    // Read whole, the picture stands in Fleet's section.
+    const whole = structured<{ markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId } }),
+    );
+    expect(whole.markdown).toMatch(/# Fleet\n\nTwo ferries were refitted\.\n\n!\[Refit\]/);
   });
 });

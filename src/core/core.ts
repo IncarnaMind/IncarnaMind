@@ -5782,6 +5782,9 @@ export function createCore(adapters: CoreAdapters): Core {
       passagesCovering: (documentId, from, to, overlapping) =>
         documents.passagesCovering(documentId, from, to, overlapping),
       ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+      ...(adapters.canvasFiles && { readNamed: adapters.canvasFiles.readNamed }),
+      ...(adapters.pictures && { pictures: adapters.pictures }),
+      language: () => settings.get().language,
       libraryLists: agentLibraryLists,
       libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
       citing,
@@ -5828,7 +5831,7 @@ export function createCore(adapters: CoreAdapters): Core {
         const parts = withTabSections(blocks, (n) =>
           translate(language, "noteTabs.defaultTitle", { n }),
         );
-        return renderMarkdown(title, parts, exportLabels(language), { pictures: false }).text;
+        return renderMarkdown(title, parts, exportLabels(language), { pictures: "marked" }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>

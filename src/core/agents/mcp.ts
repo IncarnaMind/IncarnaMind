@@ -76,6 +76,9 @@ const heldCall = z.object({
   transcript: z.string().describe("Its Transcript's documentId."),
 });
 
+/** A picture or chart it wrote that isn't in the Note, and why (#3413). */
+const leftOut = z.array(z.object({ item: z.string(), reason: z.string() }));
+
 const checkedCitationOut = z.object({
   cite: z.string(),
   check: z.enum(["found", "not-found", "cant-check", "unknown"]),
@@ -338,7 +341,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Change a Note",
       description:
-        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no named paragraphs, start with ¶0+. Write Markdown with [cite:…] tokens. Changes apply in Notes you wrote and wait for review elsewhere.",
+        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no named paragraphs, start with ¶0+. Write Markdown with [cite:…] tokens, pictures and charts as in create_mind. Changes apply in Notes you wrote and wait for review elsewhere.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
@@ -363,6 +366,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         version: z.string(),
         citations: z.array(checkedCitationOut),
         uncited: z.array(z.string()),
+        refused: leftOut,
         next: z.string().nullable(),
       }),
       // In a Note the agent wrote it changes the Note, one step the User's Undo takes back; in any
@@ -382,7 +386,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Write a new Note",
       description:
-        "Write a new Note: a report, a summary, a draft. It is there at once, marked as yours, and changes no Note there is. Write Markdown; cite each claim from the User's Documents with its [cite:…] token, exactly as given. Returns how each Citation checks now and the sentences with none. Refused unless the User let this agent write.",
+        'Write a new Note: a report, a summary, a draft. It is there at once, marked as yours. Write Markdown; cite each claim from the User\'s Documents with its [cite:…] token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. A chart: a table of its figures, each cell a figure with its token, then a ```chart block right under it, {"kind": "bar", "title": "…"}. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),
@@ -397,6 +401,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         folder: z.string(),
         citations: z.array(checkedCitationOut),
         uncited: z.array(z.string()),
+        refused: leftOut,
       }),
       // It adds a Note and changes none: the User deletes it like any other.
       annotations: {

@@ -28,6 +28,7 @@ import * as Y from "yjs";
 import { asGenerated, INLINE_CODE_MARK } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
 import { REFUSAL_WORDS } from "../../shared/changeRefusals";
+import { readChart } from "../../shared/charts";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
@@ -38,16 +39,18 @@ import {
 } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
 import { type ChangedParagraph, sentenceWords, uncitedSpans } from "../../shared/uncitedSentences";
-import { createElement } from "../answers/blocks";
+import { createElement, nodeOf } from "../answers/blocks";
 import { emphasisOf, markdownToBlocks, withoutEmphasisEscapes } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CHART_NODE,
   CITATION_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
   NOTE_TAB_NODE,
   NOTE_TAB_TITLE_ATTRIBUTE,
   type OutsideAgentRequest,
+  PICTURE_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -65,6 +68,8 @@ import {
   textBlocks,
 } from "../proposals/write";
 import { CITATION_TOKEN } from "./citations";
+import { HOLDING_PICTURES, holdPictures } from "./pictures";
+import { type NoteVisuals, placeVisuals, type VisualRefused } from "./visuals";
 
 type Attributes = Record<string, unknown>;
 
@@ -243,7 +248,9 @@ function usersWordsIn(element: Y.XmlElement): NamedParagraph["users"] {
 /**
  * The Note's paragraphs and headings by name, at any depth, as `textBlocks` lists them: a
  * table's cells, a list's items and an Answer's paragraphs too. An empty one has no name, nor
- * one a Proposal adds, which isn't in the Note yet.
+ * one a Proposal adds, which isn't in the Note yet. Its pictures and charts read in their place,
+ * with no name: they are no paragraph to change, and an agent that wrote them sees them there
+ * (#3413).
  */
 export function namedNote(
   blocks: Y.XmlFragment,
@@ -251,13 +258,12 @@ export function namedNote(
   options: NamedOptions = {},
 ): NamedNote {
   const paragraphs: NamedParagraph[] = [];
+  const tops = new Map(blocks.toArray().map((block, index) => [block, index]));
+  const places: number[] = [];
   const seen = new Set<string>();
   let titled = false;
-  const tabs = tabsOfBlocks(blocks);
-  /** Before which paragraph each tab's line goes, by the paragraph's index. */
-  const tabLines = new Map<number, string>();
-  let lastTab: number | null = null;
-  const opening = blocks.get(0) instanceof Y.XmlElement && tabs.has(blocks.get(0) as Y.XmlElement);
+  const first = blocks.get(0);
+  const opening = first instanceof Y.XmlElement && first.nodeName === NOTE_TAB_NODE;
   for (const { element } of textBlocks(blocks)) {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (typeof blockId !== "string" || blockId === "" || seen.has(blockId)) continue;
@@ -274,11 +280,6 @@ export function namedNote(
       element.nodeName === "heading" &&
       blocks.get(opening ? 1 : 0) === element;
     titled ||= title;
-    const tab = tabOfElement(element, tabs);
-    if (words.tab && tab && tab.number !== lastTab) {
-      tabLines.set(paragraphs.length, words.tab(tab.title, tab.number));
-      lastTab = tab.number;
-    }
     paragraphs.push({
       name: title ? "¶0" : paragraphName(paragraphs.length - (titled ? 1 : 0)),
       blockId,
@@ -286,6 +287,7 @@ export function namedNote(
       held,
       users: options.users && !title ? usersWordsIn(element) : null,
     });
+    places.push(topOf(element, tops));
   }
   const line = (paragraph: NamedParagraph) =>
     [
@@ -304,51 +306,75 @@ export function namedNote(
       )
       .join("\u0001"),
   );
-  const text = paragraphs
-    .flatMap((paragraph, at) => {
-      const tab = tabLines.get(at);
-      return tab === undefined ? [line(paragraph)] : [tab, line(paragraph)];
-    })
+  const shown: { at: number; text: string }[] = paragraphs.map((paragraph, index) => ({
+    at: places[index] ?? 0,
+    text: line(paragraph),
+  }));
+  for (const [block, at] of tops) {
+    const visual =
+      block instanceof Y.XmlElement && !addedByProposal(block) ? visualLine(block) : null;
+    if (visual !== null) shown.push({ at, text: visual });
+  }
+  if (words.tab) shown.push(...tabLines(blocks, words.tab));
+  const text = shown
+    .sort((a, b) => a.at - b.at)
+    .map((each) => each.text)
     .join("\n\n");
   return { paragraphs, text, version };
 }
 
 /**
- * The tab each top-level Block of a Note is in (#3414), by its title and number from 1; none in a
- * Note without tabs. A tab Block is the first of its own.
+ * Where each tab of the Note starts, as the line an agent reads there (#3414), by its place among
+ * the top-level Blocks: none in a Note without tabs. The Blocks before the first tab Block are
+ * the first tab, with no title of its own.
  */
-function tabsOfBlocks(blocks: Y.XmlFragment): Map<Y.XmlElement, { title: string; number: number }> {
+function tabLines(
+  blocks: Y.XmlFragment,
+  said: (title: string, number: number) => string,
+): { at: number; text: string }[] {
   const all = blocks.toArray();
-  const of = new Map<Y.XmlElement, { title: string; number: number }>();
-  if (!all.some((block) => block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE)) {
-    return of;
+  const starts = all.flatMap((block, at) =>
+    block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE ? [{ block, at }] : [],
+  );
+  if (starts.length === 0) return [];
+  const leading = (starts[0]?.at ?? 0) > 0;
+  const lines = leading ? [{ at: -1, text: said("", 1) }] : [];
+  for (const [index, { block, at }] of starts.entries()) {
+    const title = block.getAttribute(NOTE_TAB_TITLE_ATTRIBUTE);
+    const number = index + (leading ? 2 : 1);
+    lines.push({ at, text: said(typeof title === "string" ? title.trim() : "", number) });
   }
-  let tab = { title: "", number: 1 };
-  let started = false;
-  for (const block of all) {
-    if (!(block instanceof Y.XmlElement)) continue;
-    if (block.nodeName === NOTE_TAB_NODE) {
-      const title = block.getAttribute(NOTE_TAB_TITLE_ATTRIBUTE);
-      tab = {
-        title: typeof title === "string" ? title.trim() : "",
-        number: started ? tab.number + 1 : 1,
-      };
-    }
-    started = true;
-    of.set(block, tab);
-  }
-  return of;
+  return lines;
 }
 
-function tabOfElement(
-  element: Y.XmlElement,
-  tabs: ReadonlyMap<Y.XmlElement, { title: string; number: number }>,
-): { title: string; number: number } | null {
-  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
-    const tab = tabs.get(at);
-    if (tab) return tab;
+/** The top-level table an element is in; null when it is in none. */
+function tableOf(element: Y.XmlElement): Y.XmlElement | null {
+  let top: Y.XmlElement = element;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  return top.nodeName === "table" ? top : null;
+}
+
+/** The place among the Note's top-level Blocks of the one an element is in. */
+function topOf(element: Y.XmlElement, tops: ReadonlyMap<unknown, number>): number {
+  let top: Y.XmlElement = element;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  return tops.get(top) ?? 0;
+}
+
+/**
+ * A picture or chart as an agent writes one, without a picture's data: null for any other Block.
+ */
+function visualLine(block: Y.XmlElement): string | null {
+  if (block.nodeName === PICTURE_NODE) {
+    const src = block.getAttribute("src");
+    const alt = block.getAttribute("alt");
+    const kept =
+      typeof src === "string" && src.startsWith("data:") ? src.slice(0, src.indexOf(",") + 1) : "";
+    return `![${escapeNames(typeof alt === "string" ? alt : "")}](${kept}…)`;
   }
-  return null;
+  if (block.nodeName !== CHART_NODE) return null;
+  const { kind, title } = readChart(block.getAttributes());
+  return ["```chart", JSON.stringify({ kind, title: escapeNames(title) }), "```"].join("\n");
 }
 
 /** One of the agent's changes, by the index of the named paragraph it is for. */
@@ -378,6 +404,8 @@ export interface ProposeOptions {
   cited(token: string): CitedToken | null;
   /** What a token it can't cite with reads as. */
   notFound: string;
+  /** Given, the pictures and charts in the paragraphs it adds are put in place (#3413). */
+  visuals?: NoteVisuals;
   newId(): string;
   /** Given, a Checkpoint of the Note just before the changes reach it: they apply at once (#3371). */
   checkpoint?(): void;
@@ -389,6 +417,7 @@ export class ChangeRefused extends Error {
     readonly key:
       | "agents.propose.formula"
       | "agents.propose.lost"
+      | "agents.propose.visualAdded"
       | (typeof REFUSAL_WORDS)[keyof typeof REFUSAL_WORDS]["agent"],
     readonly paragraph: string,
   ) {
@@ -510,13 +539,15 @@ function withTokens(
  * New paragraphs as Blocks: Markdown, parsed with each token held apart, then each token this
  * agent may cite a Citation, and their words AI text with every "[" outside code inert. The
  * parse makes no Citation, footnote or figure of its own; a token's place it left in code is
- * only words.
+ * only words. With `visuals`, its pictures are held apart too, and they and its charts are put
+ * in place once it is parsed (#3413).
  */
 export function newBlocks(
   written: string,
   name: string,
-  options: Pick<ProposeOptions, "cited" | "notFound">,
-): { nodes: NodeJSON[]; cited: Attributes[] } {
+  options: Pick<ProposeOptions, "cited" | "notFound" | "visuals">,
+  before: NodeJSON | null = null,
+): { nodes: NodeJSON[]; cited: Attributes[]; refused: VisualRefused[] } {
   const tokens: { token: string; attributes: Attributes | null; held: number; back: number }[] = [];
   const held = new Map<string, number>();
   const hold = (token: string): string => {
@@ -541,23 +572,37 @@ export function newBlocks(
   };
   const markdown = withTokens(
     withoutName(written),
-    (part) => unescapeNames(part).replace(HOLDING, ""),
+    (part) => unescapeNames(part).replace(HOLDING, "").replace(HOLDING_PICTURES, ""),
     hold,
   );
-  const cited: Attributes[] = [];
-  const parsed = replaceMarkers(markdownToBlocks(markdown), HELD_TOKEN, (match, before) => {
-    cameBack(match[1]);
-    const attributes = tokens[Number(match[1])]?.attributes;
-    if (!attributes) return { before, put: options.notFound };
-    cited.push(attributes);
-    const node: NodeJSON = {
-      type: CITATION_NODE,
-      attrs: Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
-    };
-    return { before, put: node };
-  });
   const asWritten = (text: string) =>
     text.replace(HELD_TOKEN, (_, n: string) => `[cite:${tokens[Number(n)]?.token ?? ""}]`);
+  const withPictures = options.visuals ? holdPictures(markdown) : { text: markdown, pictures: [] };
+  // A token in a picture's alt text or source is words there.
+  const pictures = withPictures.pictures.map((picture) => {
+    for (const match of picture.raw.matchAll(HELD_TOKEN)) cameBack(match[1]);
+    return {
+      alt: asWritten(picture.alt),
+      source: asWritten(picture.source),
+      raw: asWritten(picture.raw),
+    };
+  });
+  const cited: Attributes[] = [];
+  const parsed = replaceMarkers(
+    markdownToBlocks(withPictures.text),
+    HELD_TOKEN,
+    (match, before) => {
+      cameBack(match[1]);
+      const attributes = tokens[Number(match[1])]?.attributes;
+      if (!attributes) return { before, put: options.notFound };
+      cited.push(attributes);
+      const node: NodeJSON = {
+        type: CITATION_NODE,
+        attrs: Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
+      };
+      return { before, put: node };
+    },
+  );
   // Code is the agent's code: a "[0]" in it is code, never read as a marker.
   const own = (node: NodeJSON, code = false): NodeJSON[] => {
     if (node.type === "text") {
@@ -571,15 +616,21 @@ export function newBlocks(
       node.content ? { ...node, content: node.content.flatMap((each) => own(each, inCode)) } : node,
     ];
   };
-  const nodes = asGenerated(parsed.flatMap((each) => own(each))).filter(
+  const parsedNodes = asGenerated(parsed.flatMap((each) => own(each))).filter(
     (block) => !(block.type === "paragraph" && (block.content?.length ?? 0) === 0),
   );
+  const { nodes, refused } = options.visuals
+    ? placeVisuals(parsedNodes, pictures, options.visuals, before)
+    : { nodes: parsedNodes, refused: [] };
   // A token the parse took into a formula or a link's address is neither a Citation nor words:
   // it never came back, or its held place is still there.
+  const kept = JSON.stringify(nodes);
   const lost =
-    tokens.some((each) => each.back !== each.held) || JSON.stringify(nodes).search(HOLDING) >= 0;
+    tokens.some((each) => each.back !== each.held) ||
+    kept.search(HOLDING) >= 0 ||
+    kept.search(HOLDING_PICTURES) >= 0;
   if (lost) throw new ChangeRefused("agents.propose.lost", name);
-  return { nodes, cited };
+  return { nodes, cited, refused };
 }
 
 /** A whole new Block, or list item, as a Proposal of `request` that adds it. */
@@ -671,14 +722,14 @@ function uncitedOf(blocks: Y.XmlFragment, request: string): string[] {
  * transaction. Nothing is written unless every change can be: a paragraph held is refused
  * (`HeldParagraph`), and a change that can't be written as it is (`ChangeRefused`), with the
  * reason the one check gives for any writer (../proposals/apply). Returns how many changes wait,
- * and the sentences they leave uncited.
+ * the sentences they leave uncited, and the pictures and charts left out.
  */
 export function proposeNamed(
   blocks: Y.XmlFragment,
   note: NamedNote,
   changes: readonly NamedChange[],
   options: ProposeOptions,
-): { waiting: number; uncited: string[] } {
+): Written {
   const doc = blocks.doc;
   if (!doc || doc.getXmlFragment(MIND_CONTENT_FIELD) !== blocks) {
     throw new Error("The Note's Blocks aren't in its document.");
@@ -700,7 +751,7 @@ export function proposeNamed(
     case "written":
       return outcome.value;
     case "unchanged":
-      return { waiting: 0, uncited: [] };
+      return { waiting: 0, uncited: [], refused: [] };
     case "changed":
       throw new Error(
         `An outside agent's request ${options.request} would change the User's text.`,
@@ -715,7 +766,7 @@ function writeNamed(
   note: NamedNote,
   changes: readonly NamedChange[],
   options: ProposeOptions,
-): Wrote<{ waiting: number; uncited: string[] }> {
+): Wrote<Written> {
   const elements = new Map<string, Y.XmlElement>();
   for (const { element } of textBlocks(blocks)) {
     const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -738,16 +789,27 @@ function writeNamed(
   }[] = [];
   const adds = new Map<number | null, NodeJSON[]>();
   const citedAnew: Attributes[] = [];
+  const leftOut: VisualRefused[] = [];
   for (const change of changes) {
     if (change.kind === "add") {
       const anchor = change.after === null ? "¶0" : elementAt(change.after).paragraph.name;
-      const added = newBlocks(change.text, `${anchor}+`, options);
+      // What is added first after a table's paragraph follows the table: a chart there draws it.
+      const table =
+        change.after === null || adds.has(change.after)
+          ? null
+          : tableOf(elementAt(change.after).element);
+      const added = newBlocks(change.text, `${anchor}+`, options, table && nodeOf(table));
       adds.set(change.after, [...(adds.get(change.after) ?? []), ...added.nodes]);
       citedAnew.push(...added.cited);
+      leftOut.push(...added.refused);
       continue;
     }
     const { paragraph, element } = elementAt(change.at);
     if (paragraph.held) throw new HeldParagraph(paragraph, paragraph.held);
+    // A paragraph's rewrite is its words: a picture or a chart is a Block of its own, added.
+    if (change.kind === "rewrite" && options.visuals && holdsVisual(change.text)) {
+      throw new ChangeRefused("agents.propose.visualAdded", paragraph.name);
+    }
     const { from, to } = wholeOf(element, paragraph.blockId);
     const read = readSelection(blocks, from, to);
     if (!read.ok) throw new HeldParagraph(paragraph, read.reason === "busy" ? "busy" : "waiting");
@@ -779,7 +841,7 @@ function writeNamed(
 
   const refused = (report: WriteReport) => ({
     changed: false,
-    value: { waiting: 0, uncited: [] },
+    value: { waiting: 0, uncited: [], refused: [] },
     ...report,
   });
   for (const { selection, name, text, fresh } of rewrites) {
@@ -795,6 +857,18 @@ function writeNamed(
   const waiting = waitingChanges(blocks, (each) => each.request === options.request);
   return {
     changed: waiting > 0,
-    value: { waiting, uncited: uncitedOf(blocks, options.request) },
+    value: { waiting, uncited: uncitedOf(blocks, options.request), refused: leftOut },
   };
 }
+
+/** What `proposeNamed` wrote: how many changes wait, what they leave uncited, and what was left out. */
+interface Written {
+  waiting: number;
+  uncited: string[];
+  refused: VisualRefused[];
+}
+
+const CHART_FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})[ \t]*chart\b/m;
+
+const holdsVisual = (text: string) =>
+  holdPictures(text).pictures.length > 0 || CHART_FENCE_LINE.test(text);

@@ -58,10 +58,11 @@ export interface MarkdownExport {
 export interface MarkdownOptions {
   /**
    * Whether a picture kept in the Note's data is written as a file beside the
-   * text (an export) or read as its alt text (an outside agent that can open no
-   * file).
+   * text (an export) or read as its alt text; "marked", as a picture whose data
+   * is left out, so an outside agent, which can open no file, knows one is there
+   * (#3413).
    */
-  pictures?: boolean;
+  pictures?: boolean | "marked";
   /**
    * False reads the Note's own words only, leaving out its Citation markers and
    * footnotes: a snapshot of the Note is what the User wrote and the AI wrote,
@@ -85,7 +86,11 @@ export function renderMarkdown(
       return footnotes.length;
     },
     headingEntries(blocks),
-    options.pictures === false ? null : (image) => pictureFile(image, pictures),
+    options.pictures === false
+      ? null
+      : options.pictures === "marked"
+        ? markedPicture
+        : (image) => pictureFile(image, pictures),
     options.citations !== false,
   );
   const parts: string[] = [];
@@ -126,6 +131,12 @@ function pictureFile(
     pictures.push({ name, mediaType: decoded.mediaType, data: decoded.data });
   }
   return { src: name, alt: image.alt };
+}
+
+/** A picture kept in the Note's data as a picture whose data is left out: "data:image/png;base64,…". */
+function markedPicture(image: Image): { src: string; alt?: string } | null {
+  if (!image.src.startsWith("data:")) return image.src ? { src: image.src } : null;
+  return { src: `${image.src.slice(0, image.src.indexOf(",") + 1)}…`, alt: image.alt };
 }
 
 /**
