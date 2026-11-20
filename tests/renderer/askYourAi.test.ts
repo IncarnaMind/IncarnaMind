@@ -24,12 +24,14 @@ const view = page.defaultView;
 const bridge = {
   agents: [] as AgentPairing[],
   asked: [] as { pairingId: string; mindId: string | null; ask: AgentAsk }[],
+  /** The agent's app took the link, as Claude Code's does. */
+  opens: false,
   on: () => () => undefined,
   listAgentsToAsk: async () => bridge.agents,
   listConversations: async () => [],
   askAgent: async (input: { pairingId: string; mindId: string | null; ask: AgentAsk }) => {
     bridge.asked.push(input);
-    return { kind: "copy", text: "The request" };
+    return bridge.opens ? { kind: "opened" } : { kind: "copy", text: "The request" };
   },
   // The core keeps the assistant's place as the window asks.
   layout: null as WindowLayout | null,
@@ -190,6 +192,7 @@ async function lineAbove(): Promise<HTMLElement> {
 
 beforeEach(() => {
   bridge.asked = [];
+  bridge.opens = false;
   copied.length = 0;
   useNotices.setState({ confirmation: null });
   useModelSetup.setState({ waiting: null, wanted: false, ready: false });
@@ -270,6 +273,19 @@ describe("asking an agent", () => {
     expect(useNotices.getState().confirmation).toMatchObject({
       message: "agents.ask.copied",
       params: { agent: "VS Code" },
+    });
+  });
+
+  // protects=a request opened in the agent's own app says so in IncarnaMind's window too, so the User knows where to send it; fails_when=the press leaves this window as it was, or the line is copied over what the User had copied
+  test("says the agent's app opened with the request typed, and copies nothing", async () => {
+    user(NO_MODEL, [pairing("Claude Code", "claude-code")]);
+    bridge.opens = true;
+    const ask = { kind: "note" } as const;
+    expect(await askAgent(pairing("Claude Code", "claude-code"), MIND, ask)).toBe(true);
+    expect(copied).toEqual([]);
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "agents.ask.opened",
+      params: { agent: "Claude Code" },
     });
   });
 });

@@ -12567,6 +12567,8 @@ export const NOT_IN_A_FOLDER_ID = "not-in-a-folder";
  * per agent, on this device only: the agent runs on this computer.
  */
 export interface AgentPairing {
+  /** An earlier connection allowed only aggregate Tag results. */
+  tagNamesNotShared?: true;
   id: string;
   /** What the User calls it, e.g. "Claude Code". Unique among pairings, ignoring case. */
   name: string;
@@ -12627,6 +12629,7 @@ export interface ConnectAgentInput {
 }
 
 export interface UpdateAgentInput {
+  shareTagNames?: true;
   name?: string;
   folderIds?: string[];
   propose?: boolean;
@@ -12653,6 +12656,8 @@ export const AGENT_TOOLS = [
   "cite",
   "check_citations",
   "show_citation",
+  "list_sorting",
+  "propose_sorting",
   "list_minds",
   "read_mind",
   "ask",
