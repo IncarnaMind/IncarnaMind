@@ -4,6 +4,7 @@
  * the scripted check's plans, a deck, and the agent's calls.
  */
 import { join } from "node:path";
+import type { MockLanguageModelV4 } from "ai/test";
 import { expect } from "vitest";
 import type { NamedFile } from "../../src/core/adapters";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
@@ -108,10 +109,13 @@ export async function started(
   calls: ModelCall[] = [],
   {
     plans = PLANS,
+    model = checkingModel(plans, calls),
     reading,
     folders = [],
   }: {
     plans?: Record<string, Plan>;
+    /** The checking model, in place of one that checks as `plans` say. */
+    model?: MockLanguageModelV4;
     /** Heard as the Tool reads the agent's file, before the read: what a test does meanwhile. */
     reading?: () => Promise<void>;
     /** More Folders "Claude Code" may write in, by name, made empty. */
@@ -129,7 +133,6 @@ export async function started(
         },
       }
     : files;
-  const model = checkingModel(plans, calls);
   // Kept across a restart: the pairings' tokens are in it.
   const keychain = createMemoryKeychain();
   const started = await startAgentsCore(model, { canvasFiles, keychain });

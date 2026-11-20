@@ -8361,6 +8361,12 @@ export interface ClaimCheckBasis {
    * them, never a scope the check didn't search.
    */
   citedOnly?: true;
+  /**
+   * A fingerprint of all the claim was judged with, its words and what stands above it (#3412):
+   * read against the line as it is now, a reading that knows it says whether the result still
+   * stands there. Absent on a check that kept none.
+   */
+  judgedWith?: string;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */

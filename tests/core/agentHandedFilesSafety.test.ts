@@ -1,29 +1,34 @@
 /**
  * Files an outside agent hands over (#3412), where a call meets a change: the User takes a grant
  * back while it waits, many calls come at once, a read fails or a write is cut short, the Document
- * is deleted, the app quits before a check ends, a line's heading changes, or no model is set up.
+ * is deleted, the app quits before a check ends, a line's heading changes, no model is set up, the
+ * check fails once, or what a kept result rests on changes or leaves the agent's reach.
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
-import { checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
-import { addAndProcess, writeSourceFile } from "../helpers/documents";
+import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import {
   DECK,
   type Handed,
   handOver,
+  NEVER_CLOSES,
   NORTH,
   OFFICE,
   PLANS,
   refusal,
   SOUTH,
+  SURVEY,
   started,
   structured,
 } from "../helpers/handedFiles";
-import type { ModelCall } from "../helpers/models";
+import { connectToMind } from "../helpers/mindClient";
+import { type ModelCall, scriptedModel } from "../helpers/models";
 import { plainDeck } from "../helpers/pptx";
 
 const en = translate.bind(null, "en") as (
@@ -42,6 +47,28 @@ function gate() {
     reached = resolve;
   });
   return { shut, open: () => open(), at, reached: () => reached() };
+}
+
+/** The sentences the check of a version sent its model after `before` of `calls`. */
+const sentAfter = (calls: readonly ModelCall[], before: number) =>
+  new Set(calls.slice(before).filter(isCheckRun).map(sentenceOf));
+
+/** Writes `to` over the words of the Note's heading that reads `from`, as the User would. */
+function retitle(blocks: Y.XmlFragment, from: string, to: string) {
+  for (const block of blocks.toArray()) {
+    const text = block instanceof Y.XmlElement ? block.get(0) : null;
+    if (
+      block instanceof Y.XmlElement &&
+      block.nodeName === "heading" &&
+      text instanceof Y.XmlText
+    ) {
+      if (text.toString() !== from) continue;
+      text.delete(0, text.length);
+      text.insert(0, to);
+      return;
+    }
+  }
+  throw new Error(`No heading reads ${from}.`);
 }
 
 const SUNDAYS = "The harbour office closes on Sundays.";
@@ -315,5 +342,118 @@ describe("a file an outside agent hands over, where a call meets a change", () =
       needLook: 0,
       claims: [],
     });
+  });
+  // protects=a check of a handed-over file that failed (a service down for a moment) is made again when the agent hands the same file over again, its earlier failure never told for good (#3412 review); fails_when=every later hand-over of the file returns the first failure though the service is back
+  it("tries the check again when the same file comes after a check that failed", async () => {
+    let failing = true;
+    const calls: ModelCall[] = [];
+    const generate = checkGenerate(PLANS);
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return checkReply(call, PLANS);
+      },
+      {
+        generate: (call) =>
+          failing && call.question === "find-claims"
+            ? { error: { status: 400, message: "The service couldn’t take the request." } }
+            : generate(call),
+      },
+    );
+    const { coast, writer, files } = await started(calls, { model });
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, DECK);
+    expect(structured<Handed>(await handOver(agent, { path, folderId: coast.id }))).toMatchObject({
+      version: 1,
+      status: "not-checked",
+      claims: [],
+    });
+
+    failing = false;
+    expect(structured<Handed>(await handOver(agent, { path }))).toMatchObject({
+      version: 1,
+      status: "checked",
+      supported: 2,
+      needLook: 2,
+    });
+  });
+
+  // protects=a result carried to a file's next version stands only while the agent reaches the Document it rests on: one resting on a Document the User has since filed outside the agent's Folders is checked again within its reach (#3412 review); fails_when=the next version keeps a Supported resting on a Document the agent can no longer reach
+  it("checks a kept result again once the agent no longer reaches the Document it rests on", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, writer, files, added } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH, OFFICE] }]));
+    expect(structured<Handed>(await handOver(agent, { path, folderId: coast.id }))).toMatchObject({
+      status: "checked",
+      supported: 2,
+    });
+    const survey = added.find((each) => each.name === "Harbour survey");
+    if (!survey) throw new Error("No survey.");
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    await core.assignDocumentGroup(survey.id, vault.id);
+    const before = calls.length;
+
+    await writeFile(
+      path,
+      plainDeck([{ title: "Harbour review" }, { lines: [NORTH, OFFICE] }, { lines: [SUNDAYS] }]),
+    );
+    const next = structured<Handed>(await handOver(agent, { path }));
+    // The new slide's line makes no claim: what changed is only what the two rest on.
+    expect(sentAfter(calls, before)).toEqual(new Set([NORTH, OFFICE]));
+    expect(next).toMatchObject({ version: 2, status: "checked", supported: 0 });
+    expect(JSON.stringify(next)).not.toContain("Harbour survey says");
+  });
+
+  // protects=a result is carried only to a line read as it was judged: what the result keeps of its judging, not the earlier Note as the User has edited it since (#3412 review); fails_when=after the User changed the earlier version's heading to the next version's, its line's result made under the old heading is carried to the next version
+  it("checks a line again when the earlier version's Note was edited above it since its check", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, writer, files } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    const deck = (year: string) =>
+      plainDeck([
+        { title: year, lines: [NORTH] },
+        { title: "Office", lines: [OFFICE] },
+      ]);
+    await writeFile(path, deck("2025"));
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const client = await connectToMind(core, first.mindId ?? "");
+    retitle(client.blocks, "2025", "2026");
+    await client.settled();
+    const before = calls.length;
+
+    await writeFile(path, deck("2026"));
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, before)).toEqual(new Set([NORTH]));
+  });
+
+  // protects=a hand-over tells as Supported only a result whose Documents are still at the versions it read: once one changed, the result is checked again before it is counted, a file in no Folder too, which no background check covers (#3412 review); fails_when=the same file handed over again after its evidence Document changed reports the earlier Supported as current
+  it("checks a result again once its Document changed, before it is counted, for a file in no Folder", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, files, added } = await started(calls);
+    const cursor = await core.connectAgent({
+      name: "Cursor",
+      folderIds: [coast.id, NOT_IN_A_FOLDER_ID],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(cursor.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, DECK);
+    expect(
+      structured<Handed>(await handOver(agent, { path, folderId: NOT_IN_A_FOLDER_ID })),
+    ).toMatchObject({ folder: en("library.unsorted"), status: "checked", supported: 2 });
+    const survey = added.find((each) => each.name === "Harbour survey");
+    if (!survey) throw new Error("No survey.");
+    await writeFile(survey.path, `${SURVEY}\n\nThe harbour has one crane.\n`);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [survey.id]);
+    const before = calls.length;
+
+    const again = structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, before)).toEqual(new Set([NORTH, SOUTH, OFFICE, NEVER_CLOSES]));
+    expect(again).toMatchObject({ version: 1, status: "checked", supported: 2, needLook: 2 });
   });
 });

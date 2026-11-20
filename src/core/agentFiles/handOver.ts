@@ -26,11 +26,15 @@ const READ_WAIT_MS = 120_000;
 const BUSY_WAIT_MS = 3_000;
 const BUSY_TRIES = 100;
 
-/** What a check's Note shows: its claims that need a look, where each is, and its formulas. */
+/** What a check's Note shows its reader: its claims that need a look, where each is, and its formulas. */
 export interface HandedMarks {
   supported: number;
   needLook: FoundClaim[];
   formulas: HandedCheck["formulas"];
+  /** The claims a check is checking now. */
+  checking: number;
+  /** The results that no longer stand for the reader, by id: a check makes them again. */
+  stale: string[];
 }
 
 export interface HandOverDeps {
@@ -61,7 +65,8 @@ export interface HandOverDeps {
   notesChanged(): void;
   /** Records the agent as the writer of the check's Note, by which one in no Folder is reached. */
   recordWriter(mindId: string, writer: { agent: string; pairingId: string }): void;
-  marks(mindId: string): HandedMarks;
+  /** The check's Note as whoever reaches `reach` reads it. */
+  marks(mindId: string, reach: ReadonlySet<string>): HandedMarks;
   say(key: MessageKey, params?: MessageParams): string;
   sleep(ms: number): Promise<void>;
   log: Logger;
@@ -72,7 +77,15 @@ interface CheckRun {
   done: Promise<UnaskedCheck>;
   outcome: UnaskedCheck | null;
   options: UnaskedOptions;
+  /** The results that no longer stood, which it was started to make again. */
+  remakes: string;
 }
+
+/** How a check ended that another can't change: its results made, or the User stopped it. */
+const SETTLED: ReadonlySet<UnaskedCheck["kind"]> = new Set(["checked", "nothing", "cancelled"]);
+
+/** A set of results by their ids, as one key. */
+const idsKey = (ids: readonly string[]): string => [...ids].sort().join(" ");
 
 /** A hand-over: the bytes the agent's file held, and what may be done with them now. */
 export interface HandOverInput {
@@ -149,9 +162,10 @@ export function createHandOver(deps: HandOverDeps) {
     }
   }
 
-  function startCheck(mindId: string, options: UnaskedOptions): void {
+  function startCheck(mindId: string, options: UnaskedOptions, remakes = ""): void {
     const run: CheckRun = {
       options,
+      remakes,
       done: checkRun(mindId, options).catch((error: unknown): UnaskedCheck => {
         deps.log.warn("handedFile.check.failed", {
           message: error instanceof Error ? error.message : String(error),
@@ -352,9 +366,12 @@ export function createHandOver(deps: HandOverDeps) {
     },
 
     /**
-     * How the check of the Note stands, waiting up to `waitMs` for a run still going to end. One
-     * that couldn't run (no model then, no consent), or that a quit cut short, starts again here,
-     * keeping the results that still stand, within what the agent reaches now.
+     * How the check of the Note stands for an agent that reaches `reach`, waiting up to `waitMs`
+     * for a run still going to end. One that couldn't run or failed (no model then, no consent, a
+     * service down), or that a quit cut short, starts again here, keeping the results that still
+     * stand. Once one has ended, the results that no longer stand for the agent (`marks.stale`: its
+     * Documents changed, what they were judged with, or it doesn't reach them) are checked again
+     * the same way, once for each set of them.
      */
     async handedCheck(
       mindId: string,
@@ -365,7 +382,7 @@ export function createHandOver(deps: HandOverDeps) {
       const found = store.ofMind(mindId);
       if (
         (earlier === undefined && found !== null && found.version.checkedAt === null) ||
-        earlier?.outcome?.kind === "not-asked"
+        (earlier?.outcome && !SETTLED.has(earlier.outcome.kind))
       ) {
         const before = found
           ? store
@@ -377,14 +394,20 @@ export function createHandOver(deps: HandOverDeps) {
           ...(earlier?.options ?? { carryFrom: before?.mindId ?? null, keep: true }),
           reach,
         });
+      } else if (earlier?.outcome !== null) {
+        const { stale, checking } = deps.marks(mindId, reach);
+        const remakes = idsKey(stale);
+        if (stale.length > 0 && checking === 0 && remakes !== earlier?.remakes) {
+          startCheck(mindId, { keep: true, reach }, remakes);
+        }
       }
       const run = runs.get(mindId);
       if (run && run.outcome === null) {
         await Promise.race([run.done, deps.sleep(waitMs)]);
       }
-      const marks = deps.marks(mindId);
+      const marks = deps.marks(mindId, reach);
       const formulas = marks.formulas;
-      if (run && run.outcome === null) {
+      if ((run && run.outcome === null) || marks.checking > 0) {
         return { status: "running", why: null, supported: 0, needLook: 0, claims: [], formulas };
       }
       const why = run?.outcome ? notChecked(run.outcome) : null;

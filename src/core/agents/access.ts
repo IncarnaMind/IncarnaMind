@@ -730,8 +730,14 @@ export interface AgentAccessDeps {
     task: string,
     judged: readonly JudgedSentence[],
   ): Judged<LandedCheck>;
-  /** What a Note's checks found, sentence by sentence, as its check record lists them. */
-  checkRecord(mindId: string): Promise<Pick<CheckRecord, "models" | "sentences">>;
+  /**
+   * What a Note's checks found, sentence by sentence, as its check record lists them for an agent
+   * that reaches `reach`.
+   */
+  checkRecord(
+    mindId: string,
+    reach: ReadonlySet<string>,
+  ): Promise<Pick<CheckRecord, "models" | "sentences">>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
   /** What IncarnaMind worked out for agents, shared by every connection (`createAgentWorkings`). */
@@ -2495,11 +2501,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             : result?.kind === "checked" && result.stop
               ? t(`agents.check.stopped.${result.stop.reason}`)
               : null;
-        const record = await deps.checkRecord(mind.id);
         // What the agent reaches may have changed while the Check ran.
         const granted = deps.admit(pairingId);
         mindInScope(granted, mind.id);
         const inScope = new Set(scopeOf(granted, undefined));
+        // A result resting on a Document the agent doesn't reach doesn't stand for it.
+        const record = await deps.checkRecord(mind.id, inScope);
         const read = new Set<string>();
         // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
         const beyond = (item: (typeof record.sentences)[number]) =>

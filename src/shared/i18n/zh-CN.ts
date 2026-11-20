@@ -1561,6 +1561,8 @@ export const zhCN = {
   "claim.recheck.figures": "核对它时，其中的数字尚未逐个对照各自的来源。",
   "claim.recheck.referent": "其中 Id. 或 supra 所指的记录引用已改动。",
   "claim.recheck.library": "核对之后，资料库有了变动。",
+  "claim.recheck.context": "核对之后，它上方的内容改过了。",
+  "claim.recheck.reach": "它依据的文档不在智能体能读取的文件夹里。",
   "claim.library.row": "{source}：{fact}",
   "claim.library.source.library": "你的资料库",
   "claim.library.source.scope": "“{name}”",
@@ -5352,6 +5354,9 @@ export const zhCN = {
   "export.comment.sentence.needs-recheck.referent":
     "需重新核对：其中 Id. 或 supra 所指的记录引用已改动。",
   "export.comment.sentence.needs-recheck.library": "需重新核对：核对之后，资料库有了变动。",
+  "export.comment.sentence.needs-recheck.context": "需重新核对：核对之后，它上方的内容改过了。",
+  "export.comment.sentence.needs-recheck.reach":
+    "需重新核对：它依据的文档不在智能体能读取的文件夹里。",
   "export.comment.recordCite.result": "{raw}：{outcome}",
   "export.comment.recordCite.passage": "段落：{passage}",
   "export.comment.recordCite.candidates": "可选文档：{candidates}",

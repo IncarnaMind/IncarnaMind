@@ -1625,6 +1625,8 @@ export const en = {
     "It was checked before each of its figures was checked with its own source.",
   "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
   "claim.recheck.library": "Your Library has changed since this was checked.",
+  "claim.recheck.context": "What stands above it has changed since it was checked.",
+  "claim.recheck.reach": "It rests on a Document outside the Folders the agent reads.",
   "claim.library.row": "{source}: {fact}",
   "claim.library.source.library": "Your Library",
   "claim.library.source.scope": "“{name}”",
@@ -5609,6 +5611,10 @@ export const en = {
     "Needs re-check: the record cite its Id. or supra refers back to has changed.",
   "export.comment.sentence.needs-recheck.library":
     "Needs re-check: your Library has changed since this was checked.",
+  "export.comment.sentence.needs-recheck.context":
+    "Needs re-check: what stands above it has changed since it was checked.",
+  "export.comment.sentence.needs-recheck.reach":
+    "Needs re-check: it rests on a Document outside the Folders the agent reads.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
