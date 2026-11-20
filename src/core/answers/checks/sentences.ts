@@ -563,8 +563,15 @@ export function topLevelBlockId(sentence: Pick<SelectedSentence, "element" | "bl
   return typeof id === "string" ? id : sentence.blockId;
 }
 
-/** Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting. */
-export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
+/**
+ * Every sentence of the Mind's paragraphs, in order, but those holding a change still waiting.
+ * With `headings`, its headings' too: in someone else's file a heading, such as a slide's title,
+ * may state a claim, and whether it does is the model's to decide (#3412).
+ */
+export function everySentence(
+  blocks: Y.XmlFragment,
+  { headings = false }: { headings?: boolean } = {},
+): SelectedSentence[] {
   const figures = figuresByBlock(blocks);
   return textBlocks(blocks, { charts: true }).flatMap(({ element, busy }) => {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
@@ -573,7 +580,8 @@ export function everySentence(blocks: Y.XmlFragment): SelectedSentence[] {
       const sentence = chartSentence(element, figures.get(blockId) ?? []);
       return sentence && changesIn(element, 0, 1).length === 0 ? [sentence] : [];
     }
-    if (element.nodeName !== "paragraph" || notSentences(element)) return [];
+    const read = element.nodeName === "paragraph" || (headings && element.nodeName === "heading");
+    if (!read || notSentences(element)) return [];
     const { text, spans } = claimFrame(element);
     const occurrences = new Map<string, number>();
     return spans.flatMap((span) => {

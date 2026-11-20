@@ -656,6 +656,11 @@ export interface RunOptions {
   changes?: ReadonlyMap<number, Scalar>;
   /** Cells a first run found differing from their saved values: their saved values stand. */
   untrusted?: ReadonlyMap<number, CellProblem>;
+  /**
+   * A cell whose saved value differs gives the cells that read it the value worked out, so each of
+   * them is compared on its own formula, not on the wrong value before it (#3412).
+   */
+  fromWorked?: boolean;
   signal?: AbortSignal;
 }
 
@@ -729,6 +734,9 @@ export async function recalculate(
     }
     for (const dependence of result.dependsOn)
       addDependence(current.dependsOn, current.seen, dependence);
+    // Nothing stands for a formula worked out here that the file saved no value for (#3412).
+    if (result.worked === undefined && cell.unsaved)
+      current.unread ??= result.problem ?? { kind: "no-saved-value" };
     return result.value;
   };
 
@@ -835,7 +843,12 @@ export async function recalculate(
     } else if (!options.changes && !sameValue(worked, cell.saved)) {
       const problem: CellProblem = { kind: "differs", saved: cell.saved, worked };
       addDependence(current.dependsOn, current.seen, { sheet: sheet.name, row, column, problem });
-      results.set(key, { value: cell.saved, worked, problem, dependsOn: current.dependsOn });
+      results.set(key, {
+        value: options.fromWorked ? worked : cell.saved,
+        worked,
+        problem,
+        dependsOn: current.dependsOn,
+      });
     } else {
       results.set(key, { value: worked, worked, problem: null, dependsOn: current.dependsOn });
     }

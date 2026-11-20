@@ -28,6 +28,7 @@ import { isClaim } from "../../../shared/sentences";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import type { UnitText } from "../../../shared/units";
 import {
+  type FormulaDifference,
   isVerifiedBlock,
   readVerification,
   type Verification,
@@ -61,6 +62,7 @@ import { InvalidInputError, isRecord, NotFoundError } from "../../errors";
 import type { MindContent } from "../../mindContent";
 import { parseFolderChoice, parseMindId } from "../../minds";
 import type { PreparedChatModel } from "../../providers/chat";
+import type { WorkbookSheet } from "../../workbooks/model";
 import { cellName } from "../../workbooks/parse";
 import { createElement } from "../blocks";
 import { answerTemperature } from "../engine";
@@ -79,15 +81,18 @@ import {
 } from "./sentences";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks } from "./verifySlides";
-import { documentBlocks, tableClaim } from "./verifyTables";
+import { documentBlocks, tableClaim, type WorkbookCells } from "./verifyTables";
 import {
   cellBlockId,
   checkFormulas,
+  type FormulaCheck,
   MOST_TYPED_NUMBERS,
   parseRange,
   rangeName,
+  type SheetTable,
   sheetChoices,
   sheetTable,
+  type TableRow,
   workbookOf,
 } from "./verifyWorkbook";
 
@@ -195,10 +200,13 @@ export interface MindCheckScope {
   check: CheckScope;
 }
 
-const NO_FORMULAS: ReadonlySet<string> = new Set();
-
-function formulasOf(verification: Verification): ReadonlySet<string> {
-  return verification.workbook ? new Set(verification.workbook.formulaBlocks) : NO_FORMULAS;
+function workbookCellsOf(verification: Verification): WorkbookCells | undefined {
+  const { workbook } = verification;
+  if (!workbook) return undefined;
+  return {
+    formulas: new Set(workbook.formulaBlocks),
+    typed: workbook.typedBlocks ? new Set(workbook.typedBlocks) : null,
+  };
 }
 
 function parseRequest(input: unknown) {
@@ -219,7 +227,7 @@ function claimOf(
   sentence: SelectedSentence,
   verification: Verification,
 ): ReturnType<typeof checkText> | undefined {
-  const row = tableClaim(sentence, formulasOf(verification));
+  const row = tableClaim(sentence, workbookCellsOf(verification));
   if (row === "not-a-claim") return undefined;
   return row ?? checkText(sentence);
 }
@@ -278,7 +286,7 @@ export function createVerify(options: VerifyOptions) {
 
   function sortingInput(mindId: string, verification: Verification) {
     const sentences = content.read(mindId, (blocks) =>
-      everySentence(blocks).flatMap((sentence) => {
+      everySentence(blocks, { headings: true }).flatMap((sentence) => {
         if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
         const said = claimOf(sentence, verification)?.claim;
         return said !== undefined && isClaim(said) ? [{ ...sentence, said }] : [];
@@ -418,7 +426,7 @@ export function createVerify(options: VerifyOptions) {
     const claims = verification.claims;
     const unread = options.unread(check.wanted);
     const queued = content.edit(mindId, (blocks) => {
-      const sentences = everySentence(blocks);
+      const sentences = everySentence(blocks, { headings: true });
       const marked = claims.flatMap((claim) => {
         const sentence = sentences.find(
           (each) =>
@@ -548,14 +556,15 @@ export function createVerify(options: VerifyOptions) {
   }
 
   /**
-   * A workbook's sheet, or a range of it, as a Note's one table (#3278): each row a claim on its
-   * typed-in numbers, every formula worked out again and the results that differ kept with the
-   * Mind. Without a sheet, the sheets are listed to choose from, and nothing is made.
+   * A workbook's sheet, or a range of it, as a Note's one table (#3278), or every sheet, each its
+   * own table under its name (#3412): each row with a typed-in number a claim on what it shows,
+   * every formula worked out again and the results that differ kept with the Mind. Without a sheet
+   * or every sheet, the sheets are listed to choose from, and nothing is made.
    */
   async function verifyWorkbookFile(
     path: string,
     folderId: string | null,
-    chosen: { sheet: unknown; range: unknown },
+    chosen: { sheet: unknown; range: unknown; allSheets: boolean },
   ): Promise<VerifyDocumentResult> {
     const document = await options.addFile(path, folderId);
     if (!document) return { ok: false, reason: "unreadable" };
@@ -567,7 +576,7 @@ export function createVerify(options: VerifyOptions) {
     const { contentHash, units } = options.readUnits(document.id);
     const model = workbookOf(document.id, contentHash, units);
     if (!model) return { ok: false, reason: "no-text" };
-    if (chosen.sheet === undefined) {
+    if (chosen.sheet === undefined && !chosen.allSheets) {
       return {
         ok: false,
         reason: "choose-sheet",
@@ -575,73 +584,91 @@ export function createVerify(options: VerifyOptions) {
         sheets: sheetChoices(model),
       };
     }
-    const sheet =
-      typeof chosen.sheet === "string" ? model.byName.get(chosen.sheet.toUpperCase()) : null;
     const range =
-      typeof chosen.range === "string" && chosen.range.trim() !== ""
+      !chosen.allSheets && typeof chosen.range === "string" && chosen.range.trim() !== ""
         ? parseRange(chosen.range)
         : null;
-    if (!sheet || (typeof chosen.range === "string" && chosen.range.trim() !== "" && !range)) {
-      return { ok: false, reason: "range" };
+    const named =
+      typeof chosen.sheet === "string" ? model.byName.get(chosen.sheet.toUpperCase()) : undefined;
+    const sheets: readonly WorkbookSheet[] = chosen.allSheets ? model.sheets : named ? [named] : [];
+    const rangeWanted =
+      !chosen.allSheets && typeof chosen.range === "string" && chosen.range.trim() !== "";
+    if (sheets.length === 0 || (rangeWanted && !range)) return { ok: false, reason: "range" };
+    // The limit is on the typed-in numbers the whole check reads, every sheet's together.
+    const shapes = sheets
+      .map((sheet) => ({ sheet, shape: sheetTable(sheet, range) }))
+      .filter(({ shape }) => shape.typed + shape.formulas > 0);
+    const typed = shapes.reduce((total, { shape }) => total + shape.typed, 0);
+    if (typed > MOST_TYPED_NUMBERS) {
+      return { ok: false, reason: "too-many", typed, most: MOST_TYPED_NUMBERS };
     }
-    const table = sheetTable(sheet, range);
-    if (table.typed > MOST_TYPED_NUMBERS) {
-      return { ok: false, reason: "too-many", typed: table.typed, most: MOST_TYPED_NUMBERS };
-    }
-    if (table.typed === 0 && table.formulas === 0) return { ok: false, reason: "no-text" };
+    if (shapes.length === 0) return { ok: false, reason: "no-text" };
 
-    const formulas = await checkFormulas(model, sheet, range);
-    const page = units.find((unit) => unit.label?.sheet === sheet.name)?.page ?? 1;
+    const checked: { sheet: WorkbookSheet; formulas: FormulaCheck; table: SheetTable }[] = [];
+    for (const { sheet } of shapes) {
+      const formulas = await checkFormulas(model, sheet, range);
+      checked.push({ sheet, formulas, table: sheetTable(sheet, range, formulas.worked) });
+    }
     const mind = options.createMind(name, folderId);
     content.edit(mind.id, (blocks) => {
       const doc = blocks.doc;
       if (!doc) return;
-      const elements = [
-        {
-          type: "heading",
-          attrs: { level: 2 },
-          content: [
-            { type: "text", text: range ? `${sheet.name}!${rangeName(range)}` : sheet.name },
-          ],
-        },
-        table.node,
-      ].map((node) => createElement(node));
-      blocks.insert(0, elements);
       const pages: Record<string, number> = {};
-      for (const element of elements) {
-        for (const each of [element, ...element.createTreeWalker(() => true)]) {
-          const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
-          if (typeof id === "string") pages[id] = page;
+      const formulaBlocks: string[] = [];
+      const typedBlocks: string[] = [];
+      const differs: FormulaDifference[] = [];
+      for (const { sheet, formulas, table } of checked) {
+        const page = units.find((unit) => unit.label?.sheet === sheet.name)?.page ?? 1;
+        const elements = [
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [
+              { type: "text", text: range ? `${sheet.name}!${rangeName(range)}` : sheet.name },
+            ],
+          },
+          table.node,
+        ].map((node) => createElement(node));
+        blocks.insert(blocks.length, elements);
+        for (const element of elements) {
+          for (const each of [element, ...element.createTreeWalker(() => true)]) {
+            const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+            if (typeof id === "string") pages[id] = page;
+          }
+        }
+        const grid = elements[1];
+        const idsOf = (pick: (row: TableRow) => number[]) =>
+          table.rows.flatMap((row, at) =>
+            pick(row).flatMap((column) => {
+              const id = grid && cellBlockId(grid, table, at, column);
+              return id ? [id] : [];
+            }),
+          );
+        formulaBlocks.push(...idsOf((row) => row.formulas));
+        typedBlocks.push(...idsOf((row) => row.typed));
+        for (const each of formulas.differs) {
+          const id =
+            grid &&
+            cellBlockId(
+              grid,
+              table,
+              table.rows.findIndex((row) => row.row === each.row),
+              table.columns.indexOf(each.column),
+            );
+          const cell = cellName(each.row, each.column);
+          if (id) {
+            differs.push({
+              blockId: id,
+              cell: chosen.allSheets ? `${sheet.name}!${cell}` : cell,
+              saved: each.saved,
+              worked: each.worked,
+            });
+          }
         }
       }
       setTextOrigin(doc, Object.keys(pages), "checked-document");
-      const grid = elements[1];
-      const formulaBlocks = table.rows.flatMap((row, at) =>
-        row.formulas.flatMap((column) => {
-          const id = grid && cellBlockId(grid, table, at, column);
-          return id ? [id] : [];
-        }),
-      );
-      const differs = formulas.differs.flatMap((each) => {
-        const id =
-          grid &&
-          cellBlockId(
-            grid,
-            table,
-            table.rows.findIndex((row) => row.row === each.row),
-            table.columns.indexOf(each.column),
-          );
-        return id
-          ? [
-              {
-                blockId: id,
-                cell: cellName(each.row, each.column),
-                saved: each.saved,
-                worked: each.worked,
-              },
-            ]
-          : [];
-      });
+      const sum = (pick: (formulas: FormulaCheck) => number) =>
+        checked.reduce((total, each) => total + pick(each.formulas), 0);
       writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
         documentId: document.id,
         documentName: name,
@@ -649,11 +676,13 @@ export function createVerify(options: VerifyOptions) {
         claims: null,
         comments: false,
         workbook: {
-          sheet: sheet.name,
+          sheet: chosen.allSheets ? "" : (checked[0]?.sheet.name ?? ""),
           range: range ? rangeName(range) : null,
           formulaBlocks,
-          checked: formulas.checked,
-          unchecked: formulas.unchecked,
+          typedBlocks,
+          checked: sum((formulas) => formulas.checked),
+          unsaved: sum((formulas) => formulas.unsaved),
+          unchecked: sum((formulas) => formulas.unchecked),
           differs,
         },
       });
@@ -672,7 +701,11 @@ export function createVerify(options: VerifyOptions) {
       if (folderId !== null) options.requireFolder(folderId);
       if (WORD_FILE.test(path)) return verifyWordFile(path, folderId);
       if (WORKBOOK_FILE.test(path)) {
-        return verifyWorkbookFile(path, folderId, { sheet: input.sheet, range: input.range });
+        return verifyWorkbookFile(path, folderId, {
+          sheet: input.sheet,
+          range: input.range,
+          allSheets: input.allSheets === true,
+        });
       }
 
       const document = await options.addFile(path, folderId);
@@ -732,12 +765,14 @@ export function createVerify(options: VerifyOptions) {
           });
         });
         setTextOrigin(doc, Object.keys(pages), "checked-document");
+        const pictures = slides?.reduce((total, slide) => total + slide.images.length, 0) ?? 0;
         writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
           documentId: document.id,
           documentName: name,
           pages,
           claims: null,
           comments: false,
+          ...(pictures > 0 && { pictures }),
         });
       });
       return { ok: true, mind, documentId: document.id };

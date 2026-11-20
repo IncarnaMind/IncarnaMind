@@ -9,6 +9,7 @@ import * as Y from "yjs";
 import { columnName, parseCellRef, type UnitText } from "../../../shared/units";
 import { BLOCK_ID_ATTRIBUTE, type WorkbookSheetChoice } from "../../api";
 import {
+  cellIndex,
   type WorkbookCell,
   type WorkbookModel,
   type WorkbookSheet,
@@ -16,6 +17,7 @@ import {
 } from "../../workbooks/model";
 import type { CellRange } from "../../workbooks/parse";
 import { cellsIn, placeKey, recalculate, WorkbookEngine } from "../../workbooks/recalculate";
+import { type Scalar, toText } from "../../workbooks/values";
 import type { NodeJSON } from "../blocks";
 
 /** The most typed-in numbers one check takes: a bigger range is chosen smaller. */
@@ -68,11 +70,12 @@ export function parseRange(text: string): CellRange | null {
 export const rangeName = (range: CellRange): string =>
   `${columnName(range.left)}${range.top}:${columnName(range.right)}${range.bottom}`;
 
-/** A row of the table: the sheet's row it is, and the places of its formula cells. */
+/** A row of the table: the sheet's row it is, and the places of its formula and typed-in cells. */
 export interface TableRow {
   row: number;
   /** Their places in the table: the index into `SheetTable.columns`. */
   formulas: number[];
+  typed: number[];
 }
 
 export interface SheetTable {
@@ -101,8 +104,26 @@ const cellNode = (type: string, text: string, right: boolean): NodeJSON => ({
   content: [{ type: "paragraph", ...(text !== "" && { content: [{ type: "text", text }] }) }],
 });
 
-/** The sheet, or the range of it, as a table, and what it holds: a header row when its first row has only words. */
-export function sheetTable(sheet: WorkbookSheet, range: CellRange | null): SheetTable {
+/** A cell's text in the Note: as the file shows it, or, for a formula it saved no result for, what that works out to. */
+function cellText(cell: WorkbookCell | undefined, worked: ReadonlyMap<number, Scalar>): string {
+  if (!cell) return "";
+  const value = cell.unsaved ? worked.get(cellIndex(cell.row, cell.column)) : undefined;
+  if (value === undefined) return cell.shown;
+  const text = toText(value);
+  return typeof text === "string" ? text : text.code;
+}
+
+const NOTHING_WORKED: ReadonlyMap<number, Scalar> = new Map();
+
+/**
+ * The sheet, or the range of it, as a table, and what it holds: a header row when its first row
+ * has only words. A formula the file saved no result for shows what `worked` says it works out to.
+ */
+export function sheetTable(
+  sheet: WorkbookSheet,
+  range: CellRange | null,
+  worked: ReadonlyMap<number, Scalar> = NOTHING_WORKED,
+): SheetTable {
   const within = checkedRange(sheet, range);
   const byRow = new Map<number, Map<number, WorkbookCell>>();
   for (const cell of cellsIn(sheet, within)) {
@@ -117,7 +138,11 @@ export function sheetTable(sheet: WorkbookSheet, range: CellRange | null): Sheet
   const numeric = columns.map((column) =>
     rowNumbers.some((row) => {
       const cell = byRow.get(row)?.get(column);
-      return cell !== undefined && typeof cell.saved === "number";
+      return (
+        cell !== undefined &&
+        (typeof cell.saved === "number" ||
+          typeof worked.get(cellIndex(cell.row, cell.column)) === "number")
+      );
     }),
   );
   const first = rowNumbers[0];
@@ -130,17 +155,21 @@ export function sheetTable(sheet: WorkbookSheet, range: CellRange | null): Sheet
   const rows: TableRow[] = dataRows.map((row) => {
     const cells = byRow.get(row) ?? new Map<number, WorkbookCell>();
     const formulaColumns: number[] = [];
+    const typedColumns: number[] = [];
     columns.forEach((column, index) => {
       const cell = cells.get(column);
       if (!cell) return;
       if (cell.formula !== null) {
         formulas++;
         formulaColumns.push(index);
-      } else if (isTyped(cell)) typed++;
+      } else if (isTyped(cell)) {
+        typed++;
+        typedColumns.push(index);
+      }
     });
-    return { row, formulas: formulaColumns };
+    return { row, formulas: formulaColumns, typed: typedColumns };
   });
-  const textOf = (row: number, column: number) => byRow.get(row)?.get(column)?.shown ?? "";
+  const textOf = (row: number, column: number) => cellText(byRow.get(row)?.get(column), worked);
   return {
     headed,
     typed,
@@ -181,11 +210,15 @@ export interface FormulaDifferenceAt {
 
 /** What working the formulas of a sheet or range out again came to. */
 export interface FormulaCheck {
-  /** Formula cells worked out again and compared. */
+  /** Formula cells worked out again and compared with the result the file saved. */
   checked: number;
-  /** Formula cells the engine can't work out (a function it doesn't read, a volatile one): left unchecked. */
+  /** Formula cells worked out here whose result the file didn't save: nothing to compare (#3412). */
+  unsaved: number;
+  /** Formula cells the engine can't work out (a function it doesn't read, another workbook): left unchecked. */
   unchecked: number;
   differs: FormulaDifferenceAt[];
+  /** What each formula whose result the file didn't save works out to, by `cellIndex`. */
+  worked: ReadonlyMap<number, Scalar>;
 }
 
 const shownValue = (value: unknown): string => {
@@ -194,7 +227,10 @@ const shownValue = (value: unknown): string => {
   return String(value);
 };
 
-/** Works the sheet's formulas out again, and finds those whose saved result differs. */
+/**
+ * Works the sheet's formulas out again, and finds those whose saved result differs. A cell after
+ * one that differs is worked from the value worked out, so it is compared on its own formula.
+ */
 export async function checkFormulas(
   model: WorkbookModel,
   sheet: WorkbookSheet,
@@ -202,9 +238,13 @@ export async function checkFormulas(
   signal?: AbortSignal,
 ): Promise<FormulaCheck> {
   const cells = cellsIn(sheet, checkedRange(sheet, range)).filter((cell) => cell.formula !== null);
-  if (cells.length === 0) return { checked: 0, unchecked: 0, differs: [] };
+  const worked = new Map<number, Scalar>();
+  if (cells.length === 0) return { checked: 0, unsaved: 0, unchecked: 0, differs: [], worked };
   const keys = cells.map((cell) => placeKey(sheet, cell.row, cell.column));
-  const run = await recalculate(new WorkbookEngine(model), keys, signal ? { signal } : {});
+  const run = await recalculate(new WorkbookEngine(model), keys, {
+    fromWorked: true,
+    ...(signal && { signal }),
+  });
   const differs: FormulaDifferenceAt[] = [];
   let unchecked = 0;
   let checked = 0;
@@ -223,9 +263,11 @@ export async function checkFormulas(
         worked: shownValue(result.problem.worked),
       });
     } else if (result.problem === null) checked++;
+    else if (result.problem.kind === "no-saved-value" && result.worked !== undefined)
+      worked.set(cellIndex(cell.row, cell.column), result.worked);
     else unchecked++;
   }
-  return { checked, unchecked, differs };
+  return { checked, unsaved: worked.size, unchecked, differs, worked };
 }
 
 const paragraphIdOf = (cell: unknown): string | null => {
