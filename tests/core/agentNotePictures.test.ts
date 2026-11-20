@@ -373,7 +373,7 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     expect(rewrite).toBe(
       "¶1 is rewritten in words alone: a picture or a chart goes in a paragraph of its own. Add it with ¶1+.",
     );
-    const changed = structured<Written & { status: string }>(
+    const changed = structured<Written & { status: string; markdown: string }>(
       await agent.callTool({
         name: "propose_changes",
         arguments: {
@@ -398,7 +398,7 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     );
     expect(changed).toMatchObject({ status: "applied", refused: [] });
     // Read by name, the picture and the chart stand in their place, with no name to change.
-    const { markdown } = changed as Written & { markdown: string };
+    const { markdown } = changed;
     expect(markdown).toContain("\n\n![Map](data:image/png;base64,…)\n\n¶2 Fruit\n\n");
     expect(markdown).toContain("¶7 610 [cite:");
     expect(markdown).toMatch(/\n\n```chart\n\{"kind":"pie","title":"Share of the harvest"\}\n```$/);
