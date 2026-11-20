@@ -8,11 +8,15 @@
  * result: found only when it is supported and the words it cites say so (#2739). A limit that
  * stops the judgement stops it at a batch, so the sentences it leaves are the last ones.
  */
+import { answerSentences, paragraphsOf, withoutMarkerRuns } from "../../../shared/answerSentences";
 import { type CitedSentence, citedSentences } from "../../../shared/citedSentences";
+import { FIGURE_MARKER } from "../../../shared/figureMarkers";
+import { isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
 import type {
   ChatModelChoice,
   Citation,
+  CitationAttributes,
   CitedQuote,
   Currency,
   MarkedCitation,
@@ -38,6 +42,7 @@ import { inStep } from "../../timing/flows";
 import { estimateTokens } from "../context";
 import { answerTemperature } from "../engine";
 import { judge, lines } from "../judge";
+import { insertionPoint } from "../markerPlacement";
 import { type FoundPassage, LOOKS_AN_ANSWER, type LookResult } from "./answerLook";
 import type { CheckedCitation } from "./claimCheck";
 import { heldTime } from "./heldTime";
@@ -50,7 +55,9 @@ import {
   type BatchVerdict,
   batchesOf,
   batchParts,
+  batchPassages,
   batchPrompt,
+  holdsUncited,
   marksCalls,
   readBatchText,
   sentenceBatchInstructions,
@@ -106,6 +113,51 @@ const UNFINISHED = {
 /** A limit that can keep a batch below its room for thinking. */
 type HeldBy = keyof typeof UNFINISHED;
 
+/** A sentence of an Answer its model cited nothing in (#3410), and where a marker of it would go. */
+export interface UncitedSentence {
+  /** Its words, without their Markdown. */
+  sentence: string;
+  /** Its paragraph or list item, also without it. */
+  context: string;
+  /** Where in the Answer's text a marker of it would go. */
+  at: number;
+}
+
+/** What the judgement made of an uncited sentence: the Passage that states it, or how the Passages it read don't back it. */
+export type UncitedResult =
+  | { check: "found"; citation: CitationAttributes }
+  | { check: "unsupported" | "contradicted"; verdict: string | null };
+
+/** A line's own Markdown: a heading's, a list item's or a quotation's mark, and emphasis. */
+const plainOf = (text: string) =>
+  withoutMarkerRuns(text)
+    .replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/gm, "")
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * The sentences of an Answer that hold no Citation marker and make a claim (#3410): what its
+ * judgement reads against the Passages the Answer read. One that shows a Calculated figure is the
+ * figure's own check's (ADR-0021).
+ */
+export function uncitedSentences(text: string): UncitedSentence[] {
+  const paragraphs = paragraphsOf(text);
+  return answerSentences(text).flatMap(({ start, end, text: words, markers }) => {
+    if (markers.length > 0 || words.search(FIGURE_MARKER) !== -1) return [];
+    const sentence = plainOf(words);
+    if (!isClaim(sentence)) return [];
+    const paragraph = paragraphs.find((each) => start >= each.start && start < each.end);
+    return [
+      {
+        sentence,
+        context: paragraph ? plainOf(text.slice(paragraph.start, paragraph.end)) : sentence,
+        at: insertionPoint(text, { start, end }),
+      },
+    ];
+  });
+}
+
 export interface AnswerCheckInput {
   text: string;
   citations: readonly MarkedCitation[];
@@ -140,6 +192,12 @@ export interface AnswerCheckInput {
   onStop?(stop: JudgementStop): void;
   /** Hears when its requests wait on a rate limit until (ms since the epoch), or null once none does (#2944). */
   onWait?(until: number | null): void;
+  /** Its sentences with no Citation (`uncitedSentences`), judged against `read` (#3410). */
+  uncited?: readonly UncitedSentence[];
+  /** The Passages the Answer read, by id. */
+  read?: readonly string[];
+  /** An uncited sentence's result once its batch is read: nothing for an opinion, or one it couldn't judge. */
+  onUncited?(sentence: UncitedSentence, result: UncitedResult): void;
 }
 
 export interface AnswerCheckOptions {
@@ -151,12 +209,17 @@ export interface AnswerCheckOptions {
   searchableCount(documentIds: readonly string[] | null): number;
   /** What the Citations quote, each Document named as it is now. */
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
-  /** The Passages those quotes are on, within the scope. */
+  /** These Passages, by id, as a batch shows them: those within the scope. */
   passages(
-    cited: readonly CheckedCitation[],
+    passageIds: readonly string[],
     scope: EvidenceScope,
     callIn: string | null,
   ): BatchPassage[];
+  /**
+   * A Citation of words a judgement says a Passage holds: null unless its quote is found there,
+   * as the Citation check finds one (#3410).
+   */
+  citeQuote(passageId: string, quote: string): CitationAttributes | null;
   /** A cited Document's Units, for whether the quotes state a sentence's numbers. */
   units(citation: Citation): readonly { text: string }[];
   /** How long one batch may take: a reply may never come. */
@@ -285,18 +348,52 @@ const LIKELY_OUTPUT_TOKENS = 120;
 /** The cache mark a provider's request may carry on its text (../../providers/promptCache). */
 const CACHED = { anthropic: { cacheControl: { type: "ephemeral" } } };
 
+/** A sentence the judgement reads: one with Citations, or one its model cited nothing in (`place`). */
+type Judged = CitedSentence & {
+  found: MarkedCitation[];
+  quotes: CheckedCitation[];
+  passages: BatchPassage[];
+  uncited?: true;
+  place?: UncitedSentence;
+};
+
 export function createAnswerCheck(options: AnswerCheckOptions) {
-  /** The sentences to judge, each with what it cites and the Passages those quotes are on. */
-  function asked(input: Omit<AnswerCheckInput, "model" | "signal">) {
+  /**
+   * The sentences to judge, each with what it cites and the Passages those quotes are on; then
+   * those with no Citation, each with the Passages the Answer read.
+   */
+  function asked(input: Omit<AnswerCheckInput, "model" | "signal">): Judged[] {
     const scope = options.scope(input.mindId, input.documentIds);
-    return sentencesToCheck(input).map((sentence) => {
-      const cited = options.citedNow(sentence.found);
+    const callIn = input.callIn ?? null;
+    const cited = sentencesToCheck(input).map((sentence) => {
+      const quotes = options.citedNow(sentence.found);
+      const ids = quotes.flatMap((each) => (each.passageId ? [each.passageId] : []));
       return {
         ...sentence,
-        quotes: cited,
-        passages: options.passages(cited, scope, input.callIn ?? null),
+        quotes,
+        passages: options.passages([...new Set(ids)], scope, callIn),
       } satisfies BatchSentence;
     });
+    const places = input.uncited ?? [];
+    const read = places.length > 0 ? options.passages(input.read ?? [], scope, callIn) : [];
+    if (read.length === 0) return cited;
+    const uncited = places.map(
+      (place): Judged => ({
+        sentence: place.sentence,
+        context: place.context,
+        markers: [],
+        at: [],
+        calculated: false,
+        inTable: false,
+        cells: [],
+        found: [],
+        quotes: [],
+        passages: read,
+        uncited: true,
+        place,
+      }),
+    );
+    return [...cited, ...uncited];
   }
 
   /**
@@ -311,9 +408,10 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     const sent = asked(input).filter((sentence) => sentence.passages.length > 0);
     const batches = batchesOf(sent);
     if (batches.length === 0) return null;
-    const looks = options.look ? Math.min(LOOKS_AN_ANSWER, sent.length) : 0;
+    const lookable = sent.filter((sentence) => !sentence.place).length;
+    const looks = options.look ? Math.min(LOOKS_AN_ANSWER, lookable) : 0;
     const instructionsOf = (batch: readonly BatchSentence[]) =>
-      sentenceBatchInstructions(options.language(), marksCalls(batch));
+      sentenceBatchInstructions(options.language(), marksCalls(batch), holdsUncited(batch));
     const inputTokens = (batch: BatchSentence[]) =>
       estimateTokens(instructionsOf(batch)) + estimateTokens(batchPrompt(batch));
     return {
@@ -337,7 +435,8 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
    */
   async function checkAnswer(input: AnswerCheckInput): Promise<Map<number, SupportResult> | null> {
     const sentences = sentencesToCheck(input);
-    if (sentences.length === 0) return null;
+    const uncited = (input.uncited?.length ?? 0) > 0 && (input.read?.length ?? 0) > 0;
+    if (sentences.length === 0 && !uncited) return null;
     const prepared = await options.prepare(input.model);
     if (!prepared) return null;
     if (judgesUnreliably(prepared)) {
@@ -364,7 +463,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
     });
     const judged = asked(input);
     const instructionsOf = (batch: readonly BatchSentence[]) =>
-      sentenceBatchInstructions(options.language(), marksCalls(batch));
+      sentenceBatchInstructions(options.language(), marksCalls(batch), holdsUncited(batch));
 
     const waitingIn = (sentence: (typeof judged)[number]) =>
       sentence.found.filter(({ marker }) => input.waiting.has(marker));
@@ -381,6 +480,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       stop: JudgementStop | JudgementCut | null,
       read = false,
     ) => {
+      if (sentence.place) return;
       input.onSentence?.(sentence, support, read);
       for (const { marker } of waitingIn(sentence)) {
         const before = worst.get(marker);
@@ -596,6 +696,26 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       return turn;
     };
 
+    /**
+     * What a batch said of a sentence its model cited nothing in: a Passage that states it, if the
+     * words the model names stand in it, or how the Passages the Answer read don't back it.
+     */
+    const judgedUncited = (
+      place: UncitedSentence,
+      verdict: BatchVerdict | undefined,
+      batch: readonly Judged[],
+    ) => {
+      if (verdict?.kind !== "fact") return;
+      if (verdict.verdict !== "supported") {
+        input.onUncited?.(place, { check: verdict.verdict, verdict: verdict.says });
+        return;
+      }
+      if (!verdict.cites || verdict.quoted !== "states") return;
+      const passage = batchPassages(batch)[verdict.cites.passage - 1];
+      const citation = passage ? options.citeQuote(passage.passageId, verdict.cites.quote) : null;
+      if (citation) input.onUncited?.(place, { check: "found", citation });
+    };
+
     const judgeBatch = async (batch: (typeof judged)[number][]) => {
       const admission = stopped ? stopped : await admit(batch);
       if (admission === null || typeof admission === "string" || stopped || input.signal.aborted) {
@@ -611,6 +731,10 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       }
       for (const [index, sentence] of batch.entries()) {
         const verdict = reply.get(index + 1);
+        if (sentence.place) {
+          judgedUncited(sentence.place, verdict, batch);
+          continue;
+        }
         const support = supportOf(verdict);
         if (support?.check === "unsupported" && options.look)
           unsupported.push({ sentence, support });

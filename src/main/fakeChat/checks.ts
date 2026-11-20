@@ -38,10 +38,13 @@ const numbers = (text: string): string[] => text.match(/\d+(?:[.,]\d+)?/g) ?? []
  * that lists projects its one Citation doesn't name (`LISTS_PROJECTS`, #2809).
  */
 export function fakeSentenceBatch(options: GenerateOptions): string | null {
-  const language = LANGUAGES.find(
-    (each) =>
-      systemOf(options.prompt) === sentenceBatchInstructions(each) ||
-      systemOf(options.prompt) === sentenceBatchInstructions(each, true),
+  // A sentence its Answer's model cited nothing in (#3410) gets no entry: none is marked.
+  const language = LANGUAGES.find((each) =>
+    [false, true].some((calls) =>
+      [false, true].some(
+        (uncited) => systemOf(options.prompt) === sentenceBatchInstructions(each, calls, uncited),
+      ),
+    ),
   );
   if (!language) return null;
   const chinese = language === "zh-CN";

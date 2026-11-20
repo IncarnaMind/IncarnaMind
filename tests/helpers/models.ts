@@ -366,6 +366,10 @@ export function claimCheckReply(
   if (call.question === "request-done") {
     return { text: JSON.stringify({ asks_change: "no", request: "none" }) };
   }
+  // The reply's uncited sentences are judged after it ends (#3410): none of them is this test's.
+  if (call.question === "sentence-batch" && onlyUncited(call.prompt)) {
+    return { text: JSON.stringify({ sentences: [] }) };
+  }
   if (call.question && call.question !== "claimed-changes") {
     return unscripted(call.question, call.system);
   }
@@ -509,6 +513,16 @@ export function scriptedModel(
     if (judgesItsAnswers && question === "sentence-batch") {
       return {
         content: [{ type: "text", text: allSupported(promptText(options.prompt)) }],
+        finishReason: { unified: "stop", raw: undefined },
+        usage,
+        warnings: [],
+      };
+    }
+    // An Answer's sentences its model left uncited are judged too (#3410): a script for a test of
+    // something else judges none of them, as when no batch was asked for.
+    if (!generate && question === "sentence-batch" && onlyUncited(promptText(options.prompt))) {
+      return {
+        content: [{ type: "text", text: JSON.stringify({ sentences: [] }) }],
         finishReason: { unified: "stop", raw: undefined },
         usage,
         warnings: [],
@@ -684,6 +698,10 @@ function heldUntil(until: Promise<void>, signal: AbortSignal | undefined): Promi
 }
 
 /** A batch of an Answer's sentences judged, each supported by what it cites (#2311). */
+/** Whether a batch holds only sentences their Answer's model cited nothing in. */
+const onlyUncited = (prompt: string): boolean =>
+  [...prompt.matchAll(/<sentence number="\d+"( uncited="true")?>/g)].every((each) => each[1]);
+
 function allSupported(prompt: string): string {
   const numbers = [...prompt.matchAll(/<sentence number="(\d+)">/g)].map((match) =>
     Number(match[1]),

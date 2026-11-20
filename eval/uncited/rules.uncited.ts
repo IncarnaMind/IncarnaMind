@@ -1,16 +1,17 @@
 /**
- * The pair set through the rules that give an uncited sentence a Passage's Citation
- * (src/core/answers/unmarkedQuotes.ts), with no model: each pair's sentence as an Answer of one
- * sentence, beside its Document's text as the one Passage shown. A pair attached when a Citation
- * is added; it is right when the sentence says what the Passage says. Held-out pairs are counted,
- * never printed.
+ * The pair set through the step that ends an Answer's citing (src/core/answers/unmarkedQuotes.ts),
+ * with no model: each pair's sentence as an Answer of one sentence, beside its Document's text as
+ * the one Passage shown, the one request for Citations not sent. A pair is attached when code adds
+ * a Citation to it by itself; that is right only when the sentence says what the Passage says.
+ * Held-out pairs are counted, never printed.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { matchUnmarked, mayDrawOn } from "../../src/core/answers/unmarkedQuotes";
+import { citeUnmarked } from "../../src/core/answers/unmarkedQuotes";
 import { normaliseText } from "../../src/shared/text";
+import { scriptedModel } from "../../tests/helpers/models";
 import { DOCUMENTS, PAIRS, type PairKind } from "./pairs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -27,8 +28,11 @@ interface PairResult {
   asks: boolean;
 }
 
-function throughRules(): PairResult[] {
-  return PAIRS.map((pair) => {
+async function throughRules(): Promise<PairResult[]> {
+  // Never asked: the one request for Citations isn't sent here.
+  const model = scriptedModel(() => ({ text: "" }));
+  const results: PairResult[] = [];
+  for (const pair of PAIRS) {
     const document = DOCUMENTS.find((each) => each.key === pair.document);
     if (!document) throw new Error(`${pair.id}: no Document "${pair.document}"`);
     if (!document.text.includes(pair.passage)) {
@@ -36,18 +40,46 @@ function throughRules(): PairResult[] {
     }
     const passages = [{ id: "P1", text: document.text }];
     const held = normaliseText(document.text);
-    const found = (_passage: string, quote: string) => held.includes(normaliseText(quote));
-    const [match] = matchUnmarked(pair.sentence, passages, found);
-    return {
+    const cited: string[] = [];
+    let asks = false;
+    const steps = citeUnmarked(
+      {
+        model,
+        documents: {
+          documentCount: 1,
+          searchDocuments: async () => ({ text: "", passageCount: 0 }),
+          shownPassages: () => passages,
+          quoteFound: (_passage, quote) => held.includes(normaliseText(quote)),
+          hasRecord: () => false,
+          cite: (records) => {
+            for (const record of records) cited.push(record.quote);
+            return "";
+          },
+        },
+        signal: new AbortController().signal,
+      },
+      pair.sentence,
+      undefined,
+      null,
+      () => {
+        asks = true;
+        return false;
+      },
+    );
+    for (let step = await steps.next(); !step.done; step = await steps.next()) {
+      // Only the Citations it adds are read.
+    }
+    results.push({
       id: pair.id,
       kind: pair.kind,
       language: pair.language,
       same: pair.same,
       heldOut: pair.heldOut,
-      attached: match?.quote ?? null,
-      asks: !match && mayDrawOn(pair.sentence, passages),
-    };
-  });
+      attached: cited[0] ?? null,
+      asks,
+    });
+  }
+  return results;
 }
 
 const KINDS: readonly PairKind[] = [
@@ -88,8 +120,8 @@ function table(results: readonly PairResult[]): string {
   return lines.join("\n");
 }
 
-test("the pair set through today's rules", () => {
-  const results = throughRules();
+test("the pair set through the citing step's end", async () => {
+  const results = await throughRules();
   console.log(table(results));
   for (const each of results.filter((result) => !result.heldOut)) {
     const pair = PAIRS.find((candidate) => candidate.id === each.id);

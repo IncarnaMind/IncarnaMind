@@ -6306,6 +6306,15 @@
     font-weight: 600;
     color: var(--color-ink-secondary);
   }
+  /* An uncited sentence's check (#3410): its card sits under its mark, as an unchecked figure's does. */
+  .uncited-check-card {
+    position: fixed;
+    z-index: 60;
+  }
+  .uncited-check-heading {
+    font-weight: 600;
+    color: var(--check-ink);
+  }
   /* A Citation's verdict, the one line a claim check adds. */
   .citation-card-verdict {
     padding-left: 22px;

@@ -121,6 +121,23 @@ describe("a batch's reply", () => {
       [1, "supported"],
     ]);
   });
+
+  // protects=an uncited sentence's entry names the Passage and the words that state it, read only whole: a number and words (#3410); fails_when=a Passage given as text, or empty words, reads as a quote to confirm; no_claim=whether the words are in the Passage, which the Citation check confirms.
+  test("an uncited sentence's Passage and words are read with its verdict", async () => {
+    const reply = JSON.stringify({
+      sentences: [
+        { ...entry(1, "supported"), passage: 2, quote: " The deposit is returned. " },
+        { ...entry(2, "supported"), passage: "P1", quote: "The deposit is returned." },
+        { ...entry(3, "supported"), passage: 1, quote: "" },
+      ],
+    });
+
+    const read = await readBatchReply(reply, 3);
+
+    expect(read.get(1)?.cites).toEqual({ passage: 2, quote: "The deposit is returned." });
+    expect(read.get(2)?.cites).toBeUndefined();
+    expect(read.get(3)?.cites).toBeUndefined();
+  });
 });
 
 describe("a reply that corrects itself (#3029)", () => {

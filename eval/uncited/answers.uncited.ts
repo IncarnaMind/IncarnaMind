@@ -163,7 +163,13 @@ async function noteOf(core: Core, title: string, paragraphs: readonly string[]):
   return mind.id;
 }
 
-/** Asked in the assistant with the draft's Note in focus: the restatement, once the Answer has judged its sentences. */
+/** How long an Answer that read Passages may take to judge its uncited sentences once its Citations are judged. */
+const UNCITED_WAIT_MS = 30_000;
+
+/**
+ * Asked in the assistant with the draft's Note in focus: the restatement, once the Answer has
+ * judged its sentences, with its Citations and, for one it left uncited, its mark (#3410).
+ */
 async function inAssistant(
   core: Core,
   pair: UncitedPair,
@@ -172,16 +178,26 @@ async function inAssistant(
 ) {
   const { draft, question } = questionOf(pair);
   const mindId = await noteOf(core, `Evaluation ${pair.id}`, [draft]);
+  const started = Date.now();
   const asked = await core.askInConversation({ text: question, mindId, model });
   if (!asked.asked) throw new Error(`${pair.id} couldn't be asked: ${JSON.stringify(asked)}`);
-  const ended = Date.now() + timeoutMs;
+  const ended = started + timeoutMs;
+  let judgedAt = 0;
   for (;;) {
     const { messages } = await core.getConversation(asked.conversation.id);
     const answer = messages.find((message) => message.id === asked.answerId);
-    const done =
+    const cited =
       answer?.kind === "answer" &&
       answer.status !== "streaming" &&
       !answer.citations.some((citation) => citation.check === "checking");
+    if (cited) judgedAt ||= Date.now();
+    // An Answer that read Passages judges its uncited sentences too: its steps keep their marks.
+    const uncitedLeft =
+      answer?.kind === "answer" &&
+      (answer.steps?.readPassages?.length ?? 0) > 0 &&
+      answer.steps?.uncitedChecks === undefined &&
+      Date.now() - judgedAt < UNCITED_WAIT_MS;
+    const done = cited && !uncitedLeft;
     if ((done || Date.now() > ended) && answer?.kind === "answer") {
       const cited = new Map<number, MarkedCitation>(
         answer.citations.map((citation) => [citation.marker, citation]),
@@ -203,8 +219,20 @@ async function inAssistant(
             : [];
         }),
       };
+      const words = restated ? wordsOf(restated.sentence) : null;
+      const mark = words
+        ? answer.steps?.uncitedChecks?.find(
+            (each) => likeness(words, wordsOf(each.sentence)).score >= 0.9,
+          )
+        : undefined;
       await core.closeMind(mindId);
-      return { status: done ? answer.status : "timed-out", text: answer.text, restated };
+      return {
+        status: done ? answer.status : "timed-out",
+        text: answer.text,
+        restated,
+        uncited: mark ? { check: mark.check, verdict: mark.verdict } : null,
+        seconds: (Date.now() - started) / 1000,
+      };
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -274,6 +302,7 @@ test("the pair set through a real Answer", async () => {
           log(`Stopped before ${pair.id}: $${spent().toFixed(4)} spent, the cap is $${cap}`);
           break run;
         }
+        const requests = recorder.chat.requests;
         const note =
           place === "note" ? await inNote(library, pair, config.answerTimeoutMs, secrets) : null;
         const result = note ?? (await inAssistant(core, pair, model, config.answerTimeoutMs));
@@ -285,6 +314,7 @@ test("the pair set through a real Answer", async () => {
           same: pair.same,
           heldOut: pair.heldOut,
           ...result,
+          requests: recorder.chat.requests - requests,
           usd: spent(),
         });
         const shown = result.restated
