@@ -111,6 +111,7 @@ beforeEach(async () => {
     description: "",
     parentId: null,
     countsOwnFiles: false,
+    boundFolderId: null,
     keepInside: true,
     createdAt: at,
     updatedAt: at,

@@ -496,6 +496,11 @@ export interface AppState extends LayoutSlice {
   cancelLinkedFolder(): void;
   /** Pauses or resumes a Linked folder's indexing, with Undo. Resolves to that change, if it changed anything. */
   setLinkedFolderPaused(linkedFolderId: string, paused: boolean): Promise<Undoable | undefined>;
+  /**
+   * Makes a Linked folder a Project (ADR-0030): a Folder named after it, keeping its work inside it,
+   * that its files are filed in as they arrive. With Undo, which deletes that Folder again.
+   */
+  makeProject(linkedFolderId: string): Promise<void>;
   /** Downloads a Linked folder's online-only files and indexes them. */
   downloadOnlineOnlyFiles(linkedFolderId: string): Promise<void>;
   /** Shows a Linked folder in the system's file manager. */
@@ -2195,6 +2200,26 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
       return change;
     },
+
+    makeProject: (linkedFolderId) =>
+      attempt(async () => {
+        const linked = get().linkedFolders.find((each) => each.id === linkedFolderId);
+        if (!linked) return;
+        const project = await core.createBoundFolder(linked.folderId);
+        await get().refreshLibrary();
+        push({
+          said: (t) => t("undo.projectMade", { name: project.name }),
+          name: (t) => t("undo.name.makeProject"),
+          undo: async () => {
+            await core.deleteLibraryGroup(project.id);
+            await get().refreshLibrary();
+          },
+          redo: async () => {
+            await core.restore([{ kind: "folder", id: project.id }]);
+            await get().refreshLibrary();
+          },
+        });
+      }),
 
     downloadOnlineOnlyFiles: (linkedFolderId) =>
       attempt(async () => {
