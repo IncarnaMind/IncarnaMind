@@ -156,17 +156,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, language === "en" ? 1280 : 900, 660);
       await dismissChatSetup(window);
       const bridge = await coreOf(window);
-      const afterShot = async (
-        view:
-          | "notes"
-          | "transcript"
-          | "transcript-collapsed"
-          | "original"
-          | "source"
-          | "editing"
-          | "corrected",
-      ) => {
-        if (!screenshots) return;
+      const settleFirstFill = async () => {
         await expect
           .poll(
             () =>
@@ -182,6 +172,19 @@ for (const language of ["en", "zh-CN"] as const) {
         if (await menu.isVisible()) await window.keyboard.press("Escape");
         await expect(menu).toBeHidden();
         await motionSettled(window);
+      };
+      const afterShot = async (
+        view:
+          | "notes"
+          | "transcript"
+          | "transcript-collapsed"
+          | "original"
+          | "source"
+          | "editing"
+          | "corrected",
+      ) => {
+        if (!screenshots) return;
+        await settleFirstFill();
         await window.screenshot({
           animations: "disabled",
           path: join(screenshots, `meeting-summary-${view}-${language}.png`),
@@ -311,6 +314,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, sourceTab.getByTestId("tab-close"));
       await expect(sourceTab).toHaveCount(0);
 
+      // The first Note fill opens a menu that takes Escape before the inline editor.
+      await settleFirstFill();
       await showMeetingView(window, window, "notes");
       await expect(transcript).toHaveCount(0);
       await expect(window.getByTestId("meeting-summary-text")).toHaveText(words.overview);
