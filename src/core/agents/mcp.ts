@@ -308,6 +308,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         offset: z.number(),
         nextOffset: z.number().nullable(),
         version: z.string().optional(),
+        next: z.string().nullable(),
       }),
       annotations: READ_ONLY,
     },

@@ -78,6 +78,7 @@ import { isRecord } from "../errors";
 import type { Language } from "../language";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
+import { isKnownKind } from "../mindAccess";
 import { insertBlocks } from "../noteAdding";
 import {
   type AgentCanvasListed,
@@ -287,6 +288,8 @@ export interface AgentMindText {
   nextOffset: number | null;
   /** With `named`: the Note as read, which `propose_changes` names its changes against. */
   version?: string;
+  /** In a Note this agent wrote: how many of its sentences hold no check result yet (#3432). */
+  next?: string | null;
 }
 
 /** One change an agent proposes, for the paragraph `read_mind` named. */
@@ -2020,13 +2023,23 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
         const cited: string[] = [];
+        const own = wrote(pairing, mind.id);
+        // Read in a later chat, its words alone don't say that none of them is checked (#3432).
+        const left = own && isKnownKind(mind.kind) ? deps.checkTask(mind.id, inScope) : null;
+        const unchecked = left?.ok ? left.value.sentences.length : 0;
+        const next =
+          unchecked === 0
+            ? null
+            : t(unchecked === 1 ? "agents.read.unchecked.one" : "agents.read.unchecked", {
+                count: unchecked,
+              });
         if (input?.named === true) {
-          const naming = namingOf(wrote(pairing, mind.id));
+          const naming = namingOf(own);
           const note = deps.mindBlocks(mind.id, (blocks) =>
             namedNote(blocks, namedWords(pairing, inScope, cited), naming),
           );
           return {
-            result: { ...page(mind, note.text, offset), version: note.version },
+            result: { ...page(mind, note.text, offset), version: note.version, next },
             count: 1,
             documentIds: cited,
           };
@@ -2053,7 +2066,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             unverified: false,
           };
         });
-        return { result: page(mind, markdown, offset), count: 1, documentIds: cited };
+        return { result: { ...page(mind, markdown, offset), next }, count: 1, documentIds: cited };
       });
     },
 

@@ -8553,6 +8553,10 @@ export const en = {
     "1 sentence of the note holds no check result now: check it before you finish, with check_mind_yourself, which gives only that one.",
   "agents.propose.unchecked":
     "{count} sentences of the note hold no check result now: check them before you finish, with check_mind_yourself, which gives only those.",
+  "agents.read.unchecked.one":
+    "1 sentence of this note holds no check result yet: to tell the User whether it is right, check it with check_mind_yourself, which gives it.",
+  "agents.read.unchecked":
+    "{count} sentences of this note hold no check result yet: to tell the User whether they are right, check them with check_mind_yourself, which gives them.",
   "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",

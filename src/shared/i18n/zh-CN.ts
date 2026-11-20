@@ -8058,6 +8058,10 @@ export const zhCN = {
     "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
   "agents.propose.unchecked":
     "笔记中有 {count} 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这些句子。",
+  "agents.read.unchecked.one":
+    "这篇笔记中有 1 句还没有核对结果：要告诉用户它对不对，先用 check_mind_yourself 核对，它会给出这一句。",
+  "agents.read.unchecked":
+    "这篇笔记中有 {count} 句还没有核对结果：要告诉用户这些句子对不对，先用 check_mind_yourself 核对，它会给出这些句子。",
   "agents.mind.namedChoice": "named 必须是 true 或 false。",
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",
