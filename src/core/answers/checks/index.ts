@@ -220,7 +220,6 @@ export interface ChecksOptions
     | "createMind"
     | "wordRefusal"
     | "importWord"
-    | "handedOver"
     | "wordWritten"
     | "discardWordMind"
     | "recordAiUse"

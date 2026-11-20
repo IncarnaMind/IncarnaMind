@@ -185,11 +185,6 @@ export interface VerifyOptions extends CheckRuns {
    */
   discardWordMind(mindId: string): Promise<void>;
   defaultModel(): ChatModelChoice | null;
-  /**
-   * Whether the Mind is the check of a file an outside agent handed over (#3412): the User's agent
-   * wrote it for them, so its lines are sorted as the User's own draft's are (#3506).
-   */
-  handedOver?(mindId: string): boolean;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /**
    * The model, when it can be used without asking the User anything (#3412: a check an outside
@@ -362,12 +357,10 @@ export function createVerify(options: VerifyOptions) {
     if (signal.aborted) return { kind: "cancelled" };
 
     const { sentences, snapshot } = sortingInput(mindId, verification);
-    // What an agent hands over is its writer's own text, whose words about itself (its sources, its
-    // method, its assumptions) say nothing for the Documents to confirm (#3506).
     const found = await claimsAmong(
       ready.prepared,
       sentences.map((each) => ({ text: each.said })),
-      options.handedOver?.(mindId) ? "own" : "someone-else",
+      "someone-else",
       signal,
     );
     if (found.kind !== "found") return found;

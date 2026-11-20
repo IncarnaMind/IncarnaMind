@@ -3146,7 +3146,6 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   };
   const checks = createChecks({
-    handedOver: (mindId) => handedFiles.ofMind(mindId) !== null,
     repliesOut,
     // The call a Transcript's Passage is from, for an Answer asked in a Note that holds a call (#3005).
     callMark: (callIn, documentId) => {
