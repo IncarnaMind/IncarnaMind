@@ -451,10 +451,10 @@ describe("units", () => {
     expect(shown("MAX(rev_us - rev_us * 2, 0)", [usd])).toBe("$0");
   });
 
-  test("a number with no unit can't be added to an amount until its unit is given", () => {
+  test("a number with no unit can't be added to an amount", () => {
     const plain = input("y2025", "152,340.56", ZH);
     expect(problem("y2025 + rev_cn", [plain, cny]).message).toBe(
-      "can't add an amount in CNY (rev_cn) to a number with no unit (y2025); give the unit of y2025 with unitQuote.",
+      "can't add an amount in CNY (rev_cn) to a number with no unit (y2025).",
     );
   });
 
