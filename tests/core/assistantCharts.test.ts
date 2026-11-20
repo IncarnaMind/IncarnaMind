@@ -77,7 +77,7 @@ const called = (call: ModelCall, tool: string) => call.results.some((each) => ea
 
 /** Searches, cites each quarter's revenue, then adds the table with `chart`. */
 const charting =
-  (chart: { kind?: string; title: string }, systems: string[]) =>
+  (chart: { kind?: string; title: string; leaveOut?: string[] }, systems: string[]) =>
   (call: ModelCall): ScriptedReply => {
     if (call.system.includes("read_mind")) systems.push(call.system);
     const search = call.results.find((each) => each.tool === "search_documents");
@@ -91,7 +91,10 @@ const charting =
     return { text: "" };
   };
 
-function chartingModel(chart: { kind?: string; title: string }, systems: string[] = []) {
+function chartingModel(
+  chart: { kind?: string; title: string; leaveOut?: string[] },
+  systems: string[] = [],
+) {
   return scriptedModel(charting(chart, systems));
 }
 
@@ -149,6 +152,21 @@ describe("A chart the User asks the assistant for (#1091)", { timeout: 60_000 },
     expect(new Set(pendingProposals(client.blocks).map((each) => each.request))).toEqual(
       new Set([change?.request]),
     );
+  });
+
+  // protects=the rows the model's call leaves out aren't drawn, while the table keeps them; which rows is the model's to say (#3466); fails_when=a row named in leaveOut is drawn; no_claim=that a real model names a total.
+  test("leaves out of the chart the rows the call names", async () => {
+    const model = chartingModel({ kind: "bar", title: "Revenue by quarter", leaveOut: ["q2"] });
+    const { core, mind, client } = await setUp(model);
+
+    await askAssistant(core, { text: "make a bar chart of revenue by quarter", mindId: mind.id });
+    await client.settled();
+
+    const [chart] = blocksOf(readMind(client)).charts;
+    expect(chart?.data.rows.map((row) => row.label)).toEqual(
+      QUARTERS.filter(([quarter]) => quarter !== "Q2").map(([quarter]) => quarter),
+    );
+    expect(chart?.source).toMatchObject({ leftOut: ["Q2"] });
   });
 
   // protects=the kind the call gives is the kind drawn: "as a line chart" makes a line chart; fails_when=it is drawn as a bar chart; no_claim=that a real model gives the kind asked for.

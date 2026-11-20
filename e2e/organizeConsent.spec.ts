@@ -90,6 +90,17 @@ for (const language of ["en", "zh-CN"] as const) {
       const allow = row.getByTestId("sort-consent-allow");
       await expect(row.getByTestId("status-label")).toHaveText(words.row, { timeout: 60_000 });
       await expect(allow).toHaveText(words.allow);
+      // Beside another status, its "+1", the row reads in full: it wraps at a word, never cut (#3466).
+      const odd = join(sources, "Survey.xyz");
+      await writeFile(odd, "Not a Document.");
+      await window.getByTestId("add-documents-input").setInputFiles([odd]);
+      await expect(row.getByTestId("status-more")).toBeVisible();
+      expect(
+        await row
+          .getByTestId("status-label")
+          .evaluate((label) => label.scrollWidth <= label.clientWidth),
+      ).toBe(true);
+      await expect(allow).toBeInViewport();
       const filed = () =>
         window.evaluate(
           async () =>

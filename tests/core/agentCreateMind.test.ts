@@ -196,11 +196,24 @@ describe("a Note an outside agent writes (#3306)", () => {
     const listed = (await core.listMinds()).find((mind) => mind.id === made.mindId);
     expect(listed && mindName(listed)).toBe("Harbour survey");
 
-    // A section's heading is no title: the Note keeps the name it was given.
+    // A section's heading is no title: the title goes above it, as the page shows no title of its
+    // own (#3466); a heading in the title's words is the title already.
     const sectioned = structured<Created>(
       await create(agent, { title: "Harbour", markdown: "## Quay\n\nThe quay is 40 m long." }),
     );
     expect(sectioned.title).toBe("Harbour");
+    expect(blocksOf(await connectToMind(core, sectioned.mindId))).toEqual([
+      { kind: "heading", text: "Harbour" },
+      { kind: "heading", text: "Quay" },
+      { kind: "paragraph", text: "The quay is 40 m long." },
+    ]);
+    const named = structured<Created>(
+      await create(agent, { title: "Harbour", markdown: "## Harbour\n\nThe quay is 40 m long." }),
+    );
+    expect(blocksOf(await connectToMind(core, named.mindId))).toEqual([
+      { kind: "heading", text: "Harbour" },
+      { kind: "paragraph", text: "The quay is 40 m long." },
+    ]);
   });
 
   it("is refused in plain words: no leave to write, another Folder, no Folder named, text it can't keep", async () => {
