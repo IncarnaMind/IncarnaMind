@@ -620,12 +620,26 @@ function TranscriptContent({
   useLayoutEffect(() => {
     const body = list.current;
     const container = scroller.current;
-    const request = `${target.request}:${target.quote}:${target.pageFrom}:${target.pageTo}`;
+    const cue = target.transcriptCue;
+    const request = JSON.stringify([
+      target.request,
+      target.quote,
+      target.pageFrom,
+      target.pageTo,
+      cue,
+    ]);
     if (!body || !container || !target.quote || shownRequest.current === request) return;
     if (units.length === 0) return;
     shownRequest.current = request;
     unmarkQuote(body);
-    const lines = citedLines();
+    const cueLines = cue
+      ? Array.from(
+          body.querySelectorAll<HTMLElement>(
+            `[data-cue-start="${cue.startMs}"][data-cue-end="${cue.endMs}"]`,
+          ),
+        )
+      : null;
+    const lines = cueLines ?? citedLines();
     let range: Range | undefined;
     const first = lines[0];
     const last = lines.at(-1);
@@ -634,8 +648,12 @@ function TranscriptContent({
       range.setStartBefore(first);
       range.setEndAfter(last);
     }
-    const marks =
-      target.pageFrom === undefined
+    const marks = cueLines
+      ? markQuote(
+          cueLines.flatMap((line) => textNodes(line)),
+          target.quote,
+        )
+      : target.pageFrom === undefined
         ? markQuote(textNodes(body), target.quote)
         : range && markQuote(textNodes(body, range), target.quote);
     setHighlighted((count) => (marks ? count + 1 : 0));
@@ -648,7 +666,15 @@ function TranscriptContent({
         container.scrollTop;
       container.scrollTop = Math.max(0, top - container.clientHeight / 3);
     }
-  }, [units, citedLines, target.request, target.quote, target.pageFrom, target.pageTo]);
+  }, [
+    units,
+    citedLines,
+    target.request,
+    target.quote,
+    target.pageFrom,
+    target.pageTo,
+    target.transcriptCue,
+  ]);
 
   // New lines while live: followed, unless the User has scrolled up to read.
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again for each line

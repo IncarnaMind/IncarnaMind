@@ -837,6 +837,34 @@ describe("a call that waits while what the agent reaches changes (#3458 review)"
             status: "done",
             markdown: "Gulls nest on the cliffs [^1].",
             citations: [quoted],
+            read: ["rivers"],
+            error: null,
+            service: null,
+          };
+        },
+      },
+    );
+    await expect(access.ask({ question: "Where do gulls nest?" })).rejects.toMatchObject({
+      problem: "outside-scope",
+      message: translate("en", "agents.problem.reachChanged"),
+    });
+  });
+
+  // protects=an Answer is given only while the agent reaches every Document it read, cited or not: its text can say what a Passage it read but didn't cite holds (#3458 review); fails_when=the reach is checked against its Citations alone, and an Answer that read an uncited Document the User took away is handed over
+  it("gives no Answer that read, uncited, a Document the agent no longer reaches", async () => {
+    let reached = ["tides", "rivers"];
+    const access = accessAnswering(
+      { asked: false, reason: "not-ready" },
+      {
+        documentsIn: () => reached,
+        answer: async () => {
+          reached = ["tides"];
+          return {
+            asked: true,
+            status: "done",
+            markdown: "Gulls nest on the cliffs.",
+            citations: [],
+            read: ["tides", "rivers"],
             error: null,
             service: null,
           };

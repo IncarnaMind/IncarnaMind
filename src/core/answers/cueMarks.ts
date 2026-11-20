@@ -1,6 +1,6 @@
 import { clockTime } from "../../shared/clock";
 import { markWords, partsOf, speakerMark } from "../../shared/speakers";
-import { parseCueTarget } from "../../shared/units";
+import { transcriptCueLines } from "../../shared/units";
 import type { TranscriptSpeakers } from "../api";
 import type { PageText } from "../documents/passages";
 
@@ -15,17 +15,10 @@ interface SaidCue {
 }
 
 function cuesOf(units: readonly PageText[]): SaidCue[] {
-  const cues: SaidCue[] = [];
-  for (const unit of units) {
-    if (unit.kind !== "cues") continue;
-    for (const [index, anchor] of (unit.anchors ?? []).entries()) {
-      const cue = parseCueTarget(anchor.target);
-      const said = unit.text.slice(anchor.start, anchor.end);
-      const line = said.trim();
-      if (cue && line) cues.push({ ...cue, said, line, label: unit.label?.speakers?.[index] });
-    }
-  }
-  return cues;
+  return transcriptCueLines(units).flatMap(({ text: said, ...cue }) => {
+    const line = said.trim();
+    return line ? [{ ...cue, said, line }] : [];
+  });
 }
 
 /** The rest of a cue's line, and the break before the next one: the Passage's end counts. */

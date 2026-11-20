@@ -90,6 +90,7 @@ import {
   ANALYSIS_TABLE_NODE,
   ANSWER_BLOCK,
   type AnalysisTableBinding,
+  BLOCK_ID_ATTRIBUTE,
   CALCULATED_FIGURE_NODE,
   type CalculatedFigure,
   type CalculatedFigureAttributes,
@@ -403,6 +404,8 @@ export type Block = (
       uncited: number;
       calculated: number;
       picture?: Image;
+      /** It draws a table that is in the Mind, whose cells hold its values and their Citations. */
+      ofTable?: true;
     }
   | { kind: "question"; content: Inline[] }
   /** A table of contents (#1935): built from the Note's headings by whatever draws it. */
@@ -1205,7 +1208,23 @@ function readChartBlock(element: Y.XmlElement, options: ReadOptions): Block {
       work: citedWork(attributes),
     };
   });
-  return { kind: "chart", chart, table, sources, uncited, calculated };
+  const read = { kind: "chart", chart, table, sources, uncited, calculated } as const;
+  return tableInMind(element, chart.source) ? { ...read, ofTable: true } : read;
+}
+
+function tableInMind(element: Y.XmlElement, source: ChartAttributes["source"]): boolean {
+  if (source.kind !== "table" || source.blockId === null) return false;
+  let top: Y.XmlElement = element;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  const { parent } = top;
+  if (!(parent instanceof Y.XmlFragment)) return false;
+  const found = parent.createTreeWalker(
+    (each) =>
+      each instanceof Y.XmlElement &&
+      each.nodeName === "table" &&
+      each.getAttribute(BLOCK_ID_ATTRIBUTE) === source.blockId,
+  );
+  return !found.next().done;
 }
 
 function readImage(element: Y.XmlElement): Image {

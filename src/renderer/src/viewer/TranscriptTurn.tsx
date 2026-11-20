@@ -193,6 +193,8 @@ export function TranscriptTurn({
                   <span
                     data-testid="transcript-line"
                     data-start={row.part.startMs}
+                    data-cue-start={row.cue.startMs}
+                    data-cue-end={row.cue.endMs}
                     data-line={row.id}
                     tabIndex={meetingId ? (focused === row.id ? 0 : -1) : undefined}
                     aria-describedby={meetingId ? hintId : undefined}

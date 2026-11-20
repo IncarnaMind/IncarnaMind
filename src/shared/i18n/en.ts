@@ -8469,6 +8469,8 @@ export const en = {
   "agents.check.taskChanged":
     "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
   "agents.check.results": "Give results: one result for each sentence, {max} at most.",
+  "agents.check.nothingLeft":
+    "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those; there is nothing to hand to report_check.",
   "agents.check.reportAgain":
     "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, a run_analysis result of this check, or a working whose numbers stand in their quotes and whose expression gives its figure, that IncarnaMind can confirm, and none from the User’s own working file.",
   // An outside agent writes a new note (#3306).
@@ -8833,6 +8835,32 @@ export const en = {
   "meetings.summary.status.cancelled": "Canceled",
   "meetings.summary.preparing": "Preparing a summary…",
   "meetings.summary.updating": "Finishing the summary…",
+  "meetings.summary.item.original": "Original speech",
+  "meetings.summary.item.loading": "Looking up the original speech…",
+  "meetings.summary.item.unavailable": "Couldn’t locate a unique source in the transcript.",
+  "meetings.summary.item.sourceFailed": "Couldn’t open the original speech.",
+  "meetings.summary.item.sourceAt": "Show in transcript at {time}",
+  "meetings.summary.item.edit": "Edit",
+  "meetings.summary.item.edited": "Edited by you",
+  "meetings.summary.item.kind": "Type",
+  "meetings.summary.item.decision": "Decision",
+  "meetings.summary.item.action": "Action item",
+  "meetings.summary.item.status": "Status",
+  "meetings.summary.item.text": "Text",
+  "meetings.summary.item.saving": "Saving…",
+  "meetings.summary.item.saveFailed": "Couldn’t save this item. Try again.",
+  "meetings.summary.item.conflict":
+    "This item changed while you were editing. Review the latest version before saving.",
+  "meetings.summary.item.removed":
+    "This item is no longer in the summary. You can copy your draft or cancel.",
+  "meetings.summary.item.latest": "Show latest item",
+  "meetings.summary.item.editedSource": "These lines are from the original AI item.",
+  "meetings.summary.item.saved": "Meeting item updated",
+  "error.meeting.summaryItemChanged": "This item changed. Review the latest version and try again.",
+  "error.meeting.summaryItemInvalid": "Enter the item text and choose a valid type and status.",
+  "error.meeting.summaryItemUnavailable":
+    "You can edit saved decisions and actions after the meeting stops.",
+  "error.layout.transcriptCue": "Choose a valid time in the transcript.",
   "meetings.summary.coverage": "Covers the transcript through {time}",
   "meetings.summary.empty": "No summary was generated.",
   "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
