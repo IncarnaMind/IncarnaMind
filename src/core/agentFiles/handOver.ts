@@ -37,6 +37,13 @@ export interface HandedMarks {
   stale: string[];
 }
 
+/** Where a handed-over file is, as the Library sees it (`HandOverDeps.placeOf`). */
+export interface Place {
+  linkedFolderId: string | null;
+  paused: boolean;
+  documentId: string | null;
+}
+
 export interface HandOverDeps {
   store: AgentFiles;
   dataDir: string;
@@ -48,8 +55,10 @@ export interface HandOverDeps {
    * file the folder's scan hasn't found yet too.
    */
   readAgain(path: string): Promise<unknown>;
-  /** The live Linked folder a path is inside and the live Document at it; null for each there isn't. */
-  placeOf(path: string): { linkedFolderId: string | null; documentId: string | null };
+  /** The live Linked folder a path is inside and whether it is paused, and the live Document at it. */
+  placeOf(path: string): Place;
+  /** The Folder a Document is filed in; null for one in none ("Not in a Folder"). */
+  filedIn(documentId: string): string | null;
   document(documentId: string): Document;
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
@@ -110,6 +119,10 @@ export interface HandOverInput {
    * turn comes, as the User may have taken the grant back while it waited.
    */
   allowed(): void;
+  /** Whether the agent reaches this Folder (null: Not in a Folder) as the User grants it now. */
+  reaches(folderId: string | null): boolean;
+  /** Whether the agent reaches this Note as the User grants it now. */
+  reachesNote(mindId: string): boolean;
   /** The Documents the agent reaches now, the only evidence its check may have. */
   reach(): ReadonlySet<string>;
 }
@@ -262,9 +275,34 @@ export function createHandOver(deps: HandOverDeps) {
     file?.documentId && deps.liveDocument(file.documentId) ? file.documentId : null;
 
   /**
+   * Refuses unless the agent reaches, as the User grants it now, the Folder the call named, the
+   * item's Folder, where its Notes go, and the Folder the file's Document is filed in (#3458): it
+   * changes nothing where it has no reach. A Linked folder's file with no Document yet is in no
+   * Folder once read, as each of its files is until filed. Read again after every wait. A Linked
+   * folder the User paused isn't read, so nothing in it is handed over until it is resumed (#3499).
+   */
+  function requireReach(input: HandOverInput, file: StoredHandedFile | null): Place {
+    input.allowed();
+    if (file && !input.reaches(file.folderId)) {
+      throw new AgentRefusedError("not-found", deps.say("agents.handOver.notFound"));
+    }
+    const place = deps.placeOf(input.place);
+    const folders = [
+      liveDocumentOf(file),
+      place.linkedFolderId === null ? null : place.documentId,
+    ].flatMap((id) => (id === null ? [] : [deps.filedIn(id)]));
+    if (place.linkedFolderId !== null && place.documentId === null) folders.push(null);
+    if (folders.some((folderId) => !input.reaches(folderId))) {
+      throw new AgentRefusedError("outside-scope", deps.say("agents.handOver.notShared"));
+    }
+    if (place.paused) throw new AgentRefusedError("invalid", deps.say("agents.handOver.paused"));
+    return place;
+  }
+
+  /**
    * The file's own Document in the Linked folder it is in (#3499), read now if the folder's scan
    * hasn't found it yet: the handed file is that one Document, never a copy beside it. Null when
-   * the folder doesn't take it (paused, or a file it leaves out).
+   * the folder doesn't take it (a file it leaves out).
    */
   async function linkedDocument(
     file: StoredHandedFile,
@@ -273,7 +311,7 @@ export function createHandOver(deps: HandOverDeps) {
     let { documentId } = deps.placeOf(input.place);
     if (documentId === null) {
       await deps.readAgain(input.place);
-      documentId = deps.placeOf(input.place).documentId;
+      documentId = requireReach(input, file).documentId;
     }
     if (documentId === null) return null;
     // Set once, as the Document first becomes a handed file's: what the User chose since stands.
@@ -300,7 +338,7 @@ export function createHandOver(deps: HandOverDeps) {
     reach: ReadonlySet<string>,
   ): Promise<HandOverDone> {
     let documentId = liveDocumentOf(file);
-    if (documentId === null && deps.placeOf(input.place).linkedFolderId !== null) {
+    if (documentId === null && requireReach(input, file).linkedFolderId !== null) {
       documentId = await linkedDocument(file, input);
     }
     if (documentId === null) {
@@ -313,6 +351,7 @@ export function createHandOver(deps: HandOverDeps) {
         `file-${version.number}.${file.kind}`,
       );
       const written = await writeWholeFile(path, input.bytes, deps.now());
+      requireReach(input, file);
       const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
       documentId = document.id;
       deps.setNotCited(documentId);
@@ -332,6 +371,7 @@ export function createHandOver(deps: HandOverDeps) {
         return doneOf(file, { ...version, unread: read });
       }
     }
+    requireReach(input, file);
     const made = await deps.verify({
       documentId,
       folderId: file.folderId,
@@ -351,6 +391,7 @@ export function createHandOver(deps: HandOverDeps) {
     // before it, opened from its card, says its version, unless the User has named it (#3412).
     if (
       before?.mindId &&
+      input.reachesNote(before.mindId) &&
       deps.mindTitle(before.mindId) === deps.say("verify.mindTitle", { name: file.title })
     ) {
       deps.nameMind(
@@ -367,15 +408,15 @@ export function createHandOver(deps: HandOverDeps) {
   }
 
   async function handOverNow(input: HandOverInput): Promise<HandOverDone> {
-    input.allowed();
-    const reach = input.reach();
     const contentHash = hashBytes(input.bytes);
-    const place = deps.placeOf(input.place);
+    const at = deps.placeOf(input.place).documentId;
     // A file in a Linked folder is known by its Document there too, which follows it when renamed.
     const known =
       store.atPath(input.pairingId, input.place) ??
       store.atPath(input.pairingId, input.path) ??
-      (place.documentId === null ? null : store.ofDocument(input.pairingId, place.documentId));
+      (at === null ? null : store.ofDocument(input.pairingId, at));
+    const place = requireReach(input, known);
+    const reach = input.reach();
     const newest = known ? store.versions(known.id).at(-1) : undefined;
     if (known && newest && newest.contentHash === contentHash) {
       if (newest.mindId !== null || newest.unread !== null) return doneOf(known, newest);
@@ -398,6 +439,7 @@ export function createHandOver(deps: HandOverDeps) {
     const name = fileNameOf(input.title, file.kind);
     const relative = join(HANDED_FOLDER, file.id, `v${(file.version ?? 0) + 1}`, name);
     await writeWholeFile(join(deps.dataDir, relative), input.bytes, deps.now());
+    requireReach(input, file);
     const version = store.addVersion(file.id, {
       contentHash,
       size: input.bytes.byteLength,

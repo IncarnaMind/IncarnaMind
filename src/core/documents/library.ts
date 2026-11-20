@@ -1533,13 +1533,18 @@ export function createLibrary(options: LibraryOptions) {
     },
 
     /**
-     * The live Linked folder `path` is inside, unless it is paused, and the live Document at
+     * The live Linked folder `path` is inside and whether it is paused, and the live Document at
      * `path`; null for each there isn't.
      */
-    placeOf(path: string): { linkedFolderId: string | null; documentId: string | null } {
+    placeOf(path: string): {
+      linkedFolderId: string | null;
+      paused: boolean;
+      documentId: string | null;
+    } {
       const owner = ownerOf(path);
       return {
-        linkedFolderId: owner && !owner.paused ? owner.id : null,
+        linkedFolderId: owner?.id ?? null,
+        paused: Boolean(owner?.paused),
         documentId: documentAt(path)?.id ?? null,
       };
     },
