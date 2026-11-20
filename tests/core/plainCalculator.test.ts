@@ -158,6 +158,19 @@ describe("The plain calculator", { timeout: 60_000 }, () => {
     expect(figure?.inputs.map(inputInWorking)).toEqual(["52,000", "0.315"]);
   });
 
+  // protects=a figure whose marker the model writes after other words of its sentence shows at the number it wrote; fails_when=the figure shows at the marker beside the number, or the model is asked again
+  test("a marker written after other words of its sentence goes to the number before it", async () => {
+    const model = calculatingModel(
+      [COST],
+      "The bakery's electricity cost £16,380 in 2025 [=1][^1].",
+    );
+    const answer = await asked(model, "What did the bakery's electricity cost?");
+
+    expect(askedAgain(model)).toBe("");
+    expect(shown(answerBlocks(answer))).toBe("The bakery's electricity cost £16,380 in 2025.");
+    expect(answer.figures.map((figure) => figure.shown)).toEqual(["£16,380"]);
+  });
+
   // protects=a figure rests only on numbers its quotes write; fails_when=a number not in its quote is shown as a calculated figure
   test("refuses a number not in its quote", async () => {
     const model = calculatingModel(
@@ -185,7 +198,7 @@ describe("The plain calculator", { timeout: 60_000 }, () => {
     expect(askedAgain(model)).toContain(
       [
         '[=1] is 16,380, and "£16,830" right before its marker doesn\'t write it.',
-        "[=2] is 16,380, and no number is written right before its marker.",
+        "[=2] is 16,380, and its sentence writes no number with those digits before its marker.",
       ].join("\n"),
     );
     expect(shown(answerBlocks(answer))).toBe("It cost £16,380 in 2025, £16,380 in all.");

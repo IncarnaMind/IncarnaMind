@@ -2037,10 +2037,11 @@ export function createAnswers(options: AnswersOptions) {
      * The figures its text shows, each once, with what it wrote right before
      * each marker; and the figure markers that had none.
      */
-    const placedFigures = (text: string, final: boolean) => {
+    const placedFigures = (written: string, final: boolean) => {
       const placed: MarkedFigure[] = [];
       const missing = new Map<number, UncalculatedFigure>();
       if (!calculating) return { figures: placed, missing: [] };
+      const text = figures.placed(written);
       figures.written(text);
       withFigures(
         withCitations(markdownToBlocks(text, { streaming: !final }), citedNode),
@@ -2062,13 +2063,14 @@ export function createAnswers(options: AnswersOptions) {
     const write = (outcome?: Outcome): boolean => {
       const final = outcome !== undefined;
       // Turned into their Citations when the Answer ends (`finish`): till then none shows.
-      const text = withAnalysisResults(
+      const shownText = withAnalysisResults(
         withoutFootnoteDefinitions(
           final ? withEveryChartPlaced(markdown, analyses) : withoutWrittenIds(markdown, ids),
         ),
         analyses,
         answerLanguage(context.question),
       );
+      const text = calculating ? figures.placed(shownText) : shownText;
       if (calculating) figures.written(text);
       // Final: a marker with no record is removed, and each is counted for the summary. Call help's
       // panel shows each quote's check as it lands, and a reading's moments of the call on the
@@ -2171,7 +2173,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       // A marker no Citation backs is not kept in the text, and each is counted for the summary.
       markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
-      if (calculating) markdown = withPrintedFigures(markdown);
+      if (calculating) markdown = withPrintedFigures(figures.placed(markdown));
     };
 
     /**
@@ -3203,7 +3205,8 @@ export function createAnswers(options: AnswersOptions) {
                       (call.webPage !== undefined && "documentId" in call.webPage)),
                 ),
               figure: (marker) => (calculating ? figures.figure(marker) : null),
-              blocksOf: (text) => {
+              blocksOf: (given) => {
+                const text = calculating ? figures.placed(given) : given;
                 if (calculating) figures.written(text);
                 let found = 0;
                 let notFound = 0;

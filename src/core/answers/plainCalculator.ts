@@ -9,6 +9,7 @@
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 import { FIGURE_MARKER, writtenBefore } from "../../shared/figureMarkers";
+import { readFigures } from "../../shared/figures";
 import { FORMULA_VERSION, sameNumber } from "../../shared/formula";
 import { anchorsCovered, quoteInUnits } from "../../shared/locations";
 import {
@@ -179,13 +180,27 @@ export interface UnwrittenFigure {
   wrote: string | null;
 }
 
+/** Where `text` writes code, fenced or inline: a marker there is how it is written, not a figure. */
+const codeSpans = (text: string): [number, number][] =>
+  [...text.matchAll(/```[\s\S]*?```|`[^`\n]+`/g)].map((found) => [
+    found.index,
+    found.index + found[0].length,
+  ]);
+
+/** Where the sentence, line or table cell that ends `before` starts. */
+function clauseStart(before: string): number {
+  let start = 0;
+  for (const found of before.matchAll(/[.!?;](?=\s)|[。！？；\n|]/gu)) start = found.index + 1;
+  return start;
+}
+
 /** What an Answer's model is asked once more with, a line for each figure it didn't write. */
 export function unwrittenFiguresNote(unwritten: readonly UnwrittenFigure[]): string {
   const lines = unwritten.map(({ marker, result, wrote }) =>
     result === null
       ? `[=${marker}] has no figure, so "${wrote}" before it isn't worked out: fix it with calculate, or leave that number out.`
       : wrote === null
-        ? `[=${marker}] is ${result}, and no number is written right before its marker.`
+        ? `[=${marker}] is ${result}, and its sentence writes no number with those digits before its marker.`
         : `[=${marker}] is ${result}, and "${wrote}" right before its marker doesn't write it.`,
   );
   return `${lines.join("\n")}\n${WRITE_FIGURES} Write your reply again.`;
@@ -451,6 +466,35 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
     return `${done}${next}`;
   }
 
+  /**
+   * `text` with each figure's marker right after the number before it, in its sentence or cell, whose
+   * digits are the figure's result: a model often writes words between the two ("rose by €4,150
+   * thousand in 2025 [=1]"). A marker with no such number stays where it is.
+   */
+  function placed(text: string): string {
+    let out = text;
+    const code = codeSpans(text);
+    for (const match of [...text.matchAll(FIGURE_MARKER)].reverse()) {
+      if (code.some(([from, to]) => match.index >= from && match.index < to)) continue;
+      const figure = recorded.get(Number(match[1]))?.figure;
+      if (!figure || figure.analysis || figure.workbook || typeof figure.value !== "number")
+        continue;
+      const value = figure.value;
+      const before = out.slice(0, match.index);
+      const start = clauseStart(before);
+      const found = readFigures(before.slice(start), { language })
+        .filter((each) => shownCarries(each.chars, value))
+        .at(-1);
+      if (!found) continue;
+      const end = start + found.end;
+      if (out.slice(end, match.index).trim() === "") continue;
+      const without =
+        out.slice(0, match.index).trimEnd() + out.slice(match.index + match[0].length);
+      out = `${without.slice(0, end)} ${match[0]}${without.slice(end)}`;
+    }
+    return out;
+  }
+
   /** Each figure marker `text` writes, its figure's entry and result, and what the text writes before it. */
   function atMarkers(text: string) {
     return [...text.matchAll(FIGURE_MARKER)].flatMap((match) => {
@@ -499,9 +543,11 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
       return [...(entry?.quotes ?? []).map((each) => each.source), ...(entry?.cited ?? [])];
     },
 
-    /** Each figure `text` writes right before its marker with its result's digits shows as written there. */
+    placed,
+
+    /** Each figure `text` writes before its marker with its result's digits shows as written there. */
     written(text: string): void {
-      for (const { entry, value, wrote } of atMarkers(text)) {
+      for (const { entry, value, wrote } of atMarkers(placed(text))) {
         if (entry && value !== null && wrote !== null && shownCarries(wrote, value))
           entry.figure = { ...entry.figure, shown: wrote };
       }
@@ -513,7 +559,7 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
      */
     unwritten(text: string): UnwrittenFigure[] {
       const seen = new Set<number>();
-      return atMarkers(text).flatMap(({ marker, value, wrote }) => {
+      return atMarkers(placed(text)).flatMap(({ marker, value, wrote }) => {
         if (seen.has(marker)) return [];
         if (value === null ? wrote === null : wrote !== null && shownCarries(wrote, value))
           return [];
