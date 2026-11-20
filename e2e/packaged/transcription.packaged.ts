@@ -24,19 +24,28 @@ const speech = join(root, "tests/fixtures/speech/two-voices.wav");
 // Three Mandarin lines, each a short word alone, a pause, then the rest (tests/fixtures/speech/README.md).
 const shortFirstWords = join(root, "tests/fixtures/speech/short-first-words-zh.wav");
 const closeVoices = join(root, "tests/fixtures/speech/close-voices.wav");
+/** Each of the handoff test's two waits before Stop: for the Transcript's first line, then the shared one. */
+const HANDOFF_WAIT_MS = 2 * 60_000;
 
-async function overlapVoices(home: string): Promise<string> {
+/**
+ * The two close voices, the second starting as the first stops or, with `overlap`, 400 ms before,
+ * then silence for as long as the test waits before Stop. Chromium plays the file again from its
+ * start: without the silence, a slow runner's recording also held the next play's handoff, cut
+ * short by Stop.
+ */
+async function oneHandoff(home: string, overlap: boolean): Promise<string> {
   const samplesPerMs = MEETING_SAMPLE_RATE / 1000;
   const handoff = 7170 * samplesPerMs;
-  const shift = 400 * samplesPerMs;
+  const shift = overlap ? 400 * samplesPerMs : 0;
   const samples = monoSamples(await readFile(closeVoices), closeVoices);
-  const mixed = new Float32Array(samples.length - shift);
+  const voices = samples.length - shift;
+  const mixed = new Float32Array(voices + 2 * HANDOFF_WAIT_MS * samplesPerMs);
   mixed.set(samples.subarray(0, handoff));
   for (const [at, sample] of samples.subarray(handoff).entries()) {
     const offset = handoff - shift + at;
     mixed[offset] = (mixed[offset] ?? 0) + sample;
   }
-  const file = join(home, "overlapping-voices.wav");
+  const file = join(home, overlap ? "overlapping-voices.wav" : "close-voices.wav");
   await writeFile(file, encodeWav(toPcm16(mixed)));
   return file;
 }
@@ -162,7 +171,7 @@ for (const { kind, overlap } of [
     dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
     folders.push(home, dataDir);
     await copyModelsIn(dataDir);
-    const speech = overlap ? await overlapVoices(home) : closeVoices;
+    const speech = await oneHandoff(home, overlap);
     app = await launchPackaged(home, dataDir, { speech });
     const window = await app.firstWindow();
     const start = await recordMeeting(window);
@@ -170,12 +179,12 @@ for (const { kind, overlap } of [
     const bar = await startRecording(window, start, { notice: true });
     await bar.getByTestId("meeting-views").locator("label").nth(1).click();
     const beside = window.getByTestId("meeting-transcript-beside");
-    await expect(beside).toBeEnabled({ timeout: 2 * 60_000 });
+    await expect(beside).toBeEnabled({ timeout: HANDOFF_WAIT_MS });
     await beside.click();
 
     const lines = window.getByTestId("transcript-line");
     const shared = lines.filter({ hasText: /created equal.*thank you/i });
-    await expect(shared.first()).toBeVisible({ timeout: 2 * 60_000 });
+    await expect(shared.first()).toBeVisible({ timeout: HANDOFF_WAIT_MS });
     const wordsBefore = (await shared.first().innerText()).trim();
     await bar.getByTestId("meeting-stop").click();
     await expect
