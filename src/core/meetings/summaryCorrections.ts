@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { MeetingSummary, MeetingSummaryItem } from "../api";
 import { InvalidInputError } from "../errors";
 import type { StoredMeetingSummary } from "./liveSummary";
+import type { StoredSummaryQuote } from "./summaryEvidence";
 
 const fields = z.strictObject({
   kind: z.enum(["decision", "action"]),
@@ -16,7 +17,7 @@ const expected = fields.extend({
 
 interface ItemEvidence {
   documentId: string;
-  quotes: readonly string[];
+  quotes: readonly StoredSummaryQuote[];
 }
 
 interface Correction {

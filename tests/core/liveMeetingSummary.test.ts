@@ -1,13 +1,16 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import type { CoreAdapters } from "../../src/core/adapters";
+import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
 import { agentsAdapter } from "../helpers/agents";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
 
 const monday = "The launch is on Monday.";
@@ -120,6 +123,68 @@ test("a ready draft is returned by Stop while the last confirmed decision is sti
     expect(run).toHaveBeenCalledTimes(count);
   } finally {
     next.close();
+  }
+});
+
+test("original speech keeps its time through a repeat and does not follow relocated words", async () => {
+  const run = vi.fn(async ({ prompt }: { prompt: string }) =>
+    prompt.includes(friday)
+      ? launchReply("Launch on Friday.", friday, 1)
+      : launchReply("Launch on Monday.", monday, null),
+  );
+  const { core, meeting, push, summary } = await setup(run);
+  try {
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.text).toBe("Launch on Monday."));
+    push(2000);
+    await until(core, meeting.id, (m) => m.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    const item = (await summary())?.items?.[0];
+    const source = await core.getMeetingSummaryItemSources(meeting.id, 1);
+    if (!item || !source) throw new Error("The meeting has no sourced decision.");
+    expect(source.sources.map(({ text }) => text)).toEqual([monday, friday]);
+    await core.correctMeetingSummaryItem(meeting.id, item, {
+      kind: item.kind,
+      status: item.status,
+      text: "My corrected launch wording.",
+    });
+    const document = (await core.listDocuments()).find(({ id }) => id === source.documentId);
+    if (!document?.path) throw new Error("The meeting has no saved Transcript.");
+    const file = document.path;
+    const original = readVtt(await readFile(file, "utf8"));
+    const [first, second] = original.cues;
+    if (!first || !second) throw new Error("The saved Transcript has no launch exchange.");
+    const echo = { ...first, startMs: 20_000, endMs: 20_500 };
+    const rewrite = async (cues: typeof original.cues) => {
+      const contents = writeVtt({ ...original, cues });
+      await writeFile(file, contents);
+      await core.reconcileDocuments();
+      await waitForDocuments(core, (listed) =>
+        expect(listed.find(({ id }) => id === document.id)?.contentHash).toBe(sha256(contents)),
+      );
+      await waitForProcessing(core, [document.id]);
+    };
+
+    await rewrite([first, second, echo]);
+    const repeated = await core.getMeetingSummaryItemSources(meeting.id, item.id);
+    expect(repeated?.sources).toEqual(source.sources);
+
+    await rewrite([first, first, second, echo]);
+    const coincident = await core.getMeetingSummaryItemSources(meeting.id, item.id);
+    expect(coincident?.sources).toEqual(source.sources.slice(1));
+
+    await rewrite([second, echo]);
+    const relocated = await core.getMeetingSummaryItemSources(meeting.id, item.id);
+    expect(relocated?.sources).toEqual(source.sources.slice(1));
+    expect((await summary())?.items?.[0]).toMatchObject({
+      id: item.id,
+      text: "My corrected launch wording.",
+      corrected: true,
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    core.close();
   }
 });
 

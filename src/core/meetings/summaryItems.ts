@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { MeetingSummaryItem } from "../api";
 import { TranslatableError } from "../errors";
+import { normalizeSummaryEvidence } from "./summaryEvidence";
 import type { MeetingSummaryInput } from "./summaryModel";
+
+export { normalizeSummaryEvidence } from "./summaryEvidence";
 
 const text = z.string().trim().min(1);
 const update = z.strictObject({
@@ -20,16 +23,6 @@ const update = z.strictObject({
 
 function invalid(): never {
   throw new TranslatableError({ key: "error.meeting.summaryIncomplete" });
-}
-
-export function normalizeSummaryEvidence(value: string): string {
-  return value
-    .normalize("NFC")
-    .replace(/[，：；！？（）]/gu, (mark) => String.fromCharCode(mark.charCodeAt(0) - 0xfee0))
-    .toLowerCase()
-    .replace(/[‘’]/gu, "'")
-    .replace(/\s+/gu, " ")
-    .trim();
 }
 
 export function readMeetingSummaryUpdate(
