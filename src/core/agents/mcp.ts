@@ -32,6 +32,7 @@ import {
   MAX_SEARCH_PAGE,
 } from "./access";
 import { OWN_VERDICT_WORDS } from "./ownCheck";
+import { SORTING_BATCH } from "./sorting";
 
 /** How the server names itself to agents. */
 export const SERVER_NAME = "incarnamind";
@@ -244,6 +245,56 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       annotations: { ...READ_ONLY, idempotentHint: false },
     },
     (input) => answer(() => access.showCitation(input)),
+  );
+
+  const choice = z.object({ id: z.string(), name: z.string() });
+  server.registerTool(
+    tool("list_sorting"),
+    {
+      title: "List Documents to organize",
+      description:
+        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Use next as after for more.",
+      inputSchema: z.object({ after: z.string().optional() }),
+      outputSchema: z.object({
+        documents: z.array(
+          choice.extend({
+            kind: z.string(),
+            version: z.string(),
+            folderId: z.string().nullable(),
+            text: z.string(),
+          }),
+        ),
+        folders: z.array(choice),
+        tags: z.array(choice),
+        next: z.string().nullable(),
+      }),
+      annotations: READ_ONLY,
+    },
+    ({ after }) => answer(() => access.listSorting(after)),
+  );
+  server.registerTool(
+    tool("propose_sorting"),
+    {
+      title: "Suggest Folders and Tags",
+      description:
+        "For Documents from list_sorting, suggest a fitting Folder and relevant Tags by id. The User confirms in Suggestions.",
+      inputSchema: z.object({
+        proposals: z
+          .array(
+            z.object({
+              documentId: z.string(),
+              version: z.string(),
+              folderId: z.string().optional(),
+              tagIds: z.array(z.string()).max(20).optional(),
+            }),
+          )
+          .min(1)
+          .max(SORTING_BATCH),
+      }),
+      outputSchema: z.object({ waiting: z.number() }),
+      annotations: { ...READ_ONLY, readOnlyHint: false },
+    },
+    ({ proposals }) => answer(() => access.proposeSorting(proposals)),
   );
 
   server.registerTool(

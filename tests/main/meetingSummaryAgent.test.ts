@@ -105,7 +105,11 @@ it("never launches an agent for an aborted meeting", async () => {
   expect(launch).not.toHaveBeenCalled();
 });
 
-function codexServer(mode: "text" | "tool" | "mcp" | "hook" | "waiting") {
+function codexServer(
+  mode: "text" | "tool" | "mcp" | "hook" | "waiting" | "older" | "other-error",
+  expectedPrompt = prompt,
+  trustedInstructions = "",
+) {
   return `
     const lines = require("node:readline").createInterface({ input: process.stdin });
     const send = value => console.log(JSON.stringify(value));
@@ -119,6 +123,7 @@ function codexServer(mode: "text" | "tool" | "mcp" | "hook" | "waiting") {
         case "initialized": return;
         case "config/read": return reply({config:{mcp_servers:{demo:{}}}});
         case "thread/start":
+          if (!params.baseInstructions.includes(${JSON.stringify(trustedInstructions)})) process.exit(1);
           if (params.environments.length || params.config.mcp_servers.demo.enabled !== false) process.exit(1);
           return reply({thread:{id:"seed"}});
         case "mcpServerStatus/list": return reply({data:${mode === "mcp" ? '[{"name":"unexpected","runtimeStatus":"connected"}]' : '[{"name":"demo","runtimeStatus":"disabled"}]'}});
@@ -132,7 +137,8 @@ function codexServer(mode: "text" | "tool" | "mcp" | "hook" | "waiting") {
           send({method:"turn/completed",params:{turn:{id:"turn",status:"interrupted"}}});
           return reply({});
         case "thread/sample":
-          if (!seeded || !interrupted || !params.disableMcp || params.prompt !== ${JSON.stringify(prompt)}) process.exit(1);
+          if (!seeded || !interrupted || !params.disableMcp || params.prompt !== ${JSON.stringify(expectedPrompt)}) process.exit(1);
+          if (${mode === "other-error"} || (${mode === "older"} && Buffer.byteLength(params.prompt)>4000)) return send({ id, error: {code:${mode === "older" ? -32600 : -32603},message:"thread/sample requires expectedTurnId and a prompt of at most 4000 bytes"} });
           if (${mode === "waiting"}) return send({method:"sample-waiting"});
           return reply({sourceTurnId:"turn",text:${mode === "tool" ? "null" : '"Green pens."'}});
         case "thread/sample/cancel": return reply({});
@@ -168,4 +174,53 @@ it("deletes the synthetic Codex setup thread when a meeting is cancelled during 
   await expect(summarize("codex", controller.signal)).rejects.toThrow();
   expect(deleted).toBe(true);
   await expect(stat(invocation()[2].cwd)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("keeps long meeting content out of trusted Codex instructions and sends it once, intact, to the sampler", async () => {
+  const instructions = "Static product instructions. ".repeat(160);
+  const meeting = JSON.stringify({
+    utterances: [{ text: `green pens. ${"现场记录。".repeat(1500)}` }],
+  });
+  expect(Buffer.byteLength(meeting)).toBeGreaterThan(16_384);
+  useProgram(codexServer("text", meeting, instructions));
+  await expect(
+    summarizeWithMeetingAgent({
+      client: "codex",
+      instructions,
+      prompt: meeting,
+      signal: new AbortController().signal,
+    }),
+  ).resolves.toBe("Green pens.");
+  expect(invocation()[1].join(" ")).not.toContain("green pens");
+});
+
+it("keeps the shared instructions outside an older Codex client's user payload limit", async () => {
+  const instructions = "Summarize the supplied meeting only. ".repeat(150);
+  expect(Buffer.byteLength(instructions)).toBeGreaterThan(4_000);
+  useProgram(codexServer("older", prompt, instructions));
+  await expect(
+    summarizeWithMeetingAgent({
+      client: "codex",
+      instructions,
+      prompt,
+      signal: new AbortController().signal,
+    }),
+  ).resolves.toBe("Green pens.");
+});
+
+it("identifies only the native old-client sample size error, without exposing the provider message", async () => {
+  const meeting = JSON.stringify({ utterances: [{ text: `green pens ${"字".repeat(1400)}` }] });
+  useProgram(codexServer("older", meeting));
+  const request = {
+    client: "codex" as const,
+    prompt: meeting,
+    signal: new AbortController().signal,
+  };
+  await expect(summarizeWithMeetingAgent(request)).rejects.toMatchObject({
+    wording: { key: "error.meeting.codexSummaryTooLong" },
+  });
+  useProgram(codexServer("other-error", meeting));
+  await expect(summarizeWithMeetingAgent(request)).rejects.toThrow(
+    "Codex could not complete the tool-free meeting summary.",
+  );
 });

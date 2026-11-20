@@ -29,6 +29,7 @@ const AT = "2026-11-01T00:00:00.000Z";
 
 function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessDeps> = {}) {
   const deps: AgentAccessDeps = {
+    sorting: { list: vi.fn(), submit: vi.fn() },
     admit: (pairingId) => ({
       id: pairingId,
       name: "Codex",

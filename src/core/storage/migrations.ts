@@ -3242,6 +3242,16 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 148,
+    description: "The agent that suggested a Folder or Tags",
+    sql: `
+      ALTER TABLE organize_review_items ADD COLUMN agent TEXT;
+      CREATE INDEX organize_review_items_by_document ON organize_review_items (document_id)
+        WHERE deleted_at IS NULL;
+      ALTER TABLE agent_pairings ADD COLUMN share_tag_names INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 149,
     description: "Files an outside agent hands over, each with its versions (#3412)",
     sql: `
       -- A deck, workbook, Word file or PDF an outside agent made and named by its path on this

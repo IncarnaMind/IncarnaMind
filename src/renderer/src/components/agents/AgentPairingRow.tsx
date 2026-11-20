@@ -198,6 +198,20 @@ export function AgentPairingRow({
               {t("agents.pairing.skill", { agent: pairingInSentence(pairing, t) })}
             </span>
           )}
+          {pairing.tagNamesNotShared && (
+            <span className="block">
+              {t("agents.sorting.tagConsent", { agent: pairingInSentence(pairing, t) })}{" "}
+              <button
+                type="button"
+                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                onClick={() =>
+                  core.updateAgent(pairing.id, { shareTagNames: true }).catch(reportError)
+                }
+              >
+                {t("agents.sorting.shareTags")}
+              </button>
+            </span>
+          )}
           {skillOutOfDate && (
             <span data-testid="agent-pairing-skill-old" className="block">
               {replacing ? (

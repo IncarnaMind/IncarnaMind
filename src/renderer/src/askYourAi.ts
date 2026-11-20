@@ -1,7 +1,9 @@
 /**
  * Ask your AI (#3373): the agents the User can ask about a Note, kept as they change, and the one
  * action that hands one of them a request. Its app opens with the request's line typed where it
- * has a link for that; otherwise the line is copied and the sidebar's foot says where to paste it.
+ * has a link for that; otherwise the line is copied. Either way the sidebar's foot says where the
+ * line went: a link's app can open behind this window, and Claude Code's opens a new terminal
+ * window, not the session the User has.
  * Nothing is sent: the User presses send in their own AI. The rest of the request waits in
  * IncarnaMind for that agent, and a check's card says whether it read it (#3419).
  */
@@ -147,10 +149,12 @@ export async function askAgent(
 ): Promise<boolean> {
   try {
     const result = await core.askAgent({ pairingId: agent.id, mindId, ask });
-    if (result.kind === "copy") {
-      await navigator.clipboard.writeText(result.text);
-      useNotices.getState().confirm("agents.ask.copied", { agent: agent.name });
-    }
+    if (result.kind === "copy") await navigator.clipboard.writeText(result.text);
+    useNotices
+      .getState()
+      .confirm(result.kind === "copy" ? "agents.ask.copied" : "agents.ask.opened", {
+        agent: agent.name,
+      });
     return true;
   } catch (error) {
     useAppStore.getState().reportError(error);

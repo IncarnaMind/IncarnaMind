@@ -77,6 +77,7 @@ import type { FoundClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
+import { createAgentSorting } from "./agents/sorting";
 import { withTabFences } from "./agents/tabs";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
@@ -5959,6 +5960,12 @@ export function createCore(adapters: CoreAdapters): Core {
     launcher: adapters.agents?.launcher ?? { command: process.execPath, args: [] },
     version: adapters.agents?.version ?? "0.0.0",
     access: {
+      sorting: createAgentSorting(
+        db,
+        () => settings.get().language,
+        (run, rows) => organizeReview.propose(run, rows),
+        () => translate(settings.get().language, "agents.sorting.invalid"),
+      ),
       say: (key, params) => translate(settings.get().language, key, params),
       folders: () =>
         library.folders().map((folder) => ({

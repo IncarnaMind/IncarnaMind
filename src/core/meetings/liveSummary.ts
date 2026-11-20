@@ -1,11 +1,14 @@
 import type { Meeting, MeetingSummary } from "../api";
 import { hashBytes } from "../documents/files";
 import type { Cue } from "../documents/formats/vtt";
-import { InvalidInputError } from "../errors";
+import { InvalidInputError, TranslatableError } from "../errors";
+import { normalizeSummaryEvidence, readMeetingSummaryUpdate } from "./summaryItems";
 import type { MeetingSummaryInput } from "./summaryModel";
 
 export interface StoredMeetingSummary {
   route: string;
+  documentId?: string;
+  evidence?: Record<number, string[]>;
   count: number;
   digest: string;
   summary: MeetingSummary;
@@ -57,9 +60,14 @@ export function createLiveSummaries(options: Options) {
     return m.status === "recording" || m.status === "paused";
   }
 
-  function fail(id: string, value: StoredMeetingSummary) {
-    if (value.summary.state !== "failed")
-      options.save(id, { ...value, summary: { ...value.summary, state: "failed" } });
+  function fail(id: string, value: StoredMeetingSummary, problem?: MeetingSummary["problem"]) {
+    const { problem: previous, ...summary } = value.summary;
+    if (summary.state !== "failed" || previous !== problem) {
+      options.save(id, {
+        ...value,
+        summary: { ...summary, state: "failed", ...(problem && { problem }) },
+      });
+    }
   }
 
   function eligible(m: Meeting, route: string) {
@@ -114,7 +122,11 @@ export function createLiveSummaries(options: Options) {
       if (stored) fail(m.id, stored);
       return;
     }
-    const prior = stored?.route === selected ? stored : undefined;
+    const documentId = m.transcript?.documentId;
+    const prior =
+      stored?.route === selected && (!stored.documentId || stored.documentId === documentId)
+        ? stored
+        : undefined;
     const cues = options.cues(m.id);
     if (!cues.length) {
       if (prior && final) fail(m.id, prior);
@@ -157,31 +169,59 @@ export function createLiveSummaries(options: Options) {
         summary: { ...pending.summary, state: pending.summary.text ? "updating" : "preparing" },
       });
     }
+    let items = prior?.summary.items;
+    const evidence = { ...prior?.evidence };
+    if (!samePrefix && items?.length) {
+      // Final speech can arrive out of order or be relabelled. Keep entries whose spoken evidence survives.
+      const speech = cues.map((cue) => normalizeSummaryEvidence(cue.text));
+      items = items.filter((item) => {
+        const quotes = evidence[item.id];
+        if (quotes?.length && quotes.every((quote) => speech.some((line) => line.includes(quote))))
+          return true;
+        delete evidence[item.id];
+        return false;
+      });
+    }
     const input = {
       previous: samePrefix && prior ? prior.summary.text : null,
+      ...(items && { items }),
+      closing: !live(m) && to === cues.length && !!items?.some((item) => item.status === "active"),
       utterances: slice.map(({ text, speaker }) => ({ text, speaker })),
     };
     void Promise.resolve()
       .then(async () => {
         const current = latest.find((each) => each.id === m.id);
         if (!current || stop.signal.aborted || !eligible(current, selected)) return;
-        const value = (await options.generate(current, selected, input, stop.signal)).trim();
+        const reply = await options.generate(current, selected, input, stop.signal);
         if (closed || stop.signal.aborted) return;
         const now = latest.find((each) => each.id === m.id);
         if (!now || !eligible(now, selected)) return;
-        if (!value || value.length > 32_768) throw new Error("Invalid summary response");
-        failedAt.delete(m.id);
         const currentCues = options.cues(m.id);
         if (fingerprint(currentCues.slice(0, to)) !== digest) {
           observed.delete(m.id);
           return;
         }
+        if (reply.length > 32_768) throw new Error("Invalid summary response");
+        const value = readMeetingSummaryUpdate(reply, input);
+        for (const [id, words] of Object.entries(value.evidence)) {
+          const quote = normalizeSummaryEvidence(words);
+          const quotes = evidence[Number(id)] ?? [];
+          if (!quotes.includes(quote)) evidence[Number(id)] = [...quotes, quote];
+        }
+        failedAt.delete(m.id);
         const ready = !live(now) && now.transcript?.state === "saved" && currentCues.length === to;
         options.save(m.id, {
           route: selected,
+          ...(documentId && { documentId }),
+          evidence,
           count: to,
           digest,
-          summary: { text: value, throughMs, state: ready ? "ready" : "updating" },
+          summary: {
+            text: value.text,
+            items: value.items,
+            throughMs,
+            state: ready ? "ready" : "updating",
+          },
         });
         if (ready) armed.delete(m.id);
         // More lines may have arrived while the current request was running.
@@ -192,7 +232,10 @@ export function createLiveSummaries(options: Options) {
           if (final) armed.delete(m.id);
           failedAt.set(m.id, endMs);
           options.failed(m.id, error);
-          fail(m.id, options.saved(m.id) ?? pending);
+          const tooLong =
+            error instanceof TranslatableError &&
+            error.wording?.key === "error.meeting.codexSummaryTooLong";
+          fail(m.id, options.saved(m.id) ?? pending, tooLong ? "codex-input-limit" : undefined);
         }
       })
       .finally(() => {

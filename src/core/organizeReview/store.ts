@@ -56,6 +56,7 @@ const COLUMNS: Record<Table, Record<string, Column>> = {
     left_out_detail: "text?",
     ticked: "int",
     origin: "text",
+    agent: "text?",
     run_id: "text?",
     edited: "int",
     content_hash: "text?",
@@ -109,6 +110,7 @@ export interface ItemRow {
   left_out_detail: string | null;
   ticked: number;
   origin: OrganizeReviewOrigin;
+  agent: string | null;
   run_id: string | null;
   edited: number;
   content_hash: string | null;
@@ -153,6 +155,7 @@ interface ProposedRow {
 
 /** Who asked for a run, and on what. */
 export interface OrganizeReviewRun {
+  agent?: string;
   origin: OrganizeReviewOrigin;
   /** The run, so taking it back takes its rows out; null when nothing will. */
   runId?: string | null;
@@ -397,9 +400,11 @@ function parseRows(input: unknown): OrganizeReviewRow[] {
     if (table !== "items" && table !== "folders" && table !== "tags" && table !== "declines")
       throw invalid;
     const columns = COLUMNS[table];
+    // Undo records saved before agent attribution have no author column.
+    const saved = table === "items" ? { agent: null, ...each.values } : each.values;
     const values: Values = {};
     for (const [column, kind] of Object.entries(columns)) {
-      const value = each.values[column];
+      const value = saved[column];
       const fits =
         kind === "int"
           ? Number.isInteger(value)
@@ -407,7 +412,7 @@ function parseRows(input: unknown): OrganizeReviewRow[] {
       if (!fits) throw invalid;
       values[column] = value as Value;
     }
-    if (Object.keys(each.values).length !== Object.keys(columns).length) throw invalid;
+    if (Object.keys(saved).length !== Object.keys(columns).length) throw invalid;
     return { table, id: each.id, values };
   });
 }
@@ -687,9 +692,10 @@ export function createOrganizeReviewStore(
         ? UNCHANGED
         : { ...UNCHANGED, placement: "leftOut", ...leftOutColumns(leftOut) };
     }
-    // The User's own filing stands, but for a run the User started on the Folder it is in.
+    // Refiling a User's Document needs an explicit request to organize its Folder or to their agent.
     if (
       assignment?.source === "user" &&
+      run.origin !== "agent" &&
       !(
         run.origin === "folder" &&
         run.folderId &&
@@ -892,6 +898,7 @@ export function createOrganizeReviewStore(
       ...placement,
       ticked: 1,
       origin: run.origin,
+      agent: run.agent ?? null,
       run_id: run.runId ?? null,
       edited: 0,
       content_hash: contentHash,
@@ -1095,6 +1102,7 @@ export function createOrganizeReviewStore(
           placement,
           ticked: row.ticked !== 0,
           origin: row.origin,
+          ...(row.agent && { agent: row.agent }),
           edited: row.edited !== 0,
           tags: tagRowsOf(row.id).flatMap((tag): OrganizeReviewTag[] => {
             const live = tag.tag_id === null ? undefined : tags.get(tag.tag_id);

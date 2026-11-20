@@ -1520,6 +1520,8 @@ export interface CoreAdapters {
   roomSpeakerReviewer?: RoomSpeakerReviewer;
   summarizeWithMeetingAgent?(request: {
     client: "claude-code" | "codex";
+    /** App-authored instructions only; the client may put them in its trusted context. */
+    instructions: string;
     prompt: string;
     signal: AbortSignal;
   }): Promise<string>;

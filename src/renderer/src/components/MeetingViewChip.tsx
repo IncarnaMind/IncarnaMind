@@ -51,23 +51,22 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
   const hasTranscript = !!meeting.transcript?.documentId;
   const { show, close } = menu;
 
+  const inFront = useAppStore((state) => currentTabOf(state.layout)?.id === tabId);
   const filled = meeting.fill?.state === "filled";
   const wasFilled = useRef(filled);
   useEffect(() => {
     const now = filled && !wasFilled.current;
     wasFilled.current = filled;
-    if (now && !shownForFill && takeFirstShow("meeting-recorded")) {
+    if (now && inFront && !shownForFill && takeFirstShow("meeting-recorded")) {
       shownForFill = true;
       show({ quiet: true });
     }
-  }, [filled, show]);
+  }, [filled, inFront, show]);
 
   // A problem line's Details opens them here, at the popover's foot.
   const detailsAsked = useMeetingNoteViews((state) =>
     state.details?.mindId === meeting.mindId ? state.details.at : null,
   );
-  // A Note open in two groups has a chip in each: the one in the tab in front answers.
-  const inFront = useAppStore((state) => currentTabOf(state.layout)?.id === tabId);
   const detailsHandled = useRef(detailsAsked);
   useEffect(() => {
     if (detailsAsked === null || detailsAsked === detailsHandled.current) return;
