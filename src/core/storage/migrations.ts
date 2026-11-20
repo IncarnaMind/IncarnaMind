@@ -3252,6 +3252,11 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 149,
+    description: "Locally corrected decisions and actions in a stopped Meeting",
+    sql: "ALTER TABLE meetings ADD COLUMN summary_corrections TEXT;",
+  },
+  {
+    version: 150,
     description: "Files an outside agent hands over, each with its versions (#3412)",
     sql: `
       -- A deck, workbook, Word file or PDF an outside agent made and named by its path on this

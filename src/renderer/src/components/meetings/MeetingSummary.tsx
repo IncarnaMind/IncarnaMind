@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { Meeting, MeetingSummaryItem } from "../../../../core/api";
 import { core } from "../../core";
 import { useT } from "../../i18n";
@@ -9,52 +9,9 @@ import { useAppStore } from "../../store";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { ProblemLine, ProblemMark } from "../ProblemLine";
 import { useTabPlace } from "../tabs/tabItems";
+import { MeetingSummaryItems } from "./MeetingSummaryItems";
 
-function SummaryItems({ items }: { items: readonly MeetingSummaryItem[] }) {
-  const t = useT();
-  return (
-    <details data-testid="meeting-summary-items" className="mt-2 max-w-3xl">
-      <summary className="w-fit max-w-full cursor-pointer rounded-sm py-1 text-[13px] leading-5 font-medium text-ink-secondary hover:text-ink">
-        {t("meetings.summary.items", { count: items.length })}
-      </summary>
-      <div className="mt-2 space-y-3 ps-4">
-        {(["decision", "action"] as const).map((kind) => {
-          const group = items.filter((item) => item.kind === kind);
-          if (!group.length) return null;
-          const heading = t(`meetings.summary.items.${kind}`);
-          const ordered = [
-            ...group.filter((item) => item.status === "active"),
-            ...group.filter((item) => item.status !== "active"),
-          ];
-          return (
-            <div key={kind}>
-              <h3 className="text-[13px] leading-5 font-semibold text-ink">{heading}</h3>
-              <ul aria-label={heading} className="mt-1 space-y-2">
-                {ordered.map((item) => (
-                  <li
-                    key={item.id}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 text-[13px] leading-5"
-                  >
-                    <span className="break-words whitespace-pre-wrap text-ink-answer">
-                      {item.text}
-                    </span>
-                    <span className="text-[12px] whitespace-nowrap text-ink-meta">
-                      {t(
-                        item.status === "active" && kind === "action"
-                          ? "meetings.summary.status.open"
-                          : `meetings.summary.status.${item.status}`,
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
-      </div>
-    </details>
-  );
-}
+const NO_ITEMS: readonly MeetingSummaryItem[] = [];
 
 export function MeetingSummary({
   meeting,
@@ -64,6 +21,7 @@ export function MeetingSummary({
   inTranscript?: boolean;
 }) {
   const id = useId();
+  const heading = useRef<HTMLHeadingElement | null>(null);
   const t = useT();
   const [retrying, setRetrying] = useState(false);
   const place = useTabPlace();
@@ -118,7 +76,12 @@ export function MeetingSummary({
           : "mb-4 border-b border-rule pb-3"
       }
     >
-      <h2 id={id} className="text-[13px] leading-5 font-semibold text-ink">
+      <h2
+        ref={heading}
+        id={id}
+        tabIndex={-1}
+        className="text-[13px] leading-5 font-semibold text-ink"
+      >
         {t("meetings.summary.title")}
       </h2>
       {summary.state === "failed" && (
@@ -150,7 +113,12 @@ export function MeetingSummary({
           {text}
         </p>
       )}
-      {!!summary.items?.length && <SummaryItems key={meeting.id} items={summary.items} />}
+      <MeetingSummaryItems
+        key={meeting.id}
+        meeting={meeting}
+        items={summary.items ?? NO_ITEMS}
+        focusSummary={() => heading.current?.focus()}
+      />
     </section>
   );
 }

@@ -12,6 +12,7 @@ import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import {
   replaySummaryRetention,
+  summaryRetentionHistoryProblems,
   summaryRetentionItemProblems,
   summaryRetentionOverviewProblems,
 } from "../../eval/speed/meetingSummaryCases";
@@ -237,12 +238,46 @@ describe.skipIf(!KEY)("A Meeting's notes, on a real model", { timeout: 1_800_000
   });
 });
 
+function summaryTiming() {
+  const timing = process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION_TIMING ?? "after-stop";
+  if (timing !== "before-stop" && timing !== "in-flight-at-stop" && timing !== "after-stop") {
+    throw new Error(
+      "Set INCARNAMIND_LIVE_SUMMARY_RETENTION_TIMING to before-stop, in-flight-at-stop, or after-stop.",
+    );
+  }
+  return timing;
+}
+
+const summaryModel: ChatModelFactory = (spec) =>
+  wrapLanguageModel({
+    model: counted(spec),
+    middleware: {
+      specificationVersion: "v4",
+      wrapGenerate: async ({ doGenerate, params }) => {
+        if (
+          !params.prompt.some(
+            (message) =>
+              message.role === "system" &&
+              message.content.includes("standalone summary of the meeting"),
+          )
+        ) {
+          throw new Error("This eval sends only Quick AI summary requests.");
+        }
+        return doGenerate();
+      },
+      wrapStream() {
+        throw new Error("The full Note is outside this eval.");
+      },
+    },
+  });
+
 // Set INCARNAMIND_LIVE_SUMMARY_RETENTION=1 and select -t "Quick AI summary retention" to run
 // this case with the usual live key. The nightly notes run keeps its existing request budget.
 test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "1")(
   "Quick AI summary retention through topic shifts and a correction at Stop",
   { timeout: 1_800_000 },
   async () => {
+    const timing = summaryTiming();
     const apiKey = KEY ?? "";
     const judge = counted({
       kind: "anthropic",
@@ -256,34 +291,17 @@ test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "1")(
       const { checkpoints, warm, final } = await replaySummaryRetention({
         apiKey,
         modelId: MODEL,
-        createChatModel: (spec) =>
-          wrapLanguageModel({
-            model: counted(spec),
-            middleware: {
-              specificationVersion: "v4",
-              wrapGenerate: async ({ doGenerate, params }) => {
-                if (
-                  !params.prompt.some(
-                    (message) =>
-                      message.role === "system" &&
-                      message.content.includes("standalone summary of the meeting"),
-                  )
-                ) {
-                  throw new Error("This eval sends only Quick AI summary requests.");
-                }
-                return doGenerate();
-              },
-              wrapStream() {
-                throw new Error("The full Note is outside this eval.");
-              },
-            },
-          }),
+        timing,
+        createChatModel: summaryModel,
       });
       const reviews = {
         warmOverview: await summaryRetentionOverviewProblems(judge, "warm", warm.text),
         warmItems: summaryRetentionItemProblems("warm", warm.items ?? []),
         finalOverview: await summaryRetentionOverviewProblems(judge, "final", final.text),
-        finalItems: summaryRetentionItemProblems("final", final.items ?? []),
+        finalItems: [
+          ...summaryRetentionItemProblems("final", final.items ?? []),
+          ...summaryRetentionHistoryProblems(warm.items ?? [], final.items ?? []),
+        ],
       };
       const problems = Object.entries(reviews).flatMap(([area, issues]) =>
         issues.map((issue) => `${area}: ${issue}`),
@@ -293,14 +311,66 @@ test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "1")(
       if (REPORT) {
         const snapshots = [...checkpoints, final].map(
           ({ text, throughMs, items }) =>
-            `### Through ${throughMs} ms\n\n${text}\n\n${items?.map((item) => `- ${item.kind}, ${item.status}: ${item.text}`).join("\n") ?? ""}`,
+            `### Through ${throughMs} ms\n\n${text}\n\n${items?.map((item) => `- #${item.id} ${item.kind}, ${item.status}: ${item.text}`).join("\n") ?? ""}`,
         );
         await appendFile(
           REPORT,
-          `## Quick AI summary retention, ${MODEL}, run ${run}\n\nBefore Stop: overview ${grade(reviews.warmOverview)}, list ${grade(reviews.warmItems)}. After Stop: overview ${grade(reviews.finalOverview)}, list ${grade(reviews.finalItems)}.\n\n${problems.map((problem) => `- ${problem}\n`).join("")}\n${snapshots.join("\n\n")}\n\n`,
+          `## Quick AI summary retention, ${MODEL}, ${timing}, run ${run}\n\nBefore correction: overview ${grade(reviews.warmOverview)}, list ${grade(reviews.warmItems)}. Finished: overview ${grade(reviews.finalOverview)}, list ${grade(reviews.finalItems)}.\n\n${problems.map((problem) => `- ${problem}\n`).join("")}\n${snapshots.join("\n\n")}\n\n`,
         );
       }
     }
     expect(failures).toEqual([]);
+  },
+);
+
+// Use INCARNAMIND_LIVE_SUMMARY_RETENTION=zh-agenda for the compound correction from #3472.
+test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "zh-agenda")(
+  "Quick AI summary retention keeps the original Mandarin booking and separates the withdrawn agenda from the notification",
+  { timeout: 120_000 },
+  async () => {
+    const timing = summaryTiming();
+    const { warm, final } = await replaySummaryRetention({
+      apiKey: KEY ?? "",
+      modelId: MODEL,
+      createChatModel: summaryModel,
+      timing,
+      language: "zh-CN",
+      utterances: [
+        "北桥项目的内审定于周二。由陈琳发出议程。唐敏周五清点门卡。",
+        "取消周二的北桥项目内审和原议程。北桥项目内审最终改到周四，周二不举行。由陈琳向所有参会人确认这一改动。",
+      ],
+    });
+    if (REPORT) {
+      await appendFile(REPORT, `${JSON.stringify({ model: MODEL, timing, warm, final })}\n`);
+    }
+    const prior = warm.items ?? [];
+    const booking = prior.find((item) => item.kind === "decision" && item.text.includes("内审"));
+    const agenda = prior.find((item) => item.kind === "action" && item.text.includes("议程"));
+    const cards = prior.find((item) => item.kind === "action" && item.text.includes("门卡"));
+    expect(prior).toHaveLength(3);
+    for (const item of [booking, agenda, cards]) expect(item?.status).toBe("active");
+
+    const after = final.items ?? [];
+    expect(after.find((item) => item.id === booking?.id)).toMatchObject({
+      kind: "decision",
+      status: "active",
+      text: expect.stringMatching(/(?:周|星期|礼拜)四/u),
+    });
+    expect(after.find((item) => item.id === agenda?.id)).toMatchObject({
+      kind: "action",
+      status: "cancelled",
+      text: expect.stringContaining("议程"),
+    });
+    expect(after.find((item) => item.id === cards?.id)).toEqual(cards);
+    const added = after.filter((item) => !prior.some((old) => old.id === item.id));
+    expect(added).toEqual([
+      expect.objectContaining({
+        kind: "action",
+        status: "active",
+        text: expect.stringContaining("陈琳"),
+      }),
+    ]);
+    expect(added[0]?.text).toMatch(/确认|通知|告知|知会|传达|通报|沟通/u);
+    expect(added[0]?.text).toMatch(/参会|与会|出席|参加|参与|大家|全体|所有人/u);
   },
 );

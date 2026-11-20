@@ -112,9 +112,61 @@ test("a ready draft is returned by Stop while the last confirmed decision is sti
       state: "ready",
       items: [{ id: 1, kind: "decision", status: "active", text: "Launch on Friday." }],
     });
+    await next.deleteMeetingAudio(meeting.id);
+    const sources = await next.getMeetingSummaryItemSources(meeting.id, 1);
+    expect(sources?.sources.map((source) => source.text)).toEqual([monday, friday]);
+    expect(sources?.sources[1]?.startMs).toBeGreaterThan(sources?.sources[0]?.startMs ?? 0);
+    expect(await next.getMeetingSummaryItemSources(meeting.id, 999)).toBeNull();
     expect(run).toHaveBeenCalledTimes(count);
   } finally {
     next.close();
+  }
+});
+
+test("a closing update can keep a withdrawn action and publish the revised launch date", async () => {
+  const withdrawn = "The banner order was cancelled";
+  const opening = `${withdrawn} and the launch is on Monday.`;
+  const run = vi.fn(async ({ prompt }: { prompt: string }) => {
+    const closing = prompt.includes(friday);
+    const date = closing ? friday : monday;
+    return JSON.stringify({
+      summary: date,
+      changes: [
+        {
+          id: closing ? 1 : null,
+          kind: "decision",
+          status: "active",
+          text: date,
+          quote: closing ? friday : "the launch is on Monday",
+        },
+        ...(closing
+          ? []
+          : [{ id: null, kind: "action", status: "cancelled", text: withdrawn, quote: withdrawn }]),
+      ],
+      ...(closing && { unchanged: [2] }),
+    });
+  });
+  const { core, meeting, push, summary } = await setup(run, true, [opening, friday]);
+  try {
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.text).toBe(monday));
+    push(2000);
+    await until(core, meeting.id, (m) => m.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toMatch(/ready|failed/));
+    expect(await summary()).toMatchObject({
+      state: "ready",
+      text: friday,
+      items: [
+        { id: 1, status: "active", text: friday },
+        { id: 2, status: "cancelled", text: withdrawn },
+      ],
+    });
+    const source = await core.getMeetingSummaryItemSources(meeting.id, 2);
+    expect(source?.sources.map((s) => s.text)).toEqual([withdrawn]);
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    core.close();
   }
 });
 
@@ -252,6 +304,224 @@ test.each([
     }
   },
 );
+
+test("local corrections survive a failed final update, restart and an in-flight retry without entering model input", async () => {
+  const first = Promise.withResolvers<string>();
+  const retry = Promise.withResolvers<string>();
+  const run = vi
+    .fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>()
+    .mockResolvedValueOnce(launchReply("Launch on Monday.", monday, null))
+    .mockImplementationOnce(() => first.promise)
+    .mockImplementationOnce(() => retry.promise);
+  const { dir, core, adapters, meeting, push, summary } = await setup(run);
+  const ai = { id: 1, kind: "decision", status: "active", text: "Launch on Monday." } as const;
+  const draft = { kind: "action", status: "done", text: "My private correction." } as const;
+  const changed = { ...draft, id: 1, corrected: true } as const;
+  try {
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.items).toEqual([ai]));
+    await expect(core.correctMeetingSummaryItem(meeting.id, ai, draft)).rejects.toMatchObject({
+      wording: { key: "error.meeting.summaryItemUnavailable" },
+    });
+    push(2000);
+    await until(core, meeting.id, (m) => m.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    const notified = vi.fn();
+    const unsubscribe = core.on("meetings.changed", notified);
+    const edited = await core.correctMeetingSummaryItem(meeting.id, ai, draft);
+    unsubscribe();
+    expect(edited.summary?.items).toEqual([changed]);
+    expect(notified.mock.lastCall?.[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: meeting.id,
+          summary: expect.objectContaining({ items: [changed] }),
+        }),
+      ]),
+    );
+    first.reject(new Error("offline"));
+    await vi.waitFor(async () =>
+      expect(await summary()).toMatchObject({ state: "failed", items: [changed] }),
+    );
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    core.close();
+  }
+  const reopened = startCore(dir, adapters);
+  try {
+    const current = () =>
+      reopened.listMeetings().then((list) => list.find((m) => m.id === meeting.id));
+    expect((await current())?.summary).toMatchObject({ state: "failed", items: [changed] });
+    await expect(
+      reopened.correctMeetingSummaryItem(meeting.id, changed, { ...draft, text: "  " }),
+    ).rejects.toMatchObject({
+      wording: { key: "error.meeting.summaryItemInvalid" },
+    });
+    const next = { ...draft, status: "cancelled", text: "Second private correction." } as const;
+    const edits = await Promise.allSettled([
+      reopened.correctMeetingSummaryItem(meeting.id, changed, next),
+      reopened.correctMeetingSummaryItem(meeting.id, changed, {
+        ...draft,
+        text: "Stale private text.",
+      }),
+    ]);
+    expect(edits.map((edit) => edit.status)).toEqual(["fulfilled", "rejected"]);
+    expect(edits[1]).toMatchObject({
+      reason: { wording: { key: "error.meeting.summaryItemChanged" } },
+    });
+    await reopened.retryMeetingSummary(meeting.id);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
+    expect(JSON.parse(run.mock.calls[2]?.[0].prompt ?? "")).toMatchObject({ items: [ai] });
+    const final = {
+      kind: "decision",
+      status: "active",
+      text: "Final private correction.",
+    } as const;
+    await reopened.correctMeetingSummaryItem(
+      meeting.id,
+      { ...next, id: 1, corrected: true },
+      final,
+    );
+    retry.resolve(launchReply("Launch on Friday.", friday, 1));
+    const corrected = { ...final, id: 1, corrected: true } as const;
+    await vi.waitFor(async () =>
+      expect((await current())?.summary).toMatchObject({ state: "ready", items: [corrected] }),
+    );
+    const originalSpeech = await reopened.getMeetingSummaryItemSources(meeting.id, 1);
+    expect(originalSpeech?.sources.map((source) => source.text)).toEqual([monday]);
+    const reverted = await reopened.correctMeetingSummaryItem(meeting.id, corrected, {
+      restoreGenerated: true,
+      kind: "decision",
+      status: "active",
+      text: "Launch on Friday.",
+    });
+    expect(reverted.summary?.items).toEqual([{ ...ai, text: "Launch on Friday." }]);
+    expect(run).toHaveBeenCalledTimes(3);
+    for (const [request] of run.mock.calls) expect(request.prompt).not.toContain("private");
+  } finally {
+    reopened.close();
+  }
+});
+
+test("saving the same value as the AI keeps the manual correction through a later model update", async () => {
+  const finish = Promise.withResolvers<string>();
+  const run = vi
+    .fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>()
+    .mockResolvedValueOnce(launchReply("Launch on Monday.", monday, null))
+    .mockImplementationOnce(() => finish.promise);
+  const { core, meeting, push, summary } = await setup(run);
+  const generated = { kind: "decision", status: "active", text: "Launch on Monday." } as const;
+  const original = { ...generated, id: 1 };
+  try {
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.items).toEqual([original]));
+    push(2000);
+    await until(core, meeting.id, (m) => m.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    const alternate = { ...generated, text: "Launch on Thursday." };
+    await core.correctMeetingSummaryItem(meeting.id, original, alternate);
+    const edited = await core.correctMeetingSummaryItem(
+      meeting.id,
+      { ...alternate, id: 1, corrected: true },
+      generated,
+    );
+    const manual = { ...original, corrected: true } as const;
+    expect(edited.summary?.items).toEqual([manual]);
+    finish.resolve(launchReply("Launch on Friday.", friday, 1));
+    await vi.waitFor(async () =>
+      expect(await summary()).toMatchObject({
+        state: "ready",
+        text: "Launch on Friday.",
+        items: [manual],
+      }),
+    );
+    const restoreMonday = await core.correctMeetingSummaryItem(meeting.id, manual, {
+      ...generated,
+      restoreGenerated: true,
+    });
+    expect(restoreMonday.summary?.items).toEqual([manual]);
+    const fridayValue = { ...generated, text: "Launch on Friday." };
+    const savedFriday = await core.correctMeetingSummaryItem(meeting.id, manual, fridayValue);
+    const manualFriday = { ...fridayValue, id: 1, corrected: true } as const;
+    expect(savedFriday.summary?.items).toEqual([manualFriday]);
+    const restoreFriday = await core.correctMeetingSummaryItem(meeting.id, manualFriday, {
+      ...fridayValue,
+      restoreGenerated: true,
+    });
+    expect(restoreFriday.summary?.items).toEqual([{ ...fridayValue, id: 1 }]);
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    finish.resolve("");
+    core.close();
+  }
+});
+
+test("a summary rebuilt for a replaced Transcript cannot assign a locally corrected ID to a different item", async () => {
+  let replay = false;
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
+    replay
+      ? launchReply("Unrelated Friday decision.", friday, null)
+      : launchReply("Launch on Monday.", monday, null),
+  );
+  const { dir, core, adapters, meeting, push, summary } = await setup(run);
+  const original = {
+    id: 1,
+    kind: "decision",
+    status: "active",
+    text: "Launch on Monday.",
+  } as const;
+  const replacement = { kind: "action", status: "active", text: "Locally kept action." } as const;
+  try {
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.items).toEqual([original]));
+    push(2000);
+    await until(core, meeting.id, (m) => m.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (m) => m.state === "saved");
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    await core.correctMeetingSummaryItem(meeting.id, original, replacement);
+  } finally {
+    core.close();
+  }
+  // A retry for a different source starts from an empty AI list, as it does after transcript replacement.
+  const db = openDatabase(join(dir, DATABASE_FILE));
+  try {
+    db.run(
+      "UPDATE meetings SET summary = json_set(summary, '$.documentId', 'earlier-transcript') WHERE id = ?",
+      [meeting.id],
+    );
+  } finally {
+    db.close();
+  }
+  replay = true;
+  const reopened = startCore(dir, adapters);
+  try {
+    await reopened.retryMeetingSummary(meeting.id);
+    await vi.waitFor(async () => {
+      const saved = (await reopened.listMeetings()).find((m) => m.id === meeting.id)?.summary;
+      expect(saved?.state).toBe("ready");
+      expect(saved?.items).toEqual(
+        expect.arrayContaining([
+          { ...replacement, id: 1, corrected: true },
+          { ...original, id: 2, text: "Unrelated Friday decision." },
+        ]),
+      );
+      expect(saved?.items).toHaveLength(2);
+    });
+    const oldSource = await reopened.getMeetingSummaryItemSources(meeting.id, 1);
+    const newSource = await reopened.getMeetingSummaryItemSources(meeting.id, 2);
+    expect(oldSource?.sources.map((source) => source.text)).toEqual([monday]);
+    expect(newSource?.sources.map((source) => source.text)).toEqual([friday]);
+    const sent = JSON.parse(run.mock.lastCall?.[0].prompt ?? "");
+    expect(sent.items).toBeUndefined();
+    expect(sent.previous).toBeNull();
+    expect(run.mock.lastCall?.[0].prompt).not.toContain(replacement.text);
+  } finally {
+    reopened.close();
+  }
+});
 
 test("a silent call ends with no summary text and no model request", async () => {
   const run = vi.fn(async () => "unexpected");

@@ -38,8 +38,8 @@ import {
   type Anchor,
   anchorsOf,
   cellNumber,
-  parseCueTarget,
   type TextUnit,
+  transcriptCueLines,
   type UnitKind,
   type UnitLabel,
   type UnitText,
@@ -1890,16 +1890,8 @@ export function createDocuments(options: DocumentsOptions) {
 
   /** A Transcript's lines as its current version's Units hold them: each cue with its label. */
   function transcriptLines(documentId: string, contentHash: string): FileLine[] {
-    return pageTexts(documentId, contentHash, null, null).flatMap((unit) =>
-      unit.kind !== "cues"
-        ? []
-        : (unit.anchors ?? []).flatMap((anchor, at) => {
-            const cue = parseCueTarget(anchor.target);
-            const label = unit.label?.speakers?.[at];
-            return cue && label
-              ? [{ ...cue, text: unit.text.slice(anchor.start, anchor.end), label }]
-              : [];
-          }),
+    return transcriptCueLines(pageTexts(documentId, contentHash, null, null)).flatMap((line) =>
+      line.label ? [{ ...line, label: line.label }] : [],
     );
   }
 

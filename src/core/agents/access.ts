@@ -408,15 +408,8 @@ export interface AgentCheckedClaim {
   cite: string | null;
 }
 
-export interface AgentMindCheck {
-  mindId: string;
-  title: string;
-  /**
-   * "running": the check goes on, and the same call again gives its result.
-   * "stopped": it ended early, and `stopped` says why.
-   */
-  status: "checked" | "running" | "stopped";
-  stopped: string | null;
+/** A Note's results, counted as its page counts them. */
+export interface AgentCheckedNote {
   /** The models that judged, as the Note's check record names them. */
   models: string[];
   /** How many sentences the Note's page counts as supported. */
@@ -433,15 +426,28 @@ export interface AgentMindCheck {
   claims: AgentCheckedClaim[];
 }
 
+export interface AgentMindCheck extends AgentCheckedNote {
+  mindId: string;
+  title: string;
+  /**
+   * "running": the check goes on, and the same call again gives its result.
+   * "stopped": it ended early, and `stopped` says why.
+   */
+  status: "checked" | "running" | "stopped";
+  stopped: string | null;
+}
+
 /** A Note's sentences that hold no result yet, for the agent to judge with its own model (#3342). */
 export interface AgentCheckTask {
   mindId: string;
   title: string;
   /** Hands the results back to this task: `report_check` refuses another state of the Note. */
   task: string;
-  /** How to judge the sentences and hand the results back. */
+  /** How to judge the sentences and hand the results back; with none, that none is left. */
   how: string;
   sentences: { n: number; text: string; row?: string; column?: string }[];
+  /** With no sentence left, the results the Note holds (#3465). */
+  checked?: AgentCheckedNote;
 }
 
 export interface AgentReportInput {
@@ -1347,9 +1353,16 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   };
 
   /** A live Passage of these Documents, or a refusal that tells nothing of the others. */
-  const passageInScope = (inScope: ReadonlySet<string>, passageId: unknown): WindowedPassage => {
+  const passageInScope = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    passageId: unknown,
+  ): WindowedPassage => {
     const id = text(passageId, "passageId", 200);
-    const passage = deps.passage(id);
+    // A Citation's token stands for its Passage too: agents give one where a passageId goes (#3465).
+    const token = [...id.matchAll(CITATION_TOKEN)][0]?.[1] ?? id;
+    const passage =
+      deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
     if (!passage || !inScope.has(passage.documentId)) {
       throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
     }
@@ -1771,6 +1784,96 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
   });
 
+  /**
+   * The results a Note holds, as its page counts them, and what a Document says of each sentence
+   * that needs a look: what this agent reaches only. The Documents read are in `read`.
+   */
+  const checkedNote = async (
+    mindId: string,
+  ): Promise<{ note: AgentCheckedNote; listed: number; read: string[] }> => {
+    // What the agent reaches may have changed while a Check ran, and again while its record is
+    // read: a result resting on a Document the agent doesn't reach doesn't stand for it, so the
+    // record is read again with what it reaches once it is read, and nothing told goes beyond.
+    let granted = deps.admit(pairingId);
+    mindInScope(granted, mindId);
+    let inScope = new Set(scopeOf(granted, undefined));
+    let record = await deps.checkRecord(mindId, inScope);
+    for (let reads = 1; ; reads++) {
+      granted = deps.admit(pairingId);
+      mindInScope(granted, mindId);
+      const now = new Set(scopeOf(granted, undefined));
+      if (now.size === inScope.size && [...now].every((id) => inScope.has(id))) break;
+      if (reads >= MAX_RECORD_READS) {
+        throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
+      }
+      inScope = now;
+      record = await deps.checkRecord(mindId, inScope);
+    }
+    const read = new Set<string>();
+    // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
+    const beyond = (item: (typeof record.sentences)[number]) =>
+      item.scope.widened || item.scope.chosen != null;
+    // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
+    const rowOf = (item: (typeof record.sentences)[number]) =>
+      beyond(item) ? "toCheck" : item.row;
+    const counted = (row: CheckRow) =>
+      record.sentences.filter((item) => rowOf(item) === row).length;
+    const listed = CLAIM_GROUPS.flatMap(([row, group]) =>
+      record.sentences.filter((item) => rowOf(item) === row).map((item) => ({ ...item, group })),
+    );
+    const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
+      const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
+      const sentence = clip(item.text, READY_QUOTE_CHARS);
+      const { group } = item;
+      if (beyond(item)) {
+        return { sentence, group, result: "not-checked", reason: "beyond-reach", ...unsaid };
+      }
+      // What the page calls Supported, not yet cited reads Supported here, not as the Not checked, found elsewhere it is stored as.
+      const claim = {
+        sentence,
+        group,
+        result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
+        reason: group === "canBeCited" ? null : item.reason,
+      };
+      // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
+      const passage = group === "canBeCited" ? item.toCite : item;
+      const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;
+      // What a Document outside the pairing's Folders says stays there.
+      if (!passage || !judgedOn || !passage.evidence || !inScope.has(judgedOn.documentId)) {
+        return { ...claim, ...unsaid };
+      }
+      read.add(judgedOn.documentId);
+      const { quote } = passage.evidence;
+      const found =
+        quote !== null &&
+        judgedOn.quote !== "" &&
+        judgedOn.passageId !== "" &&
+        !deps.notCited(judgedOn.passageId) &&
+        deps.recheck(judgedOn).check === "found";
+      return {
+        ...claim,
+        says: passage.says,
+        document: passage.evidence.name,
+        location: passage.evidence.location,
+        quote,
+        cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
+      };
+    });
+    return {
+      note: {
+        models: record.models,
+        supported: counted("supported"),
+        needLook: counted("look"),
+        notChecked: counted("toCheck"),
+        canBeCited: counted("notYetCited"),
+        ownViews: counted("ownViews"),
+        claims,
+      },
+      listed: listed.length,
+      read: [...read],
+    };
+  };
+
   return {
     search(input, signal) {
       const query = typeof input?.query === "string" ? input.query : "";
@@ -1815,7 +1918,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         let from: number;
         let to: number;
         if (input?.passageId !== undefined) {
-          const passage = passageInScope(new Set(scopeOf(pairing, undefined)), input.passageId);
+          const passage = passageInScope(
+            pairing,
+            new Set(scopeOf(pairing, undefined)),
+            input.passageId,
+          );
           documentId = passage.documentId;
           from = Math.max(0, passage.position - before);
           to = passage.position + after;
@@ -1874,7 +1981,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             string,
             unknown
           >;
-          const passage = passageInScope(inScope, record.passageId);
+          const passage = passageInScope(pairing, inScope, record.passageId);
           if (deps.notCited(passage.passageId)) {
             throw new AgentRefusedError(
               "invalid",
@@ -2233,8 +2340,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             t("agents.problem.answer-failed", { message: outcome.error?.message ?? "" }),
           );
         }
-        // An Answer is written from what it read: one that read a Document the agent no longer reaches isn't given.
-        const granted = stillReaching(outcome.citations.map((each) => each.documentId));
+        // An Answer is written from all it read, cited or not: one that read a Document the agent
+        // no longer reaches isn't given.
+        const granted = stillReaching([
+          ...outcome.read,
+          ...outcome.citations.map((each) => each.documentId),
+        ]);
         const byMarker = new Map(outcome.citations.map((each) => [each.marker, each]));
         const citations: AgentAnswer["citations"] = [];
         let unchecked = 0;
@@ -2584,76 +2695,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             : result?.kind === "checked" && result.stop
               ? t(`agents.check.stopped.${result.stop.reason}`)
               : null;
-        // What the agent reaches may have changed while the Check ran, and again while its record is
-        // read: a result resting on a Document the agent doesn't reach doesn't stand for it, so the
-        // record is read again with what it reaches once it is read, and nothing told goes beyond.
-        let granted = deps.admit(pairingId);
-        mindInScope(granted, mind.id);
-        let inScope = new Set(scopeOf(granted, undefined));
-        let record = await deps.checkRecord(mind.id, inScope);
-        for (let reads = 1; ; reads++) {
-          granted = deps.admit(pairingId);
-          mindInScope(granted, mind.id);
-          const now = new Set(scopeOf(granted, undefined));
-          if (now.size === inScope.size && [...now].every((id) => inScope.has(id))) break;
-          if (reads >= MAX_RECORD_READS) {
-            throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
-          }
-          inScope = now;
-          record = await deps.checkRecord(mind.id, inScope);
-        }
-        const read = new Set<string>();
-        // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
-        const beyond = (item: (typeof record.sentences)[number]) =>
-          item.scope.widened || item.scope.chosen != null;
-        // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
-        const rowOf = (item: (typeof record.sentences)[number]) =>
-          beyond(item) ? "toCheck" : item.row;
-        const counted = (row: CheckRow) =>
-          record.sentences.filter((item) => rowOf(item) === row).length;
-        const listed = CLAIM_GROUPS.flatMap(([row, group]) =>
-          record.sentences
-            .filter((item) => rowOf(item) === row)
-            .map((item) => ({ ...item, group })),
-        );
-        const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
-          const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
-          const sentence = clip(item.text, READY_QUOTE_CHARS);
-          const { group } = item;
-          if (beyond(item)) {
-            return { sentence, group, result: "not-checked", reason: "beyond-reach", ...unsaid };
-          }
-          // What the page calls Supported, not yet cited reads Supported here, not as the Not checked, found elsewhere it is stored as.
-          const claim = {
-            sentence,
-            group,
-            result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
-            reason: group === "canBeCited" ? null : item.reason,
-          };
-          // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
-          const passage = group === "canBeCited" ? item.toCite : item;
-          const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;
-          // What a Document outside the pairing's Folders says stays there.
-          if (!passage || !judgedOn || !passage.evidence || !inScope.has(judgedOn.documentId)) {
-            return { ...claim, ...unsaid };
-          }
-          read.add(judgedOn.documentId);
-          const { quote } = passage.evidence;
-          const found =
-            quote !== null &&
-            judgedOn.quote !== "" &&
-            judgedOn.passageId !== "" &&
-            !deps.notCited(judgedOn.passageId) &&
-            deps.recheck(judgedOn).check === "found";
-          return {
-            ...claim,
-            says: passage.says,
-            document: passage.evidence.name,
-            location: passage.evidence.location,
-            quote,
-            cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
-          };
-        });
+        const { note, listed, read } = await checkedNote(mind.id);
         return {
           result: {
             mindId: mind.id,
@@ -2661,16 +2703,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             status:
               !result || result.kind === "running" ? "running" : stopped ? "stopped" : "checked",
             stopped,
-            models: record.models,
-            supported: counted("supported"),
-            needLook: counted("look"),
-            notChecked: counted("toCheck"),
-            canBeCited: counted("notYetCited"),
-            ownViews: counted("ownViews"),
-            claims,
+            ...note,
           },
-          count: listed.length,
-          documentIds: [...read],
+          count: listed,
+          documentIds: read,
         };
       });
     },
@@ -2679,21 +2715,27 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const mindId = typeof input?.mindId === "string" ? input.mindId : "";
       const known = deps.minds().find((mind) => mind.id === mindId);
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
-      return call("check_mind_yourself", known ? mindName(known) : "", effects, (pairing) => {
+      return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
         const mind = ownNote(pairing, input?.mindId);
         const found = deps.checkTask(mind.id, new Set(scopeOf(pairing, undefined)));
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
+        const { task, sentences } = found.value;
+        const given = { mindId: mind.id, title: mindName(mind), task, sentences };
+        if (sentences.length > 0) {
+          return {
+            result: { ...given, how: howToJudge(mind.folderId) },
+            count: sentences.length,
+            documentIds: [],
+          };
+        }
+        // A Note checked already, in this chat or another: what the User asks is answered from its marks (#3465).
+        const { note, read } = await checkedNote(mind.id);
         return {
-          result: {
-            mindId: mind.id,
-            title: mindName(mind),
-            task: found.value.task,
-            how: howToJudge(mind.folderId),
-            sentences: found.value.sentences,
-          },
-          count: found.value.sentences.length,
-          documentIds: [],
+          result: { ...given, how: t("agents.check.nothingLeft"), checked: note },
+          count: 0,
+          documentIds: read,
+          effects: [...effects, READ_DOCUMENTS],
         };
       });
     },
