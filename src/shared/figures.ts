@@ -122,7 +122,7 @@ export interface Figure extends Reading {
 }
 
 /** How a Document writes its numbers: "1,234.5" has decimal "." and group ",". */
-export interface Separators {
+interface Separators {
   decimal: "." | ",";
   group: "," | "." | " " | "'";
 }
@@ -493,7 +493,7 @@ function languageSeparators(language: string): Separators | null {
  * period. A year, an account number or a clause number grouped ("2,026")
  * would stop reading as one (#2102).
  */
-export const RAW_COLUMN_HEADERS: readonly string[] = [
+const RAW_COLUMN_HEADERS: readonly string[] = [
   "ID",
   "code",
   "No.",
@@ -1071,11 +1071,6 @@ const NAMED_CODES = new Map(
     .map(([word, code]) => [word.toLowerCase(), code]),
 );
 
-/** The currency a word after an amount names: "pounds" is GBP, "欧元" EUR; null for any other word. */
-export function currencyNamed(word: string): string | null {
-  return CURRENCY_CODES[word] ?? NAMED_CODES.get(word.toLowerCase()) ?? null;
-}
-
 const CN_CURRENCY_AFTER =
   /(?:新加坡元|瑞士法郎|新台币|澳门元|澳门币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|韩元|卢布|元|圆|円)(?:人民币)?/y;
 const EN_CURRENCY_AFTER =
@@ -1460,7 +1455,7 @@ export interface HeaderRead {
   readonly periodColumns: boolean;
 }
 
-export type HeaderStatement = Statement;
+type HeaderStatement = Statement;
 
 /**
  * What a header (`FigureContext.header`) states, read with `context` once: the stated units its
@@ -4063,7 +4058,7 @@ export const readingsOf = (figure: Figure): Reading[] => [
 ];
 
 /** The currencies a figure may be in: its own, or each that its "¥" may be. */
-export function currenciesOf(figure: Figure): string[] {
+function currenciesOf(figure: Figure): string[] {
   return [
     ...new Set(
       readingsOf(figure).flatMap(({ unit }) => (unit.kind === "currency" ? [unit.code] : [])),
@@ -4081,9 +4076,6 @@ const SIGN_CURRENCIES: Readonly<Record<string, readonly string[]>> = {
   圆: ["CNY", ...Object.values(YUAN)],
   "¥": ["CNY", "JPY"],
 };
-
-// "￥" and "＄" are what Chinese input methods type for "¥" and "$" (#2226).
-const signOf = (figure: Figure) => figure.currency?.normalize("NFKC").trim() ?? null;
 
 const longestFirst = (words: readonly string[]) => [...words].sort((a, b) => b.length - a.length);
 const CURRENCY_NAMES = new RegExp(
@@ -4185,12 +4177,8 @@ const NAMES_A_DOLLAR = new RegExp(
   "i",
 );
 
-/** Whether a figure's dollar is only its bare "$" or "dollars": "$54,000", not "$54,000 AUD". */
-export const bareDollar = (figure: Figure): boolean =>
-  BARE_DOLLAR.test(signOf(figure) ?? "") && !NAMES_A_DOLLAR.test(figure.chars.normalize("NFKC"));
-
 /** Whether `statement` gives a dollar by a bare "$" or "dollars": "Amount ($)", "($m)", "金额（$）". */
-export function bareDollarStatement(statement: StatedUnit): boolean {
+function bareDollarStatement(statement: StatedUnit): boolean {
   if (statement.unit.kind !== "currency" || !ANY_DOLLAR.includes(statement.unit.code)) return false;
   const chars = statement.chars.normalize("NFKC");
   return (

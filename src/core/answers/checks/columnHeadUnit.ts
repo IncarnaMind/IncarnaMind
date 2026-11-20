@@ -5,7 +5,7 @@ import {
   readFigures,
   readStatedUnits,
 } from "../../../shared/figures";
-import { cellsOf, linesOf, rowLabels, type Table, tableAt } from "./figureMeasures";
+import { cellsOf, isRule, linesOf, type Table, tableAt } from "./textTables";
 
 const flat = (text: string) => text.replace(/\s+/gu, " ").trim();
 const withoutBars = (text: string) => flat(text).replace(/^\|\s*|\s*\|$/gu, "");
@@ -35,6 +35,31 @@ const headings = (table: Table) =>
     const cell = flat(cellsOf(line)[table.column] ?? "");
     return cell === "" ? [] : [{ cell, line, row: table.head + at }];
   });
+
+// A heading row that doesn't line up with the row (a reader that drops a blank corner cell,
+// a merged heading written once) can't say which heading is the number's, or whose another is.
+const alignedHeadings = ({ lines, index, top, head }: Table): string[] =>
+  lines
+    .slice(head, top)
+    .filter(
+      (heading) =>
+        !isRule(heading) && cellsOf(heading).length === cellsOf(lines[index] ?? "").length,
+    );
+
+/** A column headed 单位 or Unit holds each row's unit. */
+const UNITS_HEADING = /^\s*(?:(?:计量|金额|货币|数量)?单位|units?)\s*$/iu;
+
+/** The cell of `table`'s row in the column its headings name its units column; "" for none, or of two. */
+function unitsCell(table: Table): string {
+  const columns = new Set(
+    alignedHeadings(table).flatMap((heading) =>
+      cellsOf(heading).flatMap((cell, at) => (UNITS_HEADING.test(cell) ? [at] : [])),
+    ),
+  );
+  const [only] = columns;
+  if (columns.size !== 1 || only === undefined || only === table.column) return "";
+  return cellsOf(table.lines[table.index] ?? "")[only] ?? "";
+}
 
 /** The unit a heading cell names at its end, in its one bracket or as a sign ("Levy (‰)", "YoY%"). */
 function unitOfHead(cell: string, context: FigureContext): Figure | null {
@@ -106,7 +131,7 @@ export function unitsCellUnit(
 ): Figure | null {
   const table = tableAt(text, at);
   if (!table) return null;
-  const cell = rowLabels(table).unit.trim();
+  const cell = unitsCell(table).trim();
   if (cell === "" || !cellsOf(quoted).some((each) => each.trim() === cell)) return null;
   const headed = headings(table).some(
     (heading) =>
