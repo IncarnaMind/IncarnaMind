@@ -223,7 +223,7 @@ export const FLOWS: readonly Flow[] = [
       if (readMind(client).childCount === before) {
         await core.addToNote({
           mindId,
-          blocks: pageBlocks(summary, question),
+          blocks: pageBlocks(summary),
           origin: { from: messageReference(summary.conversationId, summary.id), question },
           model: summary.model,
         });

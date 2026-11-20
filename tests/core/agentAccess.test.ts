@@ -20,8 +20,9 @@ import type { OutsideAnswer } from "../../src/core/answers";
 import { createElement } from "../../src/core/answers/blocks";
 import type { OutsideCheck } from "../../src/core/answers/checks/mindCheck";
 import { recheckCitation } from "../../src/core/answers/citations";
-import { type CitationLocation, MIND_CONTENT_FIELD } from "../../src/core/api";
+import { type CitationLocation, type MarkedCitation, MIND_CONTENT_FIELD } from "../../src/core/api";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
+import type { WindowedPassage } from "../../src/core/documents/search";
 import { translate } from "../../src/shared/i18n";
 import { recordNoteWriter } from "../../src/shared/noteWriter";
 
@@ -774,3 +775,127 @@ for (const language of ["en", "zh-CN"] as const) {
     });
   });
 }
+
+/** A Passage of `documentId` a search finds. */
+const passageOf = (documentId: string, documentName: string): WindowedPassage => ({
+  passageId: `${documentId}-1`,
+  documentId,
+  documentName,
+  documentKind: "markdown",
+  contentHash: "v1",
+  pageFrom: null,
+  pageTo: null,
+  position: 0,
+  seq: 0,
+  windowFrom: 0,
+  windowTo: 0,
+  text: "Spring tides come twice a month.",
+});
+
+describe("a call that waits while what the agent reaches changes (#3458 review)", () => {
+  // protects=a search tells only Passages of Documents the agent still reaches once it ends: one the User filed elsewhere during it isn't given; fails_when=the results are read with the grant as it was when the search began
+  it("tells search results only from what the agent reaches once the search ends", async () => {
+    let reached = ["tides", "rivers"];
+    const access = accessAnswering(
+      { asked: false, reason: "not-ready" },
+      {
+        documentsIn: () => reached,
+        search: async () => {
+          reached = ["tides"];
+          return [passageOf("tides", "Tides"), passageOf("rivers", "Rivers")];
+        },
+      },
+    );
+    const found = await access.search({ query: "spring tides" });
+    expect(found.passages.map((each) => each.documentId)).toEqual(["tides"]);
+  });
+
+  // protects=an Answer written from a Document the User took from the agent while it was written isn't given to the agent; fails_when=the Answer and its quotes are handed over with the grant as it was when the Question was asked
+  it("gives no Answer that read a Document the agent no longer reaches once it is written", async () => {
+    let reached = ["tides", "rivers"];
+    const quoted: MarkedCitation = {
+      marker: 1,
+      passageId: "rivers-1",
+      documentId: "rivers",
+      documentName: "Rivers",
+      contentHash: "v1",
+      pageFrom: null,
+      pageTo: null,
+      location: null,
+      quote: "Gulls nest on the cliffs.",
+      check: "found",
+      checkReason: null,
+    };
+    const access = accessAnswering(
+      { asked: false, reason: "not-ready" },
+      {
+        documentsIn: () => reached,
+        answer: async () => {
+          reached = ["tides"];
+          return {
+            asked: true,
+            status: "done",
+            markdown: "Gulls nest on the cliffs [^1].",
+            citations: [quoted],
+            error: null,
+            service: null,
+          };
+        },
+      },
+    );
+    await expect(access.ask({ question: "Where do gulls nest?" })).rejects.toMatchObject({
+      problem: "outside-scope",
+      message: translate("en", "agents.problem.reachChanged"),
+    });
+  });
+
+  // protects=check_mind tells what a Document says only while the agent reaches it once the Note's record is read: one the User filed elsewhere while the record was read is read again without it, and none of its words go out (#3458 review); fails_when=the quotes and says of the record are handed over with the reach the agent had before the record was read
+  it("reads the check's record again when what the agent reaches changed while it was read", async () => {
+    let reached = ["tides"];
+    const reads: string[][] = [];
+    const contradicted = {
+      kind: "sentence" as const,
+      text: "Neap tides have the largest range.",
+      origin: "other" as const,
+      result: "contradicted" as const,
+      reason: null,
+      row: "look" as const,
+      says: "Tides says the spring tide's range is the largest.",
+      evidence: {
+        name: "Tides",
+        file: "Tides.md",
+        deleted: false,
+        size: null,
+        sha256: null,
+        location: "§ Tides",
+        quote: null,
+      },
+      judgedOn: {
+        passageId: "tides-1",
+        documentId: "tides",
+        quote: "The range of a spring tide is the largest of the month.",
+      },
+      toCite: null,
+      check: { model: null, at: AT, scope: { folderId: "coast", widened: false } },
+      scope: { folderId: "coast", widened: false },
+    };
+    const dropping = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        documentsIn: () => reached,
+        checkRecord: async (_mindId, reach) => {
+          reads.push([...reach]);
+          // Read as the agent reaches now: Tides moves out of Coast as the first read ends.
+          const sentences = reach.has("tides") ? [contradicted] : [];
+          reached = ["harbour"];
+          return { models: [], sentences };
+        },
+      },
+    );
+    const checked = await dropping.checkMind({ mindId: "note" });
+    expect(reads).toEqual([["tides"], ["harbour"]]);
+    expect(checked).toMatchObject({ needLook: 0, claims: [] });
+    expect(JSON.stringify(checked)).not.toContain("Tides says");
+  });
+});

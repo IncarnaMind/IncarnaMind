@@ -883,13 +883,25 @@ export function absenceBesideFact(
   );
 }
 
-/** The Documents a result rests on and read whole: what whoever reads it must reach. */
+/** A result and each result it holds: its figures' own and its remainder's. */
+function* resultsIn(check: ClaimCheckAttributes): Generator<ClaimCheckBasis> {
+  yield check;
+  yield* check.figures ?? [];
+  if (check.remainder) yield check.remainder;
+}
+
+/**
+ * Every Document a result rests on, cited or read whole, in the result and in each result it
+ * holds: what whoever reads it must reach.
+ */
 function reliedOn(check: ClaimCheckAttributes): string[] {
-  return [
-    ...restsOn(check),
-    ...(check.readDocuments ?? []),
-    ...(check.parts ?? []).flatMap((part) => part.readDocuments ?? []),
-  ].flatMap((each) => (typeof each.documentId === "string" ? [each.documentId] : []));
+  const readWhole = [...resultsIn(check)].flatMap((each) => [
+    ...(each.readDocuments ?? []),
+    ...(each.parts ?? []).flatMap((part) => part.readDocuments ?? []),
+  ]);
+  return [...restsOn(check), ...readWhole].flatMap((each) =>
+    typeof each.documentId === "string" ? [each.documentId] : [],
+  );
 }
 
 /**

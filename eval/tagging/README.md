@@ -40,3 +40,29 @@ npm run eval:tagging
 ```
 
 `INCARNAMIND_TAGGING_SPLIT` is `heldout` (default), `tune` (or `tuning`) or `all`; the walk always runs. Each run writes `eval/results/tagging/<start time>/report.md` and `results.json` (ignored).
+
+## Bilingual coverage and Tag identity
+
+Set `INCARNAMIND_TAGGING_PANEL=full` to run the tagging held-out set together with `tests/fixtures/organize-fresh`. Each language has 40 Documents. Both sets were written separately from the tuning set and have been measured before. On the original tagging set, fitting means a proposed name matches one of its gold words. On the Organize set, it means the proposed kind matches one of the gold kind codes. Four Documents per language have no gold kind in that set. Three English and two Chinese scans have no readable text. All are included in the denominator. The number of Documents receiving any Tag gives an upper bound on the number receiving a fitting Tag.
+
+The full panel also runs six hard cases per language through the core's Re-tag command and reads Suggestions. The Library has a fundraising Tag, a Tag for the business and a kitchen-renovation Tag already on a Document in the other language. The pitch should receive the fundraising Tag alone among the topic Tags, the privacy notice should receive no topic, two renovation Documents should receive the existing Tag's ID, and two incidental mentions should receive no topic. `INCARNAMIND_TAGGING_PANEL=hard` runs these cases alone. `pilot` runs three tuning Documents. Each panel writes its model name, individual results and token totals to `eval/results/tagging/<start time>/results.json`. A missing reply invalidates the panel.
+
+### Baseline on 20 November 2026
+
+Three independent runs on `ca4faa8c5`, using Claude Haiku 5.5 with thinking off. The target was 36 of 40 Chinese Documents with a fitting Tag in every run.
+
+| Measure out of 40 | Run 1 | Run 2 | Run 3 |
+| --- | ---: | ---: | ---: |
+| English, gold match | 17 | 17 | 17 |
+| Chinese, gold match | 22 | 21 | 22 |
+| English, any Tag | 27 | 25 | 25 |
+| Chinese, any Tag | 29 | 30 | 31 |
+
+| Hard cases passed out of 6 | Run 1 | Run 2 | Run 3 |
+| --- | ---: | ---: | ---: |
+| Haiku 5.5, English | 2 | 3 | 3 |
+| Haiku 5.5, Chinese | 2 | 2 | 2 |
+| Sonnet 5.5, English | 3 | 3 | 3 |
+| Sonnet 5.5, Chinese | 2 | 2 | 2 |
+
+On both models, all 12 renovation Documents per model missed the existing other-language Tag. Every privacy notice received the business Tag. The two incidental mentions in each language stayed clear of topic Tags on each run.

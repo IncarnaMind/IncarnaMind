@@ -307,10 +307,13 @@ describe.each(LIVE)("A later Answer and the mark, live: $name", (live) => {
           const mind = await core.createMind({ title: language === "en" ? "Growth" : "增长" });
           await core.addToNote({
             mindId: mind.id,
-            blocks: pageBlocks(
-              { id: "earlier", text: words.sentence, citations: [], figures: [], status: "done" },
-              "",
-            ),
+            blocks: pageBlocks({
+              id: "earlier",
+              text: words.sentence,
+              citations: [],
+              figures: [],
+              status: "done",
+            }),
             origin: null,
             model: null,
           });

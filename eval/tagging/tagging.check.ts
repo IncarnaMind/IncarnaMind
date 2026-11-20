@@ -12,7 +12,6 @@ import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { wrapLanguageModel } from "ai";
 import { test } from "vitest";
-import type { DocumentKind } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import { type ChatLanguageModel, createAiSdkChatModel } from "../../src/core/providers/models";
 import {
@@ -27,19 +26,8 @@ import { createFakeChatModel } from "../../src/main/fakeChatModel";
 import { createTempDataFolder, startCore } from "../../tests/helpers/core";
 import { addAndProcess, writeSourceFile } from "../../tests/helpers/documents";
 import { chatModelSpecOf, chatSettings } from "../lib/config";
-
-interface SetDocument {
-  id: string;
-  split: "tune" | "heldout" | "walk";
-  language: "en" | "zh";
-  topic?: string;
-  name: string;
-  kind: DocumentKind;
-  pageCount: number | null;
-  text: string;
-  invoice: boolean;
-  fits: string[];
-}
+import { hardCases } from "./hardCases";
+import { combinedHeldout, type SetDocument } from "./heldout";
 
 interface Tagged {
   id: string;
@@ -67,18 +55,48 @@ const plain = (text: string) => text.normalize("NFKC").toLowerCase();
 
 function model(): { label: string; model: ChatLanguageModel; tokens: () => Tokens } {
   let tokens: Tokens = { input: 0, output: 0 };
+  let incomplete = false;
+  const usage = () => {
+    if (incomplete) throw new Error("Incomplete paid panel; discard the run");
+    return tokens;
+  };
   const counted = (inner: ChatLanguageModel): ChatLanguageModel =>
     wrapLanguageModel({
       model: inner,
       middleware: {
         specificationVersion: "v4",
-        wrapGenerate: async ({ doGenerate }) => {
-          const result = await doGenerate();
-          tokens = {
-            input: tokens.input + (result.usage.inputTokens.total ?? 0),
-            output: tokens.output + (result.usage.outputTokens.total ?? 0),
-          };
-          return result;
+        wrapGenerate: async ({ doGenerate, params }) => {
+          try {
+            const result = await doGenerate();
+            if (env.INCARNAMIND_TAGGING_PANEL) {
+              const user = params.prompt.find((message) => message.role === "user");
+              const part = user?.content.find((entry) => entry.type === "text");
+              const refs =
+                part && (JSON.parse(part.text) as { documents?: { ref: string }[] }).documents;
+              if (refs) {
+                const output = result.content.find((entry) => entry.type === "text");
+                const parsed: { tagged?: { ref: string }[] } = output
+                  ? JSON.parse(output.text)
+                  : {};
+                const answered = new Set(parsed.tagged?.map((entry) => entry.ref));
+                if (
+                  parsed.tagged?.length !== refs.length ||
+                  answered.size !== refs.length ||
+                  !refs.every(({ ref }) => answered.has(ref))
+                ) {
+                  throw new Error("Incomplete model reply");
+                }
+              }
+            }
+            tokens = {
+              input: tokens.input + (result.usage.inputTokens.total ?? 0),
+              output: tokens.output + (result.usage.outputTokens.total ?? 0),
+            };
+            return result;
+          } catch (error) {
+            if (env.INCARNAMIND_TAGGING_PANEL) incomplete = true;
+            throw error;
+          }
         },
       },
     });
@@ -90,7 +108,7 @@ function model(): { label: string; model: ChatLanguageModel; tokens: () => Token
       model: counted(
         createFakeChatModel({ kind: "ollama", baseUrl: null, apiKey: null, modelId: "scripted" }),
       ),
-      tokens: () => tokens,
+      tokens: usage,
     };
   if (!chat)
     throw new Error(
@@ -99,7 +117,7 @@ function model(): { label: string; model: ChatLanguageModel; tokens: () => Token
   return {
     label: `Chat model ${chat.kind}/${chat.modelId}, thinking off as the app asks`,
     model: counted(createAiSdkChatModel({ ...chatModelSpecOf(chat), thinking: "off" })),
-    tokens: () => tokens,
+    tokens: usage,
   };
 }
 
@@ -123,12 +141,20 @@ async function tagGroup(
 ): Promise<{ tagged: Tagged[] }> {
   const run = await tagInRun({
     tagger: chatClassifier(chat, { language }),
-    subjects: documents.map((document) => ({ id: document.id, excerpt: excerptOf(document) })),
+    subjects: documents
+      .filter((document) => document.text.trim())
+      .map((document) => ({ id: document.id, excerpt: excerptOf(document) })),
     offered: new Map(),
     language,
     signal: AbortSignal.timeout(600_000),
     progress: () => {},
   });
+  if (
+    run.unreachable.size ||
+    documents.some((doc) => doc.text.trim() && !run.proposed.has(doc.id))
+  ) {
+    throw new Error("Incomplete tagging reply");
+  }
   const tagged: Tagged[] = [];
   for (const document of documents) {
     const proposed = run.proposed.get(document.id) ?? [];
@@ -146,9 +172,9 @@ async function tagGroup(
       made,
       invoice,
       isInvoice: document.invoice,
-      fitting: names.some((name) =>
-        document.fits.some((word) => plain(name).includes(plain(word))),
-      ),
+      fitting: document.goldKinds
+        ? proposed.some((tag) => "kind" in tag && document.goldKinds?.includes(tag.kind))
+        : names.some((name) => document.fits.some((word) => plain(name).includes(plain(word)))),
       falseInvoice: invoice && !document.invoice,
       missedInvoice: document.invoice && !invoice,
       otherLanguage,
@@ -268,6 +294,38 @@ test("Tags from content, and Organize's Folders", async () => {
   const split = asked === "tuning" ? "tune" : asked;
   const chat = model();
   log(chat.label);
+  const panel = env.INCARNAMIND_TAGGING_PANEL;
+  if (panel) {
+    const results: Record<string, unknown> = { model: chat.label, panel };
+    if (panel === "full" || panel === "pilot") {
+      const docs =
+        panel === "pilot"
+          ? set.documents.filter((doc) => doc.split === "tune").slice(0, 3)
+          : await combinedHeldout(root, set.documents);
+      for (const language of ["en", "zh-CN"] as const) {
+        const group = docs.filter((doc) => doc.language === (language === "en" ? "en" : "zh"));
+        if (panel === "full" && group.length !== 40)
+          throw new Error("Expected 40 held-out Documents per language");
+        if (group.length) results[language] = (await tagGroup(chat.model, group, language)).tagged;
+      }
+    } else if (panel !== "hard") throw new Error(`Unknown panel ${panel}`);
+    if (panel !== "pilot") {
+      const hard: Record<string, unknown> = {};
+      for (const language of ["en", "zh-CN"] as const)
+        hard[language] = await hardCases(chat.model, language);
+      results.hard = hard;
+    }
+    results.tokens = chat.tokens();
+    const folder = join(
+      root,
+      "eval/results/tagging",
+      new Date().toISOString().replace(/[:.]/g, "-"),
+    );
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "results.json"), JSON.stringify(results, null, 2));
+    log(`Results: ${folder}`);
+    return;
+  }
   const groups: { label: string; documents: SetDocument[]; language: Language }[] = [];
   for (const part of split === "all" ? ["tune", "heldout"] : [split]) {
     if (part !== "tune" && part !== "heldout") throw new Error(`Unknown split "${part}".`);

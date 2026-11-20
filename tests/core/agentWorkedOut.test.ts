@@ -10,6 +10,7 @@ import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analy
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import type { AnalysisJob } from "../../src/shared/analysis";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent, resultText, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -652,6 +653,35 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     });
     expect(await marks(core, mindId, coast.id)).toEqual([]);
     expect(structured<Reported>(await report(after))).toMatchObject({ marked: 1, unconfirmed: [] });
+  });
+
+  // protects=what a run worked out from a Document is given only while the agent still reaches it: one the User filed outside the agent's Folders while the run went on gives nothing back (#3458 review); fails_when=the run's report of that Document's rows is handed over with the grant as it was when the run began
+  it("gives back nothing of a run whose Document the agent no longer reaches once it ends", async () => {
+    const fake = createFakeAnalysisRuntime({ answer: passengersOf });
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let begun = false;
+    const gated: AnalysisRuntime = {
+      languages: fake.languages,
+      async run(job, signal) {
+        begun = true;
+        await held;
+        return fake.run(job, signal);
+      },
+      close: () => fake.close(),
+    };
+    const { core, agent, crossings } = await paired(passengersOf, gated);
+    const passageId = await passageOf(agent, "passengers crossings", "Crossings");
+    const going = run(agent, [{ name: "crossings", passageId }]);
+    await vi.waitFor(() => expect(begun).toBe(true));
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    await core.assignDocumentGroup(crossings.id, vault.id);
+    release();
+    const refused = await going;
+    expect(refused.isError).toBe(true);
+    expect(resultText(refused)).toBe(translate("en", "agents.problem.reachChanged"));
   });
 
   // protects=a verdict rests only on figures the run's report lets the agent use: one IncarnaMind worked out again from the cells and found different backs nothing; fails_when=a figure that failed its recalculation backs a Supported mark or shows in the working line

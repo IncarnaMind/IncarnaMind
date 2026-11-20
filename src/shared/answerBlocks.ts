@@ -8,7 +8,6 @@
  */
 
 import { markdownToBlocks } from "../core/answers/markdown";
-import { forPage } from "../core/answers/pointersBack";
 import {
   type AnswerAnalysis,
   CALCULATED_FIGURE_NODE,
@@ -109,19 +108,14 @@ function holdsFigure(analysis: AnswerAnalysis, figure: CalculatedFigure): boolea
 
 /**
  * A whole Answer as Add to note puts it in a page, for someone who never saw
- * the conversation: without the model's framing, nor what points to an
- * earlier Answer unless `question` asked about one. The Answer in the panel
- * keeps both.
+ * the conversation: without the model's framing, which the Answer in the panel keeps.
  */
 export const pageBlocks = (
   answer: Pick<ConversationAnswer, "text" | "citations" | "figures"> &
     Partial<Pick<ConversationAnswer, "id" | "analyses" | "status">>,
-  question: string,
 ): NodeJSON[] =>
   asQuoteChecked(
-    withoutFraming(
-      answerBlocks({ ...answer, text: forPage(answer.text, question), status: "done" }),
-    ),
+    withoutFraming(answerBlocks({ ...answer, status: "done" })),
     answer.status ?? "done",
   );
 
@@ -160,11 +154,10 @@ export function withAnswerChecks(
   blocks: readonly NodeJSON[],
   answer: Pick<ConversationAnswer, "text" | "citations" | "figures"> &
     Partial<Pick<ConversationAnswer, "model" | "status" | "id">>,
-  question: string,
   /** What the Answer's Question searched: a Folder's, or the whole Library (null). */
   scope: SearchScope | null,
 ): NodeJSON[] {
-  const checks = carriedChecks(answer, question);
+  const checks = carriedChecks(answer);
   if (![...checks.values()].some((each) => each.some((check) => check !== null))) {
     return [...blocks];
   }
@@ -333,7 +326,6 @@ const identityOf = (sentence: string, citations: readonly CitationIdentity[]): s
  */
 function carriedChecks(
   answer: Pick<ConversationAnswer, "text" | "citations" | "figures">,
-  question: string,
 ): Map<string, (CarriedCheck | null)[]> {
   const byMarker = new Map(answer.citations.map((citation) => [citation.marker, citation]));
   const found = new Map<string, (CarriedCheck | null)[]>();
@@ -347,11 +339,7 @@ function carriedChecks(
       quote: citation.quote ?? "",
       contentHash: citation.contentHash ?? "",
     }));
-  for (const cited of citedSentences(
-    forPage(answer.text, question),
-    answer.figures,
-    answer.citations,
-  )) {
+  for (const cited of citedSentences(answer.text, answer.figures, answer.citations)) {
     const citations = citationsAt(cited.markers);
     const key = identityOf(comparableSentence(cited.sentence), identitiesOf(citations));
     const check = cited.calculated ? null : judgementOf(cited.markers, citations);

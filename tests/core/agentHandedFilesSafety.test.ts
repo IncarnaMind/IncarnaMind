@@ -14,6 +14,7 @@ import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import { PNG } from "../helpers/citedPages";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import {
@@ -460,6 +461,33 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     });
   });
 
+  // protects=a Note an agent writes with a picture is written only while the agent may still write: a grant the User took back while the picture was read writes nothing (#3458 review); fails_when=create_mind writes the Note with the grant it had before the picture was read
+  it("writes no Note once the agent's write grant is taken back while its picture is read", async () => {
+    const held = gate();
+    const { core, coast, writer, files } = await started([], {
+      reading: async () => {
+        held.reached();
+        await held.shut;
+      },
+    });
+    const agent = await connectLegacyAgent(writer.launch);
+    const picture = join(files, "chart.png");
+    await writeFile(picture, PNG);
+    const asked = agent.callTool({
+      name: "create_mind",
+      arguments: {
+        title: "Harbour chart",
+        markdown: `The north quay holds 42 boats.\n\n![Quays](${picture})`,
+        folderId: coast.id,
+      },
+    });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { propose: false });
+    held.open();
+    expect(refusal(await asked)).toBe(en("agents.problem.read-only"));
+    expect((await core.listMinds()).map((each) => each.title)).not.toContain("Harbour chart");
+  });
+
   // protects=a result carried to a file's next version stands only while the agent reaches the Document it rests on: one resting on a Document the User has since filed outside the agent's Folders is checked again within its reach (#3412 review); fails_when=the next version keeps a Supported resting on a Document the agent can no longer reach
   it("checks a kept result again once the agent no longer reaches the Document it rests on", async () => {
     const calls: ModelCall[] = [];
@@ -509,6 +537,34 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     await writeFile(path, deck("2026"));
     structured<Handed>(await handOver(agent, { path }));
     expect(sentAfter(calls, before)).toEqual(new Set([NORTH]));
+  });
+
+  // protects=what a result was judged with survives the window's editor: a Note the User opened and edited there still carries its results to the file's next version (#3412); fails_when=the editor's write-back drops the fingerprint from every mark, and the next version checks every line again
+  it("carries results to the next version after the User edited the Note in the window", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, writer, files } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, DECK);
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const client = await connectToMind(core, first.mindId ?? "");
+    await client.settled();
+    // Written back through the window's editor, as any edit there writes its Blocks.
+    editMind(client, (blocks) => blocks);
+    await client.settled();
+    const before = calls.length;
+
+    await writeFile(
+      path,
+      plainDeck([
+        { title: "Harbour review" },
+        { lines: [NORTH, SOUTH] },
+        { lines: [OFFICE, NEVER_CLOSES] },
+        { lines: [SUNDAYS] },
+      ]),
+    );
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, before)).toEqual(new Set());
   });
 
   // protects=a hand-over tells as Supported only a result whose Documents are still at the versions it read: once one changed, the result is checked again before it is counted, a file in no Folder too, which no background check covers (#3412 review); fails_when=the same file handed over again after its evidence Document changed reports the earlier Supported as current

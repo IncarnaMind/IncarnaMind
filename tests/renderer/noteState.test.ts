@@ -1049,9 +1049,9 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
     answerOf("answer-1", `${sentence} [^1]`, citations);
   const carried = (
     made: ReturnType<typeof answerOf>,
-    blocks: readonly NodeJSON[] = pageBlocks(made, ""),
+    blocks: readonly NodeJSON[] = pageBlocks(made),
     scope: SearchScope | null = null,
-  ): JSONContent[] => withAnswerChecks(blocks, made, "", scope);
+  ): JSONContent[] => withAnswerChecks(blocks, made, scope);
   const blocksOf = (citations: MarkedCitation[], scope: SearchScope | null = null) =>
     carried(answer(citations), undefined, scope);
   const noteOf = (blocks: JSONContent[], documents: LiveDocument[] = [plan]) =>
@@ -1108,7 +1108,7 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
     const made = answerOf("answer-verdict", `${sentence} [^1]`, [
       { ...judged, check: "unsupported", verdict: "The plan says December." },
     ]);
-    const nodes: JSONContent[] = pageBlocks(made, "");
+    const nodes: JSONContent[] = pageBlocks(made);
     const citations: Record<string, unknown>[] = [];
     const collect = (list: readonly JSONContent[]) =>
       list.forEach((node) => {
@@ -1149,7 +1149,7 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
       judged,
       stopped,
     ]);
-    const full = pageBlocks(made, "");
+    const full = pageBlocks(made);
     for (const blocks of [full, full.slice(-1), full.slice(0, 1)]) {
       const note = carried(made, blocks);
       expect(carriedMarks(note)).toHaveLength(0);
@@ -1189,7 +1189,7 @@ describe("A Note made from an Answer carries its judgement (#2313)", () => {
       judged,
       quotedCosts,
     ]);
-    const note = carried(made, pageBlocks(made, "").slice(-1));
+    const note = carried(made, pageBlocks(made).slice(-1));
     expect(noteOf(note, [plan, costsSheet]).state).toMatchObject({ kind: "needs-look" });
   });
 

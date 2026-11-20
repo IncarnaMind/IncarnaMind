@@ -384,7 +384,7 @@ describe("An Answer's sentence its Citations don't cover finds its Passage in th
       english.files,
     );
 
-    const cited = citationNodes(pageBlocks(answer, "Who supplies the kilns?")).map((node) => ({
+    const cited = citationNodes(pageBlocks(answer)).map((node) => ({
       quote: node.attrs?.quote,
       foundByCheck: node.attrs?.foundByCheck ?? null,
     }));
@@ -408,7 +408,7 @@ function carriedChecks(answer: Asked["answer"], question = "Who supplies the kil
       collect(node.content ?? []);
     }
   };
-  collect(withAnswerChecks(pageBlocks(answer, question), answer, question, null));
+  collect(withAnswerChecks(pageBlocks(answer), answer, null));
   return [...marks.values()];
 }
 
