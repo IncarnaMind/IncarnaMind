@@ -15,6 +15,7 @@ import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
+import { xlsxPackage } from "../helpers/office";
 
 /** A plan with two years of typed-in costs, each total a formula, and one total whose saved result is wrong. */
 function planWorkbook(): WorkbookBuilder {
@@ -351,5 +352,40 @@ describe("Verify a workbook", () => {
       most: 1000,
     });
     expect((await core.verifyDocument({ path: both, sheet: "First" })).ok).toBe(true);
+  });
+
+  // protects=a formula the file saved no result for shows what it works out to in its cell's own number format, as the file would show it (#3412); fails_when=a money or percent cell shows a plain number, or a cell with no format shows one
+  test("a formula with no saved result shows what it works out to in its cell's number format, and one with none plainly", async () => {
+    const { core, sources } = await setUp();
+    const text = (ref: string, words: string) =>
+      `<c r="${ref}" t="inlineStr"><is><t>${words}</t></is></c>`;
+    const book = xlsxPackage({
+      styles:
+        '<numFmts count="1"><numFmt numFmtId="164" formatCode="£#,##0.00"/></numFmts><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="10" applyNumberFormat="1"/></cellXfs>',
+      sheets: [
+        {
+          name: "Costs",
+          xml: `<sheetData><row r="1">${text("A1", "Item")}${text("B1", "Value")}</row><row r="2">${text("A2", "Rent")}<c r="B2"><v>14000</v></c></row><row r="3">${text("A3", "Insurance")}<c r="B3"><v>2200</v></c></row><row r="4">${text("A4", "Total")}<c r="B4" s="1"><f>B2+B3</f><v></v></c></row><row r="5">${text("A5", "Total again")}<c r="B5"><f>B2+B3</f></c></row><row r="6">${text("A6", "Insurance share")}<c r="B6" s="2"><f>B3/B4</f></c></row></sheetData>`,
+        },
+      ],
+    });
+    const path = await writeSourceFile(sources, "Costs.xlsx", book);
+
+    const result = await core.verifyDocument({ path, sheet: "Costs" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client, blocks } = await tableOf(core, result.mind.id);
+
+    const rows = blocks[1]?.content ?? [];
+    expect(
+      rows.map((row) => row.content?.map((cell) => cell.content?.[0]?.content?.[0]?.text ?? "")),
+    ).toEqual([
+      ["Item", "Value"],
+      ["Rent", "14000"],
+      ["Insurance", "2200"],
+      ["Total", "£16,200.00"],
+      ["Total again", "16200"],
+      ["Insurance share", "13.58%"],
+    ]);
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({ unsaved: 3, unchecked: 0 });
   });
 });

@@ -8,6 +8,7 @@
 import * as Y from "yjs";
 import { columnName, parseCellRef, type UnitText } from "../../../shared/units";
 import { BLOCK_ID_ATTRIBUTE, type WorkbookSheetChoice } from "../../api";
+import { formatNumber } from "../../documents/formats/numbers";
 import {
   cellIndex,
   type WorkbookCell,
@@ -104,16 +105,27 @@ const cellNode = (type: string, text: string, right: boolean): NodeJSON => ({
   content: [{ type: "paragraph", ...(text !== "" && { content: [{ type: "text", text }] }) }],
 });
 
-/** A cell's text in the Note: as the file shows it, or, for a formula it saved no result for, what that works out to. */
-function cellText(cell: WorkbookCell | undefined, worked: ReadonlyMap<number, Scalar>): string {
-  if (!cell) return "";
-  const value = cell.unsaved ? worked.get(cellIndex(cell.row, cell.column)) : undefined;
-  if (value === undefined) return cell.shown;
+/** What a formula the file saved no result for works out to, and how its cell shows that. */
+export interface WorkedCell {
+  value: Scalar;
+  shown: string;
+}
+
+/** A worked value as its cell's number format shows it, or as Excel's General does without one (#3412). */
+function workedText(value: Scalar, format: string | undefined, date1904: boolean): string {
+  if (typeof value === "number") return formatNumber(value, format, date1904);
   const text = toText(value);
   return typeof text === "string" ? text : text.code;
 }
 
-const NOTHING_WORKED: ReadonlyMap<number, Scalar> = new Map();
+/** A cell's text in the Note: as the file shows it, or, for a formula it saved no result for, what that works out to. */
+function cellText(cell: WorkbookCell | undefined, worked: ReadonlyMap<number, WorkedCell>): string {
+  if (!cell) return "";
+  const value = cell.unsaved ? worked.get(cellIndex(cell.row, cell.column)) : undefined;
+  return value === undefined ? cell.shown : value.shown;
+}
+
+const NOTHING_WORKED: ReadonlyMap<number, WorkedCell> = new Map();
 
 /**
  * The sheet, or the range of it, as a table, and what it holds: a header row when its first row
@@ -122,7 +134,7 @@ const NOTHING_WORKED: ReadonlyMap<number, Scalar> = new Map();
 export function sheetTable(
   sheet: WorkbookSheet,
   range: CellRange | null,
-  worked: ReadonlyMap<number, Scalar> = NOTHING_WORKED,
+  worked: ReadonlyMap<number, WorkedCell> = NOTHING_WORKED,
 ): SheetTable {
   const within = checkedRange(sheet, range);
   const byRow = new Map<number, Map<number, WorkbookCell>>();
@@ -141,7 +153,7 @@ export function sheetTable(
       return (
         cell !== undefined &&
         (typeof cell.saved === "number" ||
-          typeof worked.get(cellIndex(cell.row, cell.column)) === "number")
+          typeof worked.get(cellIndex(cell.row, cell.column))?.value === "number")
       );
     }),
   );
@@ -218,7 +230,7 @@ export interface FormulaCheck {
   unchecked: number;
   differs: FormulaDifferenceAt[];
   /** What each formula whose result the file didn't save works out to, by `cellIndex`. */
-  worked: ReadonlyMap<number, Scalar>;
+  worked: ReadonlyMap<number, WorkedCell>;
 }
 
 const shownValue = (value: unknown): string => {
@@ -238,7 +250,7 @@ export async function checkFormulas(
   signal?: AbortSignal,
 ): Promise<FormulaCheck> {
   const cells = cellsIn(sheet, checkedRange(sheet, range)).filter((cell) => cell.formula !== null);
-  const worked = new Map<number, Scalar>();
+  const worked = new Map<number, WorkedCell>();
   if (cells.length === 0) return { checked: 0, unsaved: 0, unchecked: 0, differs: [], worked };
   const keys = cells.map((cell) => placeKey(sheet, cell.row, cell.column));
   const run = await recalculate(new WorkbookEngine(model), keys, {
@@ -264,7 +276,10 @@ export async function checkFormulas(
       });
     } else if (result.problem === null) checked++;
     else if (result.problem.kind === "no-saved-value" && result.worked !== undefined)
-      worked.set(cellIndex(cell.row, cell.column), result.worked);
+      worked.set(cellIndex(cell.row, cell.column), {
+        value: result.worked,
+        shown: workedText(result.worked, cell.format, model.date1904),
+      });
     else unchecked++;
   }
   return { checked, unsaved: worked.size, unchecked, differs, worked };
