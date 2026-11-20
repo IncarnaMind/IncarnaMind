@@ -225,7 +225,7 @@ describe("A call help Citation of a table row", { timeout: 120_000 }, () => {
     const { core, meeting } = await setUp();
     const { answer } = await press(core, meeting);
     expect(answer.citations[0]?.cells).toEqual(NAMED);
-    const blocks = JSON.stringify(pageBlocks(answer, "Answer their question"));
+    const blocks = JSON.stringify(pageBlocks(answer));
     expect(blocks).toContain('"type":"citation"');
     expect(blocks).not.toContain("cells");
     expect(blocks).not.toContain('"name":"Price"');

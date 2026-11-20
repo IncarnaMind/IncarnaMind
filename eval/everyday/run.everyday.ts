@@ -11,7 +11,6 @@ import { test } from "vitest";
 import type { AnswerUsage } from "../../src/core";
 import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
-import { markersIn } from "../../src/shared/answerBlocks";
 import { evalOllamaModels } from "../lib/citations";
 import { watchCiting } from "../lib/citingRecord";
 import { type ChatSettings, chatModelSpecOf, chatProviderOf, readConfig } from "../lib/config";
@@ -156,9 +155,10 @@ async function runModel(
             failures: [],
             reply: "",
             page: "",
-            removed: [],
             rewritten: [],
             copies: 0,
+            given: [],
+            writtenInMinds: [],
             pointersLeft: 0,
             calls: [],
             changes: [],
@@ -261,14 +261,7 @@ function report(
       (each) => !each.error && CASES.find((one) => one.id === each.id)?.expected[key] === true,
     );
   const pointingInPanel = heldTo("standsAlone").filter((each) => pointsBack(each.reply)).length;
-  const markersLeftOut = results.reduce(
-    (total, each) => total + markersIn(each.reply).length - markersIn(each.page).length,
-    0,
-  );
   const pointersLeft = heldTo("standsAlone").reduce((total, each) => total + each.pointersLeft, 0);
-  const lost = results.flatMap((each) =>
-    each.failures.flatMap((failure) => (failure.kind === "content-lost" ? failure.sentences : [])),
-  );
   const sum = (key: keyof AnswerUsage) =>
     results.reduce((total, each) => total + each.usage[key], 0).toLocaleString("en");
   const answered = results.filter((each) => !each.error && each.reply !== "");
@@ -392,17 +385,11 @@ function report(
     "",
     "## Standing on its own",
     "",
-    `Pointers left: ${pointersLeft} sentences that point to an earlier Answer stay in what goes into a page (the reply as Add to note puts it, or what was written into a Mind), in ${heldTo("standsAlone").filter((each) => each.pointersLeft > 0).length} of the ${heldTo("standsAlone").length} Answers held to it. Each is kept as written: only a paragraph that is nothing but a pointer goes. Counting the replies in the panel, where they stay as the model wrote them: ${pointingInPanel} point back.`,
+    `Pointers left: ${pointersLeft} sentences that point to an earlier Answer stay in what goes into a page (the reply as Add to note puts it, or what was written into a Mind), in ${heldTo("standsAlone").filter((each) => each.pointersLeft > 0).length} of the ${heldTo("standsAlone").length} Answers held to it. Each is kept as written. Counting the replies in the panel, where they stay as the model wrote them: ${pointingInPanel} point back.`,
     "",
     `${failing("earlier")} of ${heldTo("noEarlier").length} replies asked after the example's Answer talk about an earlier Answer. ${failing("example")} of ${heldTo("noExample").length} mention the example unasked.`,
     "",
-    `The guard: it took out ${results.reduce((total, each) => total + each.removed.length, 0)} Blocks on the way into a page, over all ${results.length} Answers and the ${results.reduce((total, each) => total + each.copies, 0)} copies of the last Answer into a Mind, and content lost is ${lost.length}: what it took that says more than a pointer, and the Blocks it changed. Taking pointers out of the replies left out ${markersLeftOut} Citation markers. Each thing it took, to read by hand:`,
-    "",
-    ...results.flatMap((each) =>
-      each.removed.map((taken) => `- ${each.id}, ${each.model}: “${taken}”`),
-    ),
-    "",
-    `Rewritten after the guard, not by it: ${results.reduce((total, each) => total + each.rewritten.length, 0)} sentences of what the calls gave are no longer in the Mind as written, changed by the model's edit_mind or by the app's own check of the sentences written. ${results.reduce((total, each) => total + each.rewritten.filter(({ cut }) => cut).length, 0)} of them only have words taken out, as the check's cut does; the rest are reworded:`,
+    `Rewritten after they were written: ${results.reduce((total, each) => total + each.rewritten.length, 0)} sentences of what the calls gave are no longer in the Mind as written, changed by the model's edit_mind or by the app's own check of the sentences written. ${results.reduce((total, each) => total + each.rewritten.filter(({ cut }) => cut).length, 0)} of them only have words taken out, as the check's cut does; the rest are reworded:`,
     "",
     ...results.flatMap((each) =>
       each.rewritten.map(

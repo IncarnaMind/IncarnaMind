@@ -369,7 +369,7 @@ async function runCase(
       saved = (await core.createMind({ title: "Report" })).id;
       await core.addToNote({
         mindId: saved,
-        blocks: pageBlocks(answer, each.request),
+        blocks: pageBlocks(answer),
         origin: {
           from: messageReference(answer.conversationId, answer.id),
           question: each.request,

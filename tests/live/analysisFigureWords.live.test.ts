@@ -352,7 +352,7 @@ function retype(client: MindClient, sentence: string): void {
 /** Add to note on the whole Answer, as the assistant's button does it, into a Note of the User's own. */
 async function addedToNote(core: Core, answer: ConversationAnswer, question: string) {
   const mind = await core.createMind({ title: "Added" });
-  const blocks = pageBlocks(answer, question);
+  const blocks = pageBlocks(answer);
   await core.addToNote({
     mindId: mind.id,
     blocks,

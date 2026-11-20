@@ -1244,7 +1244,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "times_as_long": {
         "type": "number",
@@ -1294,7 +1294,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        }
       },
       "required": [
@@ -1808,7 +1808,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "times_as_long": {
         "type": "number",
@@ -1858,7 +1858,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        }
       },
       "required": [
@@ -2405,7 +2405,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "times_as_long": {
         "type": "number",
@@ -2455,7 +2455,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        }
       },
       "required": [
@@ -2962,7 +2962,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "times_as_long": {
         "type": "number",
@@ -3014,7 +3014,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "answer": {
         "type": "boolean",
@@ -3550,7 +3550,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "times_as_long": {
         "type": "number",
@@ -3602,7 +3602,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "answer": {
         "type": "boolean",
@@ -4171,7 +4171,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "times_as_long": {
         "type": "number",
@@ -4223,7 +4223,7 @@
        },
        "content": {
         "type": "string",
-        "description": "The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table's cells too. Never write a source as text: \"[Tides, p. 3]\" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields."
+        "description": "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields."
        },
        "answer": {
         "type": "boolean",

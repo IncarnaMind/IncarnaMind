@@ -365,10 +365,7 @@ describe("an Answer's ✓ rests only on its Citations' own quotes (#3050)", () =
       DOCUMENTS,
     );
     const answer = await (await askedAnswer(core, each.question)).judged();
-    writeMind(
-      client,
-      withAnswerChecks(pageBlocks(answer, each.question), answer, each.question, null),
-    );
+    writeMind(client, withAnswerChecks(pageBlocks(answer), answer, null));
     await client.settled();
     const inNote = claimsOf(readMind(client), {
       footing: "not-yet-known",
@@ -415,12 +412,7 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       const judgedAnswer = await asked.judged();
       expect(judgedAnswer.citations).toMatchObject([{ marker: 1, check: "found" }]);
       // A Note made from it carries the judgement's check, at the judgement's time (#2313).
-      const carried = withAnswerChecks(
-        pageBlocks(judgedAnswer, each.question),
-        judgedAnswer,
-        each.question,
-        null,
-      );
+      const carried = withAnswerChecks(pageBlocks(judgedAnswer), judgedAnswer, null);
       const marks: unknown[] = [];
       const collect = (nodes: readonly NodeJSON[]) =>
         nodes.forEach((node) => {
@@ -601,7 +593,7 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
       ]);
 
     const asked = await askedAnswer(core, question);
-    const waiting = pageBlocks(asked.atEnd, question);
+    const waiting = pageBlocks(asked.atEnd);
     await core.stopConversationAnswer({
       conversationId: asked.atEnd.conversationId,
       answerId: asked.atEnd.id,
@@ -612,11 +604,9 @@ describe("an Answer works at once, and its Citations wait for their sentences' j
     expect(asked.atEnd.citations).toMatchObject([{ marker: 1, check: "checking" }]);
     expect(checksIn(waiting)).toEqual(["found"]);
     expect(notChecked.citations).toMatchObject([{ marker: 1, check: "not-checked" }]);
-    expect(checksIn(pageBlocks(notChecked, question))).toEqual(["found"]);
+    expect(checksIn(pageBlocks(notChecked))).toEqual(["found"]);
     // A stopped Answer's Citation still checking never had its quote checked.
-    expect(checksIn(pageBlocks({ ...asked.atEnd, status: "stopped" }, question))).toEqual([
-      "checking",
-    ]);
+    expect(checksIn(pageBlocks({ ...asked.atEnd, status: "stopped" }))).toEqual(["checking"]);
   });
 
   test.each([
@@ -841,12 +831,7 @@ describe("a table's row, judged as one line, carries onto its cells in a Note (#
       each.documents,
     );
     const answer = await (await askedAnswer(core, each.question)).judged();
-    const carried = withAnswerChecks(
-      pageBlocks(answer, each.question),
-      answer,
-      each.question,
-      null,
-    );
+    const carried = withAnswerChecks(pageBlocks(answer), answer, null);
     writeMind(client, carried);
     await client.settled();
     const claims = claimsOf(readMind(client), {

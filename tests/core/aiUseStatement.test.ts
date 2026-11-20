@@ -908,7 +908,7 @@ describe("Checks in the statement", () => {
     };
     const added = await core.addToNote({
       mindId: mind.id,
-      blocks: withAnswerChecks(pageBlocks(answer, ""), answer, "", null),
+      blocks: withAnswerChecks(pageBlocks(answer), answer, null),
       origin: null,
       model: answer.model,
     });

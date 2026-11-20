@@ -22,7 +22,6 @@ import {
   type MindFocus,
   messageReference,
 } from "../../src/core";
-import { forPage } from "../../src/core/answers/pointersBack";
 import { type ChangeStates, toolRecordLines } from "../../src/core/answers/toolRecord";
 import { plainText } from "../../src/core/mindText";
 import type { createAiSdkChatModel } from "../../src/core/providers/models";
@@ -53,7 +52,6 @@ import {
   readsLonger,
   requestFailures,
   rewrittenLater,
-  takenOut,
 } from "./checks";
 import { DATED_TEXTS } from "./dated";
 import { citedClaims } from "./dates";
@@ -167,12 +165,13 @@ export interface CaseResult {
   toolPassive?: string[];
   reply: string;
   page: string;
-  /** What the guard took out: sentences of the reply, by Add to note, and Blocks of what the calls gave to write into Minds. */
-  removed: string[];
   /** Sentences of what the calls gave that the model's edit_mind or the app's own check changed after the guard, what the Mind holds now, and whether it only took words out. */
   rewritten: ReturnType<typeof rewrittenLater>;
   /** Calls that copied the last Answer into a Mind (`answer: true`). */
   copies: number;
+  /** What the calls gave to write into Minds, and each Block of the Minds' text that changed, as written (#3462). */
+  given: string[];
+  writtenInMinds: string[];
   pointersLeft: number;
   calls: string[];
   /** The Mind's Blocks that changed, as they read before and once its changes are accepted. */
@@ -601,7 +600,7 @@ export async function runCase(
     });
     await core.addToNote({
       mindId: mind.id,
-      blocks: pageBlocks(noted, each.selectNote),
+      blocks: pageBlocks(noted),
       origin: { from: messageReference(noted.conversationId, noted.id), question: each.selectNote },
       model: noted.model,
     });
@@ -668,7 +667,7 @@ export async function runCase(
     const earlier = new Set(ids);
     await core.addToNote({
       mindId: mind.id,
-      blocks: pageBlocks(last, each.before?.at(-1) ?? ""),
+      blocks: pageBlocks(last),
       origin: {
         from: messageReference(last.conversationId, last.id),
         question: each.before?.at(-1) ?? "",
@@ -833,7 +832,7 @@ export async function runCase(
       ),
     ),
   ].flatMap((id) => names(id) ?? []);
-  const page = forPage(answer.text, each.request);
+  const page = answer.text;
   const givenToMinds = givenToMindsOf(
     answer.toolCalls,
     last ? { text: last.text, question: each.before?.at(-1) ?? "" } : null,
@@ -885,9 +884,10 @@ export async function runCase(
       toolVerdict.passive.length > 0 && { toolPassive: toolVerdict.passive }),
     reply: answer.text,
     page,
-    removed: takenOut(outcome).removed,
     rewritten: rewrittenLater(outcome),
     copies: givenToMinds.filter((given) => given.question !== undefined).length,
+    given: givenToMinds.map((given) => given.content),
+    writtenInMinds,
     pointersLeft: pointersIn([page, ...writtenInMinds].join("\n\n")).length,
     calls: record,
     changes,

@@ -941,7 +941,7 @@ describe("an Analysis an Answer runs", () => {
 
     // The Answer's table and what Add to note writes are the Analysis's own, bound to its run
     // under their caption, with no Citation in a heading of their own (#2378).
-    for (const blocks of [answerBlocks(answer), pageBlocks(answer, "Revenue by region?")]) {
+    for (const blocks of [answerBlocks(answer), pageBlocks(answer)]) {
       const table = blocks.find((block) => block.type === "table");
       if (!table) throw new Error("The Answer has no table.");
       expect(JSON.stringify(table)).not.toContain('"citation"');
