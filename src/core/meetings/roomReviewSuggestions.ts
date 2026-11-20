@@ -36,7 +36,6 @@ export function roomReviewSuggestions(
       if (seen.has(key)) ambiguous.add(key);
       seen.add(key);
       const current = speakerOf(speakers, part.startMs, part.label);
-      if (current === SPEAKER_ME) return [];
       const duration = part.endMs - part.startMs;
       const shared = new Map<number, number>();
       for (const turn of turns) {
@@ -60,7 +59,7 @@ export function roomReviewSuggestions(
   }
   return rows.flatMap(({ part, voice, current }) => {
     const suggested = mapping.get(voice);
-    return suggested && suggested !== current
+    return suggested && suggested !== current && suggested !== SPEAKER_ME && current !== SPEAKER_ME
       ? [
           {
             startMs: part.startMs,
