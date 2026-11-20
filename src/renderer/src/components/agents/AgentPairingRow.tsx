@@ -203,31 +203,32 @@ export function AgentPairingRow({
               {replacing ? (
                 <>
                   {t("agents.pairing.skillOld.ask")}
-                  <span aria-hidden="true"> · </span>
-                  <button
-                    type="button"
-                    data-testid="agent-skill-replace-confirm"
-                    onKeyDown={closeOnEscape}
-                    onClick={() =>
-                      core
-                        .replaceAgentSkill(pairing.id)
-                        .then(() => setReplacing(false), reportError)
-                    }
-                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-                  >
-                    {t("agents.pairing.skillOld.confirm")}
-                  </button>
-                  <span aria-hidden="true"> · </span>
-                  <button
-                    ref={keepButton}
-                    type="button"
-                    data-testid="agent-skill-replace-cancel"
-                    onKeyDown={closeOnEscape}
-                    onClick={() => setReplacing(false)}
-                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-                  >
-                    {t("agents.pairing.skillOld.cancel")}
-                  </button>
+                  <span className="block">
+                    <button
+                      type="button"
+                      data-testid="agent-skill-replace-confirm"
+                      onKeyDown={closeOnEscape}
+                      onClick={() =>
+                        core
+                          .replaceAgentSkill(pairing.id)
+                          .then(() => setReplacing(false), reportError)
+                      }
+                      className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                    >
+                      {t("agents.pairing.skillOld.confirm")}
+                    </button>
+                    <span aria-hidden="true"> · </span>
+                    <button
+                      ref={keepButton}
+                      type="button"
+                      data-testid="agent-skill-replace-cancel"
+                      onKeyDown={closeOnEscape}
+                      onClick={() => setReplacing(false)}
+                      className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                    >
+                      {t("agents.pairing.skillOld.cancel")}
+                    </button>
+                  </span>
                 </>
               ) : (
                 <>

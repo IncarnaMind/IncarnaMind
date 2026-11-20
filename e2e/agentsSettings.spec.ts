@@ -517,7 +517,7 @@ test("a Skill the User changed is left out of date, Replace asks first, and Disc
     await row.getByTestId("agent-disconnect").click();
     await expect(page.getByTestId("agent-pairing")).toHaveCount(0);
     await expect(page.getByTestId("agent-skill-left")).toContainText(
-      `Its Skill stays at ${skillFile}: you changed it.`,
+      `Disconnected the ChatGPT app or Codex. Its Skill stays at ${skillFile}: you changed it.`,
     );
     expect(await readFile(skillFile, "utf8")).toBe(`${current}${added}`);
   } finally {

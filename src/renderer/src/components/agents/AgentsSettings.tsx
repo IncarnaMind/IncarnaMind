@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { AgentClient, AgentSettings } from "../../../../core/api";
-import { unitsOf } from "../../../../shared/i18n/join";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
+import { InlinePath } from "../PathText";
+import { SLOT, Slotted } from "../Slotted";
 import {
   SettingsGroup,
   SettingsRow,
@@ -123,11 +124,16 @@ export function AgentsSettings() {
       )}
 
       {skillLeft && (
-        <p data-testid="agent-skill-left" role="status" className={`${noticeClass} break-words`}>
-          {t("agents.settings.skillLeft", {
-            agent: skillLeft.agent,
-            path: unitsOf(skillLeft.paths, language),
-          })}
+        <p data-testid="agent-skill-left" role="status" className={noticeClass}>
+          <Slotted
+            message={t("agents.settings.skillLeft", { agent: skillLeft.agent, path: SLOT })}
+            slot={skillLeft.paths.map((path, at) => (
+              <Fragment key={path}>
+                {at > 0 && (language === "zh-CN" ? "、" : ", ")}
+                <InlinePath path={path} />
+              </Fragment>
+            ))}
+          />
         </p>
       )}
 

@@ -8552,7 +8552,7 @@ export const en = {
   "agents.find.none": "No agent matches “{query}”. Choose Other agent to connect it.",
   "agents.settings.connectButton": "Connect",
   "agents.settings.help": "Step-by-step help",
-  "agents.settings.skillLeft": "{agent} disconnected. Its Skill stays at {path}: you changed it.",
+  "agents.settings.skillLeft": "Disconnected {agent}. Its Skill stays at {path}: you changed it.",
   "agents.setup.bundle": "One click: Claude opens to install it",
   "agents.setup.link": "One click: {agent} opens to install it",
   "agents.setup.file": "IncarnaMind adds itself to the settings of {agent}",
