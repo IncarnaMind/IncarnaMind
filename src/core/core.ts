@@ -5992,11 +5992,15 @@ export function createCore(adapters: CoreAdapters): Core {
         const behind = folders.some((id) => walledFolderId(id) !== null);
         const walled = new Set(behind ? [] : walledDocuments());
         const outside = filed.filter((id) => !walled.has(id));
-        if (!folderIds.includes(NOT_IN_A_FOLDER_ID)) return [...new Set(outside)];
         // The app's own examples are not the User's Documents, in no Folder or out of one (#3364).
         const leftOut = new Set([...walledDocuments(), ...examples.made().documentIds]);
-        const unfiled = library.unfiledDocumentIds().filter((id) => !leftOut.has(id));
-        return [...new Set([...outside, ...unfiled])];
+        const unfiled = folderIds.includes(NOT_IN_A_FOLDER_ID)
+          ? library.unfiledDocumentIds().filter((id) => !leftOut.has(id))
+          : [];
+        const reached = [...new Set([...outside, ...unfiled])];
+        // A file an agent handed over is no source for any agent until the User cites it (#3492).
+        const sources = new Set(documents.ids({ ids: reached, sources: true }));
+        return reached.filter((id) => sources.has(id));
       },
       noteTranscripts: () => noteTranscripts(db),
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
