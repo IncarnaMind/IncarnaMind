@@ -418,7 +418,7 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags } from "./tags";
-import { offeredKinds, offeredTags } from "./tags/about";
+import { offeredKinds, offeredTags, type TagsOfferedTo } from "./tags/about";
 import {
   BATCH_EXCERPT_TOKENS,
   chatClassifier,
@@ -3860,6 +3860,8 @@ export function createCore(adapters: CoreAdapters): Core {
   // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
   const taggingMaySend = (id: string, service: ExternalService, pressed: boolean) =>
     !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq));
+  const tagsOfferedTo: TagsOfferedTo = (ids, own, known) =>
+    offeredTags(db, ids, now(), wall.documentWalls, own, known);
   const tagger = createTagger({
     maySend: taggingMaySend,
     heldBack: (id) => {
@@ -3869,7 +3871,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     db,
     now,
-    offered: (id, text) => offeredTags(db, [id], undefined, new Map([[id, text]])).get(id) ?? [],
+    offered: (id, text) =>
+      tagsOfferedTo([id], undefined, new Map([[id, text]])).offered.get(id) ?? [],
     kinds: () => offeredKinds(db),
     language: () => settings.get().language,
     propose: (run, proposals) => {
@@ -3979,6 +3982,7 @@ export function createCore(adapters: CoreAdapters): Core {
   let isExampleDocument: (documentId: string) => boolean = () => false;
   const library = createLibrary({
     db,
+    offeredTags: tagsOfferedTo,
     tags,
     tagged: announceTagged,
     tagsMade: tagsChanged,
@@ -4346,6 +4350,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Organize of the whole Library, or of one Folder, planned at any size into the Review (#1569).
   const libraryOrganizer = createLibraryOrganizer({
     db,
+    offeredTags: tagsOfferedTo,
     folders: () => library.folders(),
     settings: () => library.settings(),
     language: () => settings.get().language,

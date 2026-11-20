@@ -19,7 +19,7 @@ import type { OrganizeReviewLeftOut, OrganizeReviewOrigin } from "../organizeRev
 import { classifyProviderError } from "../providers/providerErrors";
 import { gateStop } from "../sendGate";
 import type { Database } from "../storage";
-import { offeredKinds, offeredTags } from "../tags/about";
+import { offeredKinds, type TagsOfferedTo } from "../tags/about";
 import {
   BATCH_EXCERPT_TOKENS,
   type DocumentExcerpt,
@@ -73,6 +73,7 @@ const READABLE = new Set(["ready", "embedding", "waiting-for-model"]);
 
 export function createLibraryOrganizer(options: {
   db: Database;
+  offeredTags: TagsOfferedTo;
   folders(): LibraryGroup[];
   settings(): LibrarySettings;
   language(): Language;
@@ -249,6 +250,7 @@ export function createLibraryOrganizer(options: {
       const skipped = subjects.length - sendable.length;
       progress(skipped);
       const batched = prepared.tagger.decideMany !== undefined;
+      const offers = options.offeredTags(sendable.map((subject) => subject.id));
       const result = await tagInRun({
         tagger: prepared.tagger,
         subjects: sendable.map((subject) => ({
@@ -256,16 +258,14 @@ export function createLibraryOrganizer(options: {
           excerpt: tagExcerptOf(subject, batched),
         })),
         kinds: offeredKinds(db),
-        offered: offeredTags(
-          db,
-          sendable.map((subject) => subject.id),
-        ),
+        ...offers,
         language: options.language(),
         signal,
         progress: (done) => progress(skipped + done),
       });
       return {
         ...result,
+        rejectedTopics: offers.rejectedTopics,
         service: prepared.service,
         settle: () => prepared.tagged([...result.proposed.keys()]),
       };
@@ -588,11 +588,20 @@ export function createLibraryOrganizer(options: {
                 : { reason: "noTag" },
           };
         });
-        const proposed = proposals.every(
+        const noneFit = proposals.every(
           (each) => each.tags.length === 0 && unfitting(each.leftOut),
-        )
-          ? 0
-          : options.proposeTags(own?.run ?? { origin: "retag", runId }, proposals);
+        );
+        const proposed = options.proposeTags(
+          own?.run ?? { origin: "retag", runId },
+          noneFit
+            ? proposals.flatMap(({ documentId, contentHash, tags }) => {
+                const rejected = result.rejectedTopics.get(documentId);
+                return rejected && result.proposed.has(documentId)
+                  ? [{ documentId, contentHash, tags, withdrawTagIds: new Set(rejected.values()) }]
+                  : [];
+              })
+            : proposals,
+        );
         result.settle();
         return {
           status: "done",
@@ -613,7 +622,11 @@ export function createLibraryOrganizer(options: {
 }
 
 /** A tagging run inside Organize or a Re-tag, and what settles its Documents. */
-type TaggedRun = TagRunResult & { service: ExternalService | null; settle(): void };
+type TaggedRun = TagRunResult & {
+  rejectedTopics: ReturnType<TagsOfferedTo>["rejectedTopics"];
+  service: ExternalService | null;
+  settle(): void;
+};
 
 /** Left out only for want of a Folder or a Tag, not for what reading or sending it met. */
 const unfitting = (leftOut: OrganizeReviewLeftOut | null | undefined) =>

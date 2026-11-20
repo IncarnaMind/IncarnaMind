@@ -10,6 +10,7 @@ import { termsOf } from "../library/plan";
 import type { Database } from "../storage";
 import { excerptFromPassages, type TagDefinition } from "./classify";
 import { TAG_KINDS, type TagKind } from "./kinds";
+import { tagKey } from "./suggest";
 
 /** How alike a Document and a Tag's Documents must be, as the cosine of their word weights. */
 export const ABOUT = 0.1;
@@ -43,8 +44,9 @@ const cosine = (a: Weights, b: Weights) => {
  */
 export function tagsAbout(
   text: string,
-  tags: readonly { tag: TagDefinition; texts: readonly string[] }[],
+  tags: readonly { tag: TagDefinition; texts: readonly string[]; rejected?: readonly string[] }[],
   background: readonly string[],
+  rejectedTopics?: Map<string, string>,
 ): TagDefinition[] {
   const corpus = [text, ...tags.flatMap((each) => each.texts), ...background].map(counts);
   const holding = new Map<string, number>();
@@ -60,7 +62,21 @@ export function tagsAbout(
   };
   const subject = counts(text);
   const own = weigh(subject);
-  return tags.flatMap(({ tag, texts }) => {
+  return tags.flatMap(({ tag, texts, rejected = [] }) => {
+    if (rejected.length) {
+      // A correction competes with the nearest example the User kept, or the Tag's definition alone.
+      const support = [`${tag.name} ${tag.description}`, ...texts];
+      const closest = Math.max(...support.map((example) => cosine(own, weigh(counts(example)))));
+      if (
+        rejected.some((example) => {
+          const similarity = cosine(own, weigh(counts(example)));
+          return similarity > 0 && similarity >= closest;
+        })
+      ) {
+        rejectedTopics?.set(tagKey(tag.name), tag.id);
+        return [];
+      }
+    }
     if (texts.length === 0) {
       const named = termsOf(`${tag.name} ${tag.description}`);
       return termsOf(tag.name).some((term) => subject.has(term)) ||
@@ -125,6 +141,17 @@ export function offeredKinds(db: Database): TagKind[] {
   return TAG_KINDS.filter((kind) => !withdrawn.has(kind));
 }
 
+export type TagsOfferedTo = (
+  ids: readonly string[],
+  own?: readonly TagDefinition[],
+  known?: ReadonlyMap<string, string>,
+) => TagOffers;
+
+interface TagOffers {
+  offered: Map<string, TagDefinition[]>;
+  rejectedTopics: Map<string, Map<string, string>>;
+}
+
 /**
  * The User's own Tags these Documents are about, each Document's own: what tagging may offer
  * the model for it. `own`: the User's Tags, read once for a run.
@@ -132,14 +159,17 @@ export function offeredKinds(db: Database): TagKind[] {
 export function offeredTags(
   db: Database,
   documentIds: readonly string[],
+  at: string,
+  documentWalls: () => ReadonlyMap<string, readonly string[]>,
   own: readonly TagDefinition[] = ownTags(db),
   /** Text the caller has read for a Document, as a scan's first pages before it is stored. */
   known: ReadonlyMap<string, string> = new Map(),
-): Map<string, TagDefinition[]> {
+): TagOffers {
+  const rejectedTopics = new Map<string, Map<string, string>>();
   const offered = new Map<string, TagDefinition[]>();
   if (own.length === 0) {
     for (const id of documentIds) offered.set(id, []);
-    return offered;
+    return { offered, rejectedTopics };
   }
   const membersOf = new Map(
     own.map((tag) => [
@@ -154,6 +184,28 @@ export function offeredTags(
         .map((row) => row.document_id),
     ]),
   );
+  const corrections = db.all<{ target_id: string; document_id: string }>(
+    `SELECT r.target_id, r.document_id FROM organize_review_declines r
+     JOIN documents d ON d.id = r.document_id AND d.content_hash = r.rejected_content_hash
+     WHERE r.rejected_content_hash IS NOT NULL AND r.deleted_at IS NULL AND r.until > ?
+       AND d.deleted_at IS NULL AND d.meeting_mind_id IS NULL
+       AND r.target_id IN (SELECT value FROM json_each(?))
+       AND NOT EXISTS (SELECT 1 FROM document_tags l WHERE l.tag_id = r.target_id
+         AND l.document_id = r.document_id AND l.deleted_at IS NULL)
+     ORDER BY r.created_at DESC, r.rowid DESC`,
+    [at, JSON.stringify(own.map((tag) => tag.id))],
+  );
+  const walls = corrections.length ? documentWalls() : null;
+  const scopeOf = (id: string) => JSON.stringify(walls?.get(id) ?? []);
+  const rejectedByWall = new Map<string, Map<string, Set<string>>>();
+  for (const row of corrections) {
+    const wall = scopeOf(row.document_id);
+    const byTag = rejectedByWall.get(wall) ?? new Map<string, Set<string>>();
+    const ids = byTag.get(row.target_id) ?? new Set<string>();
+    if (ids.size < MEMBERS) ids.add(row.document_id);
+    byTag.set(row.target_id, ids);
+    rejectedByWall.set(wall, byTag);
+  }
   const texts = new Map<string, string>(known);
   const read = (id: string) => {
     let text = texts.get(id);
@@ -171,20 +223,25 @@ export function offeredTags(
     )
     .map((row) => read(row.id));
   for (const id of documentIds) {
+    const rejected = rejectedByWall.size ? rejectedByWall.get(scopeOf(id)) : undefined;
+    const rejectedHere = new Map<string, string>();
     offered.set(
       id,
       tagsAbout(
         read(id),
         own.map((tag) => ({
           tag,
+          rejected: Array.from(rejected?.get(tag.id) ?? [], read).filter(Boolean),
           texts: (membersOf.get(tag.id) ?? [])
             .filter((member) => member !== id)
             .slice(0, MEMBERS)
             .map(read),
         })),
         background,
+        rejectedHere,
       ),
     );
+    if (rejectedHere.size) rejectedTopics.set(id, rejectedHere);
   }
-  return offered;
+  return { offered, rejectedTopics };
 }

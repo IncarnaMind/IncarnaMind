@@ -3302,6 +3302,15 @@ export const migrations: readonly Migration[] = [
         WHERE deleted_at IS NULL;
     `,
   },
+  {
+    version: 151,
+    description: "The Document version on which the User removed a suggested topic Tag (#2339)",
+    sql: `
+      ALTER TABLE organize_review_declines ADD COLUMN rejected_content_hash TEXT;
+      CREATE INDEX organize_review_declines_by_rejected_tag ON organize_review_declines
+        (target_id, until) WHERE rejected_content_hash IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

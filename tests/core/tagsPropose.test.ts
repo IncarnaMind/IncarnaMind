@@ -167,6 +167,137 @@ describe("Tags wait in the Review (#2339)", () => {
     expect(await proposedTagNamesOf(core, report.id)).toEqual(["Report"]);
   });
 
+  test.each([
+    {
+      language: "en" as const,
+      name: "Repair shop",
+      earlier:
+        "Repair shop privacy notice. Subscribers can request deletion of their contact details or withdraw permission to store email addresses. Reference P913.",
+      next: "The repair shop updated its privacy notice. Request deletion of email addresses or withdraw permission to retain contact details.",
+      operations:
+        "Repair shop workshop report. Technicians replaced brake pads, serviced three engines and cleared the backlog of vehicle repairs.",
+    },
+    {
+      language: "zh-CN" as const,
+      name: "修理铺",
+      earlier: "修理铺隐私声明：订阅者可以撤回授权，申请删除电子邮箱及个人资料。内部编号 P913。",
+      next: "修理铺更新隐私声明：需要删除个人资料及电子邮箱的订阅者可以随时撤回授权。",
+      operations: "修理铺维修日报：技师更换刹车片，完成三台发动机保养，清理积压的车辆维修工单。",
+    },
+  ])(
+    "only removing the individual Tag changes later Suggestions ($language)",
+    async ({ language, name, earlier, next, operations }) => {
+      const { core, add, clock, tagging } = await start([name]);
+      await core.updateSettings({ user: { language } });
+      const tag = await core.createTag({ name });
+      const first = await add("first.txt", earlier);
+      await waitForTagging(core, [first.id]);
+      const [item] = (await core.getOrganizeReview()).items;
+      const chip = item?.tags.find((each) => each.tagId === tag.id);
+      if (!item || !chip) throw new Error("The first notice needs a suggested topic Tag.");
+      await core.editOrganizeReview({ kind: "tick", itemIds: [item.id], ticked: false });
+      const notice = await add("next.txt", next);
+      await waitForTagging(core, [notice.id]);
+      expect(await proposedTagNamesOf(core, notice.id)).toContain(name);
+
+      await core.editOrganizeReview({ kind: "tick", itemIds: [item.id], ticked: true });
+      const change = await core.editOrganizeReview({
+        kind: "removeTag",
+        itemId: item.id,
+        tagRowId: chip.id,
+      });
+      await core.tagDocuments({ documentIds: [notice.id] });
+      expect(tagging.requests.at(-1)?.text).not.toContain("P913");
+      expect(tagging.requests.at(-1)?.names).not.toContain(name);
+      expect(await proposedTagNamesOf(core, notice.id)).not.toContain(name);
+
+      const report = await add("operations.txt", operations);
+      await waitForTagging(core, [report.id]);
+      expect(await proposedTagNamesOf(core, report.id)).toContain(name);
+      await core.restoreOrganizeReview(change.before, change.after);
+      await core.tagDocuments({ documentIds: [notice.id] });
+      expect(await proposedTagNamesOf(core, notice.id)).toContain(name);
+      await core.editOrganizeReview({ kind: "removeTag", itemId: item.id, tagRowId: chip.id });
+      clock.advance(31 * DAY);
+      await core.tagDocuments({ documentIds: [notice.id] });
+      expect(await proposedTagNamesOf(core, notice.id)).toContain(name);
+    },
+  );
+
+  test("a shared topic named afresh respects removals in its Folder wall and old Undo records", async () => {
+    const name = "Workshop";
+    const { core, add, tagging } = await start([name]);
+    const topic = await core.createTag({ name });
+    const first = await add(
+      "original.txt",
+      "Workshop subscriber records: consent, deletion requests, personal details and retention periods.",
+    );
+    await waitForTagging(core, [first.id]);
+    const [item] = (await core.getOrganizeReview()).items;
+    const chip = item?.tags.find((row) => row.tagId === topic.id);
+    if (!item || !chip) throw new Error("Expected a suggested Workshop Tag.");
+    const skipped = await core.editOrganizeReview({
+      kind: "tick",
+      itemIds: [item.id],
+      ticked: false,
+    });
+    const legacy = (rows: typeof skipped.after) =>
+      rows.map((row) => {
+        const values = { ...row.values };
+        if (row.table === "declines") delete values.rejected_content_hash;
+        return { ...row, values };
+      });
+    expect(
+      await core.restoreOrganizeReview(legacy(skipped.before), legacy(skipped.after)),
+    ).not.toBeNull();
+    expect(
+      await core.restoreOrganizeReview(legacy(skipped.after), legacy(skipped.before)),
+    ).not.toBeNull();
+
+    tagging.choose(["Report"]);
+    tagging.name([{ name, description: "" }]);
+    const ids: string[] = [];
+    for (const place of ["Harbour", "Hill", "Fen"]) {
+      const doc = await add(
+        `${place}.txt`,
+        `${place} subscriber consent rules: deletion requests for personal details and retention periods.`,
+      );
+      ids.push(doc.id);
+    }
+    await waitForTagging(core, ids);
+    const suggestions = async () => {
+      await core.tagDocuments({ documentIds: ids });
+      const { items } = await core.getOrganizeReview();
+      return items.filter(
+        (row) => ids.includes(row.documentId) && row.tags.some((tag) => tag.tagId === topic.id),
+      ).length;
+    };
+    expect(await suggestions()).toBe(3);
+    tagging.choose([]);
+    tagging.name([]);
+    expect(await suggestions()).toBe(3);
+    tagging.name([{ name, description: "" }]);
+    await core.editOrganizeReview({ kind: "tick", itemIds: [item.id], ticked: true });
+    const removed = await core.editOrganizeReview({
+      kind: "removeTag",
+      itemId: item.id,
+      tagRowId: chip.id,
+    });
+    expect(await suggestions()).toBe(0);
+    for (const id of ids) expect(await proposedTagNamesOf(core, id)).toEqual(["Report"]);
+    await core.restoreOrganizeReview(removed.before, removed.after);
+    expect(await suggestions()).toBe(3);
+    await core.editOrganizeReview({ kind: "removeTag", itemId: item.id, tagRowId: chip.id });
+    const folder = await core.createLibraryGroup({ name: "Private", description: "" });
+    await core.assignDocumentGroup(first.id, folder.id);
+    await core.updateLibraryGroup(folder.id, {
+      name: "Private",
+      description: "",
+      keepInside: true,
+    });
+    expect(await suggestions()).toBe(3);
+  });
+
   test("the User's own Tags stand: one they took off a Document is never proposed for it", async () => {
     const { core, add } = await start(["Report"]);
     const report = await add("Q1.txt", "Quarterly report on sales by region.");

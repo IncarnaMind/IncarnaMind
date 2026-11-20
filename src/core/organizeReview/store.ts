@@ -95,6 +95,7 @@ const COLUMNS: Record<Table, Record<string, Column>> = {
     target_id: "text?",
     name: "text",
     until: "text",
+    rejected_content_hash: "text?",
     created_at: "text",
     deleted_at: "text?",
   },
@@ -198,6 +199,8 @@ export interface TagsProposal {
   tags: ProposedTag[];
   /** Why a Document the User asked to tag gets nothing, for the Review's Left out (#2339). */
   leftOut?: OrganizeReviewLeftOut;
+  /** An otherwise empty Re-tag withdraws only these previously suggested topics. */
+  withdrawTagIds?: ReadonlySet<string>;
 }
 
 /** A run the User started may replace what waits; one in the background or a migration only adds. */
@@ -400,8 +403,10 @@ function parseRows(input: unknown): OrganizeReviewRow[] {
     if (table !== "items" && table !== "folders" && table !== "tags" && table !== "declines")
       throw invalid;
     const columns = COLUMNS[table];
-    // Undo records saved before agent attribution have no author column.
-    const saved = table === "items" ? { agent: null, ...each.values } : each.values;
+    const saved = { ...each.values };
+    if (table === "items" && !("agent" in saved)) saved.agent = null;
+    if (table === "declines" && !("rejected_content_hash" in saved))
+      saved.rejected_content_hash = null;
     const values: Values = {};
     for (const [column, kind] of Object.entries(columns)) {
       const value = saved[column];
@@ -630,13 +635,18 @@ export function createOrganizeReviewStore(
     }
     return targets;
   };
-  const decline = (documentId: string, target: ReturnType<typeof targetsOf>[number]) => {
+  const decline = (
+    documentId: string,
+    target: ReturnType<typeof targetsOf>[number],
+    rejectedHash: string | null = null,
+  ) => {
     insert("declines", {
       document_id: documentId,
       kind: target.kind,
       target_id: target.targetId,
       name: target.name,
       until: declineUntil(),
+      rejected_content_hash: rejectedHash,
     });
   };
   const undecline = (documentId: string, target: ReturnType<typeof targetsOf>[number]) => {
@@ -1036,12 +1046,23 @@ export function createOrganizeReviewStore(
         let written = 0;
         for (const proposal of proposals) {
           if (!proposable(proposal.documentId)) continue;
-          const tags = tagsFor(proposal.documentId, proposal.tags);
+          const existing = openItem(proposal.documentId);
+          if (existing && existing.edited !== 0) continue;
+          let tags: ProposedRow[];
+          const { withdrawTagIds } = proposal;
+          if (withdrawTagIds) {
+            if (!existing) continue;
+            const previous = tagRowsOf(existing.id);
+            const kept = previous.filter((tag) => !tag.tag_id || !withdrawTagIds.has(tag.tag_id));
+            if (kept.length === previous.length) continue;
+            tags = kept.map((row) => ({ ...row, kind: isTagKind(row.kind) ? row.kind : null }));
+          } else {
+            tags = tagsFor(proposal.documentId, proposal.tags);
+          }
           const leftOut =
             tags.length === 0 && proposal.leftOut
               ? { ...UNCHANGED, placement: "leftOut" as const, ...leftOutColumns(proposal.leftOut) }
               : null;
-          const existing = openItem(proposal.documentId);
           if (!existing) {
             if (tags.length === 0 && !leftOut) continue;
             const id = insertItem(
@@ -1054,7 +1075,6 @@ export function createOrganizeReviewStore(
             written++;
             continue;
           }
-          if (existing.edited !== 0) continue;
           let rowId = existing.id;
           if (userStarted(run) && run.runId) {
             // A run with an Undo sets the row it replaces aside, for that Undo to bring back.
@@ -1248,11 +1268,15 @@ export function createOrganizeReviewStore(
             if (!item || !tag) return;
             remove("tags", tag.id);
             if (tag.added_by_user === 0)
-              decline(item.document_id, {
-                kind: "tag",
-                targetId: tag.made === 1 ? null : tag.tag_id,
-                name: isTagKind(tag.kind) ? kindDecline(tag.kind) : tag.name,
-              });
+              decline(
+                item.document_id,
+                {
+                  kind: "tag",
+                  targetId: tag.made === 1 ? null : tag.tag_id,
+                  name: isTagKind(tag.kind) ? kindDecline(tag.kind) : tag.name,
+                },
+                tag.tag_id && !tag.kind && !tag.made ? item.content_hash : null,
+              );
             update("items", item.id, { edited: 1 });
             return;
           }
