@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, link, readFile, unlink, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -119,6 +121,7 @@ export function readerLedger(file: string) {
       signal: AbortSignal.timeout(120_000),
     });
     const cost = answer.inputTokens * INPUT + answer.outputTokens * OUTPUT;
+    if (cost > reserve) db.prepare("UPDATE calls SET amount = ? WHERE key = ?").run(cost, identity);
     if (!(answer.inputTokens > 0 && answer.outputTokens > 0 && cost <= reserve))
       throw Error("Unexpected token usage. Reconcile this request before resuming.");
     db.prepare("UPDATE calls SET amount = ?, reply = ? WHERE key = ?").run(
@@ -176,6 +179,15 @@ async function main(args: string[]) {
   if (!values.send) return;
   if (!values.ledger || !values.out || !process.env.ANTHROPIC_API_KEY)
     throw Error("A paid read needs --ledger, --out and ANTHROPIC_API_KEY.");
+  if (values.ledger === ":memory:" || resolve(values.out) === resolve(values.ledger))
+    throw Error("The reading and its persistent ledger need separate files.");
+  await access(dirname(values.out), constants.W_OK);
+  try {
+    await access(values.out);
+    throw Error("The output already exists. Choose a new reading file.");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
   const model = createAnthropic({
     baseURL: "https://api.anthropic.com/v1",
     apiKey: process.env.ANTHROPIC_API_KEY,
@@ -206,11 +218,15 @@ async function main(args: string[]) {
     for (const done of workers) if (done.status === "rejected") throw done.reason;
     const result = {
       version: { ...READER, question: QUESTION_VERSION },
-      [mode]: Object.fromEntries(entries),
+      [mode]: Object.fromEntries(jobs.map(({ id }) => [id, entries.get(id)])),
     };
     const tmp = `${values.out}.${randomUUID()}.tmp`;
     await writeFile(tmp, `${JSON.stringify(result, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    await rename(tmp, values.out);
+    try {
+      await link(tmp, values.out);
+    } finally {
+      await unlink(tmp);
+    }
   } finally {
     console.log(`Reader spent or reserved: $${(ledger.total() / 1_000_000).toFixed(6)}`);
     ledger.close();
