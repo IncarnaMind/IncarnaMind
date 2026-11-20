@@ -141,8 +141,6 @@ export interface NotJudged {
   reason: JudgeFailure;
   /** For cut-short and failed: what the provider said. */
   error?: ProviderError;
-  /** For unreadable and refused: how the reply began, for a log that says what the model gave (#3506). */
-  reply?: string;
   usage: TokenUsage | null;
 }
 
@@ -171,6 +169,8 @@ export interface JudgeAsk<T> {
   stream?: true;
   /** Hears the reply's text as it streams, for a caller that reads it early; it streams then. */
   onPartial?(delta: string): void;
+  /** Hears the text of a reply that couldn't be read or was declined, for a log of what the model gave (#3506). */
+  onUnread?(reply: string): void;
 }
 
 /** A reply without the thinking a model writes in its text, closed or cut off. */
@@ -581,10 +581,10 @@ export async function judge<T>(ask: JudgeAsk<T>): Promise<Judged<T>> {
   if (replied.finishReason === "content-filter") return { ok: false, reason: "refused", usage };
   const value = readOf(ask.reply, replied);
   if (value === null) {
+    ask.onUnread?.(replied.text);
     return {
       ok: false,
       reason: declines(replyText(replied.text)) ? "refused" : "unreadable",
-      reply: replied.text.trim().slice(0, 300),
       usage,
     };
   }

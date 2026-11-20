@@ -79,6 +79,7 @@ export async function claimsAmong(
     for (let tried = 0; tried < tries; tried++) {
       const { named } = along;
       const early = named ? sortWordsReader(numbers) : null;
+      let gave = "";
       const judged = await judge({
         model: prepared.model,
         question: { id: "find-claims", instructions },
@@ -88,6 +89,9 @@ export async function claimsAmong(
         retries: 1,
         signal: sorting,
         temperature: answerTemperature(prepared.capabilities.facts.temperature),
+        onUnread: (reply: string) => {
+          gave = reply.trim().slice(0, 300);
+        },
         ...(named &&
           early && {
             onPartial: (delta: string) => {
@@ -98,7 +102,7 @@ export async function claimsAmong(
       if (judged.ok) return { kind: "read", words: judged.value };
       if (judged.reason === "stopped") return { kind: "cancelled" };
       if (judged.error) return { kind: "failed", error: judged.error };
-      why = `${judged.reason}: ${JSON.stringify(judged.reply ?? "")}`;
+      why = `${judged.reason}: ${JSON.stringify(gave)}`;
     }
     return { kind: "unread", why };
   };
