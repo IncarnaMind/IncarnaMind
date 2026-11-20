@@ -123,6 +123,53 @@ test("a ready draft is returned by Stop while the last confirmed decision is sti
   }
 });
 
+test("a closing update can keep a withdrawn action and publish the revised launch date", async () => {
+  const withdrawn = "The banner order was cancelled";
+  const opening = `${withdrawn} and the launch is on Monday.`;
+  const run = vi.fn(async ({ prompt }: { prompt: string }) => {
+    const closing = prompt.includes(friday);
+    const date = closing ? friday : monday;
+    return JSON.stringify({
+      summary: date,
+      changes: [
+        {
+          id: closing ? 1 : null,
+          kind: "decision",
+          status: "active",
+          text: date,
+          quote: closing ? friday : "the launch is on Monday",
+        },
+        ...(closing
+          ? []
+          : [{ id: null, kind: "action", status: "cancelled", text: withdrawn, quote: withdrawn }]),
+      ],
+      ...(closing && { unchanged: [2] }),
+    });
+  });
+  const { core, meeting, push, summary } = await setup(run, true, [opening, friday]);
+  try {
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.text).toBe(monday));
+    push(2000);
+    await until(core, meeting.id, (m) => m.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toMatch(/ready|failed/));
+    expect(await summary()).toMatchObject({
+      state: "ready",
+      text: friday,
+      items: [
+        { id: 1, status: "active", text: friday },
+        { id: 2, status: "cancelled", text: withdrawn },
+      ],
+    });
+    const source = await core.getMeetingSummaryItemSources(meeting.id, 2);
+    expect(source?.sources.map((s) => s.text)).toEqual([withdrawn]);
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    core.close();
+  }
+});
+
 test("a repeated saved action does not hide the new action beside it after Stop or restart", async () => {
   const quoteAction = "Lee will compare moving quotes.";
   const cartonAction = "Each department will count its cartons.";
