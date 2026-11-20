@@ -8762,9 +8762,20 @@ export const en = {
   "agents.connect.noneYet": "No Documents yet: it reads those added outside a Folder.",
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
+  "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
     "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. It can also hand over a deck, workbook or other file it made: IncarnaMind reads that one file, keeps each version and checks it. Its changes to your notes wait for you.",
+  "agents.connect.reads.folders":
+    "It may read the Folders you tick below. What it reads goes to the AI model {agent} uses.",
+  "agents.connect.reads.all":
+    "It may read all your Documents, including any you add later. What it reads goes to the AI model {agent} uses.",
+  "agents.connect.reads.none":
+    "You haven’t added a Document yet. It may read the ones you add. What it reads goes to the AI model {agent} uses.",
+  "agents.connect.disconnect": "You can disconnect it at any time.",
+  "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
+  "agents.connect.backup":
+    "It keeps a copy of that file as it is now at {path}, until you disconnect.",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
   "agents.connect.allow": "Allow and connect",
@@ -8791,6 +8802,8 @@ export const en = {
     "Copied. In MiniMax Code, open plugin management › MCP Servers, switch to JSON, paste it and save.",
   "agents.done.paste.kilo-code":
     "In Kilo Code, open Settings › MCP, choose Add Server › Local (stdio), and fill in each part from Details.",
+  "agents.done.unreadable.command":
+    "The settings file of {agent} couldn’t be changed, so it was left alone. The command is copied: paste it into a terminal and run it.",
   "agents.done.unreadable":
     "The settings file of {agent} couldn’t be read, so it was left alone. The settings are copied: paste them into {path}.",
   "agents.done.undo": "Undo",

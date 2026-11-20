@@ -3,12 +3,14 @@
  * runs, the settings pasted into its screen, or the entry in its settings file, cited beside each
  * agent in src/core/agents/clients.ts.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentLaunch } from "../../src/core";
 import {
   AGENT_CLIENT_DEFINITIONS,
   clientDefinition,
+  isInexactNumber,
   promptLinkFor,
+  withMcpServersEntry,
 } from "../../src/core/agents/clients";
 import { AGENT_CLIENT_IDS } from "../../src/core/api";
 
@@ -41,7 +43,9 @@ describe("the agents IncarnaMind is set up in", () => {
   it("gives every agent what its kind of setup needs, and lists each id once", () => {
     expect(AGENT_CLIENT_DEFINITIONS.map((each) => each.id)).toEqual([...AGENT_CLIENT_IDS]);
     for (const client of AGENT_CLIENT_DEFINITIONS) {
-      expect(client.setup === "command", client.id).toBe(client.command !== undefined);
+      // A line is a "command" agent's setup, and what a "file" agent is given when its file can't be written.
+      if (client.setup === "command") expect(client.command, client.id).toBeDefined();
+      else if (client.command) expect(client.setup, client.id).toBe("file");
       expect(client.setup === "link", client.id).toBe(client.link !== undefined);
       expect(client.setup === "file", client.id).toBe((client.files?.length ?? 0) > 0);
     }
@@ -87,8 +91,12 @@ describe("the agents IncarnaMind is set up in", () => {
     }
   });
 
-  // protects=IncarnaMind writes only the files each agent's documentation gives the User to edit, in the shape it reads; fails_when=VS Code's entry lacks the type and tools Copilot's file takes, or a file is a synced or commented one
+  // protects=IncarnaMind writes only the files each agent's documentation gives, in the shape it reads, and Claude Code's own state file whole with a copy kept (#3487); fails_when=VS Code's entry lacks the type and tools Copilot's file takes, Claude Code's lacks the type its CLI writes or is written with no copy, or a file is a synced or commented one
   it("writes each file agent's own documented file, in its shape", () => {
+    const keepingCopy = AGENT_CLIENT_DEFINITIONS.filter((each) =>
+      each.files?.some((file) => file.backup),
+    );
+    expect(keepingCopy.map((each) => each.id)).toEqual(["claude-code"]);
     const files = Object.fromEntries(
       AGENT_CLIENT_DEFINITIONS.filter((each) => each.setup === "file").map((each) => [
         each.id,
@@ -96,6 +104,7 @@ describe("the agents IncarnaMind is set up in", () => {
       ]),
     );
     expect(files).toEqual({
+      "claude-code": [[".claude.json", { type: "stdio", ...entry }]],
       codex: [[".codex/config.toml", entry]],
       vscode: [[".copilot/mcp-config.json", { type: "stdio", ...entry, tools: ["*"] }]],
       antigravity: [[".gemini/config/mcp_config.json", entry]],
@@ -148,5 +157,61 @@ describe("the agents IncarnaMind is set up in", () => {
       expect(promptLinkFor(id, "Fix it?"), id).toBeNull();
     }
     expect(promptLinkFor(null, "Fix it?")).toBeNull();
+  });
+});
+
+describe("a state file's numbers are kept exactly or the file is left alone (#3487)", () => {
+  const ENTRY = { type: "stdio", command: "c", args: [], env: {} };
+  const kept = (text: string) => withMcpServersEntry(text, ENTRY);
+  afterEach(() => vi.restoreAllMocks());
+
+  it("judges a whole number past the safe range inexact, however it is written", () => {
+    for (const value of [JSON.parse("12345678901234567890"), 2 ** 53, -(2 ** 53) - 2, 1e300]) {
+      expect(isInexactNumber(value), String(value)).toBe(true);
+    }
+    for (const value of [
+      0,
+      -0,
+      41,
+      Number.MAX_SAFE_INTEGER,
+      0.1,
+      1.5e-7,
+      "12345678901234567890",
+      null,
+    ]) {
+      expect(isInexactNumber(value), String(value)).toBe(false);
+    }
+  });
+
+  it.each([
+    "12345678901234567890",
+    "-12345678901234567890",
+    "12345678901234567890.0",
+    "1.2345678901234567e19",
+    "9007199254740993",
+  ])("refuses a file holding %s, which JSON can't write back as it was", (number) => {
+    expect(() => kept(`{"count": ${number}}`)).toThrow(/can't be kept exactly/);
+    expect(() => kept(`{"nested": {"list": [${number}]}}`)).toThrow(/can't be kept exactly/);
+  });
+
+  it("keeps the numbers JSON writes back as they were", () => {
+    const written = kept('{"a": 9007199254740991, "b": 0.1, "c": -3, "d": 1.5e-7, "e": 0}');
+    expect(JSON.parse(written)).toMatchObject({
+      a: 9007199254740991,
+      b: 0.1,
+      c: -3,
+      d: 1.5e-7,
+      e: 0,
+    });
+  });
+
+  it("refuses the same where the runtime gives a reviver no source text", () => {
+    const parse = JSON.parse.bind(JSON);
+    vi.spyOn(JSON, "parse").mockImplementation((text, reviver) =>
+      parse(text, reviver ? (key, value) => reviver(key, value) : undefined),
+    );
+    expect(() => kept('{"count": 12345678901234567890}')).toThrow(/can't be kept exactly/);
+    expect(() => kept('{"count": 12345678901234567890.0}')).toThrow(/can't be kept exactly/);
+    expect(JSON.parse(kept('{"count": 12}')).count).toBe(12);
   });
 });
