@@ -12302,8 +12302,19 @@ export interface MeetingTranscript {
 export type TranscriptionModelStatus = EmbeddingModelStatus;
 
 export interface MeetingSpeakerReviewQuote {
+  /** Present for an on-device room review, zero when its files are installed. */
+  roomDownloadBytes?: number;
   available: boolean;
-  reason: "audio" | "transcript" | "soniox" | "local" | "cap" | "duration" | null;
+  reason:
+    | "audio"
+    | "transcript"
+    | "soniox"
+    | "local"
+    | "cap"
+    | "duration"
+    | "people"
+    | "platform"
+    | null;
   durationMs: number;
   estimatedUsd: number;
   cached?: true;
@@ -12319,6 +12330,11 @@ export interface MeetingSpeakerSuggestion {
 }
 
 export interface MeetingSpeakerReviewResult {
+  uncertainSpeakers?: true;
+  /** Room speaker numbers can be claimed by manual edits after review. */
+  reviewedSpeakers?: TranscriptSpeakers | null;
+  /** Room reviews play the microphone track. Older call reviews play computer audio. */
+  source?: AudioSource;
   documentId: string;
   contentHash: string;
   suggestions: MeetingSpeakerSuggestion[];
@@ -15051,8 +15067,8 @@ export interface CoreApi {
    */
   readMeetingAudio(input: {
     meetingId: string;
-    /** A speaker review plays just the computer sound that Soniox heard. */
-    source?: "system";
+    /** Play the track that the speaker review checked. */
+    source?: AudioSource;
     fromMs: number;
     toMs: number;
   }): Promise<MeetingAudioStretch>;
@@ -15060,6 +15076,7 @@ export interface CoreApi {
   reviewMeetingSpeakers(input: {
     meetingId: string;
     confirmed: true;
+    onDevice?: true;
     /** View a previous review without authorizing another upload. */
     reuseOnly?: true;
   }): Promise<MeetingSpeakerReviewResult>;

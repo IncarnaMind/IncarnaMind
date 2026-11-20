@@ -41,7 +41,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { setTextOrigin } from "../../shared/textOrigins";
-import type { AnalysisRuntime } from "../adapters";
+import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
 import type {
   CheckTask,
@@ -75,6 +75,7 @@ import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
 import { isRecord } from "../errors";
+import type { Language } from "../language";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { insertBlocks } from "../noteAdding";
@@ -89,6 +90,13 @@ import {
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
 import {
+  HELD_PICTURE,
+  holdPictures,
+  inlinePictureChars,
+  NOTE_PICTURE_LIMITS,
+  readPictures,
+} from "./pictures";
+import {
   ChangeRefused,
   type CitedToken,
   HeldParagraph,
@@ -101,6 +109,7 @@ import {
 } from "./proposals";
 import { AgentRefusedError, text, whole } from "./refusals";
 import type { AgentRequests } from "./requests";
+import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
 import {
   type AgentAnalysed,
   type AgentReach,
@@ -316,6 +325,8 @@ export interface AgentProposed {
   citations: AgentCheckedCitation[];
   /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
   uncited: string[];
+  /** Each picture or chart that isn't in the Note, and why: the Note has a line saying so (#3413). */
+  refused: VisualLeftOut[];
   /**
    * In a Note this agent wrote, how many of its sentences hold no check result now, and that
    * `check_mind_yourself` gives them (#3378); null when none do, and in any other Note.
@@ -343,6 +354,14 @@ export interface AgentCreated {
   citations: AgentCheckedCitation[];
   /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
   uncited: string[];
+  /** Each picture or chart that isn't in the Note, and why: the Note has a line saying so (#3413). */
+  refused: VisualLeftOut[];
+}
+
+/** A picture or chart an agent wrote that isn't in the Note: what it wrote, and why, in words. */
+export interface VisualLeftOut {
+  item: string;
+  reason: string;
 }
 
 export interface AgentCheckMindInput {
@@ -612,6 +631,15 @@ export interface AgentAccessDeps {
   passagesCovering?: AnswerDocuments["passagesCovering"];
   /** Runs `run_analysis`'s code; absent where this computer can't run Python for IncarnaMind. */
   analysisRuntime?: AnalysisRuntime;
+  /**
+   * Reads a picture file an agent names for a Note, with the host's reader of the files agents
+   * name (`CanvasFiles.readNamed`); absent where the host has none.
+   */
+  readNamed?(path: string, maxBytes: number): Promise<NamedFile>;
+  /** Draws an agent's SVG picture as a PNG, as a chart is drawn for Word; absent where the host can't. */
+  pictures?: Pictures;
+  /** The interface language, which a chart reads its figures in. */
+  language(): Language;
   /** The Library's lists of these Documents, Folders and notes alone, as `source` names them. */
   libraryLists(reach: AgentReach & { source: LibrarySource }): LibraryLists;
   /** The version of the Library's lists as a Note's own Check counts them, which its marks compare. */
@@ -846,6 +874,23 @@ function uncitedIn(texts: readonly string[], counts: (token: string) => boolean)
     .map((sentence) => clip(sentence, 200));
 }
 
+/** A draft's words without its pictures and its charts' blocks, which make no claim to cite. */
+function proseOf(text: string): string {
+  const kept: string[] = [];
+  let fence: string | null = null;
+  for (const line of holdPictures(text).text.replace(HELD_PICTURE, "").split("\n")) {
+    if (fence !== null) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith(fence) && trimmed.replaceAll(fence[0] ?? "", "") === "") fence = null;
+      continue;
+    }
+    const opens = /^ {0,3}(`{3,}|~{3,})[ \t]*(\S*)/.exec(line);
+    if (opens?.[1] && opens[2] === CHART_FENCE) fence = opens[1];
+    else kept.push(line);
+  }
+  return kept.join("\n");
+}
+
 // Scanned by hand, never by a pattern that backtracks: a draft runs to `MAX_DRAFT_CHARS`, and a
 // long run of spaces or full stops with no token after it took a pattern seconds (#3378).
 
@@ -912,7 +957,7 @@ function changeText(value: unknown, name: string, t: Say): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new AgentRefusedError("invalid", t("agents.propose.text", { name }));
   }
-  if (value.length > MAX_CHANGE_CHARS) {
+  if (value.length > MAX_CHANGE_CHARS + inlinePictureChars(value)) {
     throw new AgentRefusedError(
       "invalid",
       t("agents.propose.textTooLong", { name, max: MAX_CHANGE_CHARS }),
@@ -1080,6 +1125,33 @@ export function documentsForPairing(
 /** The core interface for one pairing's calls. */
 export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
+  const pictureLimit = { max: NOTE_PICTURE_LIMITS.bytes / (1024 * 1024) };
+  const reasonOf = (left: VisualRefused) =>
+    left.kind === "picture"
+      ? t(
+          `agents.picture.refused.${left.why}`,
+          left.why === "too-many" ? { max: NOTE_PICTURE_LIMITS.pictures } : pictureLimit,
+        )
+      : t(`agents.chart.refused.${left.why}`);
+  /** The pictures `texts` name, read for this call, and how its Blocks put them and its charts in place (#3413). */
+  const visualsFor = async (texts: readonly string[]): Promise<NoteVisuals> => ({
+    pictures: await readPictures(
+      texts.flatMap((each) => holdPictures(each).pictures),
+      deps.readNamed,
+      deps.pictures,
+    ),
+    language: deps.language(),
+    notFound: t("agents.answer.notFound"),
+    line: (left) =>
+      left.kind === "chart"
+        ? t("agents.chart.notDrawn", { reason: reasonOf(left) })
+        : left.name === ""
+          ? t("agents.picture.notAdded", { reason: reasonOf(left) })
+          : t("agents.picture.notAddedNamed", { name: left.name, reason: reasonOf(left) }),
+    newId: deps.newId,
+  });
+  const leftOut = (refused: readonly VisualRefused[]): VisualLeftOut[] =>
+    refused.map((each) => ({ item: each.item, reason: reasonOf(each) }));
   const label = (
     location: CitationLocation | null,
     pageFrom: number | null,
@@ -2080,7 +2152,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       const known = deps.minds().find((mind) => mind.id === mindId);
-      return call("propose_changes", known ? mindName(known) : "", effects, (pairing) => {
+      return call("propose_changes", known ? mindName(known) : "", effects, async (pairing) => {
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
@@ -2090,6 +2162,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("invalid", t("agents.propose.version"));
         }
         const asked = parseChanges(input?.changes, t);
+        const visuals = await visualsFor(
+          asked.flatMap((change) => (change.kind === "add" ? [change.text] : [])),
+        );
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
         const tokens = new Map<
@@ -2130,6 +2205,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             },
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
+            visuals,
             newId: deps.newId,
             ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
           });
@@ -2184,6 +2260,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             citations,
             // As the change's bar counts them, from what was written, the Citations kept too.
             uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
+            refused: leftOut(written.refused),
             next:
               unchecked === 0
                 ? null
@@ -2203,13 +2280,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     createMind(input) {
       const named = typeof input?.title === "string" ? input.title.trim() : "";
       const unmade: Effect = { action: "write", scope: { kind: "mind", mindId: "" } };
-      return call("create_mind", named, [READ_DOCUMENTS, unmade], (pairing) => {
+      return call("create_mind", named, [READ_DOCUMENTS, unmade], async (pairing) => {
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         const title = text(input?.title, "title", MAX_TITLE_CHARS);
-        const written = text(input?.markdown, "markdown", MAX_DRAFT_CHARS);
+        const draft = typeof input?.markdown === "string" ? input.markdown : "";
+        const written = text(
+          input?.markdown,
+          "markdown",
+          MAX_DRAFT_CHARS + inlinePictureChars(draft),
+        );
         const folder = placeToWriteIn(pairing, input?.folderId);
+        const visuals = await visualsFor([written]);
+        // Counted once the pictures are read: from here the Note is written without a wait.
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
           throw new AgentRefusedError(
@@ -2227,12 +2311,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           const token = match[1] ?? "";
           if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
         }
-        let nodes: ReturnType<typeof newBlocks>["nodes"];
+        let made: ReturnType<typeof newBlocks>;
         try {
-          nodes = newBlocks(written, t("agents.create.text"), {
+          made = newBlocks(written, t("agents.create.text"), {
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
-          }).nodes;
+            visuals,
+          });
         } catch (error) {
           if (!(error instanceof ChangeRefused)) throw error;
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
@@ -2250,7 +2335,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           content: [{ type: "text", text: title }],
         };
         deps.editMind(mind.id, (blocks) => {
-          insertBlocks(blocks, ownHeading ? nodes : [heading, ...nodes]);
+          insertBlocks(blocks, ownHeading ? made.nodes : [heading, ...made.nodes]);
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {
             const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
@@ -2274,14 +2359,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           tables: 0,
           step: null,
         });
-        const made = deps.minds().find((each) => each.id === mind.id);
+        const listed = deps.minds().find((each) => each.id === mind.id);
         return {
           result: {
             mindId: mind.id,
-            title: (made && mindName(made)) || title,
+            title: (listed && mindName(listed)) || title,
             folder: folder.name,
             citations: [...tokens.values()].map((each) => each.report),
-            uncited: uncitedIn([written], (token) => tokens.get(token)?.cited?.citable === true),
+            uncited: uncitedIn(
+              [proseOf(written)],
+              (token) => tokens.get(token)?.cited?.citable === true,
+            ),
+            refused: leftOut(made.refused),
           },
           count: 1,
           documentIds: [...tokens.values()].flatMap((each) =>

@@ -632,8 +632,9 @@ describe("outside agents", () => {
       tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     );
     // 1,850 before calculate and run_analysis (#3363); 2,419 before the Canvases' three (#3406);
-    // 2,748 before read_request (#3419).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(2_870);
+    // 2,748 before read_request (#3419) and pictures and charts in a Note (#3413); 2,922 before
+    // calculate went and report_check took a working instead (#3393).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(2_851);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

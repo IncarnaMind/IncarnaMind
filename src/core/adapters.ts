@@ -184,8 +184,9 @@ export interface FileShell {
 
 /**
  * The files of the Canvases outside agents write (#3406): a file an agent names, read where it is
- * and nothing else of its folder, and the bytes of each version kept in the data folder by their
- * SHA-256. The desktop app reads with Node (src/main/canvasFiles.ts).
+ * and nothing else of its folder (a picture it names for a Note too, #3413), and the bytes of each
+ * version kept in the data folder by their SHA-256. The desktop app reads with Node
+ * (src/main/canvasFiles.ts).
  */
 export interface CanvasFiles {
   /**
@@ -960,6 +961,11 @@ export interface VoiceTurn {
   voice: number;
 }
 
+export interface RoomSpeakerReviewer {
+  downloadBytes(): number;
+  separate(meetingId: string, recording: Blob, signal: AbortSignal): Promise<VoiceTurn[]>;
+}
+
 /**
  * Tells the voices in one source's recording apart after the call (#138), off the core's
  * thread and at low priority: the desktop app runs it in a utility process of its own
@@ -976,8 +982,9 @@ export interface SpeakerSeparator {
 
 /**
  * Draws an SVG document as a PNG, for a picture in an export (a chart in a
- * Word file, #436). The desktop app draws it in a hidden window that loads
- * nothing from the network (src/main/pictures.ts); tests pass a fake.
+ * Word file, #436) and for an SVG picture an outside agent puts in a Note
+ * (#3413). The desktop app draws it in a hidden window that loads nothing
+ * from the network (src/main/pictures.ts); tests pass a fake.
  */
 export interface Pictures {
   /** The SVG drawn at its own size in pixels (its `width` and `height`), as PNG bytes. */
@@ -1491,6 +1498,7 @@ export interface CoreAdapters {
    * that aren't about it): lines keep the labels of where they came from.
    */
   speakerSeparator?: SpeakerSeparator;
+  roomSpeakerReviewer?: RoomSpeakerReviewer;
   /** Where the speaker models are downloaded from. Defaults to the pinned Hugging Face revisions. */
   speakerModelSource?: { segmentation: EmbeddingModelSource; embedding: EmbeddingModelSource };
   /**
