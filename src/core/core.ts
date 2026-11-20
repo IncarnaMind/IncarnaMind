@@ -70,6 +70,7 @@ import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup, skillInstalled } from "./agents/setup";
+import { withTabFences } from "./agents/tabs";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -319,13 +320,12 @@ import {
   parseMindId,
   parseMindModel,
 } from "./minds";
-import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
+import { firstLineOf, NO_MARKS, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
-import { withTabSections } from "./noteTabs";
 import {
   createOrganizeReview,
   type OrganizeReviewRun,
@@ -5827,11 +5827,18 @@ export function createCore(adapters: CoreAdapters): Core {
         });
         // A heading that opens the Note is its title already: it is read once (#3371).
         const title = titled ? "" : mind.title || mind.autoTitle;
-        // Each tab is a part of the Note under its title, as a file has it (#3414).
-        const parts = withTabSections(blocks, (n) =>
+        // Each tab starts as the agent writes one (#3414), and the title is in the first tab.
+        const parts = withTabFences(blocks, (n) =>
           translate(language, "noteTabs.defaultTitle", { n }),
         );
-        return renderMarkdown(title, parts, exportLabels(language), { pictures: "marked" }).text;
+        const inTab = title !== "" && blocks[0]?.kind === "tab";
+        if (inTab) {
+          const text = { kind: "text", text: title, marks: NO_MARKS } as const;
+          parts.splice(1, 0, { kind: "heading", level: 1, content: [text] });
+        }
+        return renderMarkdown(inTab ? "" : title, parts, exportLabels(language), {
+          pictures: "marked",
+        }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>

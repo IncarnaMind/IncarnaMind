@@ -69,6 +69,7 @@ import {
 } from "../proposals/write";
 import { CITATION_TOKEN } from "./citations";
 import { HOLDING_PICTURES, holdPictures } from "./pictures";
+import { emptyTab, holdsTab, openTabs, placeTabs, tabFence } from "./tabs";
 import { type NoteVisuals, placeVisuals, type VisualRefused } from "./visuals";
 
 type Attributes = Record<string, unknown>;
@@ -102,10 +103,10 @@ export interface NamedWords {
   waiting: string;
   busy: string;
   /**
-   * The line before the first paragraph of a tab of the Note (#3414), by its title, "" for a tab
-   * with none, and its number from 1. Absent: tabs aren't read.
+   * The title a tab of the Note (#3414) shows when it has none of its own, by its number from 1.
+   * Absent: tabs aren't read.
    */
-  tab?(title: string, number: number): string;
+  untitledTab?(number: number): string;
 }
 
 export interface NamedOptions {
@@ -315,7 +316,7 @@ export function namedNote(
       block instanceof Y.XmlElement && !addedByProposal(block) ? visualLine(block) : null;
     if (visual !== null) shown.push({ at, text: visual });
   }
-  if (words.tab) shown.push(...tabLines(blocks, words.tab));
+  if (words.untitledTab) shown.push(...tabLines(blocks, words.untitledTab));
   const text = shown
     .sort((a, b) => a.at - b.at)
     .map((each) => each.text)
@@ -324,27 +325,26 @@ export function namedNote(
 }
 
 /**
- * Where each tab of the Note starts, as the line an agent reads there (#3414), by its place among
- * the top-level Blocks: none in a Note without tabs. The Blocks before the first tab Block are
- * the first tab, with no title of its own.
+ * Where each tab of the Note starts, as an agent reads and writes it (#3414), by its place among
+ * the top-level Blocks: none in a Note without tabs, nor for a tab a change still waits to add.
+ * The Blocks before the first tab Block are the first tab, with no title of its own.
  */
 function tabLines(
   blocks: Y.XmlFragment,
-  said: (title: string, number: number) => string,
+  untitled: (number: number) => string,
 ): { at: number; text: string }[] {
-  const all = blocks.toArray();
-  const starts = all.flatMap((block, at) =>
-    block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE ? [{ block, at }] : [],
-  );
-  if (starts.length === 0) return [];
+  const starts = blocks
+    .toArray()
+    .flatMap((block, at) =>
+      block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE ? [{ block, at }] : [],
+    );
   const leading = (starts[0]?.at ?? 0) > 0;
-  const lines = leading ? [{ at: -1, text: said("", 1) }] : [];
-  for (const [index, { block, at }] of starts.entries()) {
+  return starts.flatMap(({ block, at }, index) => {
+    if (addedByProposal(block)) return [];
     const title = block.getAttribute(NOTE_TAB_TITLE_ATTRIBUTE);
-    const number = index + (leading ? 2 : 1);
-    lines.push({ at, text: said(typeof title === "string" ? title.trim() : "", number) });
-  }
-  return lines;
+    const own = typeof title === "string" ? title.trim() : "";
+    return [{ at, text: tabFence(own || untitled(index + (leading ? 2 : 1))) }];
+  });
 }
 
 /** The top-level table an element is in; null when it is in none. */
@@ -418,6 +418,7 @@ export class ChangeRefused extends Error {
       | "agents.propose.formula"
       | "agents.propose.lost"
       | "agents.propose.visualAdded"
+      | "agents.propose.emptyTab"
       | (typeof REFUSAL_WORDS)[keyof typeof REFUSAL_WORDS]["agent"],
     readonly paragraph: string,
   ) {
@@ -571,7 +572,7 @@ export function newBlocks(
     if (each) each.back += 1;
   };
   const markdown = withTokens(
-    withoutName(written),
+    openTabs(withoutName(written)),
     (part) => unescapeNames(part).replace(HOLDING, "").replace(HOLDING_PICTURES, ""),
     hold,
   );
@@ -630,7 +631,7 @@ export function newBlocks(
     kept.search(HOLDING) >= 0 ||
     kept.search(HOLDING_PICTURES) >= 0;
   if (lost) throw new ChangeRefused("agents.propose.lost", name);
-  return { nodes, cited, refused };
+  return { nodes: placeTabs(nodes), cited, refused };
 }
 
 /** A whole new Block, or list item, as a Proposal of `request` that adds it. */
@@ -661,10 +662,27 @@ function addAfter(
   }
   let top: Y.XmlElement = paragraph;
   while (top.parent instanceof Y.XmlElement) top = top.parent;
-  blocks.insert(
-    blocks.toArray().indexOf(top) + 1,
-    nodes.map((node) => proposedElement(node, options)),
+  blocks.insert(blocks.toArray().indexOf(top) + 1, proposedBlocks(nodes, options));
+}
+
+/**
+ * New top-level Blocks, each a Proposal of `request` that adds it. A tab's start, which the User
+ * never sees in the text, is one Proposal with the Block after it (#3414).
+ */
+function proposedBlocks(nodes: readonly NodeJSON[], options: ProposeOptions): Y.XmlElement[] {
+  const holds = (index: number) =>
+    nodes[index]?.type === NOTE_TAB_NODE &&
+    nodes[index + 1] !== undefined &&
+    nodes[index + 1]?.type !== NOTE_TAB_NODE;
+  const proposals = nodes.map((_, index) =>
+    holds(index)
+      ? null
+      : blockProposal({ id: options.newId(), request: options.request }, "insert", ""),
   );
+  return nodes.map((node, index) => {
+    const proposal = proposals[index] ?? proposals[index + 1];
+    return createElement({ ...node, attrs: { ...node.attrs, [PROPOSAL_ATTRIBUTE]: proposal } });
+  });
 }
 
 /**
@@ -806,8 +824,11 @@ function writeNamed(
     }
     const { paragraph, element } = elementAt(change.at);
     if (paragraph.held) throw new HeldParagraph(paragraph, paragraph.held);
-    // A paragraph's rewrite is its words: a picture or a chart is a Block of its own, added.
-    if (change.kind === "rewrite" && options.visuals && holdsVisual(change.text)) {
+    // A paragraph's rewrite is its words: a picture, a chart or a tab is a Block of its own, added.
+    if (
+      change.kind === "rewrite" &&
+      (holdsTab(change.text) || (options.visuals && holdsVisual(change.text)))
+    ) {
       throw new ChangeRefused("agents.propose.visualAdded", paragraph.name);
     }
     const { from, to } = wholeOf(element, paragraph.blockId);
@@ -819,10 +840,14 @@ function writeNamed(
         : rewriteText(change.text, read.selection, paragraph.name, options);
     rewrites.push({ element, selection: read.selection, name: paragraph.name, ...written });
   }
-  const additions = [...adds.entries()].map(([after, nodes]) => ({
-    element: after === null ? null : elementAt(after).element,
-    nodes,
-  }));
+  const additions = [...adds.entries()].map(([after, nodes]) => {
+    const element = after === null ? null : elementAt(after);
+    // A tab is decided with the first Block it holds: an empty one would wait unseen.
+    if (!options.checkpoint && emptyTab(nodes)) {
+      throw new ChangeRefused("agents.propose.emptyTab", `${element?.paragraph.name ?? "¶0"}+`);
+    }
+    return { element: element?.element ?? null, nodes };
+  });
 
   const placed = tallyCiting(new Map(), blocks, options.request);
   for (const { element, selection, fresh, kept } of rewrites) {
@@ -851,7 +876,7 @@ function writeNamed(
   for (const { element, nodes } of additions) {
     if (nodes.length === 0) continue;
     if (element) addAfter(blocks, element, nodes, options);
-    else blocks.push(nodes.map((node) => proposedElement(node, options)));
+    else blocks.push(proposedBlocks(nodes, options));
   }
   if (!holdsOnlyPlaced(blocks, options.request, placed)) return refused({ notPlaced: true });
   const waiting = waitingChanges(blocks, (each) => each.request === options.request);

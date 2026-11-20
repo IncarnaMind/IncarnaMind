@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import {
+  NOTE_TAB_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -33,6 +34,7 @@ export const PROPOSAL_NODE_TYPES = [
   "footnote",
   "inlineMath",
   "hardBreak",
+  NOTE_TAB_NODE,
 ] as const;
 
 /**
@@ -100,13 +102,17 @@ const HOLDERS: ReadonlySet<string> = new Set([
   "blockquote",
 ]);
 
-/** A Block with no text: an empty paragraph or heading, or a list item or quote of only those. */
+/**
+ * A Block with no text: an empty paragraph or heading, or a list item or quote of only those. A
+ * tab's start holds none, ever: it is decided with the Block after it (#3414).
+ */
 const blank = (node: ProseMirrorNode): boolean =>
-  node.isTextblock
+  node.type.name !== NOTE_TAB_NODE &&
+  (node.isTextblock
     ? node.content.size === 0
     : HOLDERS.has(node.type.name) &&
       node.childCount > 0 &&
-      Array.from({ length: node.childCount }, (_, index) => node.child(index)).every(blank);
+      Array.from({ length: node.childCount }, (_, index) => node.child(index)).every(blank));
 
 /** The User's own edit, not a change that came from the Mind's document. */
 const typedHere = (tr: Transaction) => tr.docChanged && !tr.getMeta(ySyncPluginKey)?.isChangeOrigin;
