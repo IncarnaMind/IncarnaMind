@@ -9,8 +9,8 @@
  *
  * The Tools are few and their descriptions short, because each agent turn
  * carries their definitions; `search`, `ask` and `read_request` are marked to
- * load at once where a client defers Tools. Their names fit every client's rules (letters,
- * digits and underscores; Kiro allows no others). Each result is typed
+ * load at once where a client defers Tools. Their names fit every client's
+ * rules (letters, digits and underscores; Kiro allows no others). Each result is typed
  * (`outputSchema`), with the same JSON as text for clients that read only text.
  * A refusal comes back as a Tool error in plain words, which the agent can
  * pass on to the User. This module loads the SDK, so ./index imports it only
