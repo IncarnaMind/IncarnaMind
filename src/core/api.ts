@@ -4720,7 +4720,9 @@ export interface Document {
   /**
    * The User keeps it as their own workings: a spreadsheet of figures copied from a
    * report, with their own ratios. Answers search and read it to understand a Question but
-   * never cite it, and checks never use it as evidence (`setNotCited`).
+   * never cite it, and checks never use it as evidence (`setNotCited`). A file an outside agent
+   * handed over (`HandedFile`) is Not cited from its first version, and isn't searched or read by
+   * anything but the User's own search until they cite it again (#3492).
    */
   notCited: boolean;
   /** Where its text came from, when Find sources added it (#296); null for any other Document. */

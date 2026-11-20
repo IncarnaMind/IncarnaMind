@@ -339,7 +339,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "List Notes",
       description:
-        "List the shared Folders with their Documents and the User's Notes (in Not in a Folder, yours).",
+        "List the shared Folders with their Documents and the User's Notes. What is in no Folder is one entry with an empty name; its Notes are only yours.",
       inputSchema: z.object({}),
       outputSchema: z.object({
         folders: z.array(
