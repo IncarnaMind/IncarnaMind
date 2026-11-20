@@ -36,24 +36,12 @@ export interface NumberBefore {
   same: boolean;
 }
 
-/** The figure `before` ends with (spaces aside), with its unit and scale as it writes them: "£35,760". */
-function figureEnding(before: string, language: PlacedFigure["show"]["language"]): Figure | null {
-  const trimmed = before.replace(/\s+$/u, "");
-  if (!trimmed) return null;
-  const last = readFigures(trimmed, { language }).at(-1);
-  return last && last.end === trimmed.length ? last : null;
-}
-
-/** What the text right before a figure's marker writes as that figure ("saved £35,760 [=1]"), or null. */
-export const writtenBefore = (
-  before: string,
-  language: PlacedFigure["show"]["language"],
-): string | null => figureEnding(before, language)?.chars ?? null;
-
 /** The number `before` ends with (spaces aside), as it bears on `figure`; null when it ends with none. */
 export function numberBefore(before: string, figure: PlacedFigure): NumberBefore | null {
-  const last = figureEnding(before, figure.show.language);
-  if (!last) return null;
+  const trimmed = before.replace(/\s+$/u, "");
+  if (!trimmed) return null;
+  const last = readFigures(trimmed, { language: figure.show.language }).at(-1);
+  if (!last || last.end !== trimmed.length) return null;
   return { start: last.start, chars: last.chars, same: sameFigure(last, figure) };
 }
 

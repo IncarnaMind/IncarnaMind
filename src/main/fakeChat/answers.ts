@@ -870,6 +870,7 @@ function answerFrom(
         citation: 1,
         value,
       }));
+      const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
       return {
         tool: "calculate",
         input: {
@@ -879,6 +880,7 @@ function answerFrom(
               label: "Growth (%)",
               inputs,
               formula: "n1 / n2 - 1",
+              shown: percent(later / earlier - 1),
             },
             ...(share
               ? [
@@ -887,6 +889,7 @@ function answerFrom(
                     label: "Share (%)",
                     inputs,
                     formula: "n2 / n1",
+                    shown: percent(earlier / later),
                   },
                 ]
               : []),
@@ -904,23 +907,13 @@ function answerFrom(
     }
     if (calculated.at(-1)?.startsWith("Recorded [=1]")) {
       const chinese = /增长/.test(question);
-      // Each figure as a model writes it once told its result: "Recorded [=1] = 0.204387 (…)".
-      const told = calculated.at(-1) ?? "";
-      const percent = (marker: number) => {
-        const result = new RegExp(`Recorded \\[=${marker}\\] = (-?[\\d,.]+)`).exec(told)?.[1];
-        return `${(Number((result ?? "0").replace(/,/g, "")) * 100).toFixed(1)}%`;
-      };
       if (share)
         return {
           text: chinese
-            ? `增长了${percent(1)}[=1][^1]，上年为本年的${percent(2)}[=2][^1]。`
-            : `It grew ${percent(1)} [=1] [^1], and the earlier year was ${percent(2)} [=2] of the later one [^1].`,
+            ? "增长了[=1][^1]，上年为本年的[=2][^1]。"
+            : "It grew [=1] [^1], and the earlier year was [=2] of the later one [^1].",
         };
-      return {
-        text: chinese
-          ? `增长了${percent(1)}[=1][^1]。`
-          : `It grew ${percent(1)} [=1] [^1].\n\nThat is all.`,
-      };
+      return { text: chinese ? "增长了[=1][^1]。" : "It grew [=1] [^1].\n\nThat is all." };
     }
   }
   if (ASKS_MAIN_PROJECTS.test(question)) return { text: projectsAnswer(question) };

@@ -635,14 +635,14 @@ const RECORD = `the Passage's id, where the quote is, and a short quote copied e
  * number it works out, simple ones included.
  */
 const CALCULATE = [
-  'Never work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate, then write the figure it gives as it should read, with its marker right after it: "grew 20.4% [=1] in 2025".',
-  "- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit. Write the figure with its unit and scale, its digits the result's as you round it.",
+  'Never work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number\'s place, with no number or unit beside it: "grew [=1] in 2025", not "grew 20.4% [=1]".',
+  "- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit; shown is how it reads in the Answer, with its unit and scale.",
   "- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.",
   "- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.",
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with the figure written in the answer as it should read and [=1] right after it, its digits the result's as you round it: its marker; a label that says what it is, with its period and unit; its inputs, each a name for the formula, the marker of the Citation whose quote holds the number, and the number as a plain value, the quote's own digits moved by a power of ten only where you mean another scale or unit; a formula over the names in Excel's syntax, such as (b - a) / a. ${ROW_CONTEXT}.`;
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; a label that says what it is, with its period and unit; its inputs, each a name for the formula, the marker of the Citation whose quote holds the number, and the number as a plain value, the quote's own digits moved by a power of ten only where you mean another scale or unit; a formula over the names in Excel's syntax, such as (b - a) / a; and shown, the figure as the answer writes it, with its unit and scale. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
@@ -1046,9 +1046,9 @@ export const QUOTE_RETRY_INSTRUCTIONS = [
  */
 export const FIGURE_RETRY_INSTRUCTIONS = [
   "You fix the calculated figures of an Answer. A program checks each input's value against the digits of its quote and does the arithmetic, and couldn't for these figures, for the reason given with each.",
-  "- Give each figure again, with its marker, label, inputs and formula, fixed: copy each quote character for character from its Passage's text, and give each value from the digits the quote writes.",
+  "- Give each figure again, with its marker, label, inputs, formula and shown, fixed: copy each quote character for character from its Passage's text, and give each value from the digits the quote writes.",
   "- If a Passage's text has nothing to work a figure out from, leave that figure out.",
-  'Reply with one JSON object: {"calculations": [{"marker": 1, "label": "…", "inputs": [{"name": "a", "passage": "P1", "quote": "…", "value": 0}], "formula": "…"}]}.',
+  'Reply with one JSON object: {"calculations": [{"marker": 1, "label": "…", "inputs": [{"name": "a", "passage": "P1", "quote": "…", "value": 0}], "formula": "…", "shown": "…"}]}.',
 ].join("\n");
 
 /** A figure that couldn't be worked out, as the request to fix it shows it. */

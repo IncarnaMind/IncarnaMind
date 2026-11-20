@@ -268,7 +268,6 @@ export function setUpRun(
         documents: scoped,
         quotes: session.quotes,
         language: answerLanguage(request.claim),
-        checking: true,
       })
     : null;
   // What the model reads of a data file is the Passages a search shows it; the code reads the

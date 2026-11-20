@@ -374,7 +374,7 @@ import {
   withHelp,
 } from "./meetingHelp";
 import { paragraphAsked } from "./paragraphAsked";
-import { createPlainCalculator, unwrittenFiguresNote } from "./plainCalculator";
+import { createPlainCalculator } from "./plainCalculator";
 import { createPrintedNumbers } from "./printedNumbers";
 import {
   analysisInstructions,
@@ -2037,12 +2037,10 @@ export function createAnswers(options: AnswersOptions) {
      * The figures its text shows, each once, with what it wrote right before
      * each marker; and the figure markers that had none.
      */
-    const placedFigures = (written: string, final: boolean) => {
+    const placedFigures = (text: string, final: boolean) => {
       const placed: MarkedFigure[] = [];
       const missing = new Map<number, UncalculatedFigure>();
       if (!calculating) return { figures: placed, missing: [] };
-      const text = figures.placed(written);
-      figures.written(text);
       withFigures(
         withCitations(markdownToBlocks(text, { streaming: !final }), citedNode),
         (marker) => {
@@ -2063,15 +2061,13 @@ export function createAnswers(options: AnswersOptions) {
     const write = (outcome?: Outcome): boolean => {
       const final = outcome !== undefined;
       // Turned into their Citations when the Answer ends (`finish`): till then none shows.
-      const shownText = withAnalysisResults(
+      const text = withAnalysisResults(
         withoutFootnoteDefinitions(
           final ? withEveryChartPlaced(markdown, analyses) : withoutWrittenIds(markdown, ids),
         ),
         analyses,
         answerLanguage(context.question),
       );
-      const text = calculating ? figures.placed(shownText) : shownText;
-      if (calculating) figures.written(text);
       // Final: a marker with no record is removed, and each is counted for the summary. Call help's
       // panel shows each quote's check as it lands, and a reading's moments of the call on the
       // lines it has finished as the end will find them (#2847); an option's quoted words wait for
@@ -2173,7 +2169,7 @@ export function createAnswers(options: AnswersOptions) {
       }
       // A marker no Citation backs is not kept in the text, and each is counted for the summary.
       markdown = withoutDeadMarkers(markdown, (marker) => session.finalCitation(marker) !== null);
-      if (calculating) markdown = withPrintedFigures(figures.placed(markdown));
+      if (calculating) markdown = withPrintedFigures(markdown);
     };
 
     /**
@@ -3205,9 +3201,7 @@ export function createAnswers(options: AnswersOptions) {
                       (call.webPage !== undefined && "documentId" in call.webPage)),
                 ),
               figure: (marker) => (calculating ? figures.figure(marker) : null),
-              blocksOf: (given) => {
-                const text = calculating ? figures.placed(given) : given;
-                if (calculating) figures.written(text);
+              blocksOf: (text) => {
                 let found = 0;
                 let notFound = 0;
                 let unrecorded = 0;
@@ -3813,15 +3807,6 @@ export function createAnswers(options: AnswersOptions) {
             );
             return unrecorded.length > 0
               ? { claims: [], note: unrecordedMarkersNote(unrecorded) }
-              : null;
-          },
-        },
-        {
-          name: "unwritten-figures",
-          check: (text) => {
-            const unwritten = calculating ? figures.unwritten(text) : [];
-            return unwritten.length > 0
-              ? { claims: [], writeOnly: true, note: unwrittenFiguresNote(unwritten) }
               : null;
           },
         },

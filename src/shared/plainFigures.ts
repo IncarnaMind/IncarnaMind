@@ -1,10 +1,9 @@
 /**
  * A figure worked out by the plain calculator (#3393): the model gives each input as a plain
- * number with the quote it comes from, an expression over them and the label that says what the
- * figure is; it is told the result, and writes the figure in its own text. Code reads no unit or
- * scale: it confirms by their digits alone that each number stands in its quote and that what the
- * text writes for the figure carries the result, and does the arithmetic. One place for an Answer,
- * a check and a connected agent.
+ * number with the quote it comes from, an expression over them, the label that says what the
+ * figure is and the text it is shown as. Code reads no unit or scale: it confirms by their digits
+ * alone that each number stands in its quote and that the shown text carries the result, and does
+ * the arithmetic. One place for an Answer, a check and a connected agent.
  */
 import { evaluateArithmetic, type FormulaLiteral, formulaText } from "./formula";
 
@@ -102,16 +101,6 @@ export function plainNumber(value: number): string {
   return fraction ? `${grouped}.${fraction}` : grouped;
 }
 
-/**
- * A result as the model is told it: a number written plainly, its whole part in full and six
- * significant digits at least ("0.204387", "66,560.4"), or "true" or "false".
- */
-export function resultText(value: number | boolean): string {
-  if (typeof value !== "number") return String(value);
-  const whole = Math.abs(Math.trunc(value)).toString().length;
-  return plainNumber(Number(value.toPrecision(Math.min(Math.max(6, whole + 2), 15))));
-}
-
 export interface PlainInput {
   name: string;
   value: number;
@@ -126,19 +115,19 @@ export interface PlainWorked {
   /** Where each input's number stands in its quote, in order. */
   located: Located[];
   literals: FormulaLiteral[];
-  /** The formula over the values used, with `shown` (the result unless given): "512,000 × 0.13 = 66,560". */
+  /** The formula over the values used, and the result as shown: "512,000 × (1.42 − 1.29) = £66,560". */
   working: string;
 }
 
 /**
- * Works a figure out: each input's number confirmed in its quote and the expression evaluated over
- * the values. The problems, in words for the model, when any of it fails. `shown`, when the figure
- * is written already (a connected agent's working), must carry the result.
+ * Works a figure out: each input's number confirmed in its quote, the expression evaluated over the
+ * values, and the shown text confirmed to carry the result. The problems, in words for the model,
+ * when any of it fails.
  */
 export function workPlain(figure: {
   inputs: readonly PlainInput[];
   formula: string;
-  shown?: string;
+  shown: string;
 }): PlainWorked | { problems: string[] } {
   const problems: string[] = [];
   const located = figure.inputs.flatMap((input) => {
@@ -156,11 +145,10 @@ export function workPlain(figure: {
     figure.inputs.map(({ name, value }) => ({ name, value })),
   );
   if (!result.ok) return { problems: [result.message] };
-  const { shown } = figure;
-  if (shown !== undefined && typeof result.value === "number" && !shownCarries(shown, result.value))
+  if (typeof result.value === "number" && !shownCarries(figure.shown, result.value))
     return {
       problems: [
-        `the formula gives ${plainNumber(result.value)}, and "${shown}" doesn't write those digits: write the figure with the result's digits as you round them, its unit and scale, and one number in it`,
+        `the formula gives ${plainNumber(result.value)}, and shown "${figure.shown}" doesn't write those digits: write the figure as the Answer shows it, its digits the result's as you round it, with its unit and scale, and one number in it`,
       ],
     };
   const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
@@ -179,6 +167,6 @@ export function workPlain(figure: {
     value: result.value,
     located,
     literals: result.literals,
-    working: `${used} = ${shown ?? resultText(result.value)}${moved.length > 0 ? ` · ${moved.join(", ")}` : ""}`,
+    working: `${used} = ${figure.shown}${moved.length > 0 ? ` · ${moved.join(", ")}` : ""}`,
   };
 }

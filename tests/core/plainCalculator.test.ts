@@ -1,10 +1,9 @@
 /**
  * The plain calculator an Answer's model calls (#3393): each input a plain number with its quote,
- * an expression and a label. IncarnaMind confirms by digits that each number stands in its quote,
- * does the arithmetic and tells the model the result; the model writes the figure in its text, its
- * marker right after it, and the Answer shows it as written, with its working, once its digits
- * carry the result. Through the core's public interface, as the assistant uses it, with a scripted
- * chat model.
+ * an expression, a label and the text the figure is shown as. IncarnaMind confirms by digits that
+ * each number stands in its quote and that the shown text carries the result, does the
+ * arithmetic, and the Answer shows the figure with its working. Through the core's public
+ * interface, as the assistant uses it, with a scripted chat model.
  */
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
@@ -25,8 +24,8 @@ const BAKERY = {
 
 type Call = { tool: string; input: unknown };
 
-/** Searches, cites the line as [^1], calculates `figures`, then writes `answer`, or `asked` once asked again. */
-function calculatingModel(figures: unknown[], answer: string, asked = answer): MockLanguageModelV4 {
+/** Searches, cites the line as [^1], calculates `figures`, then writes `answer`. */
+function calculatingModel(figures: unknown[], answer: string): MockLanguageModelV4 {
   return scriptedModel(
     (call) => {
       const searched = call.results.find((result) => result.tool === "search_documents");
@@ -46,7 +45,7 @@ function calculatingModel(figures: unknown[], answer: string, asked = answer): M
         };
         return { calls: [cite, { tool: "calculate", input: { figures } }] };
       }
-      return { text: call.prompt.includes("Write your reply again.") ? asked : answer };
+      return { text: answer };
     },
     { generate: judgesNothing },
   );
@@ -91,17 +90,6 @@ function told(model: MockLanguageModelV4): string[] {
   );
 }
 
-/** What the model was asked again with after it wrote its reply, as its last request shows it. */
-const askedAgain = (model: MockLanguageModelV4): string =>
-  (answerRequests(model).at(-1)?.prompt ?? [])
-    .flatMap((message) =>
-      message.role === "user"
-        ? message.content.flatMap((part) => (part.type === "text" ? [part.text] : []))
-        : [],
-    )
-    .filter((text) => text.includes("Write your reply again."))
-    .join("\n");
-
 /** An Answer's text as its reader sees it, a figure as its shown text, a missing one as ‹mark›. */
 const shown = (nodes: readonly NodeJSON[]): string =>
   nodes
@@ -124,24 +112,21 @@ const COST = {
     { name: "price", citation: 1, value: 0.315 },
   ],
   formula: "kwh * price",
+  shown: "£16,380",
 };
 
 describe("The plain calculator", { timeout: 60_000 }, () => {
-  // protects=a figure an Answer works out is told to the model, which writes it, and shows as the model wrote it at its marker, with its working: the quoted numbers and the values used; fails_when=the model isn't told the result, the figure shows another unit or text than the model wrote, or its working loses the value used or the number as quoted
-  test("tells the model the result, and shows the figure as the model writes it, with its working", async () => {
-    const model = calculatingModel(
-      [COST],
-      "The bakery's electricity cost £16,380 [=1] in 2025[^1].",
-    );
+  // protects=a figure an Answer works out shows as the model's shown text, with its working: the quoted numbers and the values used; fails_when=the figure shows another unit or text than the model's, or its working loses the value used or the number as quoted
+  test("shows the figure as its model writes it, with its working", async () => {
+    const model = calculatingModel([COST], "The bakery's electricity cost [=1] in 2025[^1].");
     const answer = await asked(model, "What did the bakery's electricity cost?");
 
     expect(told(model)).toEqual([
       [
-        "Recorded [=1] = 16,380 (Electricity cost 2025 (£): 52,000 × 0.315 = 16,380 · 31.5 → 0.315).",
-        'Write each figure in your text as it should read, with its unit and scale, and its marker right after it, as in "grew 20.4% [=1] in 2025".',
+        "Recorded [=1] = £16,380 (Electricity cost 2025 (£): 52,000 × 0.315 = £16,380 · 31.5 → 0.315).",
+        "Write each marker in its number's place, in the text or a table's cell, as in \"grew [=1] in 2025\": it shows as its shown text, so write neither the number nor its unit beside it.",
       ].join("\n"),
     ]);
-    expect(askedAgain(model)).toBe("");
     expect(shown(answerBlocks(answer))).toBe("The bakery's electricity cost £16,380 in 2025.");
     const [figure] = answer.figures;
     expect(figure).toMatchObject({
@@ -158,66 +143,27 @@ describe("The plain calculator", { timeout: 60_000 }, () => {
     expect(figure?.inputs.map(inputInWorking)).toEqual(["52,000", "0.315"]);
   });
 
-  // protects=a figure whose marker the model writes after other words of its sentence shows at the number it wrote; fails_when=the figure shows at the marker beside the number, or the model is asked again
-  test("a marker written after other words of its sentence goes to the number before it", async () => {
+  // protects=a figure rests only on numbers its quotes write and on the result the arithmetic gives; fails_when=a number not in its quote, or a shown text whose digits aren't the result's, is shown as a calculated figure
+  test("refuses a number not in its quote, and a shown text that doesn't carry the result", async () => {
     const model = calculatingModel(
-      [COST],
-      "The bakery's electricity cost £16,380 in 2025 [=1][^1].",
-    );
-    const answer = await asked(model, "What did the bakery's electricity cost?");
-
-    expect(askedAgain(model)).toBe("");
-    expect(shown(answerBlocks(answer))).toBe("The bakery's electricity cost £16,380 in 2025.");
-    expect(answer.figures.map((figure) => figure.shown)).toEqual(["£16,380"]);
-  });
-
-  // protects=a figure's marker written after its sentence's Citation goes to its number, and no digit of a marker is taken for the figure; fails_when=the marker goes inside the Citation's marker, or a figure shows at a number whose digits only round to the result's
-  test("a marker after a Citation goes to its number, never into the Citation", async () => {
-    const model = calculatingModel(
-      [{ ...COST, inputs: [COST.inputs[0], { name: "price", citation: 1, value: 0.315 }] }],
-      "In 2025 the bakery used 52,000 kWh, and its electricity cost £16,380[^1][=1].",
-    );
-    const answer = await asked(model, "What did the bakery's electricity cost?");
-
-    expect(askedAgain(model)).toBe("");
-    expect(shown(answerBlocks(answer))).toBe(
-      "In 2025 the bakery used 52,000 kWh, and its electricity cost £16,380.",
-    );
-    expect(answer.figures.map((figure) => figure.shown)).toEqual(["£16,380"]);
-  });
-
-  // protects=a figure rests only on numbers its quotes write; fails_when=a number not in its quote is shown as a calculated figure
-  test("refuses a number not in its quote", async () => {
-    const model = calculatingModel(
-      [{ ...COST, inputs: [COST.inputs[0], { name: "price", citation: 1, value: 0.13 }] }],
-      "It cost [=1] in 2025[^1].",
+      [
+        {
+          ...COST,
+          inputs: [COST.inputs[0], { name: "price", citation: 1, value: 0.13 }],
+          shown: "£6,760",
+        },
+        { ...COST, marker: 2, shown: "£16,830" },
+      ],
+      "It cost [=1], or [=2], in 2025[^1].",
     );
     const answer = await asked(model, "What did the bakery's electricity cost?");
 
     const [said = ""] = told(model);
     expect(said).toMatch(/^Nothing was recorded\.\nFix these with another calculate call:/);
     expect(said).toContain("[=1] price: 0.13 isn't in its quote, which has 52,000, 31.5");
+    expect(said).toContain('[=2] the formula gives 16,380, and shown "£16,830"');
     expect(answer.figures).toEqual([]);
-    expect(shown(answerBlocks(answer))).toBe("It cost ‹mark› in 2025.");
-  });
-
-  // protects=a figure shows only as a number whose digits are the result's; fails_when=a figure the model writes with other digits, or with none, shows as the calculated figure, or the model isn't told its result to write it again
-  test("asks once more, with the result, when the text writes a figure without its digits", async () => {
-    const model = calculatingModel(
-      [COST, { ...COST, marker: 2 }],
-      "It cost £16,830 [=1] in 2025, [=2] in all[^1].",
-      "It cost £16,380 [=1] in 2025, £16,380 [=2] in all[^1].",
-    );
-    const answer = await asked(model, "What did the bakery's electricity cost?");
-
-    expect(askedAgain(model)).toContain(
-      [
-        '[=1] is 16,380, and "£16,830" right before its marker doesn\'t write it.',
-        "[=2] is 16,380, and its sentence writes no number with those digits before its marker.",
-      ].join("\n"),
-    );
-    expect(shown(answerBlocks(answer))).toBe("It cost £16,380 in 2025, £16,380 in all.");
-    expect(answer.figures.map((figure) => figure.shown)).toEqual(["£16,380", "£16,380"]);
+    expect(shown(answerBlocks(answer))).toBe("It cost ‹mark›, or ‹mark›, in 2025.");
   });
 
   // protects=a figure an older build worked out, its unit read by rule, still opens and shows as it did, its card's line writing each input as its quote does; fails_when=an older figure's shown text or input numbers read otherwise than they were saved

@@ -1,23 +1,18 @@
 /**
  * The calculator an Answer's model, and a check's, calls (#3393): each figure's inputs are plain
- * numbers with the quotes they come from, an expression over them and a label that says what the
- * figure is. IncarnaMind confirms by digits that each number stands in its quote
- * (../../shared/plainFigures), does the arithmetic, keeps the figure with its working and tells the
- * model the result. An Answer's model then writes the figure in its text, its marker right after
- * it, and the figure shows as written there once its digits carry the result. It reads no unit or
- * scale: what a number means is the model's to say, in its label and its text.
+ * numbers with the quotes they come from, an expression over them, a label that says what the
+ * figure is and the text it is shown as. IncarnaMind confirms by digits that each number stands in
+ * its quote and that the shown text carries the result (../../shared/plainFigures), does the
+ * arithmetic, and keeps the figure with its working. It reads no unit or scale: what a number
+ * means is the model's to say, in its label and shown text.
  */
 import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
-import { FIGURE_MARKER, writtenBefore } from "../../shared/figureMarkers";
-import { readFigures } from "../../shared/figures";
 import { FORMULA_VERSION, sameNumber } from "../../shared/formula";
 import { anchorsCovered, quoteInUnits } from "../../shared/locations";
 import {
   digitsOf,
   locate,
   type PlainInput,
-  resultText,
-  shownCarries,
   workPlain,
   writtenNumbers,
   writtenValue,
@@ -53,6 +48,7 @@ interface GivenInput {
 interface GivenFigure {
   marker: number | null;
   label: string;
+  shown: string;
   formula: string;
   inputs: GivenInput[];
   /** Numbers written in the formula that the model says are constants of the arithmetic. */
@@ -103,6 +99,7 @@ function givenFigure(value: unknown): GivenFigure {
   return {
     marker: whole(figure.marker),
     label: text(figure.label) ?? "",
+    shown: text(figure.shown) ?? "",
     formula: text(figure.formula) ?? "",
     inputs: givenList(figure.inputs).map(givenInput),
     constants: givenList(figure.constants).flatMap((each) => {
@@ -163,58 +160,12 @@ interface Recorded {
   cited?: readonly QuoteInput[];
 }
 
-/** What the model is told a recorded figure came to: "Recorded [=1] = 66560 (Saving (£): 512,000 × 0.13 = 66,560)." */
+/** What the model is told a recorded figure came to: "Recorded [=1] = £66,560 (Saving: 512,000 × (1.42 − 1.29) = £66,560)." */
 const told = (marker: number, figure: CalculatedFigure, working: string) =>
   `Recorded [=${marker}] = ${figure.shown} (${figure.label ? `${figure.label}: ` : ""}${working}).`;
 
-/** How an Answer writes its figures, told after they are recorded. */
-const WRITE_FIGURES =
-  'Write each figure in your text as it should read, with its unit and scale, and its marker right after it, as in "grew 20.4% [=1] in 2025".';
-
-/** A figure an Answer's text writes at its marker that doesn't carry its result, or has none. */
-export interface UnwrittenFigure {
-  marker: number;
-  /** Null when no figure was recorded for the marker. */
-  result: string | null;
-  /** What the text writes right before the marker; null when it writes no number there. */
-  wrote: string | null;
-}
-
-/** Where `text` writes code, fenced or inline: a marker there is how it is written, not a figure. */
-const codeSpans = (text: string): [number, number][] =>
-  [...text.matchAll(/```[\s\S]*?```|`[^`\n]+`/g)].map((found) => [
-    found.index,
-    found.index + found[0].length,
-  ]);
-
-/** `text` with its Citation and figure markers blanked, so their digits are never a figure's. */
-const withoutMarkers = (text: string): string =>
-  text.replace(/\[(?:\^|=)[^\]\n]{1,12}\]/g, (marker) => " ".repeat(marker.length));
-
-/** Where the sentence, line or table cell that ends `before` starts. */
-function clauseStart(before: string): number {
-  let start = 0;
-  for (const found of before.matchAll(/[.!?;](?=\s)|[。！？；\n|]/gu)) start = found.index + 1;
-  return start;
-}
-
-/** What an Answer's model is asked once more with, a line for each figure it didn't write. */
-export function unwrittenFiguresNote(unwritten: readonly UnwrittenFigure[]): string {
-  const lines = unwritten.map(({ marker, result, wrote }) =>
-    result === null
-      ? `[=${marker}] has no figure, so "${wrote}" before it isn't worked out: fix it with calculate, or leave that number out.`
-      : wrote === null
-        ? `[=${marker}] is ${result}, and its sentence writes no number with those digits before its marker.`
-        : `[=${marker}] is ${result}, and "${wrote}" right before its marker doesn't write it.`,
-  );
-  return `${lines.join("\n")}\n${WRITE_FIGURES} Write your reply again.`;
-}
-
-/**
- * One Answer's or check's figures: what `calculate` takes, and the figures by marker. A check's
- * model only reads the results: `checking`.
- */
-export function createPlainCalculator(options: CalculationSessionOptions & { checking?: boolean }) {
+/** One Answer's or check's figures: what `calculate` takes, and the figures by marker. */
+export function createPlainCalculator(options: CalculationSessionOptions) {
   const { quotes, language } = options;
   // A quoted number an Analysis takes as an input is read as it was: run_analysis is unchanged.
   const analysisNumbers = createCalculationSession(options);
@@ -262,6 +213,7 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
       ...(given.inputs.length === 0 ? ["its inputs, each a value and the quote it is in"] : []),
       ...(given.formula === "" ? ["a formula over the inputs' names"] : []),
       ...(given.label === "" ? ["a label that says what the figure is, with its unit"] : []),
+      ...(given.shown === "" ? ["shown, the figure as the Answer writes it"] : []),
     ];
     if (missing.length > 0) return { problems: [`${lead}: give ${missing.join(", ")}.`] };
     if (given.inputs.length > MAX_INPUTS_PER_FIGURE)
@@ -300,7 +252,7 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
       quote: quoted.citation.quote,
       written: input.written,
     }));
-    const worked = workPlain({ inputs: plain, formula: given.formula });
+    const worked = workPlain({ inputs: plain, formula: given.formula, shown: given.shown });
     if ("problems" in worked)
       return { problems: worked.problems.map((problem) => `${lead} ${problem}`) };
     const cells = placed.map(({ quoted, value }) => cellOf(quoted, value));
@@ -344,7 +296,7 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
       value: worked.value,
       unit: { kind: "plain" },
       approximate: false,
-      shown: resultText(worked.value),
+      shown: given.shown,
       show: { language, as: null, decimals: null, scale: null },
       literals: worked.literals,
       engine: FORMULA_VERSION,
@@ -406,7 +358,7 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
     if (!structured && ++calls > MAX_CALLS_PER_ANSWER)
       return "You have called calculate enough for this Question: write the Answer now with the figures recorded, and say which numbers couldn't be calculated rather than working them out.";
     if (list.length === 0)
-      return `Nothing was recorded. ${FIX_FIGURES}\n- give each figure with its marker, label, inputs and formula.`;
+      return `Nothing was recorded. ${FIX_FIGURES}\n- give each figure with its marker, label, inputs, formula and shown.`;
     if (list.length > MAX_FIGURES_PER_CALL)
       return `Nothing was recorded. ${FIX_FIGURES}\n- At most ${MAX_FIGURES_PER_CALL} figures in one call, and ${MAX_INPUTS_PER_FIGURE} inputs in one figure.`;
     const lines: string[] = [];
@@ -464,54 +416,8 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
     const next =
       problems.length > 0
         ? `\n${FIX_FIGURES}\n- ${problems.join("\n- ")}`
-        : options.checking
-          ? ""
-          : `\n${WRITE_FIGURES}`;
+        : "\nWrite each marker in its number's place, in the text or a table's cell, as in \"grew [=1] in 2025\": it shows as its shown text, so write neither the number nor its unit beside it.";
     return `${done}${next}`;
-  }
-
-  /**
-   * `text` with each figure's marker right after the number before it, in its sentence or cell, whose
-   * digits are the figure's result: a model often writes words between the two ("rose by €4,150
-   * thousand in 2025 [=1]"). A marker with no such number stays where it is.
-   */
-  function placed(text: string): string {
-    let out = text;
-    const code = codeSpans(text);
-    for (const match of [...text.matchAll(FIGURE_MARKER)].reverse()) {
-      if (code.some(([from, to]) => match.index >= from && match.index < to)) continue;
-      const figure = recorded.get(Number(match[1]))?.figure;
-      if (!figure || figure.analysis || figure.workbook || typeof figure.value !== "number")
-        continue;
-      const value = figure.value;
-      const before = out.slice(0, match.index);
-      const start = clauseStart(before);
-      const found = readFigures(withoutMarkers(before.slice(start)), { language })
-        .filter((each) => shownCarries(each.chars, value))
-        .at(-1);
-      if (!found) continue;
-      const end = start + found.end;
-      if (out.slice(end, match.index).trim() === "") continue;
-      const without =
-        out.slice(0, match.index).trimEnd() + out.slice(match.index + match[0].length);
-      out = `${without.slice(0, end)} ${match[0]}${without.slice(end)}`;
-    }
-    return out;
-  }
-
-  /** Each figure marker `text` writes, its figure's entry and result, and what the text writes before it. */
-  function atMarkers(text: string) {
-    return [...text.matchAll(FIGURE_MARKER)].flatMap((match) => {
-      const marker = Number(match[1]);
-      const entry = recorded.get(marker) ?? null;
-      const figure = entry?.figure;
-      if (figure?.analysis || figure?.workbook) return [];
-      if (figure && typeof figure.value !== "number") return [];
-      const wrote = writtenBefore(text.slice(0, match.index), language);
-      return [
-        { marker, entry, value: typeof figure?.value === "number" ? figure.value : null, wrote },
-      ];
-    });
   }
 
   return {
@@ -545,31 +451,6 @@ export function createPlainCalculator(options: CalculationSessionOptions & { che
     inputSources(marker: number): (number | QuoteInput)[] {
       const entry = recorded.get(marker);
       return [...(entry?.quotes ?? []).map((each) => each.source), ...(entry?.cited ?? [])];
-    },
-
-    placed,
-
-    /** Each figure `text` writes before its marker with its result's digits shows as written there. */
-    written(text: string): void {
-      for (const { entry, value, wrote } of atMarkers(placed(text))) {
-        if (entry && value !== null && wrote !== null && shownCarries(wrote, value))
-          entry.figure = { ...entry.figure, shown: wrote };
-      }
-    },
-
-    /**
-     * The figures `text` writes at their markers without their results' digits, and the numbers it
-     * writes before a marker no figure was recorded for, each once.
-     */
-    unwritten(text: string): UnwrittenFigure[] {
-      const seen = new Set<number>();
-      return atMarkers(placed(text)).flatMap(({ marker, value, wrote }) => {
-        if (seen.has(marker)) return [];
-        if (value === null ? wrote === null : wrote !== null && shownCarries(wrote, value))
-          return [];
-        seen.add(marker);
-        return [{ marker, result: value === null ? null : resultText(value), wrote }];
-      });
     },
 
     /** A marker's figure: "checking" until `check`, then with each input's check; null when none was recorded. */

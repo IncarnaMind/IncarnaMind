@@ -473,11 +473,7 @@ describe("a workbook's formulas in an Answer", () => {
   describe("a number written into calculate beside a workbook's figures (#2372)", () => {
     const EBITDA_ROW = "EBITDA\t\t231.0\t242.6\t254.7\t267.4\t280.8";
     /** Runs `figures` through calculate one call at a time, on the Passage and line that show `row`, then answers. */
-    function calculating(
-      row: string,
-      figures: ((passage: string, line: string) => unknown)[],
-      answer = "It is [=1].",
-    ) {
+    function calculating(row: string, figures: ((passage: string, line: string) => unknown)[]) {
       return scriptedModel((call) => {
         const searches = call.results.filter((result) => result.tool === "search_documents");
         if (searches.length === 0)
@@ -492,7 +488,7 @@ describe("a workbook's formulas in an Answer", () => {
           return {
             calls: [{ tool: "calculate", input: { figures: [next(shown?.id ?? "P1", line)] } }],
           };
-        return { text: answer };
+        return { text: "It is [=1]." };
       });
     }
     const ebitdaTimes12 = (constants?: string[]) => (passage: string) => ({
@@ -536,21 +532,18 @@ describe("a workbook's formulas in an Answer", () => {
     );
 
     test("a formula with no number but 1 written in is calculated at once", async () => {
-      const model = calculating(
-        EBITDA_ROW,
-        [
-          (passage) => ({
-            marker: 1,
-            label: "EBITDA growth 2027",
-            inputs: [
-              { name: "e26", label: "EBITDA 2026", passage, quote: EBITDA_ROW, value: 242.6 },
-              { name: "e27", label: "EBITDA 2027", passage, quote: EBITDA_ROW, value: 254.7 },
-            ],
-            formula: "e27 / e26 - 1",
-          }),
-        ],
-        "It is 5.0% [=1].",
-      );
+      const model = calculating(EBITDA_ROW, [
+        (passage) => ({
+          marker: 1,
+          label: "EBITDA growth 2027",
+          inputs: [
+            { name: "e26", label: "EBITDA 2026", passage, quote: EBITDA_ROW, value: 242.6 },
+            { name: "e27", label: "EBITDA 2027", passage, quote: EBITDA_ROW, value: 254.7 },
+          ],
+          formula: "e27 / e26 - 1",
+          shown: "5.0%",
+        }),
+      ]);
       const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
       const answer = await ask(core, "How much did EBITDA grow in 2027?");
       expect(told(model, "calculate")).not.toContain("what_if");

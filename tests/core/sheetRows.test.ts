@@ -669,7 +669,7 @@ describe("what else reads a sheet's Passages", () => {
         : [],
     );
     const [earlier, current] = results;
-    expect(earlier).toContain("Recorded [=1] = 0.4 (");
+    expect(earlier).toContain("Recorded [=1] = 0.40");
     expect(earlier).toContain(
       "a is in row 2, which the file strikes through; b is in row 3, which the file strikes through",
     );
