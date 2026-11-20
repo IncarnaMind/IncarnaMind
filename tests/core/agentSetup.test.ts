@@ -630,6 +630,74 @@ describe("setting an agent up", () => {
     );
   });
 
+  describe("set-ups and a Disconnect at once on one settings file (#3487)", () => {
+    const FILES = [
+      {
+        client: "claude-code",
+        path: [".claude.json"],
+        text: `${JSON.stringify({ userID: "b0ed6c26", mcpServers: { notes: { type: "stdio", command: "n", args: [], env: {} } } }, null, 2)}\n`,
+        entries: (text: string) => Object.keys(JSON.parse(text).mcpServers ?? {}),
+        mine: (text: string) => (text.match(/"INCARNAMIND_AGENT_TOKEN": "([^"]+)"/g) ?? []).length,
+      },
+      {
+        client: "codex",
+        path: [".codex", "config.toml"],
+        text: 'model = "gpt-6-luna"\n\n[mcp_servers.github]\ncommand = "gh-mcp"\n',
+        entries: (text: string) =>
+          [...text.matchAll(/^\[mcp_servers\.([\w-]+)\]/gm)].map((found) => found[1] ?? ""),
+        mine: (text: string) => (text.match(/INCARNAMIND_AGENT_TOKEN = "[^"]+"/g) ?? []).length,
+      },
+    ] as const;
+
+    it.each(FILES)(
+      "$client: each ends with the User's own entries and exactly one of its own, none lost to another's write",
+      async ({ client, path: parts, text, entries, mine }) => {
+        const { core, home, coast } = await started();
+        const path = join(home, ...parts);
+        await mkdir(join(path, ".."), { recursive: true });
+        await writeFile(path, text);
+        const userEntries = entries(text);
+        const set = () => core.setUpAgent({ client, folderIds: [coast.id] });
+
+        let leaving = await set();
+        for (let round = 0; round < 5; round++) {
+          const settled = await Promise.all([
+            set(),
+            set(),
+            core.disconnectAgent(leaving.pairing.id),
+          ]);
+          const [one, two] = settled;
+          if (!one || !two) throw new Error("A set-up gave nothing.");
+          expect(one.result).toMatchObject({ kind: "wrote" });
+          expect(two.result).toMatchObject({ kind: "wrote" });
+          const now = await readFile(path, "utf8");
+          // The User's entries are all there, and one of IncarnaMind's, whose key is a pairing still connected.
+          expect(entries(now)).toEqual([...userEntries, "incarnamind"]);
+          expect(mine(now)).toBe(1);
+          const keys = await Promise.all(
+            [one, two].map(
+              async (each) => (await core.getAgentLaunch(each.pairing.id)).env[TOKEN_ENV] ?? "",
+            ),
+          );
+          expect(keys.some((key) => key !== "" && now.includes(key))).toBe(true);
+          expect((await readdir(join(path, ".."))).filter((name) => name.includes("-new"))).toEqual(
+            [],
+          );
+          if (client === "claude-code") {
+            expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+          }
+          // The one whose key is in the file leaves in the next round; the other, whose entry is gone, now.
+          const inFile = keys[0] !== "" && now.includes(keys[0] ?? "") ? one : two;
+          await core.disconnectAgent((inFile === one ? two : one).pairing.id);
+          leaving = inFile;
+        }
+        await core.disconnectAgent(leaving.pairing.id);
+        expect(await readFile(path, "utf8")).toBe(text);
+        await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+      },
+    );
+  });
+
   it("leaves a settings file as it was, and no copy of it, when it can't be replaced", async () => {
     const { core, home, coast } = await started();
     const path = join(home, ".claude.json");
