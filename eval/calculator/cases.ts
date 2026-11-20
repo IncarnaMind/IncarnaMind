@@ -1154,7 +1154,8 @@ const ANALYSIS: readonly CalculatorCase[] = [
     ),
     question: "By how much was Whitlow Council's 2025 libraries spending under its budget?",
     expected: { value: 2_950_000 - 2_786_000, unit: GBP },
-    traps: [{ value: 2_786_000 - 2_950, why: "the budget's thousands left out" }],
+    // The budget's thousands left out gives about the spending total, which a right working shows too.
+    traps: [{ value: 2_950_000_000 - 2_786_000, why: "the budget read in millions" }],
     right: "Whitlow Council's 2025 libraries spending was £164,000 under budget.",
     wrong: {
       sentence: "Whitlow Council's 2025 libraries spending was £1,640,000 under budget.",
@@ -1316,7 +1317,8 @@ const ANALYSIS: readonly CalculatorCase[] = [
     ),
     question: "白鹭社区服务中心2025年日常运营实际支出比预算少多少元？",
     expected: { value: 3_100_000 - 2_845_000, unit: CNY },
-    traps: [{ value: 2_845_000 - 310, why: "万 left out" }],
+    // 万 left out gives about the spending total, which a right working shows too.
+    traps: [],
     right: "白鹭社区服务中心2025年日常运营实际支出比预算少255,000元。",
     wrong: {
       sentence: "白鹭社区服务中心2025年日常运营实际支出比预算少2,550,000元。",
