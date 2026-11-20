@@ -71,9 +71,11 @@ describe("the reader's questions", () => {
       "- personal: A person's own papers outside work: a diary, recipes, to-do notes, notes on books they read, manuals for things at home.",
     );
     expect(request.instructions).toContain(
-      'A Folder whose name says nothing of its contents covers no area.',
+      "A Folder whose name says nothing of its contents covers no area.",
     );
-    expect(request.instructions).toContain("use the description only to clarify or narrow a reading the name already supports");
+    expect(request.instructions).toContain(
+      "use the description only to clarify or narrow a reading the name already supports",
+    );
   });
 
   test("in Chinese, the question and the areas are Chinese", () => {
