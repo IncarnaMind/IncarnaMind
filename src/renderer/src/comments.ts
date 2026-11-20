@@ -15,6 +15,7 @@ import {
 } from "../../core/api";
 import { mindCommentsOf, readMindComment } from "../../shared/mindComments";
 import { commentRuns } from "./editor/commentSchema";
+import { requestEdit } from "./editWithAi";
 import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { useAppStore } from "./store";
@@ -219,6 +220,40 @@ export function placeOf(editor: Editor, id: string): CommentPlace | null {
 
 export function quoteAt(editor: Editor, place: CommentPlace): string {
   return editor.state.doc.textBetween(place.from, place.to, " ");
+}
+
+/**
+ * Asks the AI to change the words comment `id` is on as it says, and replies to the comment once
+ * the text has changed: a change still to accept has changed none yet. A failure's Try again runs
+ * all of it again, the reply too (#3383). Whether the text changed.
+ */
+export async function addressComment(
+  editor: Editor,
+  mindId: string,
+  doc: Y.Doc,
+  id: string,
+): Promise<boolean> {
+  const comment = commentById(doc, id);
+  const place = placeOf(editor, id);
+  if (!comment || !place) return false;
+  const instruction = translateNow("comments.assistant.instruction", {
+    comment: comment.text,
+    quote: quoteAt(editor, place),
+  });
+  const again = () => addressComment(editor, mindId, doc, id);
+  const applied = await requestEdit(
+    editor,
+    mindId,
+    doc,
+    "instruction",
+    instruction,
+    place,
+    undefined,
+    again,
+  );
+  if (applied)
+    replyToComment(doc, id, translateNow("comments.assistant.replied"), ASSISTANT_AUTHOR);
+  return applied;
 }
 
 interface CommentsUi {

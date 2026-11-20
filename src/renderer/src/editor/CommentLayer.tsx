@@ -19,7 +19,7 @@ import type * as Y from "yjs";
 import { type CommentMessage, MIND_COMMENTS_FIELD, type MindComment } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import {
-  ASSISTANT_AUTHOR,
+  addressComment,
   authorName,
   type CommentPlace,
   cancelComment,
@@ -28,14 +28,12 @@ import {
   editComment,
   myName,
   placeOf,
-  quoteAt,
   replyToComment,
   resolveComment,
   saveComment,
   useCommentsUi,
 } from "../comments";
 import { TypingTextarea } from "../components/TypingTextarea";
-import { requestEdit } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { COMMENTS_REDRAWN, commentRuns } from "./commentSchema";
 import { noteTabsOf, tabHiddenRanges } from "./noteTabs";
@@ -393,15 +391,7 @@ export function CommentCard({
     setMenuOpen(false);
     setWorking(true);
     try {
-      const instruction = t("comments.assistant.instruction", {
-        comment: comment.text,
-        quote: quoteAt(editor, place),
-      });
-      // The reply says the text changed only once it has: a change still to accept has none yet.
-      const applied = await requestEdit(editor, mindId, doc, "instruction", instruction, place);
-      if (applied) {
-        replyToComment(doc, comment.id, t("comments.assistant.replied"), ASSISTANT_AUTHOR);
-      }
+      await addressComment(editor, mindId, doc, comment.id);
     } finally {
       setWorking(false);
     }
