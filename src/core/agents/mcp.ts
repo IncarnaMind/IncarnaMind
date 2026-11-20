@@ -76,6 +76,43 @@ const heldCall = z.object({
   transcript: z.string().describe("Its Transcript's documentId."),
 });
 
+/** A Note's results, counted as its page counts them. */
+const checkedNote = z.object({
+  models: z.array(z.string()),
+  supported: z.number(),
+  needLook: z.number(),
+  notChecked: z.number(),
+  canBeCited: z.number(),
+  ownViews: z.number(),
+  claims: z.array(
+    z.object({
+      sentence: z.string(),
+      group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
+      result: z.enum([
+        "supported",
+        "citation-not-found",
+        "unsupported",
+        "contradicted",
+        "not-found",
+        "not-checked",
+        "needs-recheck",
+        "changed",
+      ]),
+      reason: z
+        .string()
+        .nullable()
+        .describe(
+          "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
+        ),
+      says: z.string().nullable(),
+      document: z.string().nullable(),
+      location,
+      quote: z.string().nullable(),
+      cite: z.string().nullable(),
+    }),
+  ),
+});
+
 /** A picture or chart it wrote that isn't in the Note, and why (#3413). */
 const leftOut = z.array(z.object({ item: z.string(), reason: z.string() }));
 
@@ -234,7 +271,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Show a Citation",
       description:
-        "Open a [cite:…] in IncarnaMind, at its quote, for the User to see. Use it when they ask to see a source.",
+        "Open a [cite:…] in IncarnaMind at its quote, when the User asks to see a source.",
       inputSchema: z.object({ cite: z.string().describe("A [cite:…] IncarnaMind gave.") }),
       outputSchema: z.object({
         shown: z.literal(true),
@@ -345,7 +382,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Read a Note",
       description:
-        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
+        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. A picture comes without its data: the User sees it. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
       inputSchema: z.object({
         mindId: z.string(),
         offset: z.number().int().min(0).optional(),
@@ -437,7 +474,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Write a new Note",
       description:
-        'Write a new Note: a report, a summary, a draft. It is there at once, marked as yours. Write Markdown; cite each claim from the User\'s Documents with its [cite:…] token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. A chart: a table of its figures, each cell a figure with its token, then a ```chart block right under it, {"kind": "bar", "title": "…"}. Tabs only if asked: a ```tab block of its title opens each. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
+        'Write a new Note: a report, a summary, a draft. It is there at once, marked as yours. Write Markdown; cite each claim from the User\'s Documents with its [cite:…] token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. A chart: a table of its figures, each cell a figure with its token, then a ```chart block right under it, {"kind": "bar", "title": "…"}, adding "leaveOut": ["Total"] for rows not to draw. Tabs only if asked: a ```tab block of its title opens each. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),
@@ -477,39 +514,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         title: z.string(),
         status: z.enum(["checked", "running", "stopped"]),
         stopped: z.string().nullable(),
-        models: z.array(z.string()),
-        supported: z.number(),
-        needLook: z.number(),
-        notChecked: z.number(),
-        canBeCited: z.number(),
-        ownViews: z.number(),
-        claims: z.array(
-          z.object({
-            sentence: z.string(),
-            group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
-            result: z.enum([
-              "supported",
-              "citation-not-found",
-              "unsupported",
-              "contradicted",
-              "not-found",
-              "not-checked",
-              "needs-recheck",
-              "changed",
-            ]),
-            reason: z
-              .string()
-              .nullable()
-              .describe(
-                "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
-              ),
-            says: z.string().nullable(),
-            document: z.string().nullable(),
-            location,
-            quote: z.string().nullable(),
-            cite: z.string().nullable(),
-          }),
-        ),
+        ...checkedNote.shape,
       }),
       // It marks the Note's claims and changes none of its words; its sentences go to the User's AI model.
       annotations: {
@@ -542,6 +547,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
             column: z.string().optional().describe("A table cell's column heading."),
           }),
         ),
+        checked: checkedNote.optional().describe("With no sentence left, the Note's results."),
       }),
       annotations: READ_ONLY,
     },
@@ -660,7 +666,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Publish a Canvas",
       description:
-        "Show the User an HTML page you wrote, as a Canvas in IncarnaMind. It loads nothing from the network: put its styles and scripts in the page, and a picture in files if you have it as a file, else inline as SVG or a data: URL.",
+        "Show the User an HTML page you wrote, as a Canvas. It loads nothing from the network: put its styles and scripts in the page, and a picture in files, else inline as SVG or a data: URL.",
       inputSchema: z.object({
         title: z.string(),
         html: z.string(),
@@ -716,11 +722,58 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
   );
 
   server.registerTool(
+    tool("hand_over_file"),
+    {
+      title: "Hand over a file you made",
+      description:
+        "Give the User a .pptx, .xlsx, .docx or .pdf you made, by its path: IncarnaMind keeps each version and checks it. Changed, hand it over again; while running, call again.",
+      inputSchema: z.object({
+        path: z.string(),
+        folderId: z.string().optional(),
+      }),
+      outputSchema: z.object({
+        fileId: z.string(),
+        title: z.string(),
+        folder: z.string(),
+        version: z.number(),
+        mindId: z.string().nullable(),
+        status: z.enum(["checked", "running", "not-checked"]),
+        why: z.string().nullable(),
+        supported: z.number(),
+        needLook: z.number(),
+        claims: z.array(
+          z.object({
+            where: z.string().nullable(),
+            text: z.string(),
+            result: z.string(),
+            says: z.string().nullable(),
+          }),
+        ),
+        formulas: z
+          .object({
+            workedOut: z.number(),
+            notWorkedOut: z.number(),
+            differ: z.array(z.object({ cell: z.string(), saved: z.string(), worked: z.string() })),
+          })
+          .nullable(),
+      }),
+      // It keeps a version only when the file changed; its contents go to the User's AI model.
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    (input) => answer(() => access.handOverFile(input)),
+  );
+
+  server.registerTool(
     tool("read_request"),
     {
       title: "Read the User's request",
       description:
-        "The rest of what the User asked you from IncarnaMind: the note, the sentences it flagged with what its check found, and what to change and leave alone. Read it first when they ask you to fix what IncarnaMind flagged, or about a note or meeting in it. Each is read once.",
+        "The rest of what the User asked you from IncarnaMind: the note or file, what its check flagged, and what to change and leave alone. Each is read once.",
       inputSchema: z.object({
         note: z.string().optional().describe("The note's name, as the User wrote it."),
       }),

@@ -74,6 +74,11 @@ export interface Verification {
   workbook?: WorkbookCheck;
   /** A deck's pictures, which the check doesn't read (#3412). */
   pictures?: number;
+  /**
+   * The lines whose result an earlier version's check gave and which still stands, so its last
+   * check didn't make them again (#3412); none after a check of every line.
+   */
+  kept?: number;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -154,6 +159,7 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     ...(typeof value.sortedText === "string" && { sortedText: value.sortedText }),
     ...(workbook && { workbook }),
     ...(count(value.pictures) > 0 && { pictures: count(value.pictures) }),
+    ...(count(value.kept) > 0 && { kept: count(value.kept) }),
   };
 }
 
@@ -188,6 +194,7 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
       },
     }),
     ...(verification.pictures !== undefined && { pictures: verification.pictures }),
+    ...(verification.kept !== undefined && { kept: verification.kept }),
   });
 }
 

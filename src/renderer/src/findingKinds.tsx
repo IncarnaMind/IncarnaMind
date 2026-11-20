@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import type { LibrarySnapshot } from "../../core/api";
 import type { CommandId } from "../../shared/commands";
 import { displayName } from "../../shared/documentNames";
+import { isListedMind } from "../../shared/listedMinds";
 import { mindName } from "../../shared/naming";
 import { useCanvases } from "./canvases";
 import { commands } from "./commands/registry";
@@ -56,7 +57,7 @@ findable.register({
   objects(t) {
     const { minds, library } = store();
     const folders = folderNames(library);
-    return minds.map(
+    return minds.filter(isListedMind).map(
       (mind): FoundObject => ({
         ref: { kind: "mind", id: mind.id },
         name: mindName(mind) || t("mind.untitled"),

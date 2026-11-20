@@ -711,6 +711,7 @@ describe("outside agents", () => {
         "check_mind_yourself",
         "cite",
         "create_mind",
+        "hand_over_file",
         "list_minds",
         "list_sorting",
         "propose_changes",
@@ -744,14 +745,15 @@ describe("outside agents", () => {
     // 2,748 before read_request (#3419) and pictures and charts in a Note (#3413); 2,922 before
     // calculate went and report_check took a working instead (#3393); 2,858 before tabs (#3414);
     // 2,874 before check_mind_yourself's shorter description (#3432); 2,873 before check_mind's
-    // counts as the Note's page gives them (#3453).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_153);
+    // counts as the Note's page gives them (#3453); 3,153 before read_mind said a picture comes
+    // without its data (#3465); 3,166 before hand_over_file (#3412) and a chart's leaveOut (#3466).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_232);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
-      // Six write: Proposals the User decides on, a new Note that changes none there is, the marks
-      // of a check on a Note the agent wrote, IncarnaMind's or the agent's own, and a Canvas or a
-      // version of one (#3406).
+      // Seven write: Proposals the User decides on, a new Note that changes none there is, the marks
+      // of a check on a Note the agent wrote, IncarnaMind's or the agent's own, a Canvas or a
+      // version of one (#3406), and a file the agent hands over, or a version of it (#3412).
       expect(tool.annotations?.readOnlyHint).toBe(
         ![
           "propose_changes",
@@ -761,6 +763,7 @@ describe("outside agents", () => {
           "report_check",
           "publish_canvas",
           "update_canvas",
+          "hand_over_file",
         ].includes(tool.name),
       );
       expect(tool.annotations?.destructiveHint).toBe(false);

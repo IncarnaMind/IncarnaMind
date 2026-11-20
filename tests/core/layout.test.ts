@@ -243,6 +243,13 @@ describe("Tabs and groups", () => {
     expect(tabOf(layout, notes).tab.place).toEqual({ quote: "field" });
     expect(tabOf(layout, notes).tab.opened).toBe(openedBefore + 1);
 
+    const transcriptCue = { startMs: 0, endMs: 2400 };
+    layout = await change({ type: "open", item: notes, place: { transcriptCue, quote: "Friday" } });
+    expect(tabOf(layout, notes).tab.place).toEqual({ transcriptCue, quote: "Friday" });
+    await expect(
+      change({ type: "open", item: notes, place: { transcriptCue: { startMs: 10, endMs: 0 } } }),
+    ).rejects.toThrow(InvalidInputError);
+
     // A Word file's original, opened at the paragraph a Mind's caret is in (#736).
     layout = await change({ type: "open", item: notes, place: { wordPlace: "w:p#12" } });
     expect(tabOf(layout, notes).tab.place).toEqual({ wordPlace: "w:p#12" });

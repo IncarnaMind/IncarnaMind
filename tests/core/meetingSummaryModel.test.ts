@@ -3,6 +3,7 @@ import { expect, test, vi } from "vitest";
 import { meetingSummaryPrompt, summarizeWithChat } from "../../src/core/meetings/summaryModel";
 import { resolveCapabilities } from "../../src/core/providers/capabilities";
 
+const describeModel = () => undefined;
 const choice = { providerId: "chosen-provider", modelId: "chosen-model" };
 const input = {
   previous: "Release on Friday. Priya will send the update.",
@@ -51,7 +52,7 @@ test("the summary calls only the prepared chat model and never asks for consent"
   const model = reply();
   const prepareModel = vi.fn(async () => ({ model, capabilities: resolveCapabilities({}) }));
   await expect(
-    summarizeWithChat({ prepareModel }, choice, input, new AbortController().signal),
+    summarizeWithChat({ describeModel, prepareModel }, choice, input, new AbortController().signal),
   ).resolves.toBe("- Release on hold. Priya will send a correction.");
   expect(prepareModel).toHaveBeenCalledExactlyOnceWith(choice, "chat", "off", { background: true });
   expect(model.doGenerateCalls).toHaveLength(1);
@@ -59,6 +60,37 @@ test("the summary calls only the prepared chat model and never asks for consent"
     { type: "text", text: meetingSummaryPrompt(input).prompt },
   ]);
 });
+
+test.each([
+  { kind: "anthropic", modelId: "claude-haiku-5-5", status: "active", thinking: "task" },
+  { kind: "anthropic", modelId: "claude-haiku-5-5", status: "done", thinking: "off" },
+  { kind: "anthropic", modelId: "claude-haiku-5-5", status: null, thinking: "off" },
+  { kind: "anthropic", modelId: "claude-sonnet-5-5", status: "active", thinking: "off" },
+  { kind: "openai-compatible", modelId: "claude-haiku-5-5", status: "active", thinking: "off" },
+] as const)(
+  "$kind $modelId uses $thinking with prior status $status",
+  async ({ kind, modelId, status, thinking }) => {
+    const selected = { ...choice, modelId };
+    const model = reply();
+    const prepareModel = vi.fn(async () => ({ model, capabilities: resolveCapabilities({}) }));
+    const expected = status && {
+      id: 11,
+      kind: "action" as const,
+      status,
+      text: "Send the agenda.",
+    };
+    await summarizeWithChat(
+      { describeModel: () => ({ kind }), prepareModel },
+      selected,
+      { ...input, ...(expected && { items: [expected] }) },
+      new AbortController().signal,
+    );
+    expect(prepareModel).toHaveBeenCalledExactlyOnceWith(selected, "chat", thinking, {
+      background: true,
+    });
+    expect(model.doGenerateCalls).toHaveLength(1);
+  },
+);
 
 test.each([
   { maxOutput: 8_192, inWindow: 8_192, expected: 4_096 },
@@ -73,7 +105,12 @@ test.each([
       capabilities: resolveCapabilities({ server: { maxOutput } }),
       window: { tokens: 16_384, outputTokens: inWindow },
     });
-    await summarizeWithChat({ prepareModel }, choice, input, new AbortController().signal);
+    await summarizeWithChat(
+      { describeModel, prepareModel },
+      choice,
+      input,
+      new AbortController().signal,
+    );
     expect(model.doGenerateCalls[0]?.maxOutputTokens).toBe(expected);
   },
 );
@@ -82,7 +119,7 @@ test("a reply cut off mid-summary never replaces a complete draft", async () => 
   const model = reply("length");
   const prepareModel = async () => ({ model, capabilities: resolveCapabilities({}) });
   await expect(
-    summarizeWithChat({ prepareModel }, choice, input, new AbortController().signal),
+    summarizeWithChat({ describeModel, prepareModel }, choice, input, new AbortController().signal),
   ).rejects.toMatchObject({
     wording: { key: "error.meeting.summaryIncomplete" },
   });
@@ -92,9 +129,9 @@ test("a route rejected during preparation is surfaced with no fallback", async (
   const unavailable = new Error("Selected provider unavailable");
   const prepareModel = vi.fn().mockRejectedValue(unavailable);
   const signal = new AbortController().signal;
-  await expect(summarizeWithChat({ prepareModel }, choice, input, signal)).rejects.toBe(
-    unavailable,
-  );
+  await expect(
+    summarizeWithChat({ describeModel, prepareModel }, choice, input, signal),
+  ).rejects.toBe(unavailable);
   expect(prepareModel).toHaveBeenCalledTimes(1);
 });
 
@@ -105,8 +142,8 @@ test("cancellation during preparation prevents the model request", async () => {
     stop.abort();
     return { model, capabilities: resolveCapabilities({}) };
   };
-  await expect(summarizeWithChat({ prepareModel }, choice, input, stop.signal)).rejects.toBe(
-    stop.signal.reason,
-  );
+  await expect(
+    summarizeWithChat({ describeModel, prepareModel }, choice, input, stop.signal),
+  ).rejects.toBe(stop.signal.reason);
   expect(model.doGenerateCalls).toHaveLength(0);
 });

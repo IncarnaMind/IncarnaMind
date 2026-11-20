@@ -11,14 +11,16 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { Pictures } from "../../src/core/adapters";
 import { CHART_NODE, CITATION_NODE, PICTURE_NODE, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { readNoteState } from "../../src/renderer/src/noteState";
 import { chartPoints, readChart } from "../../src/shared/charts";
+import { checkRows } from "../../src/shared/noteHealth";
 import { decideProposals, waitingChanges } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
-import { heading, note, readMind, writeMind } from "../helpers/minds";
+import { editMind, heading, note, readMind, writeMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
@@ -229,13 +231,18 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
       true,
     );
 
-    // The agent reads its pictures back as pictures, without their data, and its chart.
+    // The agent reads its pictures back as pictures, without their data, and its chart as it
+    // wrote it: the table once, and the chart block under it (#3465).
     const { markdown } = structured<{ markdown: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: written.mindId } }),
     );
-    expect(markdown).toContain("![Orchard map](data:image/png;base64,…)");
-    expect(markdown).toContain("![Drawn](data:image/png;base64,…)");
-    expect(markdown).toContain("Tonnes picked, 2026");
+    expect(markdown).toContain("![Orchard map](shown in the Note; its data is left out here)");
+    expect(markdown).toContain("![Drawn](shown in the Note; its data is left out here)");
+    expect(markdown).not.toContain("data:");
+    expect(markdown).toMatch(
+      /\| Pears \| 610\[\^\d+\] \|\n\n```chart\n\{"kind":"bar","title":"Tonnes picked, 2026"\}\n```\n/,
+    );
+    expect(markdown.match(/\| Apples \|/g)).toHaveLength(1);
 
     // The Note's check of its own gives the chart to judge as it gives a sentence.
     const task = structured<{ sentences: { text: string }[] }>(
@@ -348,6 +355,33 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     expect(blocks.filter((block) => block.kind === "table")).toHaveLength(3);
   });
 
+  // protects=a chart an agent draws leaves out the rows it names, a total say, so the lines it charts aren't dwarfed; which rows is the agent's to say; fails_when=the named row is drawn as a bar, or a leaveOut that isn't a list of words is taken as one
+  it("leaves out of a chart the rows the agent names in leaveOut (#3466)", async () => {
+    const { core, agent } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const chartWith = (asked: string) =>
+      create(
+        agent,
+        [...table(apples, pears), "| Total | 2,450 |", "", "```chart", asked, "```"].join("\n"),
+      );
+    const made = structured<Written>(
+      await chartWith('{"kind": "bar", "title": "Tonnes", "leaveOut": ["Total"]}'),
+    );
+    expect(made.refused).toEqual([]);
+    const chart = readChart(
+      (await blocksOf(core, made.mindId)).find((block) => block.kind === CHART_NODE)?.attrs ?? {},
+    );
+    expect(chart.data.rows.map((row) => row.label)).toEqual(["Apples", "Pears"]);
+    expect(chart.source).toMatchObject({ kind: "table", leftOut: ["Total"] });
+
+    const unread = structured<Written>(
+      await chartWith('{"kind": "bar", "title": "Tonnes", "leaveOut": "Total"}'),
+    );
+    expect(unread.refused.map((each) => each.reason)).toEqual([
+      "its ```chart block isn’t JSON that gives its kind and title",
+    ]);
+  });
+
   it("keeps a value whose token isn't this agent's in the chart, uncited and saying so", async () => {
     const { core, agent } = await paired();
     const { apples } = await tokens(agent);
@@ -417,7 +451,9 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     expect(changed).toMatchObject({ status: "applied", refused: [] });
     // Read by name, the picture and the chart stand in their place, each named as a paragraph is.
     const { markdown } = changed;
-    expect(markdown).toContain("\n\n¶2 ![Map](data:image/png;base64,…)\n\n¶3 Fruit\n\n");
+    expect(markdown).toContain(
+      "\n\n¶2 ![Map](shown in the Note; its data is left out here)\n\n¶3 Fruit\n\n",
+    );
     expect(markdown).toContain("¶8 610 [cite:");
     expect(markdown).toMatch(
       /\n\n¶9 ```chart\n\{"kind":"pie","title":"Share of the harvest"\}\n```$/,
@@ -606,7 +642,9 @@ describe("an agent replaces or removes a picture or chart by its name (#3429)", 
     const read = structured<{ version: string; markdown: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
     );
-    expect(read.markdown).toContain("\n\n¶2 ![Map](data:image/png;base64,…)\n\n");
+    expect(read.markdown).toContain(
+      "\n\n¶2 ![Map](shown in the Note; its data is left out here)\n\n",
+    );
     const cell = /(¶\d+) 710 (\[cite:[^\]]+\])/.exec(read.markdown);
     const chart = /(¶\d+) ```chart\n/.exec(read.markdown)?.[1];
     expect(chart).toBe("¶9");
@@ -708,9 +746,9 @@ describe("an agent replaces or removes a picture or chart by its name (#3429)", 
     expect(read.markdown.split("\n\n")).toEqual([
       "¶0 # Field notes",
       "¶1 The old map of the orchard.",
-      "¶2 ![Old map](data:image/png;base64,…)",
+      "¶2 ![Old map](shown in the Note; its data is left out here)",
       "¶3 The packhouse.",
-      "¶4 ![Packhouse](data:image/svg+xml;base64,…)",
+      "¶4 ![Packhouse](shown in the Note; its data is left out here)",
     ]);
     const proposed = structured<{ status: string; waiting: number; markdown: string }>(
       await agent.callTool({
@@ -835,5 +873,199 @@ describe("an agent replaces or removes a picture or chart by its name (#3429)", 
       `${chart} is kept as it is. Chart not drawn: its kind is bar, line, pie or scatter.`,
     );
     expect(chartShown(await blocksOf(core, made.mindId))).toEqual([["1,840", "610"]]);
+  });
+});
+
+interface CheckTask {
+  task: string;
+  how: string;
+  sentences: { n: number; text: string }[];
+  checked?: Record<string, unknown>;
+}
+
+/** The rows of the Note's check card, as its page counts them, by how many each holds. */
+async function pageRows(core: Parameters<typeof connectToMind>[0], mindId: string) {
+  const client = await connectToMind(core, mindId);
+  await client.settled();
+  const { health } = readNoteState({
+    doc: client.doc,
+    cellFigures: [],
+    footing: [],
+    documents: await core.listDocuments(),
+    keptCitationTexts: [],
+    folderId: null,
+  });
+  return Object.fromEntries(checkRows(health).map(({ row, places }) => [row, places.length]));
+}
+
+describe("an agent reads its Note as the User sees it, and its check and the Note count alike (#3465)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  const written = (files: string, apples: string, pears: string) =>
+    [
+      `Apples led the harvest ${apples}.`,
+      "",
+      `![Orchard map](${join(files, "chart.png")})`,
+      "",
+      // A header cell of words enough to read as a sentence, as the walk's were.
+      "| Fruit | Picked in 2026 (tonnes) |",
+      "|---|---|",
+      `| Apples | 1,840 ${apples} |`,
+      `| Pears | 610 ${pears} |`,
+      "",
+      "```chart",
+      '{"kind": "bar", "title": "Tonnes picked, 2026"}',
+      "```",
+    ].join("\n");
+  const FENCE = '```chart\n{"kind":"bar","title":"Tonnes picked, 2026"}\n```';
+
+  // protects=an agent asked whether its Note is right reads a chart as a chart and a picture as a picture, in either reading, so it never tells the User the Note holds a duplicated table or a broken picture; fails_when=a reading shows a chart's values as a second table under a table that holds them, or a picture as a data: link cut short
+  it("reads a chart as the chart block under its table, and a picture without its data, in both readings", async () => {
+    const { core, agent, files } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const made = structured<Written>(await create(agent, written(files, apples, pears)));
+    const read = async (named?: boolean) =>
+      structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named } }),
+      ).markdown;
+
+    const whole = await read();
+    expect(whole).toContain(
+      "![Orchard map](shown in the Note; its data is left out here)\n\n| Fruit | Picked in 2026 (tonnes) |",
+    );
+    expect(whole).toMatch(/\| Pears \| 610\[\^\d+\] \|\n\n```chart\n/);
+    expect(whole).toContain(`${FENCE}\n`);
+    expect(whole.match(/\| Apples \|/g)).toHaveLength(1);
+    expect(whole).not.toContain("data:");
+    const named = await read(true);
+    expect(named).toContain("¶2 ![Orchard map](shown in the Note; its data is left out here)\n\n");
+    expect(named).toMatch(/¶\d+ ```chart\n\{"kind":"bar","title":"Tonnes picked, 2026"\}\n```/);
+
+    // With its table gone, the chart's values are nowhere else in the Note: they come with it.
+    const client = await connectToMind(core, made.mindId);
+    await client.settled();
+    editMind(client, (blocks) => blocks.filter((block) => block.type !== "table"));
+    await client.settled();
+    const alone = await read();
+    expect(alone).toContain(
+      `| Fruit | Picked in 2026 (tonnes) |\n| --- | ---: |\n| Apples | 1,840 |\n| Pears | 610 |\n\n${FENCE}\n\n`,
+    );
+    expect(alone.match(/\| Apples \|/g)).toHaveLength(1);
+  });
+
+  // protects=the Note's "not checked yet" clears once the agent's check has judged every sentence it was given, and a later chat asking whether the Note is right gets its results rather than an empty list; fails_when=a header cell or a chart the check's model found nothing to check in stays counted, a value cell's figure is left out because a check called it nothing to check, or a check with nothing left says nothing of the results
+  it("counts as not checked yet just what the agent's check gives, and with none left gives the Note's results", async () => {
+    const { core, agent, files } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const made = structured<Written>(await create(agent, written(files, apples, pears)));
+    const task = async () =>
+      structured<CheckTask>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+      );
+    const report = async (given: string, results: unknown[]) =>
+      structured<{ marked: number; unconfirmed: number[]; next: string | null }>(
+        await agent.callTool({
+          name: "report_check",
+          arguments: { mindId: made.mindId, task: given, results },
+        }),
+      );
+
+    const given = await task();
+    // A header cell names its column: the check gives none, and the Note counts none (#2378).
+    const texts = given.sentences.map((each) => each.text);
+    expect(texts.slice(0, 5)).toEqual([
+      "Apples led the harvest .",
+      "Apples",
+      "1,840",
+      "Pears",
+      "610",
+    ]);
+    expect(texts).toHaveLength(6);
+    expect(texts[5]).toMatch(/^\{"kind":"bar","title":"Tonnes picked, 2026"/);
+    expect(await pageRows(core, made.mindId)).toMatchObject({ toCheck: 4 });
+
+    // As a real agent judged them: the row labels and the chart nothing to check, and a figure too.
+    const byText = (text: string) => given.sentences.find((each) => each.text === text)?.n;
+    const first = await report(given.task, [
+      { n: byText("Apples led the harvest ."), verdict: "supported", cites: [apples] },
+      { n: byText("Apples"), verdict: "nothing to check" },
+      { n: byText("1,840"), verdict: "supported", cites: [apples] },
+      { n: byText("Pears"), verdict: "nothing to check" },
+      { n: byText("610"), verdict: "nothing to check" },
+      { n: 6, verdict: "nothing to check" },
+    ]);
+    // A value cell's figure is checked whatever a check calls it: it is given again.
+    expect(first).toMatchObject({ marked: 2, unconfirmed: [byText("610")] });
+    expect(first.next).not.toBeNull();
+    expect(await pageRows(core, made.mindId)).toMatchObject({ toCheck: 1 });
+    const again = await task();
+    expect(again.sentences).toEqual([
+      { n: 1, text: "610", row: "Pears", column: "Picked in 2026 (tonnes)" },
+    ]);
+    expect(
+      await report(again.task, [{ n: 1, verdict: "supported", cites: [pears] }]),
+    ).toMatchObject({ marked: 1, unconfirmed: [], next: null });
+    expect(await pageRows(core, made.mindId)).not.toHaveProperty("toCheck");
+
+    // A later chat asking whether it's right learns it is checked, with what the Note's page shows.
+    const done = await task();
+    expect(done.sentences).toEqual([]);
+    expect(done.how).toBe(
+      "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those; there is nothing to hand to report_check.",
+    );
+    const rows = await pageRows(core, made.mindId);
+    expect(done.checked).toMatchObject({
+      supported: rows.supported,
+      needLook: 0,
+      notChecked: 0,
+      claims: [],
+    });
+    expect(rows.supported).toBe(3);
+  });
+
+  // protects=a chart the agent finds supported shows checked on the Note, as one IncarnaMind's own check marked, so the Note's count clears and the check doesn't give it again; fails_when=the chart keeps counting as not checked yet once the agent's result is in
+  it("marks a chart the agent judges on each of its values, as the Note shows a checked chart", async () => {
+    const { core, agent, files } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const made = structured<Written>(await create(agent, written(files, apples, pears)));
+    const given = structured<CheckTask>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+    );
+    const results = given.sentences.map(({ n, text }) =>
+      text === "Apples" || text === "Pears"
+        ? { n, verdict: "nothing to check" }
+        : { n, verdict: "supported", cites: text === "610" ? [pears] : [apples, pears] },
+    );
+    expect(
+      structured<{ marked: number }>(
+        await agent.callTool({
+          name: "report_check",
+          arguments: { mindId: made.mindId, task: given.task, results },
+        }),
+      ),
+    ).toMatchObject({ marked: 4, unconfirmed: [], next: null });
+    expect(await pageRows(core, made.mindId)).toEqual({ supported: 4 });
+    expect(
+      structured<CheckTask>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+      ).sentences,
+    ).toEqual([]);
+  });
+
+  // protects=an agent that reads on from a Citation it holds gets its Passage, so it never spends a dozen refused calls on it; fails_when=a [cite:…] token, bracketed or bare, given as a passageId is refused, or one of another agent's or none reads anything
+  it("reads the Passage a Citation's token stands for, given where a passageId goes", async () => {
+    const { agent } = await paired();
+    const { apples } = await tokens(agent);
+    const read = (passageId: string) =>
+      agent.callTool({ name: "read_passages", arguments: { passageId } });
+    for (const given of [apples, apples.slice("[cite:".length, -1)]) {
+      const { passages } = structured<{ passages: { text: string }[] }>(await read(given));
+      expect(passages[0]?.text).toContain("1,840 tonnes of apples");
+    }
+    expect(refusal(await read("[cite:zzzzzzzz]"))).toBe(
+      "No such passage, Document, note or Citation in the Folders shared with this agent.",
+    );
   });
 });

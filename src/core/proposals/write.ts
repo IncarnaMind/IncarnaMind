@@ -64,6 +64,7 @@ import {
   type BlockKind,
   CHART_NODE,
   CITATION_NODE,
+  CLAIM_CHECK_MARK,
   FOOTNOTE_NODE,
   GENERATED_MARK,
   type LeftOutPart,
@@ -1687,6 +1688,11 @@ function insertTokens(
   let position = at;
   let words = "";
   let wordMarks = marks;
+  // A check marks a sentence's words, never the space at their edge: a space written with the
+  // marks of the words it replaces would keep an earlier check's mark that no check takes off (#3466).
+  const worded = (token: NewToken) => token.node === undefined && /\S/.test(token.text ?? "");
+  const firstWord = tokens.findIndex(worded);
+  const lastWord = tokens.findLastIndex(worded);
   const flush = () => {
     if (words === "") return;
     insertText(element, position, words, {
@@ -1696,20 +1702,27 @@ function insertTokens(
     position += words.length;
     words = "";
   };
-  for (const token of tokens) {
+  for (const [index, token] of tokens.entries()) {
     if (token.node) {
       flush();
       insertNode(element, position, nodeElement(token.node, ref, newId));
       position += 1;
       continue;
     }
-    const own = token.look ? withLook(token.marks ?? marks, token.look) : (token.marks ?? marks);
+    const given = token.look ? withLook(token.marks ?? marks, token.look) : (token.marks ?? marks);
+    const edge = index < firstWord || index > lastWord;
+    const own = edge ? withoutCheck(given) : given;
     if (!sameMarks(own, wordMarks)) flush();
     wordMarks = own;
     words += token.text ?? "";
   }
   flush();
 }
+
+const withoutCheck = (marks: Attributes): Attributes =>
+  Object.fromEntries(
+    Object.entries(marks).filter(([key]) => keyedMarkOf(key) !== CLAIM_CHECK_MARK),
+  );
 
 /** A new paragraph or heading holding these tokens, with these attributes. */
 function textBlockOf(

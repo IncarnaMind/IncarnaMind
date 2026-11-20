@@ -93,7 +93,11 @@ export interface CheckRecordMaker {
 }
 
 export function createCheckRecord(deps: CheckRecordDependencies) {
-  async function build(mindId: unknown): Promise<CheckRecord> {
+  /** `reach`: the Documents an outside agent the record is for reaches; null for the User. */
+  async function build(
+    mindId: unknown,
+    reach: ReadonlySet<string> | null = null,
+  ): Promise<CheckRecord> {
     const mind = deps.mind(mindId);
     const language = deps.language();
     const providers = await deps.providers();
@@ -112,6 +116,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
             ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
             : null,
         personId: deps.personId(),
+        reach,
       });
       return {
         ...record,

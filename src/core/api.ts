@@ -132,6 +132,11 @@ export interface Mind {
    * Document while it holds none, as one in no Folder does (#1359).
    */
   folderId: string | null;
+  /**
+   * The Note of the newest version of a file an outside agent handed over, when this Note checks
+   * an earlier one (#3412): it has no row of its own, and opens from that Note's card.
+   */
+  supersededBy?: string;
 }
 
 /**
@@ -1527,6 +1532,8 @@ export type MindProblem =
         | "uncited"
         /** New text off the length the User asked for (#1385). */
         | "length"
+        /** A text argument held the call's own markup, from a malformed call (#3476). */
+        | "call-markup"
         // Only in Answers written before #1559.
         | "new-mind";
       mindId: string;
@@ -4052,6 +4059,48 @@ export interface Canvas {
   updatedAt: string;
 }
 
+/**
+ * A deck, workbook, Word file or PDF an outside agent made and handed over (#3412), kept with each
+ * version, its newest the Library's Document `documentId`, each version checked in a Note of its
+ * own as "Check someone else's file" checks one.
+ */
+export interface HandedFile {
+  id: string;
+  title: string;
+  kind: "pptx" | "xlsx" | "docx" | "pdf";
+  /** Its Folder; null when it is Not in a Folder. */
+  folderId: string | null;
+  /** The agent that handed it over, as the User had named its pairing then. */
+  agent: string;
+  /** The Library's Document holding its newest version; null before the first is read. */
+  documentId: string | null;
+  /** Its newest version: 1 at its first hand-over, one more for each with other bytes. */
+  version: number;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A version of a handed-over file (#3412). */
+export interface HandedFileVersion {
+  number: number;
+  /** The SHA-256 of its bytes. */
+  contentHash: string;
+  size: number;
+  /** The Note its check is in; null while it is made. */
+  mindId: string | null;
+  agent: string;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
+
+/** The handed-over file a check's Note is of, which version it is, and every version (#3412). */
+export interface HandedFileOfMind {
+  file: HandedFile;
+  version: number;
+  versions: HandedFileVersion[];
+}
+
 /** A version of a Canvas, as its versions list shows it. */
 export interface CanvasVersionInfo {
   /** 1 for its first publish, one more for each version after. */
@@ -4171,6 +4220,8 @@ export interface DocumentPlace {
    * part ("w:p#12", "w:tbl#3"), as a Mind imported from it records (`WordSource.n`, #736).
    */
   wordPlace?: string;
+  /** The original Transcript cue, including when the speaker has since been split. */
+  transcriptCue?: { startMs: number; endMs: number };
 }
 
 export interface LayoutTab {
@@ -4669,7 +4720,9 @@ export interface Document {
   /**
    * The User keeps it as their own workings: a spreadsheet of figures copied from a
    * report, with their own ratios. Answers search and read it to understand a Question but
-   * never cite it, and checks never use it as evidence (`setNotCited`).
+   * never cite it, and checks never use it as evidence (`setNotCited`). A file an outside agent
+   * handed over (`HandedFile`) is Not cited from its first version, and isn't searched or read by
+   * anything but the User's own search until they cite it again (#3492).
    */
   notCited: boolean;
   /** Where its text came from, when Find sources added it (#296); null for any other Document. */
@@ -8314,6 +8367,12 @@ export interface ClaimCheckBasis {
    * them, never a scope the check didn't search.
    */
   citedOnly?: true;
+  /**
+   * A fingerprint of all the claim was judged with, its words and what stands above it (#3412):
+   * read against the line as it is now, a reading that knows it says whether the result still
+   * stands there. Absent on a check that kept none.
+   */
+  judgedWith?: string;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
@@ -12002,6 +12061,7 @@ export interface MeetingSummaryItem {
   kind: "decision" | "action";
   status: "active" | "done" | "cancelled";
   text: string;
+  corrected?: true;
 }
 
 export interface MeetingSummary {
@@ -12672,6 +12732,7 @@ export const AGENT_TOOLS = [
   "read_canvas",
   "update_canvas",
   "read_request",
+  "hand_over_file",
 ] as const;
 
 /**
@@ -15208,6 +15269,18 @@ export interface CoreApi {
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
+  getMeetingSummaryItemSources(
+    meetingId: string,
+    itemId: number,
+  ): Promise<{
+    documentId: string;
+    sources: { startMs: number; endMs: number; text: string }[];
+  } | null>;
+  correctMeetingSummaryItem(
+    meetingId: string,
+    expected: MeetingSummaryItem,
+    replacement: Pick<MeetingSummaryItem, "kind" | "status" | "text"> & { restoreGenerated?: true },
+  ): Promise<Meeting>;
   /** Takes back what filling in added, leaving the notes as the User left them (#142). */
   undoMeetingFill(meetingId: string): Promise<Meeting>;
   /**
@@ -15331,6 +15404,11 @@ export interface CoreApi {
    * IncarnaMind for that agent's `read_request` (#3419).
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
+  /**
+   * The file an outside agent handed over that this Note checks, with its versions (#3412); null
+   * for a Note that checks none.
+   */
+  handedFileOf(mindId: string): Promise<HandedFileOfMind | null>;
   /** The live Canvases (#3406), newest first. */
   listCanvases(): Promise<Canvas[]>;
   /**
@@ -16080,6 +16158,8 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   retryMeetingSummary: true,
+  getMeetingSummaryItemSources: true,
+  correctMeetingSummaryItem: true,
   undoMeetingFill: true,
   followMeetingFillUndo: true,
   openAudioSettings: true,
@@ -16113,6 +16193,7 @@ const methods: Record<CoreApiMethod, true> = {
   copyAgentSetup: true,
   listAgentsToAsk: true,
   askAgent: true,
+  handedFileOf: true,
   listCanvases: true,
   showCanvas: true,
   listCanvasVersions: true,

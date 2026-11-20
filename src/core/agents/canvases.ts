@@ -117,6 +117,8 @@ export interface CanvasToolContext {
     pairing: AdmittedPairing,
     html: string,
   ): { token: string; citation: CanvasCitation | null }[];
+  /** The pairing as it is admitted now: what the User grants may change while a call waits. */
+  again(): AdmittedPairing;
 }
 
 const WRITES_LIBRARY: Effect = { action: "write", scope: { kind: "library" } };
@@ -258,6 +260,14 @@ export function createCanvasTools(context: CanvasToolContext) {
             folderId: folder.id,
             pairingId: pairing.id,
             agent: pairing.name,
+            // The grant as it is once the files are read: the User may have taken it back.
+            allowed: () => {
+              const now = context.again();
+              mayWrite(now);
+              if (context.placeToWriteIn(now, input?.folderId).id !== folder.id) {
+                throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
+              }
+            },
           })
           .catch(unavailable);
         deps.canvasChanged({
@@ -288,6 +298,11 @@ export function createCanvasTools(context: CanvasToolContext) {
         const canvas = reachedCanvas(pairing, input?.canvasId);
         const offset = whole(input?.offset, "offset", 0, Number.MAX_SAFE_INTEGER, 0);
         const version = await deps.canvases.version(canvas.id).catch(unavailable);
+        // What the agent reaches may have changed while the version was read.
+        const now = context.again();
+        if (!canvasReached(deps.canvases.get(canvas.id) ?? canvas, now, context.reached(now))) {
+          throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
+        }
         const end = Math.min(version.html.length, offset + CANVAS_PAGE_CHARS);
         return {
           result: {
@@ -329,6 +344,12 @@ export function createCanvasTools(context: CanvasToolContext) {
             paths,
             pairingId: pairing.id,
             agent: pairing.name,
+            // The grant as it is once the files are read: the User may have taken it back.
+            allowed: () => {
+              const now = context.again();
+              mayWrite(now);
+              reachedCanvas(now, canvas.id);
+            },
             ...(title !== undefined && { title }),
             ...(html !== undefined &&
               citations && { html: { text: html, citations: citations.kept } }),

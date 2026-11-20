@@ -189,7 +189,8 @@ const isProblem = (status: Status) =>
 function StatusRow({ status, children }: { status: Status; children?: ReactNode }) {
   const t = useT();
   const { tone, short, figure, full, action, dismiss, details, sends } = status;
-  const wraps = status.wraps === true || details !== undefined;
+  // A row that asks the User's consent reads in full, on two lines where one has no room (#3466).
+  const wraps = status.wraps === true || status.asks === true || details !== undefined;
   return (
     <div
       role={tone === "error" ? "alert" : "status"}
@@ -208,9 +209,13 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
       </span>
       {wraps ? (
         <span className="min-w-0 flex-1">
-          <span aria-hidden="true" data-testid="status-label">
-            {short}
-          </span>
+          {sends === undefined ? (
+            <span aria-hidden="true" data-testid="status-label">
+              {short}
+            </span>
+          ) : (
+            <StatusSends short={short} sends={sends} wraps />
+          )}
           {action && (
             <span className="whitespace-nowrap">
               <span aria-hidden="true"> · </span>
@@ -294,7 +299,16 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
  * keyboard. The tip waits while the pointer is over it, so its sentence can be
  * read, and a click holds it until Esc or a press elsewhere.
  */
-function StatusSends({ short, sends }: { short: string; sends: string }) {
+function StatusSends({
+  short,
+  sends,
+  wraps = false,
+}: {
+  short: string;
+  sends: string;
+  /** Its words wrap at a word, as the row they are in does, rather than being cut. */
+  wraps?: boolean;
+}) {
   const id = useId();
   const button = useRef<HTMLButtonElement>(null);
   const pinned = useRef(false);
@@ -321,7 +335,7 @@ function StatusSends({ short, sends }: { short: string; sends: string }) {
         }}
         onPointerMove={tip.point}
         onPointerLeave={tip.leave}
-        className="min-w-0 truncate rounded-sm text-left focus-visible:outline-2 focus-visible:outline-accent"
+        className={`${wraps ? "" : "min-w-0 truncate "}rounded-sm text-left focus-visible:outline-2 focus-visible:outline-accent`}
       >
         {short}
       </button>

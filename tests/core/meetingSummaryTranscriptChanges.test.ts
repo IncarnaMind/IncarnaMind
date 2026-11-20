@@ -37,6 +37,7 @@ type ChangeCase = {
   edit(cues: Cue[], transcript: MeetingTranscript): void;
   keep: MeetingSummaryItem[];
   sameTranscript?: false;
+  ambiguousDecision?: true;
 };
 
 const cases: ChangeCase[] = [
@@ -63,6 +64,49 @@ const cases: ChangeCase[] = [
     keep: [action],
   },
   {
+    name: "the decision's words survive only at a different time",
+    edit: (cues) => {
+      const first = cues.shift();
+      if (first) cues.push({ ...first, startMs: 3_000, endMs: 3_800 });
+    },
+    keep: [action],
+  },
+  {
+    name: "the decision's original line remains when another repeats it",
+    edit: (cues) => {
+      const [first] = cues;
+      if (first) cues.unshift({ ...first, startMs: 0, endMs: 800 });
+    },
+    keep: [decision, action],
+  },
+  {
+    name: "an originally ambiguous decision's speaker is relabelled",
+    ambiguousDecision: true,
+    edit: (cues) => {
+      const [first] = cues;
+      if (first) first.speaker = "Speaker 1";
+    },
+    keep: [decision, action],
+  },
+  {
+    name: "one of several original matches remains for the ambiguous decision",
+    ambiguousDecision: true,
+    edit: (cues) => {
+      cues.shift();
+    },
+    keep: [decision, action],
+  },
+  {
+    name: "all the ambiguous decision's original matches are removed",
+    ambiguousDecision: true,
+    edit: (cues) => {
+      const first = cues.shift();
+      cues.pop();
+      if (first) cues.push({ ...first, startMs: 4_000, endMs: 4_700 });
+    },
+    keep: [action],
+  },
+  {
     name: "the action's source line is replaced",
     edit: (cues) => {
       cues[1] = { startMs: 2_100, endMs: 2_700, speaker: "Them", text: "Let's wrap up." };
@@ -85,6 +129,9 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
   const cues: Cue[] = [
     { startMs: 1_000, endMs: 1_800, speaker: "Them", text: appointment },
     { startMs: 2_100, endMs: 2_700, speaker: "Them", text: assignment },
+    ...(fixture.ambiguousDecision
+      ? [{ startMs: 3_000, endMs: 3_800, speaker: "Them", text: appointment }]
+      : []),
   ];
   const transcript: MeetingTranscript = {
     documentId: "transcript",

@@ -1,5 +1,5 @@
 import { setImmediate as nextTurn } from "node:timers/promises";
-import { generateText, type LanguageModel, Output } from "ai";
+import { generateText, type LanguageModel, Output, wrapLanguageModel } from "ai";
 import { expect, vi } from "vitest";
 import { z } from "zod";
 import type { MeetingSummary, MeetingSummaryItem } from "../../src/core/api";
@@ -29,6 +29,32 @@ const october = (day: number) => {
   );
 };
 
+const handoverWork = (item: MeetingSummaryItem) =>
+  /\b(?:hand[ -]?over|supplier transfer)\b/i.test(item.text);
+const demo = /\b(?:demo(?:nstration)?|invitations?|invites?)\b/i;
+const kioskInvitations = (item: MeetingSummaryItem) =>
+  item.kind === "action" && demo.test(item.text);
+const sampleReturnsWork = (item: MeetingSummaryItem) =>
+  /\b(?:samples? (?:of )?returns?|returns? samples?|examples? of returns?)\b/i.test(item.text);
+
+export function summaryRetentionHistoryProblems(
+  before: readonly MeetingSummaryItem[],
+  after: readonly MeetingSummaryItem[],
+): string[] {
+  const commitments = [
+    { name: "supplier handover", matches: handoverWork },
+    { name: "kiosk invitations", matches: kioskInvitations },
+    { name: "sample returns", matches: sampleReturnsWork },
+  ];
+  return commitments.flatMap(({ name, matches }) => {
+    const earlier = before.filter(matches);
+    const later = after.filter(matches);
+    if (earlier.length === 1 && later.length === 1 && earlier[0]?.id === later[0]?.id) return [];
+    const ids = (items: MeetingSummaryItem[]) => items.map((item) => item.id).join(", ") || "none";
+    return [`Expected the same ${name} record. IDs before: ${ids(earlier)}. After: ${ids(later)}.`];
+  });
+}
+
 export function summaryRetentionItemProblems(
   phase: Phase,
   items: readonly MeetingSummaryItem[],
@@ -37,13 +63,8 @@ export function summaryRetentionItemProblems(
   const active = items.filter((item) => item.status === "active");
   const decisions = active.filter((item) => item.kind === "decision");
   const actions = active.filter((item) => item.kind === "action");
-  const handover = active.filter(({ text }) =>
-    /\b(?:hand[ -]?over|supplier transfer)\b/i.test(text),
-  );
-  const demo = /\b(?:demo(?:nstration)?|invitations?|invites?)\b/i;
-  const returns = items.filter(({ text }) =>
-    /\b(?:samples? (?:of )?returns?|returns? samples?|examples? of returns?)\b/i.test(text),
-  );
+  const handover = active.filter(handoverWork);
+  const returns = items.filter(sampleReturnsWork);
   const problems: string[] = [];
   const check = (present: boolean, description: string) => {
     if (!present) problems.push(description);
@@ -79,7 +100,7 @@ export function summaryRetentionItemProblems(
       ? "Expected one active handover for Jonah Reed on 14 October."
       : "Expected one active handover for Casey Park on 7 October.",
   );
-  const invitations = items.filter((item) => item.kind === "action" && demo.test(item.text));
+  const invitations = items.filter(kioskInvitations);
   check(
     invitations.some(
       ({ status, text }) =>
@@ -174,14 +195,54 @@ export async function replaySummaryRetention({
   createChatModel,
   apiKey,
   modelId,
+  timing = "after-stop",
+  utterances = summaryRetention.utterances,
+  language = "en",
 }: {
   createChatModel: ChatModelFactory;
   apiKey: string;
   modelId: string;
+  timing?: "before-stop" | "in-flight-at-stop" | "after-stop";
+  utterances?: string[];
+  language?: "en" | "zh-CN";
 }) {
+  const finalIndex = utterances.length - 1;
+  const correction = utterances[finalIndex];
+  if (!correction) throw new Error("The retention fixture needs a closing correction.");
+  const correctionText = JSON.stringify(correction);
+  const gate = timing === "in-flight-at-stop" ? Promise.withResolvers<void>() : null;
+  let sendingCorrection = false;
+  let correctionStarted = false;
+  const model: ChatModelFactory = gate
+    ? (spec) =>
+        wrapLanguageModel({
+          model: createChatModel(spec),
+          middleware: {
+            specificationVersion: "v4",
+            wrapGenerate: async ({ doGenerate, params }) => {
+              const hasCorrection =
+                sendingCorrection &&
+                params.prompt.some(
+                  (message) =>
+                    message.role === "user" &&
+                    message.content.some(
+                      (part) => part.type === "text" && part.text.includes(correctionText),
+                    ),
+                );
+              if (!hasCorrection) return doGenerate();
+              correctionStarted = true;
+              try {
+                return await doGenerate();
+              } finally {
+                await gate.promise;
+              }
+            },
+          },
+        })
+    : createChatModel;
   const { core, capture, clock, record } = await transcribingCore(await createTempDataFolder(), {
-    engine: { lines: summaryRetention.utterances, maxSpeechMs: 3000 },
-    createChatModel,
+    engine: { lines: utterances, maxSpeechMs: 3000 },
+    createChatModel: model,
   });
   try {
     const provider = await core.saveChatProvider({ kind: "anthropic", apiKey, modelId });
@@ -189,7 +250,7 @@ export async function replaySummaryRetention({
     const readiness = await core.getChatReadiness();
     if (!readiness.ready) throw new Error("The retention eval model is unavailable.");
     await core.updateSettings({
-      user: { chatModel: choice, language: "en" },
+      user: { chatModel: choice, language },
       device: {
         meetingSummaryRoute: meetingSummaryModelRoute(
           choice,
@@ -202,9 +263,8 @@ export async function replaySummaryRetention({
       (await core.listMeetings()).find((meeting) => meeting.id === id);
 
     await core.startMeeting({ meetingId: id, systemAudio: false });
-    const checkpoints: MeetingSummary[] = [];
-    for (let index = 0; index < summaryRetention.utterances.length - 1; index++) {
-      if (index > 0) {
+    const recordTurn = async (afterFirst: boolean) => {
+      if (afterFirst) {
         // Give the in-process transcriber's push and progress messages a turn each.
         for (let gap = 0; gap < 60_000; gap += 5000) {
           clock.advance(5000);
@@ -216,30 +276,48 @@ export async function replaySummaryRetention({
       record(2000, ["microphone"]);
       clock.advance(1000);
       capture.push("microphone", 1000, true);
-      const checkpoint = await vi.waitFor(
+    };
+    const waitForDraft = (index: number, previousMs: number) =>
+      vi.waitFor(
         async () => {
           const meeting = await readMeeting();
           expect(meeting?.transcript?.lines).toBe(index + 1);
           const draft = meeting?.summary;
-          if (!draft?.text || draft.throughMs <= (checkpoints.at(-1)?.throughMs ?? 0))
+          if (!draft?.text || draft.throughMs <= previousMs)
             throw new Error(`Live summary has yet to cover utterance ${index + 1}.`);
           return draft;
         },
         { timeout: 25_000, interval: 50 },
       );
-      checkpoints.push(checkpoint);
+    const checkpoints: MeetingSummary[] = [];
+    for (let index = 0; index < finalIndex; index++) {
+      await recordTurn(index > 0);
+      checkpoints.push(await waitForDraft(index, checkpoints.at(-1)?.throughMs ?? 0));
     }
 
-    record(2000, ["microphone"]);
-    const warm = (await readMeeting())?.summary;
+    const warm = checkpoints.at(-1);
     if (!warm?.text) throw new Error("The meeting has no warm summary before Stop.");
-    await core.stopMeeting(id);
+    if (timing === "after-stop") {
+      record(2000, ["microphone"]);
+    } else {
+      sendingCorrection = true;
+      await recordTurn(true);
+      if (gate) await vi.waitFor(() => expect(correctionStarted).toBe(true));
+      else await waitForDraft(finalIndex, warm.throughMs);
+    }
+
+    const atStop = (await core.stopMeeting(id)).summary;
+    if (!atStop?.text) throw new Error("Stop did not return the prepared summary.");
+    if (gate) {
+      await vi.waitFor(async () => expect((await readMeeting())?.transcript?.state).toBe("saved"));
+      gate.resolve();
+    }
     const final = await vi.waitFor(
       async () => {
         const meeting = await readMeeting();
         expect(meeting?.transcript).toMatchObject({
           state: "saved",
-          lines: summaryRetention.utterances.length,
+          lines: utterances.length,
         });
         const current = meeting?.summary;
         if (current?.state !== "ready" && current?.state !== "failed")
@@ -254,8 +332,9 @@ export async function replaySummaryRetention({
       );
     }
     if (!final.text) throw new Error("The stopped meeting has no summary text.");
-    return { checkpoints, warm, final };
+    return { checkpoints, warm, atStop, final };
   } finally {
     core.close();
+    gate?.resolve();
   }
 }

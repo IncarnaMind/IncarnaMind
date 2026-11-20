@@ -393,7 +393,8 @@ test("in Chinese: footnotes typed with an input method number together with an A
   expect(footnotes["3"]).toBe("参见 Tides，第 2 页");
   expect(footnotes["4"]).toBe("Tides，第 2 页");
   const paragraphs = paragraphsOf(part(files, "word/document.xml")).map((each) => each.text);
-  expect(paragraphs).toContain("Spring tides 大潮[1][2][3]");
+  // Side by side, each number is set apart, as Word would show them as one: 123 (#3466).
+  expect(paragraphs).toContain("Spring tides 大潮[1],[2],[3]");
   await app.close();
 });
 

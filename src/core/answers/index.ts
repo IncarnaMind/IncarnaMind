@@ -474,6 +474,8 @@ interface WrittenAnswer {
   blocks(): NodeJSON[];
   /** Its Citations, in the order of their markers in the text: the final ones once it has ended. */
   citations(): MarkedCitation[];
+  /** Each Document its model was given anything of, by id: what its text may say, cited or not. */
+  documentsRead(): string[];
   /** Its calculated figures, in the order of their markers in the text, each once. */
   figures(): MarkedFigure[];
   /** The Analyses it ran, in order (#447). */
@@ -594,6 +596,8 @@ export type OutsideAnswer =
       /** With its calculated figures written in as their shown text. */
       markdown: string;
       citations: MarkedCitation[];
+      /** Each Document its model was given anything of, by id, cited or not. */
+      read: string[];
       error: ProviderError | null;
       /** Where the Question went: the chat model's service; null for a model on this computer. */
       service: ExternalService | null;
@@ -2186,6 +2190,16 @@ export function createAnswers(options: AnswersOptions) {
                 return null;
               });
               return found;
+            },
+            documentsRead: () => {
+              const { cited, passages } = session.documentsRead();
+              return [
+                ...new Set([
+                  ...session.passagesRead().map((passage) => passage.documentId),
+                  ...passages,
+                  ...cited,
+                ]),
+              ];
             },
             figures: () => placedFigures(text, final).figures,
             analyses,
@@ -5452,6 +5466,7 @@ export function createAnswers(options: AnswersOptions) {
                   status: outcome.status,
                   markdown: withFigureText(answer.markdown, (marker) => shown.get(marker) ?? null),
                   citations: answer.citations(),
+                  read: answer.documentsRead(),
                   error: outcome.status === "failed" ? outcome.error : null,
                   service,
                 });

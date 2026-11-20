@@ -38,8 +38,8 @@ import {
   type Anchor,
   anchorsOf,
   cellNumber,
-  parseCueTarget,
   type TextUnit,
+  transcriptCueLines,
   type UnitKind,
   type UnitLabel,
   type UnitText,
@@ -152,6 +152,7 @@ import {
   searchDocumentsTool,
   topsOfEach,
 } from "./searchTool";
+import { isSource } from "./sources";
 import { createTextCopies, type FillTurn } from "./textCopies";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
 import { unreadMessage } from "./unreadMessage";
@@ -611,6 +612,8 @@ export interface DocumentFilter {
   linkedFolderId?: string | null;
   /** Leave out missing Documents: new searches don't look at them. */
   searchable?: boolean;
+  /** Only those that count as sources (./sources). */
+  sources?: boolean;
   /** Only those with a row of their own: a Meeting's Transcript is its Note's (#2528). */
   listed?: boolean;
 }
@@ -1890,16 +1893,8 @@ export function createDocuments(options: DocumentsOptions) {
 
   /** A Transcript's lines as its current version's Units hold them: each cue with its label. */
   function transcriptLines(documentId: string, contentHash: string): FileLine[] {
-    return pageTexts(documentId, contentHash, null, null).flatMap((unit) =>
-      unit.kind !== "cues"
-        ? []
-        : (unit.anchors ?? []).flatMap((anchor, at) => {
-            const cue = parseCueTarget(anchor.target);
-            const label = unit.label?.speakers?.[at];
-            return cue && label
-              ? [{ ...cue, text: unit.text.slice(anchor.start, anchor.end), label }]
-              : [];
-          }),
+    return transcriptCueLines(pageTexts(documentId, contentHash, null, null)).flatMap((line) =>
+      line.label ? [{ ...line, label: line.label }] : [],
     );
   }
 
@@ -2368,6 +2363,7 @@ export function createDocuments(options: DocumentsOptions) {
     ids,
     linkedFolderId,
     searchable,
+    sources,
     listed,
   }: DocumentFilter) => {
     const conditions = ["deleted_at IS NULL"];
@@ -2393,6 +2389,7 @@ export function createDocuments(options: DocumentsOptions) {
       params.push(linkedFolderId);
     }
     if (searchable) conditions.push("file_status <> 'missing'");
+    if (sources) conditions.push(isSource("documents"));
     if (listed) conditions.push("meeting_mind_id IS NULL");
     return { where: conditions.join(" AND "), params };
   };
@@ -2488,14 +2485,19 @@ export function createDocuments(options: DocumentsOptions) {
   /**
    * The Documents a search looks at: those given that aren't missing, or,
    * with none given, undefined (every Document) unless some are missing:
-   * then every Document that isn't.
+   * then every Document that isn't. `sources`: only those that count as sources (./sources), as
+   * every search but the User's own looks.
    */
-  function searchScope(documentIds: readonly string[] | undefined): string[] | undefined {
-    if (documentIds) return ids({ ids: documentIds, searchable: true });
-    const anyMissing = db.get(
-      "SELECT 1 FROM documents WHERE deleted_at IS NULL AND file_status = 'missing'",
+  function searchScope(
+    documentIds: readonly string[] | undefined,
+    sources: boolean,
+  ): string[] | undefined {
+    if (documentIds) return ids({ ids: documentIds, searchable: true, sources });
+    const narrowed = db.get(
+      `SELECT 1 FROM documents d WHERE d.deleted_at IS NULL
+         AND (d.file_status = 'missing' ${sources ? `OR NOT ${isSource("d")}` : ""}) LIMIT 1`,
     );
-    return anyMissing ? ids({ searchable: true }) : undefined;
+    return narrowed ? ids({ searchable: true, sources }) : undefined;
   }
 
   /**
@@ -2529,10 +2531,10 @@ export function createDocuments(options: DocumentsOptions) {
     }
   }
 
-  /** SQL for the live, not missing Documents `d` with Passages to search: of all of them, or only of these. */
+  /** SQL for the live, not missing sources `d` with Passages to search: of all of them, or only of these. */
   function searchable(documentIds: readonly string[] | undefined) {
     return {
-      where: `d.deleted_at IS NULL AND d.file_status <> 'missing'
+      where: `d.deleted_at IS NULL AND d.file_status <> 'missing' AND ${isSource("d")}
         AND EXISTS (SELECT 1 FROM passages p WHERE p.document_id = d.id AND p.deleted_at IS NULL)
         ${documentIds ? "AND d.id IN (SELECT value FROM json_each(?))" : ""}`,
       params: documentIds ? [JSON.stringify(documentIds)] : [],
@@ -2582,7 +2584,7 @@ export function createDocuments(options: DocumentsOptions) {
     keywordListed = listed,
     background = false,
   ): Promise<{ lists: number[][]; keywordOnly: Set<number> }> {
-    const scope = searchScope(documentIds);
+    const scope = searchScope(documentIds, true);
     const vector = await whileOpen(() => closed, queryVector(query, "hybrid", background));
     const keyword = keywordSearch(db, query, keywordListed, scope);
     const similar = vector ? vectors.search(vector, listed, scope).map((hit) => hit.seq) : [];
@@ -3235,6 +3237,19 @@ export function createDocuments(options: DocumentsOptions) {
       return toDocument(row);
     },
 
+    /**
+     * Adds a file an outside agent handed over (#3412), whose copy IncarnaMind keeps in the data
+     * folder, as a Document of its own; its next version is that copy written again (`checkNow`).
+     */
+    addHanded(id: string, name: string, file: SnapshotFile, kind: DocumentKind): Document {
+      insertSnapshot(id, name, file, () => {}, kind, null);
+      announce(id);
+      process(id);
+      const row = find(id);
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      return toDocument(row);
+    },
+
     /** Whether a live Document has this content, other than `exceptDocumentId` (#335): a snapshot's file must be its own. */
     contentHashInUse(contentHash: string, exceptDocumentId: string | null = null): boolean {
       return (
@@ -3839,7 +3854,8 @@ export function createDocuments(options: DocumentsOptions) {
       if (typeof query !== "string") throw new InvalidInputError("The search query must be text.");
       const { mode, limit, documentIds } = parseSearchOptions(searchOptions);
       if (query.trim() === "") return [];
-      const scope = searchScope(documentIds);
+      // The User's own search finds every Document they have, sources or not.
+      const scope = searchScope(documentIds, false);
       // Copies of one file share Passages: ask for more, so the limit holds after they are merged.
       const asked = Math.min(MAX_SEARCH_LIMIT, limit * 2);
       if (mode === "keyword") {

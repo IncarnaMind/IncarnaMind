@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { MeetingSummaryItem } from "../api";
 import { TranslatableError } from "../errors";
+import { normalizeSummaryEvidence } from "./summaryEvidence";
 import type { MeetingSummaryInput } from "./summaryModel";
+
+export { normalizeSummaryEvidence } from "./summaryEvidence";
 
 const text = z.string().trim().min(1);
 const update = z.strictObject({
@@ -22,19 +25,10 @@ function invalid(): never {
   throw new TranslatableError({ key: "error.meeting.summaryIncomplete" });
 }
 
-export function normalizeSummaryEvidence(value: string): string {
-  return value
-    .normalize("NFC")
-    .replace(/[，：；！？（）]/gu, (mark) => String.fromCharCode(mark.charCodeAt(0) - 0xfee0))
-    .toLowerCase()
-    .replace(/[‘’]/gu, "'")
-    .replace(/\s+/gu, " ")
-    .trim();
-}
-
 export function readMeetingSummaryUpdate(
   raw: string,
   input: MeetingSummaryInput,
+  lastReservedId = 0,
 ): { text: string; items: MeetingSummaryItem[]; evidence: Record<number, string> } {
   let json: unknown;
   try {
@@ -54,7 +48,7 @@ export function readMeetingSummaryUpdate(
   const evidence: Record<number, string> = {};
   const touched = new Set<number>();
   const addressed = new Set(reply.data.changes.map((change) => change.id));
-  let nextId = 1;
+  let nextId = lastReservedId + 1;
   for (const id of existing.keys()) nextId = Math.max(nextId, id + 1);
   for (const change of reply.data.changes) {
     if (change.id !== null) {
@@ -84,7 +78,7 @@ export function readMeetingSummaryUpdate(
   if (input.closing) {
     if (!reply.data.unchanged) return invalid();
     for (const id of reply.data.unchanged) {
-      if (existing.get(id)?.status !== "active" || touched.has(id)) return invalid();
+      if (!existing.has(id) || touched.has(id)) return invalid();
       touched.add(id);
     }
     if (input.items?.some((item) => item.status === "active" && !touched.has(item.id))) {

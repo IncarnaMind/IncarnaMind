@@ -1625,6 +1625,8 @@ export const en = {
     "It was checked before each of its figures was checked with its own source.",
   "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
   "claim.recheck.library": "Your Library has changed since this was checked.",
+  "claim.recheck.context": "What stands above it has changed since it was checked.",
+  "claim.recheck.reach": "It rests on a Document outside the Folders the agent reads.",
   "claim.library.row": "{source}: {fact}",
   "claim.library.source.library": "Your Library",
   "claim.library.source.scope": "“{name}”",
@@ -5609,6 +5611,10 @@ export const en = {
     "Needs re-check: the record cite its Id. or supra refers back to has changed.",
   "export.comment.sentence.needs-recheck.library":
     "Needs re-check: your Library has changed since this was checked.",
+  "export.comment.sentence.needs-recheck.context":
+    "Needs re-check: what stands above it has changed since it was checked.",
+  "export.comment.sentence.needs-recheck.reach":
+    "Needs re-check: it rests on a Document outside the Folders the agent reads.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
@@ -8266,6 +8272,7 @@ export const en = {
     "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.length": "Didn’t change “{mind}”: the new text wasn’t the length asked for",
+  "mindCall.failed.callMarkup": "Didn’t write in “{mind}”: the AI’s call came in malformed",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":
     "No chart: “{mind}” has more than one table, and your cursor is in none",
@@ -8402,6 +8409,8 @@ export const en = {
     "This agent can’t read any Documents yet. Choose its Folders in Settings → Agents.",
   "agents.problem.outside-scope":
     "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
+  "agents.problem.reachChanged":
+    "What this agent may read changed while it waited, so nothing was given back. Call again.",
   "agents.problem.wallShared":
     "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
@@ -8422,6 +8431,8 @@ export const en = {
   "agents.answer.notFound": "[quote not found]",
   "agents.answer.cantCheck": "[can’t be checked]",
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
+  "agents.problem.callMarkup":
+    "{argument} holds the markup of the call itself, {markup}, not words for the note: nothing was written. Send the call again with each argument in its own field.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":
@@ -8461,6 +8472,8 @@ export const en = {
   "agents.check.taskChanged":
     "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
   "agents.check.results": "Give results: one result for each sentence, {max} at most.",
+  "agents.check.nothingLeft":
+    "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those; there is nothing to hand to report_check.",
   "agents.check.reportAgain":
     "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, a run_analysis result of this check, or a working whose numbers stand in their quotes and whose expression gives its figure, that IncarnaMind can confirm, and none from the User’s own working file.",
   // An outside agent writes a new note (#3306).
@@ -8613,7 +8626,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
-  "agents.pairing.proposes": "Writes notes and Canvases there; proposes changes to yours",
+  "agents.pairing.proposes": "Writes notes, Canvases and files there; proposes changes to yours",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
@@ -8667,6 +8680,47 @@ export const en = {
   "agents.activity.read_canvas": "Read the Canvas “{text}”",
   "agents.activity.update_canvas": "Changed the Canvas “{text}”",
   "agents.activity.read_request": "Read your request about “{text}”",
+  "agents.activity.hand_over_file": "Handed over the file “{text}”",
+  "agents.handOver.kind":
+    "IncarnaMind takes a deck (.pptx), a workbook (.xlsx), a Word file (.docx) or a PDF.",
+  "agents.handOver.unreadable":
+    "IncarnaMind reads only the file at the path you named, and couldn’t read one there: give the full path of the file itself, not of a folder or a link.",
+  "agents.handOver.tooLarge": "The file is larger than {max} MB, the most IncarnaMind takes.",
+  "agents.handOver.tooMany":
+    "This agent has handed over {max} files in the last hour, which is the most it may. Try again later.",
+  "agents.handOver.notFound": "That file is kept in a Folder this agent no longer reaches.",
+  "agents.handOver.unavailable": "This copy of IncarnaMind can’t read files an agent names.",
+  "agents.handOver.inLibrary":
+    "The User’s Library holds this file already, and IncarnaMind keeps one copy of a file: change it before you hand it over.",
+  "agents.handOver.untitled": "Untitled file",
+  "agents.handOver.unread.unreadable":
+    "IncarnaMind kept the file but couldn’t read it: it may be damaged.",
+  "agents.handOver.unread.password-protected":
+    "IncarnaMind kept the file but couldn’t read it: it needs a password.",
+  "agents.handOver.unread.no-text": "IncarnaMind kept the file but found nothing in it to check.",
+  "agents.handOver.unread.too-many":
+    "The workbook holds {typed} typed-in numbers, more than the {most} one check reads: hand over a smaller one.",
+  "agents.handOver.unread.range": "The workbook has no sheet by that name.",
+  "agents.handOver.unread.word": "IncarnaMind kept the file but couldn’t read it as a Word file.",
+  "agents.handOver.notChecked.not-ready":
+    "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. The User can check it from its note.",
+  "agents.handOver.notChecked.consent-needed":
+    "The User hasn’t allowed IncarnaMind’s checks to go to their AI model’s service, so it wasn’t checked. They can check it from its note.",
+  "agents.handOver.notChecked.local-mode":
+    "“Keep everything on this computer” is on in IncarnaMind, so it wasn’t checked.",
+  "agents.handOver.notChecked.no-documents": "Its Folder has no Documents to check it against.",
+  "agents.handOver.notChecked.failed": "The check failed: {message}",
+  "agents.handOver.where.slide": "slide {n}",
+  "agents.handOver.where.page": "page {n}",
+  "agents.handOver.where.sheet": "sheet “{sheet}”",
+  "error.handedFile.notFound": "That file doesn’t exist or has been deleted.",
+  "verify.handed.line": "From {agent} · version {version} of {count}",
+  "verify.handed.mindTitle": "Checking version {version}: {name}",
+  "verify.handed.open": "Version {n}",
+  "verify.handed.kept": "{count} claims kept their results from version {from}",
+  "verify.handed.kept.one": "1 claim kept its result from version {from}",
+  "verify.handed.checkAll": "Check every claim again",
+  "verify.handed.openLabel": "Open the check of version {n}",
   "agents.activity.read_request.none": "Looked for a request from you",
   "agents.activity.request": "Show the request",
   "agents.activity.count.one": "1 result",
@@ -8702,7 +8756,7 @@ export const en = {
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.hint":
-    "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. Its changes to your notes wait for you.",
+    "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. It can also hand over a deck, workbook or other file it made: IncarnaMind reads that one file, keeps each version and checks it. Its changes to your notes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
@@ -8784,6 +8838,32 @@ export const en = {
   "meetings.summary.status.cancelled": "Canceled",
   "meetings.summary.preparing": "Preparing a summary…",
   "meetings.summary.updating": "Finishing the summary…",
+  "meetings.summary.item.original": "Original speech",
+  "meetings.summary.item.loading": "Looking up the original speech…",
+  "meetings.summary.item.unavailable": "Couldn’t locate a unique source in the transcript.",
+  "meetings.summary.item.sourceFailed": "Couldn’t open the original speech.",
+  "meetings.summary.item.sourceAt": "Show in transcript at {time}",
+  "meetings.summary.item.edit": "Edit",
+  "meetings.summary.item.edited": "Edited by you",
+  "meetings.summary.item.kind": "Type",
+  "meetings.summary.item.decision": "Decision",
+  "meetings.summary.item.action": "Action item",
+  "meetings.summary.item.status": "Status",
+  "meetings.summary.item.text": "Text",
+  "meetings.summary.item.saving": "Saving…",
+  "meetings.summary.item.saveFailed": "Couldn’t save this item. Try again.",
+  "meetings.summary.item.conflict":
+    "This item changed while you were editing. Review the latest version before saving.",
+  "meetings.summary.item.removed":
+    "This item is no longer in the summary. You can copy your draft or cancel.",
+  "meetings.summary.item.latest": "Show latest item",
+  "meetings.summary.item.editedSource": "These lines are from the original AI item.",
+  "meetings.summary.item.saved": "Meeting item updated",
+  "error.meeting.summaryItemChanged": "This item changed. Review the latest version and try again.",
+  "error.meeting.summaryItemInvalid": "Enter the item text and choose a valid type and status.",
+  "error.meeting.summaryItemUnavailable":
+    "You can edit saved decisions and actions after the meeting stops.",
+  "error.layout.transcriptCue": "Choose a valid time in the transcript.",
   "meetings.summary.coverage": "Covers the transcript through {time}",
   "meetings.summary.empty": "No summary was generated.",
   "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
@@ -8808,6 +8888,16 @@ export const en = {
   "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}{quote}",
   "agents.ask.request.quote":
     "\n\nMy Documents say: {quote}\nRewrite it to say what that quote says and no more: add no figure, name or claim it doesn’t give.",
+  "agents.ask.line.fixFile": "Fix what IncarnaMind flagged in the file {title}.",
+  "agents.ask.line.fixFileAll": "Fix the {count} things IncarnaMind flagged in the file {title}.",
+  "agents.ask.request.fixFile":
+    "In IncarnaMind, the check of the file you handed over, {title} (version {version}, from {path}), says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the file from my Documents, change nothing else, and hand the file over again with hand_over_file.",
+  "agents.ask.request.fixFileAll":
+    "In IncarnaMind, the check of the file you handed over, {title} (version {version}, from {path}), says these {count} need a look:\n\n{sentences}\n\nFix each of them in the file from my Documents, change nothing else, and hand the file over again with hand_over_file.",
+  "agents.ask.request.fixFile.item": "{n}. {where}This {verdict}: {sentence}{quote}",
+  "agents.ask.request.fixFile.where": "On {where}: ",
+  "agents.ask.request.noteFile":
+    "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
   "agents.ask.request.note":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.verdict.unsupported": "has no support in my Documents",

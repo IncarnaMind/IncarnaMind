@@ -1561,6 +1561,8 @@ export const zhCN = {
   "claim.recheck.figures": "核对它时，其中的数字尚未逐个对照各自的来源。",
   "claim.recheck.referent": "其中 Id. 或 supra 所指的记录引用已改动。",
   "claim.recheck.library": "核对之后，资料库有了变动。",
+  "claim.recheck.context": "核对之后，它上方的内容改过了。",
+  "claim.recheck.reach": "它依据的文档不在智能体能读取的文件夹里。",
   "claim.library.row": "{source}：{fact}",
   "claim.library.source.library": "你的资料库",
   "claim.library.source.scope": "“{name}”",
@@ -5353,6 +5355,9 @@ export const zhCN = {
   "export.comment.sentence.needs-recheck.referent":
     "需重新核对：其中 Id. 或 supra 所指的记录引用已改动。",
   "export.comment.sentence.needs-recheck.library": "需重新核对：核对之后，资料库有了变动。",
+  "export.comment.sentence.needs-recheck.context": "需重新核对：核对之后，它上方的内容改过了。",
+  "export.comment.sentence.needs-recheck.reach":
+    "需重新核对：它依据的文档不在智能体能读取的文件夹里。",
   "export.comment.recordCite.result": "{raw}：{outcome}",
   "export.comment.recordCite.passage": "段落：{passage}",
   "export.comment.recordCite.candidates": "可选文档：{candidates}",
@@ -7826,6 +7831,7 @@ export const zhCN = {
   "mindCall.failed.misnamed": "改写没有说清每处修改替换“{mind}”里的哪一段，因此没有改动",
   "mindCall.failed.uncited": "未添加到“{mind}”：出处没有引用",
   "mindCall.failed.length": "未修改“{mind}”：新内容的长度不符合要求",
+  "mindCall.failed.callMarkup": "未写入“{mind}”：AI 的调用格式有误",
   "mindCall.failed.noChart.noTable": "没有生成图表：“{mind}”里没有表格",
   "mindCall.failed.noChart.several": "没有生成图表：“{mind}”里有多个表格，光标不在其中任何一个",
   "mindCall.failed.noChart.noNumbers": "没有生成图表：“{mind}”里的表格没有数字列",
@@ -7937,6 +7943,8 @@ export const zhCN = {
   "agents.problem.no-folders": "这个智能体还不能读取任何文档。在“设置 → 智能体”中为它选择文件夹。",
   "agents.problem.outside-scope":
     "这个文件夹没有共享给此智能体。在“设置 → 智能体”中共享更多文件夹。",
+  "agents.problem.reachChanged":
+    "等待期间，这个智能体能读取的内容有了变化，因此没有返回任何内容。请再调用一次。",
   "agents.problem.wallShared": "“{folder}”只在本文件夹内工作，不能和其他文件夹共用一个智能体",
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
   "agents.problem.chat-not-ready":
@@ -7955,6 +7963,8 @@ export const zhCN = {
   "agents.answer.notFound": "[未找到引文]",
   "agents.answer.cantCheck": "[无法核对]",
   "agents.mind.outsideCitation": "未共享给此智能体的文件夹中的文档",
+  "agents.problem.callMarkup":
+    "{argument} 里有调用本身的标记 {markup}，不是笔记的文字：没有写入。请重新调用，每个参数各放在自己的字段里。",
   "agents.problem.read-only":
     "这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → 智能体”中允许。",
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",
@@ -7985,6 +7995,8 @@ export const zhCN = {
   "agents.check.taskChanged":
     "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
   "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
+  "agents.check.nothingLeft":
+    "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户；没有要交给 report_check 的结果。",
   "agents.check.reportAgain":
     "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用、这次核对中 run_analysis 的结果，或一份计算过程（其中每个数都出自所引原文，算式能得出所给结果），且不能来自用户自己的工作文件。",
   "agents.note.writtenBy": "{name} 写入，{when}",
@@ -8116,7 +8128,7 @@ export const zhCN = {
   "agents.sentence.other": "你的智能体",
   "agents.pairing.reads": "可读取：{folders}",
   "agents.pairing.readsNothing": "还没有可读取的文件夹",
-  "agents.pairing.proposes": "可在其中新建笔记和页面，对你的笔记提出修改",
+  "agents.pairing.proposes": "可在其中新建笔记和页面、提交文件，对你的笔记提出修改",
   "agents.pairing.inside": "也读取其中的文件夹：{folders}",
   "agents.folders.sharedWith": "已随“{folder}”共享",
   "agents.pairing.lastUsed": "上次使用：{when}",
@@ -8170,6 +8182,44 @@ export const zhCN = {
   "agents.activity.read_canvas": "读取了页面“{text}”",
   "agents.activity.update_canvas": "修改了页面“{text}”",
   "agents.activity.read_request": "读取了你关于“{text}”的请求",
+  "agents.activity.hand_over_file": "提交了文件“{text}”",
+  "agents.handOver.kind":
+    "IncarnaMind 接收演示文稿（.pptx）、工作簿（.xlsx）、Word 文件（.docx）或 PDF。",
+  "agents.handOver.unreadable":
+    "IncarnaMind 只读取你给出的路径上的文件，但那里没有能读取的文件：请给出文件本身的完整路径，不要给文件夹或链接。",
+  "agents.handOver.tooLarge": "文件超过 {max} MB，这是 IncarnaMind 接收的上限。",
+  "agents.handOver.tooMany": "这个智能体在过去一小时内已提交 {max} 个文件，已达上限。请稍后再试。",
+  "agents.handOver.notFound": "这个文件所在的文件夹已不再与这个智能体共享。",
+  "agents.handOver.unavailable": "这个版本的 IncarnaMind 无法读取智能体给出的文件。",
+  "agents.handOver.inLibrary":
+    "用户的文库里已经有这个文件，而 IncarnaMind 每个文件只保留一份：修改后再提交。",
+  "agents.handOver.untitled": "未命名文件",
+  "agents.handOver.unread.unreadable": "IncarnaMind 已保留文件，但无法读取：文件可能已损坏。",
+  "agents.handOver.unread.password-protected": "IncarnaMind 已保留文件，但无法读取：文件需要密码。",
+  "agents.handOver.unread.no-text": "IncarnaMind 已保留文件，但其中没有可核对的内容。",
+  "agents.handOver.unread.too-many":
+    "这个工作簿有 {typed} 个手动输入的数字，超过一次核对读取的 {most} 个：请提交一个更小的工作簿。",
+  "agents.handOver.unread.range": "这个工作簿没有这个名字的工作表。",
+  "agents.handOver.unread.word": "IncarnaMind 已保留文件，但无法作为 Word 文件读取。",
+  "agents.handOver.notChecked.not-ready":
+    "IncarnaMind 还没有设置用于核对的 AI 模型，所以没有核对。用户可以在它的笔记里核对。",
+  "agents.handOver.notChecked.consent-needed":
+    "用户还没有允许把 IncarnaMind 的核对发送到其 AI 模型服务，所以没有核对。用户可以在它的笔记里核对。",
+  "agents.handOver.notChecked.local-mode":
+    "IncarnaMind 已开启“所有内容都留在这台电脑上”，所以没有核对。",
+  "agents.handOver.notChecked.no-documents": "它所在的文件夹里没有可用来核对的文档。",
+  "agents.handOver.notChecked.failed": "核对失败：{message}",
+  "agents.handOver.where.slide": "第 {n} 张幻灯片",
+  "agents.handOver.where.page": "第 {n} 页",
+  "agents.handOver.where.sheet": "工作表“{sheet}”",
+  "error.handedFile.notFound": "这个文件不存在或已删除。",
+  "verify.handed.line": "来自 {agent} · 第 {version} 版，共 {count} 版",
+  "verify.handed.mindTitle": "核对第 {version} 版：{name}",
+  "verify.handed.open": "第 {n} 版",
+  "verify.handed.kept": "{count} 条说法沿用第 {from} 版的结果",
+  "verify.handed.kept.one": "1 条说法沿用第 {from} 版的结果",
+  "verify.handed.checkAll": "重新核对全部说法",
+  "verify.handed.openLabel": "打开第 {n} 版的核对",
   "agents.activity.read_request.none": "查找了你的请求",
   "agents.activity.request": "查看请求",
   "agents.activity.count.one": "1 条结果",
@@ -8205,7 +8255,7 @@ export const zhCN = {
   "agents.connect.pickOne": "至少选择一个文件夹。",
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.hint":
-    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它对你笔记的修改等你处理。",
+    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版并加以核对。它对你笔记的修改等你处理。",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
   "agents.connect.skill": "还会在 {path} 添加一个简短的技能。",
   "agents.connect.showChange": "显示添加的内容",
@@ -8282,6 +8332,29 @@ export const zhCN = {
   "meetings.summary.status.cancelled": "已取消",
   "meetings.summary.preparing": "正在生成摘要…",
   "meetings.summary.updating": "正在补全摘要…",
+  "meetings.summary.item.original": "查看原话",
+  "meetings.summary.item.loading": "正在转写稿中查找原话…",
+  "meetings.summary.item.unavailable": "无法在转写稿中唯一定位这条记录的原话。",
+  "meetings.summary.item.sourceFailed": "无法打开原话。",
+  "meetings.summary.item.sourceAt": "在转写稿中查看 {time} 的原话",
+  "meetings.summary.item.edit": "编辑",
+  "meetings.summary.item.edited": "你已修改",
+  "meetings.summary.item.kind": "类型",
+  "meetings.summary.item.decision": "决定",
+  "meetings.summary.item.action": "待办事项",
+  "meetings.summary.item.status": "状态",
+  "meetings.summary.item.text": "内容",
+  "meetings.summary.item.saving": "正在保存…",
+  "meetings.summary.item.saveFailed": "未能保存这项修改，请重试。",
+  "meetings.summary.item.conflict": "编辑期间这条记录有了变化，请查看最新内容后再保存。",
+  "meetings.summary.item.removed": "这条记录已从摘要中移除。你可以复制草稿或取消编辑。",
+  "meetings.summary.item.latest": "查看最新内容",
+  "meetings.summary.item.editedSource": "以下是 AI 原始记录所依据的发言。",
+  "meetings.summary.item.saved": "已更新会议记录",
+  "error.meeting.summaryItemChanged": "这条记录有了变化，请查看最新内容后再试。",
+  "error.meeting.summaryItemInvalid": "请输入内容，并选择有效的类型和状态。",
+  "error.meeting.summaryItemUnavailable": "会议结束后即可修改已保存的决定和待办事项。",
+  "error.layout.transcriptCue": "请选择转写稿中的有效时间。",
   "meetings.summary.coverage": "涵盖转写稿截至 {time} 的内容",
   "meetings.summary.empty": "未生成摘要。",
   "error.meeting.summaryIncomplete": "AI 未能生成完整的会议摘要。",
@@ -8303,6 +8376,16 @@ export const zhCN = {
   "agents.ask.request.fixAll.item": "{n}. 这句话{verdict}：{sentence}{quote}",
   "agents.ask.request.quote":
     "\n\n我的文档写的是：{quote}\n请把这句话改成这段引文所说的内容，不要多写：不要加入引文里没有的数字、名称或说法。",
+  "agents.ask.line.fixFile": "把 IncarnaMind 在文件{title}里标出来的地方改好。",
+  "agents.ask.line.fixFileAll": "把 IncarnaMind 在文件{title}里标出来的 {count} 处改好。",
+  "agents.ask.request.fixFile":
+    "在 IncarnaMind 中，你提交的文件{title}（第 {version} 版，来自 {path}）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档在文件里改正，其他内容不要改动，然后用 hand_over_file 重新提交这个文件。",
+  "agents.ask.request.fixFileAll":
+    "在 IncarnaMind 中，你提交的文件{title}（第 {version} 版，来自 {path}）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档在文件里逐一改正，其他内容不要改动，然后用 hand_over_file 重新提交这个文件。",
+  "agents.ask.request.fixFile.item": "{n}. {where}这一处{verdict}：{sentence}{quote}",
+  "agents.ask.request.fixFile.where": "在{where}：",
+  "agents.ask.request.noteFile":
+    "我这条消息说的是你提交给 IncarnaMind 的文件{title}（第 {version} 版，来自 {path}）。",
   "agents.ask.request.note":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
   "agents.ask.verdict.unsupported": "没有依据",

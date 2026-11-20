@@ -1116,11 +1116,13 @@ export class DocxWriter {
               item.work,
               !item.inserted && !item.deleted && !context.pending,
             );
+            xml += this.noteApart(content[index - 1]);
             xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
           }
           break;
         case "footnote":
-          if (!context.note) xml += this.userFootnote(item.content);
+          if (!context.note)
+            xml += this.noteApart(content[index - 1]) + this.userFootnote(item.content);
           break;
         case "image":
           // A picture's relationship belongs to the document part, not to a footnote.
@@ -1135,6 +1137,16 @@ export class DocxWriter {
       }
     }
     return xml;
+  }
+
+  /**
+   * A comma before a note's number that follows another's, as the printed Note sets them apart:
+   * side by side, Word shows 2 and 3 as one number, 23 (#3466).
+   */
+  private noteApart(before: Inline | undefined): string {
+    return before?.kind === "citation" || before?.kind === "footnote"
+      ? run(",", { style: this.styles.footnote.reference })
+      : "";
   }
 
   private footnote(citation: Footnote, work: CitedWork, shared: boolean): string {

@@ -196,11 +196,24 @@ describe("a Note an outside agent writes (#3306)", () => {
     const listed = (await core.listMinds()).find((mind) => mind.id === made.mindId);
     expect(listed && mindName(listed)).toBe("Harbour survey");
 
-    // A section's heading is no title: the Note keeps the name it was given.
+    // A section's heading is no title: the title goes above it, as the page shows no title of its
+    // own (#3466); a heading in the title's words is the title already.
     const sectioned = structured<Created>(
       await create(agent, { title: "Harbour", markdown: "## Quay\n\nThe quay is 40 m long." }),
     );
     expect(sectioned.title).toBe("Harbour");
+    expect(blocksOf(await connectToMind(core, sectioned.mindId))).toEqual([
+      { kind: "heading", text: "Harbour" },
+      { kind: "heading", text: "Quay" },
+      { kind: "paragraph", text: "The quay is 40 m long." },
+    ]);
+    const named = structured<Created>(
+      await create(agent, { title: "Harbour", markdown: "## Harbour\n\nThe quay is 40 m long." }),
+    );
+    expect(blocksOf(await connectToMind(core, named.mindId))).toEqual([
+      { kind: "heading", text: "Harbour" },
+      { kind: "paragraph", text: "The quay is 40 m long." },
+    ]);
   });
 
   it("is refused in plain words: no leave to write, another Folder, no Folder named, text it can't keep", async () => {
@@ -237,6 +250,52 @@ describe("a Note an outside agent writes (#3306)", () => {
       "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
     );
     expect(await reader.core.listMinds()).toHaveLength(0);
+  });
+
+  // protects=text a malformed call ran its own markup into is refused in a plain line, by create_mind and propose_changes alike, and a Note that quotes the markup in code is written (#3476); fails_when=the markup is written into the Note as words, or a quote of it in code is refused
+  it("refuses text that holds the call's own markup, and writes it quoted in code", async () => {
+    const { core, agent } = await paired();
+    const leaked = 'The quay is 40 m long.</markdown>\n<parameter name="folderId">Coast';
+    expect(refusal(await create(agent, { title: "Harbour", markdown: leaked }))).toBe(
+      "markdown holds the markup of the call itself, </markdown>, not words for the note: nothing was written. Send the call again with each argument in its own field.",
+    );
+    expect(await core.listMinds()).toHaveLength(0);
+
+    const quoted = [
+      "A broken call ends with `</markdown>`.",
+      "",
+      "```",
+      '<parameter name="folderId">Coast',
+      "```",
+    ].join("\n");
+    const made = structured<Created>(await create(agent, { title: "Harbour", markdown: quoted }));
+    const client = await connectToMind(core, made.mindId);
+    expect(blocksOf(client).map((block) => block.text)).toContain(
+      "A broken call ends with </markdown>.",
+    );
+
+    const { version } = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
+    );
+    expect(
+      refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: made.mindId,
+            version,
+            changes: [
+              {
+                paragraph: "¶1",
+                text: 'The quay is 42 m long.</parameter>\n<parameter name="version">',
+              },
+            ],
+          },
+        }),
+      ),
+    ).toBe(
+      "text holds the markup of the call itself, </parameter>, not words for the note: nothing was written. Send the call again with each argument in its own field.",
+    );
   });
 
   it("writes at most so many Notes an hour, and says so in the interface language", async () => {

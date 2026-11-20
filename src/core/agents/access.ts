@@ -31,6 +31,7 @@ import * as Y from "yjs";
 import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
+import { isListedMind } from "../../shared/listedMinds";
 import { mindName } from "../../shared/naming";
 import type { CheckRow } from "../../shared/noteHealth";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
@@ -82,6 +83,7 @@ import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
 import { insertBlocks } from "../noteAdding";
+import { callMarkupIn } from "../tools/callMarkup";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -91,6 +93,7 @@ import {
   createCanvasTools,
 } from "./canvases";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
+import { type AgentHandedFile, createHandedFileTool, type HandedFileToolDeps } from "./handedFiles";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
 import {
   HELD_PICTURE,
@@ -406,15 +409,8 @@ export interface AgentCheckedClaim {
   cite: string | null;
 }
 
-export interface AgentMindCheck {
-  mindId: string;
-  title: string;
-  /**
-   * "running": the check goes on, and the same call again gives its result.
-   * "stopped": it ended early, and `stopped` says why.
-   */
-  status: "checked" | "running" | "stopped";
-  stopped: string | null;
+/** A Note's results, counted as its page counts them. */
+export interface AgentCheckedNote {
   /** The models that judged, as the Note's check record names them. */
   models: string[];
   /** How many sentences the Note's page counts as supported. */
@@ -431,15 +427,28 @@ export interface AgentMindCheck {
   claims: AgentCheckedClaim[];
 }
 
+export interface AgentMindCheck extends AgentCheckedNote {
+  mindId: string;
+  title: string;
+  /**
+   * "running": the check goes on, and the same call again gives its result.
+   * "stopped": it ended early, and `stopped` says why.
+   */
+  status: "checked" | "running" | "stopped";
+  stopped: string | null;
+}
+
 /** A Note's sentences that hold no result yet, for the agent to judge with its own model (#3342). */
 export interface AgentCheckTask {
   mindId: string;
   title: string;
   /** Hands the results back to this task: `report_check` refuses another state of the Note. */
   task: string;
-  /** How to judge the sentences and hand the results back. */
+  /** How to judge the sentences and hand the results back; with none, that none is left. */
   how: string;
   sentences: { n: number; text: string; row?: string; column?: string }[];
+  /** With no sentence left, the results the Note holds (#3465). */
+  checked?: AgentCheckedNote;
 }
 
 export interface AgentReportInput {
@@ -552,6 +561,11 @@ export interface AgentAccess {
   ): Promise<AgentCanvasPublished>;
   /** What the User asked this agent from IncarnaMind beyond the line they sent, read once (#3419). */
   readRequest(input: AgentReadRequestInput): Promise<AgentReadRequest>;
+  /**
+   * Keeps a file the agent made, named by its path, as an item with its versions, and checks it
+   * against the User's Documents (#3412).
+   */
+  handOverFile(input: { path?: unknown; folderId?: unknown }): Promise<AgentHandedFile>;
 }
 
 export { AgentRefusedError } from "./refusals";
@@ -591,6 +605,9 @@ export const MAX_CHECKS_AN_HOUR = 20;
 const MAX_REPORTED_SENTENCES = 2000;
 /** The most Documents `list_minds` names in one Folder; `documents` counts them all. */
 export const MAX_LISTED_DOCUMENTS = 50;
+/** How many times `check_mind` reads its record while what the agent reaches changes under it. */
+const MAX_RECORD_READS = 3;
+
 /** The most claims `check_mind` lists as needing a look. */
 export const MAX_CHECKED_CLAIMS = 60;
 /**
@@ -728,8 +745,14 @@ export interface AgentAccessDeps {
     task: string,
     judged: readonly JudgedSentence[],
   ): Judged<LandedCheck>;
-  /** What a Note's checks found, sentence by sentence, as its check record lists them. */
-  checkRecord(mindId: string): Promise<Pick<CheckRecord, "models" | "sentences">>;
+  /**
+   * What a Note's checks found, sentence by sentence, as its check record lists them for an agent
+   * that reaches `reach`.
+   */
+  checkRecord(
+    mindId: string,
+    reach: ReadonlySet<string>,
+  ): Promise<Pick<CheckRecord, "models" | "sentences">>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
   /** What IncarnaMind worked out for agents, shared by every connection (`createAgentWorkings`). */
@@ -760,6 +783,10 @@ export interface AgentAccessDeps {
   /** Tells the windows an agent published a Canvas, or a new version of one. */
   canvasChanged: CanvasToolDeps["canvasChanged"];
   doneSince: CanvasToolDeps["doneSince"];
+  /** The files outside agents hand over (#3412). */
+  handedAt: HandedFileToolDeps["handedAt"];
+  handOver: HandedFileToolDeps["handOver"];
+  handedCheck: HandedFileToolDeps["handedCheck"];
 }
 
 /**
@@ -994,6 +1021,7 @@ function changeText(value: unknown, name: string, t: Say): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new AgentRefusedError("invalid", t("agents.propose.text", { name }));
   }
+  refuseCallMarkup(value, "text", t);
   if (value.length > MAX_CHANGE_CHARS + inlinePictureChars(value)) {
     throw new AgentRefusedError(
       "invalid",
@@ -1001,6 +1029,14 @@ function changeText(value: unknown, name: string, t: Say): string {
     );
   }
   return value.trim();
+}
+
+/** Text that holds the call's own markup is a malformed call's, never words for the Note (#3476). */
+function refuseCallMarkup(value: string, argument: string, t: Say): void {
+  const markup = callMarkupIn(value, argument);
+  if (markup !== null) {
+    throw new AgentRefusedError("invalid", t("agents.problem.callMarkup", { argument, markup }));
+  }
 }
 
 function parseChanges(value: unknown, t: Say): AskedChange[] {
@@ -1310,10 +1346,33 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     );
   };
 
+  /**
+   * The pairing as it is admitted now, once a call has waited: what the User grants may have
+   * changed meanwhile (#3458). Refused unless it still reaches every Document in `told`, so nothing
+   * read under the earlier grant goes out under one that leaves it out.
+   */
+  const stillReaching = (told: Iterable<string>): AdmittedPairing => {
+    const granted = deps.admit(pairingId);
+    const reach = new Set(scopeOf(granted, undefined));
+    for (const documentId of told) {
+      if (!reach.has(documentId)) {
+        throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
+      }
+    }
+    return granted;
+  };
+
   /** A live Passage of these Documents, or a refusal that tells nothing of the others. */
-  const passageInScope = (inScope: ReadonlySet<string>, passageId: unknown): WindowedPassage => {
+  const passageInScope = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    passageId: unknown,
+  ): WindowedPassage => {
     const id = text(passageId, "passageId", 200);
-    const passage = deps.passage(id);
+    // A Citation's token stands for its Passage too: agents give one where a passageId goes (#3465).
+    const token = [...id.matchAll(CITATION_TOKEN)][0]?.[1] ?? id;
+    const passage =
+      deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
     if (!passage || !inScope.has(passage.documentId)) {
       throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
     }
@@ -1702,12 +1761,28 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
   };
 
+  const handedFileTool = createHandedFileTool({
+    deps,
+    t,
+    call,
+    reached: (pairing) => reachedFolders(deps, pairing),
+    again: () => deps.admit(pairingId),
+    documentsIn: (pairing) => new Set(scopeOf(pairing, undefined)),
+    noteReached: (pairing, mindId) => {
+      const mind = deps.minds().find((each) => each.id === mindId);
+      return mind !== undefined && reaches(pairing, mind);
+    },
+    placeToWriteIn,
+    waitMs: deps.checkWaitMs ?? CHECK_WAIT_MS,
+  });
+
   const canvasTools = createCanvasTools({
     deps,
     t,
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
     placeToWriteIn,
+    again: () => deps.admit(pairingId),
     cited: (pairing, html) => {
       const inScope = new Set(scopeOf(pairing, undefined));
       return citedTokens(html).map((token) => {
@@ -1718,6 +1793,96 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       });
     },
   });
+
+  /**
+   * The results a Note holds, as its page counts them, and what a Document says of each sentence
+   * that needs a look: what this agent reaches only. The Documents read are in `read`.
+   */
+  const checkedNote = async (
+    mindId: string,
+  ): Promise<{ note: AgentCheckedNote; listed: number; read: string[] }> => {
+    // What the agent reaches may have changed while a Check ran, and again while its record is
+    // read: a result resting on a Document the agent doesn't reach doesn't stand for it, so the
+    // record is read again with what it reaches once it is read, and nothing told goes beyond.
+    let granted = deps.admit(pairingId);
+    mindInScope(granted, mindId);
+    let inScope = new Set(scopeOf(granted, undefined));
+    let record = await deps.checkRecord(mindId, inScope);
+    for (let reads = 1; ; reads++) {
+      granted = deps.admit(pairingId);
+      mindInScope(granted, mindId);
+      const now = new Set(scopeOf(granted, undefined));
+      if (now.size === inScope.size && [...now].every((id) => inScope.has(id))) break;
+      if (reads >= MAX_RECORD_READS) {
+        throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
+      }
+      inScope = now;
+      record = await deps.checkRecord(mindId, inScope);
+    }
+    const read = new Set<string>();
+    // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
+    const beyond = (item: (typeof record.sentences)[number]) =>
+      item.scope.widened || item.scope.chosen != null;
+    // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
+    const rowOf = (item: (typeof record.sentences)[number]) =>
+      beyond(item) ? "toCheck" : item.row;
+    const counted = (row: CheckRow) =>
+      record.sentences.filter((item) => rowOf(item) === row).length;
+    const listed = CLAIM_GROUPS.flatMap(([row, group]) =>
+      record.sentences.filter((item) => rowOf(item) === row).map((item) => ({ ...item, group })),
+    );
+    const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
+      const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
+      const sentence = clip(item.text, READY_QUOTE_CHARS);
+      const { group } = item;
+      if (beyond(item)) {
+        return { sentence, group, result: "not-checked", reason: "beyond-reach", ...unsaid };
+      }
+      // What the page calls Supported, not yet cited reads Supported here, not as the Not checked, found elsewhere it is stored as.
+      const claim = {
+        sentence,
+        group,
+        result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
+        reason: group === "canBeCited" ? null : item.reason,
+      };
+      // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
+      const passage = group === "canBeCited" ? item.toCite : item;
+      const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;
+      // What a Document outside the pairing's Folders says stays there.
+      if (!passage || !judgedOn || !passage.evidence || !inScope.has(judgedOn.documentId)) {
+        return { ...claim, ...unsaid };
+      }
+      read.add(judgedOn.documentId);
+      const { quote } = passage.evidence;
+      const found =
+        quote !== null &&
+        judgedOn.quote !== "" &&
+        judgedOn.passageId !== "" &&
+        !deps.notCited(judgedOn.passageId) &&
+        deps.recheck(judgedOn).check === "found";
+      return {
+        ...claim,
+        says: passage.says,
+        document: passage.evidence.name,
+        location: passage.evidence.location,
+        quote,
+        cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
+      };
+    });
+    return {
+      note: {
+        models: record.models,
+        supported: counted("supported"),
+        needLook: counted("look"),
+        notChecked: counted("toCheck"),
+        canBeCited: counted("notYetCited"),
+        ownViews: counted("ownViews"),
+        claims,
+      },
+      listed: listed.length,
+      read: [...read],
+    };
+  };
 
   return {
     search(input, signal) {
@@ -1731,18 +1896,22 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         // Enough for this page and one more result, to know if there is a next page.
         const wanted = SEARCH_PAGE_SIZE * page + 1;
-        const found = await deps.search(
+        const searched = await deps.search(
           words,
           documentIds,
           { maxPassages: wanted, maxDocuments: wanted, candidates: 30 * page },
           signal,
         );
+        // What the agent reaches may have changed during the search: only what it reaches now is told.
+        const granted = deps.admit(pairingId);
+        const reach = new Set(scopeOf(granted, input?.folderIds));
+        const found = searched.filter((passage) => reach.has(passage.documentId));
         const ranked = [...found].sort(
           (a, b) => (a.rank ?? Number.POSITIVE_INFINITY) - (b.rank ?? Number.POSITIVE_INFINITY),
         );
         const shown = ranked.slice(SEARCH_PAGE_SIZE * (page - 1), SEARCH_PAGE_SIZE * page);
         const terms = keywordTerms(words);
-        const passages = shown.map((passage) => asResult(pairing, passage, terms));
+        const passages = shown.map((passage) => asResult(granted, passage, terms));
         return {
           result: { passages, page, more: ranked.length > SEARCH_PAGE_SIZE * page },
           count: passages.length,
@@ -1759,7 +1928,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         let from: number;
         let to: number;
         if (input?.passageId !== undefined) {
-          const passage = passageInScope(new Set(scopeOf(pairing, undefined)), input.passageId);
+          const passage = passageInScope(
+            pairing,
+            new Set(scopeOf(pairing, undefined)),
+            input.passageId,
+          );
           documentId = passage.documentId;
           from = Math.max(0, passage.position - before);
           to = passage.position + after;
@@ -1818,7 +1991,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             string,
             unknown
           >;
-          const passage = passageInScope(inScope, record.passageId);
+          const passage = passageInScope(pairing, inScope, record.passageId);
           if (deps.notCited(passage.passageId)) {
             throw new AgentRefusedError(
               "invalid",
@@ -1989,7 +2162,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         if (pairing.folderIds.length === 0) {
           throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
         }
-        const minds = deps.minds();
+        const minds = deps.minds().filter(isListedMind);
         const reached = reachedFolders(deps, pairing);
         const held = deps.noteTranscripts();
         const transcripts = new Set(held.map((each) => each.documentId));
@@ -2177,6 +2350,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             t("agents.problem.answer-failed", { message: outcome.error?.message ?? "" }),
           );
         }
+        // An Answer is written from all it read, cited or not: one that read a Document the agent
+        // no longer reaches isn't given.
+        const granted = stillReaching([
+          ...outcome.read,
+          ...outcome.citations.map((each) => each.documentId),
+        ]);
         const byMarker = new Map(outcome.citations.map((each) => [each.marker, each]));
         const citations: AgentAnswer["citations"] = [];
         let unchecked = 0;
@@ -2192,7 +2371,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
                   : "agents.answer.notFound",
               );
             }
-            const tag = citeTag(mint(pairing, citation).token);
+            const tag = citeTag(mint(granted, citation).token);
             if (!citations.some((each) => each.cite === tag)) {
               citations.push({
                 cite: tag,
@@ -2240,11 +2419,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       const known = deps.minds().find((mind) => mind.id === mindId);
-      return call("propose_changes", known ? mindName(known) : "", effects, async (pairing) => {
-        if (!pairing.propose) {
+      return call("propose_changes", known ? mindName(known) : "", effects, async (admitted) => {
+        if (!admitted.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
-        const mind = mindInScope(pairing, text(input?.mindId, "mindId", 200));
+        const mind = mindInScope(admitted, text(input?.mindId, "mindId", 200));
         const version = typeof input?.version === "string" ? input.version.trim() : "";
         if (version === "" || version.length > 100) {
           throw new AgentRefusedError("invalid", t("agents.propose.version"));
@@ -2253,6 +2432,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const visuals = await visualsFor(
           asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
         );
+        // What the User grants may have changed while the pictures were read.
+        const pairing = deps.admit(pairingId);
+        if (!pairing.propose) {
+          throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+        }
+        mindInScope(pairing, mind.id);
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
         const tokens = new Map<
@@ -2369,8 +2554,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     createMind(input) {
       const named = typeof input?.title === "string" ? input.title.trim() : "";
       const unmade: Effect = { action: "write", scope: { kind: "mind", mindId: "" } };
-      return call("create_mind", named, [READ_DOCUMENTS, unmade], async (pairing) => {
-        if (!pairing.propose) {
+      return call("create_mind", named, [READ_DOCUMENTS, unmade], async (admitted) => {
+        if (!admitted.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         const title = text(input?.title, "title", MAX_TITLE_CHARS);
@@ -2380,8 +2565,16 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           "markdown",
           MAX_DRAFT_CHARS + inlinePictureChars(draft),
         );
-        const folder = placeToWriteIn(pairing, input?.folderId);
+        refuseCallMarkup(title, "title", t);
+        refuseCallMarkup(written, "markdown", t);
+        placeToWriteIn(admitted, input?.folderId);
         const visuals = await visualsFor([written]);
+        // What the User grants may have changed while the pictures were read.
+        const pairing = deps.admit(pairingId);
+        if (!pairing.propose) {
+          throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+        }
+        const folder = placeToWriteIn(pairing, input?.folderId);
         // Counted once the pictures are read: from here the Note is written without a wait.
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
@@ -2412,10 +2605,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
         }
         // Named by its title heading, as a Note written in the window is, so the name follows the
-        // heading whoever changes it (#3378). A text that begins with a heading of its own keeps
-        // that one alone; one that begins with none gets `title` as its heading. Only a text that
-        // begins with a section's heading keeps `title` as a name of its own. A text in tabs
-        // begins inside its first, and so does a title heading written above it (#3414).
+        // heading whoever changes it (#3378). A text that begins with a heading 1, or with a
+        // heading in the words of `title`, keeps it as its title; any other gets `title` as its
+        // heading above it, as the page shows no title of its own (#3466). A text in tabs begins
+        // inside its first, and so does a title heading written above it (#3414).
         const [above, start] = made.nodes;
         const nodes =
           above?.type === "heading" && above.attrs?.level === 1 && start?.type === NOTE_TAB_NODE
@@ -2426,7 +2619,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const ownHeading = first?.type === "heading";
         const titleHeading =
           ownHeading && first.attrs?.level === 1 && (first.content?.length ?? 0) > 0;
-        const mind = deps.createMind(ownHeading && !titleHeading ? title : "", folder.id);
+        const titled =
+          titleHeading ||
+          (ownHeading &&
+            comparableName((first.content ?? []).map((each) => each.text ?? "").join("")) ===
+              comparableName(title));
+        const mind = deps.createMind(titled && !titleHeading ? title : "", folder.id);
         const heading = {
           type: "heading",
           attrs: { level: 1 },
@@ -2435,7 +2633,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         deps.editMind(mind.id, (blocks) => {
           insertBlocks(
             blocks,
-            ownHeading ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
+            titled ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
           );
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {
@@ -2514,63 +2712,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             : result?.kind === "checked" && result.stop
               ? t(`agents.check.stopped.${result.stop.reason}`)
               : null;
-        const record = await deps.checkRecord(mind.id);
-        // What the agent reaches may have changed while the Check ran.
-        const granted = deps.admit(pairingId);
-        mindInScope(granted, mind.id);
-        const inScope = new Set(scopeOf(granted, undefined));
-        const read = new Set<string>();
-        // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
-        const beyond = (item: (typeof record.sentences)[number]) =>
-          item.scope.widened || item.scope.chosen != null;
-        // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
-        const rowOf = (item: (typeof record.sentences)[number]) =>
-          beyond(item) ? "toCheck" : item.row;
-        const counted = (row: CheckRow) =>
-          record.sentences.filter((item) => rowOf(item) === row).length;
-        const listed = CLAIM_GROUPS.flatMap(([row, group]) =>
-          record.sentences
-            .filter((item) => rowOf(item) === row)
-            .map((item) => ({ ...item, group })),
-        );
-        const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
-          const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
-          const sentence = clip(item.text, READY_QUOTE_CHARS);
-          const { group } = item;
-          if (beyond(item)) {
-            return { sentence, group, result: "not-checked", reason: "beyond-reach", ...unsaid };
-          }
-          // What the page calls Supported, not yet cited reads Supported here, not as the Not checked, found elsewhere it is stored as.
-          const claim = {
-            sentence,
-            group,
-            result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
-            reason: group === "canBeCited" ? null : item.reason,
-          };
-          // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
-          const passage = group === "canBeCited" ? item.toCite : item;
-          const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;
-          // What a Document outside the pairing's Folders says stays there.
-          if (!passage || !judgedOn || !passage.evidence || !inScope.has(judgedOn.documentId)) {
-            return { ...claim, ...unsaid };
-          }
-          read.add(judgedOn.documentId);
-          const { quote } = passage.evidence;
-          const found =
-            quote !== null &&
-            judgedOn.quote !== "" &&
-            judgedOn.passageId !== "" &&
-            !deps.notCited(judgedOn.passageId) &&
-            deps.recheck(judgedOn).check === "found";
-          return {
-            ...claim,
-            says: passage.says,
-            document: passage.evidence.name,
-            location: passage.evidence.location,
-            quote,
-            cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
-          };
-        });
+        const { note, listed, read } = await checkedNote(mind.id);
         return {
           result: {
             mindId: mind.id,
@@ -2578,16 +2720,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             status:
               !result || result.kind === "running" ? "running" : stopped ? "stopped" : "checked",
             stopped,
-            models: record.models,
-            supported: counted("supported"),
-            needLook: counted("look"),
-            notChecked: counted("toCheck"),
-            canBeCited: counted("notYetCited"),
-            ownViews: counted("ownViews"),
-            claims,
+            ...note,
           },
-          count: listed.length,
-          documentIds: [...read],
+          count: listed,
+          documentIds: read,
         };
       });
     },
@@ -2596,21 +2732,27 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const mindId = typeof input?.mindId === "string" ? input.mindId : "";
       const known = deps.minds().find((mind) => mind.id === mindId);
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
-      return call("check_mind_yourself", known ? mindName(known) : "", effects, (pairing) => {
+      return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
         const mind = ownNote(pairing, input?.mindId);
         const found = deps.checkTask(mind.id, new Set(scopeOf(pairing, undefined)));
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
+        const { task, sentences } = found.value;
+        const given = { mindId: mind.id, title: mindName(mind), task, sentences };
+        if (sentences.length > 0) {
+          return {
+            result: { ...given, how: howToJudge(mind.folderId) },
+            count: sentences.length,
+            documentIds: [],
+          };
+        }
+        // A Note checked already, in this chat or another: what the User asks is answered from its marks (#3465).
+        const { note, read } = await checkedNote(mind.id);
         return {
-          result: {
-            mindId: mind.id,
-            title: mindName(mind),
-            task: found.value.task,
-            how: howToJudge(mind.folderId),
-            sentences: found.value.sentences,
-          },
-          count: found.value.sentences.length,
-          documentIds: [],
+          result: { ...given, how: t("agents.check.nothingLeft"), checked: note },
+          count: 0,
+          documentIds: read,
+          effects: [...effects, READ_DOCUMENTS],
         };
       });
     },
@@ -2723,6 +2865,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           workFor(pairing),
           signal ?? new AbortController().signal,
         );
+        // Worked out from what it read: none of it is given once the agent no longer reaches that.
+        stillReaching(done.documentIds);
         return { ...done, count: done.result.id === null ? 0 : 1 };
       });
     },
@@ -2730,6 +2874,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     publishCanvas: canvasTools.publishCanvas,
     readCanvas: canvasTools.readCanvas,
     updateCanvas: canvasTools.updateCanvas,
+    handOverFile: handedFileTool.handOverFile,
     readRequest(input) {
       const named = typeof input?.note === "string" ? comparableName(input.note) : "";
       const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));

@@ -4,6 +4,9 @@
  * `report_check`. IncarnaMind sends nothing to a model, confirms each Citation in its Document and
  * marks the Note, where the User sees the marks.
  */
+
+import { writeFile } from "node:fs/promises";
+import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
@@ -11,7 +14,12 @@ import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, readMind, writeMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
@@ -87,7 +95,7 @@ async function paired() {
       arguments: { title: "Tide notes", markdown: NOTE },
     }),
   );
-  return { ...started, core, coast, agent, mindId, calls };
+  return { ...started, core, coast, agent, mindId, calls, tides };
 }
 
 const task = async (agent: Agent, mindId: string) =>
@@ -287,6 +295,29 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     expect((await task(agent, mindId)).sentences).toEqual([]);
   });
 
+  // protects=a result stands for the agent's own check only while its Documents are at the versions it read: once one changed, the sentences resting on it are given out again (#3412 review); fails_when=check_mind_yourself counts a result whose Document changed since as settled and never gives the sentence again
+  it("gives a sentence out again once the Document its result rests on changed", async () => {
+    const { core, agent, mindId, tides } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice] },
+        { n: 2, verdict: "contradicted", cites: [largest] },
+        { n: 3, verdict: "not found" },
+        { n: 4, verdict: "nothing to check" },
+      ]),
+    );
+    expect((await task(agent, mindId)).sentences).toEqual([]);
+
+    await writeFile(tides.path, `${TIDES}\n\nNeap tides come in between.\n`);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [tides.id]);
+    // The two that rest on Tides; the agent's "not found" rests on no Document.
+    expect((await task(agent, mindId)).sentences.map((each) => each.text)).toEqual([SPRING, NEAP]);
+  });
+
   // protects=an agent that hands back its results in parts, or again, has each part marked on the sentences it was given (#3432); fails_when=its own first report counts as the Note changing, and the rest is refused
   it("takes a report on the same sentences after the first one landed, by the numbers it gave", async () => {
     const { core, agent, mindId, coast } = await paired();
@@ -418,5 +449,91 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
         "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
       );
     }
+  });
+});
+
+describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  const HARVEST = "# Harvest\n\nPears came to 610 tonnes in 2026.";
+
+  // protects=once the agent corrects a cell its check found contradicted and checks it again, the cell shows that result alone; fails_when=a mark of the earlier check stays beside the new one, shown as Needs re-check, because the agent's rewrite carried it onto the space before the cell's Citation
+  it("shows the new result alone once the agent corrects the cell and checks it again", async () => {
+    const started = await startAgentsCore(checkingModel({}));
+    const { core } = started;
+    const sources = await createSourceFolder();
+    const [harvest] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Harvest.md", HARVEST),
+    ]);
+    const orchard = await core.createLibraryGroup({ name: "Orchard", description: "Fruit." });
+    await core.assignDocumentGroup(harvest?.id ?? "", orchard.id);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [orchard.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    const call = async <T>(name: string, args: Record<string, unknown>) =>
+      structured<T>(await agent.callTool({ name, arguments: args }));
+    const { passages } = await call<{ passages: { passageId: string }[] }>("search", {
+      query: "pears tonnes 2026",
+    });
+    const { citations } = await call<{ citations: { cite: string }[] }>("cite", {
+      citations: [{ passageId: passages[0]?.passageId, quote: "Pears came to 610 tonnes in 2026" }],
+    });
+    const pears = citations[0]?.cite ?? "";
+    const { mindId } = await call<{ mindId: string }>("create_mind", {
+      title: "Harvest report",
+      markdown: ["| Fruit | Tonnes |", "|---|---|", `| Pears | 610 ${pears} |`].join("\n"),
+    });
+    const check = async (verdict: string) => {
+      const given = await call<Task>("check_mind_yourself", { mindId });
+      const results = given.sentences.map(({ n, text }) =>
+        /^\d/.test(text) ? { n, verdict, cites: [pears] } : { n, verdict: "nothing to check" },
+      );
+      return call<Reported>("report_check", { mindId, task: given.task, results });
+    };
+    await check("supported");
+
+    // The User types 710 over 610: the agent's check finds it contradicted.
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const typed = (node: JSONContent): JSONContent => ({
+      ...node,
+      ...(node.text === "610" && { text: "710" }),
+      ...(node.content && { content: node.content.map(typed) }),
+    });
+    editMind(client, (blocks) => blocks.map(typed));
+    await client.settled();
+    expect(await check("contradicted")).toMatchObject({ marked: 1 });
+
+    // The agent puts 610 back and checks the cell again.
+    const named = await call<{ markdown: string; version: string }>("read_mind", {
+      mindId,
+      named: true,
+    });
+    const cell = /(¶\d+) 710 /.exec(named.markdown)?.[1];
+    await call("propose_changes", {
+      mindId,
+      version: named.version,
+      changes: [{ paragraph: cell, text: `610 ${pears}` }],
+    });
+    expect(await check("supported")).toMatchObject({ marked: 1, unreported: [] });
+    await client.settled();
+    expect(
+      claimSpans(readMind(client)).map((span) => [
+        span.sentence.text.trim(),
+        claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions: null,
+          folderId: null,
+          scope: null,
+        }).state,
+      ]),
+    ).toEqual([["610", "supported"]]);
   });
 });
