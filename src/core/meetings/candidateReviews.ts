@@ -180,17 +180,16 @@ export function createMeetingCandidateReview({
     return current.candidates.filter((candidate) => candidateSurvives(candidate, cues));
   }
 
-  async function reviewMeetingSummaryCandidates(meetingId: string) {
-    const state = summaryCandidateReview(meetingId);
-    if (state?.review) return cachedSummaryCandidates(meetingId);
+  function newReviewScope(meetingId: string): CandidateReviewScope | "not-ready" | null {
+    if (closed()) return null;
     let meeting: Meeting;
     try {
       meeting = meetings.get(meetingId);
     } catch (error) {
-      if (error instanceof NotFoundError) throw candidateReviewUnavailable();
+      if (error instanceof NotFoundError) return null;
       throw error;
     }
-    if (meeting.kind !== "meeting") throw candidateReviewUnavailable();
+    if (meeting.kind !== "meeting") return null;
     const documentId = meeting.transcript?.documentId;
     if (
       !documentId ||
@@ -198,7 +197,7 @@ export function createMeetingCandidateReview({
       meeting.transcript?.state !== "saved" ||
       meeting.summary?.state !== "ready"
     )
-      throw candidateReviewNotReady();
+      return "not-ready";
 
     const doc = meetingSummaryDocument(meetingId, documentId);
     const route = summaryRoute.selected(meeting);
@@ -208,8 +207,8 @@ export function createMeetingCandidateReview({
       !route ||
       !summaryRoute.allowed(meeting, route)
     )
-      throw candidateReviewUnavailable();
-    return candidateReviews.review({
+      return null;
+    return {
       meetingId,
       mindId: meeting.mindId,
       documentId,
@@ -217,12 +216,24 @@ export function createMeetingCandidateReview({
       route,
       wall: walledFolder(meeting.mindId),
       items: meeting.summary.items ?? [],
-    });
+    };
+  }
+
+  async function reviewMeetingSummaryCandidates(meetingId: string) {
+    if (summaryCandidateReview(meetingId)?.review) return cachedSummaryCandidates(meetingId);
+    const scope = newReviewScope(meetingId);
+    if (scope === "not-ready") throw candidateReviewNotReady();
+    if (!scope) throw candidateReviewUnavailable();
+    return candidateReviews.review(scope);
   }
 
   return {
     changed: candidateReviews.changed,
     close: candidateReviews.close,
+    canReview(meetingId: string) {
+      const scope = newReviewScope(meetingId);
+      return scope !== null && scope !== "not-ready";
+    },
     get: cachedSummaryCandidates,
     review: reviewMeetingSummaryCandidates,
     async add(meetingId: string, candidateId: number) {

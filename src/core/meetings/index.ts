@@ -366,6 +366,9 @@ export function createMeetings(options: MeetingsOptions) {
     return row;
   };
 
+  const transcriptDocumentOf = (row: Pick<MeetingRow, "id" | "transcript_document_id">) =>
+    row.transcript_document_id ?? transcripts?.documentOf(row.id) ?? null;
+
   function storeCandidateAction(
     row: MeetingRow,
     stored: StoredSummaryWithReview,
@@ -406,7 +409,7 @@ export function createMeetings(options: MeetingsOptions) {
     const review = stored?.candidateReview;
     return (
       !!review &&
-      row.transcript_document_id === review.documentId &&
+      transcriptDocumentOf(row) === review.documentId &&
       options.transcriptVersion?.(review.documentId) === review.contentHash
     );
   }
@@ -950,7 +953,7 @@ export function createMeetings(options: MeetingsOptions) {
    * working file says, for one made before the record was kept.
    */
   const transcriptsOf = (rows: readonly Pick<MeetingRow, "id" | "transcript_document_id">[]) =>
-    rows.flatMap((row) => row.transcript_document_id ?? transcripts?.documentOf(row.id) ?? []);
+    rows.flatMap((row) => transcriptDocumentOf(row) ?? []);
 
   // ---- After a crash or a quit ----
 
@@ -1274,12 +1277,13 @@ export function createMeetings(options: MeetingsOptions) {
     },
 
     candidateReviewTranscriptChanged(documentId: string): void {
-      const review = db.get<{ id: string }>(
-        `SELECT id FROM meetings WHERE transcript_document_id = ? AND deleted_at IS NULL
-          AND json_extract(summary, '$.candidateReview.documentId') = ? LIMIT 1`,
+      const rows = db.all<Pick<MeetingRow, "id" | "transcript_document_id">>(
+        `SELECT id, transcript_document_id FROM meetings
+          WHERE deleted_at IS NULL AND (transcript_document_id = ? OR transcript_document_id IS NULL)
+          AND json_extract(summary, '$.candidateReview.documentId') = ?`,
         [documentId, documentId],
       );
-      if (review) changed();
+      if (rows.some((row) => transcriptDocumentOf(row) === documentId)) changed();
     },
 
     summaryCandidateReview(meetingId: string) {
@@ -1306,7 +1310,7 @@ export function createMeetings(options: MeetingsOptions) {
           row.kind !== "meeting" ||
           row.status !== "stopped" ||
           row.mind_id !== scope.mindId ||
-          row.transcript_document_id !== scope.documentId ||
+          transcriptDocumentOf(row) !== scope.documentId ||
           options.transcriptVersion?.(scope.documentId) !== scope.contentHash ||
           stored?.summary.state !== "ready" ||
           stored.documentId !== scope.documentId ||

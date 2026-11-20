@@ -33,7 +33,6 @@ export function MeetingSummary({
       frontTabOfMind(layout, meeting.mindId, merged, (tab) => state.views[tab.id]?.view !== "mine")
         ?.id,
   );
-  const reviewRoute = useAppStore((state) => state.settings?.device.meetingSummaryRoute);
   const summary = meeting.summary;
   if (
     meeting.kind !== "meeting" ||
@@ -122,10 +121,7 @@ export function MeetingSummary({
         focusSummary={() => heading.current?.focus()}
       />
       {(summary.candidatesReviewed ||
-        (reviewRoute &&
-          summary.state === "ready" &&
-          !!text &&
-          meeting.transcript?.state === "saved")) && (
+        (summary.state === "ready" && !!text && meeting.transcript?.state === "saved")) && (
         <MeetingSummaryCandidates
           key={`candidates-${meeting.id}`}
           meeting={meeting}

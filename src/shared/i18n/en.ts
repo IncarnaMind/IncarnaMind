@@ -8842,7 +8842,8 @@ export const en = {
   "meetings.summary.candidates.disclosure":
     "Opening sends the transcript and current items to your selected AI once.",
   "meetings.summary.candidates.checking": "Your AI is checking the transcript…",
-  "meetings.summary.candidates.empty": "No quotes are waiting for review.",
+  "meetings.summary.candidates.empty":
+    "No quotes are waiting for review. You can read the full conversation in the transcript.",
   "error.meeting.candidateReviewFailed":
     "Your AI couldn’t check the transcript. Try again to request a new check.",
   "meetings.summary.candidates": "Quotes to review ({count})",

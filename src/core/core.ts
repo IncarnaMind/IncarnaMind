@@ -8341,6 +8341,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const units = documents.pageTexts(documentId, version, null, null);
       return { documentId, sources: meetingSummarySources(units, evidence.quotes) };
     },
+    canReviewMeetingSummaryCandidates: async (meetingId) => candidateReviews.canReview(meetingId),
     getMeetingSummaryCandidates: candidateReviews.get,
     reviewMeetingSummaryCandidates: candidateReviews.review,
     addMeetingSummaryCandidate: candidateReviews.add,

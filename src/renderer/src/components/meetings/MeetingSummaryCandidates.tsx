@@ -7,9 +7,61 @@ import { useT } from "../../i18n";
 import { clockTime } from "../../meetingTime";
 import { useAppStore } from "../../store";
 import { openTranscriptOfNote } from "../../transcripts";
-import { useUndo } from "../../undo";
+import { type Undoable, useUndo } from "../../undo";
 import { ChevronRightLineIcon } from "../lineIcons";
 import { LineAction, ProblemLine, ProblemMark } from "../ProblemLine";
+
+function useCanReview(meetingId: string, documentId: string | null | undefined, reviewed: boolean) {
+  const [eligible, setEligible] = useState(false);
+  useEffect(() => {
+    setEligible(false);
+    if (reviewed || !documentId) return;
+    let sequence = 0;
+    const refresh = () => {
+      const request = ++sequence;
+      setEligible(false);
+      void core.canReviewMeetingSummaryCandidates(meetingId).then(
+        (allowed) => {
+          if (request === sequence) setEligible(allowed);
+        },
+        (error: unknown) => {
+          if (request !== sequence) return;
+          setEligible(false);
+          console.warn(
+            "Meeting quote review eligibility could not be read",
+            describeError(error).reason,
+          );
+        },
+      );
+    };
+    const stops = [
+      ...(
+        [
+          "settings.changed",
+          "privacy.changed",
+          "dataFlows.changed",
+          "agents.changed",
+          "minds.changed",
+          "library.assignments",
+          "library.changed",
+          "chatReadiness.changed",
+        ] as const
+      ).map((event) => core.on(event, refresh)),
+      core.on("documents.removed", (ids) => {
+        if (ids.includes(documentId)) refresh();
+      }),
+      core.on("document.status", (doc) => {
+        if (doc.id === documentId) refresh();
+      }),
+    ];
+    refresh();
+    return () => {
+      sequence++;
+      for (const stop of stops) stop();
+    };
+  }, [meetingId, documentId, reviewed]);
+  return eligible;
+}
 
 export function MeetingSummaryCandidates({
   meeting,
@@ -51,7 +103,24 @@ export function MeetingSummaryCandidates({
     lookup: typeof lookup;
     rows: MeetingSummaryCandidate[];
   } | null>(null);
-  const rows = loaded?.lookup === lookup ? loaded.rows : null;
+  const rows = reviewed && loaded?.lookup === lookup ? loaded.rows : null;
+  const eligible = useCanReview(meetingId, doc, reviewed);
+
+  const previous = useRef({ reviewed, version, doc });
+  useEffect(() => {
+    const before = previous.current;
+    if (
+      (before.reviewed && !reviewed) ||
+      (before.version && before.version !== version) ||
+      before.doc !== doc
+    ) {
+      setOpen(false);
+      setLoaded(null);
+      setCheckError(null);
+      setProblem(null);
+    }
+    previous.current = { reviewed, version, doc };
+  }, [reviewed, version, doc]);
 
   useEffect(() => {
     if (!open || !reviewed) return;
@@ -74,7 +143,7 @@ export function MeetingSummaryCandidates({
   }, [lookup, open, reviewed]);
 
   async function check() {
-    if (reviewed || reviewing.current) return;
+    if (reviewed || !eligible || reviewing.current) return;
     reviewing.current = true;
     setCheckError(null);
     setChecking(true);
@@ -111,15 +180,28 @@ export function MeetingSummaryCandidates({
     const restoreFocus = section.current?.contains(document.activeElement);
     try {
       const updated = await core.addMeetingSummaryCandidate(meeting.id, candidateId);
-      useUndo.getState().push({
+      const change: Undoable = {
         said: (translate) => translate("meetings.summary.candidate.added"),
         undo: async () => {
-          await core.undoAddMeetingSummaryCandidate(meeting.id, candidateId);
+          const undone = await core.undoAddMeetingSummaryCandidate(meeting.id, candidateId);
+          if (undone.summary?.candidatesReviewed && undone.summary.candidateCount) {
+            try {
+              const restored = await core.getMeetingSummaryCandidates(meeting.id);
+              if (restored.some(({ id }) => id === candidateId)) return;
+            } catch (error) {
+              console.warn(
+                "A quote restored by Undo could not be checked",
+                describeError(error).reason,
+              );
+            }
+          }
+          useUndo.getState().withdraw(change);
         },
         redo: async () => {
           await core.addMeetingSummaryCandidate(meeting.id, candidateId);
         },
-      });
+      };
+      useUndo.getState().push(change);
 
       if (
         restoreFocus &&
@@ -142,6 +224,8 @@ export function MeetingSummaryCandidates({
       setSaving(null);
     }
   }
+
+  if (!reviewed && !eligible) return null;
 
   return (
     <div ref={section} data-testid="meeting-summary-candidates" className="mt-2 max-w-3xl">

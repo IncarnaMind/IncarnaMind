@@ -1,13 +1,21 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test, vi } from "vitest";
+import { DATABASE_FILE } from "../../src/core";
 import type { CoreAdapters } from "../../src/core/adapters";
 import type { Meeting } from "../../src/core/api";
 import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
+import { openDatabase } from "../../src/core/storage";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
 import { agentsAdapter } from "../helpers/agents";
-import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import {
+  createMemoryKeychain,
+  createTempDataFolder,
+  manualClock,
+  startCore,
+} from "../helpers/core";
 import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
 
@@ -31,6 +39,7 @@ async function record(
   );
   const adapters = {
     now: clock.now,
+    keychain: createMemoryKeychain(),
     agents: await agentsAdapter(dir),
     audioCapture: capture,
     transcriber,
@@ -90,6 +99,7 @@ async function recordPair(
     await vi.waitFor(async () =>
       expect((await core.listMeetings())[0]?.summary?.items).toEqual([generatedDecision]),
     );
+    expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(false);
     expect(await core.getMeetingSummaryCandidates(meeting.id)).toEqual([]);
     await expect(core.reviewMeetingSummaryCandidates(meeting.id)).rejects.toMatchObject({
       wording: { key: "error.meeting.summaryCandidateReviewNotReady" },
@@ -97,9 +107,11 @@ async function recordPair(
     push(4000);
     await until(core, meeting.id, (m) => m.lines >= 3);
     await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (transcript) => transcript.state === "saved");
     await vi.waitFor(async () =>
       expect((await core.listMeetings())[0]?.summary?.state).toBe("ready"),
     );
+    expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(true);
     expect(await core.getMeetingSummaryCandidates(meeting.id)).toEqual([]);
     expect((await core.listMeetings())[0]?.summary?.candidatesReviewed).toBeUndefined();
     expect(model).toHaveBeenCalledTimes(2);
@@ -113,7 +125,15 @@ async function recordPair(
 const reviewUnavailable = { wording: { key: "error.meeting.summaryCandidateReviewUnavailable" } };
 
 test("accepting a reviewed exchange is local, idempotent, undoable and survives a restart", async () => {
-  const { core, dir, adapters, meeting, model } = await recordPair();
+  const { core, dir, adapters, meeting, model, route } = await recordPair();
+  await core.updateSettings({ device: { meetingSummaryRoute: "different-pairing" } });
+  expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(false);
+  await expect(core.reviewMeetingSummaryCandidates(meeting.id)).rejects.toMatchObject(
+    reviewUnavailable,
+  );
+  expect(model).toHaveBeenCalledTimes(2);
+  await core.updateSettings({ device: { meetingSummaryRoute: route } });
+  expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(true);
   const [first, second] = await Promise.all([
     core.reviewMeetingSummaryCandidates(meeting.id),
     core.reviewMeetingSummaryCandidates(meeting.id),
@@ -135,6 +155,8 @@ test("accepting a reviewed exchange is local, idempotent, undoable and survives 
   expect(priorStatus).not.toHaveProperty("candidates");
   expect(candidate.sources.map(({ text }) => text)).toEqual([question, reply]);
   await core.updateSettings({ device: { meetingSummaryRoute: null } });
+  expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(false);
+  expect(await core.getMeetingSummaryCandidates(meeting.id)).toEqual([candidate]);
 
   const promoted = {
     id: 2,
@@ -270,6 +292,88 @@ test("an explicit empty review is cached across reopen with no new sends", async
     expect(model).toHaveBeenCalledTimes(3);
   } finally {
     reopened.close();
+  }
+});
+
+test("a saved legacy Transcript can be reviewed and its cached review reopened", async () => {
+  const { core, dir, adapters, meeting, model } = await recordPair();
+  try {
+    await core.setAgentsEnabled(false);
+  } finally {
+    core.close();
+  }
+  const db = openDatabase(join(dir, DATABASE_FILE));
+  try {
+    db.run("UPDATE meetings SET transcript_document_id = NULL WHERE id = ?", [meeting.id]);
+  } finally {
+    db.close();
+  }
+  const first = startCore(dir, adapters);
+  try {
+    await first.setAgentsEnabled(true);
+    expect(await first.canReviewMeetingSummaryCandidates(meeting.id)).toBe(true);
+    expect(await first.getMeetingSummaryCandidates(meeting.id)).toEqual([]);
+    expect(model).toHaveBeenCalledTimes(2);
+    const candidates = await first.reviewMeetingSummaryCandidates(meeting.id);
+    expect(candidates.map(({ sources }) => sources.map(({ text }) => text))).toEqual([
+      [question, reply],
+    ]);
+    expect((await first.listMeetings())[0]?.summary?.candidateCount).toBe(1);
+    expect(model).toHaveBeenCalledTimes(3);
+    await first.setAgentsEnabled(false);
+  } finally {
+    first.close();
+  }
+  const second = startCore(dir, adapters);
+  try {
+    expect(await second.canReviewMeetingSummaryCandidates(meeting.id)).toBe(false);
+    expect((await second.listMeetings())[0]?.summary?.candidatesReviewed).toBe(true);
+    expect(await second.getMeetingSummaryCandidates(meeting.id)).toHaveLength(1);
+    expect(await second.reviewMeetingSummaryCandidates(meeting.id)).toHaveLength(1);
+    expect(model).toHaveBeenCalledTimes(3);
+  } finally {
+    second.close();
+  }
+});
+
+test("disconnecting the selected agent aborts an active review before secret cleanup", async () => {
+  const started = Promise.withResolvers<AbortSignal>();
+  const replyFromAgent = Promise.withResolvers<string>();
+  const { core, meeting, route, model, adapters } = await recordPair(async ({ signal }) => {
+    started.resolve(signal);
+    return replyFromAgent.promise;
+  });
+  const deleting = Promise.withResolvers<void>();
+  const finishDeleting = Promise.withResolvers<void>();
+  const deleteSecret = adapters.keychain.delete;
+  const deleteSpy = vi.spyOn(adapters.keychain, "delete").mockImplementation(async (name) => {
+    deleting.resolve();
+    await finishDeleting.promise;
+    await deleteSecret(name);
+  });
+  try {
+    const pending = core.reviewMeetingSummaryCandidates(meeting.id);
+    const cancelled = expect(pending).rejects.toMatchObject(reviewUnavailable);
+    const signal = await started.promise;
+    const disconnected = core.disconnectAgent(route);
+    try {
+      await deleting.promise;
+      expect(signal.aborted).toBe(true);
+      await cancelled;
+      replyFromAgent.resolve(JSON.stringify([[question, reply]]));
+      expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(false);
+      expect(await core.getMeetingSummaryCandidates(meeting.id)).toEqual([]);
+      expect((await core.listMeetings())[0]?.summary?.candidatesReviewed).toBeUndefined();
+      expect(model).toHaveBeenCalledTimes(3);
+    } finally {
+      finishDeleting.resolve();
+      await disconnected;
+      await cancelled;
+    }
+  } finally {
+    replyFromAgent.resolve("[]");
+    deleteSpy.mockRestore();
+    core.close();
   }
 });
 

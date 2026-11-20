@@ -15280,6 +15280,8 @@ export interface CoreApi {
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
+  /** Whether the selected AI route can start a new quote review for this saved Meeting. */
+  canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
   reviewMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
   getMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
   undoAddMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
@@ -16173,6 +16175,7 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   retryMeetingSummary: true,
+  canReviewMeetingSummaryCandidates: true,
   reviewMeetingSummaryCandidates: true,
   getMeetingSummaryCandidates: true,
   undoAddMeetingSummaryCandidate: true,
