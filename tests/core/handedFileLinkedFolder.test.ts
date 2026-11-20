@@ -230,6 +230,39 @@ describe("a file an agent hands over from a Linked folder", () => {
     expect(documents).toHaveLength(1);
     expect(searched).toBe(true);
   });
+
+  // protects=the folder's own Document a handed file is, Not cited, is no source an agent's check needs, though the User put it in the agent's Folder: it checks the handed file itself while no model is set up, and its own Note in that Folder (#3499, #3492); fails_when=either check is refused as reading Documents outside the agent's Folders
+  it("never stops the agent's own checks in its Folder", async () => {
+    const { core, coast, agent, path, folder } = await linked();
+    for (const provider of await core.listChatProviders()) {
+      await core.deleteChatProvider(provider.id);
+    }
+    await writeFile(path, deck());
+    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const [document, ...others] = (await core.listDocuments()).filter((each) =>
+      each.name.startsWith("Quay"),
+    );
+    expect(others).toEqual([]);
+    expect(document).toMatchObject({ linkedFolderId: folder.id, notCited: true });
+    await core.assignDocumentGroup(document?.id ?? "", coast.id);
+    const task = structured<{ sentences: { text: string }[] }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: handed.mindId } }),
+    );
+    expect(task.sentences.map((each) => each.text)).toContain(EAST);
+
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Quays", markdown: WEST, folderId: coast.id },
+      }),
+    );
+    expect(
+      structured<{ status: string }>(
+        await agent.callTool({ name: "check_mind", arguments: { mindId } }),
+      ),
+    ).toMatchObject({ status: "checked" });
+  });
 });
 
 describe("the User's choice, and a scan that meets a handed file", () => {
