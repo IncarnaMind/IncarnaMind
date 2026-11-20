@@ -8710,7 +8710,7 @@ export const en = {
   "agents.handOver.unread.range": "The workbook has no sheet by that name.",
   "agents.handOver.unread.word": "IncarnaMind kept the file but couldn’t read it as a Word file.",
   "agents.handOver.notChecked.not-ready":
-    "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. The User can check it from its note.",
+    "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. With no model in IncarnaMind, check it yourself, as you check a note you wrote: check_mind_yourself with its mindId, then report_check.",
   "agents.handOver.notChecked.consent-needed":
     "The User hasn’t allowed IncarnaMind’s checks to go to their AI model’s service, so it wasn’t checked. They can check it from its note.",
   "agents.handOver.notChecked.local-mode":

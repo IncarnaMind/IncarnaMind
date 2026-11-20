@@ -63,7 +63,7 @@ import type { DecisionReader } from "./decisionFirst";
 import { sortedByDecision } from "./decisionSort";
 import { cellHeadings, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
-import { readsWithin } from "./judgedOutside";
+import { readsWithin, type Searched } from "./judgedOutside";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import { checkRunOf } from "./runCheck";
 import {
@@ -132,6 +132,7 @@ export interface MindCheckOptions extends RunChecksOptions {
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** Each live Document's version now, for which checks need a re-check. */
   documentVersions(): ReadonlyMap<string, string>;
+  searched: Searched;
   documents: {
     /**
      * The live Documents with Passages to search, of these (null: of all), that joined after
@@ -687,7 +688,7 @@ export function createMindCheck(options: MindCheckOptions) {
       if (found.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
       // A Folder with no Document searches every Document.
       if (found.marked.widened) throw new NotAsked("no-documents");
-      const admitted = readsWithin(found.scope, reach, options.documentVersions);
+      const admitted = readsWithin(found.scope, reach, options.searched);
       if (admitted === null) throw new NotAsked("beyond-reach");
       // What was admitted is all the run searches, every request it sends: a Document filed
       // where the agent may not read while the run goes on is never searched (#3364).

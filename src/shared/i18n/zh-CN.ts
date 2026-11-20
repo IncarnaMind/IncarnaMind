@@ -8209,7 +8209,7 @@ export const zhCN = {
   "agents.handOver.unread.range": "这个工作簿没有这个名字的工作表。",
   "agents.handOver.unread.word": "IncarnaMind 已保留文件，但无法作为 Word 文件读取。",
   "agents.handOver.notChecked.not-ready":
-    "IncarnaMind 还没有设置用于核对的 AI 模型，所以没有核对。用户可以在它的笔记里核对。",
+    "IncarnaMind 还没有设置用于核对的 AI 模型，所以没有核对。IncarnaMind 里没有模型时，请你自己核对，就像核对你写的笔记一样：用它的 mindId 调用 check_mind_yourself，再用 report_check 交回结果。",
   "agents.handOver.notChecked.consent-needed":
     "用户还没有允许把 IncarnaMind 的核对发送到其 AI 模型服务，所以没有核对。用户可以在它的笔记里核对。",
   "agents.handOver.notChecked.local-mode":

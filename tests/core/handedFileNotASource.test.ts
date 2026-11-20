@@ -151,6 +151,31 @@ describe("a file an outside agent handed over", () => {
     ).toContain(document.id);
   });
 
+  // protects=a handed-over file in a Folder an agent reaches is no source its checks need: the agent still checks its own Note there, and checks the handed file itself while no model is set up (#3492, #3412); fails_when=a check of a Note in that Folder is refused as reading Documents outside the agent's Folders
+  it("never stops an agent's own check of a Note in its Folder", async () => {
+    const { core, coast, agent, handed } = await handedOver({}, true);
+    for (const provider of await core.listChatProviders()) {
+      await core.deleteChatProvider(provider.id);
+    }
+    const task = structured<{ sentences: { text: string }[] }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: handed.mindId } }),
+    );
+    expect(task.sentences.map((each) => each.text)).toContain(EAST);
+
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Quays", markdown: NORTH, folderId: coast.id },
+      }),
+    );
+    expect(
+      structured<{ status: string }>(
+        await agent.callTool({ name: "check_mind", arguments: { mindId } }),
+      ),
+    ).toMatchObject({ status: "checked" });
+  });
+
   // protects=an Answer, the User's or one an agent asks for, never searches a handed-over file or lists it among the Documents it may search (#3492); fails_when=its Passages or its name are given to the model
   it("is never searched by an Answer", async () => {
     const model = citingModel({

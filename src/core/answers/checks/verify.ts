@@ -30,7 +30,6 @@ import { setTextOrigin } from "../../../shared/textOrigins";
 import type { UnitText } from "../../../shared/units";
 import {
   type FormulaDifference,
-  isVerifiedBlock,
   readVerification,
   type Verification,
   writeVerification,
@@ -75,7 +74,7 @@ import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
 import { runChecks } from "./runChecks";
 import { everySentence, markedSentences, markSentence, type SelectedSentence } from "./sentences";
-import { claimOf, judgedWithOf, readingOf, saidOf } from "./standing";
+import { fileCheckLines, judgedWithOf, readingOf, saidOf } from "./standing";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks } from "./verifySlides";
 import { documentBlocks } from "./verifyTables";
@@ -119,9 +118,6 @@ function within(check: CheckScope, reach: ReadonlySet<string>): CheckScope {
   const documentIds = (check.scope.documentIds ?? [...reach]).filter((id) => reach.has(id));
   return { ...check, scope: { ...check.scope, documentIds } };
 }
-
-/** A letter or digit: a line with none states nothing to sort. */
-const WORDS = /[\p{L}\p{N}]/u;
 
 /** A file Word import takes, or refuses with its reason (an older .doc, macros). */
 const WORD_FILE = /\.(?:docx|docm|doc|dotx|dotm|dot)$/i;
@@ -334,14 +330,7 @@ export function createVerify(options: VerifyOptions) {
   }
 
   function sortingInput(mindId: string, verification: Verification) {
-    const sentences = content.read(mindId, (blocks) =>
-      everySentence(blocks, { headings: true }).flatMap((sentence) => {
-        if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
-        const said = claimOf(sentence, verification)?.claim;
-        // The model decides which lines state a claim, a short one with a figure too (#3412).
-        return said !== undefined && WORDS.test(said) ? [{ ...sentence, said }] : [];
-      }),
-    );
+    const sentences = content.read(mindId, (blocks) => fileCheckLines(blocks, verification));
     return {
       sentences,
       snapshot: JSON.stringify(
