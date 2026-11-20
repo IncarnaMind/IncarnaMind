@@ -182,6 +182,12 @@ function taskFor(action: EditAction, instruction: string, cited: string): string
         ...(cited ? [`Its markers' Documents now say only this: ${cited}.`] : []),
         "Change the passage so it agrees with that, altering only the words the new wording changes. Keep every other word, mark and marker exactly as it is, in its place.",
       ].join(" ");
+    case "fix-sentence":
+      return [
+        ...(cited ? [`Its markers' sources say this: ${cited}.`] : []),
+        instruction,
+        "Rewrite the passage so it says what the quote states and no more, in the passage's own language and register. Change only the words the quote corrects or doesn't back, keep every other word and every marker in its place, and add no figure, name, date or claim the quote doesn't give. If the quote isn't about the passage, give the passage back as it is.",
+      ].join(" ");
     case "cut-unsupported":
       return [
         ...(cited ? [`Its markers' sources say only this: ${cited}.`] : []),

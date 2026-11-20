@@ -1424,6 +1424,10 @@ export const zhCN = {
     "已在你保存的判决书中找到引文（{document}，{location}）。未核对是否已被推翻或修改。依赖前请在你的法律数据库中查证。",
   "claim.unsupported.ownWorkings": "只有你自己的工作文件这样写。",
   "claim.fixSentence": "修改这句话",
+  "claim.fixSentence.command": "按文档修改这句话",
+  "claim.fix.needsLook": "改后的句子仍需留意",
+  "claim.fix.doneMany": "已修改 {fixed} 句 · {needsLook} 句仍需留意",
+  "claim.fix.badge": "按文档修改 {count} 句",
   "claim.findSources": "查找资料",
   "claim.findSourcesFor": "为这句话查找资料",
   "claim.findSources.menu": "查找资料…",
@@ -1853,6 +1857,7 @@ export const zhCN = {
   "edit.pending.instruction": "正在修改…",
   "edit.pending.cut-unsupported": "正在删去无依据的部分…",
   "edit.pending.follow-citation": "正在更新这句话…",
+  "edit.pending.fix-sentence": "正在修改这句话…",
   "edit.pending.part": "正在写第 {at} 部分（共 {of} 部分）…",
   "edit.ask.parts": "这次修改较长，会分 {count} 部分进行",
   "edit.ask.start": "开始修改",
@@ -8239,10 +8244,12 @@ export const zhCN = {
   "agents.ask.line.questionAlone": "请根据我在 IncarnaMind 中的文档回答：\n\n{question}",
   "agents.ask.line.meeting": "整理我在 IncarnaMind 中的会议笔记{title}。",
   "agents.ask.request.fix":
-    "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，这句话{verdict}：\n\n{sentence}\n\n请根据我的文档改正这句话，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
+    "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，这句话{verdict}：\n\n{sentence}{quote}\n\n请根据我的文档改正这句话，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
   "agents.ask.request.fixAll":
     "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，有 {count} 句需要留意：\n\n{sentences}\n\n请根据我的文档逐句改正，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
-  "agents.ask.request.fixAll.item": "{n}. 这句话{verdict}：{sentence}",
+  "agents.ask.request.fixAll.item": "{n}. 这句话{verdict}：{sentence}{quote}",
+  "agents.ask.request.quote":
+    "\n\n我的文档写的是：{quote}\n请把这句话改成这段引文所说的内容，不要多写：不要加入引文里没有的数字、名称或说法。",
   "agents.ask.request.note":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
   "agents.ask.verdict.unsupported": "没有依据",

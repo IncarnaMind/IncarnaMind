@@ -27,7 +27,9 @@ import {
   setClaimContext,
   shownClaims,
 } from "../../src/renderer/src/editor/claimChecks";
+import { selectionForEdit } from "../../src/renderer/src/editor/editSelection";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
+import { fixInstructionOf, offersFixSentence } from "../../src/renderer/src/fixSentence";
 import {
   checkStateKey,
   offersFixes,
@@ -35,8 +37,8 @@ import {
   offersUseFigure,
   uncoveredOf,
 } from "../../src/renderer/src/unsupportedFixes";
-import { connectToMind } from "../../tests/helpers/mindClient";
-import { readMind, writeMind } from "../../tests/helpers/minds";
+import { connectToMind, type MindClient } from "../../tests/helpers/mindClient";
+import { readMind, resolveChanges, writeMind } from "../../tests/helpers/minds";
 import { readConfig } from "../lib/config";
 import { openLibrary } from "../lib/library";
 import { createLog } from "../lib/log";
@@ -77,6 +79,8 @@ const OUT = process.env.FIX_OUT ?? "";
 const ARM = process.env.FIX_ARM ?? "unnamed";
 const CAP_USD = Number(process.env.FIX_CAP_USD ?? "1");
 const DRY = process.env.FIX_DRY === "1";
+/** FIX_MODE=fix: each sentence Fix the sentence is offered on is fixed and checked again, and its Change to too. */
+const FIXING = process.env.FIX_MODE === "fix";
 
 /** The one-step fixes a sentence's card offers, as the card decides them. */
 type Fix = "cut-unsupported" | "change-to" | "use-figure" | "document-wording";
@@ -181,6 +185,69 @@ function counted() {
         },
       }) as ReturnType<ChatModelFactory>;
   return { wrap, failed, requests: () => requests };
+}
+
+/** A Note's paragraph by its id, as the Mind holds it now. */
+function paragraphOf(client: MindClient, id: string): { text: string; size: number } | null {
+  let found: { text: string; size: number } | null = null;
+  readMind(client).descendants((node) => {
+    if (found) return false;
+    if (node.isTextblock && node.attrs.id === id) {
+      found = { text: node.textContent, size: node.content.size };
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+/** The Note's verdict on one paragraph now, read as the card reads it. */
+function verdictIn(
+  client: MindClient,
+  id: string,
+  versions: ReadonlyMap<string, string>,
+  folderId: string,
+): { shown: string | null; key: string | null; evidence: string | null } {
+  const editor = editorOf(
+    (readMind(client).toJSON() as JSONContent).content ?? [],
+    versions,
+    folderId,
+  );
+  try {
+    let place: { from: number; to: number } | null = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (place) return false;
+      if (node.isTextblock && node.attrs.id === id) {
+        place = { from: pos, to: pos + node.nodeSize };
+        return false;
+      }
+      return true;
+    });
+    const at = place as { from: number; to: number } | null;
+    const claim = at
+      ? shownClaims(editor.state).find(
+          (each) => at.from <= each.sentence.from && each.sentence.to <= at.to,
+        )
+      : undefined;
+    return {
+      shown: claim?.shown.state ?? null,
+      key: claim ? checkStateKey(editor, claim) : null,
+      evidence: claim?.reads.evidence?.quote ?? null,
+    };
+  } finally {
+    editor.destroy();
+  }
+}
+
+/** A Change to as the card writes it: each correction's first wording over its words, by code. */
+function spliced(text: string, corrections: readonly { from: string; to: string }[]): string {
+  let out = text;
+  for (const { from, to } of corrections) {
+    const at = out.indexOf(from);
+    if (at >= 0 && at === out.lastIndexOf(from))
+      out = `${out.slice(0, at)}${to}${out.slice(at + from.length)}`;
+  }
+  return out;
 }
 
 /** The set's own consistency: each cited sentence's Document holds its quote word for word. */
@@ -324,6 +391,133 @@ test(
                   failed: requests.failed.slice(failedBefore),
                 })}\n`,
               );
+            }
+            if (FIXING) {
+              const fixedRows: Record<string, unknown>[] = [];
+              const changes: { each: FixSentence; text: string; cite: JSONContent | null }[] = [];
+              for (const each of sentences) {
+                const claim = claims.find((one) => one.sentence.text.trim() === each.text.trim());
+                if (!claim) continue;
+                const corrections = correctionsFor(editor, claim).flatMap(({ correction }) => {
+                  const wording = correction.choices[0]?.wording;
+                  return wording
+                    ? [
+                        {
+                          from: correction.from,
+                          to: wording,
+                          evidence: correction.choices[0]?.evidence,
+                        },
+                      ]
+                    : [];
+                });
+                if (corrections.length > 0) {
+                  const cited = each.cites !== undefined;
+                  const evidence = corrections[0]?.evidence;
+                  changes.push({
+                    each,
+                    text: spliced(each.text, corrections),
+                    cite: cited
+                      ? (lines.find((line) => line.attrs?.id === each.id)?.content?.[1] ?? null)
+                      : evidence
+                        ? { type: CITATION_NODE, attrs: { ...evidence } }
+                        : null,
+                  });
+                }
+                if (!offersFixSentence(editor, claim)) continue;
+                const instruction = fixInstructionOf(editor, claim);
+                const selection = selectionForEdit(editor.state, {
+                  from: claim.sentence.from,
+                  to: claim.sentence.to,
+                });
+                if (!instruction || !selection) continue;
+                const failedAt = requests.failed.length;
+                const asked = Date.now();
+                const result = await core.editWithAi({
+                  requestId: `${ARM}-fix-${each.id}`,
+                  mindId: mind.id,
+                  from: selection.from,
+                  to: selection.to,
+                  text: selection.text,
+                  action: "fix-sentence",
+                  instruction,
+                });
+                await client.settled();
+                await resolveChanges(client, "accept");
+                const editSeconds = (Date.now() - asked) / 1000;
+                const now = paragraphOf(client, each.id);
+                const checked = Date.now();
+                if (now && now.size > 0) {
+                  await core.checkSentences({
+                    requestId: `${ARM}-recheck-${each.id}`,
+                    mindId: mind.id,
+                    from: { blockId: each.id, offset: 0 },
+                    to: { blockId: each.id, offset: now.size },
+                    action: "check-against-documents",
+                  });
+                  await client.settled();
+                }
+                fixedRows.push({
+                  arm: ARM,
+                  id: each.id,
+                  language,
+                  written: each.written,
+                  before: checkStateKey(editor, claim),
+                  sentence: each.text,
+                  instruction,
+                  result: result.kind,
+                  held: result.kind === "proposed" && result.held === true,
+                  fixed: now?.text ?? null,
+                  editSeconds,
+                  checkSeconds: (Date.now() - checked) / 1000,
+                  after: verdictIn(client, each.id, versions, group.id),
+                  change: changes.find((change) => change.each.id === each.id)?.text ?? null,
+                  failed: requests.failed.slice(failedAt),
+                });
+              }
+              if (changes.length > 0) {
+                const copy = await core.createMind({ title: "Change to", folderId: group.id });
+                const copied = await connectToMind(core, copy.id);
+                try {
+                  writeMind(
+                    copied,
+                    changes.map(({ each, text, cite }) => ({
+                      type: "paragraph",
+                      attrs: { id: each.id },
+                      content: [{ type: "text", text }, ...(cite ? [cite] : [])],
+                    })),
+                  );
+                  await copied.settled();
+                  await core.checkMind({
+                    requestId: `${ARM}-change-${copy.id}`,
+                    mindId: copy.id,
+                    mode: "all",
+                  });
+                  await copied.settled();
+                  for (const row of fixedRows) {
+                    const id = String(row.id);
+                    row.changed = changes.some((change) => change.each.id === id)
+                      ? verdictIn(copied, id, versions, group.id)
+                      : null;
+                  }
+                  for (const change of changes) {
+                    if (fixedRows.some((row) => row.id === change.each.id)) continue;
+                    fixedRows.push({
+                      arm: ARM,
+                      id: change.each.id,
+                      language,
+                      written: change.each.written,
+                      before: null,
+                      sentence: change.each.text,
+                      change: change.text,
+                      changed: verdictIn(copied, change.each.id, versions, group.id),
+                    });
+                  }
+                } finally {
+                  copied.goOffline();
+                }
+              }
+              for (const row of fixedRows)
+                appendFileSync(OUT.replace(/\.jsonl$/, "-fixes.jsonl"), `${JSON.stringify(row)}\n`);
             }
           } finally {
             editor.destroy();

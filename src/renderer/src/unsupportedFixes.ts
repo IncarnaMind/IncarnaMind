@@ -248,6 +248,23 @@ export const askableAt = (editor: Editor): ShownClaim | null =>
   claimAt(editor, (editor, claim) => askVerdictOf(editor, claim) !== null);
 
 /**
+ * The quote a fix rests on (#3383): what the sentence's check found, else what its own Citations
+ * quote, which a check of a cited sentence reads; null when there is none.
+ */
+export function fixQuoteOf(editor: Editor, claim: ShownClaim): string | null {
+  const check = claim.reads;
+  const quote =
+    check.evidence?.quote ??
+    check.unsupported?.quoted?.quote ??
+    (check.parts ?? []).flatMap((part) => part.evidence.map((each) => each.quote))[0] ??
+    citationsOf(editor.state, claim)
+      .map((each) => each.attributes.quote)
+      .filter(Boolean)
+      .join(" ");
+  return quote?.trim() || null;
+}
+
+/**
  * A sentence that needs a look, as a request to the User's own AI names it; null for one that
  * doesn't. Its words are the claim's own, read with its positions: a card drawn while the document
  * moves on holds positions the document no longer has.
@@ -255,7 +272,10 @@ export const askableAt = (editor: Editor): ShownClaim | null =>
 export function askedSentenceOf(editor: Editor, claim: ShownClaim): AskedSentence | null {
   const verdict = askVerdictOf(editor, claim);
   const sentence = comparableSentence(claim.sentence.text);
-  return verdict && sentence ? { sentence, verdict, checkId: claim.check.id } : null;
+  const quote = verdict === "not-found" ? null : fixQuoteOf(editor, claim);
+  return verdict && sentence
+    ? { sentence, verdict, checkId: claim.check.id, ...(quote && { quote }) }
+    : null;
 }
 
 /**
