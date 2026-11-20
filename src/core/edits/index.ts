@@ -307,7 +307,10 @@ function parseInput(input: unknown): ParsedInput {
   }
   const words = typeof instruction === "string" ? instruction.trim() : "";
   if (
-    (action === "translate" || action === "instruction" || action === "cut-unsupported") &&
+    (action === "translate" ||
+      action === "instruction" ||
+      action === "cut-unsupported" ||
+      action === "fix-sentence") &&
     words === ""
   ) {
     throw new InvalidInputError({ key: "error.edit.noInstruction" });
@@ -482,7 +485,9 @@ function editCall(
     context: selection.context,
     // Explain writes under the passage, not into it: the words around it don't matter.
     ...(!explain && { before: selection.before, after: selection.after }),
-    ...((ask.action === "cut-unsupported" || ask.action === "follow-citation") && {
+    ...((ask.action === "cut-unsupported" ||
+      ask.action === "follow-citation" ||
+      ask.action === "fix-sentence") && {
       quotes: selection.quotes,
     }),
   });

@@ -97,6 +97,7 @@ const EDIT_REASONS: Readonly<Record<string, readonly [string, string]>> = {
   instruction: ["Changed as you asked.", "已按你的要求修改。"],
   "cut-unsupported": ["The part its Citations don't support is gone.", "删去了引用不支持的部分。"],
   "follow-citation": ["It now agrees with its Document.", "已与文档的新版本一致。"],
+  "fix-sentence": ["It now says what its Document says.", "已改为文档所说的内容。"],
 };
 
 /**
@@ -154,7 +155,8 @@ function editedText(action: string, passage: string, asked: string): string {
       // With the comma an item of a list leaves hanging.
       return passage.split(part).join("").replace(/,\s*,/g, ",").replace(/、、/gu, "、");
     }
-    case "follow-citation": {
+    case "follow-citation":
+    case "fix-sentence": {
       const words = /“([^”]*)”/.exec(asked)?.[1] ?? "";
       const markers = (passage.match(/\[\d+\]/g) ?? []).join("");
       return words === "" ? passage : `${words}${markers}`;

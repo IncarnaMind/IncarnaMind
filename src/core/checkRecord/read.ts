@@ -14,7 +14,9 @@ import {
   liveDocumentOf,
   shownDocumentName,
 } from "../../shared/citations";
+import { partToCite } from "../../shared/citedNow";
 import {
+  checkedSentence,
   checkJudges,
   claimCheckShown,
   type SentenceResult,
@@ -24,6 +26,7 @@ import { restsOnPassage } from "../../shared/claimParts";
 import { withoutInertBrackets } from "../../shared/inertBrackets";
 import type { Translate } from "../../shared/locations";
 import { mindScopeOf } from "../../shared/mindScope";
+import { type CheckRow, checkRowOf } from "../../shared/noteHealth";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import {
   citationSignOffBasis,
@@ -44,6 +47,7 @@ import {
 import {
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
+  CHART_NODE,
   type CitationAttributes,
   type CitationCheck,
   type ClaimCheckFailure,
@@ -97,10 +101,21 @@ export type SentenceItem = RecordItemFields & {
   result: SentenceResult;
   /** Why no verdict shows, for a sentence that is Not checked. */
   reason: ClaimCheckFailure | null;
+  /** The row of the Note's check card that counts it (#3453), by the rule its page counts by; null when none does. */
+  row: CheckRow | null;
   /** The Passage the check judged it on, as the mark keeps it; null when none backs it. */
   judgedOn: Partial<CitationAttributes> | null;
   /** Null when no check ran: the model refused or couldn't be reached. */
   check: SentenceCheck | null;
+  /**
+   * For a sentence that can be cited: the Passage an Add cites first, none of its Citations on it
+   * yet, with what its part says (#3453). Null for any other, or when a Citation overlaps it.
+   */
+  toCite:
+    | (Pick<RecordItemFields, "says" | "evidence"> & { judgedOn: Partial<CitationAttributes> })
+    | null;
+  /** Where the check that marked it searched: kept for a sentence that reads Not checked too, which has no `check` (#3453). */
+  scope: ClaimCheckScope;
 };
 
 /**
@@ -300,6 +315,7 @@ export function readRecord(sources: RecordSources): {
     });
     const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
+    const chart = element.nodeName === CHART_NODE ? ({ kind: "chart" } as const) : {};
     const origin =
       blockOrigin(fragment, topOf(fragment, element)) ??
       (holdsAiText(element, from, to) ? "ai" : "user");
@@ -316,11 +332,32 @@ export function readRecord(sources: RecordSources): {
         ]),
       ).values(),
     ];
+    const row = checkRowOf({
+      from: sentences.length,
+      text: sentence,
+      ...chart,
+      claim: { shown, check, ...chart },
+      citations: citations.map((attributes, pos) => ({
+        attributes,
+        pos,
+        check: citationState(attributes, documents, sources.kept).check,
+      })),
+      inTable: false,
+      state: checkedSentence({ text: sentence, check: shown, skipped: false, kept: false }),
+    });
+    const toCite = row === "notYetCited" ? partToCite(check, citations) : null;
     sentences.push({
       kind: "sentence",
       text: recordSentence(sentence),
       result,
       reason: shown.state === "not-checked" ? shown.reason : null,
+      scope: check.scope,
+      row,
+      toCite: toCite && {
+        says: toCite.part.says,
+        evidence: documentOf(toCite.passage, sources),
+        judgedOn: toCite.passage,
+      },
       origin,
       says: check.says,
       evidence: check.evidence

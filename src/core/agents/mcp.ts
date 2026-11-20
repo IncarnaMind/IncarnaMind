@@ -419,7 +419,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "IncarnaMind's own check of a Note you wrote",
       description:
-        "IncarnaMind's own check of a Note you wrote, on its AI model: only when the User asks for it. Returns each claim that needs a look with what the Document says. While running, call again.",
+        "IncarnaMind's own check of a Note you wrote, on an AI model set up in IncarnaMind (refused if none is): only when the User asks for IncarnaMind's own check. It marks every claim against their Documents and counts each sentence once, as the Note's page does: needLook, notChecked, canBeCited (supported, its Passage not cited yet: its cite adds it), supported (nothing to do), ownViews. Say each by its name: only needLook sentences need a look. claims lists the first three, with group and what the Document says. When status is running, call again.",
       inputSchema: z.object({ mindId: z.string() }),
       outputSchema: z.object({
         mindId: z.string(),
@@ -429,11 +429,16 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         models: z.array(z.string()),
         supported: z.number(),
         needLook: z.number(),
+        notChecked: z.number(),
+        canBeCited: z.number(),
         ownViews: z.number(),
         claims: z.array(
           z.object({
             sentence: z.string(),
+            group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
             result: z.enum([
+              "supported",
+              "citation-not-found",
               "unsupported",
               "contradicted",
               "not-found",

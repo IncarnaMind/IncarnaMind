@@ -249,6 +249,8 @@ function closeSelection(editor: Editor, range: { from: number; to: number }): vo
  * one line in the composer. Asked in the selection menu (`from`), it reports in
  * the menu, then where its Undo line lands (`useMenuEditLine`), never in the
  * composer. One edit at a time in a Mind. Says whether the change came back.
+ * `again` is what a failure's Try again runs, for a caller whose flow goes on
+ * after the change: its whole flow, not this request alone (#3383).
  */
 export async function requestEdit(
   editor: Editor,
@@ -258,6 +260,7 @@ export async function requestEdit(
   instruction?: string,
   range?: { from: number; to: number },
   from?: "menu",
+  again?: () => Promise<unknown>,
 ): Promise<boolean> {
   const selection = selectionForEdit(editor.state, range);
   if (!selection || editor.isDestroyed) return false;
@@ -308,7 +311,8 @@ export async function requestEdit(
     watch.movedOn(),
     result,
     async () => {
-      await requestEdit(editor, mindId, doc, action, instruction, range ?? selection.range, from);
+      await (again?.() ??
+        requestEdit(editor, mindId, doc, action, instruction, range ?? selection.range, from));
     },
     applying,
   );

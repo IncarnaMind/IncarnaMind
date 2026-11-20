@@ -7,7 +7,6 @@ import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   checkCard,
-  useLocalChatModel as chooseScriptedModel,
   clickEditItem,
   coreOf,
   createDataFolder,
@@ -23,13 +22,15 @@ import {
   setLanguage,
   setWindowSize,
   undoMenuItem,
+  useLocalChatModel,
 } from "./app";
 
 /*
- * Correct a confirmed contradiction from the Documents (#1481). The checks
- * are written into the page; the correction then checks the sentence again on
- * the scripted model like any edit (#2563), and one Undo restores the words and
- * marks. The card, badge and ⌘K all use the one correction path.
+ * Correct a confirmed contradiction from the Documents (#1481), with no model set up: with one,
+ * Fix the sentence has the model write the words instead (#3383, e2e/fixSentence.spec.ts). The
+ * checks are written into the page; the correction then asks for the sentence's check like any
+ * edit (#2563), which waits for a model, and one Undo restores the words and marks. The card,
+ * badge and ⌘K all use the one correction path.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -71,7 +72,6 @@ async function launched(language: "en" | "zh-CN", width: number) {
   const running = await launchApp(dataDir, { fakeChat: true });
   const { app, window } = running;
   await dismissChatSetup(window);
-  await chooseScriptedModel(window);
   await setLanguage(window, language);
   await setWindowSize(app, window, width, 900);
   await addDocuments(window, [
@@ -248,11 +248,7 @@ for (const [language, width] of [
     await expect(firstLine).not.toContainText("36.8%");
     await expect(firstLine.getByTestId("citation")).toHaveCount(1);
     await expect(firstLine.locator("[data-generated]")).toHaveText("38.6%");
-    await expect(marks.nth(0)).toHaveAttribute(
-      "data-check",
-      language === "en" ? "supported" : "unsupported",
-      { timeout: 30_000 },
-    );
+    await expect(marks.nth(0)).toHaveAttribute("data-check", "needs-recheck");
     await expect(window.getByTestId("undo-line")).toContainText(
       translate(language, "claim.usedDocumentWording"),
     );
@@ -320,11 +316,7 @@ for (const [language, width] of [
       await expect(line).toContainText("38.6%");
       await expect(line.getByTestId("citation")).toHaveCount(1);
       await expect(line.getByTestId("citation")).toHaveAttribute("data-check", "found");
-      await expect(mark).toHaveAttribute(
-        "data-check",
-        language === "en" ? "supported" : "unsupported",
-        { timeout: 30_000 },
-      );
+      await expect(mark).toHaveAttribute("data-check", "needs-recheck");
     };
     const before = async () => {
       await expect(line).toContainText("36.8%");
@@ -422,7 +414,7 @@ for (const [language, width] of [
     await screenshot(window, `correction-badge-${language}`);
     await pointAndClick(window, correct);
 
-    const judged = language === "en" ? "supported" : "unsupported";
+    const judged = "needs-recheck";
     await expect(marks.nth(0)).toHaveAttribute("data-check", judged);
     await expect(marks.nth(1)).toHaveAttribute("data-check", judged);
     await expect(marks.nth(2)).toHaveAttribute("data-check", "contradicted");
@@ -443,9 +435,11 @@ for (const [language, width] of [
     await app.close();
   });
 
-  test(`the foot keeps its height with a correction in its row (${language}, ${width}px)`, async () => {
+  test(`the foot keeps its height with a fix in its row (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const { app, window, check, evidence } = await launched(language, width);
+    // A whole check of the Note runs on a model, and with one the badge's fix is the rewrite (#3383).
+    await useLocalChatModel(window);
     const text = language === "en" ? "The first rate is 36.8%." : "第一个比率是 36.8%。";
     await insert(window, [
       paragraph(
@@ -459,13 +453,12 @@ for (const [language, width] of [
       ),
     ]);
     const card = await checkCard(window);
-    const correct = card.getByTestId("badge-correct-contradictions");
-    await expect(correct).toBeVisible();
+    await expect(card.getByTestId("badge-fix-sentences")).toBeVisible();
     const foot = card.getByTestId("check-card-foot");
     const before = { card: await card.boundingBox(), foot: await foot.boundingBox() };
     if (!before.card || !before.foot) throw new Error("The card isn't drawn.");
 
-    // The run's words take Check's row while the correction stays where it was, disabled.
+    // The run's words take Check's row while the fix stays where it was, disabled.
     await app.evaluate(() => {
       (
         globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
@@ -571,8 +564,8 @@ for (const [language, width] of [
     await pointAndClick(window, rows.nth(1).getByTestId("claim-part-correct"));
     await expect(line).toContainText(language === "en" ? "30 days" : "30 天");
     await expect(line).toContainText(language === "en" ? "$75,000" : "75,000");
-    // The check the correction asks for lands, and Undo brings back the check with both parts.
-    await expect(mark).not.toHaveAttribute("data-claim", firstId ?? "", { timeout: 30_000 });
+    // The check the correction asks for waits for a model; Undo brings back the check with both parts.
+    await expect(mark).toHaveAttribute("data-check", "needs-recheck");
     await pointAndClick(window, window.getByTestId("undo-action"));
     await expect(mark).toHaveAttribute("data-claim", firstId ?? "");
 
@@ -581,7 +574,7 @@ for (const [language, width] of [
     await expect(again).toHaveCount(2);
     await pointAndClick(window, again.nth(0).getByTestId("claim-part-correct"));
     await expect(line).toContainText(language === "en" ? "$57,000" : "57,000");
-    await expect(mark).not.toHaveAttribute("data-claim", firstId ?? "", { timeout: 30_000 });
+    await expect(mark).toHaveAttribute("data-check", "needs-recheck");
     await expect(line.getByTestId("citation")).toHaveCount(1);
 
     await pointAndClick(window, window.getByTestId("undo-action"));
