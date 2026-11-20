@@ -19,7 +19,7 @@ Keep IncarnaMind open while you use your agent: the agent talks to it.
 
 **What leaves your computer.** What the agent reads goes to the AI model the agent uses, under that service's terms, not IncarnaMind's. Some plans may use it to train their models; check your agent's privacy settings. While **Keep everything on this computer** is on (Settings → Privacy), every agent is paused. A Canvas runs with no network: it loads nothing from the internet or from this computer and keeps nothing, and a website it links to opens in your browser only when you press **Open in Browser**. The agent's other tools and permissions stay under its own control.
 
-**To stop.** Settings → Agents → **Disconnect**. It revokes the agent's key at once and closes its open connections, so the agent can't read anything from then on. Each agent's **Activity** lists everything it did.
+**To stop.** Settings → Agents → **Disconnect**. It revokes the agent's key at once and closes its open connections, so the agent can't read anything from then on. Each agent's **Activity** lists everything it did; a disconnected agent's Activity, and the requests you made for it, leave IncarnaMind's database for good 30 days later, when it next starts.
 
 ## Ask in your agent
 
@@ -154,7 +154,7 @@ Without a hint, an agent sometimes answers from memory instead of looking in you
 - Antigravity: `~/.gemini/config/skills/` ([docs](https://www.antigravity.google/docs/skills))
 - Cline: `~/.cline/skills/`; Qoder: `~/.qoder/skills/`; CodeBuddy: `~/.codebuddy/skills/`
 
-The Skill is added once: an agent that already reads it in another of its folders (Cursor reads Claude Code's too) gets no second copy. **Disconnect** (and **Undo**) removes it once no other connected agent reads that folder, unless you have changed the file. For the other agents, **Details for technical users** has **Copy Skill**: save it as `SKILL.md` in a folder named `incarnamind` inside your agent's skills folder.
+The Skill is added once: an agent that already reads it in another of its folders (Cursor reads Claude Code's too) gets no second copy. IncarnaMind keeps the copy it wrote up to date: when it starts and when you connect an agent, a copy you haven't changed is rewritten with the current text, in every folder it wrote one to. A copy you changed is left as it is, and that agent's row in Settings → Agents says its Skill is out of date, with **Replace…**, which asks first, because your changes go. **Disconnect** (and **Undo**) removes the copy IncarnaMind wrote, whichever version it is, once no other connected agent reads that folder; a copy you changed stays, and Settings says where. For the other agents, **Details for technical users** has **Copy Skill**: save it as `SKILL.md` in a folder named `incarnamind` inside your agent's skills folder.
 
 ## If something goes wrong
 
