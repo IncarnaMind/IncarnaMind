@@ -1,4 +1,4 @@
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -30,8 +30,8 @@ test.skip(!SHOW_AGENT_CONNECTION, "Agents are hidden while SHOW_AGENT_CONNECTION
  * (#3362): an agent connects inside the step as Settings › Agents connects it, Sorting waits for a
  * model, and Get started follows the agent: add Documents, ask it for a document, see what needs a
  * look. A real agent client drives the Tools over the app's own connection. The home folder is a
- * temporary one, where Claude Code is found by its settings file, and copying is caught in the
- * page. Set INCARNAMIND_SCREENSHOTS to a folder to save the stills in four looks and two widths.
+ * temporary one, where Claude Code is found by its settings file, which connecting it adds to (a
+ * copy of the file is kept, and Disconnect takes both away), and copying is caught in the page. Set INCARNAMIND_SCREENSHOTS to a folder to save the stills in four looks and two widths.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -220,7 +220,8 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   ]);
   const agents = ai.getByTestId("setup-agent");
   const claudeCode = ai.locator('[data-testid="setup-agent"][data-value="claude-code"]');
-  // Found on this computer, so listed before every agent that isn't; Other agent last.
+  // The chat apps first, then the coding tools, the one found on this computer ahead of the
+  // others; Other agent last.
   await expect(claudeCode).toContainText("On this computer");
   const order = await agents.evaluateAll((rows) =>
     rows.map((row) => [
@@ -228,38 +229,60 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
       row.textContent?.includes("On this computer"),
     ]),
   );
-  expect(order.findIndex(([, found]) => !found)).toBeGreaterThan(
-    order.findIndex(([value]) => value === "claude-code"),
-  );
+  expect(order.slice(0, 3).map(([value]) => value)).toEqual([
+    "claude-desktop",
+    "codex",
+    "claude-code",
+  ]);
+  expect(order.slice(3, -1).some(([, found]) => found)).toBe(false);
   await expect(agents.last()).toHaveAttribute("data-value", "other");
   await expect(agents.first().locator("input")).toBeFocused();
   await expect(ai.getByTestId("setup-key")).toBeVisible();
   await expect(ai.getByTestId("setup-next")).toBeDisabled();
   await stills(window, "1-your-ai");
 
-  // Chosen: the connect dialog's lines, with nothing to read yet but the Documents to come.
+  // Chosen: the three lines of the connect dialog, with nothing to read yet but the Documents to
+  // come, the rest under Details, and Allow and connect in view at both widths.
   await claudeCode.locator("input").press("Space");
   const connect = ai.getByTestId("setup-agent-connect");
   await expect(connect).toContainText("Let Claude Code read your Documents?");
-  await expect(connect).toContainText(
+  await expect(connect.getByTestId("connect-agent-reads")).toHaveText(
+    translate("en", "agents.connect.reads.none", { agent: "Claude Code" }),
+  );
+  await expect(connect.getByTestId("agent-folder-row")).toHaveCount(0);
+  await expect(connect.getByTestId("agent-propose")).toBeChecked();
+  await expect(connect.getByTestId("connect-agent-disconnect")).toHaveText(
+    "You can disconnect it at any time.",
+  );
+  const details = connect.getByTestId("connect-agent-details");
+  await expect(details).not.toHaveAttribute("open", "");
+  await expect(details).toContainText(
     translate("en", "agents.connect.body", { agent: "Claude Code" }),
   );
-  await expect(connect.getByTestId("agent-folder-row")).toHaveText([/Not in a Folder/]);
-  await expect(connect.getByTestId("agent-folder")).toBeChecked();
-  await expect(connect.getByTestId("agent-folders-all-unfiled")).toHaveText(
-    "No Documents yet: it reads those added outside a Folder.",
-  );
-  await expect(connect.getByTestId("agent-propose")).toBeChecked();
-  await expect(connect.getByTestId("connect-agent-skill")).toBeVisible();
-  // Nothing is connected before the press.
+  await expect(details.getByTestId("connect-agent-skill")).toBeHidden();
+  for (const width of WIDTHS) {
+    await setWindowSize(app as ElectronApplication, window, width, 900);
+    await expect(connect.getByTestId("setup-agent-allow")).toBeInViewport({ ratio: 1 });
+  }
+  await setWindowSize(app as ElectronApplication, window, 1280, 900);
+  // Nothing is connected before the press, and the file is as it was.
   expect((await core(window).agents()).pairings).toEqual([]);
+  expect(await readFile(join(home, ".claude.json"), "utf8")).toBe("{}\n");
   await stills(window, "2-your-ai-agent-chosen");
+  await details.locator("summary").first().click();
+  await expect(details.getByTestId("connect-agent-skill")).toBeVisible();
+  await expect(details.getByTestId("connect-agent-backup")).toBeVisible();
+  await stills(window, "2b-your-ai-agent-details");
+  await details.locator("summary").first().click();
 
   await connectClaudeCode(window, ai);
   await expect(ai.getByTestId("setup-agent-done")).toContainText(
-    "Copied. Paste it into a terminal and run it.",
+    "Added to the settings of Claude Code. Start a new session in Claude Code to use it.",
   );
-  expect(await copied(window)).toMatch(/^claude mcp add --scope user incarnamind /);
+  // Added to Claude Code's own file, beside what was there, with a copy of the file as it was.
+  const settings = JSON.parse(await readFile(join(home, ".claude.json"), "utf8"));
+  expect(settings.mcpServers.incarnamind).toMatchObject({ type: "stdio" });
+  expect(await readFile(join(home, ".claude.json.incarnamind-backup"), "utf8")).toBe("{}\n");
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
   await stills(window, "3-your-ai-connected");
 
@@ -315,11 +338,14 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   const row = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
   await expect(row.getByTestId("agent-pairing-reads")).toHaveText("Reads Not in a Folder");
   await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
-    "Writes notes and Canvases there; proposes changes to yours",
+    "Writes notes, Canvases and files there; proposes changes to yours",
   );
   await row.getByTestId("agent-disconnect").click();
   await expect(page.getByTestId("agent-pairing")).toHaveCount(0);
   expect((await core(window).agents()).pairings).toEqual([]);
+  // Exactly what was added is gone: the file is as it was, and so is its copy.
+  await expect.poll(() => readFile(join(home, ".claude.json"), "utf8")).toBe("{}\n");
+  await expect(stat(join(home, ".claude.json.incarnamind-backup"))).rejects.toThrow(/ENOENT/);
 });
 
 // protects=the step works on a cold start where the agents on this computer can't be listed: it says so where the agents would be, with Try again, and a model is set up as before; fails_when=the step, or its Back and Set up later, is missing, or the problem has no way to try again
@@ -374,12 +400,13 @@ test("the agents found here come first, and any other is found by typing, in the
   const agents = ai.getByTestId("setup-agent");
   const listed = () =>
     agents.evaluateAll((rows) => rows.map((row) => row.getAttribute("data-value")));
+  // The chat apps first, then the coding tools, those found here ahead of the rest.
   expect(await listed()).toEqual([
+    "claude-desktop",
+    "codex",
     "claude-code",
     "zed",
     "qwen-code",
-    "claude-desktop",
-    "codex",
     "cursor",
     "vscode",
     "other",
@@ -428,7 +455,14 @@ test("the agents found here come first, and any other is found by typing, in the
       .getByTestId("agent-client")
       .evaluateAll((each) => each.map((row) => row.getAttribute("data-client")));
   await expect(list.getByTestId("agent-client")).toHaveCount(8);
-  expect((await rows()).slice(0, 3)).toEqual(["claude-code", "zed", "qwen-code"]);
+  // The chat apps first, then the coding tools found on this computer.
+  expect((await rows()).slice(0, 5)).toEqual([
+    "claude-desktop",
+    "codex",
+    "claude-code",
+    "zed",
+    "qwen-code",
+  ]);
   await expect(list.locator('[data-client="qwen-code"]')).toContainText(
     "Copy one line to run in a terminal",
   );
