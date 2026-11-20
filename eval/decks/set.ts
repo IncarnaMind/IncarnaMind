@@ -2,7 +2,9 @@
  * The deck set (#3455): invented decks laid out as an AI often lays them out, each right and with
  * three wrong figures planted, checked against the invented Documents in `documents/`. Stat cards
  * (a label box, a number box and a unit box), tables with a column of two periods ("Passengers
- * 2025 (2024)" with "412,600 (398,100)"), and plain bullet slides, in English and Chinese.
+ * 2025 (2024)" with "412,600 (398,100)"), plain bullet slides, tables built of separate text boxes
+ * and charts drawn from shapes, as agents' own decks are, each with a title in a text box and a
+ * page number in text, in English and Chinese.
  */
 import { para, pptxOf, sp, txBody, xfrm } from "../../tests/helpers/pptx";
 
@@ -13,11 +15,21 @@ interface Card {
   unit: string;
 }
 
+/** A bar chart drawn from shapes: a rectangle a bar, its value in a box above, its label below. */
+interface ShapeChart {
+  bars: readonly { label: string; value: string; height: number }[];
+}
+
 interface Slide {
   title: string;
   cards?: readonly Card[];
   table?: readonly (readonly string[])[];
+  /** A table built of one text box a cell, as agents' decks build them. */
+  boxTable?: readonly (readonly string[])[];
+  chart?: ShapeChart;
   bullets?: readonly string[];
+  /** The title in a text box, not a title placeholder, and the page number in text. */
+  page?: string;
 }
 
 /** A wrong figure planted in a deck: `from` in its text becomes `to`; `marker` finds its line. */
@@ -30,7 +42,7 @@ export interface Plant {
 export interface Deck {
   id: string;
   language: "en" | "zh";
-  layout: "stat cards" | "two periods" | "bullets";
+  layout: "stat cards" | "two periods" | "bullets" | "box tables" | "shape charts";
   name: string;
   slides: readonly Slide[];
   plants: readonly Plant[];
@@ -204,6 +216,127 @@ export const DECKS: readonly Deck[] = [
       plant("92.1%", "91.2%"),
     ],
   },
+  {
+    id: "en-boxes",
+    language: "en",
+    layout: "box tables",
+    name: "Merrow Strait Ferries costs and traffic",
+    slides: [
+      {
+        title: "Operating costs, 2025",
+        page: "1 / 2",
+        boxTable: [
+          ["Cost line", "£m", "Share of costs"],
+          ["Crew", "3.10", "45.1%"],
+          ["Fuel", "2.36", "34.3%"],
+          ["Maintenance", "0.88", "12.8%"],
+          ["Port dues", "0.54", "7.8%"],
+          ["Total", "6.88", "100%"],
+        ],
+      },
+      {
+        title: "Traffic by route, 2025",
+        page: "2 / 2",
+        boxTable: [
+          ["Route", "Crossings", "Passengers"],
+          ["West", "6,120", "412,600"],
+          ["East", "3,720", "187,300"],
+          ["Total", "9,840", "599,900"],
+        ],
+      },
+    ],
+    plants: [plant("3.10", "3.01"), plant("187,300", "178,300"), plant("9,840", "9,480")],
+  },
+  {
+    id: "zh-boxes",
+    language: "zh",
+    layout: "box tables",
+    name: "汐澜轮渡成本与客运",
+    slides: [
+      {
+        title: "2025 年营业成本",
+        page: "1 / 2",
+        boxTable: [
+          ["成本项目", "万元"],
+          ["船员薪酬", "2,380"],
+          ["燃油", "1,540"],
+          ["维修保养", "820"],
+          ["港口费用", "510"],
+          ["合计", "5,250"],
+        ],
+      },
+      {
+        title: "2025 年分航线客运",
+        page: "2 / 2",
+        boxTable: [
+          ["航线", "旅客（人次）", "车辆（辆次）"],
+          ["A 线", "268,400", "38,600"],
+          ["B 线", "154,900", "12,300"],
+        ],
+      },
+    ],
+    plants: [plant("2,380", "2,830"), plant("5,250", "5,520"), plant("38,600", "36,800")],
+  },
+  {
+    id: "en-chart",
+    language: "en",
+    layout: "shape charts",
+    name: "Merrow Strait Ferries in charts",
+    slides: [
+      {
+        title: "Passengers by route, 2025",
+        page: "1 / 2",
+        chart: {
+          bars: [
+            { label: "West", value: "412,600", height: 2400000 },
+            { label: "East", value: "187,300", height: 1100000 },
+          ],
+        },
+      },
+      {
+        title: "Income by line, 2025 (£m)",
+        page: "2 / 2",
+        chart: {
+          bars: [
+            { label: "West fares", value: "6.84", height: 2400000 },
+            { label: "East fares", value: "2.91", height: 1020000 },
+            { label: "Freight", value: "1.42", height: 500000 },
+          ],
+        },
+      },
+    ],
+    plants: [plant("187,300", "178,300"), plant("2.91", "2.19"), plant("1.42", "1.24")],
+  },
+  {
+    id: "zh-chart",
+    language: "zh",
+    layout: "shape charts",
+    name: "汐澜轮渡图表",
+    slides: [
+      {
+        title: "2025 年分航线旅客（人次）",
+        page: "1 / 2",
+        chart: {
+          bars: [
+            { label: "A 线", value: "268,400", height: 2400000 },
+            { label: "B 线", value: "154,900", height: 1380000 },
+          ],
+        },
+      },
+      {
+        title: "2025 年收入构成（万元）",
+        page: "2 / 2",
+        chart: {
+          bars: [
+            { label: "A 线票务", value: "4,120", height: 2400000 },
+            { label: "B 线票务", value: "2,060", height: 1200000 },
+            { label: "货运", value: "940", height: 550000 },
+          ],
+        },
+      },
+    ],
+    plants: [plant("268,400", "286,400"), plant("2,060", "2,600"), plant("4,120", "4,210")],
+  },
 ];
 
 const escaped = (text: string) =>
@@ -232,18 +365,51 @@ function tableFrame(id: number, rows: readonly (readonly string[])[]): string {
   return `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="${id}" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="1200000"/><a:ext cx="8229600" cy="${400000 * rows.length}"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr firstRow="1"/><a:tblGrid>${grid}</a:tblGrid>${body}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
 }
 
+/** A bar of a chart drawn from shapes: a filled rectangle with no text. */
+const barShape = (id: number, at: readonly number[]) =>
+  sp({
+    id,
+    name: "Rectangle",
+    spPr: `${xfrm(at[0] ?? 0, at[1] ?? 0, at[2] ?? 0, at[3] ?? 0)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="2A9D8F"/></a:solidFill>`,
+  });
+
 /** A slide's shapes as an AI's deck tool would place them on a 16:9 slide. */
 function shapesOf(slide: Slide): string {
   const shapes = [
-    sp({
-      id: 2,
-      name: "Title",
-      ph: `<p:ph type="title"/>`,
-      spPr: xfrm(457200, 250000, 8229600, 600000),
-      body: txBody(para(escaped(slide.title))),
-    }),
+    slide.page === undefined
+      ? sp({
+          id: 2,
+          name: "Title",
+          ph: `<p:ph type="title"/>`,
+          spPr: xfrm(457200, 250000, 8229600, 600000),
+          body: txBody(para(escaped(slide.title))),
+        })
+      : textBox(2, "TextBox", [457200, 250000, 8229600, 600000], [slide.title]),
   ];
+  if (slide.page !== undefined)
+    shapes.push(textBox(3, "TextBox", [8000000, 4700000, 900000, 300000], [slide.page]));
   let id = 10;
+  (slide.boxTable ?? []).forEach((row, at) => {
+    const width = Math.floor(8229600 / Math.max(1, row.length));
+    row.forEach((text, column) => {
+      shapes.push(
+        textBox(
+          id++,
+          "TextBox",
+          [457200 + column * width, 1200000 + at * 420000, width, 400000],
+          [text],
+        ),
+      );
+    });
+  });
+  const bars = slide.chart?.bars ?? [];
+  bars.forEach((bar, at) => {
+    const x = 1200000 + at * 2400000;
+    const top = 4200000 - bar.height;
+    shapes.push(textBox(id++, "TextBox", [x, top - 420000, 1600000, 400000], [bar.value]));
+    shapes.push(barShape(id++, [x, top, 1600000, bar.height]));
+    shapes.push(textBox(id++, "TextBox", [x, 4250000, 1600000, 400000], [bar.label]));
+  });
   (slide.cards ?? []).forEach((card, column) => {
     const x = 457200 + column * 2133600;
     shapes.push(textBox(id++, "Label", [x, 1300000, 1900000, 400000], [card.label]));
