@@ -5750,6 +5750,10 @@ export function createCore(adapters: CoreAdapters): Core {
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
     checkUnasked: (mindId) => inFlow("verify", () => checks.checkUnasked(mindId)),
+    nameMind: (mindId, title) => {
+      minds.rename(mindId, title);
+      mindsChanged();
+    },
     recordWriter: (mindId, writer) =>
       content.edit(mindId, (blocks) => {
         if (blocks.doc) {

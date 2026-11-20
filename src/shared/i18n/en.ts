@@ -8669,6 +8669,7 @@ export const en = {
   "agents.handOver.where.sheet": "sheet “{sheet}”",
   "error.handedFile.notFound": "That file doesn’t exist or has been deleted.",
   "verify.handed.line": "From {agent} · version {version} of {count}",
+  "verify.handed.mindTitle": "Checking version {version}: {name}",
   "verify.handed.open": "Version {n}",
   "verify.handed.openLabel": "Open the check of version {n}",
   "agents.activity.read_request.none": "Looked for a request from you",

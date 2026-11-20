@@ -8169,6 +8169,7 @@ export const zhCN = {
   "agents.handOver.where.sheet": "工作表“{sheet}”",
   "error.handedFile.notFound": "这个文件不存在或已删除。",
   "verify.handed.line": "来自 {agent} · 第 {version} 版，共 {count} 版",
+  "verify.handed.mindTitle": "核对第 {version} 版：{name}",
   "verify.handed.open": "第 {n} 版",
   "verify.handed.openLabel": "打开第 {n} 版的核对",
   "agents.activity.read_request.none": "查找了你的请求",

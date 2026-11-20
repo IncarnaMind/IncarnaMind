@@ -53,6 +53,7 @@ export interface HandOverDeps {
     allSheets?: boolean;
   }): Promise<VerifyDocumentResult>;
   checkUnasked(mindId: string): Promise<UnaskedCheck>;
+  nameMind(mindId: string, title: string): void;
   /** Records the agent as the writer of the check's Note, by which one in no Folder is reached. */
   recordWriter(mindId: string, writer: { agent: string; pairingId: string }): void;
   marks(mindId: string): HandedMarks;
@@ -220,6 +221,11 @@ export function createHandOver(deps: HandOverDeps) {
       };
     }
     store.setMind(version.id, made.mind.id);
+    // Each version's check is a Note of its own: named by its version, so the User tells them apart.
+    deps.nameMind(
+      made.mind.id,
+      deps.say("verify.handed.mindTitle", { name: input.title, version: version.number }),
+    );
     deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
     startCheck(made.mind.id);
     return {

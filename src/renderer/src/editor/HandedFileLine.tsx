@@ -54,7 +54,7 @@ export function HandedFileLine({ mindId }: { mindId: string }) {
         ]}
       />
       {others.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 px-2 pb-1.5">
           {others.map((each) => (
             <button
               key={each.number}
