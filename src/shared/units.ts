@@ -380,6 +380,25 @@ export function parseCueTarget(target: string): { startMs: number; endMs: number
   return match ? { startMs: Number(match[1]), endMs: Number(match[2]) } : null;
 }
 
+export function transcriptCueLines(units: readonly UnitText[]) {
+  return units.flatMap((unit) =>
+    unit.kind === "cues"
+      ? (unit.anchors ?? []).flatMap((anchor, index) => {
+          const cue = parseCueTarget(anchor.target);
+          return cue
+            ? [
+                {
+                  ...cue,
+                  text: unit.text.slice(anchor.start, anchor.end),
+                  label: unit.label?.speakers?.[index],
+                },
+              ]
+            : [];
+        })
+      : [],
+  );
+}
+
 /** Whether two Units can be cited together: the same kind, and for rows, the same sheet. */
 export function sameRun(
   a: Pick<UnitText, "kind" | "label">,

@@ -309,6 +309,7 @@ import {
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createMeetingSpeakerReview } from "./meetings/speakerReview";
 import { meetingSummaryRoute } from "./meetings/summaryRoute";
+import { meetingSummarySources } from "./meetings/summarySources";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
@@ -8049,6 +8050,29 @@ export function createCore(adapters: CoreAdapters): Core {
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
+    getMeetingSummaryItemSources: async (meetingId, itemId) => {
+      const documentId = meetings.transcriptOf(meetingId);
+      if (!documentId) return null;
+      await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
+      const meeting = meetings.get(meetingId);
+      const doc = liveDocument(documentId);
+      if (
+        meeting.kind !== "meeting" ||
+        meeting.status !== "stopped" ||
+        doc?.kind !== "transcript" ||
+        meetings.transcriptOf(meetingId) !== documentId ||
+        (doc.meetingMindId !== null && doc.meetingMindId !== meeting.mindId) ||
+        walledDocument(documentId) !== walledFolder(meeting.mindId)
+      )
+        return null;
+      const evidence = meetings.summaryItemEvidence(meetingId, itemId);
+      const version = documents.currentVersion(documentId);
+      if (!evidence || evidence.documentId !== documentId || !version) return null;
+      const units = documents.pageTexts(documentId, version, null, null);
+      return { documentId, sources: meetingSummarySources(units, evidence.quotes) };
+    },
+    correctMeetingSummaryItem: async (meetingId, expected, replacement) =>
+      meetings.correctSummaryItem(meetingId, expected, replacement),
     retryMeetingSummary: async (meetingId) => {
       const meeting = meetings.get(meetingId);
       liveSummaries.retry(meeting);
