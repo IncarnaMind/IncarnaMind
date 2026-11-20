@@ -55,13 +55,10 @@ export function readMeetingSummaryUpdate(
   let nextId = 1;
   for (const id of existing.keys()) nextId = Math.max(nextId, id + 1);
   for (const change of reply.data.changes) {
-    const quote = normalizeSummaryEvidence(change.quote);
-    const heard = speech.some((line) => line.includes(quote));
-    if (!heard && (change.status !== "active" || !historical.includes(quote))) return invalid();
     const id = change.id ?? nextId++;
     if (change.id === null) {
       if (!Number.isSafeInteger(id)) return invalid();
-    } else if (!existing.has(id) || touched.has(id)) {
+    } else if (existing.get(id)?.kind !== change.kind || touched.has(id)) {
       return invalid();
     }
     touched.add(id);
@@ -73,6 +70,9 @@ export function readMeetingSummaryUpdate(
     ) {
       continue;
     }
+    const quote = normalizeSummaryEvidence(change.quote);
+    const heard = speech.some((line) => line.includes(quote));
+    if (!heard && (change.status !== "active" || !historical.includes(quote))) return invalid();
     updated.set(id, { id, kind: change.kind, status: change.status, text: change.text });
     evidence[id] = change.quote;
   }

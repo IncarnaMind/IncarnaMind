@@ -55,6 +55,18 @@ test("confirmed changes retain stable ids and preserve every unmentioned agreeme
   expect(draft.items?.[0]?.status).toBe("active");
 });
 
+test("an unrelated action cannot replace a saved decision by borrowing its id", () => {
+  const input: MeetingSummaryInput = {
+    ...draft,
+    items: [{ id: 4, kind: "decision", status: "active", text: "Meet on Tuesday." }],
+  };
+  expect(() => readMeetingSummaryUpdate(reply([{ ...added, id: 4 }]), input)).toThrow();
+  expect(readMeetingSummaryUpdate(reply([added]), input).items).toEqual([
+    input.items?.[0],
+    { id: 5, kind: "action", status: "active", text: added.text },
+  ]);
+});
+
 test.each(["done", "cancelled"])(
   "records a concrete task first heard as %s only with evidence from current speech",
   (status) => {
@@ -87,6 +99,17 @@ test("a repeated unchanged commitment retains its original evidence", () => {
   });
   expect(out.items).toEqual(draft.items);
   expect(out.evidence).toEqual({});
+});
+
+test("repeating an identical item needs no new evidence and cannot authorize a changed item", () => {
+  const item = draft.items?.[0];
+  if (!item) throw new Error("Missing action fixture");
+  const repeated = { ...item, quote: "Words absent from the new speech" };
+  const result = readMeetingSummaryUpdate(reply([repeated, decision]), draft);
+  expect(result.items[0]).toEqual(item);
+  expect(Object.values(result.evidence)).toEqual([decision.quote]);
+  expect(() => readMeetingSummaryUpdate(reply([repeated, repeated]), draft)).toThrow();
+  expect(() => readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }]), draft)).toThrow();
 });
 
 test("previous visible prose can seed historical commitments once; empty structured records disable that path", () => {
