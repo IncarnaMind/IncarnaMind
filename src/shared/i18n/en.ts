@@ -8645,7 +8645,7 @@ export const en = {
   "agents.activity.check_citations": "Checked its Citations",
   "agents.activity.show_citation": "Showed you a Citation",
   "ai.jobs.organize.agent": "Ask your connected AI to suggest Folders and Tags.",
-  "agents.sorting.tagConsent": "Share these Documents’ Tag names with {agent}’s AI model?",
+  "agents.sorting.tagConsent": "Share these Documents’ Tag names with the model {agent} uses?",
   "agents.sorting.shareTags": "Allow sharing Tag names",
   "agents.sorting.invalid":
     "The Documents or choices have changed. List the waiting Documents again and use their current Folders and Tags.",
