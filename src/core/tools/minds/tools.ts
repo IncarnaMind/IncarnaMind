@@ -89,7 +89,6 @@ import {
   type WrittenCheck,
 } from "../../answers/checks/written";
 import type { ContextCitations } from "../../answers/contextCitations";
-import type { ParagraphAsked } from "../../answers/paragraphAsked";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   type AnalysisTableBinding,
@@ -291,8 +290,6 @@ export interface MindToolsOptions {
   wallRefused?(): void;
   /** Whether a Note with this name exists outside the current wall. */
   outsideMind?(name: string): boolean;
-  /** The request's paragraph hint, which never chooses the stretch. */
-  paragraph: ParagraphAsked;
   /** Where a new Mind goes: the Folder of the Question's Search scope when that is one Folder. */
   folderId: string | null;
   /** The Answer writes again from every Document (Use all, #1149): what it writes is checked there too (#3087). */
@@ -774,38 +771,6 @@ function wordsIn(
 interface Stretch {
   from: TextPlace;
   to: TextPlace;
-  hint?: string;
-}
-
-/**
- * The stretch of a Mind `edit_mind` changes, whole: the section under the
- * heading `part` (to the next heading as high or higher), else the Blocks the
- * User selected, else all of it. Why not, when there is nothing there to change.
- */
-function paragraphAt(
-  elements: readonly Y.XmlElement[],
-  asked: ParagraphAsked,
-): Y.XmlElement | undefined {
-  if (asked === null) return undefined;
-  const paragraphs = elements.filter(
-    (element) => element.nodeName === "paragraph" && plainText(element).trim() !== "",
-  );
-  return asked === "last" ? paragraphs.at(-1) : paragraphs[asked];
-}
-
-function paragraphHint(
-  elements: readonly Y.XmlElement[],
-  asked: ParagraphAsked,
-): string | undefined {
-  const paragraph = paragraphAt(elements, asked);
-  if (!paragraph) return undefined;
-  const paragraphs = elements.filter(
-    (element) => element.nodeName === "paragraph" && plainText(element).trim() !== "",
-  );
-  const index = paragraphs.indexOf(paragraph) + 1;
-  return asked === "last"
-    ? "The request may mean the last paragraph."
-    : `The request may mean paragraph ${index}.`;
 }
 
 function sectionSpan(all: readonly Y.XmlElement[], heading: Y.XmlElement): BlockSpan {
@@ -843,15 +808,18 @@ export function partSpan(blocks: Y.XmlFragment, part: string): BlockSpan | null 
   return { from: at, to: at + 1 };
 }
 
+/**
+ * The stretch of a Mind `edit_mind` changes, whole: the section under the
+ * heading `part` (to the next heading as high or higher), else the Blocks the
+ * User selected, else all of it. Why not, when there is nothing there to change.
+ */
 function stretchOf(
   blocks: Y.XmlFragment,
   part: string | null,
   language: Language,
   selected: readonly string[],
-  asked: ParagraphAsked,
-): Stretch | { why: string; kind: "no-heading" | "no-text" | "several-places"; hint?: string } {
+): Stretch | { why: string; kind: "no-heading" | "no-text" | "several-places" } {
   const all = textBlocks(blocks).map((each) => each.element);
-  const hint = paragraphHint(all, asked);
   let chosen = all;
   if (part !== null) {
     const headings = all.filter((element) => isHeading(element));
@@ -860,7 +828,6 @@ function stretchOf(
       return {
         why: severalNamed(all, matches, part, "part", language),
         kind: "several-places",
-        hint,
       };
     }
     const heading = matches[0];
@@ -879,7 +846,6 @@ function stretchOf(
             ? `there is no heading “${part}” in it, and to name a paragraph, give more of its first words: at least ${MIN_FIRST_WORDS} words or ${MIN_FIRST_CJK} Chinese characters${known}`
             : `there is no heading or paragraph “${part}” in it${known}`,
           kind: "no-heading",
-          hint,
         };
       }
       chosen = [paragraph];
@@ -898,13 +864,12 @@ function stretchOf(
   const first = chosen[0];
   const last = chosen.at(-1);
   if (!first || !last || chosen.every((element) => plainText(element).trim() === "")) {
-    return { why: "there is no text in it to change", kind: "no-text", hint };
+    return { why: "there is no text in it to change", kind: "no-text" };
   }
   const size = layout(last).reduce((sum, child) => sum + child.size, 0);
   return {
     from: { blockId: idOf(first), offset: 0 },
     to: { blockId: idOf(last), offset: size },
-    hint,
   };
 }
 
@@ -2959,7 +2924,7 @@ export function mindTools(options: MindToolsOptions): {
       const selected = focused?.mindId === mind.id && part === null ? focused.blockIds : [];
       // Text the assistant still waits on is revised as a whole, from its heading.
       const named = minds.read(mind.id, (blocks) =>
-        stretchOf(blocks, part, options.language, selected, options.paragraph),
+        stretchOf(blocks, part, options.language, selected),
       );
       // Words to replace need no paragraph named: a part the Note doesn't hold only narrows nothing.
       if ("why" in named && !swap) {
@@ -2969,7 +2934,7 @@ export function mindTools(options: MindToolsOptions): {
             : named.kind === "several-places"
               ? { kind: "several-places", mindId: mind.id, name: part ?? "", adding: false }
               : { kind: "no-text", mindId: mind.id },
-          `Nothing was changed in “${mind.name}”: ${named.why}.${named.hint ? ` ${named.hint}` : ""}`,
+          `Nothing was changed in “${mind.name}”: ${named.why}.`,
         );
       }
       const stretch: Stretch = swap
@@ -3062,7 +3027,6 @@ export function mindTools(options: MindToolsOptions): {
                 `It went in as written, and ${addedSaid(added)}: say so, never that all of it is cited.`,
               ]
             : []),
-          ...(stretch.hint ? [stretch.hint] : []),
         ].join(" ");
       }
       const replaced = waiting.kind === "own" ? replacedOwn(mind.id, waiting.blockIds) : {};
@@ -3192,7 +3156,6 @@ export function mindTools(options: MindToolsOptions): {
               `${result.outOfDate === 1 ? "1 change is" : `${result.outOfDate} changes are`} already out of date: the User changed that text meanwhile.`,
             ]
           : []),
-        ...(stretch.hint ? [stretch.hint] : []),
       ].join(" ");
     },
   };
@@ -3269,7 +3232,7 @@ export function mindTools(options: MindToolsOptions): {
       const noteBefore =
         times !== null && typeof given === "string"
           ? minds.read(mind.id, (blocks) => {
-              const whole = stretchOf(blocks, null, options.language, [], options.paragraph);
+              const whole = stretchOf(blocks, null, options.language, []);
               return "why" in whole ? null : stretchText(blocks, whole);
             })
           : null;
