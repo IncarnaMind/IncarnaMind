@@ -12,12 +12,14 @@ import { ySyncPluginKey, yUndoPluginKey } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CHART_NODE,
   CITATION_NODE,
   type CitationAttributes,
   type KeptCitationText,
   MIND_PROPOSAL_REQUESTS_FIELD,
   MIND_REVISIONS_FIELD,
   MIND_TEXT_ORIGINS_FIELD,
+  PICTURE_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -90,9 +92,15 @@ interface ReviewState {
 type Meta =
   | { hovered: string | null }
   | { target: { from: number; to: number } | null }
-  | { applying: ReadonlySet<string> };
+  | { applying: ReadonlySet<string> }
+  | { relabel: true };
 
 export const proposalReviewKey = new PluginKey<ReviewState>("proposalReview");
+
+/** Draws the changes' words again in the window's language, once it changes. */
+export function relabelProposals(view: EditorView): void {
+  view.dispatch(view.state.tr.setMeta(proposalReviewKey, { relabel: true } satisfies Meta));
+}
 
 /**
  * How long the pointer rests on another change before the card switches to
@@ -595,6 +603,8 @@ export function madeAgain(state: EditorState): (proposal: PendingProposal) => bo
     (!doc || proposalRequestOf(doc, proposal.request)?.source !== "outside-agent");
 }
 
+const VISUAL_NODES: ReadonlySet<string> = new Set([PICTURE_NODE, CHART_NODE]);
+
 function decorationsFor(
   state: EditorState,
   proposals: readonly PendingProposal[],
@@ -621,10 +631,14 @@ function decorationsFor(
       // A node a Proposal adds or removes is drawn like its words (node views draw no marks).
       if (range.node) {
         const theirs = proposal.theirs ? " proposal-theirs" : "";
+        // A picture or chart taken out says so on its frame, not by a line across it (#3429).
+        const visual = VISUAL_NODES.has(doc.nodeAt(range.from)?.type.name ?? "");
         decorations.push(
           Decoration.node(range.from, range.to, {
             class: `proposal-node proposal-node--${range.node}${theirs}${stale}${proposal.id === current ? " proposal-current" : ""}`,
             "data-proposal-id": proposal.id,
+            ...(range.node === "delete" &&
+              visual && { "data-removed": t("proposal.removedBlock") }),
           }),
         );
       } else if (proposal.id === current || stale) {
@@ -743,6 +757,7 @@ export const ProposalReview = Extension.create<{
             if (hovered && !proposals.some((each) => each.id === hovered)) hovered = null;
             const current = proposalsAt(proposals, state.selection)[0]?.id ?? null;
             const unchanged =
+              !(meta && "relabel" in meta) &&
               proposals === value.proposals &&
               applied === value.applied &&
               target === value.target &&

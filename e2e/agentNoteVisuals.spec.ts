@@ -7,6 +7,8 @@ import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  boxesOverlap,
+  boxOf,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
@@ -165,8 +167,9 @@ test("an agent's picture swap and corrected chart wait in the User's Note, old s
     const charts = editor.getByTestId("chart");
     await expect(pictures).toHaveCount(2);
     await expect(charts).toHaveCount(2);
-    // The old one struck through and faded, the new one under it underlined in the accent.
+    // The old one faded and labelled on its frame, the new one under it underlined in the accent.
     await expect(around(pictures.nth(0))).toHaveClass(/proposal-node--delete/);
+    await expect(around(pictures.nth(0))).toHaveAttribute("data-removed", "Removed");
     await expect(around(pictures.nth(1))).toHaveClass(/proposal-node--insert/);
     await expect(around(charts.nth(0))).toHaveClass(/proposal-node--delete/);
     await expect(around(charts.nth(1))).toHaveClass(/proposal-node--insert/);
@@ -174,17 +177,36 @@ test("an agent's picture swap and corrected chart wait in the User's Note, old s
       chart.getByRole("button", { name: new RegExp(`^2026: ${shown.replace(".", "\\.")} `) });
     await expect(value(charts.nth(0), "3.4")).toBeVisible();
     await expect(value(charts.nth(1), "3.1")).toBeVisible();
-    await pointAndClick(window, pictures.nth(1));
+    // Drawn from the table as its change leaves it, the new chart's table hasn't changed.
+    await expect(charts.nth(1)).not.toContainText("The table changed");
+    await expect(charts.nth(0)).not.toContainText("The table changed");
+
+    // Docked at the page's foot, a change's bar stands clear of the pill that asks the agent.
+    const bar = window.getByTestId("change-bar");
+    const pill = window.locator("[data-ask-pill]");
+    for (const width of [900, 1280]) {
+      await setWindowSize(app, window, width, 900);
+      await pointAndClick(window, pictures.nth(1));
+      await expect(bar).toBeVisible();
+      await expect(pill).toBeVisible();
+      await expect
+        .poll(async () => boxesOverlap(await boxOf(bar), await boxOf(pill)), `at ${width}`)
+        .toBe(false);
+    }
     await expect(window.getByTestId("change-bar-author")).toHaveText("Proposed by Ferry agent");
     await shot(window, "agent-visuals-picture-en-light");
-    await charts.nth(1).scrollIntoViewIfNeeded();
+    // The old one's frame in view, with the new one under it.
+    const fromTop = (block: Locator) =>
+      block.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await fromTop(charts.nth(0));
     await shot(window, "agent-visuals-chart-en-light");
 
     await setLanguage(window, "zh-CN");
+    await expect(around(pictures.nth(0))).toHaveAttribute("data-removed", "已删除");
     await window.emulateMedia({ colorScheme: "dark" });
-    await pictures.nth(1).scrollIntoViewIfNeeded();
+    await fromTop(pictures.nth(0));
     await shot(window, "agent-visuals-picture-zh-CN-dark");
-    await charts.nth(1).scrollIntoViewIfNeeded();
+    await fromTop(charts.nth(0));
     await shot(window, "agent-visuals-chart-zh-CN-dark");
     await window.emulateMedia({ colorScheme: "light" });
     await setLanguage(window, "en");

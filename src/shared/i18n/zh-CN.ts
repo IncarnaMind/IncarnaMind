@@ -1980,6 +1980,7 @@ export const zhCN = {
   "proposal.unknownAuthor": "未知作者",
   "proposal.madeBy": "{author}，{date}",
   "proposal.proposedBy": "{agent} 建议",
+  "proposal.removedBlock": "已删除",
   "proposal.uncited.one": "1 句没有引用",
   "proposal.uncited": "{count} 句没有引用",
   "proposal.uncited.next": "选中下一句没有引用的句子",

@@ -2074,6 +2074,7 @@ export const en = {
   "proposal.madeBy": "{author}, {date}",
   // An outside agent's change waiting in a Note (#352), named after its pairing.
   "proposal.proposedBy": "Proposed by {agent}",
+  "proposal.removedBlock": "Removed",
   "proposal.uncited.one": "1 sentence with no Citation",
   "proposal.uncited": "{count} sentences with no Citation",
   "proposal.uncited.next": "Select the next sentence with no Citation",

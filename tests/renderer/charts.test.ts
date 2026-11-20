@@ -10,6 +10,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { parseHTML } from "linkedom";
 import { describe, expect, onTestFinished, test } from "vitest";
 import { CHART_NODE, CITATION_NODE, type Citation } from "../../src/core";
+import { PROPOSAL_DELETE_MARK, PROPOSAL_INSERT_MARK } from "../../src/core/api";
 import { chartOfTable as coreChartOfTable } from "../../src/core/tools/minds/charts";
 import {
   changeChart,
@@ -960,5 +961,59 @@ describe("a chart copied", () => {
         "Q2\t301.2 [Acme, p. 1]\t362.0",
       ].join("\n"),
     );
+  });
+});
+
+describe("a chart a change adds, and its table's line", () => {
+  // Fuel by year, the 2026 cell changed from 3.4 to 3.1 by one change still waiting (#3429).
+  const proposal = (kind: "insert" | "delete") => ({
+    id: `fix-${kind}`,
+    request: "agent",
+    target: "",
+  });
+  const row = (year: string, ...figure: JSONContent[]): JSONContent => ({
+    type: "tableRow",
+    content: [cell("tableCell", text(year)), cell("tableCell", ...figure)],
+  });
+  const table = (...last: JSONContent[]): JSONContent => ({
+    type: "table",
+    attrs: { id: "fuel" },
+    content: [
+      {
+        type: "tableRow",
+        content: [cell("tableHeader", text("Year")), cell("tableHeader", text("Fuel"))],
+      },
+      row("2025", text("2.7")),
+      row("2026", ...last),
+    ],
+  });
+  const fixed = table(
+    { ...text("3.4"), marks: [{ type: PROPOSAL_DELETE_MARK, attrs: proposal("delete") }] },
+    { ...text("3.1"), marks: [{ type: PROPOSAL_INSERT_MARK, attrs: proposal("insert") }] },
+  );
+  const schema = getSchema(noteExtensions());
+  const drawnFrom = (shown: JSONContent) => {
+    const json = schema.nodeFromJSON(shown).toJSON();
+    const drawn = coreChartOfTable(json, "fuel", { kind: "bar", title: "Fuel" }, "en", null);
+    if (!("chart" in drawn)) throw new Error("No chart drawn.");
+    return drawn.chart.attrs ?? {};
+  };
+  const updateOf = (attrs: Record<string, unknown>) => {
+    const doc = schema.nodeFromJSON({ type: "doc", content: [fixed, { type: CHART_NODE, attrs }] });
+    return tableUpdate(doc, doc.lastChild?.attrs ?? {}, "en");
+  };
+
+  test("says nothing of a chart drawn from the table as its own change leaves it, nor of one drawn before it", () => {
+    const added = {
+      ...drawnFrom(table(text("3.1"))),
+      proposal: { ...proposal("insert"), kind: "insert" },
+    };
+    expect(updateOf(added)).toBeNull();
+    expect(updateOf(drawnFrom(table(text("3.4"))))).toBeNull();
+  });
+
+  test("says the table changed for a chart its change didn't draw", () => {
+    const update = updateOf(drawnFrom(table(text("3.1"))));
+    expect(update?.rows.map((each) => each.values[0]?.shown)).toEqual(["2.7", "3.4"]);
   });
 });

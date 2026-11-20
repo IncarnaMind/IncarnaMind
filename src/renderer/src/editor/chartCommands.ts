@@ -3,7 +3,12 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, NodeSelection } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
-import { ANALYSIS_TABLE_ATTRIBUTE, BLOCK_ID_ATTRIBUTE, CHART_NODE } from "../../../core/api";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  BLOCK_ID_ATTRIBUTE,
+  CHART_NODE,
+  PROPOSAL_ATTRIBUTE,
+} from "../../../core/api";
 import {
   type AnalysisTableMatch,
   boundTableFor,
@@ -27,6 +32,7 @@ import {
   withAnalysisValues,
 } from "../../../shared/charts";
 import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
+import { readProposalAttribute } from "../../../shared/proposals";
 import { asOwnUndoStep } from "./selectionCommands";
 
 const readText = (node: ProseMirrorNode): SourceLine => sourceLineOf(node.toJSON());
@@ -187,7 +193,10 @@ export function chartTable(
   return found;
 }
 
-/** Null when the table is gone, unchanged, or no longer has a column of numbers. */
+/**
+ * Null when the table is gone, unchanged, or no longer has a column of numbers. A chart a change
+ * adds is compared with its table as that change leaves it, as it was drawn (#3429).
+ */
 export function tableUpdate(
   doc: ProseMirrorNode,
   attributes: Readonly<Record<string, unknown>>,
@@ -195,7 +204,10 @@ export function tableUpdate(
 ): ChartData | null {
   const chart = readChart(attributes);
   const table = chartTable(doc, chart);
-  return table ? redrawnData(tableGrid(table), chart, language) : null;
+  if (!table) return null;
+  const adding = readProposalAttribute(attributes[PROPOSAL_ATTRIBUTE]);
+  const drawnWith = adding?.kind === "insert" ? adding.request : null;
+  return redrawnData(gridOfTable(table.toJSON(), drawnWith), chart, language);
 }
 
 /**
