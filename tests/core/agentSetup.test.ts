@@ -5,6 +5,7 @@
  * the agent is disconnected. Every path is in a temporary home folder.
  */
 import {
+  chmod,
   lstat,
   mkdir,
   readdir,
@@ -698,18 +699,28 @@ describe("setting an agent up", () => {
     );
   });
 
-  it("leaves a settings file as it was, and no copy of it, when it can't be replaced", async () => {
-    const { core, home, coast } = await started();
-    const path = join(home, ".claude.json");
-    const given = `${JSON.stringify({ userID: "b0ed6c26" })}\n`;
-    await writeFile(path, given);
-    // Where the new file would be written there is a folder, so the write fails as a rename can on Windows.
-    await mkdir(`${path}.incarnamind-new`);
-    const { result } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
-    expect(result).toMatchObject({ kind: "copy", how: "command", path });
-    expect(await readFile(path, "utf8")).toBe(given);
-    await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
-  });
+  it.skipIf(process.getuid?.() === 0)(
+    "leaves a settings file as it was, and no copy of it, when it can't be replaced",
+    async () => {
+      const { core, home, coast } = await started();
+      // The link's folder takes no new file, so the copy beside the link is made and the write then fails, as a rename can on Windows.
+      const managed = await createTempDataFolder();
+      const target = join(managed, "claude.json");
+      const given = `${JSON.stringify({ userID: "b0ed6c26" })}\n`;
+      await writeFile(target, given);
+      const path = join(home, ".claude.json");
+      await symlink(target, path);
+      await chmod(managed, 0o500);
+      try {
+        const { result } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+        expect(result).toMatchObject({ kind: "copy", how: "command", path });
+        expect(await readFile(target, "utf8")).toBe(given);
+        await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+      } finally {
+        await chmod(managed, 0o700);
+      }
+    },
+  );
 
   it("on Windows writes the same file in the home, and gives the line in Windows' quoting when it can't", async () => {
     const real = process.platform;
