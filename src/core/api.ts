@@ -132,6 +132,11 @@ export interface Mind {
    * Document while it holds none, as one in no Folder does (#1359).
    */
   folderId: string | null;
+  /**
+   * The Note of the newest version of a file an outside agent handed over, when this Note checks
+   * an earlier one (#3412): it has no row of its own, and opens from that Note's card.
+   */
+  supersededBy?: string;
 }
 
 /**

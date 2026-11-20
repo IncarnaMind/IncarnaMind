@@ -56,7 +56,10 @@ export interface HandOverDeps {
   checkUnasked(mindId: string, keep: boolean): Promise<UnaskedCheck>;
   /** Copies the results of one check's lines onto the same lines of another's; how many took one. */
   carryChecks(fromMindId: string, toMindId: string): number;
+  mindTitle(mindId: string): string;
   nameMind(mindId: string, title: string): void;
+  /** Tells the windows the Notes changed: which of them a later version's check now stands for. */
+  notesChanged(): void;
   /** Records the agent as the writer of the check's Note, by which one in no Folder is reached. */
   recordWriter(mindId: string, writer: { agent: string; pairingId: string }): void;
   marks(mindId: string): HandedMarks;
@@ -232,18 +235,25 @@ export function createHandOver(deps: HandOverDeps) {
       };
     }
     store.setMind(version.id, made.mind.id);
-    // Each version's check is a Note of its own: named by its version, so the User tells them apart.
-    deps.nameMind(
-      made.mind.id,
-      deps.say("verify.handed.mindTitle", { name: input.title, version: version.number }),
-    );
-    deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
-    // A line the version before had too keeps that result while it still stands (#3412): only what
-    // changed, or what its Documents changed under, is checked again.
     const before = store
       .versions(file.id)
       .filter((each) => each.number < version.number && each.mindId !== null)
       .at(-1);
+    // The newest version's check is the file's one Note in the lists, named for the file; the one
+    // before it, opened from its card, says its version, unless the User has named it (#3412).
+    if (
+      before?.mindId &&
+      deps.mindTitle(before.mindId) === deps.say("verify.mindTitle", { name: file.title })
+    ) {
+      deps.nameMind(
+        before.mindId,
+        deps.say("verify.handed.mindTitle", { name: file.title, version: before.number }),
+      );
+    }
+    deps.notesChanged();
+    deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
+    // A line the version before had too keeps that result while it still stands (#3412): only what
+    // changed, or what its Documents changed under, is checked again.
     const carried = before?.mindId ? deps.carryChecks(before.mindId, made.mind.id) : 0;
     startCheck(made.mind.id, carried > 0);
     return {

@@ -20,6 +20,7 @@ import { mindIdOf, onMindEditorOpen, openMindEditors, whenMindEditor } from "./e
 import { KIND_LABELS } from "./fileInfo";
 import { type FoundObject, findable } from "./finding";
 import { folderCounts } from "./libraryPage";
+import { isListedMind } from "./listedMinds";
 import { isListedDocument } from "./meetingTranscript";
 import { noteTabOf, noteTabRef, tabName } from "./noteTabs";
 import type { ObjectRef, Translate } from "./objects";
@@ -56,7 +57,7 @@ findable.register({
   objects(t) {
     const { minds, library } = store();
     const folders = folderNames(library);
-    return minds.map(
+    return minds.filter(isListedMind).map(
       (mind): FoundObject => ({
         ref: { kind: "mind", id: mind.id },
         name: mindName(mind) || t("mind.untitled"),

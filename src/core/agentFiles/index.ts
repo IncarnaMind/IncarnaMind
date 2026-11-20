@@ -120,6 +120,17 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
 
     versions,
 
+    /** Every version's check Note, each item's in order of its versions. */
+    versionNotes: (): { fileId: string; mindId: string }[] =>
+      db
+        .all<{ file_id: string; mind_id: string }>(
+          `SELECT v.file_id, v.mind_id FROM agent_file_versions v
+           JOIN agent_files f ON f.id = v.file_id
+           WHERE v.mind_id IS NOT NULL AND v.deleted_at IS NULL AND f.deleted_at IS NULL
+           ORDER BY v.file_id, v.number`,
+        )
+        .map((row) => ({ fileId: row.file_id, mindId: row.mind_id })),
+
     /** The item, and which of its versions, a check's Note is of; null for a Note of none. */
     ofMind(mindId: string): { file: StoredHandedFile; version: StoredHandedVersion } | null {
       const row = db.get<{ file_id: string }>(

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Document, LibraryGroup } from "../../core/api";
 import { useCanvases } from "./canvases";
 import { useLanguage } from "./i18n";
+import { isListedMind } from "./listedMinds";
 import { isListedDocument } from "./meetingTranscript";
 import { sorted } from "./sort";
 import { sortOf, useSort } from "./sortChoices";
@@ -57,7 +58,8 @@ export function useFolderContents(documents: readonly Document[], { hideExamples
 
   const mindsByFolder = useMemo(() => {
     const examples = hideExamples ? new Set(exampleIds.split(" ").filter(Boolean)) : null;
-    return byFolder(examples ? minds.filter((mind) => !examples.has(mind.id)) : minds, groups);
+    const listed = minds.filter((mind) => isListedMind(mind) && !(examples?.has(mind.id) ?? false));
+    return byFolder(listed, groups);
   }, [minds, groups, hideExamples, exampleIds]);
 
   const canvasesByFolder = useMemo(() => byFolder(canvases, groups), [canvases, groups]);

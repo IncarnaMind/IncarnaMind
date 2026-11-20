@@ -44,6 +44,7 @@ import { noteHolding } from "./editor/noteKeymap";
 import { cursorAtBlock } from "./editor/notePlace";
 import { type FindableKind, type FoundObject, findable } from "./finding";
 import { currentTabOf } from "./layoutSlice";
+import { isListedMind } from "./listedMinds";
 import { matchName, type NameMatch, queryWords } from "./matcher";
 import { isListedDocument, noteOf, transcriptInNote } from "./meetingTranscript";
 import type { ObjectRef, Translate } from "./objects";
@@ -323,7 +324,7 @@ export function recentGroup(
     found.kinds.flatMap(({ objects }) => objects.map((object) => [refKey(object.ref), object])),
   );
   const items = minds
-    .filter((mind) => mind.id !== inFront)
+    .filter((mind) => mind.id !== inFront && isListedMind(mind))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, SHOWN.recent)
     .flatMap((mind): PaletteItem[] => {

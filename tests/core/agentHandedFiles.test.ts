@@ -147,7 +147,7 @@ describe("files an outside agent hands over", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=a deck the agent made is read from the path it named, kept, and checked slide by slide, the agent told what needs a look and on which slide; the same file again tells how the check went, and a changed one is the next version with its own check (#3412); fails_when=the file isn't checked, a claim loses its slide, the same bytes make a new version, or a new version replaces the old one's check
+  // protects=a deck the agent made is read from the path it named, kept, and checked slide by slide, the agent told what needs a look and on which slide; the same file again tells how the check went, and a changed one is the next version with its own check, which alone has a row in the lists (#3412); fails_when=the file isn't checked, a claim loses its slide, the same bytes make a new version, a new version replaces the old one's check, or every version's check sits in the Notes list
   it("keeps a deck it made with each version, and checks each, saying what needs a look and on which slide", async () => {
     const { core, coast, writer, files } = await started();
     const agent = await connectLegacyAgent(writer.launch);
@@ -204,6 +204,17 @@ describe("files an outside agent hands over", () => {
       [2, second.mindId],
     ]);
     expect((await core.handedFileOf(firstMind))?.version).toBe(1);
+    // One Note stands for the file in the lists, the newest version's check, named for the file;
+    // the first version's, which its card opens, says its version and has no row of its own.
+    const notes = (await core.listMinds()).filter((mind) =>
+      [firstMind, second.mindId].includes(mind.id),
+    );
+    expect(notes.map((mind) => [mind.title, mind.supersededBy])).toEqual(
+      expect.arrayContaining([
+        ["Checking: Harbour review", undefined],
+        ["Checking version 1: Harbour review", second.mindId],
+      ]),
+    );
     // One Document holds the item's newest version, filed where the agent handed it over.
     const documents = (await core.listDocuments()).filter((each) => each.name === "Harbour review");
     expect(documents).toHaveLength(1);

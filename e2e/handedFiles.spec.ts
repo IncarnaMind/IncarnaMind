@@ -74,7 +74,7 @@ for (const language of ["en", "zh-CN"] as const) {
   const words =
     language === "en"
       ? {
-          name: "Checking version 2: Harbour review",
+          name: "Checking: Harbour review",
           firstName: "Checking version 1: Harbour review",
           second: "From Claude Code · version 2 of 2",
           first: "From Claude Code · version 1 of 2",
@@ -83,7 +83,7 @@ for (const language of ["en", "zh-CN"] as const) {
           open: ["Version 1", "Version 2"],
         }
       : {
-          name: "核对第 2 版：Harbour review",
+          name: "核对：Harbour review",
           firstName: "核对第 1 版：Harbour review",
           second: "来自 Claude Code · 第 2 版，共 2 版",
           first: "来自 Claude Code · 第 1 版，共 2 版",
@@ -127,6 +127,9 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(second).toMatchObject({ version: 2, needLook: 0 });
       await agent.close();
 
+      // The file is one Note in the sidebar, its newest version's check; the first version's opens
+      // from the card.
+      await expect(window.getByTestId("mind-row")).toHaveCount(1);
       const row = window.locator(`[data-testid="mind-row"][data-mind-id="${second.mindId}"]`);
       await pointAndClick(window, row.locator("button").first());
       await expect(frontMindName(window)).toHaveText(words.name);
@@ -146,6 +149,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(other).toHaveText([words.open[0] ?? ""]);
       await pointAndClick(window, other);
       await expect(frontMindName(window)).toHaveText(words.firstName);
+      await expect(window.getByTestId("mind-row")).toHaveCount(1);
       const firstCard = await checkCard(window);
       await expect(firstCard.getByTestId("verify-handed")).toContainText(words.first);
       await expect(firstCard.getByTestId("verify-handed-version")).toHaveText([

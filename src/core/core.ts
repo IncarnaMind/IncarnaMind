@@ -836,7 +836,29 @@ export function createCore(adapters: CoreAdapters): Core {
     if (!isKnownKind(minds.get(mindId).kind)) return null;
     return found.name || translate(settings.get().language, "mind.untitled");
   };
-  const mindsChanged = () => events.emit("minds.changed", minds.list());
+  const handedFiles = createAgentFiles({ db, now, newId: () => crypto.randomUUID() });
+  /**
+   * The Notes as the window lists them: the check of an earlier version of a file an outside agent
+   * handed over names the Note of its newest version still kept, where it opens (#3412).
+   */
+  const listedMinds = (): Mind[] => {
+    const all = minds.list();
+    const live = new Set(all.map((mind) => mind.id));
+    const byFile = new Map<string, string[]>();
+    for (const { fileId, mindId } of handedFiles.versionNotes()) {
+      if (live.has(mindId)) byFile.set(fileId, [...(byFile.get(fileId) ?? []), mindId]);
+    }
+    const newestOf = new Map<string, string>();
+    for (const notes of byFile.values()) {
+      const newest = notes.at(-1);
+      if (newest) for (const each of notes.slice(0, -1)) newestOf.set(each, newest);
+    }
+    return all.map((mind) => {
+      const newest = newestOf.get(mind.id);
+      return newest ? { ...mind, supersededBy: newest } : mind;
+    });
+  };
+  const mindsChanged = () => events.emit("minds.changed", listedMinds());
   function renameJoinedTranscripts(mind: Mind): void {
     const transcripts = documents.rows().filter((each) => each.meetingMindId === mind.id);
     if (transcripts.length === 0) return;
@@ -5736,7 +5758,6 @@ export function createCore(adapters: CoreAdapters): Core {
   const { home } = adapters.paths;
   const agentChanges = createOwnChanges(content, () => crypto.randomUUID());
   // Files outside agents hand over (#3412), each version checked as "Check someone else's file".
-  const handedFiles = createAgentFiles({ db, now, newId: () => crypto.randomUUID() });
   const handOver = createHandOver({
     store: handedFiles,
     dataDir,
@@ -5752,10 +5773,9 @@ export function createCore(adapters: CoreAdapters): Core {
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
     checkUnasked: (mindId, keep) => inFlow("verify", () => checks.checkUnasked(mindId, keep)),
     carryChecks: (from, to) => checks.carryChecks(from, to),
-    nameMind: (mindId, title) => {
-      minds.rename(mindId, title);
-      mindsChanged();
-    },
+    mindTitle: (mindId) => minds.get(mindId).title,
+    nameMind: (mindId, title) => minds.rename(mindId, title),
+    notesChanged: () => mindsChanged(),
     recordWriter: (mindId, writer) =>
       content.edit(mindId, (blocks) => {
         if (blocks.doc) {
@@ -6297,7 +6317,7 @@ export function createCore(adapters: CoreAdapters): Core {
         return look ? wordFontsOf(look) : [];
       });
     },
-    listMinds: async () => minds.list(),
+    listMinds: async () => listedMinds(),
     renameMind: async (mindId, title) => {
       const mind = minds.rename(mindId, title);
       mindsChanged();

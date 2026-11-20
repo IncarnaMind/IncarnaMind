@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type { Mind } from "../../core/api";
 import { isProcessing } from "../../shared/documentStatus";
 import { core } from "./core";
+import { isListedMind } from "./listedMinds";
 import { isListedDocument } from "./meetingTranscript";
 import { homeReading, type NoteReading } from "./noteState";
 import { useSelection } from "./selection";
@@ -23,7 +24,7 @@ export function ownMindsOf(
 ): readonly Mind[] {
   const examples = new Set(exampleMindIds(state));
   return state.minds
-    .filter((mind) => !examples.has(mind.id))
+    .filter((mind) => isListedMind(mind) && !examples.has(mind.id))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
