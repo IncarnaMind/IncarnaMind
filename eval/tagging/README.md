@@ -47,6 +47,10 @@ Set `INCARNAMIND_TAGGING_PANEL=full` to run the tagging held-out set together wi
 
 The full panel also runs six hard cases per language through the core's Re-tag command and reads Suggestions. The Library has a fundraising Tag, a Tag for the business and a kitchen-renovation Tag already on a Document in the other language. The pitch should receive the fundraising Tag alone among the topic Tags, the privacy notice should receive no topic, two renovation Documents should receive the existing Tag's ID, and two incidental mentions should receive no topic. `INCARNAMIND_TAGGING_PANEL=hard` runs these cases alone. `pilot` runs three tuning Documents. Each panel writes its model name, individual results and token totals to `eval/results/tagging/<start time>/results.json`. A missing reply invalidates the panel.
 
+### Publisher and subject
+
+Run `INCARNAMIND_TAGGING_PANEL=publisher npm run eval:tagging` with the scripted or real model settings above. This runs the six hard cases, then opens another temporary Library in each language. A print studio publishes a privacy notice, lends a choir a venue, schedules production and reviews output. Only the two operations Documents should receive the studio’s existing Tag. In the results JSON, `publisher` reports how many operations and context Documents received that Tag ID, the denominators and the Suggestions for each Document. The original repair shop privacy notice and fundraising pitch remain in `hard`.
+
 ### Baseline on 20 November 2026
 
 Three independent runs on `ca4faa8c5`, using Claude Haiku 5.5 with thinking off. The target was 36 of 40 Chinese Documents with a fitting Tag in every run.
