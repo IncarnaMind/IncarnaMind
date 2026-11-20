@@ -325,6 +325,186 @@
   {
    "id": "cd-033",
    "language": "en",
+   "document": "Supply agreement - Harlow Freight.docx",
+   "sentence": "If the other party commits a material breach, either party may end the supply agreement at once.",
+   "kind": "drops",
+   "pair": "i01",
+   "dropped": "and does not remedy it within 30 days of written notice",
+   "quote": "Either party may end it at once if the other commits a material breach and does not remedy it within 30 days of written notice."
+  },
+  {
+   "id": "cd-034",
+   "language": "en",
+   "document": "Supply agreement - Harlow Freight.docx",
+   "sentence": "Either party can end the supply agreement at once when the other has committed a material breach and left it unremedied for 30 days after written notice.",
+   "kind": "faithful",
+   "pair": "i01",
+   "dropped": null,
+   "quote": "Either party may end it at once if the other commits a material breach and does not remedy it within 30 days of written notice."
+  },
+  {
+   "id": "cd-035",
+   "language": "en",
+   "document": "Office lease - 14 Calder Street.docx",
+   "sentence": "If the tenant gives six months' written notice, the lease ends on 30 June 2027.",
+   "kind": "drops",
+   "pair": "i02",
+   "dropped": "if the rent is paid in full",
+   "quote": "The tenant may end the lease on 30 June 2027 by giving at least six months' written notice, if the rent is paid in full."
+  },
+  {
+   "id": "cd-036",
+   "language": "en",
+   "document": "Office lease - 14 Calder Street.docx",
+   "sentence": "If the tenant gives at least six months' written notice and the rent is paid in full, the tenant may end the lease on 30 June 2027.",
+   "kind": "faithful",
+   "pair": "i02",
+   "dropped": null,
+   "quote": "The tenant may end the lease on 30 June 2027 by giving at least six months' written notice, if the rent is paid in full."
+  },
+  {
+   "id": "cd-037",
+   "language": "en",
+   "document": "Night Shift Handbook.txt",
+   "sentence": "If a patient is dying or confused, a relative may stay overnight.",
+   "kind": "drops",
+   "pair": "i04",
+   "dropped": "with the nurse in charge's agreement",
+   "quote": "A relative may stay overnight with a patient who is dying or confused, with the nurse in charge's agreement."
+  },
+  {
+   "id": "cd-038",
+   "language": "en",
+   "document": "Night Shift Handbook.txt",
+   "sentence": "If a patient is dying or confused and the nurse in charge agrees, a relative may stay overnight.",
+   "kind": "faithful",
+   "pair": "i04",
+   "dropped": null,
+   "quote": "A relative may stay overnight with a patient who is dying or confused, with the nurse in charge's agreement."
+  },
+  {
+   "id": "cd-039",
+   "language": "en",
+   "document": "Field Kit Setup Guide.md",
+   "sentence": "If the river rises above 1.2 m, the ford is closed.",
+   "kind": "drops",
+   "pair": "i05",
+   "dropped": "at the Hollin gauge",
+   "quote": "A river level above 1.2 m at the Hollin gauge closes the ford."
+  },
+  {
+   "id": "cd-040",
+   "language": "en",
+   "document": "Field Kit Setup Guide.md",
+   "sentence": "If the river level at the Hollin gauge is above 1.2 m, the ford is closed.",
+   "kind": "faithful",
+   "pair": "i05",
+   "dropped": null,
+   "quote": "A river level above 1.2 m at the Hollin gauge closes the ford."
+  },
+  {
+   "id": "cd-041",
+   "language": "en",
+   "document": "Field Kit Setup Guide.md",
+   "sentence": "If a sync fails, the tablet stores survey records locally until the next manual sync.",
+   "kind": "drops",
+   "pair": "i06",
+   "dropped": "five times in a row",
+   "quote": "If a sync fails five times in a row, the tablet stores records locally until the next manual sync."
+  },
+  {
+   "id": "cd-042",
+   "language": "en",
+   "document": "Field Kit Setup Guide.md",
+   "sentence": "If five syncs in a row fail, the tablet keeps survey records locally until someone syncs manually.",
+   "kind": "faithful",
+   "pair": "i06",
+   "dropped": null,
+   "quote": "If a sync fails five times in a row, the tablet stores records locally until the next manual sync."
+  },
+  {
+   "id": "cd-043",
+   "language": "en",
+   "document": "Night Shift Handbook.txt",
+   "sentence": "Once the controlled drugs are counted, the incoming nurse can start the drug round.",
+   "kind": "drops",
+   "pair": "i07",
+   "dropped": "the checklist is signed",
+   "quote": "Do not start the drug round until the checklist is signed."
+  },
+  {
+   "id": "cd-044",
+   "language": "en",
+   "document": "Night Shift Handbook.txt",
+   "sentence": "The incoming nurse can start the drug round only after the handover checklist has been signed.",
+   "kind": "faithful",
+   "pair": "i07",
+   "dropped": null,
+   "quote": "Do not start the drug round until the checklist is signed."
+  },
+  {
+   "id": "cd-045",
+   "language": "zh",
+   "document": "冷链仓库值班手册.txt",
+   "sentence": "如果冷藏车出示了温度记录单，就可以进入月台。",
+   "kind": "drops",
+   "pair": "j01",
+   "dropped": "车厢温度高于零下12度的不予接收",
+   "quote": "冷藏车进入月台前须出示温度记录单，车厢温度高于零下12度的不予接收。"
+  },
+  {
+   "id": "cd-046",
+   "language": "zh",
+   "document": "冷链仓库值班手册.txt",
+   "sentence": "冷藏车出示温度记录单后，车厢温度高于零下12度的仍不予接收。",
+   "kind": "faithful",
+   "pair": "j01",
+   "dropped": null,
+   "quote": "冷藏车进入月台前须出示温度记录单，车厢温度高于零下12度的不予接收。"
+  },
+  {
+   "id": "cd-047",
+   "language": "zh",
+   "document": "实验室数据管理规范.md",
+   "sentence": "如果数据已上传并提交了SHA-256摘要，就可以归档。",
+   "kind": "drops",
+   "pair": "j02",
+   "dropped": "由课题组长在系统中确认后",
+   "quote": "由课题组长在系统中确认后归档。"
+  },
+  {
+   "id": "cd-048",
+   "language": "zh",
+   "document": "实验室数据管理规范.md",
+   "sentence": "数据上传并提交摘要后，还须由课题组长在系统中确认，才能归档。",
+   "kind": "faithful",
+   "pair": "j02",
+   "dropped": null,
+   "quote": "由课题组长在系统中确认后归档。"
+  },
+  {
+   "id": "cd-049",
+   "language": "zh",
+   "document": "冷链仓库值班手册.txt",
+   "sentence": "如果温度记录核对完毕，接班人员就可以开始作业。",
+   "kind": "drops",
+   "pair": "j03",
+   "dropped": "清单未签字前",
+   "quote": "清单未签字前，接班人员不得开始作业。"
+  },
+  {
+   "id": "cd-050",
+   "language": "zh",
+   "document": "冷链仓库值班手册.txt",
+   "sentence": "交接清单签字之后，接班人员才可以开始作业。",
+   "kind": "faithful",
+   "pair": "j03",
+   "dropped": null,
+   "quote": "清单未签字前，接班人员不得开始作业。"
+  },
+  {
+   "id": "cd-051",
+   "language": "en",
    "document": "Night Shift Handbook.txt",
    "sentence": "Call the on-call registrar for a NEWS2 score of 5 or more.",
    "kind": "says-less",
@@ -333,7 +513,7 @@
    "quote": "Call the on-call registrar for a NEWS2 score of 5 or more, or a rise of 3 in one hour."
   },
   {
-   "id": "cd-034",
+   "id": "cd-052",
    "language": "en",
    "document": "Field Kit Setup Guide.md",
    "sentence": "The trip plan must be registered with the base office ahead of the trip.",
@@ -343,7 +523,7 @@
    "quote": "Register the trip plan with the base office at least 48 hours ahead."
   },
   {
-   "id": "cd-035",
+   "id": "cd-053",
    "language": "en",
    "document": "Office lease - 14 Calder Street.docx",
    "sentence": "The rent under the lease is GBP 96,000 a year.",
@@ -353,7 +533,7 @@
    "quote": "Rent. GBP 96,000 a year, paid quarterly in advance."
   },
   {
-   "id": "cd-036",
+   "id": "cd-054",
    "language": "zh",
    "document": "实验室数据管理规范.md",
    "sentence": "单个文件超过200GB时，须联系平台工程师。",
@@ -363,7 +543,7 @@
    "quote": "单个文件超过200GB时，须先联系平台工程师分卷。"
   },
   {
-   "id": "cd-037",
+   "id": "cd-055",
    "language": "zh",
    "document": "冷链仓库值班手册.txt",
    "sentence": "供应商车辆须提前预约卸货时段。",
