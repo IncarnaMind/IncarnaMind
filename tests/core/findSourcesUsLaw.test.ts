@@ -11,7 +11,6 @@ import { describe, expect, test } from "vitest";
 import type { Core, Document } from "../../src/core";
 import { parseCfr, parseUsc } from "../../src/core/sources/citations";
 import { identifierOf } from "../../src/core/sources/index";
-import { asksForSources } from "../../src/core/sources/intent";
 import { leadingMarkers, provisionSections } from "../../src/core/sources/provisions";
 import { askAndFinish, shownPassages } from "../helpers/citations";
 import { createMemoryKeychain } from "../helpers/core";
@@ -578,14 +577,5 @@ describe("US law: the Answer's Tool", { timeout: 30_000 }, () => {
     expect(requestsTo(services, "ecfr")).toHaveLength(1);
     expect(result).toContain("Found 5 works on eCFR");
     expect(result).toContain("An unofficial compilation, not the official edition.");
-  });
-
-  test("a Question that cites a regulation or asks to find one is offered the Tool; one about the User's own Documents isn't", () => {
-    expect(asksForSources("What does 17 CFR 240.10b-5 say about omissions?")).toBe(true);
-    expect(asksForSources("Look up 42 U.S.C. § 1983")).toBe(true);
-    expect(asksForSources("Find the federal regulations on insider trading")).toBe(true);
-    expect(asksForSources("查找美国联邦法规中关于内幕交易的条款")).toBe(true);
-    expect(asksForSources("What does section 5 of my lease say?")).toBe(false);
-    expect(asksForSources("Summarise the rules in this handbook")).toBe(false);
   });
 });

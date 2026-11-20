@@ -11,7 +11,6 @@ import { readdir, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { AnswerToolCall, PageLook } from "../../src/core";
-import { asksForSources } from "../../src/core/sources/intent";
 import { licenceOf } from "../../src/core/sources/licences";
 import { createPace } from "../../src/core/sources/pace";
 import { askAndFinish } from "../helpers/citations";
@@ -678,7 +677,7 @@ describe("Find sources: the Answer's Tool", { timeout: 30_000 }, () => {
     expect(searchOf(services, "openalex").get("filter")).toBe("from_publication_date:2021-01-01");
   });
 
-  test("a Question that doesn't ask for papers or sources isn't offered find_sources", async () => {
+  test("a Question about the User's own Documents is offered find_sources, and nothing is sent unless the model calls it", async () => {
     const model = scriptedModel(() => ({ text: "OK." }));
     const { core, services } = await setUp({
       createChatModel: scriptedModels(model).createChatModel,
@@ -689,20 +688,8 @@ describe("Find sources: the Answer's Tool", { timeout: 30_000 }, () => {
 
     await askAndFinish(core, client, mind.id, "How much notice must the tenant give?");
 
-    expect(model.doStreamCalls[0]?.tools ?? []).toEqual([]);
+    expect(model.doStreamCalls[0]?.tools?.map((each) => each.name)).toEqual(["find_sources"]);
     expect(services.requests).toEqual([]);
-    expect(asksForSources("Find papers since 2021 on CRISPR off-target detection")).toBe(true);
-    expect(asksForSources("帮我找几篇关于 CRISPR 脱靶检测的论文")).toBe(true);
-    expect(asksForSources("What does the literature say about urban heat islands?")).toBe(true);
-    expect(asksForSources("租户需要提前多久通知？")).toBe(false);
-    expect(asksForSources("When are the tide tables published?")).toBe(false);
-    expect(asksForSources("What does Article 5 of the lease say?")).toBe(false);
-    expect(asksForSources("What are the sources of revenue in the report?")).toBe(false);
-    expect(asksForSources("Find sources on urban heat islands")).toBe(true);
-    expect(asksForSources("Can you search for some recent articles about base editing?")).toBe(
-      true,
-    );
-    expect(asksForSources("帮我查找一些关于城市热岛的资料")).toBe(true);
   });
 
   test("in local mode, an Answer isn't offered find_sources", async () => {
