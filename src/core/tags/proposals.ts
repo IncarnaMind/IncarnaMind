@@ -20,11 +20,15 @@ export type ProposedTag =
   | { name: string; description: string };
 
 /** Each Document's proposed Tags, in the order of `choices`. */
-export function proposedTags(choices: ReadonlyMap<string, TagChoice>): Map<string, ProposedTag[]> {
+export function proposedTags(
+  choices: ReadonlyMap<string, TagChoice>,
+  rejectedTopics?: ReadonlyMap<string, ReadonlyMap<string, string>>,
+): Map<string, ProposedTag[]> {
   const topics = new Map<string, { name: string; description: string; documents: string[] }>();
   for (const [documentId, choice] of choices) {
     for (const topic of choice.newTags.slice(0, 1)) {
       const key = tagKey(topic.name);
+      if (rejectedTopics?.get(documentId)?.has(key)) continue;
       const shared = topics.get(key);
       if (shared) shared.documents.push(documentId);
       else topics.set(key, { ...topic, documents: [documentId] });

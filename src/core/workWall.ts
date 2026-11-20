@@ -47,8 +47,11 @@ export interface WorkWallOptions {
    * Throws `NotFoundError` once that Note or conversation is deleted.
    */
   folderOfTurn(place: TurnPlace): string | null;
-  /** "Every Document" for a search with no Search scope: null when it is all of them. */
-  unscopedDocuments(mindId: string | null): string[] | null;
+  /**
+   * "Every Document" for a search with no Search scope: null when it is all of them. `focusOnly`:
+   * `mindId` is only the Note in focus of a Question in the assistant (#3487).
+   */
+  unscopedDocuments(mindId: string | null, focusOnly?: boolean): string[] | null;
   /** Whether the User can read a Note now. */
   readableNote(mindId: string): boolean;
 }
@@ -123,6 +126,19 @@ export function createWorkWall(options: WorkWallOptions) {
   /** The wall a Document is behind; null for none. */
   const walledDocument = (documentId: string): string | null =>
     wallOfDocument(documentId)?.id ?? null;
+  /** All walls around each Document, including a Note's output indexed again in another Folder. */
+  const documentWalls = () => {
+    const byDocument = new Map<string, string[]>();
+    for (const folder of library().folders()) {
+      if (!folder.keepInside) continue;
+      for (const id of new Set(behindWall(folder.id))) {
+        const walls = byDocument.get(id) ?? [];
+        walls.push(folder.id);
+        byDocument.set(id, walls);
+      }
+    }
+    return byDocument;
+  };
   /** The Documents behind any wall. */
   const walledDocuments = (): string[] =>
     library()
@@ -242,9 +258,10 @@ export function createWorkWall(options: WorkWallOptions) {
   const scopeDocuments = (
     scope: SearchScope | null,
     mindId: string | null = null,
+    focusOnly = false,
   ): string[] | null => {
     if (scope && hasSearchScope(scope)) return resolveScope(scope, mindId);
-    const unscoped = options.unscopedDocuments(mindId);
+    const unscoped = options.unscopedDocuments(mindId, focusOnly);
     const resolved = resolveScope(NO_SCOPE, mindId);
     if (resolved === null) return unscoped;
     if (unscoped === null) return resolved;
@@ -267,7 +284,7 @@ export function createWorkWall(options: WorkWallOptions) {
     const mindId = place.askedFrom?.mindId ?? null;
     const readsMind =
       mindId !== null && place.askedFrom?.deleted !== true && options.readableNote(mindId);
-    if (readsMind) return scopeDocuments(scope, mindId);
+    if (readsMind) return scopeDocuments(scope, mindId, true);
     if (place.folderAskedIn === undefined) return [];
     const wall = walledFolderId(place.folderAskedIn);
     return wall === null ? scopeDocuments(scope, null) : resolveScope(folderScope(wall));
@@ -301,6 +318,7 @@ export function createWorkWall(options: WorkWallOptions) {
     walledFolderId,
     walledDocument,
     walledDocuments,
+    documentWalls,
     deletedWall,
     walledFolderName,
     turnWall,

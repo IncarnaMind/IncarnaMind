@@ -153,8 +153,11 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const other = handed.getByTestId("verify-handed-version");
       await expect(other).toHaveText([words.open[0] ?? ""]);
+      // Another version opens in this one's place, as a version history does: no tab piles up (#3493).
+      const tabs = await window.getByTestId("mind-tab").count();
       await pointAndClick(window, other);
       await expect(frontMindName(window)).toHaveText(words.firstName);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(tabs);
       await expect(window.getByTestId("mind-row")).toHaveCount(1);
       const firstCard = await checkCard(window);
       await expect(firstCard.getByTestId("verify-handed")).toContainText(words.first);
@@ -162,6 +165,9 @@ for (const language of ["en", "zh-CN"] as const) {
         words.open[1] ?? "",
       ]);
       await shot(window, `handed-version-1-${language}`);
+      await pointAndClick(window, firstCard.getByTestId("verify-handed-version"));
+      await expect(frontMindName(window)).toHaveText(words.name);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(tabs);
     } finally {
       await app.close();
     }

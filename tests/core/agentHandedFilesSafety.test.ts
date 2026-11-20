@@ -581,7 +581,7 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     await writeFile(path, DECK);
     expect(
       structured<Handed>(await handOver(agent, { path, folderId: NOT_IN_A_FOLDER_ID })),
-    ).toMatchObject({ folder: en("library.unsorted"), status: "checked", supported: 2 });
+    ).toMatchObject({ folder: "", status: "checked", supported: 2 });
     const survey = added.find((each) => each.name === "Harbour survey");
     if (!survey) throw new Error("No survey.");
     await writeFile(survey.path, `${SURVEY}\n\nThe harbour has one crane.\n`);

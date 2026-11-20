@@ -4720,7 +4720,9 @@ export interface Document {
   /**
    * The User keeps it as their own workings: a spreadsheet of figures copied from a
    * report, with their own ratios. Answers search and read it to understand a Question but
-   * never cite it, and checks never use it as evidence (`setNotCited`).
+   * never cite it, and checks never use it as evidence (`setNotCited`). A file an outside agent
+   * handed over (`HandedFile`) is Not cited from its first version, and isn't searched or read by
+   * anything but the User's own search until they cite it again (#3492).
    */
   notCited: boolean;
   /** Where its text came from, when Find sources added it (#296); null for any other Document. */
@@ -4748,6 +4750,12 @@ export interface Document {
    * it, which is never cited. Null for a file never imported.
    */
   importedAs: string | null;
+  /**
+   * The agent that handed over the file this Document holds (`HandedFile`, #3412), as the User had
+   * named its pairing then; null for every other Document. Such a Document is Not cited until the
+   * User cites it, and no source until then (#3492).
+   */
+  handedBy: string | null;
   /** When the Document was added to IncarnaMind. ISO 8601, UTC. */
   createdAt: string;
   /** ISO 8601, UTC. */
@@ -8883,7 +8891,7 @@ export interface AnswerSteps {
    * there are none, and for an Answer written before #899.
    */
   firstWordMs?: number;
-  /** Its Question asked to check or calculate, so it was written with the larger thinking budget. */
+  /** It called for working (a calculation or an Analysis), so the steps after ran with the larger thinking budget (#3462). */
   careful?: true;
   /**
    * The changes its reply says it made to a Mind that none of its Tool calls
@@ -12780,7 +12788,7 @@ export type AgentClientId = (typeof AGENT_CLIENT_IDS)[number];
  * How an agent takes IncarnaMind: "bundle", a file its app installs when
  * opened (Claude); "link", a link its app installs from (Cursor);
  * "file", IncarnaMind adds itself to the agent's settings file; "command", one
- * line to paste into a terminal (Claude Code); "manual", settings to paste
+ * line to paste into a terminal; "manual", settings to paste
  * into the agent's own screen.
  */
 export type AgentSetupKind = "bundle" | "link" | "file" | "command" | "manual";
@@ -12791,7 +12799,9 @@ export interface AgentClient {
   name: string;
   /** Other names the User may know it by ("Windsurf", "Copilot"), to find it by typing. */
   otherNames: string[];
-  /** It looks installed on this computer: such agents are listed first. */
+  /** A chat app, not a coding tool: chat apps are listed first. */
+  chat: boolean;
+  /** It looks installed on this computer: such agents are listed first of their kind. */
   installed: boolean;
   setup: AgentSetupKind;
   /** Where setting it up puts the Skill that tells it when to use IncarnaMind; null if it reads none. */
@@ -12803,6 +12813,8 @@ export interface AgentSetupPreview {
   path: string;
   /** The lines IncarnaMind adds (or puts in place of its own earlier ones). */
   change: string;
+  /** Where a copy of the file as it is now is kept until Disconnect, for a file the agent keeps its own state in; null: none is. */
+  backup: string | null;
 }
 
 /**

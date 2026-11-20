@@ -144,7 +144,7 @@ describe("the second reader's blind Folder sheet", () => {
         "- arranged by",
       ]);
     }
-    expect(sheet).toContain("A Folder whose name says nothing of what it holds");
+    expect(sheet).toContain("A Folder whose name says nothing of its contents covers no area");
   });
 
   test("reads back filled in, and is refused with an area left blank", () => {

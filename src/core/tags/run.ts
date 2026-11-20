@@ -113,6 +113,7 @@ export async function tagInRun(input: {
   kinds?: readonly TagKind[];
   /** The User's own Tags each Document is about (./about). */
   offered: ReadonlyMap<string, readonly TagDefinition[]>;
+  rejectedTopics?: ReadonlyMap<string, ReadonlyMap<string, string>>;
   language: Language;
   signal: AbortSignal;
   progress(done: number): void;
@@ -176,5 +177,5 @@ export async function tagInRun(input: {
   await Promise.all(
     Array.from({ length: Math.min(TAGGING_AT_ONCE, batches.length) }, () => worker()),
   );
-  return { proposed: proposedTags(choices), unreachable, requests };
+  return { proposed: proposedTags(choices, input.rejectedTopics), unreachable, requests };
 }

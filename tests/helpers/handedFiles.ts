@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { expect } from "vitest";
-import type { NamedFile } from "../../src/core/adapters";
+import type { AnalysisRuntime, NamedFile } from "../../src/core/adapters";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { agentsAdapter, type connectLegacyAgent, startAgentsCore } from "./agents";
 import { checkingModel, type Plan } from "./checks";
@@ -112,6 +112,7 @@ export async function started(
     model = checkingModel(plans, calls),
     reading,
     folders = [],
+    analysisRuntime,
   }: {
     plans?: Record<string, Plan>;
     /** The checking model, in place of one that checks as `plans` say. */
@@ -120,6 +121,8 @@ export async function started(
     reading?: () => Promise<void>;
     /** More Folders "Claude Code" may write in, by name, made empty. */
     folders?: readonly string[];
+    /** Python for `run_analysis`; none by default. */
+    analysisRuntime?: AnalysisRuntime;
   } = {},
 ) {
   const kept = await createTempDataFolder();
@@ -135,7 +138,11 @@ export async function started(
     : files;
   // Kept across a restart: the pairings' tokens are in it.
   const keychain = createMemoryKeychain();
-  const started = await startAgentsCore(model, { canvasFiles, keychain });
+  const started = await startAgentsCore(model, {
+    canvasFiles,
+    keychain,
+    ...(analysisRuntime && { analysisRuntime }),
+  });
   const { core } = started;
   const sources = await createSourceFolder();
   const added = await addAndProcess(core, [

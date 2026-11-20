@@ -214,7 +214,7 @@ import { messageReference } from "../references";
 import type { CodeRunner } from "../runCode";
 import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
-import type { GateDecision, TokenUsage } from "../runs/engine";
+import type { GateDecision, RunStep, TokenUsage } from "../runs/engine";
 import type { RepliesOut } from "../runs/replies";
 import { pendingWaits, REPLY_WAIT_LIMIT_MS, waitingOnLimits } from "../runs/requestWait";
 import type { SkillScript, SkillSession } from "../skills";
@@ -230,6 +230,7 @@ import { asksForSources } from "../sources/intent";
 import { type PaceTimers, realTimers } from "../sources/pace";
 import { inFlow, inStep } from "../timing/flows";
 import {
+  ANALYSIS_TOOLS,
   ASK_TOOLS,
   COMMAND_TOOLS,
   DOCUMENT_TOOLS,
@@ -272,7 +273,6 @@ import {
   topLevelBlocks,
 } from "./blocks";
 import { answerLanguage, whole } from "./calculations";
-import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerCheckInput,
@@ -378,7 +378,6 @@ import {
   withFound,
   withHelp,
 } from "./meetingHelp";
-import { paragraphAsked } from "./paragraphAsked";
 import { createPlainCalculator } from "./plainCalculator";
 import { createPrintedNumbers } from "./printedNumbers";
 import {
@@ -435,6 +434,13 @@ const ANSWER_WRITE_INTERVAL_MS = 50;
 
 /** The commands that only propose, whose reply the app writes (#1569, #2339). */
 const PROPOSES: ReadonlySet<string> = new Set(["documents.organize", "documents.tagWithAi"]);
+
+/** The Tools an Answer calls to work a figure out: once it calls one, its later steps think harder (#3462). */
+const WORKING_TOOLS: ReadonlySet<string> = new Set([
+  DOCUMENT_TOOLS.calculate,
+  ANALYSIS_TOOLS.run,
+  ANALYSIS_TOOLS.code,
+]);
 
 type Outcome = { status: "done" | "stopped" } | { status: "failed"; error: ProviderError };
 
@@ -788,12 +794,12 @@ export interface AnswersOptions {
   /** What an Answer is written in when its Question has no language of its own. */
   interfaceLanguage(): Language;
   /**
-   * With no Search scope, what an Answer asked from `mindId` in the assistant
-   * searches: the examples until the User has a Document of their own, then
-   * theirs and the examples `mindId` cites (#1942, #3083); an example's Mind
-   * searches every Document. Null: every Document.
+   * With no Search scope, what an Answer asked from `mindId` searches: the examples until the User
+   * has a Document of their own, then theirs and the examples `mindId` cites (#1942, #3083); an
+   * example's Mind searches every Document, unless it is only the assistant's Note in focus
+   * (`focusOnly`, #3487). Null: every Document.
    */
-  unscopedDocuments?(mindId: string | null): string[] | null;
+  unscopedDocuments?(mindId: string | null, focusOnly?: boolean): string[] | null;
   mindFolder(mindId: string): string | null;
   /** The name of a Folder, Tag or Document a Search scope names, as its chip shows it now; null once gone. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
@@ -1256,6 +1262,7 @@ export function createAnswers(options: AnswersOptions) {
       question.scope,
       mindId,
       readsMind ? null : wallOfTurn(question),
+      true,
     );
     // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
     return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
@@ -1647,7 +1654,7 @@ export function createAnswers(options: AnswersOptions) {
     // Worked out now, shown only once the Answer has written into a Mind from new text.
     const writtenFrom =
       !outside && options.minds && input.assistant
-        ? someOfTheDocuments(input.documentIds, input.assistant.focused?.mindId ?? null)
+        ? someOfTheDocuments(input.documentIds, input.assistant.focused?.mindId ?? null, true)
         : null;
     const { place } = home;
     const announce = <E extends CoreEventName>(event: E, payload: CoreEvents[E]) => {
@@ -1761,7 +1768,8 @@ export function createAnswers(options: AnswersOptions) {
     /** When the text the Answer keeps began: a preamble taken back doesn't count. */
     let firstTextAt: number | null = null;
     let firstMindWordAt: number | null = null;
-    const careful = asksToCheckOrCalculate(context.question);
+    /** The Answer called for working (a calculation or an Analysis), so its later steps think harder (#3462). */
+    let careful = false;
     const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
     /** The Documents of the scope still being read, looked at once, when the Answer ends. */
     let stillReadingAtEnd: AnswerSteps["stillReading"] | null | undefined;
@@ -2835,10 +2843,10 @@ export function createAnswers(options: AnswersOptions) {
       // Nothing is sent before the User says: the Answer waits for them.
       if (consenting) showPhase();
       let prepared: PreparedChatModel;
+      /** The same model asked to think harder, prepared once the Answer first calls for working. */
+      let harder: Promise<PreparedChatModel | null> | null = null;
       // Help during a call is read within seconds: the model answers without thinking first.
-      const thinking = help
-        ? "off"
-        : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
+      const thinking = help ? "off" : (input.thinking ?? (input.task ? "task" : "answer"));
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
       try {
         prepared = await options.prepareModel(model, thinking);
@@ -3243,7 +3251,6 @@ export function createAnswers(options: AnswersOptions) {
                 });
                 return rewriting;
               },
-              paragraph: paragraphAsked(context.question),
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
@@ -4020,6 +4027,21 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
+        ...(thinking === "answer" && {
+          modelAfter: (step: RunStep) => {
+            if (!step.calls.some((call) => WORKING_TOOLS.has(call.tool))) return undefined;
+            harder ??= options.prepareModel(model, "careful").catch((error: unknown) => {
+              console.warn(
+                `The Answer's later steps couldn't be asked to think harder, so they go on as they began: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              return null;
+            });
+            return harder.then((each) => {
+              if (each) careful = true;
+              return each?.model;
+            });
+          },
+        }),
         ...(prepareQuick && {
           quickModel: () => prepareQuick(model, prepared),
           ...(context.meetingFacts && { ownQuickModel: () => prepareQuick(model, prepared, true) }),
@@ -4953,15 +4975,29 @@ export function createAnswers(options: AnswersOptions) {
       askedFrom && !askedFrom.deleted ? options.mindFolder(askedFrom.mindId) : null,
     );
 
-  const someOfTheDocuments = (documentIds: string[] | null, mindId: string | null) => {
+  const someOfTheDocuments = (
+    documentIds: string[] | null,
+    mindId: string | null,
+    focusOnly = false,
+  ) => {
     if (documentIds === null) return null;
-    const total = options.documents.searchableCount(options.unscopedDocuments?.(mindId) ?? null);
+    const total = options.documents.searchableCount(
+      options.unscopedDocuments?.(mindId, focusOnly) ?? null,
+    );
     const documents = options.documents.searchableCount(documentIds);
     return documents > 0 && documents < total ? { documents, total } : null;
   };
 
-  /** The Documents of a Search scope as it is now, and whether it covers none to search. */
-  const scopeNow = (scope: SearchScope | null, mindId: string | null, wallId?: string | null) => {
+  /**
+   * The Documents of a Search scope as it is now, and whether it covers none to search. `focusOnly`:
+   * `mindId` is the Note in focus of a Question in the assistant, not the Note it is written in.
+   */
+  const scopeNow = (
+    scope: SearchScope | null,
+    mindId: string | null,
+    wallId?: string | null,
+    focusOnly = false,
+  ) => {
     let documentIds: string[] | null;
     if (wallId === UNKNOWN_WALL) documentIds = [];
     else if (wallId) {
@@ -4971,7 +5007,9 @@ export function createAnswers(options: AnswersOptions) {
     } else {
       const resolved = options.wall.resolveScope(scope ?? NO_SCOPE, mindId);
       const unscoped =
-        scope && hasSearchScope(scope) ? null : (options.unscopedDocuments?.(mindId) ?? null);
+        scope && hasSearchScope(scope)
+          ? null
+          : (options.unscopedDocuments?.(mindId, focusOnly) ?? null);
       documentIds =
         resolved === null
           ? unscoped
@@ -5206,6 +5244,7 @@ export function createAnswers(options: AnswersOptions) {
           scope,
           question.mind?.id ?? null,
           readyMind ? null : wallOfTurn(added.turn.question),
+          true,
         );
         const checked = checkQuotes(
           question.quotes,
@@ -5306,7 +5345,7 @@ export function createAnswers(options: AnswersOptions) {
             ? options.wall.walledFolderId(front)
             : wallOfTurn(question);
       const scoped = front !== null ? folderScope(front) : question.scope;
-      const { documentIds, emptyScope } = scopeNow(scoped, mindId, wall);
+      const { documentIds, emptyScope } = scopeNow(scoped, mindId, wall, true);
       return startInConversation(
         turn,
         ready,

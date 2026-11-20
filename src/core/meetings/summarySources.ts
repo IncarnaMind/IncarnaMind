@@ -1,6 +1,12 @@
 import { findQuote } from "../../shared/quoteMatch";
 import { transcriptCueLines, type UnitText } from "../../shared/units";
-import { normalizeSummaryEvidence } from "./summaryItems";
+import {
+  normalizeSummaryEvidence,
+  originalSummaryCue,
+  type StoredSummaryQuote,
+  summaryEvidenceCue,
+  summaryQuoteWords,
+} from "./summaryEvidence";
 
 function originalExcerpt(text: string, words: string): string {
   const [range] = findQuote(text, words) ?? [];
@@ -11,20 +17,21 @@ function originalExcerpt(text: string, words: string): string {
   return text;
 }
 
-export function meetingSummarySources(units: readonly UnitText[], quotes: readonly string[]) {
+export function meetingSummarySources(
+  units: readonly UnitText[],
+  quotes: readonly StoredSummaryQuote[],
+) {
   const lines = transcriptCueLines(units).map(({ startMs, endMs, text }) => ({
     startMs,
     endMs,
     text,
-    words: normalizeSummaryEvidence(text),
     excerpts: new Set<string>(),
   }));
+  const speech = lines.map(summaryEvidenceCue);
   for (const quote of quotes) {
-    const words = normalizeSummaryEvidence(quote);
-    if (!words) continue;
-    const matches = lines.filter((line) => line.words.includes(words));
-    const only = matches.length === 1 ? matches[0] : undefined;
-    if (only) only.excerpts.add(originalExcerpt(only.text, words));
+    const index = originalSummaryCue(quote, speech);
+    const only = index === undefined ? undefined : lines[index];
+    if (only) only.excerpts.add(originalExcerpt(only.text, summaryQuoteWords(quote)));
   }
   return lines.flatMap(({ startMs, endMs, text, excerpts }) => {
     if (excerpts.size === 0) return [];

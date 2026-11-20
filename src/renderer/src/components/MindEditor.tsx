@@ -154,6 +154,7 @@ import {
   noteSlashItems,
   skillSlashItems,
 } from "../editor/slashItems";
+import { deckSlides, SlideBreaks } from "../editor/slideBreaks";
 import { Suggestions } from "../editor/suggestions";
 import { TableMenu } from "../editor/TableMenu";
 import { TableOfContentsView } from "../editor/TableOfContentsView";
@@ -668,6 +669,10 @@ function MindEditorView({
         commentDecorations(() => commentIdsOf(doc)),
         // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
         UncheckedFigures,
+        SlideBreaks.configure({
+          slides: () => (doc ? deckSlides(doc) : null),
+          label: (n) => translateNow("verify.slide", { n }),
+        }),
         CopyCitations.configure({
           figureRuns: (selected) => (doc ? figureRunsFor(doc, selected) : []),
         }),

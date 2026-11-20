@@ -156,6 +156,8 @@ Scans are counted apart: how many, and how many the plan filed.
 
 The last three wait while a Document waits in either reading, since waiting is neither agreement nor disagreement. The join then says how many wait in each reading, and ends as a refusal when it was given answers.
 
+**Recorded outcome.** The revised reader matched 61 of 82 Folders on the second blind half, below the required 74. The run stopped before the per-Document questions. [Results](RESULTS.md#2026-11-20--blind-folder-reader-2737).
+
 **The order.** Each step runs only after the one before it:
 
 | Step | Command (each `node --import ./scripts/tsResolve.mjs …`) |
@@ -163,7 +165,7 @@ The last three wait while a Document waits in either reading, since waiting is n
 | 1. Blind items and the key | `eval/organize/readPlans.ts items --runs <saved runs> --match v- --seed 2737 --out <dir> --key <file>` |
 | 2. The person's Folder sheet, read and committed first | `eval/organize/folderSheet.ts folders --items <dir>/folders.json --out <sheet.md>`, read back with `read-folders` |
 | 3. The Documents' names and opening text | `INCARNAMIND_ORGANIZE_MODE=documents INCARNAMIND_ORGANIZE_OUT=<dir> npm run eval:organize`, listed with `folderSheet.ts documents` |
-| 4. The model's Folder reading, committed | a run with its own approval |
+| 4. The model's Folder reading, committed | `eval/organize/runReader.ts folders --input <dir>/folders.json --half 1`, then half 2 as ruled |
 | 5. The join's Folder lines | `eval/organize/readPlans.ts join …` without answers |
 | 6. Per-Document questions, only once the Folder bar has held on the first half, or on the second half after the question's one allowed change: a changed question changes which Folders read "part" | `eval/organize/readPlans.ts asks …`: whatever either reading leaves waiting, asked once, with their count and estimated cost for the issue before any is sent; the person's sheet with `folderSheet.ts answers` (all of them up to 60, else a seeded 60) and `read-answers` |
 | 7. The model's areas against the person's, or written for a set with its scans' | `eval/organize/readPlans.ts areas --model <file> --documents <dir>/documents.json [--out <file>]` |
@@ -175,4 +177,6 @@ The last three wait while a Document waits in either reading, since waiting is n
 - at least 90% of the per-Document answers the same;
 - the model's areas differing from the person's on at most 2 of the 37 tuning Documents with text. A scan has no text, so its area is its label's, in the check and in the areas `readPlans.ts areas --out` writes for a set.
 
-No request is sent by these tools; the reader's requests (`ask` in `lib/folderReader.ts`) are made by a run with its own approval.
+The reader prints the request count without sending. After preregistering the run and its cost, add `--send --ledger <reader.sqlite> --out <model.json>` and supply a direct Anthropic API key in `ANTHROPIC_API_KEY`. Use one ledger throughout the $11 reading. To price the first three items, add `--pilot` and use a separate output file. Running the full stage reuses completed calls from that ledger. An interrupted or unreadable call keeps its reservation until its charge is reconciled.
+
+Commit each half's model output before comparing it to the person's reading. Use `readPlans.ts folder-agreement --half <1 or 2> --items <folders.json> --folders <model.json> --person <person.json>` to score that half without opening the placement key. Use complete outputs under the same qualified question version for the full join. If a revision qualifies on half 2, read half 1 again with that wording before combining the two `folders` objects. For step 6 use `runReader.ts answers --input <dir>/asks.json`; for step 7 use `runReader.ts areas --input <dir>/documents.json`. Both take the same ledger and send options.

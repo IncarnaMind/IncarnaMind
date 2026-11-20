@@ -869,6 +869,7 @@ test("Documents sent whole are read whether or not the Answer cites them: the li
       .evaluate((element) => element.scrollWidth > element.clientWidth),
     "the Note's name gives way",
   ).toBe(true);
+  expect(nameBox.width, "but never to nothing: the line would read “”").toBeGreaterThanOrEqual(20);
   const timeline = await openSteps(window, answer);
   expect(await stepsOf(timeline)).toEqual(["answered", "read", "read-documents"]);
   const read = timeline.locator('[data-step="read-documents"]');
@@ -885,19 +886,19 @@ const EXAMPLE_LINES = {
   en: {
     note: "Draft: credit committee paper",
     question: "What is the monthly rent in the lease? Answer without searching and without citing.",
-    line: "Read “Draft: credit committee paper”, 2 of your Documents and 2 example Documents",
-    row: "Read 2 of your Documents and 2 example Documents",
+    line: "Read “Draft: credit committee paper” and 2 Documents",
+    row: "Read 2 Documents",
   },
   "zh-CN": {
     note: "授信委员会报告（草稿）",
     question: "租赁合同里的月租金是多少？不用搜索，也不用引用。",
-    line: "读了“授信委员会报告（草稿）”、你的 2 个文档和 2 个示例文档",
-    row: "读了你的 2 个文档和 2 个示例文档",
+    line: "读了“授信委员会报告（草稿）”，还读了 2 个文档",
+    row: "读了 2 个文档",
   },
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`asked from the example's Note, the line counts the User's two Documents as the sidebar does, and the example's apart (${language})`, async () => {
+  test(`asked from the example's Note once they have Documents, the line counts the User's two as the sidebar does and names no example (${language})`, async () => {
     test.setTimeout(180_000);
     const words = EXAMPLE_LINES[language];
     const { app, window } = await start({ documents: false, examples: true });
@@ -926,7 +927,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     const answer = await ask(window, words.question);
 
-    // The scripted model searches in English though all four Documents went with the Question, so
+    // The scripted model searches in English though both Documents went with the Question, so
     // only the Chinese line folds to what was read; the timeline's row names it in both.
     if (language === "zh-CN") {
       await expect(answer.getByTestId("answer-steps-line")).toHaveText(words.line);

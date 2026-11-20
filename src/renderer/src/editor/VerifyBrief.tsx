@@ -28,6 +28,8 @@ interface BriefPlace {
   text: string;
   at: number;
   mark: ClaimMarkState;
+  /** The brief's line naming a figure (`BriefFigure.line`). */
+  line?: string;
 }
 
 const MARKS: Partial<Record<ShownClaim["shown"]["state"], ClaimMarkState>> = {
@@ -91,15 +93,16 @@ function briefMarks(
   });
   const figures = brief.figures.flatMap((each) => {
     const found = place(each);
-    return found ? [found] : [];
+    return found ? [{ ...found, ...(each.line && { line: each.line }) }] : [];
   });
   // A claim among the figures is shown there, with its mark, and not again as one with no source.
   const figureAts = new Set(figures.map((each) => each.at));
   return {
-    conclusions: brief.conclusions.map((each) => ({
-      line: each.line,
-      at: place(each.at)?.at ?? null,
-    })),
+    // A conclusion shows its claim's mark: one its check contradicts says so (#3493).
+    conclusions: brief.conclusions.map((each) => {
+      const found = place(each.at);
+      return { line: each.line, at: found?.at ?? null, mark: found?.mark ?? "not-checked" };
+    }),
     figures,
     noSource: verified.flatMap((claim) =>
       claim.check.state !== "not-checked" &&
@@ -167,10 +170,12 @@ export function VerifyBrief({
                 <button
                   type="button"
                   data-testid="verify-brief-conclusion"
-                  className="check-row verify-brief-row verify-brief-conclusion"
+                  data-mark={each.mark}
+                  className="check-row verify-brief-row"
                   disabled={each.at === null}
                   onClick={() => each.at !== null && goTo(each.at)}
                 >
+                  <ClaimMarkIcon state={each.mark} className="mind-health-icon" />
                   <span className="verify-brief-text">{each.line}</span>
                 </button>
               </li>
@@ -194,7 +199,7 @@ export function VerifyBrief({
                   onClick={() => goTo(each.at)}
                 >
                   <ClaimMarkIcon state={each.mark} className="mind-health-icon" />
-                  <span className="verify-brief-text">{each.text}</span>
+                  <span className="verify-brief-text">{each.line ?? each.text}</span>
                 </button>
               </li>
             ))}

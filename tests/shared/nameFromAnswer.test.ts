@@ -54,13 +54,41 @@ describe("what a Note made from an Answer is called (#2870)", () => {
     );
   });
 
-  test("a name is cut as every name is: one line, about sixty characters, no closing mark", () => {
+  test("a name is cut as every name is: one line, about sixty characters, no closing mark before its ellipsis", () => {
     const long =
       "How much cooler are large irrigated parks than the surrounding built-up streets during clear windless summer nights?";
     const name = nameFromAnswer([paragraph(SENTENCE)], `\n${long}\nsecond line`);
-    expect(name.length).toBeLessThanOrEqual(60);
+    expect(name.endsWith("…")).toBe(true);
+    const kept = name.slice(0, -1);
+    expect(kept.length).toBeLessThanOrEqual(60);
+    expect(long.startsWith(kept)).toBe(true);
+    expect(kept).not.toMatch(/[\s?]$/);
+  });
+
+  test("a Question cut short says so, in English and Chinese, and one that fits does not (#3487)", () => {
+    expect(
+      nameFromAnswer(
+        [paragraph(SENTENCE)],
+        "What does the contract with Harlow Freight say about termination?",
+      ),
+    ).toBe("What does the contract with Harlow Freight say about…");
+    const chinese =
+      "和 Harlow Freight 签的这份供货合同里，关于合同终止、提前通知的期限、重大违约后的补救期以及双方各自的责任上限，条款分别是怎么规定的？";
+    const named = nameFromAnswer([paragraph("数字以人民币百万元为单位。")], chinese);
+    expect(named.endsWith("…")).toBe(true);
+    expect(chinese.startsWith(named.slice(0, -1))).toBe(true);
+    expect(Array.from(named).length).toBeLessThanOrEqual(61);
+    expect(nameFromAnswer([paragraph(SENTENCE)], "How long is the notice period?")).toBe(
+      "How long is the notice period",
+    );
+  });
+
+  test("a heading is the Note's own first line, so its cut carries no ellipsis", () => {
+    const long =
+      "Termination, notice periods and the remedy period for a material breach by either party";
+    const name = nameFromAnswer([heading(long)], QUESTION);
+    expect(name.endsWith("…")).toBe(false);
     expect(long.startsWith(name)).toBe(true);
-    expect(name).not.toMatch(/[\s?]$/);
   });
 
   test("Chinese is named the same way", () => {

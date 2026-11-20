@@ -37,7 +37,7 @@ import { gateStop } from "../sendGate";
 import { isChatModelChoice, type SettingsStore } from "../settings";
 import type { Database } from "../storage";
 import type { TagsStore } from "../tags";
-import { offeredKinds, offeredTags, ownTags } from "../tags/about";
+import { offeredKinds, ownTags, type TagsOfferedTo } from "../tags/about";
 import { kindDefinitions } from "../tags/classify";
 import { clearForService, mayBackgroundSend, nextSequence } from "../tags/held";
 import { proposedTags } from "../tags/proposals";
@@ -345,6 +345,7 @@ export function createLibrary(options: {
   /** These Documents' assignments changed, each whole. */
   assigned(assignments: DocumentGroupAssignment[]): void;
   tags: TagsStore;
+  offeredTags: TagsOfferedTo;
   tagged(ids: string[]): void;
   /** Organize made new Tags: the list of Tags is to be read again. */
   tagsMade?(): void;
@@ -1143,7 +1144,7 @@ export function createLibrary(options: {
       // judged on what is read of it: a scan's first pages while the rest is read.
       const tagDefinitions = [
         ...kindDefinitions(offeredKinds(db)),
-        ...(offeredTags(db, [id], own, new Map([[id, excerpt.text]])).get(id) ?? []),
+        ...(options.offeredTags([id], own, new Map([[id, excerpt.text]])).offered.get(id) ?? []),
       ];
       const result = await classifier.organize(
         definitions,
@@ -1500,6 +1501,14 @@ export function createLibrary(options: {
     },
     allTreeDocumentIds(folderId: string): string[] {
       return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
+    },
+    /** The live Folder a Document is filed in, or null for one in none, "Not in a Folder". */
+    folderOfDocument(documentId: string): string | null {
+      const groupId = assignment(documentId)?.group_id ?? null;
+      const live =
+        groupId !== null &&
+        db.get("SELECT 1 FROM library_groups WHERE id = ? AND deleted_at IS NULL", [groupId]);
+      return live ? groupId : null;
     },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": a Linked

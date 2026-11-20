@@ -109,7 +109,11 @@ export function doneWords(
     case "wrote":
       return t("agents.done.wrote", { agent });
     case "copy":
-      if (result.path) return t("agents.done.unreadable", { agent, path: result.path });
+      if (result.path) {
+        return result.how === "command"
+          ? t("agents.done.unreadable.command", { agent })
+          : t("agents.done.unreadable", { agent, path: result.path });
+      }
       if (result.how === "command") return t("agents.done.command");
       if (pairing.client === "other") return t("agents.done.settings.other");
       return t(pasteWords(pairing.client) ?? "agents.done.settings", { agent });

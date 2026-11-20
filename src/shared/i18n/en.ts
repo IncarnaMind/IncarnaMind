@@ -1866,6 +1866,7 @@ export const en = {
   "verify.card.title": "Verifying this document",
   "verify.brief.concludes": "What it concludes",
   "verify.brief.figures": "The figures it rests on",
+  "verify.slide": "Slide {n}",
   "verify.brief.noSource": "No source in your Documents",
   "verify.brief.filling": "Filling in as the checks finish…",
   "verify.brief.none": "None found",
@@ -2592,6 +2593,12 @@ export const en = {
   "evidence.notCited.doneMany": "{count} Documents won’t be cited",
   "evidence.citeAgain.done": "“{name}” can be cited again",
   "evidence.citeAgain.doneMany": "{count} Documents can be cited again",
+  "evidence.citeHanded": "Cite this Document",
+  "evidence.citeHandedMany": "Cite {count} Documents",
+  "evidence.citeHanded.done": "“{name}” can be cited now",
+  "evidence.citeHanded.doneMany": "{count} Documents can be cited now",
+  "evidence.notCited.handedHint":
+    "{agent} made this file for you to check: it’s never read or cited as a source until you cite it.",
   "evidence.settings.title": "Checks",
   "evidence.settings.switch": "Leave out files IncarnaMind wrote",
   "evidence.settings.body": "Exports don’t count as evidence.",
@@ -8689,6 +8696,10 @@ export const en = {
   "agents.handOver.tooMany":
     "This agent has handed over {max} files in the last hour, which is the most it may. Try again later.",
   "agents.handOver.notFound": "That file is kept in a Folder this agent no longer reaches.",
+  "agents.handOver.notShared":
+    "That file is in a Folder the User hasn’t shared with this agent, so it can’t be handed over from there.",
+  "agents.handOver.paused":
+    "That file is in a Linked folder the User has paused in IncarnaMind, which reads nothing in it until it is resumed. Once it is, hand the file over again.",
   "agents.handOver.unavailable": "This copy of IncarnaMind can’t read files an agent names.",
   "agents.handOver.inLibrary":
     "The User’s Library holds this file already, and IncarnaMind keeps one copy of a file: change it before you hand it over.",
@@ -8703,7 +8714,7 @@ export const en = {
   "agents.handOver.unread.range": "The workbook has no sheet by that name.",
   "agents.handOver.unread.word": "IncarnaMind kept the file but couldn’t read it as a Word file.",
   "agents.handOver.notChecked.not-ready":
-    "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. The User can check it from its note.",
+    "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. With no model in IncarnaMind, check it yourself, as you check a note you wrote: check_mind_yourself with its mindId, then report_check.",
   "agents.handOver.notChecked.consent-needed":
     "The User hasn’t allowed IncarnaMind’s checks to go to their AI model’s service, so it wasn’t checked. They can check it from its note.",
   "agents.handOver.notChecked.local-mode":
@@ -8755,9 +8766,20 @@ export const en = {
   "agents.connect.noneYet": "No Documents yet: it reads those added outside a Folder.",
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
+  "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
     "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. It can also hand over a deck, workbook or other file it made: IncarnaMind reads that one file, keeps each version and checks it. Its changes to your notes wait for you.",
+  "agents.connect.reads.folders":
+    "It may read the Folders you tick below. What it reads goes to the AI model {agent} uses.",
+  "agents.connect.reads.all":
+    "It may read all your Documents, including any you add later. What it reads goes to the AI model {agent} uses.",
+  "agents.connect.reads.none":
+    "You haven’t added a Document yet. It may read the ones you add. What it reads goes to the AI model {agent} uses.",
+  "agents.connect.disconnect": "You can disconnect it at any time.",
+  "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
+  "agents.connect.backup":
+    "It keeps a copy of that file as it is now at {path}, until you disconnect.",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
   "agents.connect.allow": "Allow and connect",
@@ -8784,6 +8806,8 @@ export const en = {
     "Copied. In MiniMax Code, open plugin management › MCP Servers, switch to JSON, paste it and save.",
   "agents.done.paste.kilo-code":
     "In Kilo Code, open Settings › MCP, choose Add Server › Local (stdio), and fill in each part from Details.",
+  "agents.done.unreadable.command":
+    "The settings file of {agent} couldn’t be changed, so it was left alone. The command is copied: paste it into a terminal and run it.",
   "agents.done.unreadable":
     "The settings file of {agent} couldn’t be read, so it was left alone. The settings are copied: paste them into {path}.",
   "agents.done.undo": "Undo",

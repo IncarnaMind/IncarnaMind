@@ -70,7 +70,7 @@ import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
-import { createHandOver, type HandedMarks } from "./agentFiles/handOver";
+import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import type { FoundClaim } from "./agents/handedFiles";
@@ -418,7 +418,7 @@ import { createSourceProviders, sourceKeySecret } from "./sources/providers";
 import { migrate, openDatabase } from "./storage";
 import { createSuggestions } from "./suggestions";
 import { createTags } from "./tags";
-import { offeredKinds, offeredTags } from "./tags/about";
+import { offeredKinds, offeredTags, type TagsOfferedTo } from "./tags/about";
 import {
   BATCH_EXCERPT_TOKENS,
   chatClassifier,
@@ -1244,6 +1244,12 @@ export function createCore(adapters: CoreAdapters): Core {
         batches.linkedFoldersChanged(list);
       },
       onFound: (documentId) => batches.found(documentId),
+      handedCopyAt: (path) =>
+        handedCopyAt(
+          handedFiles,
+          path,
+          (documentId) => documents.getMany([documentId])[0]?.linkedFolderId === null,
+        ),
       onReady: (documentId) => {
         // There is something to search now: the built-in reranking model downloads, if it reranks.
         prepareRerank();
@@ -1823,17 +1829,20 @@ export function createCore(adapters: CoreAdapters): Core {
   /**
    * "Every Document" for a search with no Search scope: the examples' until the User has a
    * Document of their own, and from then on theirs and the examples `mindId` cites (#1942, #3083).
-   * Null: all of them, as an example's own Note always searches.
+   * Null: all of them, as an example's own Note always searches. `focusOnly`: `mindId` is only the
+   * Note in focus of a Question asked in the assistant, so an example's is not the User's work and
+   * adds none of the examples (#3487).
    */
-  const unscopedDocuments = (mindId: string | null): string[] | null => {
+  const unscopedDocuments = (mindId: string | null, focusOnly = false): string[] | null => {
     const made = examples.made();
-    if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
+    const exampleNote = mindId !== null && made.mindIds.includes(mindId);
+    if (made.documentIds.length === 0 || (exampleNote && !focusOnly)) return null;
     const left = new Set(made.documentIds);
     // The examples are the User's Library until a Document of their own exists (#1942), a
     // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
     if (own.length === 0) return null;
-    if (mindId === null) return own;
+    if (mindId === null || exampleNote) return own;
     // A Note the User wrote against an example is their own work, so what it cites stays in its
     // reach, for its checks, Answers and assistant alike (#3083).
     const cited: CitedUnits[] = [];
@@ -3860,6 +3869,8 @@ export function createCore(adapters: CoreAdapters): Core {
   // A Document filed inside a walled Folder goes to no cloud service by itself (#2308).
   const taggingMaySend = (id: string, service: ExternalService, pressed: boolean) =>
     !library.inWall(id) && (pressed || mayBackgroundSend(db, id, [service], library.turnedOnSeq));
+  const tagsOfferedTo: TagsOfferedTo = (ids, own, known) =>
+    offeredTags(db, ids, now(), wall.documentWalls, own, known);
   const tagger = createTagger({
     maySend: taggingMaySend,
     heldBack: (id) => {
@@ -3869,7 +3880,8 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     db,
     now,
-    offered: (id, text) => offeredTags(db, [id], undefined, new Map([[id, text]])).get(id) ?? [],
+    offered: (id, text) =>
+      tagsOfferedTo([id], undefined, new Map([[id, text]])).offered.get(id) ?? [],
     kinds: () => offeredKinds(db),
     language: () => settings.get().language,
     propose: (run, proposals) => {
@@ -3979,6 +3991,7 @@ export function createCore(adapters: CoreAdapters): Core {
   let isExampleDocument: (documentId: string) => boolean = () => false;
   const library = createLibrary({
     db,
+    offeredTags: tagsOfferedTo,
     tags,
     tagged: announceTagged,
     tagsMade: tagsChanged,
@@ -4346,6 +4359,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Organize of the whole Library, or of one Folder, planned at any size into the Review (#1569).
   const libraryOrganizer = createLibraryOrganizer({
     db,
+    offeredTags: tagsOfferedTo,
     folders: () => library.folders(),
     settings: () => library.settings(),
     language: () => settings.get().language,
@@ -5772,6 +5786,8 @@ export function createCore(adapters: CoreAdapters): Core {
     newId: () => crypto.randomUUID(),
     addHanded: (id, name, file, kind) => documents.addHanded(id, name, file, kind),
     readAgain: (path) => documents.checkNow(path),
+    placeOf: (path) => documents.placeOf(path),
+    filedIn: (documentId) => library.folderOfDocument(documentId),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
@@ -5987,11 +6003,15 @@ export function createCore(adapters: CoreAdapters): Core {
         const behind = folders.some((id) => walledFolderId(id) !== null);
         const walled = new Set(behind ? [] : walledDocuments());
         const outside = filed.filter((id) => !walled.has(id));
-        if (!folderIds.includes(NOT_IN_A_FOLDER_ID)) return [...new Set(outside)];
         // The app's own examples are not the User's Documents, in no Folder or out of one (#3364).
         const leftOut = new Set([...walledDocuments(), ...examples.made().documentIds]);
-        const unfiled = library.unfiledDocumentIds().filter((id) => !leftOut.has(id));
-        return [...new Set([...outside, ...unfiled])];
+        const unfiled = folderIds.includes(NOT_IN_A_FOLDER_ID)
+          ? library.unfiledDocumentIds().filter((id) => !leftOut.has(id))
+          : [];
+        const reached = [...new Set([...outside, ...unfiled])];
+        // A file an agent handed over is no source for any agent until the User cites it (#3492).
+        const sources = new Set(documents.ids({ ids: reached, sources: true }));
+        return reached.filter((id) => sources.has(id));
       },
       noteTranscripts: () => noteTranscripts(db),
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's

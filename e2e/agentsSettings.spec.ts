@@ -117,7 +117,13 @@ test("off by default; Connect asks once, writes Codex's settings as shown, and U
     // Linux with no keyring running (CI): the dialog asks to keep the key as plain text first.
     await acceptPlainTextKeys(window, dialog);
     await dialog.getByTestId("agent-folder").check();
-    await dialog.getByTestId("connect-agent-change").locator("summary").click();
+    // The three lines are in view; what it adds to the file is under Details.
+    const allowBox = await allow.boundingBox();
+    const viewport = await window.evaluate(() => innerHeight);
+    expect((allowBox?.y ?? viewport) + (allowBox?.height ?? 0)).toBeLessThanOrEqual(viewport);
+    await shot(window, "agents-connect-dialog-short");
+    await dialog.getByTestId("connect-agent-details").locator("summary").first().click();
+    await dialog.getByTestId("connect-agent-change-lines").locator("summary").click();
     await shot(window, "agents-connect-dialog");
     await allow.click();
     await expect(dialog).toBeHidden();
@@ -157,6 +163,7 @@ test("in the connect dialog a long path breaks at its slashes and no word breaks
     await page.getByTestId("agents-enabled").click();
     await page.locator('[data-client="codex"]').getByTestId("agent-connect").click();
     const dialog = window.getByTestId("connect-agent-dialog");
+    await dialog.getByTestId("connect-agent-details").locator("summary").first().click();
     await expect(dialog.getByTestId("connect-agent-skill")).toBeVisible();
 
     for (const language of ["en", "zh-CN"] as const) {

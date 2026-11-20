@@ -149,6 +149,21 @@ for (const language of ["en", "zh-CN"] as const) {
     // The rows say what moved: no line under them counts the landed sentences a second time.
     await expect(card.locator(".check-card-note")).toHaveCount(0);
 
+    // From here, every frame: what the badge says once the run is over (#3487).
+    await window.evaluate(() => {
+      const seen: { running: boolean; state: string | null }[] = [];
+      (globalThis as unknown as { badgeFrames: typeof seen }).badgeFrames = seen;
+      const frame = () => {
+        seen.push({
+          running: document.querySelector('[data-testid="card-foot-stop"]') !== null,
+          state:
+            document.querySelector('[data-testid="check-badge"]')?.getAttribute("data-state") ??
+            null,
+        });
+        requestAnimationFrame(frame);
+      };
+      frame();
+    });
     await releaseChecks(app);
     await expect(card.getByTestId("health-checking")).toHaveCount(0);
     await expect(foot).toHaveCount(0);
@@ -156,6 +171,15 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("health-notYetCited")).toContainText(words.canBeCited);
     await expect(card.getByTestId("health-look")).toContainText(words.look);
     await expect.poll(() => rowsTogether(card)).toBe(4);
+    // The badge never said "Not checked yet" over a card that had its results: once the run ended
+    // its state was the card's, in every frame.
+    const ended = await window.evaluate(() =>
+      (
+        globalThis as unknown as { badgeFrames: { running: boolean; state: string | null }[] }
+      ).badgeFrames.filter((each) => !each.running),
+    );
+    expect(ended.length).toBeGreaterThan(0);
+    expect(ended.filter((each) => each.state !== "needs-look")).toEqual([]);
     await app.close();
   });
 }

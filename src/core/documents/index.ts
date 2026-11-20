@@ -152,6 +152,7 @@ import {
   searchDocumentsTool,
   topsOfEach,
 } from "./searchTool";
+import { isSource } from "./sources";
 import { createTextCopies, type FillTurn } from "./textCopies";
 import { detectLanguage, languageList, type TextLanguage } from "./textLanguage";
 import { unreadMessage } from "./unreadMessage";
@@ -556,6 +557,8 @@ export interface DocumentsOptions {
   onText?: (documentId: string) => void;
   /** A scan found a new Document, announced but not yet queued for processing. */
   onFound?: (documentId: string) => void;
+  /** See `LibraryHooks.handedCopyAt`. */
+  handedCopyAt?: (path: string) => string | null;
   /** Asks iCloud Drive to download a file an ".icloud" stub stands for. */
   downloadStub?: (path: string) => Promise<void>;
   /**
@@ -611,6 +614,8 @@ export interface DocumentFilter {
   linkedFolderId?: string | null;
   /** Leave out missing Documents: new searches don't look at them. */
   searchable?: boolean;
+  /** Only those that count as sources (./sources). */
+  sources?: boolean;
   /** Only those with a row of their own: a Meeting's Transcript is its Note's (#2528). */
   listed?: boolean;
 }
@@ -690,6 +695,13 @@ export function createDocuments(options: DocumentsOptions) {
       [documentId],
     )?.mind_id ?? null;
 
+  const handedByOf = (documentId: string): string | null =>
+    db.get<{ agent: string }>(
+      `SELECT agent FROM agent_files WHERE document_id = ? AND deleted_at IS NULL
+       ORDER BY created_at, rowid LIMIT 1`,
+      [documentId],
+    )?.agent ?? null;
+
   // A damaged `unread_parts` is said once for each Document: a list reads every Document again
   // and again, and the log would fill with the same line.
   const loggedUnreadParts = new Set<string>();
@@ -767,6 +779,7 @@ export function createDocuments(options: DocumentsOptions) {
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
+      handedBy: handedByOf(row.id),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2064,6 +2077,7 @@ export function createDocuments(options: DocumentsOptions) {
       },
       announce,
       added: (id) => options.onFound?.(id),
+      handedCopyAt: (path) => options.handedCopyAt?.(path) ?? null,
       moved: (ids) => {
         const moved = ids.flatMap((id) => {
           const row = find(id);
@@ -2360,6 +2374,7 @@ export function createDocuments(options: DocumentsOptions) {
     ids,
     linkedFolderId,
     searchable,
+    sources,
     listed,
   }: DocumentFilter) => {
     const conditions = ["deleted_at IS NULL"];
@@ -2385,6 +2400,7 @@ export function createDocuments(options: DocumentsOptions) {
       params.push(linkedFolderId);
     }
     if (searchable) conditions.push("file_status <> 'missing'");
+    if (sources) conditions.push(isSource("documents"));
     if (listed) conditions.push("meeting_mind_id IS NULL");
     return { where: conditions.join(" AND "), params };
   };
@@ -2480,14 +2496,19 @@ export function createDocuments(options: DocumentsOptions) {
   /**
    * The Documents a search looks at: those given that aren't missing, or,
    * with none given, undefined (every Document) unless some are missing:
-   * then every Document that isn't.
+   * then every Document that isn't. `sources`: only those that count as sources (./sources), as
+   * every search but the User's own looks.
    */
-  function searchScope(documentIds: readonly string[] | undefined): string[] | undefined {
-    if (documentIds) return ids({ ids: documentIds, searchable: true });
-    const anyMissing = db.get(
-      "SELECT 1 FROM documents WHERE deleted_at IS NULL AND file_status = 'missing'",
+  function searchScope(
+    documentIds: readonly string[] | undefined,
+    sources: boolean,
+  ): string[] | undefined {
+    if (documentIds) return ids({ ids: documentIds, searchable: true, sources });
+    const narrowed = db.get(
+      `SELECT 1 FROM documents d WHERE d.deleted_at IS NULL
+         AND (d.file_status = 'missing' ${sources ? `OR NOT ${isSource("d")}` : ""}) LIMIT 1`,
     );
-    return anyMissing ? ids({ searchable: true }) : undefined;
+    return narrowed ? ids({ searchable: true, sources }) : undefined;
   }
 
   /**
@@ -2521,10 +2542,10 @@ export function createDocuments(options: DocumentsOptions) {
     }
   }
 
-  /** SQL for the live, not missing Documents `d` with Passages to search: of all of them, or only of these. */
+  /** SQL for the live, not missing sources `d` with Passages to search: of all of them, or only of these. */
   function searchable(documentIds: readonly string[] | undefined) {
     return {
-      where: `d.deleted_at IS NULL AND d.file_status <> 'missing'
+      where: `d.deleted_at IS NULL AND d.file_status <> 'missing' AND ${isSource("d")}
         AND EXISTS (SELECT 1 FROM passages p WHERE p.document_id = d.id AND p.deleted_at IS NULL)
         ${documentIds ? "AND d.id IN (SELECT value FROM json_each(?))" : ""}`,
       params: documentIds ? [JSON.stringify(documentIds)] : [],
@@ -2574,7 +2595,7 @@ export function createDocuments(options: DocumentsOptions) {
     keywordListed = listed,
     background = false,
   ): Promise<{ lists: number[][]; keywordOnly: Set<number> }> {
-    const scope = searchScope(documentIds);
+    const scope = searchScope(documentIds, true);
     const vector = await whileOpen(() => closed, queryVector(query, "hybrid", background));
     const keyword = keywordSearch(db, query, keywordListed, scope);
     const similar = vector ? vectors.search(vector, listed, scope).map((hit) => hit.seq) : [];
@@ -3351,6 +3372,9 @@ export function createDocuments(options: DocumentsOptions) {
     /** As `check`, and resolves only once the file has been read: for a file just written. */
     checkNow: (path: string) => library.check([path], true),
 
+    /** The live Linked folder a path is inside, and the live Document at it (see `library.placeOf`). */
+    placeOf: (path: string) => library.placeOf(path),
+
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
 
@@ -3844,7 +3868,8 @@ export function createDocuments(options: DocumentsOptions) {
       if (typeof query !== "string") throw new InvalidInputError("The search query must be text.");
       const { mode, limit, documentIds } = parseSearchOptions(searchOptions);
       if (query.trim() === "") return [];
-      const scope = searchScope(documentIds);
+      // The User's own search finds every Document they have, sources or not.
+      const scope = searchScope(documentIds, false);
       // Copies of one file share Passages: ask for more, so the limit holds after they are merged.
       const asked = Math.min(MAX_SEARCH_LIMIT, limit * 2);
       if (mode === "keyword") {
