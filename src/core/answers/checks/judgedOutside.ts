@@ -107,23 +107,28 @@ export interface LandedCheck {
 
 /**
  * The Documents a Check of `scope` searches, when an outside agent may read every one of them;
- * null when it may not. A scope of every Document, a Note's in no Folder (#3364), is every live
- * Document there is now.
+ * null when it may not. A scope of every Document, a Note's in no Folder (#3364), is every one
+ * there is now. Only what the Check searches counts: a file an agent handed over, which is no
+ * source, is in a Folder's scope but never read (#3492).
  */
 export function readsWithin(
   scope: EvidenceScope,
   reach: ReadonlySet<string>,
-  live: () => ReadonlyMap<string, string>,
+  searched: Searched,
 ): string[] | null {
-  const read = scope.documentIds ?? [...live().keys()];
+  const read = [...searched(scope.documentIds)];
   return read.every((id) => reach.has(id)) ? read : null;
 }
+
+/** The Documents a check of these (null: of all) searches: the sources among them with Passages. */
+export type Searched = (documentIds: readonly string[] | null) => readonly string[];
 
 export interface JudgedOutsideOptions {
   content: Pick<MindContent, "read" | "edit" | "readSettings" | "editSettings">;
   scopeOf(mindId: string, allDocuments: boolean): MindCheckScope;
   /** Each live Document's version now. */
   documentVersions(): ReadonlyMap<string, string>;
+  searched: Searched;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   withResult(
@@ -283,9 +288,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
     if (empty || check.marked.widened)
       return { ok: false as const, reason: "no-documents" as const };
     // A scope the User chose is the User's to check: an agent would learn from it what it may not read.
-    const read = check.marked.chosen
-      ? null
-      : readsWithin(check.scope, reach, options.documentVersions);
+    const read = check.marked.chosen ? null : readsWithin(check.scope, reach, options.searched);
     if (read === null) return { ok: false as const, reason: "beyond-reach" as const };
     const reader: Reader = {
       versions: options.documentVersions(),
