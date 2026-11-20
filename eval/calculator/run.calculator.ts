@@ -425,7 +425,8 @@ async function answerPath(setup: Setup) {
         scored.figure.chars !== null &&
         (scored.figure.unitShown !== "right" ||
           scored.wrongWorkedOut.some((reason) => /left out|unit:/.test(reason)));
-      const noteCheck = NOTE_CHECK && leftOut ? await checkedInNote(core, each, answer) : null;
+      const noteCheck =
+        NOTE_CHECK && leftOut ? await checkedInNote(core, each, answer, text) : null;
       out("answer", {
         arm: ARM,
         round: ROUND,
@@ -442,6 +443,7 @@ async function answerPath(setup: Setup) {
         failedRequests: failedOf(mine),
         ...scored,
         text,
+        markdown: answer.text,
         noteCheck,
         shownFigures: figures,
         figures: answer.figures.map((figure) => ({
@@ -486,35 +488,52 @@ async function answerPath(setup: Setup) {
 }
 
 /**
- * The Answer put in a Note of a Folder that holds only its case's Document, as a User adds it, and
- * checked with IncarnaMind's own check: each sentence's mark, the figure's first.
+ * The Answer in a Note of a Folder that holds only its case's Document, and IncarnaMind's own
+ * check of it. Added as the User adds it (`added`), its sentences keep the Answer's own marks, so
+ * the check sends only what is left; written as the reader sees it (`read`), every sentence is
+ * judged. Each sentence's mark, the figure's first.
  */
-async function checkedInNote(core: Core, each: CalculatorCase, answer: ConversationAnswer) {
+async function checkedInNote(
+  core: Core,
+  each: CalculatorCase,
+  answer: ConversationAnswer,
+  read: string,
+) {
   const folder = await core.createLibraryGroup({ name: `${each.id} ${ROUND}`, description: "" });
   const documentId = (await core.listDocuments()).find(
     (doc) => doc.name === each.document.name,
   )?.id;
   if (documentId) await core.moveToFolder({ documentIds: [documentId], folderId: folder.id });
-  const mind = await core.createMind({ title: "Answer", folderId: folder.id });
-  const client = await connectToMind(core, mind.id);
-  try {
-    writeMind(client, answerBlocks(answer));
-    await client.settled();
-    await core.checkMind({
-      requestId: `${ARM}-${ROUND}-note-${mind.id}`,
-      mindId: mind.id,
-      mode: "all",
-    });
-    const marks = [...(await marksOf(core, client, folder.id)).entries()].map(
-      ([sentence, mark]) => ({ sentence, ...mark }),
-    );
-    const shown = answer.figures[0]?.shown ?? "";
-    return [...marks].sort(
-      (a, b) => Number(b.sentence.includes(shown)) - Number(a.sentence.includes(shown)),
-    );
-  } finally {
-    await core.deleteMind(mind.id);
-  }
+  const shown = answer.figures[0]?.shown ?? "";
+  const checked = async (blocks: NodeJSON[]) => {
+    const mind = await core.createMind({ title: "Answer", folderId: folder.id });
+    const client = await connectToMind(core, mind.id);
+    try {
+      writeMind(client, blocks);
+      await client.settled();
+      const run = await core.checkMind({
+        requestId: `${ARM}-${ROUND}-note-${mind.id}`,
+        mindId: mind.id,
+        mode: "all",
+      });
+      const marks = [...(await marksOf(core, client, folder.id)).entries()]
+        .map(([sentence, mark]) => ({ sentence, ...mark }))
+        .sort((a, b) => Number(b.sentence.includes(shown)) - Number(a.sentence.includes(shown)));
+      return { run: run.kind, marks };
+    } finally {
+      await core.deleteMind(mind.id);
+    }
+  };
+  const paragraphs = read
+    .split(/\n\s*\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .map((line, at) => ({
+      type: "paragraph",
+      attrs: { id: `line-${at}` },
+      content: [{ type: "text", text: line }],
+    }));
+  return { added: await checked(answerBlocks(answer)), read: await checked(paragraphs) };
 }
 
 interface Sentence {
