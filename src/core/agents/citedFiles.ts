@@ -18,12 +18,13 @@ export const MAX_CITED_FILE_BYTES = 50 * 1024 * 1024;
 
 /**
  * Folders whose files are the system's or an app's, never the User's work: each matched against
- * the file's path, links resolved, with "/" between names.
+ * the file's path, links resolved, with "/" between names. The cloud drives macOS keeps in the
+ * User's Library folder (iCloud Drive, and Dropbox, OneDrive or Google Drive) are the User's.
  */
 const SYSTEM_FOLDERS = [
   /^\/(System|Library|usr|bin|sbin|etc|dev|proc|sys|boot)\//,
   /^\/private\/(etc|var\/db)\//,
-  /^\/Users\/[^/]+\/Library\//,
+  /^\/Users\/[^/]+\/Library\/(?!Mobile Documents\/|CloudStorage\/)/,
   /^[A-Za-z]:\/(Windows|Program Files|Program Files \(x86\)|ProgramData)\//i,
   /\/AppData\//i,
 ];
@@ -116,6 +117,7 @@ export function createFileCiting(deps: FileCitingDeps) {
       reaches: (documentId: string) => boolean,
     ): Promise<FileCited> {
       if (!deps.kindOf(path)) throw refused("agents.cite.fileKind");
+      if (hiddenOrSystem(path)) throw refused("agents.cite.fileHidden");
       if (!deps.readNamed) throw refused("agents.handOver.unavailable");
       const read = await deps.readNamed(path, MAX_CITED_FILE_BYTES);
       if (read.kind === "too-large") {

@@ -8,6 +8,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { hiddenOrSystem } from "../../src/core/agents/citedFiles";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createSourceFolder } from "../helpers/documents";
@@ -144,6 +145,16 @@ describe("a file outside the Library, cited by its path (#3509)", () => {
     expect(await tried(inHidden)).toBe(HIDDEN);
     expect(await tried(archive)).toBe(KIND);
     expect((await core.listDocuments()).some((each) => each.citedBy !== null)).toBe(false);
+  });
+
+  // protects=a file in iCloud Drive or a cloud drive macOS keeps in the Library folder may be cited, and the Library folder's app data may not (#3509); fails_when=a User's file in a cloud drive is refused as a system file
+  it("takes a file in a cloud drive, but not an app's own files", () => {
+    expect(hiddenOrSystem("/Users/ana/Library/CloudStorage/Dropbox/Pier notes.md")).toBe(false);
+    expect(
+      hiddenOrSystem("/Users/ana/Library/Mobile Documents/com~apple~CloudDocs/Pier notes.md"),
+    ).toBe(false);
+    expect(hiddenOrSystem("/Users/ana/Library/Application Support/Notes/notes.md")).toBe(true);
+    expect(hiddenOrSystem("C:\\Users\\ana\\AppData\\Roaming\\notes.md")).toBe(true);
   });
 
   // protects=the file changing on disk shows on its Citation: check_citations says it changed (#3509); fails_when=a Citation of a file changed since reads as standing

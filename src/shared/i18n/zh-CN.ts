@@ -8205,7 +8205,8 @@ export const zhCN = {
   "agents.handOver.tooMany": "这个智能体在过去一小时内已提交 {max} 个文件，已达上限。请稍后再试。",
   "agents.handOver.notFound": "这个文件所在的文件夹已不再与这个智能体共享。",
   "agents.cite.fileKind": "IncarnaMind 无法读取这类文件，所以无法引用它。",
-  "agents.cite.fileHidden": "IncarnaMind 不读取隐藏文件，也不读取隐藏文件夹或系统文件夹里的文件，所以无法引用它。",
+  "agents.cite.fileHidden":
+    "IncarnaMind 不读取隐藏文件，也不读取隐藏文件夹或系统文件夹里的文件，所以无法引用它。",
   "agents.handOver.notShared": "用户没有与这个智能体共享这个文件所在的文件夹，所以无法从那里提交。",
   "agents.handOver.paused":
     "用户已在 IncarnaMind 中暂停这个文件所在的关联文件夹，恢复前不会读取其中的任何内容。恢复后，再提交一次。",
