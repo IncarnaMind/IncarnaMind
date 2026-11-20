@@ -589,11 +589,10 @@ function evaluate(tree: Node, formula: string, inputs: ReadonlyMap<string, Named
     const written = [a, b].find((value) => value.unit.kind === "number");
     const plain = [a, b].find((value) => value.unit.kind === "plain");
     const other = [a, b].find((value) => value !== written && value !== plain);
-    let hint = "";
-    if (written && other && (isAmount(other.unit) || other.unit.kind === "rate"))
-      hint = `; give ${source(written.node)} as a cited input`;
-    else if (plain && other && (other.unit.kind === "currency" || other.unit.kind === "other"))
-      hint = `; give the unit of ${source(plain.node)} with unitQuote`;
+    const hint =
+      written && other && (isAmount(other.unit) || other.unit.kind === "rate")
+        ? `; give ${source(written.node)} as a cited input`
+        : "";
     return refuse("units", `${sentence}${hint}.`);
   };
 

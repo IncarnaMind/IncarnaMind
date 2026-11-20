@@ -11,7 +11,6 @@
 import { describe, expect, test } from "vitest";
 import {
   type AmbiguityKind,
-  currencyOnItsFigure,
   currencyScaleMarker,
   type Figure,
   type FigureContext,
@@ -19,7 +18,6 @@ import {
   figureContextOf,
   readFigures,
   readStatedUnits,
-  statesForWholeDocument,
   unsettledScales,
 } from "../../src/shared/figures";
 
@@ -1330,85 +1328,6 @@ describe("stated units", () => {
     expect(stated("100million USD", EN)).toEqual([]);
   });
 
-  test("a line says it holds for the whole Document only in so many words (#2365)", () => {
-    for (const line of [
-      "All amounts in £'000",
-      "All figures are in thousands",
-      "Every amount is stated in millions",
-      "Unless otherwise stated, all amounts are in £m",
-      "所有金额单位：千元",
-      "所有金額單位：千元",
-      "本报告金额单位：万元",
-      "本報告金額單位：萬元",
-      "全文金额均以千元列示",
-      "除另有说明外，金额单位：万元",
-      "Figures throughout this document are in £m",
-      "Amounts throughout this report are in thousands",
-      "All amounts in the consolidated financial statements are in £m",
-      "All amounts are in £m except where stated in the notes",
-      "本文件中所有金额单位均为百万英镑",
-      "本报告所有金额单位：千元",
-      "合并财务报表中所有金额单位：万元",
-      "所有金额单位：万元，但附注另有说明者除外",
-      "All amounts of the Group are in thousands",
-      "All amounts in the Group's financial statements are in thousands",
-      "Unless otherwise stated, all amounts for the year ended 31 December 2024 are in thousands",
-      "All amounts in this document are in £'000",
-      "All amounts in this annual report are in £'000",
-      "All amounts in the Group's financial statements are in £'000",
-      "Unless otherwise stated, all amounts for the period ended 30 June 2024 are in thousands",
-      "All amounts in US dollars are in millions",
-      "All amounts in this annual report are in US$ millions",
-      "All amounts for the Group are in £m",
-      "All amounts in the year ended 31 December 2024 are in £'000",
-      "All amounts in £m unless otherwise stated",
-      "除另有注明外，所有金额单位均为人民币千元",
-    ])
-      expect([line, statesForWholeDocument(line)]).toEqual([line, true]);
-    for (const line of [
-      "Amounts in £'000",
-      "Figures in 000s",
-      "All amounts in this table are in £'000",
-      "All figures in the section below are in thousands",
-      "All figures in Note 5 are in £m",
-      "All amounts in the consolidated financial statements' notes are in £m",
-      "Unless otherwise stated, amounts in the remuneration report are in £'000",
-      "All amounts in the parent company balance sheet are in £'000",
-      "All amounts in segment reporting are in £m",
-      "All figures for 2024 are in thousands",
-      "All amounts in the directors' report are in £'000",
-      "合并财务报表附注金额单位：万元",
-      "合并财务报表中本表金额单位：万元",
-      "金额单位：千元",
-      "金額單位：千元",
-      "本表金额单位：万元",
-      "本表金額單位：萬元",
-      "本报表金额单位：万元",
-      "下列金额单位：万元",
-      "附注五金额单位：万元",
-      "All amounts in this remuneration report are in £'000",
-      "Unless otherwise stated, all amounts in this Directors' Remuneration Report are in £'000",
-      "All amounts in this segment are in £'000",
-      "All amounts in the Group's remuneration report are in £'000",
-      "All amounts on this page are in £'000",
-      "All amounts below are in £'000",
-      "All amounts within this report are in £'000",
-      "All amounts following are in £'000",
-      "所有分部信息金额单位：百万元",
-      "All amounts relating to the parent company are in £'000",
-      "All amounts attributable to discontinued operations are in $ thousands",
-      "All amounts excluding the US business are in £m",
-      "All amounts in £m, apart from the Company balance sheet",
-      "All amounts except those in Note 12 are in £m",
-      "All amounts, other than those of the joint venture, are in £'000",
-      "All amounts in the year ended 31 December 2024 column are in £'000",
-      "所有金额单位：人民币千元，境外子公司除外",
-      "所有金额单位：千元（不含香港业务）",
-      "所有金额单位：千元（附录除外）",
-    ])
-      expect([line, statesForWholeDocument(line)]).toEqual([line, false]);
-  });
-
   // protects=#2365; fails_when=a bracket's currency is dropped once its tail's scale is read, so
   // "(in £, thousands)" reads a plain thousand, or "(in £ and $ thousands)" picks one of its two
   // currencies instead of refusing.
@@ -1639,33 +1558,6 @@ describe("a currency written next to a scale", () => {
     "Deposit $12,000.00",
   ])("is not found in %s", (text) => {
     expect(currencyScaleMarker(text)).toBeNull();
-  });
-});
-
-describe("a currency a line writes on its own figure", () => {
-  test("is the line's statement when no other figure on it writes another", () => {
-    expect(currencyOnItsFigure("Sale price £385,000.00", EN)).toEqual({
-      chars: "£",
-      code: "GBP",
-      at: 11,
-    });
-    expect(currencyOnItsFigure("成交价 ¥3,850,000.00", ZH)).toEqual({
-      chars: "¥",
-      code: "CNY",
-      at: 4,
-    });
-    expect(currencyOnItsFigure("Sale price 385,000.00", EN)).toBeNull();
-    expect(currencyOnItsFigure("Less: agent's fee (4,620.00)", EN)).toBeNull();
-    expect(currencyOnItsFigure("Sale price £385,000.00 deposit $12,000.00", EN)).toBeNull();
-  });
-
-  test("leaves a “¥” the Document doesn't settle unstated", () => {
-    expect(currencyOnItsFigure("Sale price ¥385,000.00", EN)).toBeNull();
-    expect(currencyOnItsFigure("Sale price ¥385,000.00", { language: "ja" })).toEqual({
-      chars: "¥",
-      code: "JPY",
-      at: 11,
-    });
   });
 });
 

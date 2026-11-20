@@ -127,6 +127,12 @@ export interface PlainInput {
   written?: string | null;
 }
 
+/** What the model is told of an input value whose digits its quote doesn't write. */
+export function notInQuote(value: number, quote: string): string {
+  const has = writtenNumbers(quote).map((each) => each.chars);
+  return `${plainNumber(value)} isn't in its quote${has.length > 0 ? `, which has ${has.join(", ")}` : ""}: give the number the quote writes, as a plain number, moved by a power of ten only where you mean another scale or unit`;
+}
+
 export interface PlainWorked {
   value: number | boolean;
   /** Where each input's number stands in its quote, in order. */
@@ -150,10 +156,7 @@ export function workPlain(figure: {
   const located = figure.inputs.flatMap((input) => {
     const found = locate(input.value, input.quote, input.written);
     if (found) return [found];
-    const has = writtenNumbers(input.quote).map((each) => each.chars);
-    problems.push(
-      `${input.name}: ${plainNumber(input.value)} isn't in its quote${has.length > 0 ? `, which has ${has.join(", ")}` : ""}: give the number the quote writes, as a plain number, moved by a power of ten only where you mean another scale or unit`,
-    );
+    problems.push(`${input.name}: ${notInQuote(input.value, input.quote)}`);
     return [];
   });
   if (problems.length > 0) return { problems };

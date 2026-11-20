@@ -3466,8 +3466,8 @@ export interface FigureInput {
   cell: { sheet: string | null; ref: string; stored: number | null } | null;
   /**
    * The line of the same Passage that states the number's scale or currency
-   * ("单位：万元", or "Sale price £385,000.00" above bare figures), given as
-   * `unitQuote` when the number has none of its own; null when none was needed.
+   * ("单位：万元", or "Sale price £385,000.00" above bare figures), for an input
+   * read before the model gave plain values (#3393); null for one since.
    */
   unitStatement: {
     citation: Citation;

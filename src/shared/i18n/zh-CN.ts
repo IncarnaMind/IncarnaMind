@@ -8028,7 +8028,6 @@ export const zhCN = {
   "agents.chart.refused.needsTwo": "散点图需要两列数字",
   "agents.mind.waiting": "（修订待处理）",
   "agents.mind.busy": "（正在写入）",
-  "agents.mind.tab": "标签页：{title}",
   "agents.mind.usersWrote": "（用户写的）",
   "agents.mind.usersChanged": "（用户改过）",
   "agents.propose.list": "列出 1 到 {max} 处修改。",
@@ -8051,7 +8050,9 @@ export const zhCN = {
   "agents.propose.lost":
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.visualAdded":
-    "{name} 的改写只能是文字：图片或图表要单独成段。请用 {name}+ 添加。",
+    "{name} 的改写只能是文字：图片、图表或标签页要单独成段。请用 {name}+ 添加。",
+  "agents.propose.emptyTab":
+    "{name} 中有一个空的标签页：请在它的 ```tab 块之后写上其中的内容，让用户能看到并决定是否接受。",
   "agents.propose.unplaced":
     "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
   "agents.propose.missingNumber":

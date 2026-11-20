@@ -24,6 +24,7 @@ import {
   CALCULATED_FIGURE_NODE,
   CITATION_NODE,
   NOTE_BLOCK_TYPES,
+  NOTE_TAB_NODE,
 } from "../api";
 import { isRecord } from "../errors";
 import { contentMarkdownOf, elementMarkdown } from "./contextText";
@@ -46,6 +47,7 @@ type Child = { kind: "text"; runs: Run[] } | { kind: "element"; node: NodeJSON }
  */
 const ID_TYPES: ReadonlySet<string> = new Set([
   ...NOTE_BLOCK_TYPES,
+  NOTE_TAB_NODE,
   CALCULATED_FIGURE_NODE,
   ANALYSIS_TABLE_NODE,
   CITATION_NODE,

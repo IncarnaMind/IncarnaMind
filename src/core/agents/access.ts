@@ -67,6 +67,7 @@ import {
   type LibrarySource,
   type Mind,
   NOT_IN_A_FOLDER_ID,
+  NOTE_TAB_NODE,
 } from "../api";
 import { citedTokens } from "../canvases/markers";
 import type { CheckRecord } from "../checkRecord";
@@ -110,6 +111,7 @@ import {
 } from "./proposals";
 import { AgentRefusedError, text, whole } from "./refusals";
 import type { AgentRequests } from "./requests";
+import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
 import {
   type AgentAnalysed,
@@ -884,18 +886,21 @@ function uncitedIn(texts: readonly string[], counts: (token: string) => boolean)
     .map((sentence) => clip(sentence, 200));
 }
 
-/** A draft's words without its pictures and its charts' blocks, which make no claim to cite. */
+/**
+ * A draft's words without its pictures, its charts' blocks and its tabs' titles, which make no
+ * claim to cite.
+ */
 function proseOf(text: string): string {
   const kept: string[] = [];
   let fence: string | null = null;
-  for (const line of holdPictures(text).text.replace(HELD_PICTURE, "").split("\n")) {
+  for (const line of holdPictures(openTabs(text)).text.replace(HELD_PICTURE, "").split("\n")) {
     if (fence !== null) {
       const trimmed = line.trim();
       if (trimmed.startsWith(fence) && trimmed.replaceAll(fence[0] ?? "", "") === "") fence = null;
       continue;
     }
     const opens = /^ {0,3}(`{3,}|~{3,})[ \t]*(\S*)/.exec(line);
-    if (opens?.[1] && opens[2] === CHART_FENCE) fence = opens[1];
+    if (opens?.[1] && (opens[2] === CHART_FENCE || opens[2] === TAB_FENCE)) fence = opens[1];
     else kept.push(line);
   }
   return kept.join("\n");
@@ -1588,8 +1593,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
     waiting: t("agents.mind.waiting"),
     busy: t("agents.mind.busy"),
-    tab: (title: string, number: number) =>
-      t("agents.mind.tab", { title: title || t("noteTabs.defaultTitle", { n: number }) }),
+    untitledTab: (number: number) => t("noteTabs.defaultTitle", { n: number }),
   });
 
   const workOut = createWorkOut({
@@ -2346,9 +2350,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         // Named by its title heading, as a Note written in the window is, so the name follows the
         // heading whoever changes it (#3378). A text that begins with a heading of its own keeps
         // that one alone; one that begins with none gets `title` as its heading. Only a text that
-        // begins with a section's heading keeps `title` as a name of its own.
-        const ownHeading = /^\s*#{1,6}\s/.test(written);
-        const titleHeading = /^\s*#[ \t]+\S/.test(written);
+        // begins with a section's heading keeps `title` as a name of its own. A text in tabs
+        // begins inside its first, and so does a title heading written above it (#3414).
+        const [above, start] = made.nodes;
+        const nodes =
+          above?.type === "heading" && above.attrs?.level === 1 && start?.type === NOTE_TAB_NODE
+            ? [start, above, ...made.nodes.slice(2)]
+            : made.nodes;
+        const opens = nodes[0]?.type === NOTE_TAB_NODE ? 1 : 0;
+        const first = nodes[opens];
+        const ownHeading = first?.type === "heading";
+        const titleHeading =
+          ownHeading && first.attrs?.level === 1 && (first.content?.length ?? 0) > 0;
         const mind = deps.createMind(ownHeading && !titleHeading ? title : "", folder.id);
         const heading = {
           type: "heading",
@@ -2356,7 +2369,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           content: [{ type: "text", text: title }],
         };
         deps.editMind(mind.id, (blocks) => {
-          insertBlocks(blocks, ownHeading ? made.nodes : [heading, ...made.nodes]);
+          insertBlocks(
+            blocks,
+            ownHeading ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
+          );
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {
             const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
