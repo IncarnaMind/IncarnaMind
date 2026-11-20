@@ -8232,6 +8232,7 @@ export const zhCN = {
   "agents.ask.others": "交给其他智能体",
   "agents.ask.setUpModel": "设置 AI 模型",
   "agents.ask.copied": "已复制，粘贴到{agent}中即可。",
+  "agents.ask.opened": "已打开{agent}，请求已填好，在那里发送即可。",
   "agents.ask.fixCommand": "让你的 AI 修改这句话",
   "agents.ask.noteCommand": "就这篇笔记问你的 AI",
   "agents.ask.fixAllCommand": "让你的 AI 修改所有标出的句子",

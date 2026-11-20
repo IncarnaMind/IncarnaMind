@@ -183,6 +183,11 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(ask).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(card).toBeHidden();
+    // Claude Code opens in a window of its own: this one says where the request went.
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "Opened Claude Code with your request typed. Send it there.",
+    );
+    await shot(window, "ask-opened-line-en");
     await expect.poll(() => urlsOpened(app)).toHaveLength(2);
     link = (await urlsOpened(app))[1];
     expect(typedIn(link)).toBe(fixLine);
@@ -296,6 +301,10 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-ask-agent")).toHaveText("交给 Claude Code");
     await pointAndClick(window, card.getByTestId("claim-ask-agent"));
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "已打开 Claude Code，请求已填好，在那里发送即可。",
+    );
+    await shot(window, "ask-opened-line-zh-CN");
     await expect.poll(() => urlsOpened(app)).toHaveLength(6);
     expect(typedIn((await urlsOpened(app))[5])).toBe(
       `把 IncarnaMind 在笔记“${TITLE}”里标出来的那句改好。`,
