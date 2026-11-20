@@ -3511,6 +3511,8 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
+    keptInside: (mindId, documentId) =>
+      mayRecheckIn(mindId, documentId) ? null : (walledFolderName(documentId) ?? documentId),
   });
   const verificationOfNote = (mindId: string) =>
     content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
