@@ -209,6 +209,57 @@ test.each([SPEAKER_UNKNOWN, "Speaker 1"])(
   },
 );
 
+test("a self-marked line without a clear voice permits suggestions for known speakers", async () => {
+  const separate = vi.fn<RoomSpeakerReviewer["separate"]>();
+  const { core, id, document, cues } = await recordRoom({ downloadBytes: () => 0, separate });
+  try {
+    const [mine, , anchor, extra] = cues;
+    const last = cues.at(-1);
+    if (!mine || !anchor || !extra || !last) throw new Error("Expected separated room turns.");
+    const fileLine = (cue: typeof mine) => ({
+      startMs: cue.startMs,
+      label: cue.speaker ?? SPEAKER_UNKNOWN,
+    });
+    const marked = withSpeakerChosen(
+      document.speakers,
+      [],
+      fileLine(mine),
+      { label: SPEAKER_ME },
+      false,
+    );
+    const speakers = withSpeakerChosen(marked, [], fileLine(anchor), { label: "Speaker 1" }, false);
+    await core.setTranscriptSpeakers({ documentId: document.id, speakers });
+    separate.mockResolvedValue(
+      [anchor, extra, last].map((cue) => ({
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        voice: cue === extra ? 1 : 0,
+      })),
+    );
+    const review = await core.reviewMeetingSpeakers({
+      meetingId: id,
+      onDevice: true,
+      confirmed: true,
+    });
+    expect(review.suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          startMs: last.startMs,
+          suggestedLabel: "Speaker 1",
+        }),
+      ]),
+    );
+    expect(review.suggestions.every((row) => row.suggestedLabel === "Speaker 1")).toBe(true);
+    expect(
+      review.suggestions.some(
+        (row) => row.startMs === mine.startMs || row.startMs === extra.startMs,
+      ),
+    ).toBe(false);
+  } finally {
+    core.close();
+  }
+});
+
 test("a model that merges two distinct saved speakers cannot propose reassigning either person's lines", async () => {
   const separate = vi.fn<RoomSpeakerReviewer["separate"]>();
   const { core, id, document, cues } = await recordRoom({ downloadBytes: () => 0, separate });
