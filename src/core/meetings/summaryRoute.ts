@@ -63,7 +63,7 @@ export function meetingSummaryRoute(options: Options) {
         const id = client(meeting, route);
         if (!id || !options.agent) throw denied();
         const { instructions, prompt } = meetingSummaryPrompt(input);
-        return options.agent({ client: id, prompt: `${instructions}\n\n${prompt}`, signal });
+        return options.agent({ client: id, instructions, prompt, signal });
       }
       const guardedChat = {
         async prepareModel(...args: Parameters<typeof options.chat.prepareModel>) {

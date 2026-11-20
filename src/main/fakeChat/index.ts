@@ -26,7 +26,7 @@
 
 import { APICallError, StreamProviderError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import type { ChatModelFactory } from "../../core";
+import type { ChatModelFactory, MeetingSummaryItem } from "../../core";
 import { searchParts } from "./answers";
 import { isCell } from "./cells";
 import { CHECK_RUN, fakeRestate, fakeSentenceBatch, thinksPastItsRoom } from "./checks";
@@ -94,17 +94,124 @@ const slowedDownOnce = new Set<string>();
 /** How long a "slow down" 429 says to wait: past the 5 s a line names a wait after. */
 const SLOW_DOWN_SECONDS = 6;
 
+const SUMMARY_FIXTURES = [
+  {
+    opening: "The release has a new schedule and owners for the remaining work.",
+    updated: "The partner briefing stays on schedule. The launch and payment review have moved.",
+    rows: [
+      { kind: "decision", text: "Keep the partner briefing on 26 November." },
+      {
+        kind: "decision",
+        text: "The launch moves to 18 November.",
+        revision: { status: "active", text: "The launch moves to 20 November instead." },
+      },
+      {
+        kind: "action",
+        text: "Dana will confirm the payment provider’s review on Friday.",
+        revision: {
+          status: "active",
+          text: "Alex will confirm the payment provider’s review on Monday.",
+        },
+      },
+      {
+        kind: "action",
+        text: "Dana will send the preview invitations.",
+        revision: { status: "cancelled", text: "Dana’s preview invitations are canceled." },
+      },
+      {
+        kind: "action",
+        text: "Riley will publish the release checklist.",
+        revision: { status: "done", text: "Riley has published the release checklist." },
+      },
+    ],
+  },
+  {
+    opening: "会上调整了上线安排，明确了余下工作的负责人。",
+    updated: "合作伙伴说明会如期举行。上线和审核日期已调整。",
+    rows: [
+      { kind: "decision", text: "合作伙伴说明会仍在11月26日举行。" },
+      {
+        kind: "decision",
+        text: "上线改到11月18日。",
+        revision: { status: "active", text: "上线改到11月20日。" },
+      },
+      {
+        kind: "action",
+        text: "Dana 周五确认支付服务方的审核进度。",
+        revision: { status: "active", text: "由 Alex 周一确认支付服务方的审核进度。" },
+      },
+      {
+        kind: "action",
+        text: "Dana 负责发送预览邀请。",
+        revision: { status: "cancelled", text: "取消 Dana 发送预览邀请的安排。" },
+      },
+      {
+        kind: "action",
+        text: "Riley 负责发布上线清单。",
+        revision: { status: "done", text: "Riley 已发布上线清单。" },
+      },
+    ],
+  },
+] satisfies readonly {
+  opening: string;
+  updated: string;
+  rows: readonly {
+    kind: MeetingSummaryItem["kind"];
+    text: string;
+    revision?: Pick<MeetingSummaryItem, "status" | "text">;
+  }[];
+}[];
+
 function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
-  if (!systemOf(prompt).startsWith("Write a concise, standalone summary of the meeting"))
-    return null;
-  const text = lastUserText(prompt);
-  if (/上线改到\s*11\s*月\s*18\s*日/.test(text)) {
-    return "• 上线改到 11 月 18 日。\n• Dana 周五确认支付服务方的审核进度。";
-  }
-  if (text.includes("The launch moves to 18 November")) {
-    return "• The launch moves to 18 November.\n• Dana will confirm the payment provider’s review on Friday.";
-  }
-  return "The meeting opened with a discussion of the launch date.";
+  const instructions = systemOf(prompt);
+  if (!instructions.startsWith("Write a concise, standalone summary of the meeting")) return null;
+  const {
+    previous,
+    items = [],
+    utterances,
+  }: {
+    previous: string | null;
+    items?: MeetingSummaryItem[];
+    utterances: { text: string }[];
+  } = JSON.parse(lastUserText(prompt));
+  const said = (text: string) => utterances.some((line) => line.text.includes(text));
+  const fixture = SUMMARY_FIXTURES.find((sample) =>
+    sample.rows.some(({ text }) => said(text) || items.some((item) => item.text === text)),
+  );
+  const closing = instructions.includes("the final confirmed segment");
+  const changes =
+    fixture?.rows.flatMap(
+      ({
+        kind,
+        text,
+        revision,
+      }): (Omit<MeetingSummaryItem, "id"> & {
+        id: number | null;
+        quote: string;
+      })[] => {
+        const prior = items.find((item) => item.text === text || item.text === revision?.text);
+        if (revision && prior?.text === text && said(revision.text))
+          return [{ id: prior.id, kind, ...revision, quote: revision.text }];
+        if (prior || !said(text)) return [];
+        return [{ id: null, kind, status: "active", text, quote: text }];
+      },
+    ) ?? [];
+  return JSON.stringify({
+    summary:
+      fixture && changes.some((change) => change.id !== null)
+        ? fixture.updated
+        : (previous ??
+          fixture?.opening ??
+          "The meeting opened with a discussion of the launch date."),
+    changes,
+    ...(closing && {
+      unchanged: items
+        .filter(
+          (item) => item.status === "active" && !changes.some((change) => change.id === item.id),
+        )
+        .map((item) => item.id),
+    }),
+  });
 }
 
 /**

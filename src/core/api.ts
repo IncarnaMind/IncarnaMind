@@ -11997,8 +11997,17 @@ export interface MeetingGap {
   reason: "interrupted" | "sleep";
 }
 
+export interface MeetingSummaryItem {
+  id: number;
+  kind: "decision" | "action";
+  status: "active" | "done" | "cancelled";
+  text: string;
+}
+
 export interface MeetingSummary {
   text: string;
+  items?: MeetingSummaryItem[];
+  problem?: "codex-input-limit";
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
 }

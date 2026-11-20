@@ -1,6 +1,10 @@
+import { join } from "node:path";
 import { expect, test, vi } from "vitest";
+import { DATABASE_FILE } from "../../src/core";
 import type { CoreAdapters } from "../../src/core/adapters";
+import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
+import { openDatabase } from "../../src/core/storage";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
 import { agentsAdapter } from "../helpers/agents";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
@@ -8,6 +12,14 @@ import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/
 
 const monday = "The launch is on Monday.";
 const friday = "Correction, the launch is on Friday.";
+
+function launchReply(text: string, quote: string, id: number | null) {
+  return JSON.stringify({
+    summary: text,
+    changes: [{ id, kind: "decision", status: "active", text, quote }],
+    ...(id !== null && { unchanged: [] }),
+  });
+}
 
 async function setup(run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>, grant = true) {
   const dir = await createTempDataFolder();
@@ -66,7 +78,7 @@ test("a ready draft is returned by Stop while the last confirmed decision is sti
       return new Promise((resolve) => {
         finish = resolve;
       });
-    return "Launch on Monday.";
+    return launchReply("Launch on Monday.", monday, null);
   });
   const { dir, core, adapters, meeting, push, summary } = await setup(run);
   push(2500);
@@ -74,11 +86,15 @@ test("a ready draft is returned by Stop while the last confirmed decision is sti
   push(2000);
   await until(core, meeting.id, (m) => m.lines >= 2);
   const stopped = await core.stopMeeting(meeting.id);
-  expect(stopped.summary).toMatchObject({ text: "Launch on Monday.", state: "updating" });
+  expect(stopped.summary).toMatchObject({
+    text: "Launch on Monday.",
+    state: "updating",
+    items: [{ id: 1, kind: "decision", status: "active", text: "Launch on Monday." }],
+  });
   await vi.waitFor(() =>
     expect(run.mock.calls.some(([input]) => input.prompt.includes(friday))).toBe(true),
   );
-  finish("Launch on Friday.");
+  finish(launchReply("Launch on Friday.", friday, 1));
   await vi.waitFor(async () =>
     expect(await summary()).toMatchObject({ text: "Launch on Friday.", state: "ready" }),
   );
@@ -90,6 +106,7 @@ test("a ready draft is returned by Stop while the last confirmed decision is sti
     expect((await next.listMeetings())[0]?.summary).toMatchObject({
       text: "Launch on Friday.",
       state: "ready",
+      items: [{ id: 1, kind: "decision", status: "active", text: "Launch on Friday." }],
     });
     expect(run).toHaveBeenCalledTimes(count);
   } finally {
@@ -112,7 +129,7 @@ test("revoking folder access cancels the outstanding request and discards its la
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     await core.updateAgent(pairing.id, { folderIds: [] });
     expect(run.mock.calls[0]?.[0].signal.aborted).toBe(true);
-    resolve("late reply");
+    resolve(launchReply("Launch on Monday.", monday, null));
     await core.stopMeeting(meeting.id);
     await until(core, meeting.id, (m) => m.state === "saved");
     expect((await summary())?.text).toBe("");
@@ -138,37 +155,48 @@ test("choosing a notes agent alone keeps live and stopped transcription out of b
   }
 });
 
-test("a failed summary waits after restart and retries only when the User asks the same authorized AI", async () => {
-  let online = false;
-  const run = vi.fn(async () => {
-    if (!online) throw new Error("offline");
-    return "Launch on Monday.";
-  });
-  const { dir, core, adapters, meeting, push, summary } = await setup(run);
-  push(2500);
-  await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
-  await core.stopMeeting(meeting.id);
-  await until(core, meeting.id, (m) => m.state === "saved");
-  await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
-  core.close();
-  const count = run.mock.calls.length;
-  const reopened = startCore(dir, adapters);
-  try {
-    await Promise.resolve();
-    expect(run).toHaveBeenCalledTimes(count);
-    online = true;
-    await reopened.retryMeetingSummary(meeting.id);
-    await vi.waitFor(async () =>
-      expect((await reopened.listMeetings())[0]?.summary).toMatchObject({
-        text: "Launch on Monday.",
-        state: "ready",
-      }),
-    );
-    expect(run).toHaveBeenCalledTimes(count + 1);
-  } finally {
-    reopened.close();
-  }
-});
+test.each([
+  { problem: undefined, error: new Error("offline") },
+  {
+    problem: "codex-input-limit",
+    error: new TranslatableError({ key: "error.meeting.codexSummaryTooLong" }),
+  },
+])(
+  "a failed summary ($problem) keeps its reason and retries only when the User asks the same authorized AI",
+  async ({ problem, error }) => {
+    let online = false;
+    const run = vi.fn(async () => {
+      if (!online) throw error;
+      return launchReply("Launch on Monday.", monday, null);
+    });
+    const { dir, core, adapters, meeting, push, summary } = await setup(run);
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (m) => m.state === "saved");
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    core.close();
+    const count = run.mock.calls.length;
+    const reopened = startCore(dir, adapters);
+    try {
+      expect((await reopened.listMeetings())[0]?.summary?.problem).toBe(problem);
+      await Promise.resolve();
+      expect(run).toHaveBeenCalledTimes(count);
+      online = true;
+      await reopened.retryMeetingSummary(meeting.id);
+      await vi.waitFor(async () =>
+        expect((await reopened.listMeetings())[0]?.summary).toMatchObject({
+          text: "Launch on Monday.",
+          state: "ready",
+        }),
+      );
+      expect(run).toHaveBeenCalledTimes(count + 1);
+      expect((await reopened.listMeetings())[0]?.summary?.problem).toBeUndefined();
+    } finally {
+      reopened.close();
+    }
+  },
+);
 
 test("a silent call ends with no summary text and no model request", async () => {
   const run = vi.fn(async () => "unexpected");
@@ -183,5 +211,32 @@ test("a silent call ends with no summary text and no model request", async () =>
     expect(run).not.toHaveBeenCalled();
   } finally {
     core.close();
+  }
+});
+
+test("opening an older stopped meeting keeps its original summary without sending a new request", async () => {
+  const dir = await createTempDataFolder();
+  const before = startCore(dir, { audioCapture: createFakeCapture() });
+  const { id } = await before.createMeeting();
+  before.close();
+  const original = { text: "Keep the current launch date.", throughMs: 1_500, state: "ready" };
+  const db = openDatabase(join(dir, DATABASE_FILE));
+  try {
+    db.run("UPDATE meetings SET status = 'stopped', summary = ? WHERE id = ?", [
+      JSON.stringify({ route: "legacy-pairing", count: 1, digest: "legacy", summary: original }),
+      id,
+    ]);
+  } finally {
+    db.close();
+  }
+  const run = vi.fn(async () => "unexpected");
+  const reopened = startCore(dir, { summarizeWithMeetingAgent: run });
+  try {
+    expect((await reopened.listMeetings()).find((meeting) => meeting.id === id)?.summary).toEqual(
+      original,
+    );
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    reopened.close();
   }
 });
