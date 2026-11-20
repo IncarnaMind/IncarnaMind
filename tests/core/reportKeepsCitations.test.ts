@@ -173,7 +173,7 @@ async function inNewMind(core: Core, answer: ConversationAnswer, question: strin
   const mind = await core.createMind({ title: "Transformer report" });
   await core.addToNote({
     mindId: mind.id,
-    blocks: pageBlocks(answer, question),
+    blocks: pageBlocks(answer),
     origin: { from: messageReference(answer.conversationId, answer.id), question },
     model: answer.model,
   });

@@ -90,7 +90,6 @@ import {
 } from "../../answers/checks/written";
 import type { ContextCitations } from "../../answers/contextCitations";
 import type { ParagraphAsked } from "../../answers/paragraphAsked";
-import { withoutPointersBack } from "../../answers/pointersBack";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   type AnalysisTableBinding,
@@ -366,7 +365,6 @@ export interface MindToolsOptions {
     extraCells: number;
     /** Figure markers no figure was recorded for, marked as missing in the text (#2577). */
     figuresLeftOut?: FiguresLeftOut;
-    searchTalk: number;
     /** The Analysis tables among its Blocks, so a chart of one draws the Analysis's own values (#2378). */
     analysisTables: readonly AnalysisTableMatch[];
     /** The charts its content places with a marker ("[=chart 1]"), each its Analysis's kind and title. */
@@ -1235,8 +1233,6 @@ const droppedSaid = (dropped: number) =>
 interface Written {
   notFound: number;
   unrecorded: number;
-  searchTalk: number;
-  pointersBack: number;
   /** The Analysis tables the text holds, so a chart of one draws its own values (#2378). */
   analysisTables: readonly AnalysisTableMatch[];
   /** `ids` in the order of `blocks`. */
@@ -1313,7 +1309,7 @@ const selfCheckOf = (check: WrittenCheck): NonNullable<MindChange["selfCheck"]> 
   ...(check.blocked && { blocked: check.blocked }),
 });
 
-function writtenNotes({ notFound, unrecorded, searchTalk, pointersBack }: Written) {
+function writtenNotes({ notFound, unrecorded }: Written) {
   return [
     ...(notFound > 0
       ? [
@@ -1323,16 +1319,6 @@ function writtenNotes({ notFound, unrecorded, searchTalk, pointersBack }: Writte
     ...(unrecorded > 0
       ? [
           `${unrecorded === 1 ? "1 marker has" : `${unrecorded} markers have`} no Citation recorded yet: record ${unrecorded === 1 ? "it" : "them"} with cite.`,
-        ]
-      : []),
-    ...(searchTalk > 0
-      ? [
-          `${searchTalk === 1 ? "1 sentence" : `${searchTalk} sentences`} about your searching ${searchTalk === 1 ? "was" : "were"} left out of the Note: say in your reply what isn't covered.`,
-        ]
-      : []),
-    ...(pointersBack > 0
-      ? [
-          `${pointersBack === 1 ? "1 sentence that only pointed" : `${pointersBack} sentences that only pointed`} to an earlier Answer ${pointersBack === 1 ? "was" : "were"} left out: the Note is read without this conversation, so if it needs what was pointed to, write that into it.`,
         ]
       : []),
   ];
@@ -1627,14 +1613,6 @@ export function mindTools(options: MindToolsOptions): {
   /** Whether a change to this Mind asks first, so its text mustn't start streaming in. */
   const asksFirst = (mind: ChangeableMind): boolean =>
     focused?.mindId !== mind.id && !settled.has(mind.id) && namesakesOf(mind).length > 0;
-
-  const logPointersLeft = (left: number, mindId: string, toolCallId: string) => {
-    if (left > 0) {
-      console.info(
-        `${left} Blocks pointing to an earlier Answer were written as they were into Mind ${mindId} (call ${toolCallId}): only a paragraph that is nothing but a pointer is left out.`,
-      );
-    }
-  };
 
   /** A Tool whose refusals say on its card why nothing changed. */
   const reporting = (tool: Tool): Tool => ({
@@ -2074,7 +2052,6 @@ export function mindTools(options: MindToolsOptions): {
       droppedSources: 0,
       unlinkedSources: 0,
       extraCells: 0,
-      searchTalk: 0,
       analysisTables: analysisTablesOf(lastRuns()),
     };
   };
@@ -2156,20 +2133,10 @@ export function mindTools(options: MindToolsOptions): {
     const stream = streams.get(toolCallId);
     streams.delete(toolCallId);
     ended.add(toolCallId);
-    const alone = withoutPointersBack(typeof given === "string" ? given : "");
-    const markdown = typeof given === "string" ? alone.markdown : null;
+    const markdown = typeof given === "string" ? given : null;
     const content =
-      typeof given === "string" ? options.blocksOf(alone.markdown) : answerContent(given.blocks);
-    const {
-      blocks,
-      cited,
-      notFound,
-      unrecorded,
-      searchTalk,
-      analysisTables,
-      chartsPlaced,
-      ...notes
-    } = content;
+      typeof given === "string" ? options.blocksOf(given) : answerContent(given.blocks);
+    const { blocks, cited, notFound, unrecorded, analysisTables, chartsPlaced, ...notes } = content;
     // Each chart's marker asks for its chart, beneath its table, as `chart` does (#2378).
     const charts = chartGiven ? [chartGiven] : [...(chartsPlaced ?? [])];
     let writer = stream?.writer ?? null;
@@ -2178,16 +2145,7 @@ export function mindTools(options: MindToolsOptions): {
     const uncited = unmade
       ? null
       : uncitedIn(mind, content, again, { answer: true, retry, made, markdown });
-    // What streamed in holds the pointers taken out of the whole text: it is written again.
-    const streamedPointers = alone.removed > 0;
-    if (
-      writer &&
-      (unmade ||
-        uncited ||
-        streamedPointers ||
-        writer.mind.id !== mind.id ||
-        writer.named !== after)
-    ) {
+    if (writer && (unmade || uncited || writer.mind.id !== mind.id || writer.named !== after)) {
       withdraw(writer);
       minds.writing(writer.mind.id, null);
       writer = null;
@@ -2207,7 +2165,6 @@ export function mindTools(options: MindToolsOptions): {
     }
     writeMore(writer, blocks);
     minds.writing(writer.mind.id, null);
-    logPointersLeft(alone.left, writer.mind.id, toolCallId);
     // A chart drawn before `cite` records its table's markers would draw values with no Citation.
     const later = charts.length > 0 && unrecorded > 0 && markdown !== null;
     const drawAll = (settled: readonly NodeJSON[]) => {
@@ -2244,8 +2201,6 @@ export function mindTools(options: MindToolsOptions): {
       change,
       notFound,
       unrecorded,
-      searchTalk,
-      pointersBack: alone.removed,
       charted,
       analysisTables,
       blocks: { mindId: writer.mind.id, ids: writer.ids, blocks },
@@ -2653,7 +2608,7 @@ export function mindTools(options: MindToolsOptions): {
   const contentProperty = {
     type: "string",
     description:
-      'The text, in Markdown, cited as an Answer is: each source a marker like [^1], for a Citation you recorded with cite before this call, right after the words it backs, in a table\'s cells too. Never write a source as text: "[Tides, p. 3]" is how IncarnaMind shows you a Citation, and content with one is refused. A new section starts with its heading. A table has a heading row, a row of ---, then each row on a line of its own. Write it last, after the other fields.',
+      "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. Write what the Documents say, and what they don't hold where the User asked; what you searched, read, tried or couldn't find along the way goes in your reply. Write it after the other fields.",
   };
 
   // Offered only when there is one: a model may otherwise reach for it with none.
@@ -2760,13 +2715,11 @@ export function mindTools(options: MindToolsOptions): {
       removesOnly?: boolean;
     } = {},
   ): Written & { change: MindChange; writing: Change; dropped: number } => {
-    const alone = withoutPointersBack(markdown);
-    const content = options.blocksOf(alone.markdown);
-    const { blocks, cited, notFound, unrecorded, searchTalk, analysisTables, ...notes } = content;
+    const content = options.blocksOf(markdown);
+    const { blocks, cited, notFound, unrecorded, analysisTables, ...notes } = content;
     if (blocks.some(unmadeTable)) throw noTable(mind);
-    logPointersLeft(alone.left, mind.id, toolCallId);
     // Written again from every Document, it is new text from create_mind or add_to_mind (#1415).
-    const newText = remade ? alone.markdown : null;
+    const newText = remade ? markdown : null;
     const uncited = uncitedIn(mind, content, again, { answer: false, retry, markdown: newText });
     if (uncited) throw uncited;
     const twice = tableTwiceIn(mind.id, over.blockIds, blocks, analysisTables);
@@ -2843,7 +2796,7 @@ export function mindTools(options: MindToolsOptions): {
         mindId: mind.id,
         ids,
         written: textsOf(mind.id, ids),
-        markdown: alone.markdown,
+        markdown,
         change: revision,
         sent: change,
       });
@@ -2853,8 +2806,6 @@ export function mindTools(options: MindToolsOptions): {
       writing,
       notFound,
       unrecorded,
-      searchTalk,
-      pointersBack: alone.removed,
       analysisTables,
       dropped,
       blocks: { mindId: mind.id, ids, blocks },
@@ -2896,7 +2847,7 @@ export function mindTools(options: MindToolsOptions): {
   const edit: Tool = {
     name: MIND_TOOLS.edit,
     description:
-      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which.",
+      "Change text already in a Note as the User asks: shorten, lengthen, rewrite, restructure, correct, translate, reword or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and it is rewritten for you, Citations kept. To change one paragraph alone, name its first words in part. The rewrite reads only that text and can't search or cite anything new: new facts from the Documents, tables too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, waiting or as written, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2904,7 +2855,7 @@ export function mindTools(options: MindToolsOptions): {
         part: {
           type: "string",
           description:
-            'The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
+            'The heading of the section to change as written in the Note, or the first three or more words of the paragraph to change. When the User names a section, give its name here alone, even if the Note has it more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
         },
         instruction: {
           type: "string",
@@ -3200,7 +3151,7 @@ export function mindTools(options: MindToolsOptions): {
   const add: Tool = {
     name: MIND_TOOLS.add,
     description:
-      "Add new text to a Note: a section, a paragraph, a list or a table you write from the Documents or this conversation, or the piece of writing the User asked for, into the empty Note in front. Cite it as an Answer: call cite first, then put its markers in content, in each table cell as in a paragraph. It applies in the Note at once, with Undo. To change text already there, your own included, use edit_mind: never add a longer version of it beside it.",
+      "Add new text to a Note: a section, paragraph, list or table you write from the Documents or this conversation, or the writing the User asked for, into the empty Note in front. Cite it as an Answer: call cite first, then put its markers in content, in table cells too. It applies at once, with Undo. To change text already there, your own included, use edit_mind: never add a longer version beside it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3208,7 +3159,7 @@ export function mindTools(options: MindToolsOptions): {
         after: {
           type: "string",
           description:
-            'The heading of the section to add it at the end of, or the first words of the paragraph to add it after, as written in the Note. Whenever the User names a place, give its name here alone, also when the Note has it more than once: you are then told how to ask the User which. Only when the User names the heading it is under ("the Summary under Part 2"), put that first: "Part 2 > Summary". Leave it out to add it at the Note\'s end.',
+            'The heading of the section to add it at the end of, or the first words of the paragraph to add it after, as written in the Note. When the User names a place, give its name here alone, even if the Note has it more than once: you are then told how to ask which. Only when the User names the heading it is under ("the Summary under Part 2"), put that first: "Part 2 > Summary". Leave it out to add it at the end.',
         },
         ...chartProperty,
         content: contentProperty,
@@ -3403,7 +3354,7 @@ export function mindTools(options: MindToolsOptions): {
   const create: Tool = {
     name: MIND_TOOLS.create,
     description:
-      "Make a new Note for a piece of writing the User asked for (a summary, report, memo, notes, plan or letter) when no empty Note is in front, or when they explicitly ask for a new note, page or document. Never use it merely to write a piece when an empty Note is in front: use add_to_mind there instead. Write its content as you would an Answer: call cite first, then put its markers in content. Leave content out for an empty Note. It opens beside the User's Note, its text applied at once, with Undo.",
+      "Make a new Note for writing the User asked for (a summary, report, memo, notes, plan or letter) when no empty Note is in front, or when they explicitly ask for a new note, page or document; otherwise, with an empty Note in front, use add_to_mind. Write its content as an Answer: call cite first, then put its markers in content. Leave content out for an empty Note. It opens beside the User's Note, its text applied at once, with Undo.",
     inputSchema: {
       type: "object",
       properties: {
