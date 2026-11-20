@@ -163,40 +163,51 @@ test("a room review skips a shared sentence and refuses a transcript with five k
   }
 });
 
-test("marking a room line as Me leaves the other voices available for review", async () => {
-  const separate = vi.fn<RoomSpeakerReviewer["separate"]>();
-  const { core, id, document, cues } = await recordRoom({ downloadBytes: () => 0, separate });
-  try {
-    const first = cues[0];
-    if (!first) throw new Error("Expected the User's recorded line.");
-    const speakers = withSpeakerChosen(
-      document.speakers,
-      [],
-      { startMs: first.startMs, label: first.speaker ?? SPEAKER_UNKNOWN },
-      { label: SPEAKER_ME },
-      false,
-    );
-    await core.setTranscriptSpeakers({ documentId: document.id, speakers });
-    separate.mockResolvedValue(
-      cues.map((cue, i) => ({ startMs: cue.startMs, endMs: cue.endMs, voice: i % 2 })),
-    );
-    const review = await core.reviewMeetingSpeakers({
-      meetingId: id,
-      onDevice: true,
-      confirmed: true,
-    });
-    expect(review.uncertainSpeakers).toBeUndefined();
-    const others = new Set(cues.filter((_, i) => i % 2 === 1).map((cue) => cue.startMs));
-    expect(review.suggestions.length).toBeGreaterThan(0);
-    expect(review.suggestions.every((s) => others.has(s.startMs))).toBe(true);
-    expect(review.suggestions.every((s) => s.suggestedLabel !== SPEAKER_ME)).toBe(true);
-    expect((await core.listDocuments()).find((d) => d.id === document.id)?.speakers).toEqual(
-      speakers,
-    );
-  } finally {
-    core.close();
-  }
-});
+test.each([SPEAKER_UNKNOWN, "Speaker 1"])(
+  "marking one %s line as Me leaves another voice available for review",
+  async (previous) => {
+    const separate = vi.fn<RoomSpeakerReviewer["separate"]>();
+    const { core, id, document, cues } = await recordRoom({ downloadBytes: () => 0, separate });
+    try {
+      const lines = cues.map((cue) => ({
+        startMs: cue.startMs,
+        label: cue.speaker ?? SPEAKER_UNKNOWN,
+      }));
+      const first = lines[0];
+      const other = cues.at(-1);
+      if (!first || !other) throw new Error("Expected both room voices.");
+      const numbered = withSpeakerChosen(
+        document.speakers,
+        lines,
+        lines.slice(0, -1),
+        { label: previous },
+        false,
+      );
+      const speakers = withSpeakerChosen(numbered, lines, first, { label: SPEAKER_ME }, false);
+      await core.setTranscriptSpeakers({ documentId: document.id, speakers });
+      separate.mockResolvedValue(
+        cues.map((cue) => ({
+          startMs: cue.startMs,
+          endMs: cue.endMs,
+          voice: cue === other ? 1 : 0,
+        })),
+      );
+      const review = await core.reviewMeetingSpeakers({
+        meetingId: id,
+        onDevice: true,
+        confirmed: true,
+      });
+      expect(review.uncertainSpeakers).toBeUndefined();
+      expect(review.suggestions.map((s) => s.startMs)).toEqual([other.startMs]);
+      expect(review.suggestions.every((s) => s.suggestedLabel !== SPEAKER_ME)).toBe(true);
+      expect((await core.listDocuments()).find((d) => d.id === document.id)?.speakers).toEqual(
+        speakers,
+      );
+    } finally {
+      core.close();
+    }
+  },
+);
 
 test("a model that merges two distinct saved speakers cannot propose reassigning either person's lines", async () => {
   const separate = vi.fn<RoomSpeakerReviewer["separate"]>();

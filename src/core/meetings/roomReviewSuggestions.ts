@@ -48,18 +48,25 @@ export function roomReviewSuggestions(
       return [{ part, key, voice: numberedVoice(best[0] + 1), current, coveredMs: best[1] }];
     })
     .filter((row) => !ambiguous.has(row.key));
-  const mapping = matchReviewVoices(rows.filter((row) => known.has(row.current)));
-  if (!rows.length || mapping.size !== known.size) return null;
+  // Marking one line as Me can leave that voice's other lines under their original number.
+  const selfVoices = new Set(
+    rows.filter((row) => row.current === SPEAKER_ME).map((row) => row.voice),
+  );
+  const mapping = matchReviewVoices(
+    rows.filter((row) => row.current !== SPEAKER_ME && known.has(row.current)),
+  );
+  const matchedSpeakers = mapping.size + (selfVoices.size > 0 ? 1 : 0);
+  if (!rows.length || matchedSpeakers !== known.size) return null;
   const reserved = new Set([...known, ...Object.keys(speakers?.labels ?? {})]);
   let number = 1;
   for (const { voice } of rows) {
-    if (mapping.has(voice)) continue;
+    if (mapping.has(voice) || selfVoices.has(voice)) continue;
     while (reserved.has(numberedVoice(number))) number++;
     mapping.set(voice, numberedVoice(number++));
   }
   return rows.flatMap(({ part, voice, current }) => {
     const suggested = mapping.get(voice);
-    return suggested && suggested !== current && suggested !== SPEAKER_ME && current !== SPEAKER_ME
+    return suggested && suggested !== current && !selfVoices.has(voice)
       ? [
           {
             startMs: part.startMs,
