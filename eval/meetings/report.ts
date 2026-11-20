@@ -8,6 +8,7 @@
  */
 import { characters, type ErrorRate, errorRate, words } from "../transcription/scoring";
 import { DEFAULT_COLLAR, type Der, diarisationErrorRate, type Turn, totalDer } from "./der";
+import { speakerErrorRate } from "./speakerWords";
 import type { CaseDefinition, Hypothesis, Language, Reference, Setting } from "./types";
 
 export interface Options {
@@ -26,6 +27,7 @@ export interface CaseScore {
   seconds: number;
   unit: Unit;
   errors: ErrorRate;
+  speakerErrors: ErrorRate | null;
   der: Der | null;
   /** Processing seconds over audio seconds; null when the transcriber didn't say or only part was scored. */
   rtf: number | null;
@@ -68,6 +70,7 @@ export function scoreCase(
     seconds: Math.min(definition.durationSeconds, until),
     unit: unitOf(definition.language),
     errors: errorRate(refUnits, hypUnits),
+    speakerErrors: speakerErrorRate(refSegments, hypSegments, split),
     der,
     rtf:
       hypothesis.processingSeconds !== undefined && options.until === undefined
@@ -83,6 +86,7 @@ export interface CellScore {
   minutes: number;
   unit: Unit;
   errors: ErrorRate;
+  speakerErrors: ErrorRate | null;
   der: Der | null;
   rtf: number | null;
 }
@@ -93,6 +97,12 @@ export const TARGETS = {
   der: { online: 0.2, room: 0.3, conversation: null } as Record<Setting, number | null>,
 };
 
+function pooledErrors(scores: readonly ErrorRate[]): ErrorRate {
+  const errors = scores.reduce((sum, s) => sum + s.errors, 0);
+  const total = scores.reduce((sum, s) => sum + s.total, 0);
+  return { errors, total, rate: total === 0 ? 0 : errors / total };
+}
+
 export function scoreCells(scores: readonly CaseScore[]): CellScore[] {
   const cells = new Map<string, CaseScore[]>();
   for (const score of scores) {
@@ -101,8 +111,7 @@ export function scoreCells(scores: readonly CaseScore[]): CellScore[] {
   }
   return [...cells.values()].map((group) => {
     const first = group[0] as CaseScore;
-    const total = group.reduce((sum, s) => sum + s.errors.total, 0);
-    const errors = group.reduce((sum, s) => sum + s.errors.errors, 0);
+    const attributed = group.map((s) => s.speakerErrors).filter((s) => s !== null);
     const withDer = group.map((s) => s.der).filter((der): der is Der => der !== null);
     const timed = group.filter((s) => s.rtf !== null);
     const seconds = timed.reduce((sum, s) => sum + s.seconds, 0);
@@ -112,7 +121,8 @@ export function scoreCells(scores: readonly CaseScore[]): CellScore[] {
       cases: group.length,
       minutes: group.reduce((sum, s) => sum + s.seconds, 0) / 60,
       unit: first.unit,
-      errors: { errors, total, rate: total === 0 ? 0 : errors / total },
+      errors: pooledErrors(group.map((s) => s.errors)),
+      speakerErrors: attributed.length === group.length ? pooledErrors(attributed) : null,
       der: withDer.length === group.length ? totalDer(withDer) : null,
       rtf:
         timed.length === group.length && seconds > 0
@@ -125,6 +135,13 @@ export function scoreCells(scores: readonly CaseScore[]): CellScore[] {
 const percent = (rate: number) => `${(rate * 100).toFixed(1)}%`;
 const LABEL: Record<Unit, string> = { word: "WER", character: "CER", "mixed unit": "MER" };
 
+function attributedRate(score: Pick<CaseScore, "unit" | "speakerErrors">): string {
+  const rate = score.speakerErrors;
+  return rate
+    ? `cp${LABEL[score.unit]} ${percent(rate.rate)} (${rate.errors}/${rate.total})`
+    : "not scored";
+}
+
 function verdict(rate: number, target: number | null): string {
   return target === null
     ? ""
@@ -135,8 +152,8 @@ function verdict(rate: number, target: number | null): string {
 
 export function formatReport(scores: readonly CaseScore[], collar = DEFAULT_COLLAR): string {
   const lines = [
-    `| Language | Setting | Cases | Minutes | Error rate | DER (collar ${collar} s) | Real-time factor |`,
-    "|---|---|---|---|---|---|---|",
+    `| Language | Setting | Cases | Minutes | Error rate | Speaker-attributed error rate | DER (collar ${collar} s) | Real-time factor |`,
+    "|---|---|---|---|---|---|---|---|",
   ];
   for (const cell of scoreCells(scores)) {
     const error = `${LABEL[cell.unit]} ${percent(cell.errors.rate)}${verdict(cell.errors.rate, TARGETS.error[cell.language])} (${cell.errors.errors} of ${cell.errors.total} ${cell.unit}s)`;
@@ -145,20 +162,20 @@ export function formatReport(scores: readonly CaseScore[], collar = DEFAULT_COLL
       : "not scored";
     const rtf = cell.rtf === null ? "not reported" : `${cell.rtf.toFixed(2)}×`;
     lines.push(
-      `| ${cell.language} | ${cell.setting} | ${cell.cases} | ${cell.minutes.toFixed(1)} | ${error} | ${der} | ${rtf} |`,
+      `| ${cell.language} | ${cell.setting} | ${cell.cases} | ${cell.minutes.toFixed(1)} | ${error} | ${attributedRate(cell)} | ${der} | ${rtf} |`,
     );
   }
   lines.push(
     "",
-    "| Case | Minutes | Error rate | DER: missed, false alarm, confusion | Real-time factor |",
-    "|---|---|---|---|---|",
+    "| Case | Minutes | Error rate | Speaker-attributed error rate | DER: missed, false alarm, confusion | Real-time factor |",
+    "|---|---|---|---|---|---|",
   );
   for (const score of scores) {
     const der = score.der
       ? `${percent(score.der.rate)}: ${score.der.missed.toFixed(0)} s, ${score.der.falseAlarm.toFixed(0)} s, ${score.der.confusion.toFixed(0)} s of ${score.der.speech.toFixed(0)} s`
       : "not scored";
     lines.push(
-      `| ${score.id} | ${(score.seconds / 60).toFixed(1)} | ${LABEL[score.unit]} ${percent(score.errors.rate)} | ${der} | ${score.rtf === null ? "not reported" : `${score.rtf.toFixed(2)}×`} |`,
+      `| ${score.id} | ${(score.seconds / 60).toFixed(1)} | ${LABEL[score.unit]} ${percent(score.errors.rate)} | ${attributedRate(score)} | ${der} | ${score.rtf === null ? "not reported" : `${score.rtf.toFixed(2)}×`} |`,
     );
   }
   return lines.join("\n");

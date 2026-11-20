@@ -1,32 +1,25 @@
 /**
- * Figures IncarnaMind works out for an outside agent (#3363), with the code its own check uses:
- * `calculate` over numbers the agent quotes from Passages (ADR-0021) and `run_analysis` over a whole
- * sheet or CSV file, or over the Library's lists (ADR-0023), each over what the agent may read and
- * nothing else. Each gets an id the agent names in `report_check`, where a verdict may rest on it
- * when it is that agent's and was made in that check.
+ * Figures IncarnaMind works out or confirms for an outside agent: `run_analysis` over a whole sheet
+ * or CSV file, or over the Library's lists (ADR-0023), over what the agent may read and nothing
+ * else, which gets an id the agent names in `report_check`; and the working an agent gives
+ * `report_check` for a figure it worked out itself from numbers Passages give (#3393), whose
+ * numbers are confirmed in their quotes and whose expression is worked out again.
  */
-
 import { figureResultText } from "../../shared/figures";
-import { formulaText } from "../../shared/formula";
 import { LIBRARY_FACTS } from "../../shared/libraryFacts";
+import { workPlain } from "../../shared/plainFigures";
 import type { AnalysisRuntime } from "../adapters";
 import { analysisTool, writtenIn } from "../analysis/tool";
-import {
-  answerLanguage,
-  createCalculationSession,
-  FIX_FIGURES,
-  givenList,
-  MAX_FIGURES_PER_CALL,
-} from "../answers/calculations";
+import { answerLanguage, givenList } from "../answers/calculations";
 import { libraryRead } from "../answers/checks/checkSetup";
 import { endedAs, rowsOf, workingOf } from "../answers/checks/claimCheck";
 import type { Worked } from "../answers/checks/judgedOutside";
-import { type AnswerDocuments, createCitationSession } from "../answers/citations";
-import type { AnswerAnalysis, CalculatedFigure, Citation } from "../api";
+import type { AnswerDocuments } from "../answers/citations";
+import type { AnswerAnalysis, Citation } from "../api";
 import type { CitationSource } from "../documents";
 import type { WindowedPassage } from "../documents/search";
 import { isLibraryList, type LibraryLists } from "../library/lists";
-import { type AgentCitations, CITATION_TOKEN } from "./citations";
+import type { AgentCitations } from "./citations";
 
 /** What a pairing may read now, as a run over the Library's lists reads it. */
 export interface AgentReach {
@@ -77,19 +70,6 @@ export interface WorkFor {
    * `checking` is the Note the pairing was checking when the run began.
    */
   lists(checking: string | null): { lists: LibraryLists; read: AgentReach; version: string | null };
-}
-
-export interface AgentFigure {
-  id: string;
-  label: string;
-  result: string;
-  working: string;
-}
-
-export interface AgentCalculated {
-  figures: AgentFigure[];
-  /** What to fix, for the figures that weren't worked out; null when every one was. */
-  problems: string | null;
 }
 
 interface Done<T> {
@@ -146,128 +126,6 @@ export function createWorkOut(deps: WorkOutDeps) {
     const passage = passageId === "" ? null : deps.passage(passageId);
     return passage && to.documentIds.has(passage.documentId) ? passage : null;
   };
-
-  const documents = {
-    citationSource: deps.citationSource,
-    pageTexts: deps.pageTexts,
-    documentDate: () => null,
-    passage: deps.passage,
-    ...(deps.passagesCovering && { passagesCovering: deps.passagesCovering }),
-  };
-
-  /** The figures worked out, and the Documents their inputs quote. */
-  function calculate(given: unknown, to: WorkFor): Done<AgentCalculated> {
-    const figures = givenList(given);
-    if (figures.length === 0 || figures.length > MAX_FIGURES_PER_CALL) {
-      return {
-        result: { figures: [], problems: `Give 1 to ${MAX_FIGURES_PER_CALL} figures.` },
-        documentIds: [],
-      };
-    }
-    const problems: string[] = [];
-    const shown = new Map<string, WindowedPassage>();
-    // Each input placed on a Passage of the agent's: by the Citation it names, or by its passageId.
-    const placed = figures.map((raw, at) => {
-      const inputs = givenList(fields(raw).inputs).map((input) => {
-        const read = fields(input);
-        const name = words(read.name) || "input";
-        const cite = words(read.cite);
-        const token = [...cite.matchAll(CITATION_TOKEN)][0]?.[1] ?? cite;
-        const kept = token === "" ? null : deps.citations.find(to.pairingId, token);
-        const passageId = kept ? kept.passageId : words(read.passageId);
-        const passage =
-          kept && !to.documentIds.has(kept.documentId) ? null : ownPassage(to, passageId);
-        if (!passage) {
-          problems.push(
-            cite !== ""
-              ? `figure ${at + 1}, ${name}: ${cite} isn't a Citation of a Passage you can read now: cite its quote again`
-              : `figure ${at + 1}, ${name}: give a cite, or a passageId and quote, from search or read_passages`,
-          );
-          return null;
-        }
-        shown.set(passage.passageId, passage);
-        const { cite: _cite, passageId: _passageId, citation: _citation, ...rest } = read;
-        return { ...rest, passageId: passage.passageId, quote: words(read.quote) || kept?.quote };
-      });
-      return inputs.every((input) => input !== null) ? { raw: fields(raw), inputs } : null;
-    });
-    const session = createCitationSession(documents, { onRecord: () => undefined });
-    session.show([...shown.values()]);
-    const handles = new Map(session.shownPassages().map((each) => [each.passageId, each.id]));
-    const passages = new Map(session.shownPassages().map((each) => [each.id, each.passageId]));
-    const asked = placed.flatMap((figure, at) =>
-      figure
-        ? [
-            {
-              ...figure.raw,
-              marker: at + 1,
-              inputs: figure.inputs.map(({ passageId, ...input }) => ({
-                ...input,
-                passage: handles.get(passageId) ?? "",
-              })),
-            },
-          ]
-        : [],
-    );
-    const calculator = createCalculationSession({
-      documents: { pageTexts: deps.pageTexts },
-      quotes: session.quotes,
-      language: answerLanguage(figures.map((figure) => words(fields(figure).label)).join(" ")),
-    });
-    const told = asked.length > 0 ? calculator.calculate(asked) : "";
-    calculator.check();
-    if (told.includes(FIX_FIGURES)) {
-      problems.push(
-        ...told
-          .split("\n")
-          .filter((line) => line.startsWith("- "))
-          .map((line) => line.slice(2)),
-      );
-    }
-    const worked = asked.flatMap(({ marker }) => {
-      const figure = calculator.figure(marker);
-      return figure ? [{ marker, figure }] : [];
-    });
-    const mindId = checking(to.pairingId);
-    const quoted = new Set<string>();
-    const recorded = worked.flatMap(({ figure }) => {
-      const evidence = figure.inputs.flatMap((input) => [
-        input.citation,
-        ...(input.unitStatement ? [input.unitStatement.citation] : []),
-      ]);
-      if (evidence.some((citation) => citation.check !== "found")) return [];
-      const working = workedLine(figure);
-      const documentIds = [...new Set(evidence.map((citation) => citation.documentId))];
-      for (const each of documentIds) quoted.add(each);
-      const id = keep("calc", {
-        pairingId: to.pairingId,
-        mindId,
-        read: { documentIds, folderIds: [], mindIds: [] },
-        worked: {
-          ok: true,
-          backing: {
-            evidence,
-            workedOut: working,
-            versions: versionsOf(evidence),
-            documentIds,
-          },
-        },
-      });
-      return [{ id, label: figure.label, result: figure.shown, working }];
-    });
-    // The calculation names Passages by the ids its own session gave them, and figures by marker.
-    const inAgentWords = (line: string) =>
-      line
-        .replace(/\bP\d+\b/g, (handle) => passages.get(handle) ?? handle)
-        .replace(/\[=(\d+)\]/g, "figure $1");
-    return {
-      result: {
-        figures: recorded,
-        problems: problems.length > 0 ? problems.map(inAgentWords).join("\n") : null,
-      },
-      documentIds: [...quoted],
-    };
-  }
 
   /** What the run gave the agent, and the Documents whose rows it read. */
   async function analyse(
@@ -368,7 +226,6 @@ export function createWorkOut(deps: WorkOutDeps) {
   }
 
   return {
-    calculate,
     analyse,
     confirmed,
     /** The Note a pairing is checking now: what it works out from here on is of that check. */
@@ -376,16 +233,6 @@ export function createWorkOut(deps: WorkOutDeps) {
       workings.checking.set(pairingId, mindId);
     },
   };
-}
-
-/** A calculated figure's working, its inputs as their quotes write them: "1,240,000 + 860,000 = £2,100,000". */
-function workedLine(figure: CalculatedFigure): string {
-  const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
-  const worked = formulaText(
-    figure.formula,
-    (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
-  );
-  return `${figure.label ? `${figure.label}: ` : ""}${worked} = ${figure.shown}`;
 }
 
 /**
@@ -437,6 +284,69 @@ function workedRun(
         ...(counted ? [{ documentId: LIBRARY_FACTS, contentHash: counted.contentHash }] : []),
       ],
       documentIds: [...new Set(rows.map((each) => each.citation.documentId))],
+    },
+  };
+}
+
+/**
+ * A figure an agent worked out itself, as it gives it to `report_check` (#3393): each input's
+ * number with the Citation whose quote holds it, the expression over their names and the figure
+ * it gives. IncarnaMind confirms by digits that each number stands in its quote and that the
+ * expression gives the figure, which reads no unit: the backing of a worked-out verdict; or what
+ * doesn't hold, in words for the agent.
+ */
+export function workedFrom(
+  given: unknown,
+  citationOf: (cite: string) => Citation | null,
+): { ok: true; worked: Worked } | { ok: false; problem: string } {
+  const working = fields(given);
+  const expression = words(working.expression);
+  const figure = words(working.figure);
+  const inputs = givenList(working.inputs).map(fields);
+  if (inputs.length === 0 || expression === "" || figure === "")
+    return {
+      ok: false,
+      problem:
+        "give working its inputs (name, value and cite of each), its expression and the figure it gives",
+    };
+  const problems: string[] = [];
+  const cited = inputs.flatMap((input) => {
+    const name = words(input.name) || "input";
+    const value =
+      typeof input.value === "number"
+        ? input.value
+        : words(input.value)
+          ? Number(input.value)
+          : NaN;
+    const citation = citationOf(words(input.cite));
+    if (!Number.isFinite(value)) {
+      problems.push(`${name}: give its value as a plain number`);
+      return [];
+    }
+    if (!citation) {
+      problems.push(`${name}: give the [cite:…] of a quote you can read now that holds its number`);
+      return [];
+    }
+    return [{ name, value, citation }];
+  });
+  if (problems.length > 0) return { ok: false, problem: problems.join("; ") };
+  const worked = workPlain({
+    inputs: cited.map(({ name, value, citation }) => ({ name, value, quote: citation.quote })),
+    formula: expression,
+    shown: figure,
+  });
+  if ("problems" in worked) return { ok: false, problem: worked.problems.join("; ") };
+  const evidence = cited.map((each) => each.citation);
+  return {
+    ok: true,
+    worked: {
+      ok: true,
+      backing: {
+        evidence,
+        workedOut: worked.working,
+        versions: versionsOf(evidence),
+        documentIds: [...new Set(evidence.map((each) => each.documentId))],
+      },
     },
   };
 }

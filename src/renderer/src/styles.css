@@ -1408,6 +1408,63 @@
   .pdf-outline.note-outline {
     padding-top: 52px;
   }
+  /* Tabs in a Note (#3414): the page draws the open tab only, and never a tab's own Block. */
+  .mind-editor .note-tab-hidden,
+  .mind-editor div[data-type="noteTab"] {
+    display: none;
+  }
+  /* A tab starts where a Note's first line does: the Blocks hidden above it keep no room. */
+  .mind-editor > .note-tab-start.note-tab-start {
+    --block-gap: 0px;
+  }
+  /* A tab's row: a step heavier than its headings, its ⋯ shown on hover and focus. */
+  .note-tab-row {
+    gap: 2px;
+    padding-right: 2px;
+
+    & > .pdf-outline-title {
+      font-weight: 500;
+    }
+    /* Its name field clears the line that marks the open tab. */
+    & > input {
+      margin-left: 6px;
+    }
+    /* Open, with a heading of its own marked as the place read: darker text, the line on that heading. */
+    &.note-tab-row--open {
+      color: var(--color-ink);
+    }
+    &[data-dragging] {
+      opacity: 0.5;
+    }
+    &[data-drop]::after {
+      content: "";
+      position: absolute;
+      left: 4px;
+      right: 4px;
+      height: 2px;
+      border-radius: 1px;
+      background: var(--color-accent);
+    }
+    &[data-drop="before"]::after {
+      top: -1px;
+    }
+    &[data-drop="after"]::after {
+      bottom: -1px;
+    }
+  }
+  .note-tab-menu {
+    opacity: 0;
+  }
+  .note-tab-row:hover .note-tab-menu,
+  .note-tab-row:focus-within .note-tab-menu,
+  .note-tab-menu[aria-expanded="true"] {
+    opacity: 1;
+  }
+  .note-tab-new {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
 
   /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
   .mind-menu-slot {

@@ -1,7 +1,8 @@
 /**
- * An outside agent has a figure worked out by IncarnaMind (#3363): `calculate` over numbers it
- * quotes and `run_analysis` over a whole data file or the Library's lists, each over what it may
- * read alone, and a verdict it reports may rest on such a run. Through the shim the app ships.
+ * An outside agent has a figure worked out by IncarnaMind (#3363) with `run_analysis` over a whole
+ * data file or the Library's lists, over what it may read alone, or works one out itself from
+ * numbers Passages give and reports its working (#3393), which IncarnaMind confirms; a verdict it
+ * reports may rest on either. Through the shim the app ships.
  */
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AnalysisRuntime } from "../../src/core/adapters";
@@ -182,6 +183,27 @@ const found = async (agent: Agent, query: string, document: string) => {
 const passageOf = async (agent: Agent, query: string, document: string) =>
   (await found(agent, query, document)).passageId;
 
+/** The [cite:…] tokens of quotes of one Passage, in order. */
+const citesOf = async (agent: Agent, passageId: string, quotes: readonly string[]) => {
+  const { citations } = structured<{ citations: { cite: string | null }[] }>(
+    await agent.callTool({
+      name: "cite",
+      arguments: { citations: quotes.map((quote) => ({ passageId, quote })) },
+    }),
+  );
+  return citations.map((each) => each.cite ?? "");
+};
+
+/** The fares working: spring and autumn, each with its Citation, and the figure it gives. */
+const faresWorking = (spring: string, autumn: string, figure = "£2,000,000") => ({
+  inputs: [
+    { name: "spring", value: 1_250_000, cite: spring },
+    { name: "autumn", value: 750_000, cite: autumn },
+  ],
+  expression: "spring + autumn",
+  figure,
+});
+
 const run = (agent: Agent, inputs: unknown[], code = 'result("n", 1)') =>
   agent.callTool({ name: "run_analysis", arguments: { title: "Count", inputs, code } });
 
@@ -221,34 +243,16 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
   }, 60_000);
 
   // protects=a figure over a whole data file, and a sum of figures two Passages give, are marked as the check's own worked-out marks are, with the agent named as the judge; fails_when=the mark rests on a quote that doesn't state the figure, loses its working, or isn't Supported on a run IncarnaMind confirmed
-  it("marks a verdict that rests on a run or a calculation made in this check", async () => {
+  it("marks a verdict that rests on a run made in this check, or on the agent's own working", async () => {
     const { core, agent, mindId, coast } = await paired();
     const given = await task(agent, mindId);
     expect(given.how).toMatch(/run_analysis/);
+    expect(given.how).toMatch(/working/);
 
     const crossings = await passageOf(agent, "passengers crossings", "Crossings");
     const total = runId(await run(agent, [{ name: "crossings", passageId: crossings }]));
     const spring = await passageOf(agent, "fares spring", "Harbour");
-    const { figures } = structured<{ figures: { id: string; result: string; working: string }[] }>(
-      await agent.callTool({
-        name: "calculate",
-        arguments: {
-          figures: [
-            {
-              label: "Fares",
-              inputs: [
-                { name: "spring", passageId: spring, quote: SPRING, number: "£1,250,000" },
-                { name: "autumn", passageId: spring, quote: AUTUMN, number: "£750,000" },
-              ],
-              formula: "spring + autumn",
-            },
-          ],
-        },
-      }),
-    );
-    expect(figures).toMatchObject([
-      { result: "£2,000,000", working: "Fares: £1,250,000 + £750,000 = £2,000,000" },
-    ]);
+    const [springCite = "", autumnCite = ""] = await citesOf(agent, spring, [SPRING, AUTUMN]);
 
     const reported = structured<Reported>(
       await agent.callTool({
@@ -261,7 +265,7 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
             {
               n: 2,
               verdict: "supported",
-              run: figures[0]?.id,
+              working: faresWorking(springCite, autumnCite),
               explanation: "The two make £2,000,000.",
             },
             { n: 3, verdict: "not found", explanation: "No Passage says." },
@@ -283,7 +287,7 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
         text: FARES,
         state: "supported",
         by: ["Claude Code"],
-        workedOut: "Fares: £1,250,000 + £750,000 = £2,000,000",
+        workedOut: "1,250,000 + 750,000 = £2,000,000",
         working: null,
         quotes: [SPRING, AUTUMN],
       },
@@ -294,6 +298,115 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
         workedOut: null,
         working: null,
         quotes: [],
+      },
+    ]);
+  });
+
+  // protects=a worked-out ✓ rests on numbers that stand in their quotes and an expression that gives its figure; fails_when=a working whose number isn't in its quote, or whose expression gives another figure, marks the sentence, or the agent isn't told why
+  it("marks nothing on a working whose number isn't in its quote or whose figure isn't what it gives", async () => {
+    const { core, agent, mindId, coast } = await paired();
+    const given = await task(agent, mindId);
+    const spring = await passageOf(agent, "fares spring", "Harbour");
+    const [springCite = "", autumnCite = ""] = await citesOf(agent, spring, [SPRING, AUTUMN]);
+    const mistyped = faresWorking(springCite, autumnCite);
+    const reported = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            {
+              n: 2,
+              verdict: "supported",
+              working: faresWorking(springCite, autumnCite, "£2,100,000"),
+              explanation: "They make £2,100,000.",
+            },
+            {
+              n: 3,
+              verdict: "supported",
+              working: {
+                ...mistyped,
+                inputs: [{ ...mistyped.inputs[0], value: 1_520_000 }, mistyped.inputs[1]],
+              },
+              explanation: "They make £2,270,000.",
+            },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ marked: 0, unconfirmed: [2, 3] });
+    expect(reported.next).toMatch(/2: the formula gives 2,000,000/);
+    expect(reported.next).toMatch(/3: spring: 1,520,000 isn't in its quote, which has 1,250,000/);
+    const states = (await marks(core, mindId, coast.id)).map((each) => each.state);
+    expect(states).not.toContain("supported");
+    expect(states).not.toContain("contradicted");
+
+    // The same working, its figure the one its expression gives, marks the sentence.
+    const again = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            {
+              n: 2,
+              verdict: "supported",
+              working: faresWorking(springCite, autumnCite),
+              explanation: "They make £2,000,000.",
+            },
+          ],
+        },
+      }),
+    );
+    expect(again).toMatchObject({ marked: 1, unconfirmed: [] });
+    expect(await marks(core, mindId, coast.id)).toMatchObject([
+      { text: FARES, state: "supported", workedOut: "1,250,000 + 750,000 = £2,000,000" },
+    ]);
+  });
+
+  // protects=a sentence whose figure its Documents' numbers contradict is marked Contradicted on the working that gives the right figure; fails_when=the right working is refused because the sentence writes another figure, or the agent is asked for the sentence's figure
+  it("marks a wrong total Contradicted on the working that gives the right one", async () => {
+    const { core, agent, coast } = await paired();
+    const wrong = "The harbour took £2,100,000 in fares in spring and autumn.";
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Fares to check", markdown: wrong },
+      }),
+    );
+    const given = await task(agent, mindId);
+    expect(given.how).toMatch(
+      /for a sentence it contradicts, that right figure, not the sentence's/,
+    );
+    const spring = await passageOf(agent, "fares spring", "Harbour");
+    const [springCite = "", autumnCite = ""] = await citesOf(agent, spring, [SPRING, AUTUMN]);
+
+    const reported = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            {
+              n: 1,
+              verdict: "contradicted",
+              working: faresWorking(springCite, autumnCite),
+              explanation: "The two make £2,000,000, not £2,100,000.",
+            },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ marked: 1, unconfirmed: [] });
+    expect(await marks(core, mindId, coast.id)).toMatchObject([
+      {
+        text: wrong,
+        state: "contradicted",
+        workedOut: "1,250,000 + 750,000 = £2,000,000",
+        quotes: [SPRING, AUTUMN],
       },
     ]);
   });
@@ -346,33 +459,18 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     await core.deleteDocument(gone.id);
 
     const runs: string[] = [];
-    const figured: string[] = [];
     for (const id of [payroll, minutes, "an-id-that-is-nowhere", payrollFile, gone.id]) {
       for (const field of ["passageId", "documentId"]) {
         runs.push(
           resultText(await run(agent, [{ name: "rows", [field]: id }])).replaceAll(id, "…"),
         );
       }
-      const calculated = await agent.callTool({
-        name: "calculate",
-        arguments: {
-          figures: [
-            {
-              label: "Pay",
-              inputs: [{ name: "a", passageId: id, quote: "91000", number: "91000" }],
-              formula: "a",
-            },
-          ],
-        },
-      });
-      figured.push(resultText(calculated).replaceAll(id, "…"));
     }
     // One refusal, whatever the id and whichever field carried it: outside its Folders, unknown or
     // deleted, a Passage's or a Document's. It says what to give.
     expect(new Set(runs).size).toBe(1);
     expect(runs[0]).toMatch(/give a documentId or a passageId of a sheet or CSV file you can read/);
-    expect(new Set(figured).size).toBe(1);
-    const said = [...runs, ...figured];
+    const said = [...runs];
     // So are another agent's Citation and a made-up one.
     const { citations } = structured<{ citations: { cite: string | null }[] }>(
       await codex.callTool({
@@ -382,19 +480,37 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     );
     const theirs = citations[0]?.cite ?? "";
     expect(theirs).toMatch(/^\[cite:/);
+    // A working on another agent's Citation is refused as one on a made-up Citation is.
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Pay", markdown: "Pay came to 91,000." },
+      }),
+    );
     const byCite = async (cite: string) =>
       resultText(
         await agent.callTool({
-          name: "calculate",
+          name: "report_check",
           arguments: {
-            figures: [
-              { label: "Pay", inputs: [{ name: "a", cite, number: "91000" }], formula: "a" },
+            mindId,
+            task: (await task(agent, mindId)).task,
+            results: [
+              {
+                n: 1,
+                verdict: "supported",
+                working: {
+                  inputs: [{ name: "a", value: 91_000, cite }],
+                  expression: "a",
+                  figure: "91,000",
+                },
+              },
             ],
           },
         }),
       ).replaceAll(cite, "…");
     said.push(await byCite(theirs));
     expect(said.at(-1)).toBe(await byCite("[cite:zzzzzzzz]"));
+    expect(said.at(-1)).toMatch(/give the \[cite:…\] of a quote you can read now/);
     expect(runtime.jobs).toHaveLength(0);
 
     const listed = await run(
@@ -448,24 +564,7 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     );
     expect(total.report).toMatch(/Passengers: 350/);
     const spring = await passageOf(agent, "fares spring", "Harbour");
-    const { figures } = structured<{ figures: { id: string; result: string }[] }>(
-      await agent.callTool({
-        name: "calculate",
-        arguments: {
-          figures: [
-            {
-              label: "Fares",
-              inputs: [
-                { name: "spring", passageId: spring, quote: SPRING, number: "£1,250,000" },
-                { name: "autumn", passageId: spring, quote: AUTUMN, number: "£750,000" },
-              ],
-              formula: "spring + autumn",
-            },
-          ],
-        },
-      }),
-    );
-    expect(figures).toMatchObject([{ result: "£2,000,000" }]);
+    const [springCite = "", autumnCite = ""] = await citesOf(agent, spring, [SPRING, AUTUMN]);
     await core.setNotCited(harbour.id, true);
 
     const reported = structured<Reported>(
@@ -479,7 +578,7 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
             {
               n: 2,
               verdict: "contradicted",
-              run: figures[0]?.id,
+              working: faresWorking(springCite, autumnCite),
               explanation: "They make £2,000,000.",
             },
           ],
@@ -594,27 +693,28 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     ]);
   });
 
-  // protects=on a computer that can't run Python for IncarnaMind, the agent is told so plainly and can still calculate; fails_when=run_analysis fails without saying why, or calculate needs Python
+  // protects=on a computer that can't run Python for IncarnaMind, the agent is told so plainly and its own working is still confirmed; fails_when=run_analysis fails without saying why, or a working needs Python
   it("says plainly when this computer can't run code", async () => {
-    const { agent } = await paired(passengersOf, false);
+    const { core, agent, mindId, coast } = await paired(passengersOf, false);
     const refused = await run(agent, [{ name: "files", library: "documents" }]);
     expect(refused.isError).toBe(true);
     expect(resultText(refused)).toMatch(/can’t run code for IncarnaMind/);
     const spring = await passageOf(agent, "fares spring", "Harbour");
-    const { figures } = structured<{ figures: { result: string }[] }>(
+    const [springCite = "", autumnCite = ""] = await citesOf(agent, spring, [SPRING, AUTUMN]);
+    const given = await task(agent, mindId);
+    const reported = structured<Reported>(
       await agent.callTool({
-        name: "calculate",
+        name: "report_check",
         arguments: {
-          figures: [
-            {
-              label: "Twice spring",
-              inputs: [{ name: "s", passageId: spring, quote: SPRING, number: "£1,250,000" }],
-              formula: "s + s",
-            },
-          ],
+          mindId,
+          task: given.task,
+          results: [{ n: 2, verdict: "supported", working: faresWorking(springCite, autumnCite) }],
         },
       }),
     );
-    expect(figures).toMatchObject([{ result: "£2,500,000" }]);
+    expect(reported).toMatchObject({ marked: 1 });
+    expect(await marks(core, mindId, coast.id)).toMatchObject([
+      { text: FARES, state: "supported", workedOut: "1,250,000 + 750,000 = £2,000,000" },
+    ]);
   });
 });

@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import type { MessageKey } from "../../../shared/i18n";
 import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
 import { OutlineToggleIcon } from "../viewer/icons";
@@ -24,6 +25,17 @@ const STEPS: Record<string, (at: number, last: number) => number> = {
   Home: () => 0,
   End: (_at, last) => last,
 };
+
+/** ↑ ↓ Home End in an outline: the focus moves through its entries (`data-outline-item`). */
+export function stepOutlineFocus(event: KeyboardEvent<HTMLElement>): void {
+  const step = STEPS[event.key];
+  if (!step || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  const items = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-outline-item]")];
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  if (at < 0) return;
+  event.preventDefault();
+  items[step(at, items.length - 1)]?.focus();
+}
 
 /**
  * The outline beside a deck's slides, a document's sections or a Note's text, styled as a PDF's:
@@ -68,13 +80,7 @@ export function OutlinePanel({
       onEscape();
       return;
     }
-    const step = STEPS[event.key];
-    if (!step || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
-    const items = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-outline-item]")];
-    const at = items.indexOf(document.activeElement as HTMLElement);
-    if (at < 0) return;
-    event.preventDefault();
-    items[step(at, items.length - 1)]?.focus();
+    stepOutlineFocus(event);
   };
 
   return (
@@ -121,18 +127,23 @@ export function OutlinePanel({
   );
 }
 
+const OUTLINE_WORDS = { show: "viewer.outline.show", hide: "viewer.outline.hide" } as const;
+
 /** Shows and hides the outline; `keys`, its shortcut as this system writes it, goes in its tooltip. */
 export function OutlineButton({
   open,
   onToggle,
   keys,
+  words = OUTLINE_WORDS,
 }: {
   open: boolean;
   onToggle(): void;
   keys?: string;
+  /** What it says to show and hide: a Note's says its tabs too (#3414). */
+  words?: { show: MessageKey; hide: MessageKey };
 }) {
   const t = useT();
-  const label = t(open ? "viewer.outline.hide" : "viewer.outline.show");
+  const label = t(open ? words.hide : words.show);
   return (
     <button
       type="button"

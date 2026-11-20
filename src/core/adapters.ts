@@ -203,6 +203,23 @@ export interface CanvasFiles {
   remove(hash: string): Promise<void>;
 }
 
+/**
+ * The Agent Skill's file in the folders agents read Skills from (#378, #3430): the one file at the
+ * absolute path IncarnaMind names, never anything else of the User's home. The desktop app reads
+ * and writes with Node (src/main/agentSkillFiles.ts).
+ */
+export interface AgentSkillFiles {
+  /**
+   * The file's text; null when there is no file. Synchronous, as Settings asks it for each agent
+   * every time it opens. Any other failure throws.
+   */
+  read(path: string): string | null;
+  /** Writes `text`, making the folders above it as needed. */
+  write(path: string, text: string): Promise<void>;
+  /** Removes the file, then the folder that held it if nothing else is in it. */
+  remove(path: string): Promise<void>;
+}
+
 export type NamedFile =
   | { kind: "read"; bytes: Uint8Array }
   | { kind: "unreadable" }
@@ -1129,6 +1146,8 @@ export interface CoreAdapters {
   shell?: FileShell;
   /** Absent (tests that aren't about Canvases): an agent can't publish one (#3406). */
   canvasFiles?: CanvasFiles;
+  /** Absent: no agent's Skill is written, brought up to date or removed (#3430). */
+  agentSkillFiles?: AgentSkillFiles;
   /** Absent (tests that aren't about it): there is none to show. */
   modelRuntimeFolder?: ModelRuntimeFolder;
   /** Absent (tests): it is never installed, so it can't be opened. */

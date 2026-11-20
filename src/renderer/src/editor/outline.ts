@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import { TextSelection } from "@tiptap/pm/state";
 import { myNotesHidden } from "./myNotes";
+import { tabHiddenRanges } from "./noteTabs";
 
 export interface Heading {
   /** Where the heading starts in the document. */
@@ -15,13 +16,16 @@ export function outlineOf(editor: Editor): Heading[] {
   return headingsIn(editor.state, false);
 }
 
-/** The headings the page shows: in My notes (#138), those it hides are left out. */
+/**
+ * The headings the page shows: those of the tab open (#3414); in My notes (#138), those it hides
+ * are left out.
+ */
 export function shownHeadings(state: EditorState): Heading[] {
   return headingsIn(state, true);
 }
 
 function headingsIn(state: EditorState, shownOnly: boolean): Heading[] {
-  const hidden = shownOnly ? myNotesHidden(state) : [];
+  const hidden = shownOnly ? [...myNotesHidden(state), ...tabHiddenRanges(state)] : [];
   const headings: Heading[] = [];
   state.doc.descendants((node, pos) => {
     if (node.type.name !== "heading") return !node.isTextblock;

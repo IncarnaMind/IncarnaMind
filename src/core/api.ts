@@ -436,8 +436,12 @@ export interface CreateMindInput {
  *   it, and a verdict worked out from the Documents keeps its line of working (#3322). An older
  *   version reads the view as Not found and writes the part again without the working, so it
  *   opens these Notes read-only. Older content is version 60 content as it is.
+ * - 62: tabs in a Note (#3414): a top-level `NOTE_TAB_NODE` Block starts a tab and holds its
+ *   title; the Blocks after it, up to the next, are that tab. An older editor would drop the Block
+ *   when it saves the Note, running its tabs together, so it opens these Notes read-only. Older
+ *   content is version 61 content as it is: a Note without the Block is one tab.
  */
-export const CONTENT_SCHEMA_VERSION = 61;
+export const CONTENT_SCHEMA_VERSION = 62;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -977,6 +981,14 @@ export const NOTE_BLOCK_TYPES = [
 
 /** A table of contents (#1935): a Block drawn from the Note's headings, and Word's own in a .docx. */
 export const TABLE_OF_CONTENTS_NODE = "tableOfContents";
+
+/**
+ * Where a tab of a Note starts (#3414): a top-level Block holding the tab's title
+ * (`NOTE_TAB_TITLE_ATTRIBUTE`), never its text. The Blocks after it, up to the next, are the tab;
+ * those before the first are a tab with no title of its own. A Note without one is one tab.
+ */
+export const NOTE_TAB_NODE = "noteTab";
+export const NOTE_TAB_TITLE_ATTRIBUTE = "title";
 
 /** The node type of a Question Block. Its content is the User's text (inline). */
 export const QUESTION_BLOCK = "question";
@@ -12554,8 +12566,22 @@ export interface AgentSettings {
    */
   paused: "local-mode" | null;
   pairings: AgentPairing[];
-  /** The pairings whose agent has IncarnaMind's Skill installed, as IncarnaMind wrote it. */
+  /** The pairings whose agent has IncarnaMind's current Skill installed. */
   skills: string[];
+  /**
+   * The pairings whose agent reads a Skill IncarnaMind wrote and the User changed, after the
+   * Skill's text changed: it was left as it is, and `replaceAgentSkill` replaces it (#3430).
+   */
+  skillsOutOfDate: string[];
+}
+
+/** What Disconnect left behind (#3430). */
+export interface AgentDisconnected {
+  /**
+   * The Skill files it left in place because the User changed them: each one's full path, and
+   * the same with the home folder written as "~", as a line for the User names it.
+   */
+  skillsLeft: { path: string; shown: string }[];
 }
 
 export interface ConnectAgentInput {
@@ -15227,8 +15253,17 @@ export interface CoreApi {
   connectAgent(input: ConnectAgentInput): Promise<ConnectedAgent>;
   /** Renames a pairing, or changes the Folders it may read; calls already made keep their activity. */
   updateAgent(pairingId: string, input: UpdateAgentInput): Promise<AgentPairing>;
-  /** Unpairs an agent: its token stops working at once, its connections close and its consent goes. */
-  disconnectAgent(pairingId: string): Promise<void>;
+  /**
+   * Unpairs an agent: its token stops working at once, its connections close and its consent goes.
+   * Its Skill goes too, whichever release wrote it, unless the User changed it (#3430). Its Activity
+   * and requests are marked deleted and removed `RECENTLY_DELETED_DAYS` after, at start-up.
+   */
+  disconnectAgent(pairingId: string): Promise<AgentDisconnected>;
+  /**
+   * Replaces the Skill file of this agent that the User changed, with the current text: the Skill
+   * is out of date (`AgentSettings.skillsOutOfDate`) and the User confirmed their changes go (#3430).
+   */
+  replaceAgentSkill(pairingId: string): Promise<void>;
   /** How a paired agent starts IncarnaMind's server, again: e.g. to set it up in that agent once more. */
   getAgentLaunch(pairingId: string): Promise<AgentLaunch>;
   /** The calls a paired agent made, newest first: the most recent 500. */
@@ -16027,6 +16062,7 @@ const methods: Record<CoreApiMethod, true> = {
   connectAgent: true,
   updateAgent: true,
   disconnectAgent: true,
+  replaceAgentSkill: true,
   getAgentLaunch: true,
   listAgentActivity: true,
   listAgentClients: true,

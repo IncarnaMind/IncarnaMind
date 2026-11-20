@@ -270,7 +270,7 @@ import {
   textAttribute,
   topLevelBlocks,
 } from "./blocks";
-import { answerLanguage, createCalculationSession, whole } from "./calculations";
+import { answerLanguage, whole } from "./calculations";
 import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
@@ -378,6 +378,7 @@ import {
   withHelp,
 } from "./meetingHelp";
 import { paragraphAsked } from "./paragraphAsked";
+import { createPlainCalculator } from "./plainCalculator";
 import { createPrintedNumbers } from "./printedNumbers";
 import {
   analysisInstructions,
@@ -1923,7 +1924,7 @@ export function createAnswers(options: AnswersOptions) {
     const inFormulas = formulaCells((documentId, contentHash) =>
       searched.pageTexts(documentId, contentHash, null, null),
     );
-    const figures = createCalculationSession({
+    const figures = createPlainCalculator({
       documents: searched,
       quotes: session.quotes,
       language: answerLanguage(context.question),

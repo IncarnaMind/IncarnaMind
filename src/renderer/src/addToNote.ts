@@ -56,6 +56,7 @@ import { core } from "./core";
 import { flashBlocks } from "./editor/blockOrigins";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { notePlace } from "./editor/notePlace";
+import { shownEnd } from "./editor/noteTabs";
 import type { Words } from "./lineNames";
 import { exampleMindIds, useAppStore } from "./store";
 import { answerUndoPlace, useUndo } from "./undo";
@@ -109,7 +110,11 @@ export function addInEditor(
   atCursor: boolean,
   inTheSameStep: () => void,
 ) {
-  const place = notePlace(editor.state.doc, atCursor ? editor.state.selection : null);
+  const place = notePlace(
+    editor.state.doc,
+    atCursor ? editor.state.selection : null,
+    shownEnd(editor.state),
+  );
   const ids = blocks.map(() => crypto.randomUUID());
   let nodes: ProseMirrorNode[];
   try {

@@ -18,6 +18,7 @@ import {
   FOOTNOTE_NODE,
   GENERATED_MARK,
   NOTE_BLOCK_TYPES,
+  NOTE_TAB_NODE,
   QUESTION_BLOCK,
   SUBSCRIPT_MARK,
   SUPERSCRIPT_MARK,
@@ -53,6 +54,7 @@ import {
   TextSize,
 } from "./formatSchema";
 import { MissingNumber } from "./missingNumberSchema";
+import { NoteTab } from "./noteTabSchema";
 import { Numbering } from "./numbering";
 import { PageBreak } from "./pageBreakSchema";
 import { Picture } from "./pictureSchema";
@@ -85,6 +87,7 @@ const BLOCK_TYPES: readonly string[] = [
   QUESTION_BLOCK,
   ANSWER_BLOCK,
   COMPARISON_TABLE_NODE,
+  NOTE_TAB_NODE,
 ];
 
 /**
@@ -171,7 +174,8 @@ export interface NoteSchemaOptions {
  * Footnotes the User writes, inline, each holding its
  * text. Charts, drawn from a table or from cited figures, each value with its
  * Citation (#436). Pictures the User pasted or dropped, as Blocks of their own, with their alt
- * text (#1937). Comparison tables, top-level only (#98). What a Word
+ * text (#1937). Comparison tables, top-level only (#98). Where each tab of the Note starts, with
+ * its title (#3414). What a Word
  * import kept as it is, and its inline pictures (#104), and the file's look
  * (see `wordSchema`). Page breaks (#746). Paragraph formatting, and text colour, font, size and raise (see
  * `formatSchema`).
@@ -256,6 +260,7 @@ export function noteExtensions({
     DocumentChip.configure({ view: documentChipView ?? null }),
     Chart.configure({ view: chartView ?? null }),
     TableOfContents.configure({ view: tableOfContentsView ?? null }),
+    NoteTab,
     Picture.configure({ view: pictureView ?? null }),
     ComparisonTable.configure({ view: comparisonViews?.table ?? null }),
     ComparisonRow.configure({ view: comparisonViews?.row ?? null }),

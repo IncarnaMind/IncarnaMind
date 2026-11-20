@@ -39,19 +39,15 @@ function netDebt(call: ModelCall, stated?: string) {
     marker: 1,
     label: "Net debt",
     formula: "nd",
-    scale: "million",
-    // A check Run, as a cell is, also names the number its text writes.
-    ...(stated && { stated, relation: "equals" }),
+    shown: stated ?? "£310.000 million",
     inputs: [
       {
         name: "nd",
-        label: "Net debt Q3 2026",
+        label: "Net debt Q3 2026 (£)",
         passage: passage?.id,
         location: passage?.location,
         quote: "Net debt: 310,000.",
-        number: "310,000",
-        reading: 1,
-        unitQuote: "All amounts in GBP thousands.",
+        value: 310_000_000,
       },
     ],
   };
@@ -363,6 +359,7 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
       marker,
       label: `Net debt, line ${line}`,
       formula: "nd",
+      shown: "310,000",
       inputs: [
         {
           name: "nd",
@@ -370,8 +367,7 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
           passage: passageOf(call)?.id,
           location: `lines ${line}–${line}`,
           quote: "Net debt: 310,000.",
-          number: "310,000",
-          reading: 1,
+          value: 310_000,
         },
       ],
     });
@@ -418,19 +414,15 @@ describe("A figure whose input quotes its Passage directly is cited", { timeout:
           marker: 1,
           label: "净负债（亿元）",
           formula: "nd",
-          scale: "亿",
-          decimals: 1,
-          stated: "3.1亿元",
-          relation: "equals",
+          shown: "3.1亿元",
           inputs: [
             {
               name: "nd",
-              label: "净负债",
+              label: "净负债（万元）",
               passage: passage?.id,
               location: passage?.location,
               quote: "净负债：31,000",
-              number: "31,000",
-              unitQuote: "单位：万元",
+              value: 31_000,
             },
           ],
         };

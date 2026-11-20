@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { expect, test, vi } from "vitest";
 import type { RoomSpeakerReviewer } from "../../src/core/adapters";
 import { wavSamples } from "../../src/core/meetings/fakeCapture";
-import { SPEAKER_UNKNOWN, speakerOf, withSpeakerChosen } from "../../src/shared/speakers";
+import {
+  SPEAKER_ME,
+  SPEAKER_UNKNOWN,
+  speakerOf,
+  withSpeakerChosen,
+} from "../../src/shared/speakers";
 import { createTempDataFolder } from "../helpers/core";
 import { savedCues, stoppedMeeting, transcribingCore, until } from "../helpers/transcription";
 
@@ -153,6 +158,103 @@ test("a room review skips a shared sentence and refuses a transcript with five k
       wording: { key: "error.meeting.roomReviewPeople" },
     });
     expect(separate).toHaveBeenCalledTimes(1);
+  } finally {
+    core.close();
+  }
+});
+
+test.each([SPEAKER_UNKNOWN, "Speaker 1"])(
+  "marking one %s line as Me leaves another voice available for review",
+  async (previous) => {
+    const separate = vi.fn<RoomSpeakerReviewer["separate"]>();
+    const { core, id, document, cues } = await recordRoom({ downloadBytes: () => 0, separate });
+    try {
+      const lines = cues.map((cue) => ({
+        startMs: cue.startMs,
+        label: cue.speaker ?? SPEAKER_UNKNOWN,
+      }));
+      const first = lines[0];
+      const other = cues.at(-1);
+      if (!first || !other) throw new Error("Expected both room voices.");
+      const numbered = withSpeakerChosen(
+        document.speakers,
+        lines,
+        lines.slice(0, -1),
+        { label: previous },
+        false,
+      );
+      const speakers = withSpeakerChosen(numbered, lines, first, { label: SPEAKER_ME }, false);
+      await core.setTranscriptSpeakers({ documentId: document.id, speakers });
+      separate.mockResolvedValue(
+        cues.map((cue) => ({
+          startMs: cue.startMs,
+          endMs: cue.endMs,
+          voice: cue === other ? 1 : 0,
+        })),
+      );
+      const review = await core.reviewMeetingSpeakers({
+        meetingId: id,
+        onDevice: true,
+        confirmed: true,
+      });
+      expect(review.uncertainSpeakers).toBeUndefined();
+      expect(review.suggestions.map((s) => s.startMs)).toEqual([other.startMs]);
+      expect(review.suggestions.every((s) => s.suggestedLabel !== SPEAKER_ME)).toBe(true);
+      expect((await core.listDocuments()).find((d) => d.id === document.id)?.speakers).toEqual(
+        speakers,
+      );
+    } finally {
+      core.close();
+    }
+  },
+);
+
+test("a self-marked line without a clear voice permits suggestions for known speakers", async () => {
+  const separate = vi.fn<RoomSpeakerReviewer["separate"]>();
+  const { core, id, document, cues } = await recordRoom({ downloadBytes: () => 0, separate });
+  try {
+    const [mine, , anchor, extra] = cues;
+    const last = cues.at(-1);
+    if (!mine || !anchor || !extra || !last) throw new Error("Expected separated room turns.");
+    const fileLine = (cue: typeof mine) => ({
+      startMs: cue.startMs,
+      label: cue.speaker ?? SPEAKER_UNKNOWN,
+    });
+    const marked = withSpeakerChosen(
+      document.speakers,
+      [],
+      fileLine(mine),
+      { label: SPEAKER_ME },
+      false,
+    );
+    const speakers = withSpeakerChosen(marked, [], fileLine(anchor), { label: "Speaker 1" }, false);
+    await core.setTranscriptSpeakers({ documentId: document.id, speakers });
+    separate.mockResolvedValue(
+      [anchor, extra, last].map((cue) => ({
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        voice: cue === extra ? 1 : 0,
+      })),
+    );
+    const review = await core.reviewMeetingSpeakers({
+      meetingId: id,
+      onDevice: true,
+      confirmed: true,
+    });
+    expect(review.suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          startMs: last.startMs,
+          suggestedLabel: "Speaker 1",
+        }),
+      ]),
+    );
+    expect(review.suggestions.every((row) => row.suggestedLabel === "Speaker 1")).toBe(true);
+    expect(
+      review.suggestions.some(
+        (row) => row.startMs === mine.startMs || row.startMs === extra.startMs,
+      ),
+    ).toBe(false);
   } finally {
     core.close();
   }

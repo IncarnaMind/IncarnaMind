@@ -15,6 +15,7 @@ import {
   setLanguage,
   setWindowSize,
   tabMenu,
+  writeNote,
 } from "./app";
 
 /*
@@ -33,8 +34,6 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
-
-type Section = { heading: string; level: number } | { text: string };
 
 const REPORT = {
   en: {
@@ -70,32 +69,6 @@ const REPORT = {
       `${heading}（第 ${at + 1} 段）：本季大多数日子航班准点，延误主要来自大潮和天气。`,
   },
 } as const;
-
-/** A Note of these blocks, made through the core as another device's edit arrives. */
-async function writeNote(window: Page, title: string, blocks: readonly Section[]): Promise<string> {
-  const doc = new Y.Doc();
-  doc.getXmlFragment("blocks").push(
-    blocks.map((block) => {
-      const node = new Y.XmlElement("heading" in block ? "heading" : "paragraph");
-      node.setAttribute("id", crypto.randomUUID());
-      // Stored as the editor stores them: a heading's level is a number.
-      if ("heading" in block) node.setAttribute("level", block.level as unknown as string);
-      node.insert(0, [new Y.XmlText("heading" in block ? block.heading : block.text)]);
-      return node;
-    }),
-  );
-  const update = Array.from(Y.encodeStateAsUpdate(doc));
-  return window.evaluate(
-    async ([title, change]) => {
-      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const mind = await core.createMind({ title });
-      await core.applyMindUpdate(mind.id, new Uint8Array(change));
-      await core.closeMind(mind.id);
-      return mind.id;
-    },
-    [title, update] as const,
-  );
-}
 
 /** The ferry company's report: each heading followed by a few paragraphs. */
 const writeReport = (window: Page, language: keyof typeof REPORT) => {
@@ -145,17 +118,17 @@ test("a Note's outline opens beside its page by mouse and keyboard, follows the 
       { text: "Two crews a day on the island routes." },
     ]);
 
-    // One heading has nowhere to go: no button, and ⌘K doesn't offer it.
+    // One heading has nowhere to go, but the panel adds a tab (#3414): the button is there.
     await openNote(window, "Crew rota");
-    await expect(window.getByTestId("outline-button")).toHaveCount(0);
-    expect(await paletteOffers(window, "mind.outline", "outline")).toBe(0);
+    await expect(window.getByTestId("outline-button")).toBeVisible();
+    expect(await paletteOffers(window, "mind.outline", "outline")).toBe(1);
 
     // A Note with headings: the button at the top left of its tab, level with the ⋯; closed at first.
     const editor = await openNote(window, REPORT.en.title);
     const button = window.getByTestId("outline-button");
     const outline = window.getByTestId("outline");
     await expect(button).toHaveAttribute("aria-pressed", "false");
-    await expect(button).toHaveAttribute("title", /^Show outline \((⌥⌘L|Ctrl\+Alt\+L)\)$/);
+    await expect(button).toHaveAttribute("title", /^Show tabs and outline \((⌥⌘L|Ctrl\+Alt\+L)\)$/);
     await expect(outline).toHaveCount(0);
     const buttonBox = await button.boundingBox();
     const menuBox = await window.getByTestId("page-menu").boundingBox();
@@ -169,7 +142,7 @@ test("a Note's outline opens beside its page by mouse and keyboard, follows the 
     // By mouse: the panel at the left of the page, its headings indented by level, the first read.
     await pointAndClick(window, button);
     await expect(button).toHaveAttribute("aria-pressed", "true");
-    await expect(outline).toHaveAccessibleName("Outline");
+    await expect(outline).toHaveAccessibleName("Tabs and outline");
     const items = outline.getByTestId("outline-item");
     await expect(items).toHaveText(REPORT.en.sections.map((section) => section.heading));
     expect(
@@ -229,7 +202,10 @@ test("a Note's outline opens beside its page by mouse and keyboard, follows the 
     await expect(items.nth(6)).toBeFocused();
     await window.keyboard.press("Home");
     await expect(items.first()).toBeFocused();
+    // "New tab…" is the last entry, after the headings.
     await window.keyboard.press("End");
+    await expect(outline.getByTestId("note-tab-new")).toBeFocused();
+    await window.keyboard.press("ArrowUp");
     await expect(items.last()).toBeFocused();
     await window.keyboard.press("ArrowUp");
     await window.keyboard.press("ArrowUp");
@@ -262,10 +238,10 @@ test("a Note's outline opens beside its page by mouse and keyboard, follows the 
 
     // ⌘K and the Note's menu show and hide it too, by name.
     expect(await paletteOffers(window, "mind.outline", "outline")).toBe(1);
-    await runCommand(window, "mind.outline", "Show outline");
+    await runCommand(window, "mind.outline", "Show tabs and outline");
     await expect(outline).toBeVisible();
     const more = await openMoreMenu(window, await tabMenu(window));
-    await expect(more.getByTestId("mind.outline")).toHaveText(/Hide outline/);
+    await expect(more.getByTestId("mind.outline")).toHaveText(/Hide tabs and outline/);
     await pointAndClick(window, more.getByTestId("mind.outline"));
     await expect(outline).toHaveCount(0);
     await pointAndClick(window, button);
@@ -316,14 +292,14 @@ test("in Chinese, in a 900-pixel window with the sidebar open and in dark, the o
     const editor = await openNote(window, REPORT["zh-CN"].title);
     await expect(window.getByTestId("sidebar")).toBeVisible();
     const button = window.getByTestId("outline-button");
-    await expect(button).toHaveAttribute("aria-label", "显示目录");
+    await expect(button).toHaveAttribute("aria-label", "显示标签页和目录");
     expect(await paletteOffers(window, "mind.outline", "大纲")).toBe(1);
 
     await pointAndClick(window, editor.locator("p").first());
     await window.keyboard.press("ControlOrMeta+Alt+L");
     const outline = window.getByTestId("outline");
-    await expect(outline).toHaveAccessibleName("目录");
-    await expect(button).toHaveAttribute("aria-label", "隐藏目录");
+    await expect(outline).toHaveAccessibleName("标签页和目录");
+    await expect(button).toHaveAttribute("aria-label", "隐藏标签页和目录");
     await expect(outline.getByTestId("outline-item")).toHaveText(
       REPORT["zh-CN"].sections.map((section) => section.heading),
     );
