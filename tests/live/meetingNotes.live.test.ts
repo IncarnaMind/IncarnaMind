@@ -10,6 +10,8 @@
 import { appendFile } from "node:fs/promises";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
+import { judgeNotes } from "../../eval/speed/meetingNotesJudge";
+import { replaySummaryRetention, summaryRetention } from "../../eval/speed/meetingSummaryCases";
 import type { Core, Meeting } from "../../src/core";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder } from "../helpers/core";
@@ -231,3 +233,87 @@ describe.skipIf(!KEY)("A Meeting's notes, on a real model", { timeout: 1_800_000
     expect(failed).toEqual([]);
   });
 });
+
+// Set INCARNAMIND_LIVE_SUMMARY_RETENTION=1 and select -t "Quick AI summary retention" to run
+// this case with the usual live key. The nightly notes run keeps its existing request budget.
+test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "1")(
+  "Quick AI summary retention through topic shifts and a correction at Stop",
+  { timeout: 1_800_000 },
+  async () => {
+    const apiKey = KEY ?? "";
+    const judge = wrapLanguageModel({
+      model: counted({ kind: "anthropic", apiKey, modelId: MODEL, baseUrl: null, thinking: "off" }),
+      middleware: {
+        specificationVersion: "v4",
+        transformParams: async ({ params }) => ({ ...params, maxOutputTokens: 800 }),
+      },
+    });
+    const grade = async (expected: string, notes: string) =>
+      (await judgeNotes(judge, { expected, notes, citations: [], turns: [] })).grade;
+    const results: {
+      warmOverview: string;
+      warmItems: string;
+      finalOverview: string;
+      finalItems: string;
+    }[] = [];
+    for (let run = 1; run <= RUNS; run++) {
+      const { checkpoints, warm, final } = await replaySummaryRetention({
+        apiKey,
+        modelId: MODEL,
+        createChatModel: (spec) =>
+          wrapLanguageModel({
+            model: counted(spec),
+            middleware: {
+              specificationVersion: "v4",
+              wrapGenerate: async ({ doGenerate, params }) => {
+                if (
+                  !params.prompt.some(
+                    (message) =>
+                      message.role === "system" &&
+                      message.content.includes("standalone summary of the meeting"),
+                  )
+                ) {
+                  throw new Error("This eval sends only Quick AI summary requests.");
+                }
+                return doGenerate();
+              },
+              wrapStream() {
+                throw new Error("The full Note is outside this eval.");
+              },
+            },
+          }),
+      });
+      const verdict = {
+        warmOverview: await grade(summaryRetention.expectedWarmOverview, warm.text),
+        warmItems: await grade(
+          summaryRetention.expectedWarmItems,
+          JSON.stringify(warm.items ?? []),
+        ),
+        finalOverview: await grade(summaryRetention.expectedFinalOverview, final.text),
+        finalItems: await grade(
+          summaryRetention.expectedFinalItems,
+          JSON.stringify(final.items ?? []),
+        ),
+      };
+      results.push(verdict);
+      if (REPORT) {
+        const snapshots = [...checkpoints, final].map(
+          ({ text, throughMs, items }) =>
+            `### Through ${throughMs} ms\n\n${text}\n\n${items?.map((item) => `- ${item.kind}, ${item.status}: ${item.text}`).join("\n") ?? ""}`,
+        );
+        await appendFile(
+          REPORT,
+          `## Quick AI summary retention, ${MODEL}, run ${run}\n\nBefore Stop: overview ${verdict.warmOverview}, list ${verdict.warmItems}. After Stop: overview ${verdict.finalOverview}, list ${verdict.finalItems}.\n\n${snapshots.join("\n\n")}\n\n`,
+        );
+      }
+    }
+    expect(results).toEqual(
+      Array.from({ length: RUNS }, () => ({
+        warmOverview: "right",
+        warmItems: "right",
+        finalOverview: "right",
+        finalItems: "right",
+      })),
+    );
+  },
+);
