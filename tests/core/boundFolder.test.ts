@@ -67,6 +67,21 @@ describe("a Folder bound to a folder on disk", () => {
     expect((await core.createBoundFolder(linked.folderId)).id).toBe(bound.id);
   });
 
+  // protects=an empty folder made a Project at once, before a scan has made its Folder, files its first file as it arrives; unlinked, it is bound no more (ADR-0030); fails_when=it can't be made a Project until a file is read, or stays bound once unlinked
+  it("an empty folder made a Project at once files its first file; unlinked, bound no more", async () => {
+    const { core, files } = await started();
+    const linked = await core.addLinkedFolder(files);
+    const bound = await core.createBoundFolder(linked.folderId);
+    expect(bound).toMatchObject({ name: basename(files), boundFolderId: linked.folderId });
+    await writeFile(join(files, "Quay plan.md"), PLAN);
+    await core.reconcileDocuments();
+    expect((await filed(core))("Quay plan").groupId).toBe(bound.id);
+
+    await core.removeLinkedFolder(linked.id);
+    const after = (await core.getLibrary()).groups.find((each) => each.id === bound.id);
+    expect(after?.boundFolderId).toBeNull();
+  });
+
   // protects=a new file in the bound folder is filed in it as it arrives, as the User's choice, so sorting leaves it alone (ADR-0030); fails_when=it lands in Not in a Folder or waits to be sorted
   it("files a new file in it as it arrives", async () => {
     const { core, files, linked } = await project();

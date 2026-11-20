@@ -1543,13 +1543,18 @@ export function createLibrary(options: {
       changed();
       return group(groupId);
     },
-    /** Unbinds the Folders bound to a Linked folder's folders, as it is unlinked (ADR-0030). */
-    unbindLinkedFolder(linkedFolderId: string): void {
-      const bound = `bound_folder_id IN (SELECT id FROM folders WHERE linked_folder_id = ?)`;
-      if (!db.get(`SELECT 1 FROM library_groups WHERE ${bound}`, [linkedFolderId])) return;
+    /**
+     * Unbinds the Folders bound to a Linked folder's folders, its own (`ownFolderId`) included
+     * though a scan may not have made its row, as it is unlinked (ADR-0030).
+     */
+    unbindLinkedFolder(linkedFolderId: string, ownFolderId: string): void {
+      const bound = `(bound_folder_id = ? OR bound_folder_id IN
+        (SELECT id FROM folders WHERE linked_folder_id = ?))`;
+      const params = [ownFolderId, linkedFolderId];
+      if (!db.get(`SELECT 1 FROM library_groups WHERE ${bound}`, params)) return;
       db.run(`UPDATE library_groups SET bound_folder_id = NULL, updated_at = ? WHERE ${bound}`, [
         now(),
-        linkedFolderId,
+        ...params,
       ]);
       revision++;
       changed();

@@ -3689,7 +3689,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const unlinkFolder = (linkedFolderId: string, keep: readonly string[] = []) => {
-    library.unbindLinkedFolder(linkedFolderId);
+    const own = documents.linkedFolders.list().find((each) => each.id === linkedFolderId)?.folderId;
+    if (own) library.unbindLinkedFolder(linkedFolderId, own);
     documents.linkedFolders.remove(linkedFolderId, keep);
     outputs.forgetLinkedFolder(linkedFolderId);
   };
@@ -7549,7 +7550,11 @@ export function createCore(adapters: CoreAdapters): Core {
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
     createBoundFolder: async (folderId) => {
-      const folder = folders.get(folderId);
+      // A Linked folder's own Folder is known before a scan has made its row: binding works by id.
+      const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
+      const folder = linked
+        ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
+        : folders.get(folderId);
       const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
       if (already) return already;
       const made = library.create({
