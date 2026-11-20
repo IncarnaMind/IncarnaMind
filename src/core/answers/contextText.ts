@@ -29,6 +29,7 @@ import {
   type Footnote,
   type Inline,
   type Marks,
+  NO_MARKS,
   type ReadOptions,
   type ReviewReading,
   readBlock,
@@ -216,6 +217,11 @@ function plainBlockMarkdown(block: Block, naming: Naming): string {
       return inlineMarkdown(changedContent(block));
     case "heading":
       return `${"#".repeat(block.level)} ${inlineMarkdown(changedContent(block))}`;
+    // A tab reads as the section it starts, under its title (#3414).
+    case "tab":
+      return block.title
+        ? `# ${inlineMarkdown([{ kind: "text", text: block.title, marks: NO_MARKS }])}`
+        : "";
     case "code": {
       const fence = block.code.includes("```") ? "````" : "```";
       return `${fence}${block.language}\n${block.code}\n${fence}`;

@@ -244,6 +244,14 @@ registerMenu("comparisonRow", [
   "comparisonRow.remove",
 ]);
 
+registerMenu("noteTab", [
+  "noteTab.open",
+  "noteTab.moveUp",
+  "noteTab.moveDown",
+  "noteTab.rename",
+  "noteTab.delete",
+]);
+
 registerMenu("chart", [
   "chart.table",
   "chart.kind.bar",

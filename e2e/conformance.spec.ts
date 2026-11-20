@@ -651,6 +651,37 @@ async function mindWithChart(window: Page): Promise<string> {
   }, update);
 }
 
+/** A tab of the Note on the page and the paragraph each holds (#3414), as the editor stores them. */
+const NOTE_TABS = [
+  { title: "Summary", text: "Sailings ran on time on most days." },
+  { title: "Fleet", text: "Two ferries were refitted over the winter." },
+  { title: "Appendix", text: "Timetables for the island routes." },
+];
+
+/** A Note of three tabs, each a tab Block and a paragraph (#3414). */
+async function mindWithTabs(window: Page): Promise<string> {
+  const doc = new Y.Doc();
+  doc.getXmlFragment("blocks").push(
+    NOTE_TABS.flatMap((tab) => {
+      const start = new Y.XmlElement("noteTab");
+      start.setAttribute("id", crypto.randomUUID());
+      start.setAttribute("title", tab.title);
+      const paragraph = new Y.XmlElement("paragraph");
+      paragraph.setAttribute("id", crypto.randomUUID());
+      paragraph.insert(0, [new Y.XmlText(tab.text)]);
+      return [start, paragraph];
+    }),
+  );
+  const update = Array.from(Y.encodeStateAsUpdate(doc));
+  return window.evaluate(async (change) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const mind = await core.createMind({ title: "Ferry report" });
+    await core.applyMindUpdate(mind.id, new Uint8Array(change));
+    await core.closeMind(mind.id);
+    return mind.id;
+  }, update);
+}
+
 /** A Mind holding a comparison table of one row and two columns, written as the editor stores one (#98). */
 async function mindWithComparison(window: Page): Promise<string> {
   const doc = new Y.Doc();
@@ -1083,6 +1114,29 @@ const STAGES: Record<Staged, Stage> = {
     },
     hit: ({ window }) => window.getByTestId("comparison-cell").first(),
     opened: ({ window }) => window.getByTestId("comparison-cell-card"),
+  },
+  // The key is the Mind's; its second tab, in the panel beside the page, is the one acted on.
+  noteTab: {
+    inNote: true,
+    make: ({ window }) => mindWithTabs(window),
+    async show({ window }, key) {
+      await showMind(window, key);
+      await pointAndClick(window, mindTab(window, key).first());
+      const panel = window.getByTestId("outline");
+      if (!(await panel.isVisible()))
+        await pointAndClick(window, window.getByTestId("outline-button"));
+      const button = panel.locator(`[data-object-menu^="noteTab:${key}/"]`).nth(1);
+      await expect(button).toBeAttached();
+      return ((await button.getAttribute("data-object-menu")) ?? "").slice("noteTab:".length);
+    },
+    async name({ window }, key) {
+      const titles = [
+        ...(await noteState(window, key)).matchAll(/<notetab [^>]*\btitle="([^"]*)"/g),
+      ];
+      return titles[1]?.[1] ?? "";
+    },
+    opened: ({ window }) =>
+      window.getByTestId("mind-editor").getByText(NOTE_TABS[1]?.text ?? "", { exact: true }),
   },
   check: {
     inNote: true,
