@@ -240,8 +240,8 @@ test("Word, PowerPoint, Excel and CSV files in a linked folder are cited by sect
   await expectMarkBeside(mark, wordQuote.first());
   await screenshot(window, "docx-pages");
   // Its outline lists its sections, and goes to one.
-  await viewer.getByTestId("viewer-outline-button").click();
-  const outline = viewer.getByTestId("viewer-outline-item");
+  await viewer.getByTestId("outline-button").click();
+  const outline = viewer.getByTestId("outline-item");
   await expect(outline).toHaveText([
     "1 Introduction",
     "1.1 Scope",

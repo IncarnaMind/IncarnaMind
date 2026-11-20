@@ -49,11 +49,13 @@ import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
 import { PLOT_FONT } from "../shared/analysisWindow";
 import { createElectronAnalysisRuntime } from "./analysis";
+import { createCanvasFiles } from "./canvasFiles";
 import { createCitedPageCapture } from "./citedPageCapture";
 import { createSentryCrashReporter } from "./crashReports";
 import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { createElectronAudioCapture } from "./meetings/capture";
+import { createRoomSpeakerReviewer } from "./meetings/roomSpeakerReviewer";
 import { createModelRuntimeFolder } from "./modelRuntimeFolder";
 import { createOfficeConverter } from "./officeConverter";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
@@ -1027,6 +1029,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     keychain: createSafeStorageKeychain(dataDir, safeStorageCipher),
     browser: systemBrowser,
     shell: fileShell,
+    canvasFiles: createCanvasFiles(join(dataDir, "Canvases")),
     modelRuntimeFolder: createModelRuntimeFolder({
       platform: process.platform,
       home: homeFolder(),
@@ -1067,7 +1070,10 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
       ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))
       : createUtilityProcessTranscriber(),
     // The fake engine's audio is tones: there are no voices to tell apart.
-    ...(!fakeTranscriber && { speakerSeparator: createUtilityProcessSeparator() }),
+    ...(!fakeTranscriber && {
+      speakerSeparator: createUtilityProcessSeparator(),
+      roomSpeakerReviewer: createRoomSpeakerReviewer(dataDir),
+    }),
     ...(fakeTranscriber && {
       transcriptionModelSource: testModelDownloads?.speech ?? {
         model: { baseUrl: "http://localhost/", files: [] },

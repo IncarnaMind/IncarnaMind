@@ -17,6 +17,7 @@ import { withoutArea } from "../../../shared/locations";
 import { findQuoteInPieces, type TextRange } from "../../../shared/quoteMatch";
 import { useViewerHandle } from "../commands/handles";
 import { ChatLineIcon } from "../components/lineIcons";
+import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { core, files } from "../core";
 import { translateNow, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
@@ -40,7 +41,6 @@ import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
 import { findInDrawing, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
-import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 
@@ -448,7 +448,7 @@ function Slides({
         placeGone={citedPlaceGone(target, slides.length)}
       />
       <div className="flex min-h-0 flex-1">
-        {outlineOpen && <UnitOutline entries={outline} current={current} onGo={goTo} />}
+        {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
         <div
           ref={scroller}
           data-testid="viewer-slides"

@@ -27,6 +27,7 @@ import { TranslatableError } from "../../core/errors";
 import { contradictionWatchOf } from "../../shared/contradictionWatch";
 import { mindCheckOf, observeMindCheck } from "../../shared/mindCheck";
 import { isClaim } from "../../shared/sentences";
+import { noModel } from "./askYourAi";
 import {
   dismissCheckProblem,
   setCheckCardOpen,
@@ -505,6 +506,9 @@ export type CheckedEstimate =
 export async function checkEstimate(mindId: string, planned: Planned): Promise<CheckedEstimate> {
   const { plan } = planned;
   if (plan.kind !== "ready") return { kind: "none" };
+  // With no AI model set up there is no price to have: the card asks without one, as when the
+  // estimate fails, and the core isn't asked for one it must refuse.
+  if (!plan.model && noModel()) return { kind: "unknown" };
   try {
     const estimated = await core.estimateRun({
       items: await checkItems(mindId, planned, plan),

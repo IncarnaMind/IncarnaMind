@@ -82,12 +82,10 @@ test.each(["en", "zh-CN"] as const)(
     expect(openLink).not.toHaveBeenCalled();
     expect(models.specs).toHaveLength(0);
     await expect(reopened.askAgent(request)).resolves.toEqual({ kind: "opened" });
-    const prompt = new URL(openLink.mock.calls[0]?.[0] ?? "").searchParams.get("prompt");
-    expect(prompt).toContain(meeting.mindId);
-    expect(prompt).toContain(documentId);
-    expect(prompt).toContain("check_citations");
-    expect(prompt?.includes("propose_changes")).toBe(pairing.propose);
-    expect(prompt).not.toContain(sentence);
+    // The line names the meeting's Note; the rest waits for the agent's read_request (#3419).
+    const line = new URL(openLink.mock.calls[0]?.[0] ?? "").searchParams.get("prompt");
+    expect(line).not.toContain(meeting.mindId);
+    expect(line).not.toContain(sentence);
     const privateFolder = await reopened.createLibraryGroup({
       name: "Separate transcript",
       description: "",
@@ -103,8 +101,14 @@ test.each(["en", "zh-CN"] as const)(
     expect(openLink).toHaveBeenCalledTimes(1);
     reopened.close();
     await vi.waitFor(() => expect(existsSync(agentSocketPath(dataDir))).toBe(false));
-    // A legacy meeting whose Note and Transcript were filed behind different walls (#2528).
     const db = openDatabase(join(dataDir, DATABASE_FILE));
+    const kept = db.get<{ text: string }>("SELECT text FROM agent_requests")?.text ?? "";
+    expect(kept).toContain(meeting.mindId);
+    expect(kept).toContain(documentId);
+    expect(kept).toContain("check_citations");
+    expect(kept.includes("propose_changes")).toBe(pairing.propose);
+    expect(kept).not.toContain(sentence);
+    // A legacy meeting whose Note and Transcript were filed behind different walls (#2528).
     db.run("UPDATE documents SET meeting_mind_id = NULL WHERE id = ?", [documentId]);
     db.close();
     const legacy = startCore(dataDir, adapters);

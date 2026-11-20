@@ -104,7 +104,6 @@ import { useLibraryListsVersion } from "../editor/libraryVersion";
 import { ListKeys } from "../editor/listKeys";
 import { MarginChecks } from "../editor/MarginChecks";
 import { MathEditing, MathEditor } from "../editor/MathEditor";
-import { MindOutline } from "../editor/MindOutline";
 import { MissingNumberView, missingNumberWordsNow } from "../editor/MissingNumberView";
 import { MeetingFillPlace } from "../editor/meetingFillPlace";
 import { MeetingNotes } from "../editor/meetingNotes";
@@ -122,6 +121,7 @@ import {
   myNotesEmpty,
   showMyNotes,
 } from "../editor/myNotes";
+import { NoteOutline } from "../editor/NoteOutline";
 import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
@@ -1181,7 +1181,6 @@ function MindEditorView({
     wasEmpty.current = empty;
   }, [empty, explained]);
   const findShown = useMindTools((state) => state.findMindId === mindId);
-  const outlineShown = useMindTools((state) => state.outlineMindId === mindId);
   const firstOpen = useFirstOpen();
   // An empty note of the User's own shows the guide until the first-run card has been seen (#1940).
   const progress = useAppStore((state) => state.settings?.device.gettingStarted);
@@ -1370,8 +1369,13 @@ function MindEditorView({
         {showingNotes && findShown && (
           <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />
         )}
-        {showingNotes && outlineShown && (
-          <MindOutline editor={editor} onClose={() => useMindTools.getState().hideOutline()} />
+        {showingNotes && (
+          <NoteOutline
+            editor={editor}
+            mindId={mindId}
+            buttonSlot={slots.outlineButton}
+            panelSlot={slots.outline}
+          />
         )}
         {showingNotes && <FootnotePopover editor={editor} citationView={citationView} />}
         {showingNotes && editingMath !== null && (

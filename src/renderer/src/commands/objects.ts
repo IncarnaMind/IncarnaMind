@@ -691,7 +691,7 @@ export const mixedSelectionCommands: readonly Command[] = [
     rowKeys: "CmdOrCtrl+Backspace",
     group: "danger",
     destructive: true,
-    appliesTo: ["mind", "document", "folder"],
+    appliesTo: ["mind", "canvas", "document", "folder"],
     when: (ctx) => kindsIn(ctx) > 1,
     reversible: true,
     run: (ctx) => store().deleteSelection(ctx.selection),

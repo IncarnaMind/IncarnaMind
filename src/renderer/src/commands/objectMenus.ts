@@ -67,6 +67,8 @@ registerMenu("document", [
   "document.delete",
 ]);
 
+registerMenu("canvas", ["canvas.open", "canvas.openTab", "canvas.delete"]);
+
 registerMenu("annotation", [
   "annotation.editNote",
   "annotation.colour.yellow",
@@ -155,7 +157,7 @@ registerMenu(
   1,
 );
 // Delete is last, after the tab's own items.
-registerMenu("tab", ["mind.delete"], 2);
+registerMenu("tab", ["mind.delete", "canvas.delete"], 2);
 
 registerMenu("answer", ["answer.copy", "answer.regenerate", "block.delete"]);
 

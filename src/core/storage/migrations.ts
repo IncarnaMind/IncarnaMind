@@ -3158,6 +3158,83 @@ export const migrations: readonly Migration[] = [
           END;
     `,
   },
+  {
+    version: 145,
+    description:
+      "Canvases: pages an outside agent writes, each publish a version of its own (#3406)",
+    // A version's HTML and files are kept in the data folder's Canvases/, each under the SHA-256 of
+    // its bytes (core/canvases), so a file two versions share is kept once. files is JSON:
+    // [{ name, hash, type, size }], name as the HTML refers to it, type its media type found from
+    // its bytes. citations is JSON: the Citations IncarnaMind minted for the agent that its text
+    // cites, as minted. pairing_id is the outside agent's pairing that published it: a Canvas in
+    // no Folder is reached by that pairing alone, as a Note it wrote there is (#3364). A version
+    // the User restored has no pairing and no agent, and names the version it restored. A Canvas
+    // deleted permanently keeps its row as a tombstone (purged_at), as a Note does; its versions go
+    // once the files no other Canvas keeps are removed.
+    sql: `
+      CREATE TABLE canvases (
+        id TEXT PRIMARY KEY NOT NULL,
+        title TEXT NOT NULL,
+        folder_id TEXT,
+        pairing_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        purged_at TEXT
+      ) STRICT;
+      CREATE INDEX canvases_by_folder ON canvases (folder_id) WHERE deleted_at IS NULL;
+
+      CREATE TABLE canvas_versions (
+        id TEXT PRIMARY KEY NOT NULL,
+        canvas_id TEXT NOT NULL REFERENCES canvases (id),
+        number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        html_hash TEXT NOT NULL,
+        files TEXT NOT NULL DEFAULT '[]',
+        citations TEXT NOT NULL DEFAULT '[]',
+        pairing_id TEXT,
+        agent TEXT,
+        restored_from INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX canvas_versions_by_number ON canvas_versions (canvas_id, number)
+        WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 146,
+    description: "Requests to the User's own AI, kept for that agent to read (#3419)",
+    sql: `
+      -- What the User asked their own AI about a Note, beyond the line typed in the agent's app:
+      -- which Note, which sentences, what the check found and what to do, as text the agent
+      -- reads once with read_request (read_at). title is the Note's name as the line gave it, which
+      -- the agent may name it by after a rename. sentences is the JSON list a fix names, each with
+      -- the check result it was asked on ({sentence, checkId}). On this device only, as
+      -- agent_pairings is.
+      CREATE TABLE agent_requests (
+        id TEXT PRIMARY KEY NOT NULL,
+        pairing_id TEXT NOT NULL,
+        mind_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        sentences TEXT NOT NULL DEFAULT '[]',
+        text TEXT NOT NULL,
+        read_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX agent_requests_by_pairing ON agent_requests (pairing_id, created_at)
+        WHERE deleted_at IS NULL;
+      CREATE INDEX agent_requests_by_mind ON agent_requests (mind_id, created_at)
+        WHERE deleted_at IS NULL;
+
+      -- The request a read_request call read, which its activity row shows.
+      ALTER TABLE agent_activity ADD COLUMN request_id TEXT;
+    `,
+  },
 ];
 
 /**

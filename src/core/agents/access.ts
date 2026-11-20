@@ -40,7 +40,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { setTextOrigin } from "../../shared/textOrigins";
-import type { AnalysisRuntime } from "../adapters";
+import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
 import type {
   CheckTask,
@@ -57,7 +57,6 @@ import {
   type AgentActivity,
   type AgentCitationShown,
   type AgentNoteChange,
-  type AgentProblem,
   type AgentToolName,
   BLOCK_ID_ATTRIBUTE,
   type Citation,
@@ -68,17 +67,34 @@ import {
   type Mind,
   NOT_IN_A_FOLDER_ID,
 } from "../api";
+import { citedTokens } from "../canvases/markers";
 import type { CheckRecord } from "../checkRecord";
 import type { CitationSource } from "../documents";
 import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
 import { isRecord } from "../errors";
+import type { Language } from "../language";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { insertBlocks } from "../noteAdding";
+import {
+  type AgentCanvasListed,
+  type AgentCanvasPublished,
+  type AgentCanvasText,
+  type CanvasesInput,
+  type CanvasToolDeps,
+  createCanvasTools,
+} from "./canvases";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
+import {
+  HELD_PICTURE,
+  holdPictures,
+  inlinePictureChars,
+  NOTE_PICTURE_LIMITS,
+  readPictures,
+} from "./pictures";
 import {
   ChangeRefused,
   type CitedToken,
@@ -90,6 +106,9 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
+import { AgentRefusedError, text, whole } from "./refusals";
+import type { AgentRequests } from "./requests";
+import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
 import {
   type AgentAnalysed,
   type AgentCalculated,
@@ -232,6 +251,8 @@ export interface AgentMindList {
       meeting?: AgentHeldCall;
       voiceMemo?: AgentHeldCall;
     }[];
+    /** The Canvases in it the agent reaches (#3406), when there are any. */
+    canvases?: AgentCanvasListed[];
   }[];
 }
 
@@ -303,6 +324,8 @@ export interface AgentProposed {
   citations: AgentCheckedCitation[];
   /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
   uncited: string[];
+  /** Each picture or chart that isn't in the Note, and why: the Note has a line saying so (#3413). */
+  refused: VisualLeftOut[];
   /**
    * In a Note this agent wrote, how many of its sentences hold no check result now, and that
    * `check_mind_yourself` gives them (#3378); null when none do, and in any other Note.
@@ -330,6 +353,14 @@ export interface AgentCreated {
   citations: AgentCheckedCitation[];
   /** Sentences of the text with no Citation in them, at most `MAX_UNCITED`. */
   uncited: string[];
+  /** Each picture or chart that isn't in the Note, and why: the Note has a line saying so (#3413). */
+  refused: VisualLeftOut[];
+}
+
+/** A picture or chart an agent wrote that isn't in the Note: what it wrote, and why, in words. */
+export interface VisualLeftOut {
+  item: string;
+  reason: string;
 }
 
 export interface AgentCheckMindInput {
@@ -439,6 +470,18 @@ export interface AgentAskInput {
   folderIds?: string[];
 }
 
+/** Which of the pairing's waiting requests `read_request` reads: the one about this Note, by name. */
+export interface AgentReadRequestInput {
+  note?: string;
+}
+
+export interface AgentReadRequest {
+  mindId: string;
+  title: string;
+  /** What the User asked, beyond the line they sent: which Note, which sentences, what to do. */
+  request: string;
+}
+
 export interface AgentAnswer {
   status: "done" | "stopped";
   /** IncarnaMind's Answer in Markdown, each Citation as its token. */
@@ -477,18 +520,19 @@ export interface AgentAccess {
   calculate(input: AgentCalculateInput): Promise<AgentCalculated>;
   /** Runs code over what the agent may read, in IncarnaMind's sandbox (#3363). */
   runAnalysis(input: AgentAnalysisInput, signal?: AbortSignal): Promise<AgentAnalysed>;
+  /** Publishes a Canvas where the agent may write (#3406): its version 1. */
+  publishCanvas(input: CanvasesInput): Promise<AgentCanvasPublished>;
+  /** A Canvas the agent reaches, its newest version's HTML a part at a time. */
+  readCanvas(input: { canvasId?: unknown; offset?: unknown }): Promise<AgentCanvasText>;
+  /** A Canvas's next version, built on the one the agent read. */
+  updateCanvas(
+    input: CanvasesInput & { canvasId?: unknown; version?: unknown },
+  ): Promise<AgentCanvasPublished>;
+  /** What the User asked this agent from IncarnaMind beyond the line they sent, read once (#3419). */
+  readRequest(input: AgentReadRequestInput): Promise<AgentReadRequest>;
 }
 
-/** Why a call was refused or failed, in the interface language, for the agent to pass on. */
-export class AgentRefusedError extends Error {
-  constructor(
-    readonly problem: AgentProblem,
-    message: string,
-  ) {
-    super(message);
-    this.name = "AgentRefusedError";
-  }
-}
+export { AgentRefusedError } from "./refusals";
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -584,6 +628,15 @@ export interface AgentAccessDeps {
   passagesCovering?: AnswerDocuments["passagesCovering"];
   /** Runs `run_analysis`'s code; absent where this computer can't run Python for IncarnaMind. */
   analysisRuntime?: AnalysisRuntime;
+  /**
+   * Reads a picture file an agent names for a Note, with the host's reader of the files agents
+   * name (`CanvasFiles.readNamed`); absent where the host has none.
+   */
+  readNamed?(path: string, maxBytes: number): Promise<NamedFile>;
+  /** Draws an agent's SVG picture as a PNG, as a chart is drawn for Word; absent where the host can't. */
+  pictures?: Pictures;
+  /** The interface language, which a chart reads its figures in. */
+  language(): Language;
   /** The Library's lists of these Documents, Folders and notes alone, as `source` names them. */
   libraryLists(reach: AgentReach & { source: LibrarySource }): LibraryLists;
   /** The version of the Library's lists as a Note's own Check counts them, which its marks compare. */
@@ -665,8 +718,10 @@ export interface AgentAccessDeps {
   /** `CHECK_WAIT_MS`, unless a test waits less. */
   checkWaitMs?: number;
   citations: AgentCitations;
-  /** Keeps a call for the pairing's activity list. */
-  record(activity: Omit<AgentActivity, "id" | "at">): void;
+  /** The requests the User made of their own AI, kept for each agent to read once (./requests). */
+  requests: Pick<AgentRequests, "ofPairing" | "markRead">;
+  /** Keeps a call for the pairing's activity list, with the request it read. */
+  record(activity: Omit<AgentActivity, "id" | "at" | "request">, requestId?: string): void;
   /** A message in the interface language. */
   say(key: MessageKey, params?: MessageParams): string;
   /** Milliseconds, for how long a call took. */
@@ -676,6 +731,11 @@ export interface AgentAccessDeps {
   /** A new random id, for a request of changes and the Proposals it writes. */
   newId(): string;
   reportError(error: unknown): void;
+  /** The Canvases outside agents publish (#3406). */
+  canvases: CanvasToolDeps["canvases"];
+  /** Tells the windows an agent published a Canvas, or a new version of one. */
+  canvasChanged: CanvasToolDeps["canvasChanged"];
+  doneSince: CanvasToolDeps["doneSince"];
 }
 
 /**
@@ -783,24 +843,6 @@ function bestSentence(text: string, terms: readonly string[]): string | null {
   return best === null ? null : clip(best, READY_QUOTE_CHARS).replace(/…$/, "");
 }
 
-function text(value: unknown, what: string, max: number): string {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new AgentRefusedError("invalid", `${what} must be text.`);
-  }
-  if (value.length > max) {
-    throw new AgentRefusedError("invalid", `${what} is longer than ${max} characters.`);
-  }
-  return value.trim();
-}
-
-function whole(value: unknown, what: string, min: number, max: number, fallback: number): number {
-  if (value === undefined) return fallback;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
-    throw new AgentRefusedError("invalid", `${what} must be a whole number from ${min} to ${max}.`);
-  }
-  return value;
-}
-
 /**
  * The sentences of `texts` that make a claim with no Citation `counts`, at most `MAX_UNCITED`,
  * each without the mark of a list item or quote it is in. Headings and table rows aren't
@@ -827,6 +869,23 @@ function uncitedIn(texts: readonly string[], counts: (token: string) => boolean)
     .filter((sentence) => !sentence.includes(CITED) && makesAClaim(sentence))
     .slice(0, MAX_UNCITED)
     .map((sentence) => clip(sentence, 200));
+}
+
+/** A draft's words without its pictures and its charts' blocks, which make no claim to cite. */
+function proseOf(text: string): string {
+  const kept: string[] = [];
+  let fence: string | null = null;
+  for (const line of holdPictures(text).text.replace(HELD_PICTURE, "").split("\n")) {
+    if (fence !== null) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith(fence) && trimmed.replaceAll(fence[0] ?? "", "") === "") fence = null;
+      continue;
+    }
+    const opens = /^ {0,3}(`{3,}|~{3,})[ \t]*(\S*)/.exec(line);
+    if (opens?.[1] && opens[2] === CHART_FENCE) fence = opens[1];
+    else kept.push(line);
+  }
+  return kept.join("\n");
 }
 
 // Scanned by hand, never by a pattern that backtracks: a draft runs to `MAX_DRAFT_CHARS`, and a
@@ -895,7 +954,7 @@ function changeText(value: unknown, name: string, t: Say): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new AgentRefusedError("invalid", t("agents.propose.text", { name }));
   }
-  if (value.length > MAX_CHANGE_CHARS) {
+  if (value.length > MAX_CHANGE_CHARS + inlinePictureChars(value)) {
     throw new AgentRefusedError(
       "invalid",
       t("agents.propose.textTooLong", { name, max: MAX_CHANGE_CHARS }),
@@ -974,6 +1033,8 @@ interface Done<T> {
   count: number | null;
   documentIds: string[];
   effects?: Effect[];
+  /** The request the call read (`read_request`). */
+  requestId?: string;
 }
 
 type ReachDeps = Pick<
@@ -1061,6 +1122,33 @@ export function documentsForPairing(
 /** The core interface for one pairing's calls. */
 export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
+  const pictureLimit = { max: NOTE_PICTURE_LIMITS.bytes / (1024 * 1024) };
+  const reasonOf = (left: VisualRefused) =>
+    left.kind === "picture"
+      ? t(
+          `agents.picture.refused.${left.why}`,
+          left.why === "too-many" ? { max: NOTE_PICTURE_LIMITS.pictures } : pictureLimit,
+        )
+      : t(`agents.chart.refused.${left.why}`);
+  /** The pictures `texts` name, read for this call, and how its Blocks put them and its charts in place (#3413). */
+  const visualsFor = async (texts: readonly string[]): Promise<NoteVisuals> => ({
+    pictures: await readPictures(
+      texts.flatMap((each) => holdPictures(each).pictures),
+      deps.readNamed,
+      deps.pictures,
+    ),
+    language: deps.language(),
+    notFound: t("agents.answer.notFound"),
+    line: (left) =>
+      left.kind === "chart"
+        ? t("agents.chart.notDrawn", { reason: reasonOf(left) })
+        : left.name === ""
+          ? t("agents.picture.notAdded", { reason: reasonOf(left) })
+          : t("agents.picture.notAddedNamed", { name: left.name, reason: reasonOf(left) }),
+    newId: deps.newId,
+  });
+  const leftOut = (refused: readonly VisualRefused[]): VisualLeftOut[] =>
+    refused.map((each) => ({ item: each.item, reason: reasonOf(each) }));
   const label = (
     location: CitationLocation | null,
     pageFrom: number | null,
@@ -1081,20 +1169,27 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     run: (pairing: AdmittedPairing) => Promise<Done<T>> | Done<T>,
   ): Promise<T> {
     const started = deps.clock();
-    const record = (outcome: AgentActivity["outcome"], rest: Partial<AgentActivity>) => {
+    const record = (
+      outcome: AgentActivity["outcome"],
+      rest: Partial<AgentActivity>,
+      requestId?: string,
+    ) => {
       try {
-        deps.record({
-          pairingId,
-          tool,
-          summary: clip(summary, SUMMARY_CHARS),
-          outcome,
-          problem: null,
-          count: null,
-          documentIds: [],
-          effects,
-          durationMs: Math.max(0, Math.round(deps.clock() - started)),
-          ...rest,
-        });
+        deps.record(
+          {
+            pairingId,
+            tool,
+            summary: clip(summary, SUMMARY_CHARS),
+            outcome,
+            problem: null,
+            count: null,
+            documentIds: [],
+            effects,
+            durationMs: Math.max(0, Math.round(deps.clock() - started)),
+            ...rest,
+          },
+          requestId,
+        );
       } catch (error) {
         deps.reportError(error);
       }
@@ -1111,11 +1206,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     }
     try {
       const done = await run(pairing);
-      record("done", {
-        count: done.count,
-        documentIds: [...new Set(done.documentIds)],
-        effects: done.effects ?? effects,
-      });
+      record(
+        "done",
+        {
+          count: done.count,
+          documentIds: [...new Set(done.documentIds)],
+          effects: done.effects ?? effects,
+        },
+        done.requestId,
+      );
       return done.result;
     } catch (error) {
       if (error instanceof AgentRefusedError) {
@@ -1549,6 +1648,23 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
   };
 
+  const canvasTools = createCanvasTools({
+    deps,
+    t,
+    call,
+    reached: (pairing) => reachedFolders(deps, pairing),
+    placeToWriteIn,
+    cited: (pairing, html) => {
+      const inScope = new Set(scopeOf(pairing, undefined));
+      return citedTokens(html).map((token) => {
+        const kept = deps.citations.find(pairing.id, token);
+        if (!kept || !inScope.has(kept.documentId)) return { token, citation: null };
+        const { pairingId: _, ...citation } = kept;
+        return { token, citation };
+      });
+    },
+  });
+
   return {
     search(input, signal) {
       const query = typeof input?.query === "string" ? input.query : "";
@@ -1806,6 +1922,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               .slice(0, MAX_LISTED_DOCUMENTS),
           };
         };
+        const canvasesIn = (folderId: string) => {
+          const canvases = canvasTools.listedIn(pairing, folderId);
+          return canvases.length > 0 ? { canvases } : {};
+        };
         // No Note it wrote is older than the pairing, which spares reading the others' records.
         const yours = (mind: Mind) =>
           mind.createdAt >= pairing.createdAt && wrote(pairing, mind.id);
@@ -1858,6 +1978,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               minds: minds
                 .filter((mind) => mind.folderId === folder.id)
                 .map((mind) => row(mind, yours(mind), inFolder)),
+              ...canvasesIn(folder.id),
             };
           });
         if (reached.has(NOT_IN_A_FOLDER_ID)) {
@@ -1869,6 +1990,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             minds: minds
               .filter((mind) => mind.folderId === null && yours(mind))
               .map((mind) => row(mind, true, new Set(documentIds))),
+            ...canvasesIn(NOT_IN_A_FOLDER_ID),
           });
         }
         return {
@@ -2027,7 +2149,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       const known = deps.minds().find((mind) => mind.id === mindId);
-      return call("propose_changes", known ? mindName(known) : "", effects, (pairing) => {
+      return call("propose_changes", known ? mindName(known) : "", effects, async (pairing) => {
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
@@ -2037,6 +2159,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("invalid", t("agents.propose.version"));
         }
         const asked = parseChanges(input?.changes, t);
+        const visuals = await visualsFor(
+          asked.flatMap((change) => (change.kind === "add" ? [change.text] : [])),
+        );
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
         const tokens = new Map<
@@ -2077,6 +2202,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             },
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
+            visuals,
             newId: deps.newId,
             ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
           });
@@ -2131,6 +2257,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             citations,
             // As the change's bar counts them, from what was written, the Citations kept too.
             uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
+            refused: leftOut(written.refused),
             next:
               unchecked === 0
                 ? null
@@ -2150,13 +2277,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     createMind(input) {
       const named = typeof input?.title === "string" ? input.title.trim() : "";
       const unmade: Effect = { action: "write", scope: { kind: "mind", mindId: "" } };
-      return call("create_mind", named, [READ_DOCUMENTS, unmade], (pairing) => {
+      return call("create_mind", named, [READ_DOCUMENTS, unmade], async (pairing) => {
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         const title = text(input?.title, "title", MAX_TITLE_CHARS);
-        const written = text(input?.markdown, "markdown", MAX_DRAFT_CHARS);
+        const draft = typeof input?.markdown === "string" ? input.markdown : "";
+        const written = text(
+          input?.markdown,
+          "markdown",
+          MAX_DRAFT_CHARS + inlinePictureChars(draft),
+        );
         const folder = placeToWriteIn(pairing, input?.folderId);
+        const visuals = await visualsFor([written]);
+        // Counted once the pictures are read: from here the Note is written without a wait.
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
           throw new AgentRefusedError(
@@ -2174,12 +2308,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           const token = match[1] ?? "";
           if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
         }
-        let nodes: ReturnType<typeof newBlocks>["nodes"];
+        let made: ReturnType<typeof newBlocks>;
         try {
-          nodes = newBlocks(written, t("agents.create.text"), {
+          made = newBlocks(written, t("agents.create.text"), {
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
-          }).nodes;
+            visuals,
+          });
         } catch (error) {
           if (!(error instanceof ChangeRefused)) throw error;
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
@@ -2197,7 +2332,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           content: [{ type: "text", text: title }],
         };
         deps.editMind(mind.id, (blocks) => {
-          insertBlocks(blocks, ownHeading ? nodes : [heading, ...nodes]);
+          insertBlocks(blocks, ownHeading ? made.nodes : [heading, ...made.nodes]);
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {
             const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
@@ -2221,14 +2356,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           tables: 0,
           step: null,
         });
-        const made = deps.minds().find((each) => each.id === mind.id);
+        const listed = deps.minds().find((each) => each.id === mind.id);
         return {
           result: {
             mindId: mind.id,
-            title: (made && mindName(made)) || title,
+            title: (listed && mindName(listed)) || title,
             folder: folder.name,
             citations: [...tokens.values()].map((each) => each.report),
-            uncited: uncitedIn([written], (token) => tokens.get(token)?.cited?.citable === true),
+            uncited: uncitedIn(
+              [proseOf(written)],
+              (token) => tokens.get(token)?.cited?.citable === true,
+            ),
+            refused: leftOut(made.refused),
           },
           count: 1,
           documentIds: [...tokens.values()].flatMap((each) =>
@@ -2472,8 +2611,71 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         return { ...done, count: done.result.id === null ? 0 : 1 };
       });
     },
+
+    publishCanvas: canvasTools.publishCanvas,
+    readCanvas: canvasTools.readCanvas,
+    updateCanvas: canvasTools.updateCanvas,
+    readRequest(input) {
+      const named = typeof input?.note === "string" ? comparableName(input.note) : "";
+      const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
+      const titleOf = (mindId: string) => {
+        const mind = minds.get(mindId);
+        return mind ? mindName(mind) || t("mind.untitled") : "";
+      };
+      // The Note the User's line names, when the agent passes it on: by the name the line gave it,
+      // else by its name now. A request about it that was read already is never made up for by
+      // another Note's, which waits for its own line.
+      const kept = deps.requests.ofPairing(pairingId);
+      const given = kept.filter((each) => comparableName(each.title) === named);
+      const about =
+        given.length > 0
+          ? given
+          : kept.filter((each) => comparableName(titleOf(each.mindId)) === named);
+      const chosen = (named !== "" && about.length > 0 ? about : kept).find(
+        (each) => each.readAt === null,
+      );
+      const effects: Effect[] = chosen
+        ? [{ action: "read", scope: { kind: "mind", mindId: chosen.mindId } }]
+        : [];
+      const summary = chosen ? titleOf(chosen.mindId) : (input?.note ?? "");
+      return call(
+        "read_request",
+        typeof summary === "string" ? summary : "",
+        effects,
+        (pairing) => {
+          if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+          const mind = minds.get(chosen.mindId);
+          if (!mind) {
+            // Sharing a Folder can't bring it back, so the request goes rather than wait in front of
+            // the User's next one.
+            deps.requests.markRead(chosen.id);
+            throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+          }
+          if (!reaches(pairing, mind)) {
+            throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+          }
+          const read = deps.requests.markRead(chosen.id);
+          if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+          return {
+            result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
+            count: 1,
+            documentIds: [],
+            requestId: read.id,
+          };
+        },
+      );
+    },
   };
 }
+
+/** A Note's name as the User's line may give it: without its quotation marks or case. */
+const comparableName = (name: string) =>
+  name
+    .normalize("NFC")
+    .trim()
+    .replace(/^["“”'‘’「」『』]+|["“”'‘’「」『』]+$/gu, "")
+    .trim()
+    .toLocaleLowerCase();
 
 /** The labels of the figures `calculate` was given, for its activity row. */
 function givenFigureLabels(figures: unknown): string {

@@ -96,12 +96,29 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
         throw new Error("Not called.");
       },
     },
+    requests: { ofPairing: () => [], markRead: () => null },
     record: () => undefined,
     say: (key, params) => translate("en", key, params),
+    language: () => "en",
     clock: () => 0,
     now: () => "2026-11-01T09:00:00.000Z",
     newId: () => "id",
     reportError: () => undefined,
+    canvases: {
+      list: () => [],
+      get: () => null,
+      version: () => {
+        throw new Error("Not called.");
+      },
+      publish: () => {
+        throw new Error("Not called.");
+      },
+      update: () => {
+        throw new Error("Not called.");
+      },
+    },
+    canvasChanged: () => undefined,
+    doneSince: () => 0,
     ...overrides,
   };
   return createAgentAccess(deps, "pairing");

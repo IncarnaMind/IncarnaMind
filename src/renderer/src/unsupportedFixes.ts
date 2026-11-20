@@ -13,10 +13,12 @@ import type { Editor } from "@tiptap/core";
 import type { Mark as ProseMirrorMark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type * as Y from "yjs";
 import {
+  type AskedSentence,
   type AskVerdict,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
   type ClaimCheckPart,
+  MAX_ASKED_SENTENCES,
 } from "../../core/api";
 import { checkedScope, namedReason, saysNotFound, workedOutOf } from "../../shared/claimChecks";
 import { keepCheckAsView } from "../../shared/claimParts";
@@ -24,7 +26,7 @@ import { readFigures } from "../../shared/figures";
 import { figureNumber } from "../../shared/formula";
 import type { MessageKey } from "../../shared/i18n";
 import { inlineRange } from "../../shared/inlineText";
-import { INLINE_NODE, sentenceSpans } from "../../shared/sentences";
+import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { checkAgain, fixesFree, restoreCheck } from "./checks";
 import { underReview } from "./correctionFixes";
 import { makeMine } from "./editor/aiText";
@@ -244,6 +246,33 @@ export const findSourcesAt = (editor: Editor): ShownClaim | null =>
 /** The sentence the selection is in whose card says it needs a look, for ⌘K's Ask your AI; null for none. */
 export const askableAt = (editor: Editor): ShownClaim | null =>
   claimAt(editor, (editor, claim) => askVerdictOf(editor, claim) !== null);
+
+/**
+ * A sentence that needs a look, as a request to the User's own AI names it; null for one that
+ * doesn't. Its words are the claim's own, read with its positions: a card drawn while the document
+ * moves on holds positions the document no longer has.
+ */
+export function askedSentenceOf(editor: Editor, claim: ShownClaim): AskedSentence | null {
+  const verdict = askVerdictOf(editor, claim);
+  const sentence = comparableSentence(claim.sentence.text);
+  return verdict && sentence ? { sentence, verdict, checkId: claim.check.id } : null;
+}
+
+/**
+ * Every sentence of the Note that needs a look, in order, each once, for one request to fix them
+ * all (#3419); at most as many as one request names.
+ */
+export function askedSentences(editor: Editor): AskedSentence[] {
+  const seen = new Set<string>();
+  return shownClaims(editor.state)
+    .flatMap((claim) => {
+      const asked = askedSentenceOf(editor, claim);
+      if (!asked || seen.has(asked.sentence)) return [];
+      seen.add(asked.sentence);
+      return [asked];
+    })
+    .slice(0, MAX_ASKED_SENTENCES);
+}
 
 /** The contradicted sentence the selection is in, for ⌘K; null for none. */
 export const contradictedAt = (editor: Editor): ShownClaim | null =>

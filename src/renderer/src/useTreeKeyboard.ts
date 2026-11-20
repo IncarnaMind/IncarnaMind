@@ -24,6 +24,7 @@ const OBJECT_ROW = "[data-object-row]";
 const DELETES: Partial<Record<ObjectKind, CommandId>> = {
   mind: "mind.delete",
   document: "document.delete",
+  canvas: "canvas.delete",
   folder: "folder.delete",
   tag: "tag.delete",
 };

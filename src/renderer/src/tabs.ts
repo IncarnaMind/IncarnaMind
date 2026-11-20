@@ -1,6 +1,7 @@
 import type { LayoutTab, TabItem, WindowLayout } from "../../core/api";
 import { displayName } from "../../shared/documentNames";
 import { mindName } from "../../shared/naming";
+import { canvasOf } from "./canvases";
 import type { Translate } from "./objects";
 import type { useAppStore } from "./store";
 
@@ -14,6 +15,7 @@ export function tabTitle(state: AppState, item: TabItem, t: Translate): string {
     const name = (mind && mindName(mind)) || t("mind.untitled");
     return item.kind === "figures" ? t("figures.tab", { name }) : name;
   }
+  if (item.kind === "canvas") return canvasOf(item.canvasId)?.title || t("canvas.untitled");
   const document = state.documents.find((each) => each.id === item.documentId);
   return document ? displayName(document) : t("viewer.label");
 }

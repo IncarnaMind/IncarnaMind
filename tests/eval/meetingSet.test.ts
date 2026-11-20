@@ -74,7 +74,13 @@ describe("The meeting set's pins", () => {
         );
         expect(shards, c.id).toHaveLength(1);
       }
-      if (c.source === "ascend") expect(sources.files, c.id).toHaveProperty("ascend-test");
+      if (c.source === "ascend") {
+        const pair = sources.ascend[c.recording]?.pair ?? [];
+        expect(pair, c.id).toHaveLength(2);
+        expect(new Set(pair.map((p) => p.speaker)).size, c.id).toBe(2);
+        for (const participant of pair)
+          expect(sources.files, c.id).toHaveProperty(participant.source);
+      }
       if (c.source === "alimeeting-room") {
         expect(sessionFiles(c.recording), c.id).toEqual(
           expect.arrayContaining([`${c.recording}.far.wav`, `${c.recording}.TextGrid`]),
@@ -132,6 +138,7 @@ describe("Making the cases", () => {
         bytes: tar.length,
       },
     },
+    ascend: {},
     alimeeting: { url: "https://example.test/ali", entries: [] },
   };
   const serving = (async (url: string) =>

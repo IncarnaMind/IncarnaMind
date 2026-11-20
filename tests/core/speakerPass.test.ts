@@ -53,6 +53,20 @@ describe("The labels the speaker pass gives (#138)", () => {
     ).toEqual(["Speaker 1", "Speaker 1"]);
   });
 
+  test("a short interjection gets its own speaker when both voices cover the whole line", () => {
+    const room = [0, 10_000, 12_000, 14_000].map((start) => line(start, "Speaker ?"));
+    const turns = [
+      { startMs: 0, endMs: 20_000, voice: 5 },
+      { startMs: 9_000, endMs: 15_000, voice: 2 },
+    ];
+    expect(labelled(room, turns, false)?.map((cue) => cue.speaker)).toEqual([
+      "Speaker 1",
+      "Speaker 1",
+      "Speaker 2",
+      "Speaker 1",
+    ]);
+  });
+
   // protects=after the pass numbers the voices, no line keeps the label they replaced: a line no voice overlaps takes the nearest voice, in a call and in a room; fails_when=a line stays "Them" beside "Speaker 1, 2…", or "Speaker ?" after a room's pass, or takes a voice farther away; no_claim=whether the nearest voice is the right person, which eval/speakers measures.
   test("a line no voice overlaps takes the nearest voice, so none is left with the old label", () => {
     const call = [line(0, "Me"), line(2000, "Them"), line(4000, "Them"), line(9000, "Them")];
@@ -135,6 +149,36 @@ describe("The labels the speaker pass gives (#138)", () => {
 });
 
 describe("A speaker change inside a timed Transcript line", () => {
+  test("keeps a word-supported handoff when consecutive voices cover equal parts of the first phrase", () => {
+    const cue = {
+      startMs: 10_000,
+      endMs: 12_500,
+      text: "This one. Another word.",
+      speaker: "Speaker ?",
+      words: [
+        { at: 0, ms: 10_100 },
+        { at: 5, ms: 10_450 },
+        { at: 10, ms: 11_000 },
+        { at: 18, ms: 11_300 },
+      ],
+    };
+    const speakers = speakerLabels(
+      [cue],
+      [
+        { startMs: 0, endMs: 10_500, voice: 0 },
+        { startMs: 10_500, endMs: 13_000, voice: 1 },
+      ],
+      false,
+    );
+    const parts = partsOf(speakers, { ...cue, label: cue.speaker });
+    expect(
+      parts.map((part) => [part.text.trim(), speakerOf(speakers, part.startMs, part.label)]),
+    ).toEqual([
+      ["This one.", "Speaker 1"],
+      ["Another word.", "Speaker 2"],
+    ]);
+  });
+
   test.each([
     {
       text: "Created equal. Thank you.",

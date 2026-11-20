@@ -44,6 +44,32 @@ export const MENU_COMMANDS = {
 
 export type MenuCommandId = keyof typeof MENU_COMMANDS;
 
+/**
+ * The window's own shortcuts that still work while the focus is inside a Canvas (#3406): the
+ * command palette, Ask, and moving between tabs and groups. The window binds them from here, and
+ * the main process passes on these keys alone from a Canvas, with Esc; every other key is the
+ * page's. (The application menu's keys work there already: the menu takes them first.)
+ */
+export const KEYS_FROM_CANVASES = {
+  "palette.open": "CmdOrCtrl+K",
+  "composer.focus": "CmdOrCtrl+J",
+  "tab.next": "Ctrl+Tab",
+  "tab.previous": "Ctrl+Shift+Tab",
+  // ⌃1–⌃8 a tab of the focused group by its place, ⌃9 its last; Alt on Windows and Linux.
+  "tab.show1": { mac: "Ctrl+1", other: "Alt+1" },
+  "tab.show2": { mac: "Ctrl+2", other: "Alt+2" },
+  "tab.show3": { mac: "Ctrl+3", other: "Alt+3" },
+  "tab.show4": { mac: "Ctrl+4", other: "Alt+4" },
+  "tab.show5": { mac: "Ctrl+5", other: "Alt+5" },
+  "tab.show6": { mac: "Ctrl+6", other: "Alt+6" },
+  "tab.show7": { mac: "Ctrl+7", other: "Alt+7" },
+  "tab.show8": { mac: "Ctrl+8", other: "Alt+8" },
+  "tab.showLast": { mac: "Ctrl+9", other: "Alt+9" },
+  "group.focus1": "CmdOrCtrl+1",
+  "group.focus2": "CmdOrCtrl+2",
+  "group.focus3": "CmdOrCtrl+3",
+} as const satisfies Record<CommandId, ShortcutKeys>;
+
 export const isCommandId = (value: unknown): value is CommandId =>
   typeof value === "string" && /^[\w-]+\.[\w.-]+$/.test(value);
 

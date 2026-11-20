@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
+import { askAgent, useAgentsToAsk, useNoModel } from "../askYourAi";
 import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { EstimateMeta } from "../components/EstimateSource";
@@ -40,6 +41,7 @@ import { useFade } from "../motion";
 import { checkedCaveat, type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
+import { askedSentences } from "../unsupportedFixes";
 import { useGroupsMerged } from "../useWindowWidth";
 import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
@@ -266,6 +268,16 @@ export function CheckActions({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
   });
+  // Every sentence that needs a look, in one request to the User's own AI (#3419).
+  const [agent] = useAgentsToAsk(mindId);
+  const noModel = useNoModel();
+  const toAsk = useEditorState({
+    editor,
+    selector: ({ editor: current }) =>
+      agent && current.isEditable ? askedSentences(current).length : 0,
+  });
+  const askAll = agent && toAsk >= 2 ? agent : null;
+  const askLeads = askAll !== null && noModel && correctable === 0;
   if (askingMind) return <MindCheckAsk mindId={mindId} />;
   if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
   return (
@@ -298,6 +310,25 @@ export function CheckActions({
             })}
           </button>
         )}
+        {askAll && (
+          <button
+            type="button"
+            data-testid="badge-ask-agent-all"
+            disabled={running || editing}
+            className={buttonStyle(askLeads ? "primary" : "secondary", "sm")}
+            onClick={() => {
+              const sentences = askedSentences(editor);
+              if (sentences.length === 0) return;
+              void askAgent(askAll, mindId, { kind: "fix", sentences });
+              setCheckCardOpen(place, false);
+            }}
+          >
+            {t("agents.ask.fixAll", {
+              agent: askAll.name,
+              count: new Intl.NumberFormat(language).format(toAsk),
+            })}
+          </button>
+        )}
         <div className="check-card-press">
           <button
             ref={checkPress}
@@ -307,7 +338,7 @@ export function CheckActions({
             aria-hidden={running || undefined}
             disabled={running}
             title={planned === null ? undefined : checkTitle(t, planned)}
-            className={buttonStyle(correctable > 0 ? "secondary" : "primary", "sm")}
+            className={buttonStyle(correctable > 0 || askLeads ? "secondary" : "primary", "sm")}
             onClick={() =>
               void (checkPressOf(estimateState) === "ask"
                 ? startCheckUnpriced(mindId)

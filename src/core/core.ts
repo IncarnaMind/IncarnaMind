@@ -6,8 +6,9 @@ import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
 import { meetingTimeAt } from "../shared/blockTimes";
+import { canvasHostOf } from "../shared/canvases";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
-import { parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
+import { citedLocation, parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import {
   chosenExportMarks,
@@ -22,7 +23,7 @@ import { graphemeBoundary } from "../shared/graphemes";
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
-import { formatLocation, parseCitedArea, parseLocation } from "../shared/locations";
+import { formatLocation, parseCitedArea, parseLocation, type Translate } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import { isPartialMeetingFill } from "../shared/meetingFill";
 import {
@@ -174,6 +175,7 @@ import {
 import { createApprovals } from "./approvals";
 import { createBackgroundQueue } from "./backgroundQueue";
 import { createCalendars } from "./calendars";
+import { createCanvases } from "./canvases";
 import { describeModel } from "./chatModelNames";
 import { createCheckpoints } from "./checkpoints";
 import { createCheckRecord } from "./checkRecord";
@@ -285,7 +287,7 @@ import {
   meetingRecord,
   otherCallTranscripts,
 } from "./meetings";
-import { listParts, meetingFolder, systemRecording } from "./meetings/audioFiles";
+import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
@@ -463,6 +465,16 @@ export interface Core extends CoreApi, CoreEventSource {
    * NotFoundError for anything else.
    */
   openDocumentImage(documentId: string, path: string): Promise<DocumentImage>;
+  /**
+   * The Canvas a showing's host (`showCanvas`) draws (#3406), while it is live; null for a host
+   * minted for none. For the host's guards on the Canvas's session, so not on the bridge.
+   */
+  canvasShowing(host: string): string | null;
+  /**
+   * What a showing's address answers at `path` (#3406): its version's HTML at "/", and its files
+   * by name; null for anything else. For the host's scheme handler, so not on the bridge.
+   */
+  serveCanvas(host: string, path: string): Promise<{ bytes: Uint8Array; type: string } | null>;
   /**
    * Rewrites the keyword rows of Documents an older version indexed, one
    * Document per transaction, on the Document-processing worker and never on
@@ -762,6 +774,36 @@ export function createCore(adapters: CoreAdapters): Core {
       return result;
     };
   const minds = createMinds(db, now);
+  // Pages outside agents publish (#3406), kept with their versions; the host draws them.
+  const canvases = createCanvases({
+    db,
+    ...(adapters.canvasFiles && { files: adapters.canvasFiles }),
+    now,
+    newId: () => crypto.randomUUID(),
+    changed: (list) => events.emit("canvases.changed", list),
+    markerWords: (cited) => {
+      const t: Translate = (key, params) => translate(settings.get().language, key, params);
+      const live = new Map(documents.names().map((document) => [document.id, document]));
+      const labels = new Map(
+        cited.map((citation, at) => {
+          const document = live.get(citation.documentId);
+          const where = citedLocation(citation, t, document ? [document] : null);
+          return [
+            citation.token,
+            t("canvas.cite.label", {
+              n: at + 1,
+              document: document?.name ?? citation.documentName,
+              location: where ?? "",
+            }),
+          ];
+        }),
+      );
+      return {
+        label: (token) => labels.get(token) ?? "",
+        notFound: t("canvas.cite.notFound"),
+      };
+    },
+  });
   /** The Mind, if this version may write to it: not one of a kind a newer version made. */
   const writableMind = (mindId: unknown): Mind => {
     const mind = minds.get(mindId);
@@ -2757,7 +2799,7 @@ export function createCore(adapters: CoreAdapters): Core {
     for (const meetingId of meetingIds) meetingFill.halt(meetingId);
     content.removed(deleted.id, at);
     mindsChanged();
-    layouts.forgetDeletedMinds();
+    layouts.closeDeleted();
   };
 
   /** Sends a conversation to Recently deleted; what an Answer being written has is kept, before it goes. */
@@ -2769,30 +2811,42 @@ export function createCore(adapters: CoreAdapters): Core {
 
   /** Sends a Folder and the Folders inside it to Recently deleted; what they held goes to Not in a Folder. */
   const removeFolder = (id: unknown, at: string = now()) => {
-    const deletion = db.transaction(() => {
+    const { canvasesLeft, ...deletion } = db.transaction(() => {
       const folder = library.folder(id);
       const leftMinds: Record<string, string[]> = {};
       const leftConversations: Record<string, string[]> = {};
+      const leftCanvases: Record<string, string[]> = {};
       const mindIds: string[] = [];
       const conversationIds: string[] = [];
+      let canvasesLeft = false;
       for (const folderId of library.subtree(folder.id)) {
         const left = minds.leaveFolder(folderId);
         const leftChats = conversations.leaveFolder(folderId);
+        const leftPages = canvases.leaveFolder(folderId);
         leftMinds[folderId] = left.map((mind) => mind.id);
         leftConversations[folderId] = leftChats.map((conversation) => conversation.id);
+        leftCanvases[folderId] = leftPages.map((canvas) => canvas.id);
         mindIds.push(...left.filter((item) => item.live).map((item) => item.id));
         conversationIds.push(...leftChats.filter((item) => item.live).map((item) => item.id));
+        canvasesLeft ||= leftPages.some((canvas) => canvas.live);
       }
       const { assignments } = library.delete(
         folder.id,
-        { minds: leftMinds, conversations: leftConversations },
+        { minds: leftMinds, conversations: leftConversations, canvases: leftCanvases },
         at,
       );
-      return { assignments, mindIds, conversationIds };
+      return { assignments, mindIds, conversationIds, canvasesLeft };
     });
     if (deletion.mindIds.length > 0) mindsChanged();
     if (deletion.conversationIds.length > 0) conversationsChanged();
+    if (canvasesLeft) canvases.announce();
     return deletion;
+  };
+
+  /** Sends a Canvas to Recently deleted (#3406); its tabs close in every window, as a Mind's do. */
+  const removeCanvas = (canvasId: unknown, at: string = now()) => {
+    canvases.remove(typeof canvasId === "string" ? canvasId : "", at);
+    layouts.closeDeleted();
   };
 
   /** Sends a Tag to Recently deleted. */
@@ -4210,10 +4264,15 @@ export function createCore(adapters: CoreAdapters): Core {
       // A Mind deleted before a restart has no lines in the index's memory, and a restore stores nothing.
       for (const mindId of mindIds) mindIndex.contentStored(mindId);
       wordImports.resume(mindIds);
-      if (reopen) layouts.reopenMinds(mindIds);
-      else layouts.forgetMinds(mindIds);
+      if (reopen) layouts.reopenClosed(mindIds);
+      else layouts.forgetClosed(mindIds);
     },
-    mindsForgotten: (mindIds) => layouts.forgetMinds(mindIds),
+    canvases,
+    canvasesRestored: (canvasIds, reopen) => {
+      if (reopen) layouts.reopenClosed(canvasIds);
+      else layouts.forgetClosed(canvasIds);
+    },
+    forgotten: (ids) => layouts.forgetClosed(ids),
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -4234,7 +4293,8 @@ export function createCore(adapters: CoreAdapters): Core {
       library.allDocumentIds(id).length === 0 &&
       library.subtree(id).length === 1 &&
       !db.get("SELECT 1 FROM minds WHERE folder_id = ? AND deleted_at IS NULL", [id]) &&
-      !db.get("SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL", [id]),
+      !db.get("SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL", [id]) &&
+      !db.get("SELECT 1 FROM canvases WHERE folder_id = ? AND deleted_at IS NULL", [id]),
     saved: ({ filed, folderIds, tagged, tagsMade }) => {
       library.moved(filed);
       for (const folderId of folderIds) checks.folderContentsChanged(folderId);
@@ -4354,6 +4414,11 @@ export function createCore(adapters: CoreAdapters): Core {
     console.error("Deleting what waited 30 days in Recently deleted failed.", error);
   }
   documents.dropPurged().catch((error: unknown) => console.error(error));
+  canvases
+    .dropPurged()
+    .catch((error: unknown) =>
+      console.error("Removing the files of Canvases deleted permanently failed.", error),
+    );
 
   /**
    * What tagging may use changed (a model, a key, local mode): Automatic picks
@@ -4753,6 +4818,7 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     documentExists: (documentId) => documents.getMany([documentId]).length > 0,
+    canvasExists: (canvasId) => canvases.get(canvasId) !== null,
     changed: (windowId, layout) => events.emit("layout.changed", { windowId, layout }),
   });
   // The example Mind: its Citations are checked once its Documents have been read.
@@ -4782,7 +4848,7 @@ export function createCore(adapters: CoreAdapters): Core {
       });
       content.removed(deleted.id, at);
       mindsChanged();
-      layouts.forgetDeletedMinds();
+      layouts.closeDeleted();
     },
     restoreMind: (mindId) =>
       recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
@@ -5155,7 +5221,8 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const speakerReview = createMeetingSpeakerReview({
     parts: (id) => listParts(meetingFolder(dataDir, id)),
-    recording: systemRecording,
+    recording: sourceRecording,
+    roomReviewer: adapters.roomSpeakerReviewer,
     now,
     settings,
     cloud: cloudTranscription,
@@ -5713,6 +5780,9 @@ export function createCore(adapters: CoreAdapters): Core {
       passagesCovering: (documentId, from, to, overlapping) =>
         documents.passagesCovering(documentId, from, to, overlapping),
       ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+      ...(adapters.canvasFiles && { readNamed: adapters.canvasFiles.readNamed }),
+      ...(adapters.pictures && { pictures: adapters.pictures }),
+      language: () => settings.get().language,
       libraryLists: agentLibraryLists,
       libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
       citing,
@@ -5752,7 +5822,7 @@ export function createCore(adapters: CoreAdapters): Core {
         });
         // A heading that opens the Note is its title already: it is read once (#3371).
         const title = titled ? "" : mind.title || mind.autoTitle;
-        return renderMarkdown(title, blocks, exportLabels(language), { pictures: false }).text;
+        return renderMarkdown(title, blocks, exportLabels(language), { pictures: "marked" }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
@@ -5764,10 +5834,13 @@ export function createCore(adapters: CoreAdapters): Core {
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId) => checkRecord.build(mindId),
       show: (place) => events.emit("agents.citationShown", place),
+      canvases,
+      canvasChanged: (change) => events.emit("agents.canvasChanged", change),
     },
     skillInstalled: (client) => skillInstalled(home, client),
     changed: (value) => events.emit("agents.changed", value),
     called: (activity) => events.emit("agents.activity", activity),
+    requested: (request) => events.emit("agents.request", request),
     reportError: (error) => console.error(error),
   });
   agentsLocalModeChanged = () => agents.localModeChanged();
@@ -5804,6 +5877,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
     minds: () => minds.list(),
+    keepRequest: (request) => agents.keepRequest(request),
     openLink: adapters.agents?.openLink ?? null,
     say: (key, params) => translate(settings.get().language, key, params),
     log: adapters.log ?? silentLogger,
@@ -7263,6 +7337,7 @@ export function createCore(adapters: CoreAdapters): Core {
         else if (item.kind === "conversation") removeConversation(item.id, at);
         else if (item.kind === "folder") removeFolder(item.id, at);
         else if (item.kind === "tag") removeTag(item.id, at);
+        else if (item.kind === "canvas") removeCanvas(item.id, at);
       }
     },
     undoCommands: async (run) => commandSteps.undo(run),
@@ -7276,6 +7351,7 @@ export function createCore(adapters: CoreAdapters): Core {
         sources.dropPurged(),
         wordImports.dropPurged(),
         documents.dropPurged(),
+        canvases.dropPurged(),
       ]);
       transcripts?.dropPurged();
       // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
@@ -8048,6 +8124,53 @@ export function createCore(adapters: CoreAdapters): Core {
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
+    listCanvases: async () => canvases.forWindows(),
+    showCanvas: async (canvasId, version) =>
+      canvases.show(
+        typeof canvasId === "string" ? canvasId : "",
+        Number.isInteger(version) ? version : undefined,
+      ),
+    listCanvasVersions: async (canvasId) =>
+      canvases.versions(typeof canvasId === "string" ? canvasId : ""),
+    restoreCanvasVersion: async (canvasId, version) => {
+      if (!Number.isInteger(version))
+        throw new NotFoundError({ key: "error.canvas.versionNotFound" });
+      const { pairingId: _, ...canvas } = canvases.restoreVersion(
+        typeof canvasId === "string" ? canvasId : "",
+        version,
+      );
+      return canvas;
+    },
+    canvasCitation: async (frameUrl, token) => {
+      const host = typeof frameUrl === "string" ? canvasHostOf(frameUrl) : null;
+      const found = host && typeof token === "string" ? canvases.citation(host, token) : null;
+      if (!found) return null;
+      const { citation, number } = found;
+      const now = recheckCitation(documents, {
+        documentId: citation.documentId,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        location: citation.location,
+        contentHash: citation.contentHash,
+      });
+      return {
+        documentId: citation.documentId,
+        quote: citation.quote,
+        pageFrom: citation.pageFrom,
+        pageTo: citation.pageTo,
+        location: citation.location,
+        contentHash: citation.contentHash,
+        check: now.check,
+        checkReason: now.checkReason,
+        number,
+      };
+    },
+    deleteCanvas: async (canvasId) => removeCanvas(canvasId),
+    canvasShowing: (host) => canvases.showing(host),
+    serveCanvas: (host, path) => canvases.served(host, path),
+    listAgentRequests: async (mindId) =>
+      typeof mindId === "string" ? agents.requestsFor(mindId) : [],
     getAgentLaunch: (pairingId) => agents.launch(pairingId),
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),

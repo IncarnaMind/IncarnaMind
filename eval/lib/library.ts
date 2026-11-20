@@ -28,6 +28,7 @@ import {
   type SaveEmbeddingProviderInput,
   type TextRecognizer,
 } from "../../src/core";
+import type { CanvasFiles } from "../../src/core/adapters";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
 import { openDatabase } from "../../src/core/storage";
 import type { CorpusPassage } from "./corpus";
@@ -66,6 +67,8 @@ export interface LibraryOptions {
   reranker?: CrossEncoder;
   /** Reads scanned pages and pictures on this computer, as the app does; none without it. */
   textRecognizer?: TextRecognizer;
+  /** Keeps the Canvases an outside agent publishes (#3406); none can be published without it. */
+  canvasFiles?: CanvasFiles;
   documents: readonly EvalDocument[];
   /** The folder of the example Documents the app ships, for a run that makes the example Mind. */
   examples?: string;
@@ -309,6 +312,7 @@ export async function openLibrary(options: LibraryOptions): Promise<Library> {
     },
     embedder: options.embedder,
     ...(options.textRecognizer && { textRecognizer: options.textRecognizer }),
+    ...(options.canvasFiles && { canvasFiles: options.canvasFiles }),
     ...(options.ollamaModels && { ollamaModels: options.ollamaModels }),
     ...(options.agents && { agents: options.agents }),
     ...(options.analysisRuntime && { analysisRuntime: options.analysisRuntime }),

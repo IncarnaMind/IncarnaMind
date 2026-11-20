@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { Meeting, TabItem } from "../../../../core/api";
+import { useCanvases } from "../../canvases";
 import { useT } from "../../i18n";
 import { isLive, isWaitingForPermission, useMeetingOf, useMeetingTime } from "../../meetings";
 import { clockTime } from "../../meetingTime";
@@ -21,6 +22,8 @@ export const useTabPlace = () => useContext(TabPlaceContext);
 
 export function useTabTitle(item: TabItem): string {
   const t = useT();
+  // A Canvas's title is the Canvases' list's, apart from the app's store.
+  useCanvases((state) => (item.kind === "canvas" ? state.canvases : null));
   return useAppStore((state) => tabTitle(state, item, t));
 }
 
@@ -35,6 +38,7 @@ export function TabIcon({ item }: { item: TabItem }) {
   if (item.kind === "figures") return <DocumentLineIcon kind="csv" />;
   if (item.kind === "library") return <LooseDocumentsLineIcon />;
   if (item.kind === "home") return <HomeLineIcon />;
+  if (item.kind === "canvas") return <DocumentLineIcon kind="html" />;
   return <DocumentLineIcon kind={kind ?? "pdf"} />;
 }
 

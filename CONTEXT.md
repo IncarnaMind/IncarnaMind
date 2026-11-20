@@ -226,6 +226,10 @@ _Avoid_: tool script, code execution
 An AI agent the User runs themselves, such as Claude Code or Codex, connected to IncarnaMind so it can search and read the Folders the User shares with it, with the Folders inside them up to a work wall (a walled Folder is shared only on its own) (or the Documents in no Folder at the time of each call) and cite them with Citations IncarnaMind checks. If the User allows it, it can also write new Notes there and propose changes to the Notes in those Folders, which wait for them as Proposals; in a Note it wrote itself, and not a copy of one, its changes apply at once, each a step the User can undo (#3371). Given the Documents in no Folder, it writes its Notes there too, and reaches the Notes in no Folder that it wrote itself, never another (the owner's decision of 2026-11-19, #3364). The User connects each one in Settings, with its own Folders (none until chosen; with no Document yet, the Documents in no Folder added next), its own consent and a list of every call it made; disconnecting it stops it at once, and Local mode pauses it. Where the agent reads Skills, connecting it also installs a Skill in the agent's own skills folder that tells it when to use IncarnaMind, and disconnecting removes it if the User hasn't changed it.
 _Avoid_: harness, plugin, client, bot
 
+**Canvas** (页面):
+A page an Outside agent wrote and published to IncarnaMind, such as a report with pictures or a small dashboard: shown in a tab of its own as the agent designed it, with its scripts but no network and no reach into the app, and kept with every version the agent published. It is in a Folder the agent may write in, or in no Folder, where only that agent reaches it. The User doesn't edit it; their agent changes it, each change a new version.
+_Avoid_: page (a PDF's page), artifact, preview, web page (a Document saved from an address), app
+
 **Built-in Skill**:
 A Skill that ships with IncarnaMind and is updated with it: summarise a Document, a literature review across Documents, a Note to report, a covenant summary, CIM red flags, an earnings review, a credit memo outline, a deposition summary and a chronology. The User can turn one off, remove it and restore it, or duplicate it as their own, but not change it.
 _Avoid_: default Skill, system Skill
@@ -245,7 +249,7 @@ A saved copy of a Note as it was just before an AI change, or after a pause in w
 _Avoid_: snapshot, version, backup, undo
 
 **Recently deleted**:
-Where a deleted Note, Conversation, Document, Folder or Tag waits for 30 days, from where it can be restored or deleted permanently. Deleting never touches the User's files.
+Where a deleted Note, Conversation, Document, Folder, Tag or Canvas waits for 30 days, from where it can be restored or deleted permanently. Deleting never touches the User's files.
 _Avoid_: trash, bin, archive
 
 **Undo line**:

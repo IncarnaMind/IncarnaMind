@@ -186,6 +186,7 @@ export async function transcribingCore(
     capture: captureOptions,
     audioCapture,
     keychain,
+    roomSpeakerReviewer,
     speakerSeparator,
     speakerModelSource = NO_SPEAKER_FILES,
     transcriptionModelSource = NO_TRANSCRIPTION_FILES,
@@ -231,6 +232,7 @@ export async function transcribingCore(
     log?: Logger;
     keychain?: CoreAdapters["keychain"];
     /** Tells speakers apart after the call (#138); absent, the labels stay where lines came from. */
+    roomSpeakerReviewer?: CoreAdapters["roomSpeakerReviewer"];
     speakerSeparator?: SpeakerSeparator;
     /** Where the speaker models come from: none to download by default. */
     speakerModelSource?: CoreAdapters["speakerModelSource"];
@@ -280,6 +282,7 @@ export async function transcribingCore(
     ...(ollamaModels && { ollamaModels }),
     ...(log && { log }),
     ...(keychain && { keychain }),
+    ...(roomSpeakerReviewer && { roomSpeakerReviewer }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),
     ...(systemLanguages && { systemLanguages: () => systemLanguages }),
     ...(answerPaths && { answerPaths }),

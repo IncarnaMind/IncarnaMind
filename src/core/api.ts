@@ -4021,6 +4021,66 @@ export interface SettingsPatch {
 }
 
 // ---------------------------------------------------------------------------
+// Canvases (#3406): pages an outside agent writes, which IncarnaMind shows and keeps with their
+// versions. The User can't edit one; the agent that may write where it is publishes each version.
+
+export interface Canvas {
+  id: string;
+  title: string;
+  /** Its Folder; null when it is Not in a Folder. */
+  folderId: string | null;
+  /** The agent that published it, as the User had named its pairing then. */
+  agent: string;
+  /** Its newest version: 1 at its first publish, one more at each update. */
+  version: number;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A version of a Canvas, as its versions list shows it. */
+export interface CanvasVersionInfo {
+  /** 1 for its first publish, one more for each version after. */
+  number: number;
+  title: string;
+  /** The agent that published it, as the User had named its pairing then; null: the User restored it. */
+  agent: string | null;
+  /** The version the User restored as this one; null for one an agent published. */
+  restoredFrom: number | null;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
+
+/** Where a window draws a Canvas's version: an address that only this showing knows. */
+export interface CanvasFrame {
+  url: string;
+  version: number;
+}
+
+/** A Citation a Canvas's marker opens, as checked against its Document now (#3406). */
+export interface CanvasCitationPlace {
+  documentId: string;
+  quote: string;
+  pageFrom: number | null;
+  pageTo: number | null;
+  location: CitationLocation | null;
+  contentHash: string;
+  check: Exclude<CitationCheck, "checking">;
+  checkReason: CitationCheckReason | null;
+  /** Its number on the Canvas, as its marker shows it. */
+  number: number;
+}
+
+/** An outside agent published a Canvas, or a new version of one. */
+export interface AgentCanvasChange {
+  canvasId: string;
+  /** The agent, as the User named its pairing. */
+  agent: string;
+  kind: "published" | "updated";
+  version: number;
+}
+
+// ---------------------------------------------------------------------------
 // Tabs and groups: everything that opens is a tab, in up to three groups side
 // by side, as VS Code's editor groups. Each window keeps its own layout.
 
@@ -4033,7 +4093,8 @@ export type TabItem =
   | { kind: "figures"; mindId: string }
   | { kind: "library" }
   | { kind: "home" }
-  | { kind: "document"; documentId: string };
+  | { kind: "document"; documentId: string }
+  | { kind: "canvas"; canvasId: string };
 
 /**
  * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
@@ -11195,8 +11256,18 @@ export type WindowCommandResult = WindowCommandEnd | { started: true };
 /** How many days deleted things wait in Recently deleted before they are deleted permanently. */
 export const RECENTLY_DELETED_DAYS = 30;
 
-/** What deleting puts in Recently deleted. A conversation is the assistant's (ADR-0017); a Folder is an in-app one. */
-export const DELETED_KINDS = ["mind", "conversation", "document", "folder", "tag"] as const;
+/**
+ * What deleting puts in Recently deleted. A conversation is the assistant's (ADR-0017); a Folder is
+ * an in-app one; a Canvas is a page an outside agent published (#3406).
+ */
+export const DELETED_KINDS = [
+  "mind",
+  "conversation",
+  "document",
+  "folder",
+  "tag",
+  "canvas",
+] as const;
 export type DeletedKind = (typeof DELETED_KINDS)[number];
 
 export interface DeletedRef {
@@ -11250,8 +11321,9 @@ export interface DeletedItem {
   /** A Document's kind; null for the others. */
   documentKind: DocumentKind | null;
   /**
-   * The in-app Folder (`LibraryGroup`) a Mind, conversation or Document was in, or null: none, and
-   * for the others. One deleted after it still counts, until that Folder is deleted permanently.
+   * The in-app Folder (`LibraryGroup`) a Mind, conversation, Document or Canvas was in, or null:
+   * none, and for the others. One deleted after it still counts, until that Folder is deleted
+   * permanently.
    */
   groupId: string | null;
   /** A Document's Linked folder, or null: a file added on its own, and for the others. */
@@ -12254,8 +12326,19 @@ export interface MeetingTranscript {
 export type TranscriptionModelStatus = EmbeddingModelStatus;
 
 export interface MeetingSpeakerReviewQuote {
+  /** Present for an on-device room review, zero when its files are installed. */
+  roomDownloadBytes?: number;
   available: boolean;
-  reason: "audio" | "transcript" | "soniox" | "local" | "cap" | "duration" | null;
+  reason:
+    | "audio"
+    | "transcript"
+    | "soniox"
+    | "local"
+    | "cap"
+    | "duration"
+    | "people"
+    | "platform"
+    | null;
   durationMs: number;
   estimatedUsd: number;
   cached?: true;
@@ -12271,6 +12354,11 @@ export interface MeetingSpeakerSuggestion {
 }
 
 export interface MeetingSpeakerReviewResult {
+  uncertainSpeakers?: true;
+  /** Room speaker numbers can be claimed by manual edits after review. */
+  reviewedSpeakers?: TranscriptSpeakers | null;
+  /** Room reviews play the microphone track. Older call reviews play computer audio. */
+  source?: AudioSource;
   documentId: string;
   contentHash: string;
   suggestions: MeetingSpeakerSuggestion[];
@@ -12518,6 +12606,10 @@ export const AGENT_TOOLS = [
   "report_check",
   "calculate",
   "run_analysis",
+  "publish_canvas",
+  "read_canvas",
+  "update_canvas",
+  "read_request",
 ] as const;
 
 /**
@@ -12632,25 +12724,57 @@ export const ASK_VERDICTS = [
 ] as const;
 export type AskVerdict = (typeof ASK_VERDICTS)[number];
 
+/** A sentence of the Note that needs a look, as the check found it (#3373). */
+export interface AskedSentence {
+  sentence: string;
+  verdict: AskVerdict;
+  /** The check's result (`ClaimCheckAttributes.id`): the card says the request waits while it stands. */
+  checkId?: string;
+}
+
+/** The most sentences one request to the User's own AI names (#3419). */
+export const MAX_ASKED_SENTENCES = 30;
+
 /**
- * What the User asks their own AI from IncarnaMind (#3373): to fix a sentence of the Note that needs
- * a look, the words they typed in the chat box, or only the Note named, to go on in their AI.
+ * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
+ * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
+ * named, to go on in their AI.
  */
 export type AgentAsk =
   | { kind: "meeting"; meetingId: string }
-  | { kind: "fix"; sentence: string; verdict: AskVerdict }
+  | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
   | { kind: "note" };
 
 export interface AskAgentInput {
   pairingId: string;
-  /** The Note it is about, named by its title and its id; null for a question about no Note. */
+  /** The Note it is about, named by its title; null for a question about no Note. */
   mindId: string | null;
   ask: AgentAsk;
 }
 
-/** "opened": the agent's app opened with the request typed in it; "copy": `text`, for the User to paste. */
+/**
+ * "opened": the agent's app opened with the request's line typed in it; "copy": the line, `text`,
+ * for the User to paste. The rest of the request waits in IncarnaMind for that agent (#3419).
+ */
 export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string };
+
+/**
+ * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that
+ * agent: the line typed in the agent's app says what they want, and the agent reads the rest with
+ * `read_request`, once.
+ */
+export interface AgentRequest {
+  id: string;
+  pairingId: string;
+  mindId: string;
+  /** The sentences a fix names, each with the check result it was asked on; none for any other request. */
+  sentences: { sentence: string; checkId: string | null }[];
+  /** ISO 8601, UTC. */
+  createdAt: string;
+  /** When the agent read it; null while it waits. */
+  readAt: string | null;
+}
 
 /** An outside agent asked IncarnaMind to show one of its Citations (`show_citation`). */
 export interface AgentCitationShown extends DocumentPlace {
@@ -12705,6 +12829,8 @@ export interface AgentActivity {
   problem: AgentProblem | null;
   /** How many Passages, Citations or Minds it got; null when it got none. */
   count: number | null;
+  /** The request a `read_request` call read, as the agent got it (#3419); null for any other call. */
+  request: string | null;
   /** The Documents it got text from, by id. */
   documentIds: string[];
   /** What the call did: reading the Documents or a Mind, sending a Question to the chat model. */
@@ -14965,8 +15091,8 @@ export interface CoreApi {
    */
   readMeetingAudio(input: {
     meetingId: string;
-    /** A speaker review plays just the computer sound that Soniox heard. */
-    source?: "system";
+    /** Play the track that the speaker review checked. */
+    source?: AudioSource;
     fromMs: number;
     toMs: number;
   }): Promise<MeetingAudioStretch>;
@@ -14974,6 +15100,7 @@ export interface CoreApi {
   reviewMeetingSpeakers(input: {
     meetingId: string;
     confirmed: true;
+    onDevice?: true;
     /** View a previous review without authorizing another upload. */
     reuseOnly?: true;
   }): Promise<MeetingSpeakerReviewResult>;
@@ -15123,11 +15250,38 @@ export interface CoreApi {
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
   /**
-   * Ask your AI (#3373): a short request in the interface language, for the User to send in their
-   * own AI. Its app opens with the request typed where it documents a link for that; otherwise the
-   * request comes back to copy. Nothing is sent.
+   * Ask your AI (#3373): one line in the interface language, in the User's words, for them to send
+   * in their own AI. Its app opens with the line typed where it documents a link for that;
+   * otherwise the line comes back to copy. Nothing is sent. What the line doesn't say waits in
+   * IncarnaMind for that agent's `read_request` (#3419).
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
+  /** The live Canvases (#3406), newest first. */
+  listCanvases(): Promise<Canvas[]>;
+  /**
+   * Where to draw a live Canvas's version (#3406), its newest without `version`: an address minted
+   * for this showing alone. NotFoundError for one deleted or unknown.
+   */
+  showCanvas(canvasId: string, version?: number): Promise<CanvasFrame>;
+  /** A live Canvas's versions, newest first, each with who published it and when (#3406). */
+  listCanvasVersions(canvasId: string): Promise<CanvasVersionInfo[]>;
+  /**
+   * Brings an earlier version of a Canvas back as its newest (#3406), a version of its own: none is
+   * lost. The User can't change a Canvas otherwise.
+   */
+  restoreCanvasVersion(canvasId: string, version: number): Promise<Canvas>;
+  /**
+   * The Citation a marker opens in the Canvas drawn at `frameUrl` (#3406), by its token, among that
+   * version's own Citations alone, checked now; null for a token it doesn't cite.
+   */
+  canvasCitation(frameUrl: string, token: string): Promise<CanvasCitationPlace | null>;
+  /**
+   * Moves a Canvas to Recently deleted (#3406), where it waits as a Note does; its tabs close in
+   * every window. NotFoundError for one deleted or unknown.
+   */
+  deleteCanvas(canvasId: string): Promise<void>;
+  /** The requests made of the User's own AI about this Note, the newest first (#3419). */
+  listAgentRequests(mindId: string): Promise<AgentRequest[]>;
 }
 
 /**
@@ -15391,10 +15545,16 @@ export interface CoreEvents {
   "agents.changed": AgentSettings;
   /** An outside agent made a call (see `listAgentActivity`). */
   "agents.activity": AgentActivity;
+  /** A request to the User's own AI was made or read (see `listAgentRequests`). */
+  "agents.request": AgentRequest;
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
   "agents.noteChanged": AgentNoteChange;
+  /** The live Canvases changed: one was published or updated (#3406). */
+  "canvases.changed": Canvas[];
+  /** An outside agent published a Canvas, or a new version of one (#3406). */
+  "agents.canvasChanged": AgentCanvasChange;
 }
 
 export type CoreEventName = keyof CoreEvents;
@@ -15876,6 +16036,13 @@ const methods: Record<CoreApiMethod, true> = {
   copyAgentSetup: true,
   listAgentsToAsk: true,
   askAgent: true,
+  listCanvases: true,
+  showCanvas: true,
+  listCanvasVersions: true,
+  restoreCanvasVersion: true,
+  canvasCitation: true,
+  deleteCanvas: true,
+  listAgentRequests: true,
 };
 
 /** Every method of CoreApi, used to wire the IPC bridge. */

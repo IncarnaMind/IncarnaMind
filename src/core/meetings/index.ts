@@ -509,24 +509,19 @@ export function createMeetings(options: MeetingsOptions) {
     if (live !== current || heard.length === 0) return;
     // Frames already on their way when the microphone was paused are dropped here.
     if (source === "microphone" && microphonePausedAt.has(current.meetingId)) return;
-    const at = meetingTime(current);
-    // What the capture held at a pause can arrive after the resume (it flushes as it closes the
-    // microphone): only what was captured since the last resume counts, whenever it arrives. A
-    // stamp later than the arrival is a clock that is off, so the arrival counts instead.
-    const samples =
-      source === "microphone"
-        ? capturedSinceResumed(
-            current,
-            heard,
-            capturedAt === undefined ? at : Math.min(at, timeOf(current, capturedAt)),
-          )
-        : heard;
+    // Samples count from when they were captured: a busy app can take them in a second late with
+    // nothing lost, and what the capture held at a pause can arrive after the resume (it flushes
+    // as it closes the microphone), when only what was captured since counts. A stamp later than
+    // the arrival is a clock that is off, so the arrival counts instead.
+    const arrived = meetingTime(current);
+    const at = capturedAt === undefined ? arrived : Math.min(arrived, timeOf(current, capturedAt));
+    const samples = source === "microphone" ? capturedSinceResumed(current, heard, at) : heard;
     if (samples.length === 0) return;
     let run = current.runs.get(source);
     let stalledFrom: number | null = null;
     let unheard = 0;
-    // Samples that come much later than the run could have produced them (a device changed,
-    // the capture stalled) start a new run where they belong, so the parts keep the right times.
+    // Samples captured much later than the run could have produced them (a device changed, the
+    // capture stalled) start a new run where they belong, so the parts keep the right times.
     if (run && at - (run.startMs + msOf(run.samples + samples.length)) > DISCONTINUITY_MS) {
       stalledFrom = run.startMs + msOf(run.samples);
       endRun(current, source);
@@ -1246,7 +1241,7 @@ export function createMeetings(options: MeetingsOptions) {
         !Number.isFinite(fromMs) ||
         !Number.isFinite(toMs) ||
         !(toMs > fromMs) ||
-        (source !== undefined && source !== "system")
+        (source !== undefined && source !== "system" && source !== "microphone")
       ) {
         throw new InvalidInputError({ key: "error.meeting.audioStretch" });
       }

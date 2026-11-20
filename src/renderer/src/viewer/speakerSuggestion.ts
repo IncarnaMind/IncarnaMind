@@ -5,15 +5,23 @@ import {
   type LinePart,
   lineKey,
   partsOf,
+  SPEAKER_ME,
   speakerOf,
   type TranscriptLine,
 } from "../../../shared/speakers";
 import { fileLineOf } from "./transcriptTurnRows";
 
+export function reviewSpeakersMatch(
+  reviewed: TranscriptSpeakers | null | undefined,
+  current: TranscriptSpeakers | null,
+) {
+  return reviewed === undefined || JSON.stringify(reviewed) === JSON.stringify(current);
+}
+
 export function suggestionLines(cues: readonly Cue[], speakers: TranscriptSpeakers | null) {
   const lines = new Map<string, LinePart | null>();
   for (const cue of cues) {
-    if (!isTheirs(cue.speaker)) continue;
+    if (!cue.speaker || cue.speaker === SPEAKER_ME) continue;
     for (const part of partsOf(speakers, fileLineOf(cue))) {
       const key = lineKey(part.startMs, part.label);
       lines.set(key, lines.has(key) ? null : part);
@@ -33,8 +41,8 @@ export function suggestionLine(
   const speakers = document.speakers;
   if (
     document.contentHash !== contentHash ||
-    !isTheirs(fileLabel) ||
-    !isTheirs(currentLabel) ||
+    fileLabel === SPEAKER_ME ||
+    currentLabel === SPEAKER_ME ||
     !isTheirs(suggestedLabel) ||
     suggestedLabel === currentLabel ||
     speakerOf(speakers, startMs, fileLabel) !== expectedLabel
