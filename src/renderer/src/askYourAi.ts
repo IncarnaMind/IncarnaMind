@@ -84,8 +84,6 @@ const keepRequest = (request: AgentRequest) =>
     };
   });
 
-core.on("agents.request", keepRequest);
-
 /** Reads the requests made of the User's own AI about `mindId` while it is shown (#3419). */
 export function useReadAgentRequests(mindId: string): void {
   useEffect(() => {
@@ -94,8 +92,12 @@ export function useReadAgentRequests(mindId: string): void {
       if (!current) return;
       useRequests.setState(({ byMind }) => ({ byMind: { ...byMind, [mindId]: list } }));
     }, useAppStore.getState().reportError);
+    const stop = core.on("agents.request", (request) => {
+      if (request.mindId === mindId) keepRequest(request);
+    });
     return () => {
       current = false;
+      stop();
     };
   }, [mindId]);
 }

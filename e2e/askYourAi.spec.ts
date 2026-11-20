@@ -8,6 +8,7 @@ import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
   catchCopies,
+  closeSettings,
   copied,
   createDataFolder,
   dismissChatSetup,
@@ -92,7 +93,7 @@ async function claudeCode(launch: AgentLaunch): Promise<Client> {
 
 /**
  * The Note Claude Code wrote, its fuel sentence checked by Claude Code itself as overstated and
- * its booking sentence as unsupported.
+ * its booking sentence as not found.
  */
 async function writtenAndChecked(launch: AgentLaunch): Promise<string> {
   const agent = await claudeCode(launch);
@@ -114,7 +115,7 @@ async function writtenAndChecked(launch: AgentLaunch): Promise<string> {
         task,
         results: [
           { n: fuel?.n, verdict: "overstated", explanation: "£310,000 against £284,000." },
-          { n: booking?.n, verdict: "unsupported", explanation: "No Document mentions it." },
+          { n: booking?.n, verdict: "not found", explanation: "No Document mentions it." },
         ],
       },
     });
@@ -129,7 +130,7 @@ async function shot(window: Page, name: string) {
   const folder = process.env.INCARNAMIND_SCREENSHOTS;
   if (!folder) return;
   await mkdir(folder, { recursive: true });
-  await window.screenshot({ path: join(folder, `${name}.png`) });
+  await window.screenshot({ path: join(folder, `${name}.png`), animations: "disabled" });
 }
 
 /** The prompt a recorded link would have typed in Claude Code. */
@@ -210,6 +211,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-asked")).toHaveText("Claude Code read your request.");
     await shot(window, "ask-card-read-en");
+    await window.keyboard.press("Escape");
+    await expect(card).toBeHidden();
 
     // VS Code has no such link: from the card's ⋯ the request is copied, and the line says where to.
     await pointAndClick(window, mark);
@@ -232,6 +235,17 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     expect(typedIn((await urlsOpened(app))[2])).toBe(
       `Fix the 2 sentences IncarnaMind flagged in “${TITLE}”.`,
     );
+
+    // What Claude Code read can be read again in its Activity.
+    const settings = await openSettings(window, "agents");
+    const row = settings.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
+    await pointAndClick(window, row.getByTestId("agent-activity-toggle"));
+    const call = row.getByTestId("agent-activity-call").filter({ hasText: "Read your request" });
+    await expect(call).toContainText(`Read your request about “${TITLE}”`);
+    await pointAndClick(window, call.getByText("Show the request"));
+    await expect(call.getByTestId("agent-activity-request")).toContainText(OVERSTATED);
+    await shot(window, "activity-request-en");
+    await closeSettings(window);
 
     // The pill's key does what the pill does.
     await pointAndClick(window, frontMind(window).getByTestId("mind-editor"));
@@ -286,16 +300,9 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     expect(typedIn((await urlsOpened(app))[5])).toBe(
       `把 IncarnaMind 在笔记“${TITLE}”里标出来的那句改好。`,
     );
-
-    // What Claude Code read can be read again in its Activity.
-    const settings = await openSettings(window, "agents");
-    const row = settings.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
-    await pointAndClick(window, row.getByTestId("agent-activity-toggle"));
-    const call = row.getByTestId("agent-activity-call").filter({ hasText: "读取了你关于" });
-    await expect(call).toContainText(`读取了你关于“${TITLE}”的请求`);
-    await pointAndClick(window, call.getByText("查看请求"));
-    await expect(call.getByTestId("agent-activity-request")).toContainText(OVERSTATED);
-    await shot(window, "activity-request-zh-CN");
+    await pointAndClick(window, mark);
+    await expect(card.getByTestId("claim-asked")).toHaveText("等 Claude Code 读取你的请求。");
+    await shot(window, "ask-card-waiting-zh-CN");
   } finally {
     await app.close();
   }
