@@ -8445,6 +8445,27 @@ export const en = {
   "agents.canvas.refused.network":
     "is on the network, which a Canvas never reaches: give the file in files and refer to it by its name",
   "agents.create.folder": "Give folderId: one of the Folders list_minds lists.",
+  // A picture or chart an outside agent wrote that isn't in its note (#3413): the note's line
+  // about it, and the reason, which the agent is told too.
+  "agents.picture.notAdded": "Picture not added: {reason}.",
+  "agents.picture.notAddedNamed": "Picture “{name}” not added: {reason}.",
+  "agents.picture.refused.unreadable":
+    "its file can’t be read (a file named by its full path, never a link, a folder or a device)",
+  "agents.picture.refused.too-large":
+    "it is larger than {max} MB, the most a picture in a note may be",
+  "agents.picture.refused.type": "it isn’t a PNG, JPEG, GIF, WebP or SVG picture",
+  "agents.picture.refused.network":
+    "a note loads nothing from the internet: give it as a file on this computer or as a data: URL",
+  "agents.picture.refused.where": "give it by its full path on this computer, or as a data: URL",
+  "agents.picture.refused.too-many": "one call adds at most {max} pictures",
+  "agents.picture.refused.own-line": "a picture goes on a line of its own",
+  "agents.chart.notDrawn": "Chart not drawn: {reason}.",
+  "agents.chart.refused.noTable":
+    "a ```chart block goes right under the table of the figures it draws",
+  "agents.chart.refused.json": "its ```chart block isn’t JSON that gives its kind and title",
+  "agents.chart.refused.kind": "its kind is bar, line, pie or scatter",
+  "agents.chart.refused.noNumbers": "its table holds no column of numbers",
+  "agents.chart.refused.needsTwo": "a scatter chart needs two columns of numbers",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
   "agents.mind.busy": "(being written)",
@@ -8474,6 +8495,8 @@ export const en = {
     "The text for {name} has lines that read as a table’s rows but make no table.",
   "agents.propose.lost":
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
+  "agents.propose.visualAdded":
+    "{name} is rewritten in words alone: a picture or a chart goes in a paragraph of its own. Add it with {name}+.",
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
   "agents.propose.missingNumber":
@@ -8594,7 +8617,7 @@ export const en = {
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.hint":
-    "Its notes and Canvases appear at once, and it can have its notes checked. For a Canvas, IncarnaMind copies in the files it names, and only those. Its changes to your notes wait for you.",
+    "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. Its changes to your notes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",

@@ -34,4 +34,6 @@ Usage data goes only from a build with an analytics project and only if you choo
 
 An export you send yourself carries quotes from your Documents with their names; a web page to share also holds the passage around each quote and a picture of part of its page.
 
+An AI agent you let write can have IncarnaMind read picture files on this computer for a Note or a Canvas it writes: only the files it names in that call, each where it is, never through a link. IncarnaMind keeps them in that Note or Canvas and sends them nowhere.
+
 Your keys stay here and go only to their own service, except an AI agent's pairing key: a plain-text copy is in the agent's settings, setup command or install bundle, and any process under your account can read it, so keep it private. There is no sync: nothing is uploaded to an IncarnaMind account; there isn't one.

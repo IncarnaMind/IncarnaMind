@@ -184,8 +184,9 @@ export interface FileShell {
 
 /**
  * The files of the Canvases outside agents write (#3406): a file an agent names, read where it is
- * and nothing else of its folder, and the bytes of each version kept in the data folder by their
- * SHA-256. The desktop app reads with Node (src/main/canvasFiles.ts).
+ * and nothing else of its folder (a picture it names for a Note too, #3413), and the bytes of each
+ * version kept in the data folder by their SHA-256. The desktop app reads with Node
+ * (src/main/canvasFiles.ts).
  */
 export interface CanvasFiles {
   /**

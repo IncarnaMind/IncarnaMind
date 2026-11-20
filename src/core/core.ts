@@ -5779,6 +5779,8 @@ export function createCore(adapters: CoreAdapters): Core {
       passagesCovering: (documentId, from, to, overlapping) =>
         documents.passagesCovering(documentId, from, to, overlapping),
       ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+      ...(adapters.canvasFiles && { readNamed: adapters.canvasFiles.readNamed }),
+      language: () => settings.get().language,
       libraryLists: agentLibraryLists,
       libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
       citing,
@@ -5818,7 +5820,7 @@ export function createCore(adapters: CoreAdapters): Core {
         });
         // A heading that opens the Note is its title already: it is read once (#3371).
         const title = titled ? "" : mind.title || mind.autoTitle;
-        return renderMarkdown(title, blocks, exportLabels(language), { pictures: false }).text;
+        return renderMarkdown(title, blocks, exportLabels(language), { pictures: "marked" }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
