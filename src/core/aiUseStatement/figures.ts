@@ -9,7 +9,7 @@
  */
 import * as Y from "yjs";
 import { citationState, type LiveDocument } from "../../shared/citations";
-import { claimCheckShown, type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
+import { type SentenceResult, sentenceResultOf } from "../../shared/claimChecks";
 import { mindScopeOf } from "../../shared/mindScope";
 import { readProposalAttribute } from "../../shared/proposals";
 import { comparableSentence } from "../../shared/sentences";
@@ -17,7 +17,8 @@ import { toolCallsOf } from "../../shared/toolCalls";
 import { checkUnreadOf } from "../../shared/unreadFiles";
 import { countFor, countText, firstWords } from "../../shared/wordCount";
 import { isEdited, textAttribute } from "../answers/blocks";
-import { checkedSentences, figuresNow } from "../answers/checks/sentences";
+import { checkedSentences } from "../answers/checks/sentences";
+import { readingOf } from "../answers/checks/standing";
 import {
   type AiUseEntry,
   type AiUseKind,
@@ -341,23 +342,21 @@ export function readFigures(sources: FigureSources): AiUseFigures {
   const sentences = counts();
   const carried = counts();
   const versions = new Map(documents.map((document) => [document.id, document.contentHash]));
-  const { figureContexts } = figuresNow(fragment);
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
   const footing = noteFooting(fragment, { versions, folderId: sources.folderId, scope });
+  const reading = readingOf(fragment, {
+    versions,
+    folderId: sources.folderId,
+    scope,
+    reach: null,
+    footing,
+  });
   const checked: CheckedSentence[] = [];
   const requests: string[] = [];
   for (const marked of checkedSentences(fragment)) {
     const { check, sentence, cited } = marked;
     requests.push(check.request);
-    const shown = claimCheckShown(check, {
-      text: sentence,
-      citations: marked.citations,
-      footing,
-      figureContexts,
-      versions,
-      folderId: sources.folderId,
-      scope,
-    });
+    const shown = reading.ofMarked(marked, check);
     const result = sentenceResultOf(shown, check, cited.length);
     if (!result) continue;
     const fromAnswer = check.fromAnswer !== undefined;

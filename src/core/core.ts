@@ -10,6 +10,7 @@ import { canvasHostOf } from "../shared/canvases";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { citedLocation, parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
+import { foundElsewhere } from "../shared/claimChecks";
 import {
   chosenExportMarks,
   exportMarksOf,
@@ -41,7 +42,7 @@ import {
   setCitationStyle,
 } from "../shared/mindCitationStyle";
 import { mindModelOf, sameModel, setMindModel } from "../shared/mindModel";
-import { mindScopeIn } from "../shared/mindScope";
+import { mindScopeIn, mindScopeOf } from "../shared/mindScope";
 import { fingerprintOfBlocks } from "../shared/mindState";
 import {
   DEFAULT_MIND_STYLE,
@@ -72,10 +73,11 @@ import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
-import type { HandedClaim } from "./agents/handedFiles";
+import type { FoundClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
+import { createAgentSorting } from "./agents/sorting";
 import { withTabFences } from "./agents/tabs";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
@@ -88,6 +90,7 @@ import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { checkedSentences } from "./answers/checks/sentences";
+import { readingOf } from "./answers/checks/standing";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -5769,13 +5772,13 @@ export function createCore(adapters: CoreAdapters): Core {
     addHanded: (id, name, file, kind) => documents.addHanded(id, name, file, kind),
     readAgain: (path) => documents.checkNow(path),
     document: (documentId) => documents.get(documentId),
+    liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
-    checkUnasked: (mindId, keep) => inFlow("verify", () => checks.checkUnasked(mindId, keep)),
-    carryChecks: (from, to) => checks.carryChecks(from, to),
+    checkUnasked: (mindId, options) => inFlow("verify", () => checks.checkUnasked(mindId, options)),
     mindTitle: (mindId) => minds.get(mindId).title,
     nameMind: (mindId, title) => minds.rename(mindId, title),
     notesChanged: () => mindsChanged(),
@@ -5790,9 +5793,9 @@ export function createCore(adapters: CoreAdapters): Core {
           });
         }
       }),
-    marks: (mindId) => {
-      const { supported, needLook, formulas } = handedMarks(mindId);
-      return { supported, needLook: needLook.map(({ checkId: _, ...claim }) => claim), formulas };
+    marks: (mindId, reach) => {
+      const { needLook, ...marks } = handedMarks(mindId, reach);
+      return { ...marks, needLook: needLook.map(({ checkId: _, ...claim }) => claim) };
     },
     say: (key, params) => translate(settings.get().language, key, params),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -5817,10 +5820,15 @@ export function createCore(adapters: CoreAdapters): Core {
       )
       .join("");
 
-  /** What a handed-over file's check Note shows: its claims that need a look, where each is, its formulas. */
+  /**
+   * What a handed-over file's check Note shows whoever reaches `reach` (null: the User): its
+   * claims that need a look, where each is, its formulas, and the results that no longer stand
+   * for it, read as every stored result is (`readingOf`).
+   */
   function handedMarks(
     mindId: string,
-  ): Omit<HandedMarks, "needLook"> & { needLook: (HandedClaim & { checkId: string })[] } {
+    reach: ReadonlySet<string> | null,
+  ): Omit<HandedMarks, "needLook"> & { needLook: (FoundClaim & { checkId: string })[] } {
     const say = (key: MessageKey, params?: MessageParams) =>
       translate(settings.get().language, key, params);
     const kind = handedFiles.ofMind(mindId)?.file.kind;
@@ -5840,18 +5848,38 @@ export function createCore(adapters: CoreAdapters): Core {
           }
         }
       }
+      const reading = readingOf(fragment, {
+        versions: documentVersions(),
+        folderId: minds.get(mindId).folderId,
+        scope: fragment.doc ? mindScopeOf(fragment.doc) : null,
+        reach,
+      });
       let supported = 0;
-      const needLook: (HandedClaim & { checkId: string })[] = [];
-      for (const { element, check, sentence } of checkedSentences(fragment)) {
-        if (check.state === "checking") continue;
-        if (check.state === "supported") {
+      let checking = 0;
+      const stale: string[] = [];
+      const needLook: (FoundClaim & { checkId: string })[] = [];
+      for (const marked of checkedSentences(fragment)) {
+        const { element, check, sentence } = marked;
+        const shown = reading.ofMarked(marked, check);
+        if (shown.state === "checking") {
+          checking++;
+          continue;
+        }
+        // Not counted: a check makes it again, and told as not checked if none can.
+        if (shown.state === "needs-recheck") stale.push(check.id);
+        // The writer's own view, and what the User keeps as theirs: the check doesn't rule on it.
+        if (shown.state === "own-view" || shown.state === "kept") continue;
+        if (shown.state === "supported" || foundElsewhere({ shown, check })) {
           supported++;
           continue;
         }
+        if (shown.state === "not-checked" && shown.reason === "assistant-conclusion") continue;
         const result =
-          check.state === "unsupported" ? (check.unsupported?.word ?? "unsupported") : check.state;
-        // The writer's own view: the check doesn't rule on it, so it needs no look.
-        if (result === "own-view") continue;
+          shown.state === "unsupported"
+            ? (check.unsupported?.word ?? "unsupported")
+            : shown.state === "needs-recheck"
+              ? "not-checked"
+              : shown.state;
         const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
         const page = typeof id === "string" ? pages[id] : undefined;
         const sheet = typeof id === "string" ? sheets.get(id) : undefined;
@@ -5873,13 +5901,30 @@ export function createCore(adapters: CoreAdapters): Core {
                   .join(" | ")
               : sentence,
           result,
-          says: check.says ?? check.unsupported?.reason ?? null,
+          says:
+            shown.state === "needs-recheck"
+              ? null
+              : (check.says ?? check.unsupported?.reason ?? null),
+          // The Documents its result rests on: what it says is told only to an agent that reaches them.
+          documents: [
+            ...new Set(
+              [
+                check.evidence?.documentId,
+                ...check.versions.map((each) => each.documentId),
+                ...(check.parts ?? []).flatMap((part) =>
+                  (part.evidence ?? []).map((each) => each.documentId),
+                ),
+              ].filter((id): id is string => typeof id === "string"),
+            ),
+          ],
           checkId: check.id,
         });
       }
       const workbook = verification?.workbook;
       return {
         supported,
+        checking,
+        stale,
         needLook,
         formulas: workbook
           ? {
@@ -5915,6 +5960,12 @@ export function createCore(adapters: CoreAdapters): Core {
     launcher: adapters.agents?.launcher ?? { command: process.execPath, args: [] },
     version: adapters.agents?.version ?? "0.0.0",
     access: {
+      sorting: createAgentSorting(
+        db,
+        () => settings.get().language,
+        (run, rows) => organizeReview.propose(run, rows),
+        () => translate(settings.get().language, "agents.sorting.invalid"),
+      ),
       say: (key, params) => translate(settings.get().language, key, params),
       folders: () =>
         library.folders().map((folder) => ({
@@ -6020,13 +6071,13 @@ export function createCore(adapters: CoreAdapters): Core {
       checkTask: (mindId, documentIds) => checks.checkTaskOutside(mindId, documentIds),
       landJudged: (mindId, documentIds, agent, task, judged) =>
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
-      checkRecord: (mindId) => checkRecord.build(mindId),
+      checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),
       show: (place) => events.emit("agents.citationShown", place),
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
       handOver: (input) => handOver.handOver(input),
-      handedCheck: (mindId, waitMs) => handOver.handedCheck(mindId, waitMs),
+      handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
     },
     skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),
@@ -6112,7 +6163,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;
       const wheres = new Map(
-        handedMarks(mindId).needLook.map((claim) => [claim.checkId, claim.where]),
+        handedMarks(mindId, null).needLook.map((claim) => [claim.checkId, claim.where]),
       );
       return {
         title: found.file.title,
@@ -8392,7 +8443,9 @@ export function createCore(adapters: CoreAdapters): Core {
         version: found.version.number,
         versions: handedFiles
           .versions(found.file.id)
-          .map(({ id: _id, file: _file, ...version }) => version),
+          .map(
+            ({ id: _id, file: _file, unread: _unread, checkedAt: _checked, ...version }) => version,
+          ),
       };
     },
     listCanvases: async () => canvases.forWindows(),

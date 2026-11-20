@@ -33,6 +33,7 @@ import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { isListedMind } from "../../shared/listedMinds";
 import { mindName } from "../../shared/naming";
+import type { CheckRow } from "../../shared/noteHealth";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
 import {
   addsOnly,
@@ -113,6 +114,7 @@ import {
 } from "./proposals";
 import { AgentRefusedError, text, whole } from "./refusals";
 import type { AgentRequests } from "./requests";
+import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
 import {
@@ -376,10 +378,15 @@ export interface AgentCheckMindInput {
   mindId: string;
 }
 
-/** A claim of a checked Note that needs a look. */
+/** A claim of a checked Note that needs a look, isn't checked or can be cited. */
 export interface AgentCheckedClaim {
   sentence: string;
+  /** The count of the Note's page it is in. */
+  group: "needLook" | "notChecked" | "canBeCited";
+  /** "supported" only for a sentence that can be cited, "citation-not-found" for one with a Citation whose quote isn't found. */
   result:
+    | "supported"
+    | "citation-not-found"
     | "unsupported"
     | "contradicted"
     | "not-found"
@@ -412,12 +419,17 @@ export interface AgentMindCheck {
   stopped: string | null;
   /** The models that judged, as the Note's check record names them. */
   models: string[];
-  /** How many claims the check found supported. */
+  /** How many sentences the Note's page counts as supported. */
   supported: number;
-  /** How many need a look; `claims` lists the first `MAX_CHECKED_CLAIMS` of them. */
+  /** How many need a look: unsupported, contradicted, or a quote not found. */
   needLook: number;
+  /** How many weren't checked: no verdict, or one the User's wider check made on Documents this agent can't read. */
+  notChecked: number;
+  /** How many are supported by a Passage no Citation of theirs holds yet: the page's "can be cited". */
+  canBeCited: number;
   /** How many sentences the check found to be the writer's own view (#3322): none needs a look. */
   ownViews: number;
+  /** The first `MAX_CHECKED_CLAIMS` of the sentences that need a look, then those not checked, then those that can be cited, each in the Note's order. */
   claims: AgentCheckedClaim[];
 }
 
@@ -512,6 +524,8 @@ export interface AgentAccess {
   checkCitations(input: AgentCheckInput): Promise<AgentCheckResult>;
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
+  listSorting(after?: string): Promise<SortingBatch>;
+  proposeSorting(proposals: SortingProposal[]): Promise<{ waiting: number }>;
   listMinds(): Promise<AgentMindList>;
   readMind(input: AgentReadMindInput): Promise<AgentMindText>;
   ask(input: AgentAskInput, signal?: AbortSignal): Promise<AgentAnswer>;
@@ -602,6 +616,7 @@ const READY_QUOTE_CHARS = 300;
 
 /** A pairing allowed to call now. */
 export interface AdmittedPairing {
+  shareTagNames?: boolean;
   id: string;
   name: string;
   folderIds: string[];
@@ -612,6 +627,7 @@ export interface AdmittedPairing {
 }
 
 export interface AgentAccessDeps {
+  sorting: AgentSorting;
   /** The pairing, if it may call now; otherwise throws `AgentRefusedError`. */
   admit(pairingId: string): AdmittedPairing;
   /** The live Folders. */
@@ -719,8 +735,14 @@ export interface AgentAccessDeps {
     task: string,
     judged: readonly JudgedSentence[],
   ): Judged<LandedCheck>;
-  /** What a Note's checks found, sentence by sentence, as its check record lists them. */
-  checkRecord(mindId: string): Promise<Pick<CheckRecord, "models" | "sentences">>;
+  /**
+   * What a Note's checks found, sentence by sentence, as its check record lists them for an agent
+   * that reaches `reach`.
+   */
+  checkRecord(
+    mindId: string,
+    reach: ReadonlySet<string>,
+  ): Promise<Pick<CheckRecord, "models" | "sentences">>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
   /** What IncarnaMind worked out for agents, shared by every connection (`createAgentWorkings`). */
@@ -789,6 +811,9 @@ async function within<T>(run: Promise<T>, ms: number): Promise<T | null> {
 const SENT: ReadonlySet<string> = new Set(["checked", "failed", "cancelled"]);
 
 const CLAIM_RESULTS = {
+  // A supported sentence or a view is told only when one of its Citations isn't found: it needs a look.
+  supported: "citation-not-found",
+  ownView: "citation-not-found",
   unsupported: "unsupported",
   contradicted: "contradicted",
   notFound: "not-found",
@@ -796,6 +821,16 @@ const CLAIM_RESULTS = {
   needsRecheck: "needs-recheck",
   changed: "changed",
 } as const satisfies Record<string, AgentCheckedClaim["result"]>;
+
+/**
+ * The rows of the Note's check card an agent is told sentences of, with the count the page gives
+ * each, in the order `claims` lists them: what needs a look first, so the cap never hides it.
+ */
+const CLAIM_GROUPS = [
+  ["look", "needLook"],
+  ["toCheck", "notChecked"],
+  ["notYetCited", "canBeCited"],
+] as const satisfies readonly (readonly [CheckRow, AgentCheckedClaim["group"]])[];
 
 const READ_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 
@@ -1182,6 +1217,19 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       t,
       location?.kind === "time" && documentId ? deps.liveDocuments() : null,
     );
+
+  function sortingScope(pairing: AdmittedPairing) {
+    const reached = reachedFolders(deps, pairing);
+    if (!reached.size) throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
+    return {
+      documents: documentsForPairing(deps, pairing, [...reached], reached),
+      shareTagNames: pairing.shareTagNames === true,
+      folders: deps
+        .folders()
+        .filter((f) => reached.has(f.id))
+        .map(({ id, name }) => ({ id, name })),
+    };
+  }
 
   /** Runs a call: admits the pairing, then records what came of it. */
   async function call<T>(
@@ -1676,6 +1724,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     t,
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
+    again: () => deps.admit(pairingId),
+    documentsIn: (pairing) => new Set(scopeOf(pairing, undefined)),
+    noteReached: (pairing, mindId) => {
+      const mind = deps.minds().find((each) => each.id === mindId);
+      return mind !== undefined && reaches(pairing, mind);
+    },
     placeToWriteIn,
     waitMs: deps.checkWaitMs ?? CHECK_WAIT_MS,
   });
@@ -1933,6 +1987,33 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           documentIds: [kept.documentId],
         };
       });
+    },
+
+    listSorting(after) {
+      return call("list_sorting", "", [READ_DOCUMENTS], (pairing) => {
+        const result = deps.sorting.list(sortingScope(pairing), after);
+        return {
+          result,
+          count: result.documents.length,
+          documentIds: result.documents.map((doc) => doc.id),
+        };
+      });
+    },
+
+    proposeSorting(proposals) {
+      return call(
+        "propose_sorting",
+        "",
+        [{ action: "write", scope: { kind: "library" } }],
+        (pairing) => {
+          const waiting = deps.sorting.submit(sortingScope(pairing), pairing.name, proposals);
+          return {
+            result: { waiting },
+            count: waiting,
+            documentIds: proposals.map((p) => p.documentId),
+          };
+        },
+      );
     },
 
     listMinds() {
@@ -2465,39 +2546,49 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             : result?.kind === "checked" && result.stop
               ? t(`agents.check.stopped.${result.stop.reason}`)
               : null;
-        const record = await deps.checkRecord(mind.id);
         // What the agent reaches may have changed while the Check ran.
         const granted = deps.admit(pairingId);
         mindInScope(granted, mind.id);
         const inScope = new Set(scopeOf(granted, undefined));
+        // A result resting on a Document the agent doesn't reach doesn't stand for it.
+        const record = await deps.checkRecord(mind.id, inScope);
         const read = new Set<string>();
         // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
         const beyond = (item: (typeof record.sentences)[number]) =>
-          item.check !== null && (item.check.scope.widened || item.check.scope.chosen != null);
-        const ownViews = record.sentences.filter(
-          (item) => item.result === "ownView" && !beyond(item),
-        ).length;
-        const needLook = record.sentences.filter(
-          (item) => (item.result !== "supported" && item.result !== "ownView") || beyond(item),
+          item.scope.widened || item.scope.chosen != null;
+        // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
+        const rowOf = (item: (typeof record.sentences)[number]) =>
+          beyond(item) ? "toCheck" : item.row;
+        const counted = (row: CheckRow) =>
+          record.sentences.filter((item) => rowOf(item) === row).length;
+        const listed = CLAIM_GROUPS.flatMap(([row, group]) =>
+          record.sentences
+            .filter((item) => rowOf(item) === row)
+            .map((item) => ({ ...item, group })),
         );
-        const claims = needLook.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
+        const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
           const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
           const sentence = clip(item.text, READY_QUOTE_CHARS);
+          const { group } = item;
           if (beyond(item)) {
-            return { sentence, result: "not-checked", reason: "beyond-reach", ...unsaid };
+            return { sentence, group, result: "not-checked", reason: "beyond-reach", ...unsaid };
           }
+          // What the page calls Supported, not yet cited reads Supported here, not as the Not checked, found elsewhere it is stored as.
           const claim = {
             sentence,
-            result: CLAIM_RESULTS[item.result as keyof typeof CLAIM_RESULTS],
-            reason: item.reason,
+            group,
+            result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
+            reason: group === "canBeCited" ? null : item.reason,
           };
-          const judgedOn = item.judgedOn ? citationOf(item.judgedOn) : null;
+          // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
+          const passage = group === "canBeCited" ? item.toCite : item;
+          const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;
           // What a Document outside the pairing's Folders says stays there.
-          if (!judgedOn || !item.evidence || !inScope.has(judgedOn.documentId)) {
+          if (!passage || !judgedOn || !passage.evidence || !inScope.has(judgedOn.documentId)) {
             return { ...claim, ...unsaid };
           }
           read.add(judgedOn.documentId);
-          const { quote } = item.evidence;
+          const { quote } = passage.evidence;
           const found =
             quote !== null &&
             judgedOn.quote !== "" &&
@@ -2506,9 +2597,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             deps.recheck(judgedOn).check === "found";
           return {
             ...claim,
-            says: item.says,
-            document: item.evidence.name,
-            location: item.evidence.location,
+            says: passage.says,
+            document: passage.evidence.name,
+            location: passage.evidence.location,
             quote,
             cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
           };
@@ -2521,12 +2612,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               !result || result.kind === "running" ? "running" : stopped ? "stopped" : "checked",
             stopped,
             models: record.models,
-            supported: record.sentences.length - needLook.length - ownViews,
-            needLook: needLook.length,
-            ownViews,
+            supported: counted("supported"),
+            needLook: counted("look"),
+            notChecked: counted("toCheck"),
+            canBeCited: counted("notYetCited"),
+            ownViews: counted("ownViews"),
             claims,
           },
-          count: needLook.length,
+          count: listed.length,
           documentIds: [...read],
         };
       });

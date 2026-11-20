@@ -32,6 +32,7 @@ import {
   MAX_SEARCH_PAGE,
 } from "./access";
 import { OWN_VERDICT_WORDS } from "./ownCheck";
+import { SORTING_BATCH } from "./sorting";
 
 /** How the server names itself to agents. */
 export const SERVER_NAME = "incarnamind";
@@ -246,6 +247,56 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     (input) => answer(() => access.showCitation(input)),
   );
 
+  const choice = z.object({ id: z.string(), name: z.string() });
+  server.registerTool(
+    tool("list_sorting"),
+    {
+      title: "List Documents to organize",
+      description:
+        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Use next as after for more.",
+      inputSchema: z.object({ after: z.string().optional() }),
+      outputSchema: z.object({
+        documents: z.array(
+          choice.extend({
+            kind: z.string(),
+            version: z.string(),
+            folderId: z.string().nullable(),
+            text: z.string(),
+          }),
+        ),
+        folders: z.array(choice),
+        tags: z.array(choice),
+        next: z.string().nullable(),
+      }),
+      annotations: READ_ONLY,
+    },
+    ({ after }) => answer(() => access.listSorting(after)),
+  );
+  server.registerTool(
+    tool("propose_sorting"),
+    {
+      title: "Suggest Folders and Tags",
+      description:
+        "For Documents from list_sorting, suggest a fitting Folder and relevant Tags by id. The User confirms in Suggestions.",
+      inputSchema: z.object({
+        proposals: z
+          .array(
+            z.object({
+              documentId: z.string(),
+              version: z.string(),
+              folderId: z.string().optional(),
+              tagIds: z.array(z.string()).max(20).optional(),
+            }),
+          )
+          .min(1)
+          .max(SORTING_BATCH),
+      }),
+      outputSchema: z.object({ waiting: z.number() }),
+      annotations: { ...READ_ONLY, readOnlyHint: false },
+    },
+    ({ proposals }) => answer(() => access.proposeSorting(proposals)),
+  );
+
   server.registerTool(
     tool("list_minds"),
     {
@@ -419,7 +470,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "IncarnaMind's own check of a Note you wrote",
       description:
-        "IncarnaMind's own check of a Note you wrote, on its AI model: only when the User asks for it. Returns each claim that needs a look with what the Document says. While running, call again.",
+        "IncarnaMind's own check of a Note you wrote, on an AI model set up in IncarnaMind (refused if none is): only when the User asks for IncarnaMind's own check. It marks every claim against their Documents and counts each sentence once, as the Note's page does: needLook, notChecked, canBeCited (supported, its Passage not cited yet: its cite adds it), supported (nothing to do), ownViews. Say each by its name: only needLook sentences need a look. claims lists the first three, with group and what the Document says. When status is running, call again.",
       inputSchema: z.object({ mindId: z.string() }),
       outputSchema: z.object({
         mindId: z.string(),
@@ -429,11 +480,16 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         models: z.array(z.string()),
         supported: z.number(),
         needLook: z.number(),
+        notChecked: z.number(),
+        canBeCited: z.number(),
         ownViews: z.number(),
         claims: z.array(
           z.object({
             sentence: z.string(),
+            group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
             result: z.enum([
+              "supported",
+              "citation-not-found",
               "unsupported",
               "contradicted",
               "not-found",

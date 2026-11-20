@@ -1468,6 +1468,10 @@ export const en = {
     "Quote found in your copy of the opinion ({document}, {location}). Not checked whether it was overruled or changed. Check it in your legal research service before you rely on it.",
   "claim.unsupported.ownWorkings": "Only your own working file says this.",
   "claim.fixSentence": "Fix the sentence",
+  "claim.fixSentence.command": "Fix the sentence from the Documents",
+  "claim.fix.needsLook": "The new sentence still needs a look",
+  "claim.fix.doneMany": "Fixed {fixed} · Needs a look: {needsLook}",
+  "claim.fix.badge": "Fix {count} from the Documents",
   "claim.findSources": "Find sources",
   "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",
@@ -1621,6 +1625,8 @@ export const en = {
     "It was checked before each of its figures was checked with its own source.",
   "claim.recheck.referent": "The record cite its Id. or supra refers back to has changed.",
   "claim.recheck.library": "Your Library has changed since this was checked.",
+  "claim.recheck.context": "What stands above it has changed since it was checked.",
+  "claim.recheck.reach": "It rests on a Document outside the Folders the agent reads.",
   "claim.library.row": "{source}: {fact}",
   "claim.library.source.library": "Your Library",
   "claim.library.source.scope": "“{name}”",
@@ -1938,6 +1944,7 @@ export const en = {
   "edit.pending.instruction": "Making the changes…",
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
   "edit.pending.follow-citation": "Updating the sentence…",
+  "edit.pending.fix-sentence": "Fixing the sentence…",
   "edit.pending.part": "Writing part {at} of {of}…",
   "edit.ask.parts": "This edit is long: it is made in {count} parts",
   "edit.ask.start": "Edit it",
@@ -3348,7 +3355,7 @@ export const en = {
   "setupPage.sorting.local.line": "Free",
   "setupPage.sorting.local.none": "No model on this computer can sort yet.",
   "setupPage.sorting.agentAlone":
-    "Sorting runs by itself with a decision model or a model on this computer; otherwise it waits.",
+    "Automatic sorting uses a decision model, a model set up in IncarnaMind, or a model on this computer. You can also ask your connected AI to organize your Documents, then confirm its Suggestions.",
   "setupPage.sorting.provider": "Provider",
   "setupPage.meetings.title": "Meeting transcription",
   "setupPage.meetings.lead": "Turns what is said into text.",
@@ -5604,6 +5611,10 @@ export const en = {
     "Needs re-check: the record cite its Id. or supra refers back to has changed.",
   "export.comment.sentence.needs-recheck.library":
     "Needs re-check: your Library has changed since this was checked.",
+  "export.comment.sentence.needs-recheck.context":
+    "Needs re-check: what stands above it has changed since it was checked.",
+  "export.comment.sentence.needs-recheck.reach":
+    "Needs re-check: it rests on a Document outside the Folders the agent reads.",
   "export.comment.recordCite.result": "{raw}: {outcome}",
   "export.comment.recordCite.passage": "Passage: {passage}",
   "export.comment.recordCite.candidates": "Documents to choose from: {candidates}",
@@ -8379,7 +8390,7 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
+    "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
     "The shared Folders’ names, internal ids and Document counts, with each Document’s name, kind and internal id, the names, internal ids and last-change times of the notes in them and the titles, internal ids, versions and last-change times of the Canvases when the agent lists them, the part of a note it reads, with where the next part starts, a Canvas’s HTML and its files’ names, kinds and sizes when it reads one, and the numbers its code works out on this computer from those names and kinds and the Documents’ Tags, never the lists themselves",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
@@ -8639,6 +8650,14 @@ export const en = {
   "agents.activity.cite": "Cited “{text}”",
   "agents.activity.check_citations": "Checked its Citations",
   "agents.activity.show_citation": "Showed you a Citation",
+  "ai.jobs.organize.agent": "Ask your connected AI to suggest Folders and Tags.",
+  "agents.sorting.tagConsent": "Share these Documents’ Tag names with the model {agent} uses?",
+  "agents.sorting.shareTags": "Allow sharing Tag names",
+  "agents.sorting.invalid":
+    "The Documents or choices have changed. List the waiting Documents again and use their current Folders and Tags.",
+  "agents.activity.list_sorting": "Read Documents waiting to be organized",
+  "agents.activity.propose_sorting": "Suggested Folders and Tags",
+  "organizeReview.agent": "Suggested by {agent}",
   "agents.activity.list_minds": "Listed your notes",
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
@@ -8720,7 +8739,7 @@ export const en = {
   "agents.reason.no-python": "this computer can’t run code for it",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it. When you ask it to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",
@@ -8768,6 +8787,7 @@ export const en = {
   "agents.ask.others": "Ask another AI",
   "agents.ask.setUpModel": "Set up a model",
   "agents.ask.copied": "Copied. Paste it into {agent}.",
+  "agents.ask.opened": "Opened {agent} with your request typed. Send it there.",
   "agents.ask.fixCommand": "Ask your AI to fix this sentence",
   "agents.ask.noteCommand": "Ask your AI about this note",
   "agents.ask.fixAllCommand": "Ask your AI to fix every flagged sentence",
@@ -8795,18 +8815,27 @@ export const en = {
   "meetings.notesAgent.settings": "Agent settings",
   "meetings.summary.setting": "Automatic meeting summary",
   "meetings.summary.disclosure":
-    "The selected AI receives new transcript lines and the previous summary about once a minute and after you stop. Cloud requests count toward your AI’s usage.",
+    "The selected AI receives newly confirmed transcript lines, the previous overview, and its decisions and action items about once a minute and after you stop. Cloud requests count toward your AI’s usage.",
   "meetings.summary.off": "Off",
   "meetings.summary.builtin": "{model} via {provider}",
   "meetings.summary.setup":
     "Set up IncarnaMind AI or choose Codex or Claude Code for meeting notes.",
   "meetings.summary.agentUnavailable": "Selected AI unavailable",
   "meetings.summary.title": "Quick AI summary",
+  "meetings.summary.items": "Decisions and action items ({count})",
+  "meetings.summary.items.decision": "Decisions",
+  "meetings.summary.items.action": "Action items",
+  "meetings.summary.status.active": "Current",
+  "meetings.summary.status.open": "To do",
+  "meetings.summary.status.done": "Completed",
+  "meetings.summary.status.cancelled": "Canceled",
   "meetings.summary.preparing": "Preparing a summary…",
   "meetings.summary.updating": "Finishing the summary…",
   "meetings.summary.coverage": "Covers the transcript through {time}",
   "meetings.summary.empty": "No summary was generated.",
   "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
+  "error.meeting.codexSummaryTooLong":
+    "This update exceeds your installed Codex client’s 4,000-byte limit. Retry with a Codex version that supports longer meeting updates.",
   "error.meeting.summaryUnavailable":
     "Check the selected summary AI and its access to this meeting in Settings.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",
@@ -8820,17 +8849,19 @@ export const en = {
   "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
-    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
+    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}{quote}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
   "agents.ask.request.fixAll":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says these {count} sentences need a look:\n\n{sentences}\n\nFix each of them from my Documents, and change nothing else in the note. Then check the note again yourself.",
-  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}",
+  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}{quote}",
+  "agents.ask.request.quote":
+    "\n\nMy Documents say: {quote}\nRewrite it to say what that quote says and no more: add no figure, name or claim it doesn’t give.",
   "agents.ask.line.fixFile": "Fix what IncarnaMind flagged in the file {title}.",
   "agents.ask.line.fixFileAll": "Fix the {count} things IncarnaMind flagged in the file {title}.",
   "agents.ask.request.fixFile":
-    "In IncarnaMind, the check of the file you handed over, {title} (version {version}, from {path}), says this {verdict}:\n\n{where}{sentence}\n\nFix it in the file from my Documents, change nothing else, and hand the file over again with hand_over_file.",
+    "In IncarnaMind, the check of the file you handed over, {title} (version {version}, from {path}), says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the file from my Documents, change nothing else, and hand the file over again with hand_over_file.",
   "agents.ask.request.fixFileAll":
     "In IncarnaMind, the check of the file you handed over, {title} (version {version}, from {path}), says these {count} need a look:\n\n{sentences}\n\nFix each of them in the file from my Documents, change nothing else, and hand the file over again with hand_over_file.",
-  "agents.ask.request.fixFile.item": "{n}. {where}This {verdict}: {sentence}",
+  "agents.ask.request.fixFile.item": "{n}. {where}This {verdict}: {sentence}{quote}",
   "agents.ask.request.fixFile.where": "On {where}: ",
   "agents.ask.request.noteFile":
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",

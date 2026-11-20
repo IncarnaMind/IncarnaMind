@@ -926,9 +926,9 @@ test("Check with nothing changed sends nothing: the marks stay and the card says
   const every = unchanged.getByTestId("mind-check-every");
   await expect(every).toHaveText("Check every sentence again");
   // The price line's own stops, its tip and Pricing ↗, lie between the line and the card's
-  // actions, Check and the correction its contradicted sentence offers (#1257).
+  // actions, Check and the fix its contradicted sentence offers (#1257, #3383).
   await window.keyboard.press("Shift+Tab");
-  await expect(card.getByTestId("badge-correct-contradictions")).toBeFocused();
+  await expect(card.getByTestId("badge-fix-sentences")).toBeFocused();
   await window.keyboard.press("Shift+Tab");
   await expect(card.getByTestId("estimate-pricing")).toBeFocused();
   await window.keyboard.press("Shift+Tab");

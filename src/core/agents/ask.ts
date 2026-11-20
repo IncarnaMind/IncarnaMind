@@ -72,6 +72,10 @@ export interface AgentRequestText {
 
 const verdictOf = (asked: AskedSentence, say: Say) => say(`agents.ask.verdict.${asked.verdict}`);
 
+/** What the Documents say instead, for a sentence its check found a quote against (#3383). */
+const quoteOf = (asked: AskedSentence, say: Say) =>
+  asked.quote ? say("agents.ask.request.quote", { quote: quotedName(asked.quote) }) : "";
+
 /** The line the User sends, and the request that waits: the Note named by its title, and its id in the request. */
 export function agentRequest(
   note: { title: string; mindId: string } | null,
@@ -130,6 +134,7 @@ export function agentRequest(
             ...named,
             sentence: quotedName(only.sentence),
             verdict: verdictOf(only, say),
+            quote: quoteOf(only, say),
           }),
           sentences,
         };
@@ -145,6 +150,7 @@ export function agentRequest(
                 n: at + 1,
                 sentence: quotedName(each.sentence),
                 verdict: verdictOf(each, say),
+                quote: quoteOf(each, say),
               }),
             )
             .join("\n"),
@@ -190,6 +196,7 @@ function fileRequest(
         where: whereOf(only),
         sentence: quotedName(only.sentence),
         verdict: verdictOf(only, say),
+        quote: quoteOf(only, say),
       }),
       sentences,
     };
@@ -206,6 +213,7 @@ function fileRequest(
             where: whereOf(each),
             sentence: quotedName(each.sentence),
             verdict: verdictOf(each, say),
+            quote: quoteOf(each, say),
           }),
         )
         .join("\n"),
@@ -213,6 +221,9 @@ function fileRequest(
     sentences,
   };
 }
+
+/** The most of a quote a request carries, in characters: a Passage's sentence or two. */
+const MAX_ASKED_QUOTE = 600;
 
 const words = (value: unknown): string => {
   if (typeof value !== "string" || value.trim() === "") {
@@ -246,7 +257,16 @@ function parseSentence(value: unknown): AskedSentence {
   const verdict = isRecord(value) ? ASK_VERDICTS.find((each) => each === value.verdict) : undefined;
   if (!isRecord(value) || !verdict) throw new InvalidInputError({ key: "error.agent.askRequest" });
   const checkId = typeof value.checkId === "string" && value.checkId !== "" ? value.checkId : null;
-  return { sentence: words(value.sentence), verdict, ...(checkId && { checkId }) };
+  const quote =
+    typeof value.quote === "string" && value.quote.trim() !== ""
+      ? value.quote.trim().slice(0, MAX_ASKED_QUOTE)
+      : null;
+  return {
+    sentence: words(value.sentence),
+    verdict,
+    ...(checkId && { checkId }),
+    ...(quote && { quote }),
+  };
 }
 
 function parseInput(input: unknown): AskAgentInput {

@@ -6,7 +6,7 @@
  * Citation.
  */
 import type { Editor } from "@tiptap/core";
-import { type EditorState, TextSelection } from "@tiptap/pm/state";
+import { type EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import { create } from "zustand";
 import {
@@ -339,11 +339,24 @@ export function restoreCheck(
   claim: ShownClaim,
   earlier: ClaimCheckAttributes,
 ): void {
+  restoreCheckAt(
+    editor,
+    { from: Math.min(claim.from, claim.sentence.from), to: Math.max(claim.to, claim.sentence.to) },
+    earlier,
+  );
+}
+
+/** `restoreCheck` over the words from `from` to `to`, as Undo has brought them back. */
+export function restoreCheckAt(
+  editor: Editor,
+  range: { from: number; to: number },
+  earlier: ClaimCheckAttributes,
+): void {
   if (editor.isDestroyed) return;
   const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
   if (!type) return;
-  const from = Math.max(0, Math.min(claim.from, claim.sentence.from));
-  const to = Math.min(editor.state.doc.content.size, Math.max(claim.to, claim.sentence.to));
+  const from = Math.max(0, range.from);
+  const to = Math.min(editor.state.doc.content.size, range.to);
   if (from >= to) return;
   const tr = editor.state.tr;
   editor.state.doc.nodesBetween(from, to, (node, pos) => {
@@ -476,18 +489,35 @@ function partCitationInserts(
   return inserts;
 }
 
-function insertCitations(editor: Editor, inserts: CitationInserts): void {
-  const { state } = editor;
+function citationsInserted(state: EditorState, inserts: CitationInserts): Transaction {
   const type = state.schema.nodes[CITATION_NODE];
-  if (!type) return;
   const tr = state.tr;
+  if (!type) return tr;
   for (const { at, citations } of inserts.toSorted((a, b) => b.at - a.at)) {
     tr.insert(
       at,
       citations.map((citation) => type.create(foundCitation(citation))),
     );
   }
-  asOneStep(editor, () => editor.view.dispatch(tr));
+  return tr;
+}
+
+function insertCitations(editor: Editor, inserts: CitationInserts): void {
+  asOneStep(editor, () => editor.view.dispatch(citationsInserted(editor.state, inserts)));
+}
+
+/**
+ * What `addPartCitations` would add, as a change the caller dispatches and places in Undo, as a fix
+ * joins it to its own step (#3383); null when there is nothing to add.
+ */
+export function partCitationsChange(
+  state: EditorState,
+  claim: ShownClaim,
+  parts: readonly ClaimCheckPart[],
+): Transaction | null {
+  if (!state.schema.nodes[CITATION_NODE]) return null;
+  const inserts = partCitationInserts(state, claim, parts);
+  return inserts === "changed" || inserts.length === 0 ? null : citationsInserted(state, inserts);
 }
 
 /**

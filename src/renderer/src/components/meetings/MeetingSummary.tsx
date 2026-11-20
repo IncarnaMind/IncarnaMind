@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import type { Meeting } from "../../../../core/api";
+import type { Meeting, MeetingSummaryItem } from "../../../../core/api";
 import { core } from "../../core";
 import { useT } from "../../i18n";
 import { frontTabOfMind } from "../../layoutSlice";
@@ -9,6 +9,52 @@ import { useAppStore } from "../../store";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { ProblemLine, ProblemMark } from "../ProblemLine";
 import { useTabPlace } from "../tabs/tabItems";
+
+function SummaryItems({ items }: { items: readonly MeetingSummaryItem[] }) {
+  const t = useT();
+  return (
+    <details data-testid="meeting-summary-items" className="mt-2 max-w-3xl">
+      <summary className="w-fit max-w-full cursor-pointer rounded-sm py-1 text-[13px] leading-5 font-medium text-ink-secondary hover:text-ink">
+        {t("meetings.summary.items", { count: items.length })}
+      </summary>
+      <div className="mt-2 space-y-3 ps-4">
+        {(["decision", "action"] as const).map((kind) => {
+          const group = items.filter((item) => item.kind === kind);
+          if (!group.length) return null;
+          const heading = t(`meetings.summary.items.${kind}`);
+          const ordered = [
+            ...group.filter((item) => item.status === "active"),
+            ...group.filter((item) => item.status !== "active"),
+          ];
+          return (
+            <div key={kind}>
+              <h3 className="text-[13px] leading-5 font-semibold text-ink">{heading}</h3>
+              <ul aria-label={heading} className="mt-1 space-y-2">
+                {ordered.map((item) => (
+                  <li
+                    key={item.id}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 text-[13px] leading-5"
+                  >
+                    <span className="break-words whitespace-pre-wrap text-ink-answer">
+                      {item.text}
+                    </span>
+                    <span className="text-[12px] whitespace-nowrap text-ink-meta">
+                      {t(
+                        item.status === "active" && kind === "action"
+                          ? "meetings.summary.status.open"
+                          : `meetings.summary.status.${item.status}`,
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
 
 export function MeetingSummary({
   meeting,
@@ -68,7 +114,7 @@ export function MeetingSummary({
       aria-labelledby={id}
       className={
         inTranscript
-          ? "max-h-[35vh] shrink-0 overflow-auto border-b border-rule px-4 py-3"
+          ? "max-h-[min(35vh,65%)] shrink-0 overflow-auto border-b border-rule px-4 py-3 has-[details[open]]:max-h-[65%]"
           : "mb-4 border-b border-rule pb-3"
       }
     >
@@ -86,7 +132,9 @@ export function MeetingSummary({
           }}
         >
           <ProblemMark />
-          {t(text ? "meetings.summary.updateFailed" : "meetings.summary.failed")}
+          {summary.problem === "codex-input-limit"
+            ? t("error.meeting.codexSummaryTooLong")
+            : t(text ? "meetings.summary.updateFailed" : "meetings.summary.failed")}
         </ProblemLine>
       )}
       {(progress || coverage) && (
@@ -102,6 +150,7 @@ export function MeetingSummary({
           {text}
         </p>
       )}
+      {!!summary.items?.length && <SummaryItems key={meeting.id} items={summary.items} />}
     </section>
   );
 }

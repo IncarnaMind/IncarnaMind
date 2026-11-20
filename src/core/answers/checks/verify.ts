@@ -23,7 +23,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { checkedSentence, claimCheckShown, type NoteFooting } from "../../../shared/claimChecks";
+import { checkedSentence } from "../../../shared/claimChecks";
 import { partsToCheck } from "../../../shared/claimParts";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { setTextOrigin } from "../../../shared/textOrigins";
@@ -74,16 +74,11 @@ import type { NotAskedReason } from "./mindCheck";
 import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
 import { runChecks } from "./runChecks";
-import {
-  checkText,
-  everySentence,
-  markedSentences,
-  markSentence,
-  type SelectedSentence,
-} from "./sentences";
+import { everySentence, markedSentences, markSentence, type SelectedSentence } from "./sentences";
+import { claimOf, judgedWithOf, readingOf, saidOf, slideOf } from "./standing";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks, slideText } from "./verifySlides";
-import { documentBlocks, tableClaim, type WorkbookCells } from "./verifyTables";
+import { documentBlocks } from "./verifyTables";
 import {
   cellBlockId,
   checkFormulas,
@@ -104,10 +99,26 @@ const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "read
 /** A workbook, checked a sheet at a time (#3278). */
 const WORKBOOK_FILE = /\.xlsx$/i;
 
-const NO_FOOTING: NoteFooting = new Map();
-
 /** A result a check landed, which a later version of the file may keep. */
 const LANDED = new Set(["supported", "unsupported", "contradicted"]);
+
+/** What an unasked check is given (#3412). */
+export interface UnaskedOptions {
+  /** The check of the version before, whose results the lines still the same take. */
+  carryFrom?: string | null;
+  /** Keep the results the Note's lines hold where they still stand: a check a quit cut short. */
+  keep?: boolean;
+  /** The only Documents that may be its evidence: what the agent that started it reaches. */
+  reach?: ReadonlySet<string> | null;
+}
+
+const NO_OPTIONS: UnaskedOptions = {};
+
+/** A check's scope with only the Documents of `reach` as its evidence. */
+function within(check: CheckScope, reach: ReadonlySet<string>): CheckScope {
+  const documentIds = (check.scope.documentIds ?? [...reach]).filter((id) => reach.has(id));
+  return { ...check, scope: { ...check.scope, documentIds } };
+}
 
 /** A letter or digit: a line with none states nothing to sort. */
 const WORDS = /[\p{L}\p{N}]/u;
@@ -232,15 +243,6 @@ export interface MindCheckScope {
   check: CheckScope;
 }
 
-function workbookCellsOf(verification: Verification): WorkbookCells | undefined {
-  const { workbook } = verification;
-  if (!workbook) return undefined;
-  return {
-    formulas: new Set(workbook.formulaBlocks),
-    typed: workbook.typedBlocks ? new Set(workbook.typedBlocks) : null,
-  };
-}
-
 function parseRequest(input: unknown) {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.verify.request" });
   const { requestId } = input;
@@ -253,28 +255,6 @@ function parseRequest(input: unknown) {
     allDocuments: input.allDocuments === true,
     model: parseModel(input.model),
   };
-}
-
-/** The slide a deck's line is on, as the file holds it (#3455); null for a line of no slide. */
-function slideOf(sentence: SelectedSentence, verification: Verification): number | null {
-  const page = verification.pages[sentence.blockId];
-  return page !== undefined && verification.slides?.[String(page)] !== undefined ? page : null;
-}
-
-/**
- * A line as its check reads it. A deck's line is read with its slide as the file holds it, which
- * says what a number in a box of its own is, in place of the lines above it in the Note.
- */
-function claimOf(
-  sentence: SelectedSentence,
-  verification: Verification,
-): (ReturnType<typeof checkText> & { onSlide?: true }) | undefined {
-  const row = tableClaim(sentence, workbookCellsOf(verification));
-  if (row === "not-a-claim") return undefined;
-  const said = row ?? checkText(sentence);
-  const slide = slideOf(sentence, verification);
-  const held = slide === null ? undefined : verification.slides?.[String(slide)];
-  return held === undefined ? said : { ...said, context: held, onSlide: true };
 }
 
 export function createVerify(options: VerifyOptions) {
@@ -455,13 +435,15 @@ export function createVerify(options: VerifyOptions) {
   /**
    * Checks the Mind's claims. With `keep`, a claim whose line already holds a result that still
    * stands (its text unchanged, checked against the same Documents at the same versions, as Check
-   * this Note keeps one) keeps it, and only the rest are checked; the count kept is recorded.
+   * this Note keeps one) keeps it, and only the rest are checked; the count kept is recorded. With
+   * `reach`, only those Documents are its evidence (an outside agent's, #3412).
    */
   async function verifyClaims(
     input: ReturnType<typeof parseRequest>,
     signal: AbortSignal,
     prepare: PrepareModel = options.prepare,
     keep = false,
+    reach: ReadonlySet<string> | null = null,
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
     let verification = verificationOf(mindId);
@@ -475,8 +457,12 @@ export function createVerify(options: VerifyOptions) {
     if (!verification.claims || verification.claims.length === 0) return { kind: "nothing" };
     await options.evidenceReady(signal, mindId);
     if (signal.aborted) return { kind: "cancelled" };
-    const { empty, check } = options.evidenceScope(mindId, input.allDocuments, verification);
-    if (empty) return empty;
+    const scoped = options.evidenceScope(mindId, input.allDocuments, verification);
+    if (scoped.empty) return scoped.empty;
+    const check = reach === null ? scoped.check : within(scoped.check, reach);
+    if (check.scope.documentIds?.length === 0) {
+      return { kind: "no-documents", folderId: scoped.folderId };
+    }
     const ready = await prepare(input.model ?? options.defaultModel());
     if (!ready.ok) return ready.result;
     if (signal.aborted || verification.sortedText !== sortingInput(mindId, verification).snapshot)
@@ -491,6 +477,7 @@ export function createVerify(options: VerifyOptions) {
     let kept = 0;
     const queued = content.edit(mindId, (blocks) => {
       const sentences = everySentence(blocks, { headings: true });
+      const reading = readingOf(blocks, { versions, folderId, scope, reach });
       const stands = (sentence: SelectedSentence) =>
         markedSentences(blocks).some(
           (mark) =>
@@ -501,14 +488,7 @@ export function createVerify(options: VerifyOptions) {
             checkedSentence({
               text: sentence.text,
               hasFigures: (sentence.figures?.length ?? 0) > 0,
-              check: claimCheckShown(mark.check, {
-                footing: NO_FOOTING,
-                text: sentence.text,
-                citations: sentence.citations,
-                versions,
-                folderId,
-                scope,
-              }),
+              check: reading.ofSentence(sentence, mark.check),
               skipped: false,
               kept: false,
             }).kind === "covered",
@@ -551,11 +531,9 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
+          judgedWith: judgedWithOf(sentence, verification),
         };
-        const said = claimOf(sentence, verification) ?? {
-          claim: sentence.text,
-          context: sentence.context,
-        };
+        const said = saidOf(sentence, verification);
         const contextualRow = said.claim !== sentence.text;
         const row =
           sentence.element.parent instanceof Y.XmlElement ? sentence.element.parent.parent : null;
@@ -788,6 +766,45 @@ export function createVerify(options: VerifyOptions) {
     return { ok: true, mind, documentId: document.id };
   }
 
+  /**
+   * Copies the results of `fromMindId`'s checked lines onto the same lines of `toMindId`, a later
+   * version of the same file (#3412). A result goes only to a line whose claim and all it would be
+   * checked with read as what the result was judged with, as the result keeps it: a table row with
+   * its headings, a line with the headings and lines above it. One whose heading changed ("2025" to
+   * "2026") since, in either Note, is checked again. Whether each result still stands is the
+   * check's to decide (`readingOf`), as it decides for Check this Note. Returns how many took one.
+   */
+  function carryChecks(fromMindId: string, toMindId: string): number {
+    const landed = content.read(fromMindId, (blocks) => {
+      const byJudged = new Map<string, ClaimCheckAttributes[]>();
+      const seen = new Set<string>();
+      for (const { check } of markedSentences(blocks)) {
+        if (seen.has(check.id) || !check.judgedWith || !LANDED.has(check.state)) continue;
+        seen.add(check.id);
+        byJudged.set(check.judgedWith, [...(byJudged.get(check.judgedWith) ?? []), check]);
+      }
+      return byJudged;
+    });
+    const to = verificationOf(toMindId);
+    return content.edit(toMindId, (blocks) => {
+      const taken = new Map<string, number>();
+      let carried = 0;
+      for (const sentence of everySentence(blocks, { headings: true })) {
+        const judged = judgedWithOf(sentence, to);
+        const at = taken.get(judged) ?? 0;
+        const check = landed.get(judged)?.[at];
+        if (!check) continue;
+        taken.set(judged, at + 1);
+        markSentence(sentence.element, sentence.from, sentence.to, {
+          ...check,
+          id: randomUUID(),
+        });
+        carried++;
+      }
+      return carried;
+    });
+  }
+
   /** The file at `path` made into a Mind to check, by its kind: a Word file, a workbook, or one read as pages. */
   async function verifyFile(
     path: string,
@@ -923,11 +940,16 @@ export function createVerify(options: VerifyOptions) {
      * when nothing need be asked of the User (#3412): an outside agent started it, and background
      * work never asks. One verify run at a time, as the window's.
      */
-    async checkUnasked(mindId: string, keep = false): Promise<UnaskedCheck> {
+    async checkUnasked(
+      mindId: string,
+      unasked: UnaskedOptions = NO_OPTIONS,
+    ): Promise<UnaskedCheck> {
       options.requireMind(mindId);
       const ready = await options.prepareUnasked(options.defaultModel());
       if (typeof ready === "string") return { kind: "not-asked", reason: ready };
       const prepared: PrepareModel = async () => ({ ok: true, prepared: ready });
+      // Carried only now that the check runs, which says whether each result still stands.
+      const carried = unasked.carryFrom ? carryChecks(unasked.carryFrom, mindId) : 0;
       const found = await oneAtATime(randomUUID(), mindId, (signal) =>
         findClaims(mindId, null, signal, prepared),
       );
@@ -938,55 +960,10 @@ export function createVerify(options: VerifyOptions) {
           { requestId, mindId, allDocuments: false, model: null },
           signal,
           prepared,
-          keep,
+          carried > 0 || unasked.keep === true,
+          unasked.reach ?? null,
         ),
       );
-    },
-
-    /**
-     * Copies the results of `fromMindId`'s checked lines onto the same lines of `toMindId`, a later
-     * version of the same file (#3412): a line is the same when its claim reads the same, a table
-     * row with its headings. Whether each result still stands is the check's to decide, as it
-     * decides for Check this Note. Returns how many lines took one.
-     */
-    carryChecks(fromMindId: string, toMindId: string): number {
-      const from = verificationOf(fromMindId);
-      const landed = content.read(fromMindId, (blocks) => {
-        const marks = markedSentences(blocks);
-        const byClaim = new Map<string, ClaimCheckAttributes[]>();
-        for (const sentence of everySentence(blocks, { headings: true })) {
-          const said = claimOf(sentence, from)?.claim;
-          const mark = marks.find(
-            (each) =>
-              each.element === sentence.element &&
-              each.from < sentence.to &&
-              each.to > sentence.from &&
-              each.check.text === sentence.text,
-          );
-          if (said === undefined || !mark || !LANDED.has(mark.check.state)) continue;
-          byClaim.set(said, [...(byClaim.get(said) ?? []), mark.check]);
-        }
-        return byClaim;
-      });
-      const to = verificationOf(toMindId);
-      return content.edit(toMindId, (blocks) => {
-        const taken = new Map<string, number>();
-        let carried = 0;
-        for (const sentence of everySentence(blocks, { headings: true })) {
-          const said = claimOf(sentence, to)?.claim;
-          if (said === undefined) continue;
-          const at = taken.get(said) ?? 0;
-          const check = landed.get(said)?.[at];
-          if (!check) continue;
-          taken.set(said, at + 1);
-          markSentence(sentence.element, sentence.from, sentence.to, {
-            ...check,
-            id: randomUUID(),
-          });
-          carried++;
-        }
-        return carried;
-      });
     },
 
     async findClaims(input: unknown): Promise<FindClaimsResult> {

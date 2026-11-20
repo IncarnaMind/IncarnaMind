@@ -7409,7 +7409,8 @@ export interface TextPlace {
  * shorten it, translate it, explain it in a new paragraph under it, what the
  * User asked for in their own words, or take out the part of a cited sentence
  * its Citations don't support (#1111), or make the sentence agree with the words its Citations
- * now quote in a new version of their Document (#99).
+ * now quote in a new version of their Document (#99), or rewrite a sentence its check found the
+ * Documents say otherwise to what the quote it found says (#3383).
  */
 export const editActions = [
   "improve",
@@ -7419,6 +7420,7 @@ export const editActions = [
   "instruction",
   "cut-unsupported",
   "follow-citation",
+  "fix-sentence",
 ] as const;
 export type EditAction = (typeof editActions)[number];
 
@@ -7440,7 +7442,8 @@ export interface EditWithAiInput {
    * For "translate", the language to translate into, as the User would name
    * it ("English", "简体中文"); for "instruction", what the User asked for;
    * for "cut-unsupported", the part the check found unsupported
-   * (`UnsupportedReason.uncovered`).
+   * (`UnsupportedReason.uncovered`); for "fix-sentence", the quote the check found and what it
+   * said of the sentence.
    */
   instruction?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
@@ -8358,6 +8361,12 @@ export interface ClaimCheckBasis {
    * them, never a scope the check didn't search.
    */
   citedOnly?: true;
+  /**
+   * A fingerprint of all the claim was judged with, its words and what stands above it (#3412):
+   * read against the line as it is now, a reading that knows it says whether the result still
+   * stands there. Absent on a check that kept none.
+   */
+  judgedWith?: string;
 }
 
 /** Pages read of a whole-read pick's total pages; a page without text cannot be read. */
@@ -12041,8 +12050,17 @@ export interface MeetingGap {
   reason: "interrupted" | "sleep";
 }
 
+export interface MeetingSummaryItem {
+  id: number;
+  kind: "decision" | "action";
+  status: "active" | "done" | "cancelled";
+  text: string;
+}
+
 export interface MeetingSummary {
   text: string;
+  items?: MeetingSummaryItem[];
+  problem?: "codex-input-limit";
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
 }
@@ -12602,6 +12620,8 @@ export const NOT_IN_A_FOLDER_ID = "not-in-a-folder";
  * per agent, on this device only: the agent runs on this computer.
  */
 export interface AgentPairing {
+  /** An earlier connection allowed only aggregate Tag results. */
+  tagNamesNotShared?: true;
   id: string;
   /** What the User calls it, e.g. "Claude Code". Unique among pairings, ignoring case. */
   name: string;
@@ -12662,6 +12682,7 @@ export interface ConnectAgentInput {
 }
 
 export interface UpdateAgentInput {
+  shareTagNames?: true;
   name?: string;
   folderIds?: string[];
   propose?: boolean;
@@ -12688,6 +12709,8 @@ export const AGENT_TOOLS = [
   "cite",
   "check_citations",
   "show_citation",
+  "list_sorting",
+  "propose_sorting",
   "list_minds",
   "read_mind",
   "ask",
@@ -12823,6 +12846,8 @@ export interface AskedSentence {
   verdict: AskVerdict;
   /** The check's result (`ClaimCheckAttributes.id`): the card says the request waits while it stands. */
   checkId?: string;
+  /** The quote the check found that the Documents say otherwise in, which a fix rests on (#3383). */
+  quote?: string;
 }
 
 /** The most sentences one request to the User's own AI names (#3419). */

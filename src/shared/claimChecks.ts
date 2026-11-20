@@ -27,7 +27,7 @@ import {
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { citedInputs } from "./calculatedFigures";
-import { asCitedNow, citesPassage, type HeldCitation } from "./citedNow";
+import { asCitedNow, citesPassage, type HeldCitation, partToCite } from "./citedNow";
 import {
   CLAIM_CHECK_FAILURES,
   checkedCitation,
@@ -228,6 +228,7 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     ...(read && { read }),
     ...(text(value.fromAnswer) !== null && { fromAnswer: text(value.fromAnswer) as string }),
     ...(value.citedOnly === true && { citedOnly: true }),
+    ...(text(value.judgedWith) !== null && { judgedWith: text(value.judgedWith) as string }),
   };
   if (value.parts !== undefined && value.parts !== null) {
     const parts = readClaimParts(value.parts, check.text, check.state);
@@ -392,7 +393,11 @@ export type RecheckReason =
   /** What one of its `Id.` or `supra` refers back to reads otherwise now (#1709). */
   | "referent"
   /** A fact of the Library it rests on says otherwise now (#2525). */
-  | "library";
+  | "library"
+  /** What stands above it, which it was judged with, reads otherwise now (#3412). */
+  | "context"
+  /** It rests on a Document whoever reads it doesn't reach (#3412). */
+  | "reach";
 
 /**
  * A check as it shows now; "kept": the User keeps the sentence as their own view, and it shows
@@ -460,6 +465,16 @@ export interface ClaimCheckNow {
   noteText?(): string;
   /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
   keptInside?: ((documentId: string) => string | null) | null;
+  /**
+   * The fingerprint of all the sentence would be judged with now (`ClaimCheckBasis.judgedWith`),
+   * read only for a result that kept one; null, or absent, where it isn't known.
+   */
+  judgedWith?(): string | null;
+  /**
+   * The Documents whoever reads the result reaches: an outside agent's (#3412). A result resting
+   * on another doesn't stand for it. Null, or absent, for the User, who reaches every Document.
+   */
+  reach?: ReadonlySet<string> | null;
 }
 
 /** A verdict a check landed, the only kind a Folder move has a result to keep (#2313). */
@@ -815,6 +830,39 @@ export function claimMarkState<State extends ClaimCheckShown["state"]>(
 }
 
 /**
+ * Whether a sentence the check found Supported has a Passage it can still cite, one no Citation of
+ * it is on yet (#3358): what the Note's foot line counts and Add all adds, beside the sentences
+ * Supported, not yet cited. Only a check with parts says where its Passages go.
+ */
+export function canBeCited(
+  claim: { kind?: "chart"; shown: ClaimCheckShown; check: ClaimCheckAttributes },
+  citations: readonly HeldCitation[],
+): boolean {
+  return (
+    claim.kind !== "chart" &&
+    claimMarkState(claim.shown.state, claim.check) === "supported" &&
+    partToCite(claim.check, citations) !== null
+  );
+}
+
+/**
+ * Whether it is Supported, not yet cited (#3019): the model's ✓, which shows once the Passage its
+ * check found is one of the sentence's Citations. Its mark shows, and it is counted apart. A mark an
+ * older version stored as Not checked, found elsewhere, has no verdict to bring back: it is Not
+ * checked, and a check makes it again.
+ */
+export const foundElsewhere = ({
+  shown,
+  check,
+}: {
+  shown: ClaimCheckShown;
+  check: Pick<ClaimCheckAttributes, "state">;
+}): boolean =>
+  shown.state === "not-checked" &&
+  shown.reason === "found-elsewhere" &&
+  check.state !== "not-checked";
+
+/**
  * Whether a sentence reads Not checked only because what it says is missing couldn't be read whole,
  * every other part of it Supported (#3019): its line says what was checked. A sentence that is only
  * that absence, or holds any other part, keeps its reason's own line.
@@ -835,7 +883,36 @@ export function absenceBesideFact(
   );
 }
 
+/** The Documents a result rests on and read whole: what whoever reads it must reach. */
+function reliedOn(check: ClaimCheckAttributes): string[] {
+  return [
+    ...restsOn(check),
+    ...(check.readDocuments ?? []),
+    ...(check.parts ?? []).flatMap((part) => part.readDocuments ?? []),
+  ].flatMap((each) => (typeof each.documentId === "string" ? [each.documentId] : []));
+}
+
+/**
+ * How a stored result shows now, for whoever reads it: the one reading of whether it still stands
+ * (#3412). It stands while its words and all it was judged with read the same, the Documents it
+ * read are at the versions it read, and each Document it rests on is one the reader reaches.
+ */
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
+  const shown = shownNow(check, now);
+  if (shown.state === "checking" || shown.state === "needs-recheck" || shown.state === "kept")
+    return shown;
+  const judged = check.judgedWith !== undefined ? (now.judgedWith?.() ?? null) : null;
+  if (judged !== null && judged !== check.judgedWith) {
+    return { state: "needs-recheck", why: "context" };
+  }
+  const { reach } = now;
+  if (reach && reliedOn(check).some((documentId) => !reach.has(documentId))) {
+    return { state: "needs-recheck", why: "reach" };
+  }
+  return shown;
+}
+
+function shownNow(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
   if (!check.figures?.length || check.kept) {
     return basisShown(asCitedNow(check, now.citations ?? [], now.text), now);
   }

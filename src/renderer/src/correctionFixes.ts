@@ -64,7 +64,7 @@ const sameSpan = (a: ClaimPartSpan | null, b: ClaimPartSpan | null) =>
   a === b || (a !== null && b !== null && a.start === b.start && a.end === b.end);
 
 /** The corrections a check holds and the part each changes: every contradicted part's, or its own. */
-function correctionsOf(
+export function correctionsOf(
   check: ClaimCheckAttributes,
 ): { correction: ClaimCorrection; span: ClaimPartSpan | null }[] {
   if (!check.parts) return check.correction ? [{ correction: check.correction, span: null }] : [];

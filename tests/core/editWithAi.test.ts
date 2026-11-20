@@ -528,6 +528,49 @@ describe("Edit with AI", () => {
     ]);
   });
 
+  test("fix-sentence: the check's quote and what it said go in, the model's rewrite replaces the sentence, and its Citation stays (#3383)", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client, tides } = await setUp(
+      editingModel(() => "Spring tides happen at new moon and at full moon [1].", calls),
+    );
+    const note = paragraph(
+      text("Spring tides happen at the new moon only "),
+      citation(tides),
+      text("."),
+    );
+    writeMind(client, [note]);
+    await client.settled();
+    const instruction =
+      "Its check found that the Documents say otherwise. The quote it found: “Spring tides happen at new moon and at full moon”. What the check said: The Document says full moon too.";
+
+    const result = await core.editWithAi(
+      wholeParagraph(client, mind.id, note.attrs.id, "fix-sentence", instruction),
+    );
+
+    expect(result.kind).toBe("proposed");
+    expect(calls[0]?.action).toBe("fix-sentence");
+    expect(calls[0]?.prompt).toContain(instruction);
+    expect(calls[0]?.prompt).toContain("add no figure, name, date or claim the quote doesn't give");
+    expect(calls[0]?.prompt).toContain("IncarnaMind places the Citations");
+    await resolveChanges(client, "accept");
+    expect(shownWithChanges(client)).toEqual([
+      "Spring tides happen at new moon and at full moon ⟨found⟩.",
+    ]);
+  });
+
+  test("fix-sentence is refused with nothing to rest the rewrite on (#3383)", async () => {
+    const calls: EditCall[] = [];
+    const { core, mind, client } = await setUp(editingModel(({ passage }) => passage, calls));
+    const note = paragraph(text("Spring tides happen at the new moon only."));
+    writeMind(client, [note]);
+    await client.settled();
+
+    await expect(
+      core.editWithAi(wholeParagraph(client, mind.id, note.attrs.id, "fix-sentence")),
+    ).rejects.toThrow();
+    expect(calls).toEqual([]);
+  });
+
   test("the model sees Citations as numbered markers, formulas as written, and the paragraphs around the selection", async () => {
     const calls: EditCall[] = [];
     const { core, mind, client, tides } = await setUp(

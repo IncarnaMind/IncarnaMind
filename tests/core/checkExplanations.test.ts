@@ -152,3 +152,42 @@ describe("An Unsupported card's reason in the interface's language (#2081)", () 
     );
   });
 });
+
+describe("An explanation that cites its Passage by id (#3462)", () => {
+  test("keeps its sentence without the id, on an own view's card and a Contradicted one", async () => {
+    const view = await checked(
+      {
+        verdict: "own view",
+        says: "The report gives the rate as 38.6% but says nothing on whether it is high [P1].",
+      },
+      "en",
+      "The rate of 38.6% is too high.",
+    );
+    expect(view.result.verdict === "unsupported" && view.result.unsupported?.reason).toBe(
+      "The report gives the rate as 38.6% but says nothing on whether it is high.",
+    );
+
+    const contradicted = await checked(
+      {
+        verdict: "contradicted",
+        quote: "The rate is 38.6%.",
+        says: `报告写的比率是 38.6%，不是 36.8%（P1、P2）。\n${change}`,
+      },
+      "zh-CN",
+    );
+    expect(saysOf(contradicted.result)).toBe("报告写的比率是 38.6%，不是 36.8%。");
+  });
+
+  test("one that names a Passage in its words still gives way, as a card shows no id", async () => {
+    const { result } = await checked(
+      {
+        verdict: "contradicted",
+        quote: "The rate is 38.6%.",
+        says: `Passage P1 gives the rate as 38.6%, not 36.8%.\n${change}`,
+      },
+      "en",
+      "The rate is 36.8%.",
+    );
+    expect(saysOf(result)).toBe("The Document gives 38.6%, not 36.8%.");
+  });
+});

@@ -111,14 +111,14 @@ for (const language of ["en", "zh-CN"] as const) {
       const agent = await connectCanvasAgent(window);
 
       const deck = join(sources, "Harbour review.pptx");
-      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [WRONG, SPRING] }]));
+      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [SPRING, WRONG] }]));
       const first = await callTool<{ version: number; mindId: string; needLook: number }>(
         agent,
         "hand_over_file",
         { path: deck },
       );
       expect(first).toMatchObject({ version: 1, needLook: 1 });
-      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [RIGHT, SPRING] }]));
+      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [SPRING, RIGHT] }]));
       const second = await callTool<{ version: number; mindId: string; needLook: number }>(
         agent,
         "hand_over_file",
@@ -136,7 +136,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const card = await checkCard(window);
       const handed = card.getByTestId("verify-handed");
       await expect(handed).toContainText(words.second);
-      // The spring tides line stood as it was: it kept version 1's result.
+      // The spring tides line and all above it stood as they were: it kept version 1's result.
       await expect(handed).toContainText(words.kept);
       await shot(window, `handed-version-2-${language}`);
       const checkAll = handed.getByTestId("verify-handed-check-all");
