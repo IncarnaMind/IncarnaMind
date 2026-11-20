@@ -581,6 +581,27 @@ async function main(command: string | undefined, args: readonly string[]) {
     );
     return;
   }
+  if (command === "folder-agreement") {
+    const half = Number(option.get("half"));
+    if (half !== 1 && half !== 2) throw Error("Choose --half 1 or 2.");
+    const person = option.get("person");
+    const folders = option.get("folders");
+    const itemsFile = option.get("items");
+    for (const file of [itemsFile, person, folders]) committedAt(file);
+    const { items } = await readJson<{ items: FolderItem[] }>(itemsFile);
+    const tally = folderAgreement(
+      items,
+      verdictsOf(await readJson<FolderReadings>(folders)),
+      verdictsOf(await readJson<FolderReadings>(person)),
+      half,
+    );
+    if (!tally.compared) throw Error("The selected half contains no Folders.");
+    console.log(
+      `Half ${half}: ${tally.same}/${tally.compared} Folders agree (${(100 * share(tally)).toFixed(1)}%).`,
+    );
+    if (share(tally) < BARS.folders) process.exitCode = 2;
+    return;
+  }
   if (command === "asks") {
     const runs = await loadRuns(option.get("runs"), option.maybe("match"));
     const key = await readJson<FolderKey>(option.get("key"));
@@ -675,7 +696,7 @@ async function main(command: string | undefined, args: readonly string[]) {
     if (report.refused) process.exitCode = 1;
     return;
   }
-  throw new Error("readPlans: items, asks, areas or join.");
+  throw new Error("readPlans: items, folder-agreement, asks, areas or join.");
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href)

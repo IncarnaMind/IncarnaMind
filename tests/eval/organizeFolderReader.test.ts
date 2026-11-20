@@ -52,7 +52,7 @@ const textOf = (call: LanguageModelV4CallOptions, role: "system" | "user") =>
 describe("the reader's questions", () => {
   test("are frozen: the model, its effort and the questions' text", () => {
     expect(READER).toEqual({ modelId: "claude-opus-5-5", effort: "low" });
-    expect(QUESTION_VERSION).toBe("a4dbe3fc7933");
+    expect(QUESTION_VERSION).toBe("2f92a4d43138");
   });
 
   test("a Folder's request holds its name, description and language, and the areas in the app's words", () => {
@@ -71,16 +71,18 @@ describe("the reader's questions", () => {
       "- personal: A person's own papers outside work: a diary, recipes, to-do notes, notes on books they read, manuals for things at home.",
     );
     expect(request.instructions).toContain(
-      'A Folder whose name says nothing of what it holds, such as "Other", covers no area.',
+      "A Folder whose name says nothing of its contents covers no area.",
     );
-    expect(request.instructions).toContain("it never adds an area the name gives no sign of");
+    expect(request.instructions).toContain(
+      "use the description only to clarify or narrow a reading the name already supports",
+    );
   });
 
   test("in Chinese, the question and the areas are Chinese", () => {
     const request = folderRequest({ name: "财务与合同", description: "合同、发票。" }, "zh-CN");
     expect(JSON.parse(request.prompt).language).toBe("Simplified Chinese");
     expect(request.instructions).toContain("- finance: 发票、预算、账目和财务报表。");
-    expect(request.instructions).toContain("名称看不出内容的文件夹（如“其他”）不涵盖任何类别。");
+    expect(request.instructions).toContain("名称看不出放什么的文件夹，不涵盖任何类别。");
   });
 
   test("the three reads list the areas in three orders", () => {
