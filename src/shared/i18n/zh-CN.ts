@@ -7984,6 +7984,24 @@ export const zhCN = {
   "agents.canvas.refused.network":
     "位于网络上，而页面不会访问网络：请把文件放进 files，并按文件名引用",
   "agents.create.folder": "给出 folderId：list_minds 列出的文件夹之一。",
+  "agents.picture.notAdded": "未添加图片：{reason}。",
+  "agents.picture.notAddedNamed": "未添加图片“{name}”：{reason}。",
+  "agents.picture.refused.unreadable":
+    "无法读取文件（只读取按完整路径给出的文件，不读取链接、文件夹或设备）",
+  "agents.picture.refused.too-large": "超过 {max} MB，笔记中的图片最多只能这么大",
+  "agents.picture.refused.type": "不是 PNG、JPEG、GIF、WebP 或 SVG 图片",
+  "agents.picture.refused.network":
+    "笔记不会从网络加载内容：请给出这台电脑上的文件，或使用 data: URL",
+  "agents.picture.refused.where": "请给出它在这台电脑上的完整路径，或使用 data: URL",
+  "agents.picture.refused.too-many": "一次调用最多添加 {max} 张图片",
+  "agents.picture.refused.own-line": "图片要单独占一行",
+  "agents.picture.refused.svg": "无法把这个 SVG 绘制成图片",
+  "agents.chart.notDrawn": "未绘制图表：{reason}。",
+  "agents.chart.refused.noTable": "```chart 代码块要紧接在它所绘制的数据表格下方",
+  "agents.chart.refused.json": "```chart 代码块不是写明 kind 和 title 的 JSON",
+  "agents.chart.refused.kind": "kind 应为 bar、line、pie 或 scatter",
+  "agents.chart.refused.noNumbers": "表格中没有数字列：每个单元格只放一个数字及其引用标记",
+  "agents.chart.refused.needsTwo": "散点图需要两列数字",
   "agents.mind.waiting": "（修订待处理）",
   "agents.mind.busy": "（正在写入）",
   "agents.mind.usersWrote": "（用户写的）",
@@ -8007,6 +8025,8 @@ export const zhCN = {
   "agents.propose.table": "{name} 的文字中有几行像表格行，却组不成表格。",
   "agents.propose.lost":
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
+  "agents.propose.visualAdded":
+    "{name} 的改写只能是文字：图片或图表要单独成段。请用 {name}+ 添加。",
   "agents.propose.unplaced":
     "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
   "agents.propose.missingNumber":
@@ -8127,7 +8147,7 @@ export const zhCN = {
   "agents.connect.pickOne": "至少选择一个文件夹。",
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.hint":
-    "它新建的笔记和页面立即出现，笔记还可以核对。页面用到的文件，IncarnaMind 只复制它指明的那些。它对你笔记的修改等你处理。",
+    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它对你笔记的修改等你处理。",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
   "agents.connect.skill": "还会在 {path} 添加一个简短的技能。",
   "agents.connect.showChange": "显示添加的内容",

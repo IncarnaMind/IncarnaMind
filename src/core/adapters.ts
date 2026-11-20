@@ -184,8 +184,9 @@ export interface FileShell {
 
 /**
  * The files of the Canvases outside agents write (#3406): a file an agent names, read where it is
- * and nothing else of its folder, and the bytes of each version kept in the data folder by their
- * SHA-256. The desktop app reads with Node (src/main/canvasFiles.ts).
+ * and nothing else of its folder (a picture it names for a Note too, #3413), and the bytes of each
+ * version kept in the data folder by their SHA-256. The desktop app reads with Node
+ * (src/main/canvasFiles.ts).
  */
 export interface CanvasFiles {
   /**
@@ -981,8 +982,9 @@ export interface SpeakerSeparator {
 
 /**
  * Draws an SVG document as a PNG, for a picture in an export (a chart in a
- * Word file, #436). The desktop app draws it in a hidden window that loads
- * nothing from the network (src/main/pictures.ts); tests pass a fake.
+ * Word file, #436) and for an SVG picture an outside agent puts in a Note
+ * (#3413). The desktop app draws it in a hidden window that loads nothing
+ * from the network (src/main/pictures.ts); tests pass a fake.
  */
 export interface Pictures {
   /** The SVG drawn at its own size in pixels (its `width` and `height`), as PNG bytes. */
