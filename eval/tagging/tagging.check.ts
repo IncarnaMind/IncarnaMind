@@ -308,12 +308,28 @@ test("Tags from content, and Organize's Folders", async () => {
           throw new Error("Expected 40 held-out Documents per language");
         if (group.length) results[language] = (await tagGroup(chat.model, group, language)).tagged;
       }
-    } else if (panel !== "hard") throw new Error(`Unknown panel ${panel}`);
+    } else if (panel !== "hard" && panel !== "publisher") throw new Error(`Unknown panel ${panel}`);
     if (panel !== "pilot") {
       const hard: Record<string, unknown> = {};
       for (const language of ["en", "zh-CN"] as const)
         hard[language] = await hardCases(chat.model, language);
       results.hard = hard;
+    }
+    if (panel === "publisher") {
+      const publisher: Record<string, unknown> = {};
+      for (const language of ["en", "zh-CN"] as const) {
+        const documents = await hardCases(chat.model, language, "publisher");
+        const operations = documents.filter((doc) => doc.expectedBusiness);
+        const context = documents.filter((doc) => !doc.expectedBusiness);
+        publisher[language] = {
+          operationsTagged: operations.filter((doc) => doc.business).length,
+          operations: operations.length,
+          contextTagged: context.filter((doc) => doc.business).length,
+          context: context.length,
+          documents,
+        };
+      }
+      results.publisher = publisher;
     }
     results.tokens = chat.tokens();
     const folder = join(

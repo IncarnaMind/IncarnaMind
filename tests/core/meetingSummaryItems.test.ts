@@ -138,19 +138,26 @@ test("a repeated addition never supplies coverage or changes the saved item’s 
   expect(() => readMeetingSummaryUpdate(closing, { ...input, closing: true })).toThrow();
 });
 
-test("the closing update accounts for every prior active item exactly once", () => {
-  const input = { ...draft, closing: true };
+test("the closing update accounts for every active item and can acknowledge earlier closed items", () => {
+  const done = { id: 3, kind: "action", status: "done", text: "Return the cart." } as const;
+  const withdrawn = { id: 5, kind: "action", status: "cancelled", text: "Book a lift." } as const;
+  const input = { ...draft, items: [...(draft.items ?? []), done, withdrawn], closing: true };
   const close = (unchanged: unknown) =>
     JSON.stringify({
       summary: "Only the cone order was cancelled.",
       changes: [cancelled],
       unchanged,
     });
-  expect(readMeetingSummaryUpdate(close([7]), input).items.map((item) => item.status)).toEqual([
+  const result = readMeetingSummaryUpdate(close([7]), input);
+  expect(result.items.map((item) => item.status)).toEqual([
     "cancelled",
     "active",
+    "done",
+    "cancelled",
   ]);
-  for (const ids of [undefined, [], [7, 7], [7, 2], [9, 7]]) {
+  expect(result.evidence).toEqual({ 2: cancelled.quote });
+  expect(readMeetingSummaryUpdate(close([3, 5, 7]), input)).toEqual(result);
+  for (const ids of [undefined, [], [3, 5], [7, 7], [7, 5, 5], [7, 2], [9, 7]]) {
     expect(() => readMeetingSummaryUpdate(close(ids), input)).toThrow();
   }
   expect(() => readMeetingSummaryUpdate(close([7]), draft)).toThrow();

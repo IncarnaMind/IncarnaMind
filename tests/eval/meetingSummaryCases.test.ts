@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
   replaySummaryRetention,
   summaryRetention,
+  summaryRetentionHistoryProblems,
   summaryRetentionItemProblems,
   summaryRetentionOverviewProblems,
 } from "../../eval/speed/meetingSummaryCases";
@@ -57,51 +58,63 @@ const finalChanges = [
   { ...completed, quote: "The service team has already sent the sample returns" },
 ];
 
-test("the retention replay carries the visible list through later topics and revises it at Stop", async () => {
-  const { utterances } = summaryRetention;
-  const stages = [openingChanges, [], [], [sampleReturnsChange], [], finalChanges];
-  const prompts: string[] = [];
-  const model = new MockLanguageModelV4({
-    doGenerate: async (options) => {
-      const prompt = options.prompt
-        .flatMap((message) => (message.role === "user" ? message.content : []))
-        .flatMap((part) => (part.type === "text" ? [part.text] : []))
-        .join("\n");
-      prompts.push(prompt);
-      const index = prompts.length - 1;
-      const raw = JSON.stringify({
-        summary: `summary ${index + 1}`,
-        changes: stages[index],
-        ...(index === stages.length - 1 && { unchanged: [initial[0].id] }),
-      });
-      return replyingModel(raw).doGenerate(options);
-    },
-  });
-  const { checkpoints, warm, final } = await replaySummaryRetention({
-    createChatModel: () => model,
-    apiKey: "anthropic-test-key",
-    modelId: "claude-haiku-5-5",
-  });
-  expect(prompts).toHaveLength(utterances.length);
-  const retained = [...initial, sampleReturns];
-  for (const [index, text] of utterances.entries()) {
-    expect(JSON.parse(prompts[index] ?? "")).toMatchObject({
-      previous: index > 0 ? `summary ${index}` : null,
-      ...(index > 0 && { items: index <= 3 ? initial : retained }),
-      utterances: [{ text }],
+test.each(["before-stop", "in-flight-at-stop", "after-stop"] as const)(
+  "the retention replay carries the visible list through later topics and the correction (%s)",
+  async (timing) => {
+    const { utterances } = summaryRetention;
+    const stages = [openingChanges, [], [], [sampleReturnsChange], [], finalChanges];
+    const prompts: string[] = [];
+    const model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        const user = options.prompt
+          .flatMap((message) => (message.role === "user" ? message.content : []))
+          .flatMap((part) => (part.type === "text" ? [part.text] : []))
+          .join("\n");
+        prompts.push(user);
+        const index = prompts.length - 1;
+        const raw = JSON.stringify({
+          summary: `summary ${index + 1}`,
+          changes: stages[index],
+          ...(timing === "after-stop" &&
+            index === stages.length - 1 && { unchanged: [initial[0].id] }),
+        });
+        return replyingModel(raw).doGenerate(options);
+      },
     });
-  }
-  expect(checkpoints.map((draft) => draft.items)).toEqual([
-    initial,
-    initial,
-    initial,
-    retained,
-    retained,
-  ]);
-  expect(warm).toEqual(checkpoints.at(-1));
-  expect(final.throughMs).toBeGreaterThan(warm.throughMs);
-  expect(final.items).toEqual([initial[0], corrected, cancelled, completed]);
-});
+    const { checkpoints, warm, atStop, final } = await replaySummaryRetention({
+      createChatModel: () => model,
+      apiKey: "anthropic-test-key",
+      modelId: "claude-haiku-5-5",
+      timing,
+    });
+    expect(prompts).toHaveLength(utterances.length);
+    const retained = [...initial, sampleReturns];
+    for (const [index, text] of utterances.entries()) {
+      expect(JSON.parse(prompts[index] ?? "")).toEqual({
+        previous: index > 0 ? `summary ${index}` : null,
+        ...(index > 0 && { items: index <= 3 ? initial : retained }),
+        utterances: [{ text, speaker: "Speaker ?" }],
+        language: "English",
+      });
+    }
+    expect(checkpoints.map((draft) => draft.items)).toEqual([
+      initial,
+      initial,
+      initial,
+      retained,
+      retained,
+    ]);
+    expect(warm).toEqual(checkpoints.at(-1));
+    expect(final.throughMs).toBeGreaterThan(warm.throughMs);
+    expect(final.items).toEqual([initial[0], corrected, cancelled, completed]);
+    const visible = timing === "before-stop" ? final : warm;
+    expect(atStop).toMatchObject({
+      text: visible.text,
+      throughMs: visible.throughMs,
+      items: visible.items,
+    });
+  },
+);
 
 const warmList = [
   {
@@ -140,11 +153,28 @@ const finalList = [
   },
   { ...cancelled, id: 5 },
   { ...completed, id: 6 },
-] satisfies MeetingSummaryItem[];
+] as const satisfies readonly MeetingSummaryItem[];
 
 test("the fixture item checks accept split decisions, date phrasing and a historical owner and date", () => {
   expect(summaryRetentionItemProblems("warm", warmList)).toEqual([]);
   expect(summaryRetentionItemProblems("final", finalList)).toEqual([]);
+});
+
+test("the correction keeps the history of each task even when the final descriptions look right", () => {
+  expect(summaryRetentionHistoryProblems(warmList, finalList)).toEqual([]);
+  const recreated = [
+    ...finalList.slice(0, 3),
+    { ...warmList[3], status: "cancelled" as const },
+    { ...corrected, id: 21 },
+    { ...cancelled, id: 6 },
+    { ...completed, id: 5 },
+  ];
+  expect(summaryRetentionItemProblems("final", recreated)).toEqual([]);
+  expect(summaryRetentionHistoryProblems(warmList, recreated)).toEqual([
+    "Expected the same supplier handover record. IDs before: 4. After: 4, 21.",
+    "Expected the same kiosk invitations record. IDs before: 5. After: 6.",
+    "Expected the same sample returns record. IDs before: 6. After: 5.",
+  ]);
 });
 
 test("the fixture item checks catch the real dropped returns action on both sides of Stop", () => {
