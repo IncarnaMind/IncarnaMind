@@ -441,6 +441,14 @@ async function answerPath(setup: Setup) {
       if (answer?.kind !== "answer") throw new Error(`${each.id}: no Answer.`);
       const { text, figures } = readAnswer(answerBlocks(answer));
       const mine = heard.filter((request) => request.key === each.id);
+      /** What each call of `tool` told the model, once each. */
+      const told = (tool: string) => [
+        ...new Set(
+          mine.flatMap((request) =>
+            request.results.filter((result) => result.tool === tool).map((result) => result.output),
+          ),
+        ),
+      ];
       const scored = scoreAnswer(each, text, figures);
       const leftOut =
         scored.figure.chars !== null &&
@@ -481,15 +489,8 @@ async function answerPath(setup: Setup) {
           })),
         })),
         calls: mine.flatMap((request) => request.calls),
-        calculated: [
-          ...new Set(
-            mine.flatMap((request) =>
-              request.results
-                .filter((result) => result.tool === "calculate")
-                .map((result) => result.output),
-            ),
-          ),
-        ],
+        calculated: told("calculate"),
+        analysed: told("run_analysis"),
       });
       if ((await spentUsd(core)) > CAP_USD) stopped = true;
     });
