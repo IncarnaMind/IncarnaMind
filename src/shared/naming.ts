@@ -73,6 +73,9 @@ function endsClause(characters: readonly string[], index: number): boolean {
   return "，；：。？！".includes(mark) || (",;:".includes(mark) && characters[index + 1] === " ");
 }
 
+const firstLineOf = (raw: string): string =>
+  (raw.split(/\r?\n/).find((line) => line.trim() !== "") ?? "").replace(/\s+/g, " ").trim();
+
 /**
  * The text's first line, cut to about `NAME_LENGTH` characters without trailing
  * punctuation, at a word (Chinese words too). The cut never leaves a half
@@ -82,9 +85,7 @@ function endsClause(characters: readonly string[], index: number): boolean {
  * no first line.
  */
 export function cutTitle(raw: string): string {
-  const first = (raw.split(/\r?\n/).find((line) => line.trim() !== "") ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const first = firstLineOf(raw);
   const characters = Array.from(first);
   if (characters.length <= NAME_LENGTH) return first.replace(trailingMarks, "");
   const end = wordEnd(first, NAME_LENGTH);
@@ -94,6 +95,15 @@ export function cutTitle(raw: string): string {
     }
   }
   return withoutDanglingEnd(characters.slice(0, end).join(""));
+}
+
+/**
+ * `cutTitle` for a name made from words that are not written out under it, such as a Question,
+ * ended with "…" when it left words out, so it doesn't read as a whole one (#3487).
+ */
+export function cutTitleShown(raw: string): string {
+  const cut = cutTitle(raw);
+  return cut !== "" && cut !== withoutTrailingMarks(firstLineOf(raw)) ? `${cut}…` : cut;
 }
 
 /**
