@@ -1887,11 +1887,7 @@ export function createAnswers(options: AnswersOptions) {
     const exampleIds =
       inAssistant && mindIn !== null ? (options.exampleDocuments?.(mindIn) ?? null) : null;
     const exampleNames = exampleIds
-      ? options.documents
-          .searchableBySize(
-            documentIds === null ? exampleIds : exampleIds.filter((id) => documentIds.includes(id)),
-          )
-          .map((each) => each.name)
+      ? options.documents.searchableBySize(exampleIds).map((each) => each.name)
       : null;
     const passagesOf = (documentId: string) =>
       options.documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);

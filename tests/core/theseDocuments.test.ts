@@ -9,7 +9,7 @@ import { type ScriptedReply, scriptedModel, scriptedModels } from "../helpers/mo
  * Which Documents "these documents" are in the assistant, through the core's
  * public interface: the User's, not the examples', whichever Note is in focus,
  * the example's too (#3487); each listed for the model with its title when its
- * name doesn't hold it.
+ * name doesn't hold it. The example's Note still says what it is, naming its Documents.
  */
 
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -58,7 +58,11 @@ describe("“These documents” in the assistant", { timeout: 60_000 }, () => {
       mindId: examples.mindId ?? "",
     });
     expect(sent()).toContain("- Field Report (“Field Report: Northern Estuary”)");
-    for (const name of exampleNames) expect(sent()).not.toContain(name);
+    // The model is told what the example's Note is, naming its Documents; they aren't listed to search.
+    for (const name of exampleNames) {
+      expect(sent()).toContain(`"${name}"`);
+      expect(sent()).not.toContain(`- ${name}`);
+    }
   });
 
   // protects=with only the examples, a Question from another Mind searches them: they are the User's Library until they have a Document of their own (#1942); fails_when=the examples are left out on day one, or the Question is told of a scope the User never set; no_claim=what the model writes.
