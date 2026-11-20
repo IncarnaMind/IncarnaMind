@@ -436,8 +436,12 @@ export interface CreateMindInput {
  *   it, and a verdict worked out from the Documents keeps its line of working (#3322). An older
  *   version reads the view as Not found and writes the part again without the working, so it
  *   opens these Notes read-only. Older content is version 60 content as it is.
+ * - 62: tabs in a Note (#3414): a top-level `NOTE_TAB_NODE` Block starts a tab and holds its
+ *   title; the Blocks after it, up to the next, are that tab. An older editor would drop the Block
+ *   when it saves the Note, running its tabs together, so it opens these Notes read-only. Older
+ *   content is version 61 content as it is: a Note without the Block is one tab.
  */
-export const CONTENT_SCHEMA_VERSION = 61;
+export const CONTENT_SCHEMA_VERSION = 62;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -977,6 +981,14 @@ export const NOTE_BLOCK_TYPES = [
 
 /** A table of contents (#1935): a Block drawn from the Note's headings, and Word's own in a .docx. */
 export const TABLE_OF_CONTENTS_NODE = "tableOfContents";
+
+/**
+ * Where a tab of a Note starts (#3414): a top-level Block holding the tab's title
+ * (`NOTE_TAB_TITLE_ATTRIBUTE`), never its text. The Blocks after it, up to the next, are the tab;
+ * those before the first are a tab with no title of its own. A Note without one is one tab.
+ */
+export const NOTE_TAB_NODE = "noteTab";
+export const NOTE_TAB_TITLE_ATTRIBUTE = "title";
 
 /** The node type of a Question Block. Its content is the User's text (inline). */
 export const QUESTION_BLOCK = "question";

@@ -82,6 +82,7 @@ import {
   reviewReading,
   theirChangesReading,
 } from "../mindText";
+import { withTabSections } from "../noteTabs";
 import { withTheirChangesAccepted } from "../shownChanges";
 import { type CitationCard, citationCard } from "./citationCards";
 import { addSources, listCitations, styleCitations, withFigureNotes } from "./citations";
@@ -372,7 +373,9 @@ export function createExports(deps: ExportsDependencies) {
             .filter((root) => !mine(root))
             .map((root) => ({ ...root, replies: root.replies.filter((reply) => !mine(reply)) }))
         : comments;
-    const shown = withoutEmptyTitle(read);
+    const shown = withoutEmptyTitle(
+      withTabSections(read, (n) => translate(language, "noteTabs.defaultTitle", { n })),
+    );
     const blocks =
       format !== "docx" && options.theirChanges === "accepted"
         ? withTheirChangesAccepted(shown)

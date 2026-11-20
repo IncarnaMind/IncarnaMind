@@ -7,6 +7,7 @@ import { useAppStore } from "../store";
 import { asOneStep } from "./editorUndo";
 import { type MeetingTimesOptions, meetingTimesPlugin } from "./meetingTimes";
 import { notePlace } from "./notePlace";
+import { shownEnd } from "./noteTabs";
 
 /**
  * The notes written in a Meeting's Mind (#139): where a Mark and a transcript
@@ -88,7 +89,10 @@ function placeOf(
       }
     }
   }
-  return { ...notePlace(state.doc, visitedBefore ? state.selection : null), inList: false };
+  return {
+    ...notePlace(state.doc, visitedBefore ? state.selection : null, shownEnd(state)),
+    inList: false,
+  };
 }
 
 /**

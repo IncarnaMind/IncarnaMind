@@ -1575,6 +1575,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
     waiting: t("agents.mind.waiting"),
     busy: t("agents.mind.busy"),
+    tab: (title: string, number: number) =>
+      t("agents.mind.tab", { title: title || t("noteTabs.defaultTitle", { n: number }) }),
   });
 
   const workOut = createWorkOut({

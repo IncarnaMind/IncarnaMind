@@ -14,6 +14,10 @@ _Avoid_: Mind, session, chat
 One unit of content in a Note, positioned where the User placed it.
 _Avoid_: message
 
+**Tab in a Note** (标签页):
+A named part of a Note, such as a report and its appendix: the Blocks from the tab Block that holds its title up to the next. The page shows one tab at a time, the panel beside it lists them; what reads the Note whole (its check, search, an agent, an export, where each tab is a section under its title) reads every tab. A Note without one is one tab. Not a Tab of the window.
+_Avoid_: page, section, sheet
+
 **Your text**:
 A Block the User writes, as opposed to one the assistant wrote.
 _Avoid_: Note, text block

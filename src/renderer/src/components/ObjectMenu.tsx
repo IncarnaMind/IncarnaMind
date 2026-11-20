@@ -61,6 +61,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   check: "check",
   block: "block",
   tab: "tab",
+  noteTab: "note-tab",
 };
 
 const keyOf = (target: ObjectRef) => `${target.kind}:${target.id}`;

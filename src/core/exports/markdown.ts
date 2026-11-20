@@ -22,6 +22,7 @@ import {
   type Marks,
   tableLayout,
 } from "../mindText";
+import { tabHeading } from "../noteTabs";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 
@@ -265,6 +266,8 @@ class MarkdownWriter {
         const text = this.inline(changedContent(block), context).replace(/\\\n/g, " ");
         return text ? `${"#".repeat(block.level)} ${text}` : "";
       }
+      case "tab":
+        return this.block(tabHeading(block.title), context);
       case "question": {
         const text = this.inline(changedContent(block), context);
         return `**${this.labels.question}**${text ? ` ${text}` : ""}`;

@@ -47,6 +47,8 @@ import {
   CITATION_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  NOTE_TAB_NODE,
+  NOTE_TAB_TITLE_ATTRIBUTE,
   type OutsideAgentRequest,
   PICTURE_NODE,
   PROPOSAL_ATTRIBUTE,
@@ -99,6 +101,11 @@ export interface NamedWords {
   /** Before the words of a paragraph with changes waiting, and of one being written. */
   waiting: string;
   busy: string;
+  /**
+   * The line before the first paragraph of a tab of the Note (#3414), by its title, "" for a tab
+   * with none, and its number from 1. Absent: tabs aren't read.
+   */
+  tab?(title: string, number: number): string;
 }
 
 export interface NamedOptions {
@@ -255,6 +262,8 @@ export function namedNote(
   const places: number[] = [];
   const seen = new Set<string>();
   let titled = false;
+  const first = blocks.get(0);
+  const opening = first instanceof Y.XmlElement && first.nodeName === NOTE_TAB_NODE;
   for (const { element } of textBlocks(blocks)) {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (typeof blockId !== "string" || blockId === "" || seen.has(blockId)) continue;
@@ -269,7 +278,7 @@ export function namedNote(
       options.title === true &&
       paragraphs.length === 0 &&
       element.nodeName === "heading" &&
-      blocks.get(0) === element;
+      blocks.get(opening ? 1 : 0) === element;
     titled ||= title;
     paragraphs.push({
       name: title ? "¶0" : paragraphName(paragraphs.length - (titled ? 1 : 0)),
@@ -306,11 +315,36 @@ export function namedNote(
       block instanceof Y.XmlElement && !addedByProposal(block) ? visualLine(block) : null;
     if (visual !== null) shown.push({ at, text: visual });
   }
+  if (words.tab) shown.push(...tabLines(blocks, words.tab));
   const text = shown
     .sort((a, b) => a.at - b.at)
     .map((each) => each.text)
     .join("\n\n");
   return { paragraphs, text, version };
+}
+
+/**
+ * Where each tab of the Note starts, as the line an agent reads there (#3414), by its place among
+ * the top-level Blocks: none in a Note without tabs. The Blocks before the first tab Block are
+ * the first tab, with no title of its own.
+ */
+function tabLines(
+  blocks: Y.XmlFragment,
+  said: (title: string, number: number) => string,
+): { at: number; text: string }[] {
+  const all = blocks.toArray();
+  const starts = all.flatMap((block, at) =>
+    block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE ? [{ block, at }] : [],
+  );
+  if (starts.length === 0) return [];
+  const leading = (starts[0]?.at ?? 0) > 0;
+  const lines = leading ? [{ at: -1, text: said("", 1) }] : [];
+  for (const [index, { block, at }] of starts.entries()) {
+    const title = block.getAttribute(NOTE_TAB_TITLE_ATTRIBUTE);
+    const number = index + (leading ? 2 : 1);
+    lines.push({ at, text: said(typeof title === "string" ? title.trim() : "", number) });
+  }
+  return lines;
 }
 
 /** The top-level table an element is in; null when it is in none. */
