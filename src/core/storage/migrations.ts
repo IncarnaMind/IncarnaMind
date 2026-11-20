@@ -3274,6 +3274,10 @@ export const migrations: readonly Migration[] = [
         size INTEGER NOT NULL,
         file TEXT NOT NULL,
         mind_id TEXT,
+        -- Why no Note could be made of it, in plain words; null while it is made or once it is.
+        unread TEXT,
+        -- When its own check ended; null until it has, so a check a quit cut short is resumed.
+        checked_at TEXT,
         agent TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,

@@ -16,10 +16,14 @@ export interface StoredHandedFile extends HandedFile {
   path: string;
 }
 
-/** A version as kept: its copy in the data folder, relative to it. */
+/** A version as kept: its copy in the data folder, relative to it, and how far it got. */
 export interface StoredHandedVersion extends HandedFileVersion {
   id: string;
   file: string;
+  /** Why no Note could be made of it; null while it is made, or once it is. */
+  unread: string | null;
+  /** When its own check ended; null until it has. */
+  checkedAt: string | null;
 }
 
 interface FileRow {
@@ -43,6 +47,8 @@ interface VersionRow {
   size: number | bigint;
   file: string;
   mind_id: string | null;
+  unread: string | null;
+  checked_at: string | null;
   agent: string;
   created_at: string;
 }
@@ -76,6 +82,8 @@ const toVersion = (row: VersionRow): StoredHandedVersion => ({
   size: Number(row.size),
   file: row.file,
   mindId: row.mind_id,
+  unread: row.unread,
+  checkedAt: row.checked_at,
   agent: row.agent,
   createdAt: row.created_at,
 });
@@ -97,7 +105,7 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
   const versions = (fileId: string): StoredHandedVersion[] =>
     db
       .all<VersionRow>(
-        `SELECT id, number, content_hash, size, file, mind_id, agent, created_at
+        `SELECT id, number, content_hash, size, file, mind_id, unread, checked_at, agent, created_at
          FROM agent_file_versions WHERE file_id = ? AND deleted_at IS NULL ORDER BY number`,
         [fileId],
       )
@@ -218,8 +226,25 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
 
     /** The Note a version's check is in. */
     setMind(versionId: string, mindId: string): void {
-      db.run("UPDATE agent_file_versions SET mind_id = ?, updated_at = ? WHERE id = ?", [
-        mindId,
+      db.run(
+        "UPDATE agent_file_versions SET mind_id = ?, unread = NULL, updated_at = ? WHERE id = ?",
+        [mindId, now(), versionId],
+      );
+    },
+
+    /** Why no Note can be made of a version, in plain words. */
+    setUnread(versionId: string, words: string): void {
+      db.run("UPDATE agent_file_versions SET unread = ?, updated_at = ? WHERE id = ?", [
+        words,
+        now(),
+        versionId,
+      ]);
+    },
+
+    /** A version's own check ended, or (null) is to be made again. */
+    setChecked(versionId: string, at: string | null): void {
+      db.run("UPDATE agent_file_versions SET checked_at = ?, updated_at = ? WHERE id = ?", [
+        at,
         now(),
         versionId,
       ]);

@@ -8,139 +8,27 @@
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { verificationOf } from "../../src/shared/verification";
-import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
-import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
-import { createTempDataFolder } from "../helpers/core";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
+import { isCheckRun, sentenceOf } from "../helpers/checks";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
+import {
+  DECK,
+  type Handed,
+  handOver,
+  NEVER_CLOSES,
+  NORTH,
+  OFFICE,
+  refusal,
+  SOUTH,
+  started,
+  structured,
+} from "../helpers/handedFiles";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
 import { plainDeck } from "../helpers/pptx";
-
-type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
-
-interface Handed {
-  fileId: string;
-  title: string;
-  folder: string;
-  version: number;
-  mindId: string | null;
-  status: "checked" | "running" | "not-checked";
-  why: string | null;
-  supported: number;
-  needLook: number;
-  claims: { where: string | null; text: string; result: string; says: string | null }[];
-  formulas: {
-    workedOut: number;
-    notWorkedOut: number;
-    differ: { cell: string; saved: string; worked: string }[];
-  } | null;
-}
-
-function structured<T>(result: unknown): T {
-  const { isError, structuredContent, content } = result as {
-    isError?: boolean;
-    structuredContent?: unknown;
-    content?: { text?: string }[];
-  };
-  expect(isError ?? false, content?.[0]?.text).toBe(false);
-  return structuredContent as T;
-}
-
-function refusal(result: unknown): string {
-  const { isError, content } = result as { isError?: boolean; content?: { text?: string }[] };
-  expect(isError).toBe(true);
-  return content?.[0]?.text ?? "";
-}
-
-const SURVEY = [
-  "# Harbour survey",
-  "",
-  "The north quay holds 42 boats and the south quay holds 19 boats.",
-  "",
-  "The harbour office is open every day of the year.",
-].join("\n");
-
-const NORTH = "The north quay holds 42 boats.";
-const SOUTH = "The south quay holds 17 boats.";
-const OFFICE = "The harbour office is open every day of the year.";
-const NEVER_CLOSES = "The harbour office never closes, night or day.";
-
-const PLANS: Record<string, Plan> = {
-  [NORTH]: {
-    verdict: "supported",
-    quote: "The north quay holds 42 boats",
-    says: "Harbour survey says the north quay holds 42 boats.",
-  },
-  [SOUTH]: {
-    verdict: "contradicted",
-    quote: "the south quay holds 19 boats",
-    says: "Harbour survey says the south quay holds 19 boats, not 17.",
-  },
-  [OFFICE]: {
-    verdict: "supported",
-    quote: "The harbour office is open every day of the year.",
-    says: "Harbour survey says the office is open every day.",
-  },
-  [NEVER_CLOSES]: {
-    verdict: "overstated",
-    quote: "The harbour office is open every day of the year.",
-    says: "Harbour survey says the office is open every day, not at night.",
-  },
-  "Rent — 2026: 14000": {
-    verdict: "supported",
-    quote: "Rent for 2026 is 14000.",
-    says: "Harbour budget notes give rent for 2026 as 14000.",
-  },
-  "Moorings — 2026: 2500": {
-    verdict: "contradicted",
-    quote: "Moorings for 2026 cost 2200.",
-    says: "Harbour budget notes give moorings for 2026 as 2200, not 2500.",
-  },
-};
-
-/** A deck the agent made: its claims on slide 2, the office on slide 3. */
-const DECK = plainDeck([
-  { title: "Harbour review" },
-  { lines: [NORTH, SOUTH] },
-  { lines: [OFFICE, NEVER_CLOSES] },
-]);
-
-/** "Claude Code" may write in Coast; the Coast has the harbour survey. */
-async function started(calls: ModelCall[] = []) {
-  const kept = await createTempDataFolder();
-  const started = await startAgentsCore(checkingModel(PLANS, calls), {
-    canvasFiles: createCanvasFiles(join(kept, "Canvases")),
-  });
-  const { core } = started;
-  const sources = await createSourceFolder();
-  const added = await addAndProcess(core, [
-    await writeSourceFile(sources, "Harbour survey.md", SURVEY),
-    await writeSourceFile(
-      sources,
-      "Harbour budget notes.md",
-      "# Harbour budget notes\n\nRent for 2026 is 14000.\n\nMoorings for 2026 cost 2200.\n",
-    ),
-  ]);
-  const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
-  for (const document of added) await core.assignDocumentGroup(document.id, coast.id);
-  await core.setAgentsEnabled(true);
-  const writer = await core.connectAgent({
-    name: "Claude Code",
-    folderIds: [coast.id],
-    propose: true,
-  });
-  const reader = await core.connectAgent({ name: "Codex", folderIds: [coast.id] });
-  const files = await createSourceFolder();
-  return { core, coast, writer, reader, files, added };
-}
-
-const handOver = (agent: Agent, args: Record<string, unknown>) =>
-  agent.callTool({ name: "hand_over_file", arguments: args });
 
 describe("files an outside agent hands over", () => {
   beforeAll(async () => {

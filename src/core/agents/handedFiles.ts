@@ -9,6 +9,7 @@
  */
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type { NamedFile } from "../adapters";
+import type { HandOverInput } from "../agentFiles/handOver";
 import type { AgentToolName, Effect, HandedFile } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
 import type { AdmittedPairing } from "./access";
@@ -47,13 +48,18 @@ export interface HandedClaim {
   says: string | null;
 }
 
-/** How a version's check stands, as the agent reads it. */
+/** A claim as its check found it, with the Documents its result rests on. */
+export interface FoundClaim extends HandedClaim {
+  documents: readonly string[];
+}
+
+/** How a version's check stands. */
 export interface HandedCheck {
   status: "checked" | "running" | "not-checked";
   why: string | null;
   supported: number;
   needLook: number;
-  claims: HandedClaim[];
+  claims: FoundClaim[];
   formulas: {
     workedOut: number;
     notWorkedOut: number;
@@ -61,7 +67,9 @@ export interface HandedCheck {
   } | null;
 }
 
-export interface AgentHandedFile extends HandedCheck {
+/** What the agent reads of a hand-over: its claims, each said only from Documents it reaches. */
+export interface AgentHandedFile extends Omit<HandedCheck, "claims"> {
+  claims: HandedClaim[];
   fileId: string;
   title: string;
   folder: string;
@@ -83,17 +91,9 @@ export interface HandedFileToolDeps {
   /** The item this pairing handed over from `path`, if there is one. */
   handedAt(pairingId: string, path: string): (HandedFile & { pairingId: string }) | null;
   /** Keeps the bytes as the item's version, new or the same, and makes its check's Note. */
-  handOver(input: {
-    pairingId: string;
-    agent: string;
-    path: string;
-    title: string;
-    kind: HandedFile["kind"];
-    bytes: Uint8Array;
-    folderId: string | null;
-  }): Promise<HandOverDone>;
-  /** How the check of the Note stands, waiting up to `waitMs` for it to end. */
-  handedCheck(mindId: string, waitMs: number): Promise<HandedCheck>;
+  handOver(input: HandOverInput): Promise<HandOverDone>;
+  /** How the check of the Note stands, waiting up to `waitMs` for it to end, within `reach`. */
+  handedCheck(mindId: string, waitMs: number, reach: ReadonlySet<string>): Promise<HandedCheck>;
   doneSince(pairingId: string, tools: readonly AgentToolName[], since: string): number;
   folders(): { id: string; name: string }[];
   now(): string;
@@ -111,6 +111,12 @@ export interface HandedFileToolContext {
     ) => Promise<{ result: T; count: number | null; documentIds: string[] }>,
   ): Promise<T>;
   reached(pairing: AdmittedPairing): ReadonlySet<string>;
+  /** The pairing as it is admitted now: what the User grants it may change while a call waits. */
+  again(): AdmittedPairing;
+  /** The Documents the pairing reaches. */
+  documentsIn(pairing: AdmittedPairing): ReadonlySet<string>;
+  /** Whether the pairing reaches the Note. */
+  noteReached(pairing: AdmittedPairing, mindId: string): boolean;
   placeToWriteIn(pairing: AdmittedPairing, folderId: unknown): { id: string | null; name: string };
   /** How long a call waits for the check before it answers "running". */
   waitMs: number;
@@ -120,6 +126,13 @@ const WRITES_LIBRARY: Effect = { action: "write", scope: { kind: "library" } };
 
 export function createHandedFileTool(context: HandedFileToolContext) {
   const { deps, t, call } = context;
+  /** Hand-overs a pairing has under way, each holding its place in the hour's count until it ends. */
+  const underWay = new Map<string, number>();
+  const release = (pairingId: string) => {
+    const left = (underWay.get(pairingId) ?? 1) - 1;
+    if (left > 0) underWay.set(pairingId, left);
+    else underWay.delete(pairingId);
+  };
 
   const kindOf = (path: string): HandedFile["kind"] => {
     const dot = path.lastIndexOf(".");
@@ -136,7 +149,8 @@ export function createHandedFileTool(context: HandedFileToolContext) {
   return {
     handOverFile(input: { path?: unknown; folderId?: unknown }): Promise<AgentHandedFile> {
       const named = typeof input?.path === "string" ? titleOf(input.path) : "";
-      return call("hand_over_file", named, [WRITES_LIBRARY], async (pairing) => {
+      let reserved: string | null = null;
+      const asked = call("hand_over_file", named, [WRITES_LIBRARY], async (pairing) => {
         if (!pairing.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
@@ -156,12 +170,19 @@ export function createHandedFileTool(context: HandedFileToolContext) {
           ? { id: known.folderId, name: folderName(known.folderId) }
           : context.placeToWriteIn(pairing, input?.folderId);
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
-        if (deps.doneSince(pairing.id, ["hand_over_file"], since) >= MAX_HAND_OVERS_AN_HOUR) {
+        const going = underWay.get(pairing.id) ?? 0;
+        // Calls at once each count before any is recorded: a place is taken before the file is read.
+        if (
+          deps.doneSince(pairing.id, ["hand_over_file"], since) + going >=
+          MAX_HAND_OVERS_AN_HOUR
+        ) {
           throw new AgentRefusedError(
             "too-many",
             t("agents.handOver.tooMany", { max: MAX_HAND_OVERS_AN_HOUR }),
           );
         }
+        underWay.set(pairing.id, going + 1);
+        reserved = pairing.id;
         if (!deps.readNamed)
           throw new AgentRefusedError("failed", t("agents.handOver.unavailable"));
         const read = await deps.readNamed(path, MAX_HANDED_BYTES);
@@ -182,6 +203,17 @@ export function createHandedFileTool(context: HandedFileToolContext) {
           kind,
           bytes: read.bytes,
           folderId: folder.id,
+          // The grant as it is when the hand-over's turn comes: the User may have taken it back.
+          allowed: () => {
+            const now = context.again();
+            if (!now.propose)
+              throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+            const reach = context.reached(now);
+            if (!(folder.id === null ? reach.has(NOT_IN_A_FOLDER_ID) : reach.has(folder.id))) {
+              throw new AgentRefusedError("not-found", t("agents.handOver.notFound"));
+            }
+          },
+          reach: () => context.documentsIn(context.again()),
         });
         const check: HandedCheck =
           done.mindId === null
@@ -193,7 +225,23 @@ export function createHandedFileTool(context: HandedFileToolContext) {
                 claims: [],
                 formulas: null,
               }
-            : await deps.handedCheck(done.mindId, context.waitMs);
+            : await deps.handedCheck(
+                done.mindId,
+                context.waitMs,
+                context.documentsIn(context.again()),
+              );
+        // What the agent reaches may have changed while the check ran, as check_mind reads it.
+        const granted = context.again();
+        if (done.mindId !== null && !context.noteReached(granted, done.mindId)) {
+          throw new AgentRefusedError("not-found", t("agents.handOver.notFound"));
+        }
+        const inScope = context.documentsIn(granted);
+        const claims = check.claims
+          .slice(0, MAX_LISTED)
+          .map(
+            ({ documents, ...claim }): HandedClaim =>
+              documents.every((id) => inScope.has(id)) ? claim : { ...claim, says: null },
+          );
         return {
           result: {
             fileId: done.file.id,
@@ -202,11 +250,15 @@ export function createHandedFileTool(context: HandedFileToolContext) {
             version: done.version,
             mindId: done.mindId,
             ...check,
-            claims: check.claims.slice(0, MAX_LISTED),
+            claims,
           },
           count: 1,
           documentIds: done.file.documentId === null ? [] : [done.file.documentId],
         };
+      });
+      // Its place in the hour's count is the call's record from now on.
+      return asked.finally(() => {
+        if (reserved !== null) release(reserved);
       });
     },
   };

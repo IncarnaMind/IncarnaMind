@@ -10,13 +10,13 @@
 import { join } from "node:path";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type { Logger } from "../adapters";
-import type { HandedCheck, HandedClaim, HandOverDone } from "../agents/handedFiles";
+import type { FoundClaim, HandedCheck, HandOverDone } from "../agents/handedFiles";
 import { AgentRefusedError } from "../agents/refusals";
-import type { UnaskedCheck } from "../answers/checks/verify";
+import type { UnaskedCheck, UnaskedOptions } from "../answers/checks/verify";
 import type { Document, HandedFile, VerifyDocumentResult } from "../api";
 import { hashBytes } from "../documents/files";
 import { type WrittenFile, writeWholeFile } from "../documents/writeWhole";
-import type { AgentFiles } from "./index";
+import type { AgentFiles, StoredHandedFile, StoredHandedVersion } from "./index";
 
 /** The data folder's folder of handed-over files. */
 export const HANDED_FOLDER = "Handed files";
@@ -29,7 +29,7 @@ const BUSY_TRIES = 100;
 /** What a check's Note shows: its claims that need a look, where each is, and its formulas. */
 export interface HandedMarks {
   supported: number;
-  needLook: HandedClaim[];
+  needLook: FoundClaim[];
   formulas: HandedCheck["formulas"];
 }
 
@@ -42,6 +42,8 @@ export interface HandOverDeps {
   /** Reads the Document's file again, a new version when its bytes changed. */
   readAgain(path: string): Promise<unknown>;
   document(documentId: string): Document;
+  /** Whether the Document is in the Library still, not deleted. */
+  liveDocument(documentId: string): boolean;
   contentHashInUse(contentHash: string, exceptDocumentId: string | null): boolean;
   /** Someone else's file, checked: never the evidence for its own claims. */
   setNotCited(documentId: string): void;
@@ -52,10 +54,7 @@ export interface HandOverDeps {
     folderId: string | null;
     allSheets?: boolean;
   }): Promise<VerifyDocumentResult>;
-  /** With `keep`, a line whose result still stands keeps it, and only the rest are checked. */
-  checkUnasked(mindId: string, keep: boolean): Promise<UnaskedCheck>;
-  /** Copies the results of one check's lines onto the same lines of another's; how many took one. */
-  carryChecks(fromMindId: string, toMindId: string): number;
+  checkUnasked(mindId: string, options: UnaskedOptions): Promise<UnaskedCheck>;
   mindTitle(mindId: string): string;
   nameMind(mindId: string, title: string): void;
   /** Tells the windows the Notes changed: which of them a later version's check now stands for. */
@@ -68,12 +67,35 @@ export interface HandOverDeps {
   log: Logger;
 }
 
-/** A check started on a version's Note, and whether it keeps the results carried onto it. */
+/** A check started on a version's Note, with what it was given, to start it again. */
 interface CheckRun {
   done: Promise<UnaskedCheck>;
   outcome: UnaskedCheck | null;
-  keep: boolean;
+  options: UnaskedOptions;
 }
+
+/** A hand-over: the bytes the agent's file held, and what may be done with them now. */
+export interface HandOverInput {
+  pairingId: string;
+  agent: string;
+  path: string;
+  title: string;
+  kind: HandedFile["kind"];
+  bytes: Uint8Array;
+  folderId: string | null;
+  /**
+   * Throws unless the agent may still write where it is handed over: read when the hand-over's
+   * turn comes, as the User may have taken the grant back while it waited.
+   */
+  allowed(): void;
+  /** The Documents the agent reaches now, the only evidence its check may have. */
+  reach(): ReadonlySet<string>;
+}
+
+/** Whether the Document's read failed, and since `was`, as it stood before the new version. */
+const failedSince = (was: Document, now: Document, read: boolean): boolean =>
+  now.status === "failed" &&
+  (read || was.status !== "failed" || JSON.stringify(was.failure) !== JSON.stringify(now.failure));
 
 /** The copy's file name: the item's title, kept to what every file system takes. */
 function fileNameOf(title: string, kind: HandedFile["kind"]): string {
@@ -90,33 +112,47 @@ export function createHandOver(deps: HandOverDeps) {
   const { store } = deps;
   /** Each check started, by its Note, while this run of IncarnaMind lasts. */
   const runs = new Map<string, CheckRun>();
-  /** Why a version made no Note, by the version's id. */
-  const unread = new Map<string, string>();
   let queue: Promise<unknown> = Promise.resolve();
 
-  /** Waits until the Document holds `contentHash` and its text is read, or the wait is over. */
-  async function versionRead(documentId: string, contentHash: string): Promise<boolean> {
+  /**
+   * Waits until the Document holds `contentHash`, its text read: true, or why it couldn't be. A
+   * read that failed after the hand-over is this version's, and ends the wait at once.
+   */
+  async function versionRead(
+    documentId: string,
+    contentHash: string,
+    was: Document,
+  ): Promise<true | string> {
     const until = Date.parse(deps.now()) + READ_WAIT_MS;
+    let read = false;
     for (;;) {
       const document = deps.document(documentId);
       if (document.contentHash === contentHash) return true;
-      if (Date.parse(deps.now()) > until) return false;
+      if (document.status === "queued" || document.status === "extracting") read = true;
+      if (failedSince(was, document, read)) {
+        return deps.say(
+          document.failure?.reason === "password-protected"
+            ? "agents.handOver.unread.password-protected"
+            : "agents.handOver.unread.unreadable",
+        );
+      }
+      if (Date.parse(deps.now()) > until) return deps.say("agents.handOver.unread.unreadable");
       await deps.sleep(250);
     }
   }
 
-  async function checkRun(mindId: string, keep: boolean): Promise<UnaskedCheck> {
+  async function checkRun(mindId: string, options: UnaskedOptions): Promise<UnaskedCheck> {
     for (let tried = 0; ; tried++) {
-      const outcome = await deps.checkUnasked(mindId, keep);
+      const outcome = await deps.checkUnasked(mindId, options);
       if (outcome.kind !== "busy" || tried >= BUSY_TRIES) return outcome;
       await deps.sleep(BUSY_WAIT_MS);
     }
   }
 
-  function startCheck(mindId: string, keep: boolean): void {
+  function startCheck(mindId: string, options: UnaskedOptions): void {
     const run: CheckRun = {
-      keep,
-      done: checkRun(mindId, keep).catch((error: unknown): UnaskedCheck => {
+      options,
+      done: checkRun(mindId, options).catch((error: unknown): UnaskedCheck => {
         deps.log.warn("handedFile.check.failed", {
           message: error instanceof Error ? error.message : String(error),
         });
@@ -133,6 +169,11 @@ export function createHandOver(deps: HandOverDeps) {
     };
     run.done.then((outcome) => {
       run.outcome = outcome;
+      // Kept, so that after a quit a check that ended reads as checked and one that didn't is resumed.
+      if (outcome.kind === "checked" || outcome.kind === "nothing") {
+        const version = store.ofMind(mindId)?.version;
+        if (version) store.setChecked(version.id, deps.now());
+      }
     });
     runs.set(mindId, run);
   }
@@ -154,28 +195,102 @@ export function createHandOver(deps: HandOverDeps) {
     }
   };
 
-  async function handOverNow(input: {
-    pairingId: string;
-    agent: string;
-    path: string;
-    title: string;
-    kind: HandedFile["kind"];
-    bytes: Uint8Array;
-    folderId: string | null;
-  }): Promise<HandOverDone> {
+  const doneOf = (file: StoredHandedFile, version: StoredHandedVersion): HandOverDone => ({
+    file: store.get(file.id) ?? file,
+    version: version.number,
+    mindId: version.mindId,
+    unread: version.unread,
+  });
+
+  /** The item's Document, while the Library holds it: null when it has none, or the User deleted it. */
+  const liveDocumentOf = (file: StoredHandedFile | null): string | null =>
+    file?.documentId && deps.liveDocument(file.documentId) ? file.documentId : null;
+
+  /**
+   * Makes a kept version the item's Document's newest, and the Note of its check, from wherever
+   * an earlier try stopped: a failure leaves the version kept, and the same bytes handed over again
+   * go on from there.
+   */
+  async function complete(
+    file: StoredHandedFile,
+    version: StoredHandedVersion,
+    input: HandOverInput,
+    contentHash: string,
+    reach: ReadonlySet<string>,
+  ): Promise<HandOverDone> {
+    let documentId = liveDocumentOf(file);
+    if (documentId === null) {
+      // The first version, or one after the User deleted the item's Document: a Document of its
+      // own, at a path the deleted one doesn't hold.
+      const path = join(
+        deps.dataDir,
+        HANDED_FOLDER,
+        file.id,
+        `file-${version.number}.${file.kind}`,
+      );
+      const written = await writeWholeFile(path, input.bytes, deps.now());
+      const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
+      documentId = document.id;
+      deps.setNotCited(documentId);
+      if (file.folderId !== null) deps.assign(documentId, file.folderId);
+      store.setDocument(file.id, documentId);
+    } else if (deps.document(documentId).contentHash !== contentHash) {
+      const was = deps.document(documentId);
+      await writeWholeFile(was.path, input.bytes, deps.now());
+      await deps.readAgain(was.path);
+      if (deps.document(documentId).name !== input.title) deps.rename(documentId, input.title);
+      const read = await versionRead(documentId, contentHash, was);
+      if (read !== true) {
+        store.setUnread(version.id, read);
+        return doneOf(file, { ...version, unread: read });
+      }
+    }
+    const made = await deps.verify({
+      documentId,
+      folderId: file.folderId,
+      ...(file.kind === "xlsx" && { allSheets: true }),
+    });
+    if (!made.ok) {
+      const words = unreadWords(made);
+      store.setUnread(version.id, words);
+      return doneOf(file, { ...version, unread: words });
+    }
+    store.setMind(version.id, made.mind.id);
+    const before = store
+      .versions(file.id)
+      .filter((each) => each.number < version.number && each.mindId !== null)
+      .at(-1);
+    // The newest version's check is the file's one Note in the lists, named for the file; the one
+    // before it, opened from its card, says its version, unless the User has named it (#3412).
+    if (
+      before?.mindId &&
+      deps.mindTitle(before.mindId) === deps.say("verify.mindTitle", { name: file.title })
+    ) {
+      deps.nameMind(
+        before.mindId,
+        deps.say("verify.handed.mindTitle", { name: file.title, version: before.number }),
+      );
+    }
+    deps.notesChanged();
+    deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
+    // A line the version before had too, checked with the same context, keeps that result while it
+    // still stands (#3412): only what changed, or what its Documents changed under, is checked again.
+    startCheck(made.mind.id, { carryFrom: before?.mindId ?? null, reach });
+    return doneOf(file, { ...version, mindId: made.mind.id });
+  }
+
+  async function handOverNow(input: HandOverInput): Promise<HandOverDone> {
+    input.allowed();
+    const reach = input.reach();
     const contentHash = hashBytes(input.bytes);
     const known = store.atPath(input.pairingId, input.path);
     const newest = known ? store.versions(known.id).at(-1) : undefined;
     if (known && newest && newest.contentHash === contentHash) {
-      return {
-        file: known,
-        version: newest.number,
-        mindId: newest.mindId,
-        unread: unread.get(newest.id) ?? null,
-      };
+      if (newest.mindId !== null || newest.unread !== null) return doneOf(known, newest);
+      return complete(known, newest, input, contentHash, reach);
     }
     // Two Documents never hold the same file (ADR-0003).
-    if (deps.contentHashInUse(contentHash, known?.documentId ?? null)) {
+    if (deps.contentHashInUse(contentHash, liveDocumentOf(known))) {
       throw new AgentRefusedError("invalid", deps.say("agents.handOver.inLibrary"));
     }
     const file =
@@ -198,70 +313,7 @@ export function createHandOver(deps: HandOverDeps) {
       agent: input.agent,
       title: input.title,
     });
-    const current = join(deps.dataDir, HANDED_FOLDER, file.id, `file.${file.kind}`);
-    const written = await writeWholeFile(current, input.bytes, deps.now());
-    let documentId = file.documentId;
-    if (documentId === null) {
-      const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
-      documentId = document.id;
-      deps.setNotCited(documentId);
-      if (file.folderId !== null) deps.assign(documentId, file.folderId);
-      store.setDocument(file.id, documentId);
-    } else {
-      await deps.readAgain(current);
-      if (deps.document(documentId).name !== input.title) deps.rename(documentId, input.title);
-      if (!(await versionRead(documentId, contentHash))) {
-        unread.set(version.id, deps.say("agents.handOver.unread.unreadable"));
-        return {
-          file: store.get(file.id) ?? file,
-          version: version.number,
-          mindId: null,
-          unread: unread.get(version.id) ?? null,
-        };
-      }
-    }
-    const made = await deps.verify({
-      documentId,
-      folderId: file.folderId,
-      ...(file.kind === "xlsx" && { allSheets: true }),
-    });
-    if (!made.ok) {
-      unread.set(version.id, unreadWords(made));
-      return {
-        file: store.get(file.id) ?? file,
-        version: version.number,
-        mindId: null,
-        unread: unread.get(version.id) ?? null,
-      };
-    }
-    store.setMind(version.id, made.mind.id);
-    const before = store
-      .versions(file.id)
-      .filter((each) => each.number < version.number && each.mindId !== null)
-      .at(-1);
-    // The newest version's check is the file's one Note in the lists, named for the file; the one
-    // before it, opened from its card, says its version, unless the User has named it (#3412).
-    if (
-      before?.mindId &&
-      deps.mindTitle(before.mindId) === deps.say("verify.mindTitle", { name: file.title })
-    ) {
-      deps.nameMind(
-        before.mindId,
-        deps.say("verify.handed.mindTitle", { name: file.title, version: before.number }),
-      );
-    }
-    deps.notesChanged();
-    deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
-    // A line the version before had too keeps that result while it still stands (#3412): only what
-    // changed, or what its Documents changed under, is checked again.
-    const carried = before?.mindId ? deps.carryChecks(before.mindId, made.mind.id) : 0;
-    startCheck(made.mind.id, carried > 0);
-    return {
-      file: store.get(file.id) ?? file,
-      version: version.number,
-      mindId: made.mind.id,
-      unread: null,
-    };
+    return complete(file, version, input, contentHash, reach);
   }
 
   const notChecked = (outcome: UnaskedCheck): string | null => {
@@ -293,22 +345,38 @@ export function createHandOver(deps: HandOverDeps) {
   };
 
   return {
-    handOver(input: Parameters<typeof handOverNow>[0]): Promise<HandOverDone> {
+    handOver(input: HandOverInput): Promise<HandOverDone> {
       const next = queue.then(() => handOverNow(input));
       queue = next.catch(() => undefined);
       return next;
     },
 
-    /** How the check of the Note stands, waiting up to `waitMs` for a run still going to end. */
-    async handedCheck(mindId: string, waitMs: number): Promise<HandedCheck> {
-      const before = runs.get(mindId);
-      const unmarked = () => {
-        const { supported, needLook } = deps.marks(mindId);
-        return supported + needLook.length === 0;
-      };
-      // A check that couldn't run, or that a quit stopped before it marked anything, runs when asked again.
-      if ((before === undefined && unmarked()) || before?.outcome?.kind === "not-asked") {
-        startCheck(mindId, before?.keep ?? false);
+    /**
+     * How the check of the Note stands, waiting up to `waitMs` for a run still going to end. One
+     * that couldn't run (no model then, no consent), or that a quit cut short, starts again here,
+     * keeping the results that still stand, within what the agent reaches now.
+     */
+    async handedCheck(
+      mindId: string,
+      waitMs: number,
+      reach: ReadonlySet<string>,
+    ): Promise<HandedCheck> {
+      const earlier = runs.get(mindId);
+      const found = store.ofMind(mindId);
+      if (
+        (earlier === undefined && found !== null && found.version.checkedAt === null) ||
+        earlier?.outcome?.kind === "not-asked"
+      ) {
+        const before = found
+          ? store
+              .versions(found.file.id)
+              .filter((each) => each.number < found.version.number && each.mindId !== null)
+              .at(-1)
+          : undefined;
+        startCheck(mindId, {
+          ...(earlier?.options ?? { carryFrom: before?.mindId ?? null, keep: true }),
+          reach,
+        });
       }
       const run = runs.get(mindId);
       if (run && run.outcome === null) {
@@ -317,23 +385,17 @@ export function createHandOver(deps: HandOverDeps) {
       const marks = deps.marks(mindId);
       const formulas = marks.formulas;
       if (run && run.outcome === null) {
-        return {
-          status: "running",
-          why: null,
-          supported: 0,
-          needLook: 0,
-          claims: [],
-          formulas,
-        };
+        return { status: "running", why: null, supported: 0, needLook: 0, claims: [], formulas };
       }
       const why = run?.outcome ? notChecked(run.outcome) : null;
       const stop = run?.outcome?.kind === "checked" ? run.outcome.stop : null;
+      // A result shows only once a check of this version said it stands.
+      if (why !== null) {
+        return { status: "not-checked", why, supported: 0, needLook: 0, claims: [], formulas };
+      }
       return {
-        status:
-          why === null && (run !== undefined || marks.supported + marks.needLook.length > 0)
-            ? "checked"
-            : "not-checked",
-        why: stop ? deps.say(`agents.check.stopped.${stop.reason}`) : why,
+        status: "checked",
+        why: stop ? deps.say(`agents.check.stopped.${stop.reason}`) : null,
         supported: marks.supported,
         needLook: marks.needLook.length,
         claims: marks.needLook,

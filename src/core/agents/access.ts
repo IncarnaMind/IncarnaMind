@@ -1676,6 +1676,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     t,
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
+    again: () => deps.admit(pairingId),
+    documentsIn: (pairing) => new Set(scopeOf(pairing, undefined)),
+    noteReached: (pairing, mindId) => {
+      const mind = deps.minds().find((each) => each.id === mindId);
+      return mind !== undefined && reaches(pairing, mind);
+    },
     placeToWriteIn,
     waitMs: deps.checkWaitMs ?? CHECK_WAIT_MS,
   });

@@ -72,7 +72,7 @@ import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
-import type { HandedClaim } from "./agents/handedFiles";
+import type { FoundClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
@@ -5769,13 +5769,13 @@ export function createCore(adapters: CoreAdapters): Core {
     addHanded: (id, name, file, kind) => documents.addHanded(id, name, file, kind),
     readAgain: (path) => documents.checkNow(path),
     document: (documentId) => documents.get(documentId),
+    liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
-    checkUnasked: (mindId, keep) => inFlow("verify", () => checks.checkUnasked(mindId, keep)),
-    carryChecks: (from, to) => checks.carryChecks(from, to),
+    checkUnasked: (mindId, options) => inFlow("verify", () => checks.checkUnasked(mindId, options)),
     mindTitle: (mindId) => minds.get(mindId).title,
     nameMind: (mindId, title) => minds.rename(mindId, title),
     notesChanged: () => mindsChanged(),
@@ -5820,7 +5820,7 @@ export function createCore(adapters: CoreAdapters): Core {
   /** What a handed-over file's check Note shows: its claims that need a look, where each is, its formulas. */
   function handedMarks(
     mindId: string,
-  ): Omit<HandedMarks, "needLook"> & { needLook: (HandedClaim & { checkId: string })[] } {
+  ): Omit<HandedMarks, "needLook"> & { needLook: (FoundClaim & { checkId: string })[] } {
     const say = (key: MessageKey, params?: MessageParams) =>
       translate(settings.get().language, key, params);
     const kind = handedFiles.ofMind(mindId)?.file.kind;
@@ -5841,7 +5841,7 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       }
       let supported = 0;
-      const needLook: (HandedClaim & { checkId: string })[] = [];
+      const needLook: (FoundClaim & { checkId: string })[] = [];
       for (const { element, check, sentence } of checkedSentences(fragment)) {
         if (check.state === "checking") continue;
         if (check.state === "supported") {
@@ -5874,6 +5874,18 @@ export function createCore(adapters: CoreAdapters): Core {
               : sentence,
           result,
           says: check.says ?? check.unsupported?.reason ?? null,
+          // The Documents its result rests on: what it says is told only to an agent that reaches them.
+          documents: [
+            ...new Set(
+              [
+                check.evidence?.documentId,
+                ...check.versions.map((each) => each.documentId),
+                ...(check.parts ?? []).flatMap((part) =>
+                  (part.evidence ?? []).map((each) => each.documentId),
+                ),
+              ].filter((id): id is string => typeof id === "string"),
+            ),
+          ],
           checkId: check.id,
         });
       }
@@ -6026,7 +6038,7 @@ export function createCore(adapters: CoreAdapters): Core {
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
       handOver: (input) => handOver.handOver(input),
-      handedCheck: (mindId, waitMs) => handOver.handedCheck(mindId, waitMs),
+      handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
     },
     skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),
@@ -8392,7 +8404,9 @@ export function createCore(adapters: CoreAdapters): Core {
         version: found.version.number,
         versions: handedFiles
           .versions(found.file.id)
-          .map(({ id: _id, file: _file, ...version }) => version),
+          .map(
+            ({ id: _id, file: _file, unread: _unread, checkedAt: _checked, ...version }) => version,
+          ),
       };
     },
     listCanvases: async () => canvases.forWindows(),
