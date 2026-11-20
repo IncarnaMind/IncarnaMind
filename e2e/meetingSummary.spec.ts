@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { meetingSummaryModelRoute } from "../src/shared/meetingSummary";
 import {
+  acceptPlainTextKeys,
   closeSettings,
   coreOf,
   createDataFolder,
@@ -93,6 +94,7 @@ for (const language of ["en", "zh-CN"] as const) {
           path: join(screenshots, `meeting-summary-${view}-${language}.png`),
         });
       };
+      await acceptPlainTextKeys(window);
       const agents = await bridge.evaluate(async (core) => {
         await core.setAgentsEnabled(true);
         const codex = await core.connectAgent({ name: "My Codex", client: "codex" });
