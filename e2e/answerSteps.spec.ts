@@ -16,6 +16,7 @@ import {
   frontMindName,
   launchApp,
   mindWrittenBefore,
+  motionSettled,
   openSteps,
   pointAndClick,
   pointAt,
@@ -43,7 +44,9 @@ import {
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function screenshot(window: Page, name: string): Promise<void> {
-  if (SCREENSHOTS) await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
+  if (!SCREENSHOTS) return;
+  await motionSettled(window);
+  await window.screenshot({ path: join(SCREENSHOTS, `${name}.png`) });
 }
 
 const SPRING = "Spring tides happen at new moon and at full moon.";
@@ -655,6 +658,84 @@ test("a sentence its quote doesn't support loses its green check, and the check 
     "引用核对：1 处引用和原文对照 · 1 处需要留意",
   );
   await screenshot(window, "beyond-its-quote-zh");
+  await app.close();
+});
+
+/** The Answer's uncited claim, and what its check's card says, in each language (#3410). */
+const UNCITED = {
+  en: {
+    question: "When do spring tides happen, with one uncited claim?",
+    claim: "The tides here rise six metres.",
+    heading: "Unsupported by your Documents",
+    stop: ". ",
+    why: "This sentence has no Citation, and the passages this Answer read don’t back it.",
+    says: "The Documents don't say how high the tides rise here.",
+    toCheck: "1 sentence not checked yet",
+  },
+  "zh-CN": {
+    question: "spring tides 什么时候出现？一句未引用的说法",
+    claim: "这里的潮水会涨六米。",
+    heading: "文档中没有依据",
+    stop: "。",
+    why: "这句话没有引用，这条回答读过的段落中也没有依据。",
+    says: "文档没有写这里的潮水涨多高。",
+    toCheck: "2 句待核对",
+  },
+} as const;
+
+test("a sentence its model didn't cite, which the Passages its Answer read don't back, is marked where it stands, and Add to note keeps it uncited, in English and Chinese (#3410)", async () => {
+  const { app, window } = await start();
+  await core(window).mind("Lit review: tides");
+  const appearance = (colorScheme: "light" | "dark") => window.emulateMedia({ colorScheme });
+  for (const language of ["en", "zh-CN"] as const) {
+    const words = UNCITED[language];
+    await core(window).language(language);
+    const answer = await ask(window, words.question);
+    // The model's own Citation is judged as before; the claim it cited nothing for is marked.
+    await expect(answer.getByTestId("citation")).toHaveAttribute("data-check", "found");
+    const mark = answer.getByTestId("uncited-check-mark");
+    await expect(mark).toHaveAttribute("data-check", "unsupported", { timeout: 30_000 });
+    await expect(mark).toHaveAttribute("aria-label", `${words.heading}${words.stop}${words.why}`);
+    await expect(answer.getByTestId("uncited-check")).toHaveText(words.claim);
+    for (const look of ["light", "dark"] as const) {
+      await appearance(look);
+      await screenshot(window, `uncited-mark-${language}-${look}`);
+    }
+    await pointAndClick(window, mark);
+    const card = window.getByTestId("uncited-check-card");
+    await expect(card).toHaveAttribute("data-check", "unsupported");
+    await expect(card).toContainText(words.heading);
+    await expect(card.getByTestId("uncited-check-verdict")).toHaveText(words.says);
+    for (const look of ["light", "dark"] as const) {
+      await appearance(look);
+      await screenshot(window, `uncited-card-${language}-${look}`);
+    }
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+
+    // Added to the Note, the claim stays as the Answer wrote it, with no Citation and no mark: only
+    // the cited sentence's judgement is carried (#2313), and the Note counts the claim not checked.
+    await pointAt(window, answer.getByTestId("assistant-answer-text"));
+    await pointAndClick(window, answer.getByTestId("answer-add"));
+    await expect(answer.getByTestId("answer-added")).toBeVisible();
+    const editor = window.getByTestId("mind-editor");
+    await expect(editor).toContainText(words.claim);
+    // The wash on text just added keeps the colours it starts in: the stills wait for it to end.
+    await expect(editor.locator(".block-just-added")).toHaveCount(0);
+    await expect(editor.getByTestId("uncited-check-mark")).toHaveCount(0);
+    // One cited sentence an Answer, Supported; the claims, one an Answer, not checked.
+    await expect(window.getByTestId("claim-mark")).toHaveCount(language === "en" ? 1 : 2);
+    await expect(
+      window.locator('[data-testid="claim-mark"]:not([data-check="supported"])'),
+    ).toHaveCount(0);
+    await expect(window.getByTestId("check-badge")).toHaveText(words.toCheck);
+    await expect(editor.locator('[data-testid="citation"]')).toHaveCount(language === "en" ? 1 : 2);
+    for (const look of ["light", "dark"] as const) {
+      await appearance(look);
+      await screenshot(window, `uncited-added-${language}-${look}`);
+    }
+    await appearance("light");
+  }
   await app.close();
 });
 

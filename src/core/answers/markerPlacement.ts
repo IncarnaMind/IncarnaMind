@@ -212,7 +212,7 @@ export function withFigureCitations(
  * Where a marker goes in a sentence or paragraph ending at `end`: after any
  * markers there, before its closing punctuation, without trailing space.
  */
-function insertionPoint(text: string, span: Span): number {
+export function insertionPoint(text: string, span: Span): number {
   let end = span.end;
   while (end > span.start && /\s/.test(text[end - 1] as string)) end--;
   const body = text.slice(span.start, end);

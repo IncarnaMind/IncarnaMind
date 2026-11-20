@@ -121,6 +121,34 @@ describe("a batch's reply", () => {
       [1, "supported"],
     ]);
   });
+
+  // protects=an uncited sentence's entry names the Passage and the words that state it, read only whole: a number and words (#3410); fails_when=a Passage given as text, or empty words, reads as a quote to confirm; no_claim=whether the words are in the Passage, which the Citation check confirms.
+  test("an uncited sentence's Passage and words are read with its verdict", async () => {
+    const reply = JSON.stringify({
+      sentences: [
+        { ...entry(1, "supported"), passage: 2, quote: " The deposit is returned. " },
+        { ...entry(2, "supported"), passage: "P1", quote: "The deposit is returned." },
+        { ...entry(3, "supported"), passage: 1, quote: "" },
+      ],
+    });
+
+    const read = await readBatchReply(reply, 3);
+
+    expect(read.get(1)?.cites).toEqual({ passage: 2, quote: "The deposit is returned." });
+    expect(read.get(2)?.cites).toBeUndefined();
+    expect(read.get(3)?.cites).toBeUndefined();
+  });
+
+  // protects=an uncited sentence's entry that leaves out what bears only on Citations (quoted, roles, time) is still read, as not stating any quote, while a cited sentence's entry missing them stays unjudged (#2817, #3410); fails_when=a contradicted uncited sentence goes unmarked for a missing quoted, or a cited one is judged with a field it left out; no_claim=none beyond protects.
+  test("an uncited sentence's entry may leave out its quote's words; a cited one's may not", async () => {
+    const { quoted: _quoted, roles: _roles, time: _time, ...bare } = entry(1, "contradicted");
+    const reply = JSON.stringify({ sentences: [bare, { ...bare, number: 2 }] });
+
+    const read = await readBatchReply(reply, 2, new Set([2]));
+
+    expect(read.has(1)).toBe(false);
+    expect(read.get(2)).toMatchObject({ verdict: "contradicted", quoted: "other" });
+  });
 });
 
 describe("a reply that corrects itself (#3029)", () => {

@@ -107,6 +107,7 @@ import type { AnswerEngine } from "../engine";
 import { type AnswerCheckInput, createAnswerCheck } from "./answerCheck";
 import { lookResult } from "./answerLook";
 import { inCheck } from "./checkedText";
+import { asPassage, checkSession, NO_DATE } from "./checkSetup";
 import {
   type CheckedCitation,
   type ClaimCheckDependencies,
@@ -1437,38 +1438,52 @@ export function createChecks(options: ChecksOptions) {
     scope: (mindId, documentIds) => options.evidence.scope(mindId, documentIds),
     searchableCount: (documentIds) => options.documents.searchableCount(documentIds),
     citedNow,
-    passages: (cited, scope, callIn) =>
-      [...new Set(cited.flatMap((each) => (each.passageId ? [each.passageId] : [])))].flatMap(
-        (passageId) => {
-          const source = options.documents.citationSource(passageId);
-          const inScope =
-            source &&
-            !source.documentDeleted &&
-            !source.notCited &&
-            !scope.excluded.has(source.documentId) &&
-            (scope.documentIds === null || scope.documentIds.includes(source.documentId));
-          if (!source || !inScope) return [];
-          const { pageFrom, pageTo } = source;
-          const location =
-            pageFrom === null
-              ? null
-              : pageTo && pageTo !== pageFrom
-                ? `pp. ${pageFrom}–${pageTo}`
-                : `p. ${pageFrom}`;
-          const call = options.callMark?.(callIn, source.documentId) ?? null;
-          return [
-            {
-              passageId,
-              documentName: source.documentName,
-              location,
-              text: source.text,
-              ...(call && { call }),
-            },
-          ];
-        },
-      ),
+    passages: (passageIds, scope, callIn) =>
+      [...new Set(passageIds)].flatMap((passageId) => {
+        const source = options.documents.citationSource(passageId);
+        const inScope =
+          source &&
+          !source.documentDeleted &&
+          !source.notCited &&
+          !scope.excluded.has(source.documentId) &&
+          (scope.documentIds === null || scope.documentIds.includes(source.documentId));
+        if (!source || !inScope) return [];
+        const { pageFrom, pageTo } = source;
+        const location =
+          pageFrom === null
+            ? null
+            : pageTo && pageTo !== pageFrom
+              ? `pp. ${pageFrom}–${pageTo}`
+              : `p. ${pageFrom}`;
+        const call = options.callMark?.(callIn, source.documentId) ?? null;
+        return [
+          {
+            passageId,
+            documentName: source.documentName,
+            location,
+            text: source.text,
+            ...(call && { call }),
+          },
+        ];
+      }),
     units: (citation) =>
       options.documents.pageTexts(citation.documentId, citation.contentHash, null, null),
+    citeQuote: (passageId, quote) => {
+      const source = options.documents.citationSource(passageId);
+      if (!source || source.documentDeleted || source.notCited) return null;
+      const session = checkSession({
+        citationSource: (id) => options.documents.citationSource(id),
+        pageTexts: (documentId, contentHash, from, to) =>
+          options.documents.pageTexts(documentId, contentHash, from, to),
+        documentDate: NO_DATE,
+      });
+      session.show([asPassage(source)]);
+      const shown = session.shownPassages().find((each) => each.passageId === passageId);
+      const taken = shown ? session.quotes.quote({ passage: shown.id, quote }) : null;
+      if (!taken || "problem" in taken) return null;
+      const result = taken.check();
+      return result.check === "found" ? { ...taken.citation, ...result } : null;
+    },
     claimTimeLimitMs: options.claimTimeLimitMs ?? CLAIM_TIME_LIMIT_MS,
     ...(options.timers && { timers: options.timers }),
     ...(options.repliesOut && { repliesOut: options.repliesOut }),

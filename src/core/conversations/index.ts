@@ -60,6 +60,7 @@ import type {
   ProviderErrorKind,
   SearchScope,
   ThirdPartySource,
+  UncitedCheck,
 } from "../api";
 import {
   CITATION_CHECK_REASONS,
@@ -239,6 +240,17 @@ const PHASES: Record<AnswerPhase, true> = {
 const timeOrNull = (value: unknown): string | null =>
   typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
 
+/** The uncited sentences an Answer's judgement marked (#3410), as stored: each one read whole. */
+const storedUncitedChecks = (stored: readonly unknown[]): UncitedCheck[] =>
+  stored.flatMap((each): UncitedCheck[] => {
+    if (!isRecord(each) || typeof each.sentence !== "string") return [];
+    const { check, verdict } = each;
+    const judgedAt = timeOrNull(each.judgedAt);
+    if (check !== "unsupported" && check !== "contradicted") return [];
+    if ((typeof verdict !== "string" && verdict !== null) || judgedAt === null) return [];
+    return [{ sentence: each.sentence, check, verdict, judgedAt }];
+  });
+
 /**
  * An Answer's steps as stored (JSON); null when there are none (an Answer
  * written before #391) or they can't be read. Phases a newer version writes are skipped.
@@ -272,6 +284,8 @@ function storedSteps(value: string | null): AnswerSteps | null {
     sent,
     textBehind,
     pressed,
+    readPassages,
+    uncitedChecks,
   } = parsed;
   const claimed = Array.isArray(unbackedClaims)
     ? unbackedClaims.filter((each): each is ClaimedChange =>
@@ -317,6 +331,10 @@ function storedSteps(value: string | null): AnswerSteps | null {
     ...(askedAbout.length > 0 && { askedAgainFor: askedAbout }),
     ...(example === true && { example }),
     ...(textBehind === true && { textBehind }),
+    ...(Array.isArray(readPassages) && {
+      readPassages: readPassages.filter((each): each is string => typeof each === "string"),
+    }),
+    ...(Array.isArray(uncitedChecks) && { uncitedChecks: storedUncitedChecks(uncitedChecks) }),
     ...(storedCoverage(coverage) ?? {}),
     ...(isRecord(writtenFrom) &&
       isCount(writtenFrom.documents) &&
@@ -1466,28 +1484,32 @@ export function createConversations(db: Database, now: () => string) {
     /**
      * Writes an ended Answer's Citations again once its sentences are judged (#2311), only while it
      * still reads `text`: one written again since keeps its own. `marked`: that text with the
-     * markers of Citations the judgement added (#3020), written with them. Returns it, or null if
-     * not written.
+     * markers of Citations the judgement added (#3020), written with them. `uncited`: the
+     * sentences with no Citation the judgement marked (#3410), kept with its steps. Returns it,
+     * or null if not written.
      */
     writeCitations(
       answerId: string,
       text: string,
       citations: readonly MarkedCitation[],
       marked?: string,
+      uncited?: readonly UncitedCheck[],
     ): ConversationAnswer | null {
       const row = liveMessage(answerId);
       if (row?.kind !== "answer" || row.text !== text) return null;
-      if (marked === undefined) {
-        db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
-          JSON.stringify(citations),
-          now(),
-          answerId,
-        ]);
-      } else {
-        db.run(
-          "UPDATE conversation_messages SET text = ?, citations = ?, updated_at = ? WHERE id = ?",
-          [marked, JSON.stringify(citations), now(), answerId],
-        );
+      const at = now();
+      db.run(
+        "UPDATE conversation_messages SET text = ?, citations = ?, updated_at = ? WHERE id = ?",
+        [marked ?? text, JSON.stringify(citations), at, answerId],
+      );
+      if (uncited !== undefined) {
+        const steps = storedSteps(row.steps);
+        if (steps) {
+          db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [
+            JSON.stringify({ ...steps, uncitedChecks: uncited }),
+            answerId,
+          ]);
+        }
       }
       return toAnswer(storedMessage(answerId));
     },

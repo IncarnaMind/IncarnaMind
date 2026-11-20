@@ -71,7 +71,10 @@ export interface JudgedSentence {
 }
 
 export interface CheckTask {
-  /** Names the Note's sentences as numbered here: results for another state of the Note are refused. */
+  /**
+   * Names the Note's sentences as numbered here, for every report on them: results after any of
+   * their words changed are refused.
+   */
   task: string;
   sentences: { n: number; text: string; row?: string; column?: string }[];
 }
@@ -80,7 +83,7 @@ export type NotJudgedReason =
   /** The Note is checked against Documents the agent may not read. */
   | "beyond-reach"
   | "no-documents"
-  /** The Note's sentences are not the task's any more. */
+  /** The words of a sentence the task gave are not in the Note any more. */
   | "changed";
 
 export type Judged<T> = { ok: true; value: T } | { ok: false; reason: NotJudgedReason };
@@ -131,6 +134,15 @@ const SETTLED: ReadonlySet<ClaimCheckAttributes["state"]> = new Set([
   "contradicted",
 ]);
 
+/** The tasks given most lately, each with its sentences as given: enough for any check under way. */
+const TASKS_KEPT = 200;
+
+interface GivenSentence {
+  blockId: string;
+  occurrence: number;
+  text: string;
+}
+
 export function createJudgedOutside(options: JudgedOutsideOptions) {
   const { content } = options;
 
@@ -153,6 +165,46 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
 
   const nameOf = (sentences: readonly SelectedSentence[]) =>
     targetHash(sentences.map((each) => `${each.blockId}\u0000${each.text}`).join("\u0001"));
+
+  // A report lands on the sentences its task gave, not on those still without a result: the
+  // agent's own earlier report on the task changes which those are, never the task (#3432).
+  const given = new Map<string, { mindId: string; sentences: readonly GivenSentence[] }>();
+  const keep = (task: string, mindId: string, sentences: readonly SelectedSentence[]) => {
+    given.delete(task);
+    given.set(task, {
+      mindId,
+      sentences: sentences.map(({ blockId, occurrence, text }) => ({ blockId, occurrence, text })),
+    });
+    for (const oldest of given.keys()) {
+      if (given.size <= TASKS_KEPT) break;
+      given.delete(oldest);
+    }
+  };
+
+  /** The task's sentences as the Note holds them now; null when any one's words are gone. */
+  const sentencesOf = (
+    task: string,
+    mindId: string,
+    blocks: Y.XmlFragment,
+    open: readonly SelectedSentence[],
+  ): readonly SelectedSentence[] | null => {
+    const kept = given.get(task);
+    // A task from before the app last started: its sentences are those still without a result.
+    if (kept?.mindId !== mindId) return nameOf(open) === task ? open : null;
+    const now = everySentence(blocks);
+    const found: SelectedSentence[] = [];
+    for (const each of kept.sentences) {
+      const sentence = now.find(
+        (candidate) =>
+          candidate.blockId === each.blockId &&
+          candidate.occurrence === each.occurrence &&
+          candidate.text === each.text,
+      );
+      if (!sentence) return null;
+      found.push(sentence);
+    }
+    return found;
+  };
 
   /** The Documents the Note's Check searches, when all of them are in `reach`. */
   const scopeWithin = (mindId: string, reach: ReadonlySet<string>) => {
@@ -179,10 +231,12 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       return content.read(mindId, (blocks) => {
         const sentences = pending(blocks, skipped);
         const grids = new Map<Y.XmlElement, TableLayout>();
+        const task = nameOf(sentences);
+        keep(task, mindId, sentences);
         return {
           ok: true,
           value: {
-            task: nameOf(sentences),
+            task,
             sentences: sentences.map((sentence, index) => ({
               n: index + 1,
               text: checkText(sentence).claim,
@@ -208,8 +262,11 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       const at = options.now().toISOString();
       const request = randomUUID();
       const landed = content.edit(mindId, (blocks): Judged<LandedCheck> => {
-        const sentences = pending(blocks, skipped);
-        if (nameOf(sentences) !== task) return { ok: false, reason: "changed" };
+        const open = pending(blocks, skipped);
+        const sentences = sentencesOf(task, mindId, blocks, open);
+        if (!sentences) return { ok: false, reason: "changed" };
+        const stillOpen = (sentence: SelectedSentence) =>
+          open.some((each) => each.element === sentence.element && each.from === sentence.from);
         const unconfirmed: number[] = [];
         const reported = new Set<number>();
         let marked = 0;
@@ -270,8 +327,8 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
           value: {
             marked,
             unconfirmed,
-            unreported: sentences.flatMap((_, index) =>
-              reported.has(index + 1) ? [] : [index + 1],
+            unreported: sentences.flatMap((sentence, index) =>
+              reported.has(index + 1) || !stillOpen(sentence) ? [] : [index + 1],
             ),
           },
         };

@@ -18,14 +18,19 @@ export function roomReviewLines(cues: readonly Cue[], speakers: TranscriptSpeake
   );
   const known = new Set(parts.map((part) => speakerOf(speakers, part.startMs, part.label)));
   known.delete(SPEAKER_UNKNOWN);
-  const reason = isCall(cues) ? "transcript" : known.size > 4 ? "people" : null;
-  return { parts, known, reason } as const;
+  const selfLabels =
+    known.size === 5 && known.has(SPEAKER_ME)
+      ? [...known].filter((label) => label !== SPEAKER_ME)
+      : undefined;
+  const reason = isCall(cues) ? "transcript" : known.size > 4 && !selfLabels ? "people" : null;
+  return { parts, known, selfLabels, reason } as const;
 }
 
 export function roomReviewSuggestions(
   lines: ReturnType<typeof roomReviewLines>,
   speakers: TranscriptSpeakers | null,
   turns: readonly VoiceTurn[],
+  selfLabel?: string,
 ): MeetingSpeakerSuggestion[] | null {
   const { parts, known } = lines;
   const seen = new Set<string>();
@@ -55,7 +60,8 @@ export function roomReviewSuggestions(
   const others = new Set(known);
   const hasSelf = others.delete(SPEAKER_ME);
   const mapping = matchReviewVoices(rows.filter((row) => others.has(row.current)));
-  const mayAddVoice = !hasSelf || selfVoice !== undefined;
+  if (selfLabel && (!selfVoice || mapping.get(selfVoice) !== selfLabel)) return null;
+  const mayAddVoice = !selfLabel && (!hasSelf || selfVoice !== undefined);
   if (!rows.length || mapping.size !== others.size || (!mayAddVoice && !mapping.size)) return null;
   const reserved = new Set([...known, ...Object.keys(speakers?.labels ?? {})]);
   let number = 1;
@@ -66,7 +72,12 @@ export function roomReviewSuggestions(
   }
   return rows.flatMap(({ part, voice, current }) => {
     const suggested = mapping.get(voice);
-    return suggested && suggested !== current && current !== SPEAKER_ME && voice !== selfVoice
+    return suggested &&
+      suggested !== current &&
+      current !== SPEAKER_ME &&
+      voice !== selfVoice &&
+      current !== selfLabel &&
+      suggested !== selfLabel
       ? [
           {
             startMs: part.startMs,

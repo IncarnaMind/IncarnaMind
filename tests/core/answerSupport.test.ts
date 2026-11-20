@@ -235,6 +235,34 @@ describe("a sentence its quote doesn't support loses its green check", () => {
     });
     expect(checkOf(citations, 2)).toMatchObject({ quote: TERM, check: "found" });
   });
+
+  // protects=an Answer's batch is told the Citation check's own verdicts (#3410), and reads each: a cited sentence it finds overstated, partly supported or not found shows Unsupported with what the Documents say, beside a supported one; fails_when=a verdict word of the check's rules is dropped, leaving the sentence Not checked, or is read as supported; no_claim=how a real model chooses among them (eval/answerSupport).
+  test.each(["overstated", "partly supported", "not found"] as const)(
+    "a cited sentence the batch finds %s shows Unsupported",
+    async (verdict) => {
+      const wrong = "The document is a supplier contract summary, “供应商合同摘要”, dated 2026.";
+      const right = "The contract runs until 31 December 2027.";
+      const reason = "The Document doesn't say when it is dated.";
+      const answer = `${wrong.slice(0, -1)}[^1]. ${right.slice(0, -1)}[^2].`;
+      const plans: Record<string, Plan> = {
+        [wrong]: { verdict, says: reason },
+        [right]: { verdict: "supported", quote: TERM, says: right },
+      };
+      const { core } = await setUpWithDocuments(
+        answeringModel("供应商合同", answer, [TITLE, TERM], plans),
+        [CONTRACT],
+      );
+
+      const citations = await citationsOfAnswer(core, "What does '供应商合同' say?");
+
+      expect(checkOf(citations, 1)).toMatchObject({
+        quote: TITLE,
+        check: "unsupported",
+        verdict: reason,
+      });
+      expect(checkOf(citations, 2)).toMatchObject({ quote: TERM, check: "found" });
+    },
+  );
 });
 
 describe("a check reply that corrects itself is read by its corrected answer (#3029)", () => {

@@ -30,6 +30,7 @@ import {
 } from "../meetingSpeakerReview";
 import { durationLabel } from "../meetingTime";
 import { useAppStore } from "../store";
+import { SpeakerReviewStart } from "./SpeakerReviewStart";
 import { reviewSpeakersMatch, suggestionLine, suggestionLines } from "./speakerSuggestion";
 
 export function TranscriptSpeakerReview({
@@ -200,21 +201,13 @@ export function TranscriptSpeakerReview({
                   )}
                 </p>
               )}
-              <LineAction
-                action={{
-                  label: t(
-                    quote.roomDownloadBytes !== undefined
-                      ? quote.roomDownloadBytes > 0
-                        ? "meetings.review.roomInstall"
-                        : "meetings.review.roomCheck"
-                      : quote.cached
-                        ? "meetings.review.viewCached"
-                        : "meetings.review.confirm",
-                  ),
-                  onClick: () => {
-                    panel.current?.focus();
-                    void runSpeakerReview(meetingId);
-                  },
+              <SpeakerReviewStart
+                key={quote.selfMatch?.revision}
+                quote={quote}
+                named={(label) => nameOf(document.speakers, label)}
+                run={(selfLabel) => {
+                  panel.current?.focus();
+                  void runSpeakerReview(meetingId, selfLabel);
                 }}
               />
             </div>
