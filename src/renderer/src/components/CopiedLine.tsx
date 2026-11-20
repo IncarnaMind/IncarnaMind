@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { ClaimMarkIcon } from "../editor/icons";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useT } from "../i18n";
 import { useFade } from "../motion";
@@ -29,7 +30,11 @@ function Line({ confirmation }: { confirmation: Confirmation }) {
       ref={line}
       className="mx-2 flex items-center gap-1 pt-0.5 pb-1 pl-2 text-[12px] leading-4 text-ink-secondary"
     >
-      <CheckLineIcon className="size-3.5 shrink-0" />
+      {confirmation.look ? (
+        <ClaimMarkIcon state="unsupported" className="size-3.5 shrink-0" />
+      ) : (
+        <CheckLineIcon className="size-3.5 shrink-0" />
+      )}
       {t(confirmation.message, confirmation.params)}
     </div>
   );

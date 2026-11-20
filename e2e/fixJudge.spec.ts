@@ -20,9 +20,10 @@ import {
 
 /*
  * The walk's sentence (#2313): its figure's part is contradicted and the part that says when it
- * happened is Supported on the Document, as the judge now reads it. One press on Change writes
- * the Document's words and asks the sentence's check; the model's verdict is the one shown
- * (#2563), and the card never offers Cut on the words the Document states.
+ * happened is Supported on the Document, as the judge now reads it. One press on Fix the sentence
+ * has the model rewrite it to the Document's words (#3383) and asks the sentence's check; the
+ * model's verdict is the one shown (#2563), and the card never offers Cut on the words the
+ * Document states.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -52,7 +53,7 @@ const TEXT = {
     to: "4.2 per cent",
     deck: "Customer churn fell to 4.2 per cent after the onboarding redesign.",
     document: "Quarterly Research Update",
-    fix: "Change to 4.2 per cent",
+    fix: "Fix the sentence",
     supported: "Supported",
     cut: "Cut the unsupported part",
   },
@@ -64,7 +65,7 @@ const TEXT = {
     to: "4.2%",
     deck: "客户流失率在 2025 年第 2 季度降至 4.2%，时点在引导流程重新设计之后。",
     document: "季度研究更新",
-    fix: "改成“4.2%”",
+    fix: "修改这句话",
     supported: "有依据",
     cut: "删去无依据的部分",
   },
@@ -167,16 +168,16 @@ for (const [language, width] of [
     const card = window.getByTestId("claim-card");
 
     // Before: the Document's own words for "after the onboarding redesign" are Supported, and the
-    // figure's row offers the change.
+    // card offers the rewrite.
     await pointAndClick(window, mark);
-    // The supported part folds into the foot's line; the figure's change, the card's one fix, is
-    // its first button (#2869).
+    // The supported part folds into the foot's line; the rewrite, the card's one fix, is its first
+    // button (#2869, #3383).
     await expect(card.getByTestId("claim-part")).toHaveCount(1);
     await expect(card.getByTestId("claim-parts-folded")).toContainText(
       language === "en" ? "1 other part is supported" : "另外 1 处有依据",
     );
     const change = card.locator(".citation-card-actions button").first();
-    await expect(change).toHaveAttribute("data-testid", "claim-part-correct");
+    await expect(change).toHaveAttribute("data-testid", "claim-fix");
     await expect(change).toHaveText(words.fix);
     await expect(card.getByTestId("claim-cut")).toHaveCount(0);
     await expect(card).not.toContainText(words.cut);
@@ -186,7 +187,6 @@ for (const [language, width] of [
     await pointAndClick(window, change);
     await expect(line).toContainText(words.to);
     await expect(line).not.toContainText(words.from);
-    await expect(line.getByTestId("citation")).toHaveCount(1);
     // The words are written at once; the verdict then comes from the check the press asked for.
     await expect(mark).not.toHaveAttribute("data-claim", earlierId ?? "", { timeout: 30_000 });
     await expect(mark).toHaveAttribute("data-check", "supported", { timeout: 30_000 });

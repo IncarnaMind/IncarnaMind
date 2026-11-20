@@ -1468,6 +1468,10 @@ export const en = {
     "Quote found in your copy of the opinion ({document}, {location}). Not checked whether it was overruled or changed. Check it in your legal research service before you rely on it.",
   "claim.unsupported.ownWorkings": "Only your own working file says this.",
   "claim.fixSentence": "Fix the sentence",
+  "claim.fixSentence.command": "Fix the sentence from the Documents",
+  "claim.fix.needsLook": "The new sentence still needs a look",
+  "claim.fix.doneMany": "Fixed {fixed} · Needs a look: {needsLook}",
+  "claim.fix.badge": "Fix {count} from the Documents",
   "claim.findSources": "Find sources",
   "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",
@@ -1938,6 +1942,7 @@ export const en = {
   "edit.pending.instruction": "Making the changes…",
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
   "edit.pending.follow-citation": "Updating the sentence…",
+  "edit.pending.fix-sentence": "Fixing the sentence…",
   "edit.pending.part": "Writing part {at} of {of}…",
   "edit.ask.parts": "This edit is long: it is made in {count} parts",
   "edit.ask.start": "Edit it",
@@ -8779,10 +8784,12 @@ export const en = {
   "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
-    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
+    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}{quote}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
   "agents.ask.request.fixAll":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says these {count} sentences need a look:\n\n{sentences}\n\nFix each of them from my Documents, and change nothing else in the note. Then check the note again yourself.",
-  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}",
+  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}{quote}",
+  "agents.ask.request.quote":
+    "\n\nMy Documents say: {quote}\nRewrite it to say what that quote says and no more: add no figure, name or claim it doesn’t give.",
   "agents.ask.request.note":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
