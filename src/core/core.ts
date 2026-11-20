@@ -5869,7 +5869,9 @@ export function createCore(adapters: CoreAdapters): Core {
     say: (key, params) => translate(settings.get().language, key, params),
     reportError: (error) => console.error(error),
   });
-  agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
+  if (adapters.agents?.offered ?? true) {
+    agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
+  }
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
