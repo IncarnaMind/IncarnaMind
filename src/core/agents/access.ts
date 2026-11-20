@@ -2339,8 +2339,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             t("agents.problem.answer-failed", { message: outcome.error?.message ?? "" }),
           );
         }
-        // An Answer is written from what it read: one that read a Document the agent no longer reaches isn't given.
-        const granted = stillReaching(outcome.citations.map((each) => each.documentId));
+        // An Answer is written from all it read, cited or not: one that read a Document the agent
+        // no longer reaches isn't given.
+        const granted = stillReaching([
+          ...outcome.read,
+          ...outcome.citations.map((each) => each.documentId),
+        ]);
         const byMarker = new Map(outcome.citations.map((each) => [each.marker, each]));
         const citations: AgentAnswer["citations"] = [];
         let unchecked = 0;
