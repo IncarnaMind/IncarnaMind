@@ -520,7 +520,11 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
                 expression: z
                   .string()
                   .describe("Excel syntax over the inputs' names: north + south, b / a - 1."),
-                figure: z.string().describe('What it gives, as the note writes it: "£2,100,000".'),
+                figure: z
+                  .string()
+                  .describe(
+                    'What it gives, with its unit, even where the note says otherwise: "£2,100,000".',
+                  ),
               })
               .optional()
               .describe(

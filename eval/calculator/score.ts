@@ -179,7 +179,7 @@ export interface ShownFigure {
 export interface Outcome {
   /** The figure the User reads: the calculator's where it gave one, otherwise one written. */
   figure: Scored;
-  /** It came from the calculator. */
+  /** It came from the calculator, which gave the case's value: on every path the same. */
   calculated: boolean;
   /** Figures shown as worked out that are wrong: this case's value in another unit, or a known wrong value. */
   wrongWorkedOut: string[];
@@ -195,8 +195,12 @@ export function scoreAnswer(
   return {
     figure: calculated ?? figureIn(each, text),
     calculated: calculated !== undefined,
+    // A figure is wrong as its reader reads it: "$44 million" is 44,000,000, whatever it stores.
+    // One beside the right figure is the Answer's working ("3 points, 25%"), not its answer.
     wrongWorkedOut: scored.flatMap(({ shown, at }) => {
-      const wrong = wrongWorkedOut(each, at, shown.value);
+      if (!at.valueRight && calculated?.valueRight) return [];
+      const read = readingsOf(shown.shown, each.language)[0]?.value ?? shown.value;
+      const wrong = wrongWorkedOut(each, at, read);
       return wrong ? [`${wrong}: ${shown.shown}`] : [];
     }),
   };
@@ -242,7 +246,7 @@ export function scoreCheck(
         valueRight: false,
         unitShown: null,
       },
-      calculated: true,
+      calculated: false,
       wrongWorkedOut: wrongs,
     };
   for (const line of lines) {

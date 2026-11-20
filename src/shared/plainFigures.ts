@@ -60,14 +60,10 @@ export const writtenValue = (chars: string): number =>
 export function locate(value: number, quote: string, written?: string | null): Located | null {
   const digits = digitsOf(value);
   const numbers = writtenNumbers(quote);
-  const named = written?.trim();
-  const candidates =
-    named && quote.includes(named)
-      ? writtenNumbers(named).map((each) => ({
-          ...each,
-          start: quote.indexOf(named) + each.start,
-        }))
-      : numbers;
+  // `written` only chooses among the quote's whole numbers: "12" never stands for 12 in "12,345".
+  const named = new Set(writtenNumbers(written?.trim() ?? "").map((each) => each.chars));
+  const chosen = numbers.filter((each) => named.has(each.chars));
+  const candidates = chosen.length > 0 ? chosen : numbers;
   const found = candidates.find((each) => each.digits === digits);
   if (found) return { chars: found.chars, start: found.start, inCharacters: false };
   if (numbers.length > 0) return null;
@@ -75,21 +71,42 @@ export function locate(value: number, quote: string, written?: string | null): L
   return characters ? { chars: characters[0], start: characters.index, inCharacters: true } : null;
 }
 
-/** Whether `result` rounded to the digits `shown` writes is those digits: "£66,560", "17.0%". */
+/**
+ * Whether `result` rounded to the digits `shown` writes is those digits: "£66,560", "17.0%". Zeros
+ * after a decimal point are digits shown ("20.0%" is not 0.204); a whole number's last zeros may
+ * be its scale ("$70,000" for 70,412).
+ */
 export function shownCarries(shown: string, result: number): boolean {
   const [only, ...more] = writtenNumbers(shown);
   if (!only || more.length > 0) return false;
-  if (only.digits === "0") return Math.abs(result) < 1e-9;
+  const written = asciiDigits(only.chars);
+  const fraction = /\.\d+$/.test(written.replace(/[,'’\u00a0\u202f]/g, ""));
+  const all = written.replace(/\D/g, "").replace(/^0+/, "");
+  const digits = fraction ? all : all.replace(/0+$/, "");
   const size = Math.abs(result);
+  if (digits === "") return size < 1e-9;
   if (size === 0) return false;
-  const places = only.digits.length;
+  const places = digits.length;
   const exponent = Math.floor(Math.log10(size));
-  // Rounding can carry into a new place: 9.96 shown as "10.0"; 8.5 is never "1".
-  const carries = Math.round(size / 10 ** (exponent - places + 1)) >= 10 ** places;
-  return [exponent, ...(carries ? [exponent + 1] : [])].some((top) => {
-    const scaled = size / 10 ** (top - places + 1);
-    return Math.abs(scaled - Number(only.digits)) <= 0.5 + 1e-9 * scaled;
-  });
+  const near = (scaled: number, target: number) => Math.abs(scaled - target) <= 0.5 + 1e-9 * scaled;
+  if (near(size / 10 ** (exponent - places + 1), Number(digits))) return true;
+  // Rounding can carry into a new place: 9.96 shown as "10.0", 999.6 as "1,000"; 8.5 is never "1".
+  const kept = fraction ? places - 1 : places;
+  const carried = 10 ** kept;
+  return (
+    written.replace(/\D/g, "").endsWith("0") &&
+    Number(digits) === (fraction ? carried : 1) &&
+    near(size / 10 ** (exponent - kept + 1), carried)
+  );
+}
+
+/** Whether a comparison's shown text says its result: "yes" for true, "no" for false. */
+function saysResult(shown: string, result: boolean): boolean {
+  const said = shown
+    .trim()
+    .replace(/[.。!！]+$/u, "")
+    .toLowerCase();
+  return (result ? ["yes", "true", "是", "对"] : ["no", "false", "否", "不是"]).includes(said);
 }
 
 /** A plain number with its thousands grouped: 364800000 as "364,800,000", 1.42 as "1.42". */
@@ -145,6 +162,12 @@ export function workPlain(figure: {
     figure.inputs.map(({ name, value }) => ({ name, value })),
   );
   if (!result.ok) return { problems: [result.message] };
+  if (typeof result.value === "boolean" && !saysResult(figure.shown, result.value))
+    return {
+      problems: [
+        `the formula gives ${result.value ? "yes" : "no"}, and shown "${figure.shown}" doesn't say so: write yes or no, as the result is`,
+      ],
+    };
   if (typeof result.value === "number" && !shownCarries(figure.shown, result.value))
     return {
       problems: [

@@ -148,16 +148,25 @@ const out = (path: string, row: Record<string, unknown>) =>
   appendFileSync(join(OUT, `${ARM}-r${ROUND}-${path}.jsonl`), `${JSON.stringify(row)}\n`);
 
 /** Runs `work` over `items`, `limit` at a time. */
+/** Runs `work` over `items`, `limit` at once; after a failure none starts, and each running ends before it is thrown. */
 async function inTurn<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>) {
   let next = 0;
-  await Promise.all(
+  let failed = false;
+  const ended = await Promise.allSettled(
     Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (next < items.length) {
+      while (next < items.length && !failed) {
         const item = items[next++];
-        if (item !== undefined) await work(item);
+        try {
+          if (item !== undefined) await work(item);
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
       }
     }),
   );
+  const first = ended.find((each) => each.status === "rejected");
+  if (first) throw first.reason;
 }
 
 type Params = LanguageModelV4CallOptions;
@@ -914,9 +923,9 @@ async function agentSession(
     converse,
     refusals: () =>
       calls.filter((each) => each.refused !== null).map((each) => `${each.name}: ${each.refused}`),
+    // Every step of the clean-up is tried.
     close: async () => {
-      await agent.close();
-      await core.disconnectAgent(pairing.id);
+      await Promise.allSettled([agent.close(), core.disconnectAgent(pairing.id)]);
     },
   };
 }
@@ -959,23 +968,72 @@ async function agentPath(setup: Setup) {
       folders.set(note.group, folder.id);
     }
     let index = 0;
-    const firsts = new Map<number, Promise<void>>();
+    // A note's twin waits for it to end, and runs only once its Note is gone, so neither reads the other's.
+    const firsts = new Map<number, Promise<boolean>>();
+    /** Each sentence of a note that failed, as a row the table counts as left out. */
+    const failedRows = (note: (typeof notes)[number], run: number, why: string, requests = 0) => {
+      for (const sentence of note.sentences)
+        out("agent", {
+          arm: ARM,
+          round: ROUND,
+          path: "agent",
+          id: sentence.each.id,
+          which: sentence.which,
+          language: sentence.each.language,
+          kind: sentence.each.kind,
+          minorUnit: sentence.each.minorUnit === true,
+          scaled: sentence.each.scaled,
+          sentence: sentence.text,
+          run,
+          status: "failed",
+          error: why.slice(0, 300),
+          seconds: 0,
+          requests: requests / note.sentences.length,
+          failedRequests: [why.slice(0, 200)],
+          mark: null,
+          reported: [],
+          restsOn: null,
+        });
+    };
     await inTurn(notes, AGENTS_AT_ONCE, async (note) => {
       if (stopped) return;
       const first = firsts.get(note.group);
-      let done = () => {};
-      if (first) await first;
-      else firsts.set(note.group, new Promise((resolve) => (done = resolve)));
+      let settle: (isolated: boolean) => void = () => {};
+      if (first) {
+        if (!(await first)) {
+          failedRows(note, ++index, "its twin's Note couldn't be taken away");
+          return;
+        }
+      } else firsts.set(note.group, new Promise((resolve) => (settle = resolve)));
+      let isolated = false;
+      try {
+        isolated = await runNote(note);
+      } finally {
+        settle(isolated);
+      }
+    });
+    return { spent, stopped, failed };
+
+    /** One note's run; whether its Note is gone after it. */
+    async function runNote(note: (typeof notes)[number]): Promise<boolean> {
       const run = ++index;
       const folderId = folders.get(note.group) ?? "";
-      const session = await agentSession(
-        core,
-        setup,
-        usd,
-        `Agent ${ARM} ${ROUND} ${run}`,
-        folderId,
-        run === 1 ? join(OUT, `${ARM}-r${ROUND}-agent-first-request.json`) : null,
-      );
+      let session: Awaited<ReturnType<typeof agentSession>>;
+      try {
+        session = await agentSession(
+          core,
+          setup,
+          usd,
+          `Agent ${ARM} ${ROUND} ${run}`,
+          folderId,
+          run === 1 ? join(OUT, `${ARM}-r${ROUND}-agent-first-request.json`) : null,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failed.push(`${run}: ${message.slice(0, 300)}`);
+        failedRows(note, run, message);
+        return true;
+      }
       const { calls, requests } = session;
       let mindId: string | undefined;
       const started = Date.now();
@@ -1066,12 +1124,16 @@ async function agentPath(setup: Setup) {
           const mark = marks.get(sentence.text) ?? null;
           const said = reported.get(sentence.text) ?? [];
           const last = said.at(-1);
-          // The figure a verdict rests on: a calculation's (main), or the agent's own working's.
-          const rests = last?.working?.figure
-            ? { id: "working", label: "", result: last.working.figure, working: "" }
-            : last?.run
-              ? figures.find((figure) => figure.id === last.run)
-              : undefined;
+          // The figure a mark rests on: a calculation's (main), or the agent's own working's; one
+          // IncarnaMind refused is no result, and stays in `reported`.
+          const landed = mark?.workedOut != null;
+          const rests = !landed
+            ? undefined
+            : last?.working?.figure
+              ? { id: "working", label: "", result: last.working.figure, working: "" }
+              : last?.run
+                ? figures.find((figure) => figure.id === last.run)
+                : undefined;
           const scored = scoreCheck(sentence.each, rests ? [rests.result] : [], [
             mark?.workedOut,
             mark?.says,
@@ -1143,14 +1205,19 @@ async function agentPath(setup: Setup) {
           requests,
           calls,
         });
-      } finally {
-        await session.close();
-        if (mindId) await core.deleteMind(mindId);
-        done();
+        failedRows(note, run, message, requests.length);
       }
+      // The twin runs only if this note's Note is gone.
+      await session.close();
+      const removed = mindId
+        ? await core.deleteMind(mindId).then(
+            () => true,
+            () => false,
+          )
+        : true;
       if (spent > CAP_USD) stopped = true;
-    });
-    return { spent, stopped, failed };
+      return removed;
+    }
   } finally {
     await opened.close();
   }
@@ -1236,14 +1303,40 @@ async function requestsPath(setup: Setup) {
         documentIds: request.documents.map((_, at) => idOf(`${request.id}/${at}`)),
         folderId: folder.id,
       });
-      const session = await agentSession(
-        core,
-        setup,
-        usd,
-        `Agent ${ARM} ${ROUND} ${run}`,
-        folder.id,
-        run === 1 ? join(OUT, `${ARM}-r${ROUND}-requests-first-request.json`) : null,
-      );
+      const failedRow = (
+        why: string,
+        sent: readonly AgentRequest[],
+        calls: readonly AgentCall[],
+      ) => {
+        failed.push(`${run}: ${why.slice(0, 300)}`);
+        out("requests", {
+          arm: ARM,
+          round: ROUND,
+          path: "requests",
+          id: request.id,
+          language: request.language,
+          asks: request.asks,
+          written: request.written,
+          run,
+          failed: why.slice(0, 500),
+          failedRequests: sent.length > 0 ? sent : [why.slice(0, 200)],
+          calls,
+        });
+      };
+      let session: Awaited<ReturnType<typeof agentSession>>;
+      try {
+        session = await agentSession(
+          core,
+          setup,
+          usd,
+          `Agent ${ARM} ${ROUND} ${run}`,
+          folder.id,
+          run === 1 ? join(OUT, `${ARM}-r${ROUND}-requests-first-request.json`) : null,
+        );
+      } catch (error) {
+        failedRow(error instanceof Error ? error.message : String(error), [], []);
+        return;
+      }
       const { calls, requests: sent } = session;
       let mindId: string | undefined;
       const started = Date.now();
@@ -1291,22 +1384,16 @@ async function requestsPath(setup: Setup) {
           finalText: done.text,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        failed.push(`${run}: ${message.slice(0, 300)}`);
-        out("requests", {
-          arm: ARM,
-          round: ROUND,
-          path: "requests",
-          id: request.id,
-          run,
-          failed: message.slice(0, 500),
-          failedRequests: sent,
-          calls,
-        });
-      } finally {
-        await session.close();
-        if (mindId) await core.deleteMind(mindId);
+        failedRow(error instanceof Error ? error.message : String(error), sent, calls);
       }
+      await session.close();
+      // Each request has a Folder of its own, so a Note left behind reaches no other.
+      if (mindId)
+        await core
+          .deleteMind(mindId)
+          .catch((error: unknown) =>
+            setup.log(`requests: ${request.id}'s Note wasn't deleted: ${String(error)}`),
+          );
       if (spent > CAP_USD) stopped = true;
     });
     return { spent, stopped, failed };

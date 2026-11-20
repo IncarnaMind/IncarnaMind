@@ -53,7 +53,13 @@ function spansOf(row: Row): ShownFigure[] {
 function outcomeOf(row: Row, each: CalculatorCase): Outcome {
   if (row.path === "answer") return scoreAnswer(each, row.text ?? "", spansOf(row));
   const lines = [row.mark?.workedOut, row.mark?.says, row.reported?.at(-1)?.explanation];
-  if (row.path === "agent") return scoreCheck(each, row.restsOn ? [row.restsOn.result] : [], lines);
+  // A working or a run counts only as the mark it landed rests on it: one refused is no result.
+  if (row.path === "agent")
+    return scoreCheck(
+      each,
+      row.restsOn && row.mark?.workedOut != null ? [row.restsOn.result] : [],
+      lines,
+    );
   const told = (row.calculated ?? []).filter((each): each is string => typeof each === "string");
   return scoreCheck(each, toolResults(told), lines);
 }
@@ -137,14 +143,13 @@ for (const path of ["answer", "check", "agent"] as const) {
       const all = mine.filter(({ row, each }) => row.arm === arm && keep(each));
       if (all.length === 0) continue;
       const rounds = [...new Set(all.map(({ row }) => row.round))].sort((a, b) => a - b);
+      const counted = all.filter(({ row }) => !voided(row));
       const per = rounds.map((round) => {
         const counted = all.filter(({ row }) => row.round === round && !voided(row));
         return {
           n: counted.length,
           left: all.filter(({ row }) => row.round === round && voided(row)).length,
           count: (key: Counted) => counted.filter(counts[key]).length,
-          requests: mean(counted.map(({ row }) => row.requests)),
-          seconds: mean(counted.map(({ row }) => row.seconds)),
         };
       });
       const total = (key: Counted) => {
@@ -166,8 +171,9 @@ for (const path of ["answer", "check", "agent"] as const) {
             ? [total("wrongSupported"), total("rightSupported"), total("wrongContradicted")]
             : []),
           `${total("calculated")}; ${total("calculatedUnit")}; ${total("calculatedOther")}`,
-          mean(per.map((round) => round.requests)).toFixed(1),
-          mean(per.map((round) => round.seconds)).toFixed(1),
+          // Over every counted case, not round by round: rounds of other sizes weigh as they are.
+          mean(counted.map(({ row }) => row.requests)).toFixed(1),
+          mean(counted.map(({ row }) => row.seconds)).toFixed(1),
           String(per.reduce((sum, round) => sum + round.left, 0)),
           "",
         ]

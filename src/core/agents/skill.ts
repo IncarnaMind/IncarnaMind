@@ -31,6 +31,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "2d1bc143d05c5fe8b15cff7d8860fdc58a8203abe78b69d6ce1d13bd47271bd3",
   "da9d17409bfdddb4505f497cfec1d799a650e0e0038e7db74b959e44786dea2c",
   "312f4df56cd3427db641077d4ea16bcb32451dc07ae2fcef42d4255e2aa4346f",
+  "59e011bac664580915757c59fb28762139b0b084ebd0c7cd7db5324b1407ecf3",
 ];
 
 export const SKILL_MARKDOWN = `---
