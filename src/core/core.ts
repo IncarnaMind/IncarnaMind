@@ -1823,17 +1823,20 @@ export function createCore(adapters: CoreAdapters): Core {
   /**
    * "Every Document" for a search with no Search scope: the examples' until the User has a
    * Document of their own, and from then on theirs and the examples `mindId` cites (#1942, #3083).
-   * Null: all of them, as an example's own Note always searches.
+   * Null: all of them, as an example's own Note always searches. `focusOnly`: `mindId` is only the
+   * Note in focus of a Question asked in the assistant, so an example's is not the User's work and
+   * adds none of the examples (#3487).
    */
-  const unscopedDocuments = (mindId: string | null): string[] | null => {
+  const unscopedDocuments = (mindId: string | null, focusOnly = false): string[] | null => {
     const made = examples.made();
-    if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
+    const exampleNote = mindId !== null && made.mindIds.includes(mindId);
+    if (made.documentIds.length === 0 || (exampleNote && !focusOnly)) return null;
     const left = new Set(made.documentIds);
     // The examples are the User's Library until a Document of their own exists (#1942), a
     // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
     if (own.length === 0) return null;
-    if (mindId === null) return own;
+    if (mindId === null || exampleNote) return own;
     // A Note the User wrote against an example is their own work, so what it cites stays in its
     // reach, for its checks, Answers and assistant alike (#3083).
     const cited: CitedUnits[] = [];

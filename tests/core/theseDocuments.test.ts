@@ -7,9 +7,9 @@ import { type ScriptedReply, scriptedModel, scriptedModels } from "../helpers/mo
 
 /**
  * Which Documents "these documents" are in the assistant, through the core's
- * public interface: the User's, not the examples', unless the Question is
- * asked from an example's Mind; each listed for the model with its title
- * when its name doesn't hold it.
+ * public interface: the User's, not the examples', whichever Note is in focus,
+ * the example's too (#3487); each listed for the model with its title when its
+ * name doesn't hold it.
  */
 
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -43,8 +43,8 @@ async function setUp() {
 }
 
 describe("“These documents” in the assistant", { timeout: 60_000 }, () => {
-  // protects=with no Search scope, a Question from the User's own Mind searches their Documents (listed with their titles) and none of the examples', which a Question from the example's Mind still does; fails_when=the examples are summarised beside the User's Documents, the example Mind loses its own, or a Document is listed by a file name that says nothing; no_claim=what the model writes.
-  test("are the User's, not the examples', except from the example's Mind", async () => {
+  // protects=with no Search scope, a Question in the assistant searches the User's Documents (listed with their titles) and none of the examples', from their own Note and from the example's alike once they have a Document; fails_when=the examples are summarised beside the User's Documents, or a Document is listed by a file name that says nothing; no_claim=what the model writes.
+  test("are the User's, not the examples', whichever Note is in focus", async () => {
     const { core, examples, exampleNames, sent } = await setUp();
     expect(exampleNames.length).toBeGreaterThan(0);
     const mine = await core.createMind({ title: "Reading group" });
@@ -57,7 +57,8 @@ describe("“These documents” in the assistant", { timeout: 60_000 }, () => {
       text: "Summarise these documents",
       mindId: examples.mindId ?? "",
     });
-    for (const name of exampleNames) expect(sent()).toContain(name);
+    expect(sent()).toContain("- Field Report (“Field Report: Northern Estuary”)");
+    for (const name of exampleNames) expect(sent()).not.toContain(name);
   });
 
   // protects=with only the examples, a Question from another Mind searches them: they are the User's Library until they have a Document of their own (#1942); fails_when=the examples are left out on day one, or the Question is told of a scope the User never set; no_claim=what the model writes.

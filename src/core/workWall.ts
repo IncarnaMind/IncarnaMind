@@ -47,8 +47,11 @@ export interface WorkWallOptions {
    * Throws `NotFoundError` once that Note or conversation is deleted.
    */
   folderOfTurn(place: TurnPlace): string | null;
-  /** "Every Document" for a search with no Search scope: null when it is all of them. */
-  unscopedDocuments(mindId: string | null): string[] | null;
+  /**
+   * "Every Document" for a search with no Search scope: null when it is all of them. `focusOnly`:
+   * `mindId` is only the Note in focus of a Question in the assistant (#3487).
+   */
+  unscopedDocuments(mindId: string | null, focusOnly?: boolean): string[] | null;
   /** Whether the User can read a Note now. */
   readableNote(mindId: string): boolean;
 }
@@ -242,9 +245,10 @@ export function createWorkWall(options: WorkWallOptions) {
   const scopeDocuments = (
     scope: SearchScope | null,
     mindId: string | null = null,
+    focusOnly = false,
   ): string[] | null => {
     if (scope && hasSearchScope(scope)) return resolveScope(scope, mindId);
-    const unscoped = options.unscopedDocuments(mindId);
+    const unscoped = options.unscopedDocuments(mindId, focusOnly);
     const resolved = resolveScope(NO_SCOPE, mindId);
     if (resolved === null) return unscoped;
     if (unscoped === null) return resolved;
@@ -267,7 +271,7 @@ export function createWorkWall(options: WorkWallOptions) {
     const mindId = place.askedFrom?.mindId ?? null;
     const readsMind =
       mindId !== null && place.askedFrom?.deleted !== true && options.readableNote(mindId);
-    if (readsMind) return scopeDocuments(scope, mindId);
+    if (readsMind) return scopeDocuments(scope, mindId, true);
     if (place.folderAskedIn === undefined) return [];
     const wall = walledFolderId(place.folderAskedIn);
     return wall === null ? scopeDocuments(scope, null) : resolveScope(folderScope(wall));
