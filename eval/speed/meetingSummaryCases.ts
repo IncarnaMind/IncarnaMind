@@ -249,7 +249,9 @@ export async function replaySummaryRetention({
       { timeout: 25_000, interval: 50 },
     );
     if (final.state === "failed") {
-      throw new Error(`The closing update failed. The last saved summary covers ${final.throughMs} ms.`);
+      throw new Error(
+        `The closing update failed. The last saved summary covers ${final.throughMs} ms.`,
+      );
     }
     if (!final.text) throw new Error("The stopped meeting has no summary text.");
     return { checkpoints, warm, final };
