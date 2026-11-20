@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import * as Y from "yjs";
 import type { AgentClient, AgentPairing } from "../../core/api";
+import { isListedMind } from "../../shared/listedMinds";
 import { noteWriterOf } from "../../shared/noteWriter";
 import { core } from "./core";
 import { homeReading, type NoteState } from "./noteState";
@@ -88,7 +89,7 @@ export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | nul
     since === undefined
       ? []
       : minds
-          .filter((mind) => mind.createdAt >= since)
+          .filter((mind) => mind.createdAt >= since && isListedMind(mind))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
           .slice(0, NEWEST);
   const wanted = `${[...ids].join(",")}|${candidates.map((mind) => mind.id).join(",")}`;

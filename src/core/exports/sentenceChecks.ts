@@ -1,14 +1,10 @@
 import * as Y from "yjs";
-import { checkedScope, claimCheckShown, coveredPart, saysNotFound } from "../../shared/claimChecks";
+import { checkedScope, coveredPart, saysNotFound } from "../../shared/claimChecks";
 import { restsOnPassage } from "../../shared/claimParts";
 import { type ScopeKind, scopeName } from "../../shared/searchScope";
 import { verificationOf } from "../../shared/verification";
-import {
-  checkedSentences,
-  figuresNow,
-  noteTextOfMarked,
-  recordCiteNote,
-} from "../answers/checks/sentences";
+import { checkedSentences } from "../answers/checks/sentences";
+import { readingOf } from "../answers/checks/standing";
 import type { CitationAttributes, RecordCiteResult, SearchScope } from "../api";
 import { noteFooting } from "../figureSchedule";
 import type { FailedSentence, RecordCiteComment } from "../mindText";
@@ -63,25 +59,20 @@ export function failedSentences(
   context: SentenceCheckContext,
 ): Map<string, FailedSentence> {
   const failed = new Map<string, FailedSentence>();
-  const { figureContexts } = figuresNow(fragment);
   const footing = noteFooting(fragment, context);
+  const reading = readingOf(fragment, {
+    versions: context.versions,
+    folderId: context.folderId,
+    scope: context.scope,
+    reach: null,
+    footing,
+  });
   // A verified document's table row is one claim, marked on its first cell's words (#1368).
   const rowClaims = fragment.doc !== null && verificationOf(fragment.doc) !== null;
-  const note = recordCiteNote(fragment);
   for (const marked of checkedSentences(fragment)) {
-    const { check, sentence, cited } = marked;
+    const { check, cited } = marked;
     const { id } = check;
-    const shown = claimCheckShown(check, {
-      text: sentence,
-      citations: marked.citations,
-      footing,
-      figureContexts,
-      versions: context.versions,
-      folderId: context.folderId,
-      scope: context.scope,
-      note: note(marked.place),
-      ...noteTextOfMarked(marked),
-    });
+    const shown = reading.ofMarked(marked, check);
     if (shown.state === "contradicted") {
       const { calculation, evidence } = check;
       failed.set(id, {

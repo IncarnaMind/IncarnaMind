@@ -33,7 +33,9 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "312f4df56cd3427db641077d4ea16bcb32451dc07ae2fcef42d4255e2aa4346f",
   "59e011bac664580915757c59fb28762139b0b084ebd0c7cd7db5324b1407ecf3",
   "0f4438c1f35bf5137aab3873687384c1469af65a27f0e8d3a36d7f41f22ba906",
+  "a82f784adfffb20086e657a24e58aabb2105d5de4919f83ea8ddfcb0c7b3c98e",
   "e7b362fc042f4598657cbcafa00eba758d26f316df716e915e5184d5b3f0c57c",
+  "8e6c025ae0b13c73505360d6021e345658eff91142e19c1ef5bf2c3387d41a64",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -87,6 +89,19 @@ For a page to look at, such as a report with pictures or a small dashboard, \`pu
 - Limits: the page up to 2 MB without its inline pictures, a file up to 10 MB, 50 files, 25 MB in all. What can't be read, or would load from the network, comes back in \`refused\`: fix the page and update it.
 - To change it, \`read_canvas\`, then \`update_canvas\` with the \`version\` you read and what changes. Its files stay: name a file again, by its full path, only to replace it. Built on an older version, it is refused with the newest.
 - Writing the User will edit, check sentence by sentence or export to Word is better as a Note, with \`create_mind\`.
+
+## When you made a file for the User: hand it over
+
+A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_file\` with its full path. IncarnaMind reads that one file, keeps it with each version, and checks it against their Documents: each claim on a slide or page, each typed-in number of a sheet, each formula worked out again. It tells you what needs a look and where. While its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version, checked again on the User's AI model. Do this once on your own, then tell the User what still needs a look, and where. So that it checks well:
+
+- Put each figure in a slide's text, a table, a chart or the speaker notes, not only in a picture or a slide title.
+- Write no \`[cite:…]\` token in the file: it shows there as typed. Name the Document a figure comes from in words, in a sources line or the speaker notes.
+- Write a figure you worked out with what it comes from, in the same line: "3,450 tonnes, 50 short of the 3,500-tonne threshold".
+- One figure to a line or a cell where you can: a mark is on the whole line or row.
+- In a workbook, type each figure from a Document once, on an inputs sheet, a row each, labelled with what it is, whose and for which period, with a column naming the Document it came from; make every other number a formula of those cells.
+- Write a percentage as 2.5% with a percent number format, never as 0.025 with "%" in the next cell.
+- Keep notes about a formula out of the cells beside it.
+- Save the formulas' results in the file when your tool can work them out; IncarnaMind works out those it finds without.
 
 To change a Note, read it with \`read_mind\` and \`named\`, then \`propose_changes\`: in a Note you wrote, your changes apply at once and the User can undo them; in any other, they wait for the User. In a Note you wrote, paragraphs marked as the User's are theirs: leave them as they are unless the User asks you to change them.
 
