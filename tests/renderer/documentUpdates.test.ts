@@ -129,6 +129,7 @@ describe("applying gathered assignments to the Library", () => {
         description: "",
         parentId: null,
         countsOwnFiles: false,
+        boundFolderId: null,
         keepInside: false,
         createdAt: "",
         updatedAt: "",

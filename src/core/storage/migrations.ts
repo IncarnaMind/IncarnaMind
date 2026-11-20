@@ -3311,6 +3311,17 @@ export const migrations: readonly Migration[] = [
         (target_id, until) WHERE rejected_content_hash IS NOT NULL AND deleted_at IS NULL;
     `,
   },
+  {
+    version: 152,
+    description: "A Folder bound to a folder on disk (ADR-0030)",
+    sql: `
+      -- The Linked folder's own Folder, or one inside it, whose files are filed in this Folder as
+      -- they arrive. NULL: bound to none.
+      ALTER TABLE library_groups ADD COLUMN bound_folder_id TEXT;
+      CREATE INDEX library_groups_by_bound_folder ON library_groups (bound_folder_id)
+        WHERE bound_folder_id IS NOT NULL AND deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**
