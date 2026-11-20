@@ -336,14 +336,15 @@ function tabLines(
   const starts = blocks
     .toArray()
     .flatMap((block, at) =>
-      block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE ? [{ block, at }] : [],
+      block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE && !addedByProposal(block)
+        ? [{ block, at }]
+        : [],
     );
   const leading = (starts[0]?.at ?? 0) > 0;
-  return starts.flatMap(({ block, at }, index) => {
-    if (addedByProposal(block)) return [];
+  return starts.map(({ block, at }, index) => {
     const title = block.getAttribute(NOTE_TAB_TITLE_ATTRIBUTE);
     const own = typeof title === "string" ? title.trim() : "";
-    return [{ at, text: tabFence(own || untitled(index + (leading ? 2 : 1))) }];
+    return { at, text: tabFence(own || untitled(index + (leading ? 2 : 1))) };
   });
 }
 

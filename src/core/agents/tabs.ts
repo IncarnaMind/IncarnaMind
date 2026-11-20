@@ -51,6 +51,16 @@ export function openTabs(text: string): string {
       continue;
     }
     let title = words.slice(TAB_FENCE.length).trim();
+    // A title inside comes first, before any block the tab holds: "```js" there is a title.
+    if (title === "") {
+      let next = at + 1;
+      while (next < lines.length && (lines[next] ?? "").trim() === "") next++;
+      const first = lines[next] ?? "";
+      if (next < lines.length && !closes(first, fence)) {
+        title = first.trim();
+        at = next;
+      }
+    }
     const held: string[] = [];
     let inner: string | null = null;
     for (at++; at < lines.length; at++) {
@@ -63,10 +73,6 @@ export function openTabs(text: string): string {
         if (opened?.[2]?.trim()) inner = opened[1] ?? null;
       }
       held.push(each);
-    }
-    if (title === "") {
-      const first = held.findIndex((each) => each.trim() !== "");
-      if (first >= 0) title = (held.splice(first, 1)[0] ?? "").trim();
     }
     out.push(tabFence(title), "", ...held, "");
   }

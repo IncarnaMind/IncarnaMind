@@ -532,4 +532,44 @@ describe("an agent and a Note with tabs", () => {
       ),
     );
   });
+
+  it("numbers untitled tabs without a tab still waiting for the User", async () => {
+    const { core, agent, harbour } = await paired();
+    const mind = await core.createMind({ title: "Harbour log", folderId: harbour.id });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [tab(""), note("Sailings ran on time."), tab(""), note("Refits.")]);
+    await client.settled();
+    const before = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    structured(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: before.version,
+          changes: [{ paragraph: "¶1+", text: `${fence("Costs")}\n\nFuel cost more.` }],
+        },
+      }),
+    );
+    const waiting = structured<{ markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    expect(waiting.markdown).toBe(before.markdown);
+    expect(waiting.markdown).toContain(fence("Tab 2"));
+  });
+
+  it("reads a title that looks like a fence as the title, as read_mind writes it", async () => {
+    const { core, agent } = await paired();
+    const made = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Snippets",
+          markdown: ["````tab", "```js", "````", "", "Run it daily."].join("\n"),
+        },
+      }),
+    );
+    expect(await shapeOf(core, made.mindId)).toEqual(["tab ```js", "heading", "paragraph"]);
+  });
 });
