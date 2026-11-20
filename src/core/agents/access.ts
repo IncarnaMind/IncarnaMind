@@ -598,6 +598,9 @@ export const MAX_CHECKS_AN_HOUR = 20;
 const MAX_REPORTED_SENTENCES = 2000;
 /** The most Documents `list_minds` names in one Folder; `documents` counts them all. */
 export const MAX_LISTED_DOCUMENTS = 50;
+/** How many times `check_mind` reads its record while what the agent reaches changes under it. */
+const MAX_RECORD_READS = 3;
+
 /** The most claims `check_mind` lists as needing a look. */
 export const MAX_CHECKED_CLAIMS = 60;
 /**
@@ -1327,6 +1330,22 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     );
   };
 
+  /**
+   * The pairing as it is admitted now, once a call has waited: what the User grants may have
+   * changed meanwhile (#3458). Refused unless it still reaches every Document in `told`, so nothing
+   * read under the earlier grant goes out under one that leaves it out.
+   */
+  const stillReaching = (told: Iterable<string>): AdmittedPairing => {
+    const granted = deps.admit(pairingId);
+    const reach = new Set(scopeOf(granted, undefined));
+    for (const documentId of told) {
+      if (!reach.has(documentId)) {
+        throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
+      }
+    }
+    return granted;
+  };
+
   /** A live Passage of these Documents, or a refusal that tells nothing of the others. */
   const passageInScope = (inScope: ReadonlySet<string>, passageId: unknown): WindowedPassage => {
     const id = text(passageId, "passageId", 200);
@@ -1763,18 +1782,22 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         // Enough for this page and one more result, to know if there is a next page.
         const wanted = SEARCH_PAGE_SIZE * page + 1;
-        const found = await deps.search(
+        const searched = await deps.search(
           words,
           documentIds,
           { maxPassages: wanted, maxDocuments: wanted, candidates: 30 * page },
           signal,
         );
+        // What the agent reaches may have changed during the search: only what it reaches now is told.
+        const granted = deps.admit(pairingId);
+        const reach = new Set(scopeOf(granted, input?.folderIds));
+        const found = searched.filter((passage) => reach.has(passage.documentId));
         const ranked = [...found].sort(
           (a, b) => (a.rank ?? Number.POSITIVE_INFINITY) - (b.rank ?? Number.POSITIVE_INFINITY),
         );
         const shown = ranked.slice(SEARCH_PAGE_SIZE * (page - 1), SEARCH_PAGE_SIZE * page);
         const terms = keywordTerms(words);
-        const passages = shown.map((passage) => asResult(pairing, passage, terms));
+        const passages = shown.map((passage) => asResult(granted, passage, terms));
         return {
           result: { passages, page, more: ranked.length > SEARCH_PAGE_SIZE * page },
           count: passages.length,
@@ -2209,6 +2232,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             t("agents.problem.answer-failed", { message: outcome.error?.message ?? "" }),
           );
         }
+        // An Answer is written from what it read: one that read a Document the agent no longer reaches isn't given.
+        const granted = stillReaching(outcome.citations.map((each) => each.documentId));
         const byMarker = new Map(outcome.citations.map((each) => [each.marker, each]));
         const citations: AgentAnswer["citations"] = [];
         let unchecked = 0;
@@ -2224,7 +2249,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
                   : "agents.answer.notFound",
               );
             }
-            const tag = citeTag(mint(pairing, citation).token);
+            const tag = citeTag(mint(granted, citation).token);
             if (!citations.some((each) => each.cite === tag)) {
               citations.push({
                 cite: tag,
@@ -2272,11 +2297,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       const known = deps.minds().find((mind) => mind.id === mindId);
-      return call("propose_changes", known ? mindName(known) : "", effects, async (pairing) => {
-        if (!pairing.propose) {
+      return call("propose_changes", known ? mindName(known) : "", effects, async (admitted) => {
+        if (!admitted.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
-        const mind = mindInScope(pairing, text(input?.mindId, "mindId", 200));
+        const mind = mindInScope(admitted, text(input?.mindId, "mindId", 200));
         const version = typeof input?.version === "string" ? input.version.trim() : "";
         if (version === "" || version.length > 100) {
           throw new AgentRefusedError("invalid", t("agents.propose.version"));
@@ -2285,6 +2310,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const visuals = await visualsFor(
           asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
         );
+        // What the User grants may have changed while the pictures were read.
+        const pairing = deps.admit(pairingId);
+        if (!pairing.propose) {
+          throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+        }
+        mindInScope(pairing, mind.id);
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
         const tokens = new Map<
@@ -2401,8 +2432,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     createMind(input) {
       const named = typeof input?.title === "string" ? input.title.trim() : "";
       const unmade: Effect = { action: "write", scope: { kind: "mind", mindId: "" } };
-      return call("create_mind", named, [READ_DOCUMENTS, unmade], async (pairing) => {
-        if (!pairing.propose) {
+      return call("create_mind", named, [READ_DOCUMENTS, unmade], async (admitted) => {
+        if (!admitted.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
         const title = text(input?.title, "title", MAX_TITLE_CHARS);
@@ -2412,8 +2443,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           "markdown",
           MAX_DRAFT_CHARS + inlinePictureChars(draft),
         );
-        const folder = placeToWriteIn(pairing, input?.folderId);
+        placeToWriteIn(admitted, input?.folderId);
         const visuals = await visualsFor([written]);
+        // What the User grants may have changed while the pictures were read.
+        const pairing = deps.admit(pairingId);
+        if (!pairing.propose) {
+          throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+        }
+        const folder = placeToWriteIn(pairing, input?.folderId);
         // Counted once the pictures are read: from here the Note is written without a wait.
         const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();
         if (deps.notesWrittenSince(pairing.id, since) >= MAX_NOTES_AN_HOUR) {
@@ -2546,12 +2583,24 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             : result?.kind === "checked" && result.stop
               ? t(`agents.check.stopped.${result.stop.reason}`)
               : null;
-        // What the agent reaches may have changed while the Check ran.
-        const granted = deps.admit(pairingId);
+        // What the agent reaches may have changed while the Check ran, and again while its record is
+        // read: a result resting on a Document the agent doesn't reach doesn't stand for it, so the
+        // record is read again with what it reaches once it is read, and nothing told goes beyond.
+        let granted = deps.admit(pairingId);
         mindInScope(granted, mind.id);
-        const inScope = new Set(scopeOf(granted, undefined));
-        // A result resting on a Document the agent doesn't reach doesn't stand for it.
-        const record = await deps.checkRecord(mind.id, inScope);
+        let inScope = new Set(scopeOf(granted, undefined));
+        let record = await deps.checkRecord(mind.id, inScope);
+        for (let reads = 1; ; reads++) {
+          granted = deps.admit(pairingId);
+          mindInScope(granted, mind.id);
+          const now = new Set(scopeOf(granted, undefined));
+          if (now.size === inScope.size && [...now].every((id) => inScope.has(id))) break;
+          if (reads >= MAX_RECORD_READS) {
+            throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
+          }
+          inScope = now;
+          record = await deps.checkRecord(mind.id, inScope);
+        }
         const read = new Set<string>();
         // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
         const beyond = (item: (typeof record.sentences)[number]) =>
@@ -2756,6 +2805,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           workFor(pairing),
           signal ?? new AbortController().signal,
         );
+        // Worked out from what it read: none of it is given once the agent no longer reaches that.
+        stillReaching(done.documentIds);
         return { ...done, count: done.result.id === null ? 0 : 1 };
       });
     },

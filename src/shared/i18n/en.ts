@@ -8408,6 +8408,8 @@ export const en = {
     "This agent can’t read any Documents yet. Choose its Folders in Settings → Agents.",
   "agents.problem.outside-scope":
     "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
+  "agents.problem.reachChanged":
+    "What this agent may read changed while it waited, so nothing was given back. Call again.",
   "agents.problem.wallShared":
     "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":

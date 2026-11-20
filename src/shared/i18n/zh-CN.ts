@@ -7942,6 +7942,8 @@ export const zhCN = {
   "agents.problem.no-folders": "这个智能体还不能读取任何文档。在“设置 → 智能体”中为它选择文件夹。",
   "agents.problem.outside-scope":
     "这个文件夹没有共享给此智能体。在“设置 → 智能体”中共享更多文件夹。",
+  "agents.problem.reachChanged":
+    "等待期间，这个智能体能读取的内容有了变化，因此没有返回任何内容。请再调用一次。",
   "agents.problem.wallShared": "“{folder}”只在本文件夹内工作，不能和其他文件夹共用一个智能体",
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
   "agents.problem.chat-not-ready":

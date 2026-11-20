@@ -12,6 +12,7 @@ import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import { PNG } from "../helpers/citedPages";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import {
   DECK,
@@ -377,6 +378,33 @@ describe("a file an outside agent hands over, where a call meets a change", () =
       supported: 2,
       needLook: 2,
     });
+  });
+
+  // protects=a Note an agent writes with a picture is written only while the agent may still write: a grant the User took back while the picture was read writes nothing (#3458 review); fails_when=create_mind writes the Note with the grant it had before the picture was read
+  it("writes no Note once the agent's write grant is taken back while its picture is read", async () => {
+    const held = gate();
+    const { core, coast, writer, files } = await started([], {
+      reading: async () => {
+        held.reached();
+        await held.shut;
+      },
+    });
+    const agent = await connectLegacyAgent(writer.launch);
+    const picture = join(files, "chart.png");
+    await writeFile(picture, PNG);
+    const asked = agent.callTool({
+      name: "create_mind",
+      arguments: {
+        title: "Harbour chart",
+        markdown: `The north quay holds 42 boats.\n\n![Quays](${picture})`,
+        folderId: coast.id,
+      },
+    });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { propose: false });
+    held.open();
+    expect(refusal(await asked)).toBe(en("agents.problem.read-only"));
+    expect((await core.listMinds()).map((each) => each.title)).not.toContain("Harbour chart");
   });
 
   // protects=a result carried to a file's next version stands only while the agent reaches the Document it rests on: one resting on a Document the User has since filed outside the agent's Folders is checked again within its reach (#3412 review); fails_when=the next version keeps a Supported resting on a Document the agent can no longer reach
