@@ -115,8 +115,8 @@ describe("files an outside agent hands over", () => {
     expect(documents[0]?.contentHash).toBe(handed?.versions[1]?.contentHash);
   });
 
-  // protects=a file handed over while no AI model is set up says so, and is checked once the User sets one up and the agent hands the same file over again (#3412); fails_when=the agent is told nothing it can act on, or the same bytes never get their check
-  it("says a file wasn't checked while no model is set up, and checks it when the same file is handed over again after", async () => {
+  // protects=a file handed over while no AI model is set up says so and tells the agent to check it itself, as it checks a Note it wrote, which check_mind_yourself then lets it do; it is checked once the User sets a model up and the agent hands the same file over again (#3412); fails_when=the agent is told only that the User can check it, or the same bytes never get their check
+  it("tells the agent to check the file itself while no model is set up, and checks it when the same file is handed over again after", async () => {
     const { core, coast, writer, files } = await started();
     for (const provider of await core.listChatProviders()) {
       await core.deleteChatProvider(provider.id);
@@ -129,9 +129,16 @@ describe("files an outside agent hands over", () => {
     expect(unchecked).toMatchObject({
       version: 1,
       status: "not-checked",
-      why: "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. The User can check it from its note.",
+      why: "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. With no model in IncarnaMind, check it yourself, as you check a note you wrote: check_mind_yourself with its mindId, then report_check.",
       claims: [],
     });
+    const task = structured<{ mindId: string; sentences: { text: string }[] }>(
+      await agent.callTool({
+        name: "check_mind_yourself",
+        arguments: { mindId: unchecked.mindId },
+      }),
+    );
+    expect(task.sentences.map((each) => each.text)).toEqual([NORTH, SOUTH, OFFICE, NEVER_CLOSES]);
 
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     const checked = structured<Handed>(await handOver(agent, { path }));
