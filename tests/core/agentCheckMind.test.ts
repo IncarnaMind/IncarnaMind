@@ -13,7 +13,7 @@ import { citationState } from "../../src/shared/citations";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { pendingPart } from "../../src/shared/claimParts";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
-import { checkingModel, isCheckRun, type Plan } from "../helpers/checks";
+import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
@@ -132,7 +132,7 @@ async function paired({ propose = true, calls = [] as ModelCall[], python = fals
     propose,
   });
   const agent = await connectLegacyAgent(launch);
-  return { ...started, core, coast, agent, pairing };
+  return { ...started, core, coast, agent, pairing, tides };
 }
 
 /** A token that cites `quote`, which Tides holds word for word. */
@@ -452,6 +452,31 @@ describe("an outside agent has its Note checked (#3317)", () => {
       ]),
     ).toEqual(Array(3).fill(["notChecked", "not-checked", "beyond-reach", null, null, null, null]));
     expect(calls).toEqual([]);
+  });
+
+  // protects=a result stands for the agent only while it reaches the Document it rests on: once the User files that Document outside the agent's Folders, the agent's check checks the sentence again within its reach and tells nothing the Document says (#3412 review); fails_when=check_mind keeps telling a result that rests on a Document the agent can no longer read
+  it("checks a result again once the agent no longer reaches the Document it rests on", async () => {
+    const calls: ModelCall[] = [];
+    const { core, agent, coast, tides } = await paired({ calls });
+    const sources = await createSourceFolder();
+    const [harbour] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Harbour.md", "# Harbour\n\nThe harbour has two quays.\n"),
+    ]);
+    if (!harbour) throw new Error("Harbour wasn't added.");
+    await core.assignDocumentGroup(harbour.id, coast.id);
+    const mindId = await written(agent);
+    expect(structured<Checked>(await check(agent, mindId))).toMatchObject({
+      needLook: 2,
+      canBeCited: 1,
+    });
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "Kept apart." });
+    await core.assignDocumentGroup(tides.id, vault.id);
+    calls.length = 0;
+
+    const checked = structured<Checked>(await check(agent, mindId));
+    expect(new Set(calls.filter(isCheckRun).map(sentenceOf))).toEqual(new Set([SPRING, NEAP]));
+    expect(checked).toMatchObject({ supported: 0, canBeCited: 0 });
+    expect(JSON.stringify(checked)).not.toContain("Tides says");
   });
 
   // protects=what the User's wider check found in Documents beyond the agent's Folders is told as not checked for every sentence it left a mark on, also the one whose check the record keeps no scope for: a sentence the wider check found supported by a Passage its Citation doesn't hold (stored as Not checked, found elsewhere) is never told as Supported, can be cited, with a Passage to cite (#3453); fails_when=a sentence the wider check backed is told as supported or as one that can be cited, or names its Document, quote or cite

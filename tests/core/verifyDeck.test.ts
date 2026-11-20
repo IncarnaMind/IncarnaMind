@@ -364,4 +364,45 @@ describe("Verify a deck", () => {
       ]),
     ).toEqual([[TITLE, "contradicted"]]);
   });
+
+  // protects=a short line that states a figure, such as the total under a chart's caption, is shown to the model, which decides whether it states a claim, as a longer line is (#3412); fails_when=a line of fewer than three words is dropped before the model sees it, so a wrong total there is never checked
+  test("a short line with a figure, such as a chart caption's total, is the model's to sort, and checked", async () => {
+    const CAPTION = "Operating cost by line, 2025 (£ million).";
+    const TOTAL = "Total £8.68m.";
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(
+        checkingModel({
+          [TOTAL]: {
+            verdict: "contradicted",
+            quote: "The total of operating costs for 2025 was £6.88m.",
+            says: "Harbour accounts give operating costs of £6.88m, not £8.68m.",
+          },
+        }),
+      ).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Harbour accounts.md",
+        "# Harbour accounts\n\nThe total of operating costs for 2025 was £6.88m.\n",
+      ),
+    ]);
+    const path = await writeSourceFile(
+      sources,
+      "Costs.pptx",
+      plainDeck([{ title: "Costs" }, { lines: [`${CAPTION} ${TOTAL}`] }]),
+    );
+
+    const result = await core.verifyDocument({ path });
+    if (!result.ok) throw new Error(`The deck wasn't verified: ${result.reason}`);
+    const client = await connectToMind(core, result.mind.id);
+    expect(await core.findClaims(request(result.mind.id))).toEqual({ kind: "found", claims: 1 });
+    await core.verifyClaims(request(result.mind.id));
+    await client.settled();
+    expect(
+      claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check.state]),
+    ).toEqual([[TOTAL, "contradicted"]]);
+  });
 });

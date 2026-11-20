@@ -10,6 +10,7 @@ import type * as Y from "yjs";
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
+import { mindScopeIn } from "../../../shared/mindScope";
 import { targetHash } from "../../../shared/proposals";
 import {
   CHART_NODE,
@@ -36,6 +37,7 @@ import {
   markSentence,
   type SelectedSentence,
 } from "./sentences";
+import { type Reader, readingOf } from "./standing";
 import type { MindCheckScope } from "./verify";
 
 export type JudgedVerdict =
@@ -154,11 +156,17 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
   const { content } = options;
 
   /**
-   * The sentences with no result for their words as they are now, in the Note's order: those the
-   * Note counts as not checked yet, as the Note's own Check reads them.
+   * The sentences with no result that stands for the agent now, in the Note's order: those the
+   * Note counts as not checked yet, as the Note's own Check reads them, and those whose result no
+   * longer stands for `reader` (`readingOf`).
    */
-  const pending = (blocks: Y.XmlFragment, skipped: ReadonlySet<string>): SelectedSentence[] => {
+  const pending = (
+    blocks: Y.XmlFragment,
+    skipped: ReadonlySet<string>,
+    reader: Reader,
+  ): SelectedSentence[] => {
     const marks = markedSentences(blocks);
+    const reading = readingOf(blocks, reader);
     return everySentence(blocks).filter(
       (sentence) =>
         !(skipped.has(sentenceKey(sentence.text)) && !inValueCell(sentence.figures)) &&
@@ -168,7 +176,8 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             from < sentence.to &&
             to > sentence.from &&
             check.text === sentence.text &&
-            SETTLED.has(check.state),
+            SETTLED.has(check.state) &&
+            reading.ofSentence(sentence, check).state !== "needs-recheck",
         ),
     );
   };
@@ -218,7 +227,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
 
   /** The Documents the Note's Check searches, when all of them are in `reach`. */
   const scopeWithin = (mindId: string, reach: ReadonlySet<string>) => {
-    const { empty, check } = options.scopeOf(mindId, false);
+    const { empty, check, folderId } = options.scopeOf(mindId, false);
     if (empty || check.marked.widened)
       return { ok: false as const, reason: "no-documents" as const };
     // A scope the User chose is the User's to check: an agent would learn from it what it may not read.
@@ -226,7 +235,13 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       ? null
       : readsWithin(check.scope, reach, options.documentVersions);
     if (read === null) return { ok: false as const, reason: "beyond-reach" as const };
-    return { ok: true as const, check, documentIds: new Set(read) };
+    const reader: Reader = {
+      versions: options.documentVersions(),
+      folderId,
+      scope: content.readSettings(mindId, mindScopeIn),
+      reach,
+    };
+    return { ok: true as const, check, documentIds: new Set(read), reader };
   };
 
   const skippedOf = (mindId: string) =>
@@ -239,7 +254,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       if (!scope.ok) return scope;
       const skipped = skippedOf(mindId);
       return content.read(mindId, (blocks) => {
-        const sentences = pending(blocks, skipped);
+        const sentences = pending(blocks, skipped, scope.reader);
         const grids = new Map<Y.XmlElement, TableLayout>();
         const task = nameOf(sentences);
         keep(task, mindId, sentences);
@@ -272,7 +287,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       const at = options.now().toISOString();
       const request = randomUUID();
       const landed = content.edit(mindId, (blocks): Judged<LandedCheck> => {
-        const open = pending(blocks, skipped);
+        const open = pending(blocks, skipped, scope.reader);
         const sentences = sentencesOf(task, mindId, blocks, open);
         if (!sentences) return { ok: false, reason: "changed" };
         const stillOpen = (sentence: SelectedSentence) =>

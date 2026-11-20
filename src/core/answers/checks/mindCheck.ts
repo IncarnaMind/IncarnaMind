@@ -24,12 +24,7 @@
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import { citedCases } from "../../../shared/caseCitations";
-import {
-  addedCouldChange,
-  checkedSentence,
-  claimCheckShown,
-  type NoteFooting,
-} from "../../../shared/claimChecks";
+import { addedCouldChange, checkedSentence } from "../../../shared/claimChecks";
 import { partsToCheck } from "../../../shared/claimParts";
 import { ANALYSIS_REASONS } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
@@ -84,20 +79,18 @@ import {
   checkedSentences,
   checkText,
   everySentence,
-  figuresNow,
   keptAsView,
   markedSentences,
   markSentence,
   marksASourceName,
   noteTextOf,
-  noteTextOfMarked,
-  recordCiteNote,
   recordCiteParagraphs,
   type SelectedSentence,
   sourceNamesIn,
   topLevelBlockId,
   unmarkSourceNames,
 } from "./sentences";
+import { readingOf } from "./standing";
 import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
 import { widerRun } from "./widerRun";
@@ -169,11 +162,6 @@ export interface MindCheckOptions extends RunChecksOptions {
 }
 
 const MODES: readonly CheckMindMode[] = ["all", "changed", "added"];
-
-// A total's footing is worked out, never a model's check of it: what a run sends reads each total's
-// own check alone, so one that couldn't be made is sent whether a cell out in another check holds
-// it at Checking or its cells don't add up (#2998).
-const NO_FOOTING: NoteFooting = new Map();
 
 /** The figures a run checks: a non-empty list of distinct ids, or null for the whole Note. */
 function parseFigureIds(value: unknown): string[] | null {
@@ -380,23 +368,9 @@ export function createMindCheck(options: MindCheckOptions) {
     const folderId = options.mindFolder(mindId);
     const scope = content.readSettings(mindId, mindScopeIn);
     const changeable = content.read(mindId, (blocks) => {
-      const { figureContexts } = figuresNow(blocks);
-      const note = recordCiteNote(blocks);
+      const reading = readingOf(blocks, { versions, folderId, scope, reach: null });
       return checkedSentences(blocks).flatMap((marked) =>
-        addedCouldChange(
-          marked.check,
-          claimCheckShown(marked.check, {
-            text: marked.sentence,
-            citations: marked.citations,
-            footing: NO_FOOTING,
-            versions,
-            folderId,
-            scope,
-            figureContexts,
-            note: note(marked.place),
-            ...noteTextOfMarked(marked),
-          }),
-        )
+        addedCouldChange(marked.check, reading.ofMarked(marked, marked.check))
           ? [marked.check]
           : [],
       );
@@ -493,12 +467,17 @@ export function createMindCheck(options: MindCheckOptions) {
     return result;
   }
 
-  /** The sentences a run in `mode` sends now. */
+  /**
+   * The sentences a run in `mode` sends now. `reach`: an outside agent's Check (`check`), for which
+   * a result resting on a Document it doesn't reach is checked again, unless the User's wider
+   * check made it, which is the User's to run.
+   */
   function sending(
     mindId: string,
     mode: CheckMindMode,
     figureIds: readonly string[] | null = null,
     blockIds: readonly string[] | null = null,
+    reach: ReadonlySet<string> | null = null,
   ): Sending {
     const skipped = new Set(content.readSettings(mindId, readMindCheck)?.skipped ?? []);
     const versions = options.documentVersions();
@@ -506,8 +485,13 @@ export function createMindCheck(options: MindCheckOptions) {
     const scope = content.readSettings(mindId, mindScopeIn);
     const added = mode === "added" ? addedSince(mindId) : null;
     return content.read(mindId, (blocks) => {
-      const { figureContexts } = figuresNow(blocks);
-      const note = recordCiteNote(blocks);
+      const theUsers = readingOf(blocks, { versions, folderId, scope, reach: null });
+      const theAgents = reach ? readingOf(blocks, { versions, folderId, scope, reach }) : theUsers;
+      const shownOf = (sentence: SelectedSentence, check: ClaimCheckAttributes) =>
+        (check.scope.widened || check.scope.chosen ? theUsers : theAgents).ofSentence(
+          sentence,
+          check,
+        );
       // Every sentence is read; the one count decides which have a check to make, whatever makes a claim (#1909).
       const every = everySentence(blocks);
       // A write's Check reads only that write's Blocks; the rest of the Note is the Note's own Check's.
@@ -561,19 +545,7 @@ export function createMindCheck(options: MindCheckOptions) {
           const state = checkedSentence({
             text: sentence.text,
             hasFigures: (sentence.figures?.length ?? 0) > 0,
-            check: mark
-              ? claimCheckShown(mark.check, {
-                  text: sentence.text,
-                  citations: sentence.citations,
-                  footing: NO_FOOTING,
-                  versions,
-                  folderId,
-                  scope,
-                  figureContexts,
-                  note: note({ blockId: sentence.blockId, from: sentence.from }),
-                  noteText: () => noteTextOf(sentence),
-                })
-              : null,
+            check: mark ? shownOf(sentence, mark.check) : null,
             skipped: leftOut(sentence),
             kept: keptAsView(marks, sentence),
           });
@@ -598,19 +570,7 @@ export function createMindCheck(options: MindCheckOptions) {
           if (mark.check.scope.widened) widened.add(sentence);
           continue;
         }
-        const shown = mark
-          ? claimCheckShown(mark.check, {
-              text: sentence.text,
-              citations: sentence.citations,
-              footing: NO_FOOTING,
-              versions,
-              folderId,
-              scope,
-              figureContexts,
-              note: note({ blockId: sentence.blockId, from: sentence.from }),
-              noteText: () => noteTextOf(sentence),
-            })
-          : null;
+        const shown = mark ? shownOf(sentence, mark.check) : null;
         const state = checkedSentence({
           text: sentence.text,
           hasFigures: (sentence.figures?.length ?? 0) > 0,
@@ -714,7 +674,7 @@ export function createMindCheck(options: MindCheckOptions) {
     // An earlier check's mark on a sentence that only names its source goes: none reads it now (#3093).
     if (content.read(mindId, (blocks) => marksASourceName(blocks, sourceNamesIn(blocks))))
       content.edit(mindId, (blocks) => unmarkSourceNames(blocks, sourceNamesIn(blocks)));
-    const sent = sending(mindId, mode, input.figureIds, input.blockIds);
+    const sent = sending(mindId, mode, input.figureIds, input.blockIds, reach ?? null);
     const { fresh, again, keys, skipped, widened } = sent;
     if (fresh.length + again.length === 0) return { kind: "nothing" };
     await options.evidenceReady(signal, mindId);

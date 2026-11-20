@@ -1,6 +1,7 @@
 import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { type ChatModelChoice, DEFAULT_MIND_KIND, type RunEstimate } from "../../../core/api";
+import { isListedMind } from "../../../shared/listedMinds";
 import { mindName } from "../../../shared/naming";
 import { MAX_RESEARCH_STEPS, researchItems, researchMinutes } from "../../../shared/research";
 import { keysLabel } from "../commands/keys";
@@ -354,7 +355,7 @@ function WriteInto({ mindId, card }: { mindId: string | null; card: Card }) {
   };
   const label = "mindId" in target ? nameOf(target.mindId) : t("research.plan.newMind");
   const others = minds
-    .filter((each) => each.id !== mindId && each.kind === DEFAULT_MIND_KIND)
+    .filter((each) => each.id !== mindId && each.kind === DEFAULT_MIND_KIND && isListedMind(each))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, OTHER_MINDS);
   const choose = (writeInto: Card["writeInto"]) => {
