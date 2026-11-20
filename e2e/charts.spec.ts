@@ -541,6 +541,8 @@ for (const [language, width] of [
       await kind(name);
       await window.mouse.move(0, 0);
       await pointAndClick(window, find);
+      // The press reached the foot's find, not the check's badge that floats over the page's foot.
+      await expect(window.getByTestId("check-card"), name).toHaveCount(0);
       // Q4 2025 has none: in focus, its card says so, off the chart's head.
       await expect(point(chart, 3, 1)).toBeFocused();
       await expect(card).toContainText("Q4");
