@@ -231,6 +231,7 @@ async function inAssistant(
         text: answer.text,
         restated,
         uncited: mark ? { check: mark.check, verdict: mark.verdict } : null,
+        uncitedChecks: answer.steps?.uncitedChecks ?? null,
         seconds: (Date.now() - started) / 1000,
       };
     }

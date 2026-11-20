@@ -529,7 +529,7 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
           parts: batchParts(batch),
           data: BATCH_TAGS,
           // Read from its text, not as one JSON value: a reply can hold a corrected answer (#3029).
-          reply: lines((text) => readBatchText(text, batch.length)),
+          reply: lines((text) => readBatchText(text, batch.length, uncitedIn(batch))),
           items: batch.length,
           retries: 1,
           signal: input.signal,
@@ -715,6 +715,10 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       const citation = passage ? options.citeQuote(passage.passageId, verdict.cites.quote) : null;
       if (citation) input.onUncited?.(place, { check: "found", citation });
     };
+
+    /** A batch's uncited sentences, by their number in it from 1. */
+    const uncitedIn = (batch: readonly Judged[]) =>
+      new Set(batch.flatMap((sentence, index) => (sentence.place ? [index + 1] : [])));
 
     const judgeBatch = async (batch: (typeof judged)[number][]) => {
       const admission = stopped ? stopped : await admit(batch);

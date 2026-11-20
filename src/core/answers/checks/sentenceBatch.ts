@@ -123,6 +123,7 @@ export const sentenceBatchInstructions = (
           'A sentence marked uncited="true" cites nothing: the Passages given include all those its Answer read. Judge it against all of them, as above.',
           'For an uncited sentence that is supported, also give "passage", the number of the one Passage that states it (1 for P1), and "quote", the fewest whole words copied exactly from that Passage that state it, without its marks; quoted is "states" when that quote says what the sentence says, else "other".',
           "An uncited sentence that only introduces, frames or sums up the Answer, offers help, or says that something isn't in the Documents or wasn't found is kind \"opinion\".",
+          "Give every field for every sentence, an uncited one's too.",
         ]
       : []),
     "",
@@ -216,20 +217,29 @@ const ENTRY = {
   says: textOrNull,
 };
 
+/** What an uncited sentence's entry may leave out (#3410): words that bear only on its own Citations' quotes. */
+const UNCITED_DEFAULTS = { roles: "same", time: "same", quoted: "other" };
+
 /**
  * A batch's reply, by the sentence's number from 1; null when it holds no list of sentences, or an
  * entry whose number can't be read as a whole number, which might be any of them. A sentence it gave
  * nothing readable for is missing, and so is one it gave two entries for, or one with any of its
- * fields missing or not one of its words (#2816, #2817).
+ * fields missing or not one of its words (#2816, #2817). An `uncited` sentence's entry may leave out
+ * what bears only on Citations: read so, its quote is never taken (#3410).
  */
-export function readBatch(value: unknown, count: number): Map<number, BatchVerdict> | null {
+export function readBatch(
+  value: unknown,
+  count: number,
+  uncited: ReadonlySet<number> = new Set(),
+): Map<number, BatchVerdict> | null {
   const reply = fieldsOf(value, { sentences: list });
   if (!reply) return null;
   const entries = reply.sentences.filter(isRecord);
   // An entry whose sentence can't be told might be any of them: none of the batch is judged.
   if (entries.some((entry) => whole(entry.number) === undefined)) return null;
   const read = new Map<number, BatchVerdict>();
-  for (const [number, entry] of byKey(entries, (each) => whole(each.number))) {
+  for (const [number, given] of byKey(entries, (each) => whole(each.number))) {
+    const entry = uncited.has(number) ? { ...UNCITED_DEFAULTS, ...given } : given;
     const fields = fieldsOf(entry, ENTRY);
     if (number < 1 || number > count || !fields) continue;
     const passage = whole(entry.passage);
@@ -308,11 +318,15 @@ function saidOf(value: unknown): Map<number, Pick<BatchVerdict, keyof typeof ENT
  * that gave the sentence no entry said nothing of it, and one whose entry differs, can't be read
  * whole, or can't be placed doesn't agree. A verdict it lowers stands.
  */
-export function readBatchText(reply: string, count: number): Map<number, BatchVerdict> | null {
+export function readBatchText(
+  reply: string,
+  count: number,
+  uncited: ReadonlySet<number> = new Set(),
+): Map<number, BatchVerdict> | null {
   const { objects: answers, broken } = jsonObjects(replyText(reply));
   if (answers.length > 0 && broken) return null;
-  const later = answers.length > 1 ? readBatch(answers.at(-1), count) : null;
-  if (!later) return readBatch(replyJson(reply), count);
+  const later = answers.length > 1 ? readBatch(answers.at(-1), count, uncited) : null;
+  if (!later) return readBatch(replyJson(reply), count, uncited);
   const earlier = answers.slice(0, -1).map(saidOf);
   for (const [number, verdict] of later) {
     if (!passesSentence(verdict)) continue;
@@ -328,8 +342,11 @@ export function readBatchText(reply: string, count: number): Map<number, BatchVe
 }
 
 /** A batch's reply as the Answer check reads it: no sentence of one it can't read is judged. */
-export const readBatchReply = (reply: string, count: number): Map<number, BatchVerdict> =>
-  readBatchText(reply, count) ?? new Map();
+export const readBatchReply = (
+  reply: string,
+  count: number,
+  uncited?: ReadonlySet<number>,
+): Map<number, BatchVerdict> => readBatchText(reply, count, uncited) ?? new Map();
 
 /**
  * Sentences in batches, in their order: a batch closes at `BATCH_SENTENCES` sentences, or before a

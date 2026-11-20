@@ -138,6 +138,17 @@ describe("a batch's reply", () => {
     expect(read.get(2)?.cites).toBeUndefined();
     expect(read.get(3)?.cites).toBeUndefined();
   });
+
+  // protects=an uncited sentence's entry that leaves out what bears only on Citations (quoted, roles, time) is still read, as not stating any quote, while a cited sentence's entry missing them stays unjudged (#2817, #3410); fails_when=a contradicted uncited sentence goes unmarked for a missing quoted, or a cited one is judged with a field it left out; no_claim=none beyond protects.
+  test("an uncited sentence's entry may leave out its quote's words; a cited one's may not", async () => {
+    const { quoted: _quoted, roles: _roles, time: _time, ...bare } = entry(1, "contradicted");
+    const reply = JSON.stringify({ sentences: [bare, { ...bare, number: 2 }] });
+
+    const read = await readBatchReply(reply, 2, new Set([2]));
+
+    expect(read.has(1)).toBe(false);
+    expect(read.get(2)).toMatchObject({ verdict: "contradicted", quoted: "other" });
+  });
 });
 
 describe("a reply that corrects itself (#3029)", () => {
