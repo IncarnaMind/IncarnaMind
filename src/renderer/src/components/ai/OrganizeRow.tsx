@@ -5,6 +5,7 @@ import { catalogProvider } from "../../../../core/providers/catalog/providers";
 import { formatTime } from "../../../../shared/dates";
 import { listOf } from "../../../../shared/i18n/join";
 import { sortingSwitchOn } from "../../../../shared/libraryModels";
+import { useAgentAlone } from "../../agentNote";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useGap, useLanguage, useT } from "../../i18n";
@@ -120,6 +121,7 @@ export function OrganizeRows({
     decisionHosts,
     reread,
   } = sorting;
+  const agentAlone = useAgentAlone();
   const [settingUp, setSettingUp] = useState<SetUpOffer["id"] | null>(null);
 
   const failed = read.state === "failed";
@@ -151,11 +153,13 @@ export function OrganizeRows({
         label={t("ai.jobs.organize")}
         htmlFor={failed ? undefined : id}
         detail={
-          hints !== null && (
-            <span data-testid="ai-organize-hints">
-              {t(hints ? "ai.jobs.organize.hints" : "ai.jobs.organize.noHints")}
-            </span>
-          )
+          agentAlone && read.state === "ready" && !current
+            ? t("ai.jobs.organize.agent")
+            : hints !== null && (
+                <span data-testid="ai-organize-hints">
+                  {t(hints ? "ai.jobs.organize.hints" : "ai.jobs.organize.noHints")}
+                </span>
+              )
         }
         control={
           failed ? undefined : (

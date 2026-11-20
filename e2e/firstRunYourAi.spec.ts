@@ -208,8 +208,8 @@ async function connectClaudeCode(window: Page, ai: Locator): Promise<void> {
   await expect(ai.getByTestId("setup-agent-connected")).toHaveText("Claude Code is connected");
 }
 
-// protects=a fresh profile's Your AI step offers the User's own AI first, Claude Code connects inside the step with the lines Settings shows, Sorting waits for a model, the card follows the agent with no key asked for, and Settings › Agents lists the agent as one connected there and disconnects it; fails_when=the step asks for a key first, connecting leaves the step or needs a Document, Sorting shows with no model, the card asks for a key, or Settings shows another agent than the one connected
-test("connecting the AI the User has in the step: no key, no Sorting, the agent's card, and Settings lists it", async () => {
+// protects=a fresh profile's Your AI step offers the User's own AI first, Claude Code connects inside the step with the lines Settings shows, Sorting explains how to ask the agent, the card follows the agent with no key asked for, and Settings › Agents lists the agent as one connected there and disconnects it; fails_when=the step asks for a key first, connecting leaves the step or needs a Document, Sorting shows with no model, the card asks for a key, or Settings shows another agent than the one connected
+test("connecting the AI the User has in the step: no key, sorting on request, the agent's card, and Settings lists it", async () => {
   test.setTimeout(180_000);
   const window = await launch();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
@@ -263,7 +263,6 @@ test("connecting the AI the User has in the step: no key, no Sorting, the agent'
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
   await stills(window, "3-your-ai-connected");
 
-  // No model here: Sorting offers what sorts without one, and says so; the User's AI isn't one.
   await ai.getByTestId("setup-next").click();
   const sorting = await atStep(window, "sorting");
   await expect(sorting.getByTestId("setup-progress-step")).toHaveText([
@@ -277,7 +276,7 @@ test("connecting the AI the User has in the step: no key, no Sorting, the agent'
   await expect(choices.first()).toHaveAttribute("data-value", "decision");
   await expect(choices.last()).toHaveAttribute("data-value", "local");
   await expect(sorting.getByTestId("setup-sorting-agent-alone")).toHaveText(
-    "Sorting runs by itself with a decision model or a model on this computer; otherwise it waits.",
+    "Automatic sorting uses a decision model, a model set up in IncarnaMind, or a model on this computer. You can also ask your connected AI to organize your Documents, then confirm its Suggestions.",
   );
   await expect(sorting.getByTestId("setup-decision-key")).toBeVisible();
   await expect(sorting.getByTestId("setup-sorting-sends")).toContainText("to OpenRouter.");
@@ -307,6 +306,10 @@ test("connecting the AI the User has in the step: no key, no Sorting, the agent'
 
   // Settings › Agents lists it as one connected there, and disconnects it.
   await card.getByTestId("first-open-set-change").click();
+  const models = await showSettingsPage(window, "ai");
+  await expect(models.getByTestId("model-default-row-sorting")).toContainText(
+    "Ask your connected AI to suggest Folders and Tags.",
+  );
   const page = await showSettingsPage(window, "agents");
   await expect(page.getByTestId("agents-enabled")).toBeChecked();
   const row = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
