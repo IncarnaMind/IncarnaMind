@@ -325,6 +325,38 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     );
   });
 
+  // protects=an agent that reads its Note in a later chat learns that its sentences aren't checked, where it decides how to answer whether the Note is right (#3432); fails_when=read_mind says nothing of it, says it of a Note the User wrote, or still says it once every sentence holds a result
+  it("read_mind says how many sentences of a Note the agent wrote hold no check result yet", async () => {
+    const { core, agent, mindId, coast } = await paired();
+    const read = async (id: string, named?: boolean) =>
+      structured<{ next: string | null }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: id, named } }),
+      ).next;
+    const unchecked =
+      "4 sentences of this note hold no check result yet: to tell the User whether they are right, check them with check_mind_yourself, which gives them.";
+    expect(await read(mindId)).toBe(unchecked);
+    expect(await read(mindId, true)).toBe(unchecked);
+
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice] },
+        { n: 2, verdict: "contradicted", cites: [largest] },
+        { n: 4, verdict: "nothing to check" },
+      ]),
+    );
+    expect(await read(mindId)).toBe(
+      "1 sentence of this note holds no check result yet: to tell the User whether it is right, check it with check_mind_yourself, which gives it.",
+    );
+    structured<Reported>(await report(agent, mindId, given.task, [{ n: 3, verdict: "not found" }]));
+    expect(await read(mindId)).toBeNull();
+
+    const theirs = await core.createMind({ title: "My own", folderId: coast.id });
+    expect(await read(theirs.id)).toBeNull();
+  });
+
   // protects=an agent marks only the Notes it wrote; fails_when=it can lay results on a Note of the User's
   it("refuses a Note the agent didn't write", async () => {
     const { core, agent, coast } = await paired();
