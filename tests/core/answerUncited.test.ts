@@ -7,9 +7,15 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
+import { answeringModel } from "../helpers/answerJudging";
 import { askAssistant } from "../helpers/assistant";
 import { askAndFinish, citationsIn, setUpWithDocuments } from "../helpers/citations";
-import { type GenerateCall, judgesNothing, scriptedModel } from "../helpers/models";
+import {
+  type GenerateCall,
+  type GeneratedReply,
+  judgesNothing,
+  scriptedModel,
+} from "../helpers/models";
 
 const TEXTS = {
   en: {
@@ -178,6 +184,66 @@ describe.each(Object.keys(TEXTS) as Language[])(
         expect(answer.text).toBe(answerOf(language));
       },
     );
+
+    // protects=Check again keeps an earlier mark on an uncited sentence it gave no new verdict, as when its batch failed, and takes the mark off only with a new verdict, here the writer's own view; fails_when=a recheck that failed before the sentence's verdict leaves it unmarked, or keeps a mark a new verdict took off; no_claim=how often a batch fails (the provider's).
+    test("Check again keeps a mark it gives no new verdict, and takes one off only with one", {
+      timeout: 30_000,
+    }, async () => {
+      const phase: { batch: "contradicted" | "failing" | "own view" } = { batch: "contradicted" };
+      // The cited sentence gets no verdict, so its Citation stays Not checked for Check again.
+      const judge = (call: GenerateCall): GeneratedReply => {
+        if (phase.batch === "failing") {
+          return { error: { status: 500, message: "The provider failed." } };
+        }
+        const entries = [...call.prompt.matchAll(/<sentence number="(\d+)" uncited="true">/g)].map(
+          ([, number]) => ({
+            number: Number(number),
+            kind: "fact",
+            verdict: phase.batch,
+            roles: "same",
+            time: "same",
+            quoted: "other",
+            says: phase.batch === "contradicted" ? text.says : null,
+          }),
+        );
+        return { text: JSON.stringify({ sentences: entries }) };
+      };
+      const stop = language === "en" ? "." : "。";
+      const space = language === "en" ? " " : "";
+      const answer = `${text.repair.slice(0, -1)}[^1]${stop}${space}${text.wrong}`;
+      const { core } = await setUpWithDocuments(
+        answeringModel(text.query, answer, [text.repair], {}, { judge }),
+        [document],
+      );
+      const asked = await askAssistant(core, { text: text.question });
+      const ids = { conversationId: asked.conversationId, answerId: asked.id };
+      const stored = async () => {
+        const { messages } = await core.getConversation(ids.conversationId);
+        const found = messages.find((message) => message.id === ids.answerId);
+        if (found?.kind !== "answer") throw new Error("No Answer.");
+        return found;
+      };
+      const first = await judgedUncited(core, ids.conversationId, ids.answerId);
+      expect(first.citations.map((each) => each.check)).toEqual(["not-checked"]);
+      expect(first.steps?.uncitedChecks).toEqual([
+        {
+          sentence: text.wrong,
+          check: "contradicted",
+          verdict: text.says,
+          judgedAt: expect.any(String),
+        },
+      ]);
+
+      phase.batch = "failing";
+      await core.checkAnswerAgain(ids);
+      expect((await stored()).steps?.uncitedChecks).toEqual(first.steps?.uncitedChecks);
+
+      phase.batch = "own view";
+      await core.checkAnswerAgain(ids);
+      const last = await stored();
+      expect(last.steps?.uncitedChecks).toEqual([]);
+      expect(last.citations).toHaveLength(1);
+    });
 
     // protects=asked in a Note, the same uncited sentences get no Citation and no verdict when the Answer ends: the Note's own check reads them; fails_when=code cites one there by its words, or the Answer's judgement runs in a Note; no_claim=Check this Note itself (eval/uncited).
     test("in a Note, nothing is added to them", { timeout: 30_000 }, async () => {

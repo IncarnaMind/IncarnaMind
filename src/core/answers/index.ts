@@ -100,6 +100,7 @@ import {
   type ScopeKind,
   searchScopeOf,
 } from "../../shared/searchScope";
+import { comparableSentence } from "../../shared/sentences";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
@@ -1352,19 +1353,38 @@ export function createAnswers(options: AnswersOptions) {
     const uncited = uncitedSentences(answer.text);
     const read = answer.steps?.readPassages ?? [];
     const judgesUncited = uncited.length > 0 && read.length > 0;
-    /** …and those the judgement found they don't back. */
-    const uncitedChecks: UncitedCheck[] = [];
+    /**
+     * …and what this judgement found of each, by its words as the assistant shows them: the same
+     * words twice are one sentence. Null: judged, with nothing to mark.
+     */
+    const uncitedNow = new Map<string, UncitedCheck | null>();
     const onUncited = (sentence: UncitedSentence, result: UncitedResult) => {
-      if (result.check === "found") {
-        found.push({ at: sentence.at, passages: [result.citation] });
-        return;
-      }
-      uncitedChecks.push({
-        sentence: sentence.sentence,
-        check: result.check,
-        verdict: result.verdict,
-        judgedAt: new Date().toISOString(),
+      const key = comparableSentence(sentence.sentence);
+      if (result.check === "found") found.push({ at: sentence.at, passages: [result.citation] });
+      if (result.check === "unsupported" || result.check === "contradicted") {
+        uncitedNow.set(key, {
+          sentence: sentence.sentence,
+          check: result.check,
+          verdict: result.verdict,
+          judgedAt: new Date().toISOString(),
+        });
+      } else if (!uncitedNow.get(key)) uncitedNow.set(key, null);
+    };
+    /**
+     * The marks to keep: this judgement's, and an earlier one's for a sentence it gave no verdict
+     * (stopped, failed or cut short before it). Undefined while no judgement has given one.
+     */
+    const uncitedChecks = (): UncitedCheck[] | undefined => {
+      const stored = answer.steps?.uncitedChecks;
+      if (!judgesUncited || (uncitedNow.size === 0 && stored === undefined)) return undefined;
+      const order = uncited.map((each) => comparableSentence(each.sentence));
+      const kept = (stored ?? []).filter((each) => {
+        const key = comparableSentence(each.sentence);
+        return order.includes(key) && !uncitedNow.has(key);
       });
+      const marks = [...uncitedNow.values()].filter((each) => each !== null);
+      const at = (check: UncitedCheck) => order.indexOf(comparableSentence(check.sentence));
+      return [...kept, ...marks].sort((a, b) => at(a) - at(b));
     };
     const passed = (sentence: CitedSentence, result: SupportResult | null, read: boolean) => {
       if (read) for (const at of sentence.at) settled.add(at);
@@ -1474,13 +1494,14 @@ export function createAnswers(options: AnswersOptions) {
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);
       giveBack();
       const cited = withFoundCitations(answer.text, citations, found, new Date().toISOString());
-      if ((cited || judgesUncited) && judgements.get(answer.id)?.controller === controller) {
+      const marks = uncitedChecks();
+      if ((cited || marks) && judgements.get(answer.id)?.controller === controller) {
         options.conversations.writeCitations(
           answer.id,
           answer.text,
           cited?.citations ?? citations,
           cited?.text,
-          judgesUncited ? uncitedChecks : undefined,
+          marks,
         );
       }
       if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);

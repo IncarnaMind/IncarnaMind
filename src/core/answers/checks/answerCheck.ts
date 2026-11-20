@@ -126,7 +126,9 @@ export interface UncitedSentence {
 /** What the judgement made of an uncited sentence: the Passage that states it, or how the Passages it read don't back it. */
 export type UncitedResult =
   | { check: "found"; citation: CitationAttributes }
-  | { check: "unsupported" | "contradicted"; verdict: string | null };
+  | { check: "unsupported" | "contradicted"; verdict: string | null }
+  /** Judged, with nothing to mark or cite: the writer's own view, or backed by no quote code found. */
+  | { check: "none" };
 
 /** A line's own Markdown: a heading's, a list item's or a quotation's mark, and emphasis. */
 const plainOf = (text: string) =>
@@ -196,7 +198,7 @@ export interface AnswerCheckInput {
   uncited?: readonly UncitedSentence[];
   /** The Passages the Answer read, by id. */
   read?: readonly string[];
-  /** An uncited sentence's result once its batch is read: nothing for an opinion, or one it couldn't judge. */
+  /** An uncited sentence's result once its batch is read; nothing for one the batch gave no verdict. */
   onUncited?(sentence: UncitedSentence, result: UncitedResult): void;
 }
 
@@ -709,15 +711,21 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       verdict: BatchVerdict | undefined,
       batch: readonly Judged[],
     ) => {
-      if (verdict?.kind !== "fact" || verdict.verdict === "own view") return;
+      if (!verdict) return;
+      if (verdict.kind !== "fact" || verdict.verdict === "own view") {
+        input.onUncited?.(place, { check: "none" });
+        return;
+      }
       if (verdict.verdict !== "supported") {
         input.onUncited?.(place, { check: unbackedAs(verdict), verdict: verdict.says });
         return;
       }
-      if (!verdict.cites || verdict.quoted !== "states") return;
-      const passage = batchPassages(batch)[verdict.cites.passage - 1];
-      const citation = passage ? options.citeQuote(passage.passageId, verdict.cites.quote) : null;
-      if (citation) input.onUncited?.(place, { check: "found", citation });
+      const passage = verdict.cites && batchPassages(batch)[verdict.cites.passage - 1];
+      const citation =
+        verdict.cites && passage && verdict.quoted === "states"
+          ? options.citeQuote(passage.passageId, verdict.cites.quote)
+          : null;
+      input.onUncited?.(place, citation ? { check: "found", citation } : { check: "none" });
     };
 
     /** A batch's uncited sentences, by their number in it from 1. */

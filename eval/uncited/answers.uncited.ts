@@ -19,6 +19,7 @@ import {
   type MarkedCitation,
   MIND_CONTENT_FIELD,
 } from "../../src/core";
+import { uncitedSentences } from "../../src/core/answers/checks/answerCheck";
 import { likeness, wordsOf } from "../../src/core/answers/markerPlacement";
 import { answerSentences } from "../../src/shared/answerSentences";
 import { labelOf, priceOf, usdOf } from "../citations/cost";
@@ -165,9 +166,6 @@ async function noteOf(core: Core, title: string, paragraphs: readonly string[]):
   return mind.id;
 }
 
-/** How long an Answer that read Passages may take to judge its uncited sentences once its Citations are judged. */
-const UNCITED_WAIT_MS = 30_000;
-
 /**
  * Asked in the assistant with the draft's Note in focus: the restatement, once the Answer has
  * judged its sentences, with its Citations and, for one it left uncited, its mark (#3410).
@@ -184,7 +182,6 @@ async function inAssistant(
   const asked = await core.askInConversation({ text: question, mindId, model });
   if (!asked.asked) throw new Error(`${pair.id} couldn't be asked: ${JSON.stringify(asked)}`);
   const ended = started + timeoutMs;
-  let judgedAt = 0;
   for (;;) {
     const { messages } = await core.getConversation(asked.conversation.id);
     const answer = messages.find((message) => message.id === asked.answerId);
@@ -192,13 +189,14 @@ async function inAssistant(
       answer?.kind === "answer" &&
       answer.status !== "streaming" &&
       !answer.citations.some((citation) => citation.check === "checking");
-    if (cited) judgedAt ||= Date.now();
-    // An Answer that read Passages judges its uncited sentences too: its steps keep their marks.
+    // An Answer that read Passages judges its uncited sentences too, and its steps keep the list
+    // once that judgement gave a verdict, empty when it marked none. One with none to judge has
+    // no list and waits for nothing; one whose list never comes is recorded as timed out.
     const uncitedLeft =
       answer?.kind === "answer" &&
       (answer.steps?.readPassages?.length ?? 0) > 0 &&
-      answer.steps?.uncitedChecks === undefined &&
-      Date.now() - judgedAt < UNCITED_WAIT_MS;
+      uncitedSentences(answer.text).length > 0 &&
+      answer.steps?.uncitedChecks === undefined;
     const done = cited && !uncitedLeft;
     if ((done || Date.now() > ended) && answer?.kind === "answer") {
       const cited = new Map<number, MarkedCitation>(
