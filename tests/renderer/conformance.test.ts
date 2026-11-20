@@ -225,12 +225,18 @@ describe("every command", () => {
   });
 
   test("that deletes what rule 4 names asks nothing: it moves to Recently deleted", () => {
-    const names = ["mind", "conversation", "document", "folder", "tag"];
+    const names = ["mind", "conversation", "document", "folder", "tag", "canvas"];
     const deletes = commands
       .all()
       .filter((command) => names.includes(command.id.split(".")[0] ?? ""));
     expect(deletes.map((command) => command.id)).toEqual(
-      expect.arrayContaining(["mind.delete", "document.delete", "folder.delete", "tag.delete"]),
+      expect.arrayContaining([
+        "mind.delete",
+        "document.delete",
+        "folder.delete",
+        "tag.delete",
+        "canvas.delete",
+      ]),
     );
     for (const command of deletes.filter((each) => each.id.endsWith(".delete"))) {
       expect(command.reversible, command.id).toBe(true);

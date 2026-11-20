@@ -312,7 +312,7 @@ test("connecting the AI the User has in the step: no key, no Sorting, the agent'
   const row = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
   await expect(row.getByTestId("agent-pairing-reads")).toHaveText("Reads Not in a Folder");
   await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
-    "Can write notes there; its changes wait for you",
+    "Writes notes and Canvases there; proposes changes to yours",
   );
   await row.getByTestId("agent-disconnect").click();
   await expect(page.getByTestId("agent-pairing")).toHaveCount(0);

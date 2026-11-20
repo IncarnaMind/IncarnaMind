@@ -1,4 +1,5 @@
 import { type LayoutGroup, type LayoutTab, MAX_TAB_GROUPS } from "../../../core/api";
+import { KEYS_FROM_CANVASES } from "../../../shared/commands";
 import {
   closeSome,
   cycleTabs,
@@ -64,7 +65,7 @@ const focusGroupCommands = [1, 2, 3].map(
   (number): Command => ({
     id: `group.focus${number}`,
     label: (_ctx, t) => t("command.group.focus", { n: number }),
-    shortcut: { keys: `CmdOrCtrl+${number}` },
+    shortcut: { keys: KEYS_FROM_CANVASES[`group.focus${number as 1 | 2 | 3}` as const] },
     palette: false,
     group: "open",
     reversible: true,
@@ -81,7 +82,13 @@ const showTabCommands = [1, 2, 3, 4, 5, 6, 7, 8, 9].map(
     id: number === 9 ? "tab.showLast" : `tab.show${number}`,
     label:
       number === 9 ? "command.tab.showLast" : (_ctx, t) => t("command.tab.show", { n: number }),
-    shortcut: { keys: { mac: `Ctrl+${number}`, other: `Alt+${number}` } },
+    shortcut: {
+      keys: KEYS_FROM_CANVASES[
+        number === 9
+          ? "tab.showLast"
+          : (`tab.show${number as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}` as const)
+      ],
+    },
     group: "open",
     reversible: true,
     when: () => tabByNumber(number) !== null,
@@ -123,7 +130,7 @@ const tabList: readonly Command[] = [
   {
     id: "tab.next",
     label: "command.tab.next",
-    shortcut: { keys: "Ctrl+Tab" },
+    shortcut: { keys: KEYS_FROM_CANVASES["tab.next"] },
     group: "open",
     reversible: true,
     run: (ctx) => cycleTabs(1, { focus: !ctx.assistant }),
@@ -131,7 +138,7 @@ const tabList: readonly Command[] = [
   {
     id: "tab.previous",
     label: "command.tab.previous",
-    shortcut: { keys: "Ctrl+Shift+Tab" },
+    shortcut: { keys: KEYS_FROM_CANVASES["tab.previous"] },
     group: "open",
     reversible: true,
     run: (ctx) => cycleTabs(-1, { focus: !ctx.assistant }),

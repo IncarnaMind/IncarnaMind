@@ -16,6 +16,7 @@ import { lineUnits, markdownUnits, type SourceUnit } from "../../../core/documen
 import { findQuote, type TextRange } from "../../../shared/quoteMatch";
 import { useAnnotations, useDocumentAnnotations } from "../annotations";
 import { DocumentFix } from "../components/DocumentFix";
+import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { logCaught } from "../errorLog";
 import { useT } from "../i18n";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
@@ -30,7 +31,6 @@ import { parseMarkdown } from "./markdown";
 import { looksLikeCode } from "./plainText";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
 import { sourceSelection, useSelectionReader } from "./selectedText";
-import { OutlineButton, type OutlineEntry, UnitOutline } from "./UnitOutline";
 import { ViewerHeader } from "./ViewerHeader";
 import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
@@ -408,7 +408,7 @@ function TextContent({
   return (
     <div className="flex min-h-0 flex-1">
       {outline && (
-        <UnitOutline
+        <OutlinePanel
           entries={outline}
           current={current}
           onGo={(heading) => {

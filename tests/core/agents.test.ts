@@ -606,12 +606,15 @@ describe("outside agents", () => {
         "create_mind",
         "list_minds",
         "propose_changes",
+        "publish_canvas",
+        "read_canvas",
         "read_mind",
         "read_passages",
         "report_check",
         "run_analysis",
         "search",
         "show_citation",
+        "update_canvas",
       ]);
       const found = await agent.callTool({ name: "search", arguments: { query: "spring tides" } });
       expect((found.structuredContent as SearchOut).passages[0]?.cite).toMatch(/^\[cite:/);
@@ -627,15 +630,23 @@ describe("outside agents", () => {
     const definitions = JSON.stringify(
       tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     );
-    // 1,850 before calculate and run_analysis (#3363).
-    expect(estimateTokens(definitions)).toBeLessThan(2_439);
+    // 1,850 before calculate and run_analysis (#3363); 2,419 before the Canvases' three (#3406).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(2_748);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
-      // Four write: Proposals the User decides on, a new Note that changes none there is, and
-      // the marks of a check on a Note the agent wrote, IncarnaMind's or the agent's own.
+      // Six write: Proposals the User decides on, a new Note that changes none there is, the marks
+      // of a check on a Note the agent wrote, IncarnaMind's or the agent's own, and a Canvas or a
+      // version of one (#3406).
       expect(tool.annotations?.readOnlyHint).toBe(
-        !["propose_changes", "create_mind", "check_mind", "report_check"].includes(tool.name),
+        ![
+          "propose_changes",
+          "create_mind",
+          "check_mind",
+          "report_check",
+          "publish_canvas",
+          "update_canvas",
+        ].includes(tool.name),
       );
       expect(tool.annotations?.destructiveHint).toBe(false);
       expect(tool.outputSchema).toBeDefined();

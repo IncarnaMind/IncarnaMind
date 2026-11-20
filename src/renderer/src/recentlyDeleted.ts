@@ -40,6 +40,7 @@ export function deletedName(item: Pick<DeletedItem, "kind" | "name">): string {
   if (item.name !== "") return item.name;
   if (item.kind === "mind") return t("mind.untitled");
   if (item.kind === "conversation") return t("conversation.untitled");
+  if (item.kind === "canvas") return t("canvas.untitled");
   return "";
 }
 
@@ -180,6 +181,7 @@ export function watchDeleted(onChange: () => void): () => void {
     core.on("tags.changed", onChange),
     core.on("library.changed", onChange),
     core.on("documents.removed", onChange),
+    core.on("canvases.changed", onChange),
     useUndo.subscribe((state, before) => {
       if (state.line !== before.line) onChange();
     }),

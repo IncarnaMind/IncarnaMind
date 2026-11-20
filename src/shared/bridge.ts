@@ -1,5 +1,6 @@
 /** Names shared by the main process and the preload script for the typed core bridge. */
 import type { AudioSource, CoreApiMethod, UnsavedAtEnd } from "../core/api";
+import type { CanvasFrameNews } from "./canvases";
 import type { MenuCommandId } from "./commands";
 import type { GeneralHelpKind } from "./meetingHelp";
 import type { ConversationAt, PanelCommand, PanelState } from "./meetingPanel";
@@ -182,6 +183,12 @@ export interface FilesBridge {
    * the floating panel isn't shown: the window asks for that help itself. Returns how to stop.
    */
   onMeetingHelp(listener: (kind: GeneralHelpKind) => void): () => void;
+  /**
+   * Calls `listener` with what a Canvas this window shows said or did (#3406), as the main process
+   * checked it: its height, a Citation it asked to open, a website it tried to open, or that it
+   * stopped. Returns how to stop.
+   */
+  onCanvasFrame(listener: (news: CanvasFrameNews) => void): () => void;
   /** Whether no other app holds these keys as its global shortcut, as far as the system says. */
   globalKeysFree(keys: string): Promise<boolean>;
   /**
@@ -289,6 +296,8 @@ export const FILES_CHANNELS = {
   fullScreen: "app:fullScreen",
   /** From the main process: a help button's shortcut was pressed with no floating panel shown. */
   meetingHelp: "app:meetingHelp",
+  /** From the main process: what a Canvas the window shows said or did (`CanvasFrameNews`). */
+  canvasFrame: "app:canvasFrame",
   globalKeysFree: "app:globalKeysFree",
   /** From the page: the keys the window binds itself (`windowKeys`). */
   windowKeys: "app:windowKeys",

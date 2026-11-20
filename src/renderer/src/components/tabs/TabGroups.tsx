@@ -7,6 +7,7 @@ import { useShareDialog } from "../../shareDialog";
 import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
 import { useGroupsMerged } from "../../useWindowWidth";
+import { CanvasTab } from "../canvases/CanvasTab";
 import { ExportDialog } from "../ExportDialog";
 import { FigureScheduleTab } from "../figures/FigureScheduleTab";
 import { HomePane } from "../home/HomePane";
@@ -228,6 +229,8 @@ function TabGroup({
               <LibraryPane />
             ) : tab.item.kind === "home" ? (
               <HomePane />
+            ) : tab.item.kind === "canvas" ? (
+              <CanvasTab key={`${tab.id}:${tab.item.canvasId}`} canvasId={tab.item.canvasId} />
             ) : (
               <DocumentTab key={tab.id} tab={tab} />
             )}

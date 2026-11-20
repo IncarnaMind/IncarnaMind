@@ -49,6 +49,7 @@ import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
 import { PLOT_FONT } from "../shared/analysisWindow";
 import { createElectronAnalysisRuntime } from "./analysis";
+import { createCanvasFiles } from "./canvasFiles";
 import { createCitedPageCapture } from "./citedPageCapture";
 import { createSentryCrashReporter } from "./crashReports";
 import { documentsFolder } from "./documentsFolder";
@@ -1027,6 +1028,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     keychain: createSafeStorageKeychain(dataDir, safeStorageCipher),
     browser: systemBrowser,
     shell: fileShell,
+    canvasFiles: createCanvasFiles(join(dataDir, "Canvases")),
     modelRuntimeFolder: createModelRuntimeFolder({
       platform: process.platform,
       home: homeFolder(),

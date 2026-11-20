@@ -102,15 +102,22 @@ describe("the menus", () => {
     expect(idsIn(page)).toContain("mind.exportMenu");
   });
 
-  test("More holds the rest of a Mind's menu, in its own order and not the groups'", () => {
-    // Tidy Chinese text and the transcript's rows are offered only where they apply.
+  test("More holds the rest of a Mind's menu, in its own order and not the groups'", async () => {
+    // Tidy Chinese text, the transcript's rows and the outline are offered only where they apply.
     expect(moreIn(buildMenu("mind", focusOn("mind")))).toEqual([
-      "mind.outline",
       "mind.checkContradictions",
       "mind.useAsSource",
       "skill.fromMind",
       "folder.newWith",
     ]);
+    // The outline: for a Note shown with two headings or more (#3414).
+    const { holdOutline } = await import("../../src/renderer/src/noteOutline");
+    const release = holdOutline("one", { has: () => true, toggle: () => undefined });
+    try {
+      expect(moreIn(buildMenu("mind", focusOn("mind")))[0]).toBe("mind.outline");
+    } finally {
+      release();
+    }
   });
 
   test("a Mind's menu offers no Style, Citation style or the export records, which the page's ⋯ and the Export menu hold", () => {
@@ -172,11 +179,13 @@ describe("the menus", () => {
 
   test("Delete is the last item of a Mind's menu, and a tab's is its own items, then Delete", () => {
     expect(idsIn(buildMenu("mind", focusOn("mind"))).at(-1)).toBe("mind.delete");
-    // A tab's menu has no layout here to build from: Delete is the one item of its last section.
+    // A tab's menu has no layout here to build from: its last section is its Note's or its
+    // Canvas's Delete.
     const entries = menuEntries("tab");
     const last = Math.max(...entries.map((each) => each.section));
     expect(entries.filter((each) => each.section === last).map((each) => each.id)).toEqual([
       "mind.delete",
+      "canvas.delete",
     ]);
   });
 

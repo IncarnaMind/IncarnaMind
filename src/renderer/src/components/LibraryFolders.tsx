@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
-import type { Document, LibraryGroup, Mind } from "../../../core/api";
+import type { Canvas, Document, LibraryGroup, Mind } from "../../../core/api";
 import { shortcutLabel } from "../commands/keymap";
 import { commands } from "../commands/registry";
 import { useDraggedRef, useDragSource, useDropTarget } from "../dragDrop";
@@ -17,10 +17,11 @@ import { FIRST_DOCUMENTS, moreDocumentsToShow } from "../sidebarList";
 import { useSidebarMove } from "../sidebarMoves";
 import { sorted } from "../sort";
 import { type SortScope, sortOf, useSort } from "../sortChoices";
-import { documentFields, mindFields } from "../sortFields";
+import { canvasFields, documentFields, mindFields } from "../sortFields";
 import { allExamples, exampleMindIds, isOwnDocument, useAppStore } from "../store";
 import { foldKeys, isMoveToKey, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
+import { CanvasRow } from "./CanvasRow";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
 import {
@@ -51,6 +52,7 @@ const NOT_IN_A_FOLDER = "not-in-a-folder";
 
 const NO_DOCUMENTS: readonly Document[] = [];
 const NO_MINDS: readonly Mind[] = [];
+const NO_CANVASES: readonly Canvas[] = [];
 
 const FOLDS_KEY = "incarnamind.sidebar.folders";
 
@@ -138,8 +140,8 @@ export const useFolds = create<Folds>()((set, get) => {
 
 /**
  * The sidebar's Folders and Not in a Folder (DESIGN.md, "One tree"): each
- * Folder lists its Minds, then its Documents (the first few, then "Show N
- * more Documents"), and opens and closes in place: the main area stays as it
+ * Folder lists its Minds, its Canvases, then its Documents (the first few, then
+ * "Show N more Documents"), and opens and closes in place: the main area stays as it
  * is. Until the User has a Folder, their loose Notes and Documents are two
  * lists, Notes and Documents, each counting its rows, as on day one (#2290).
  * Once one exists, Not in a Folder holds them together, Notes first, and says
@@ -177,14 +179,16 @@ export function LibraryFolders({
     if (openMindFolder) useFolds.getState().reveal(openMindFolder);
   }, [openMindId, openMindFolder]);
 
-  const { orderedGroups, documentsByFolder, mindsByFolder } = useFolderContents(documents, {
-    hideExamples,
-  });
+  const { orderedGroups, documentsByFolder, mindsByFolder, canvasesByFolder } = useFolderContents(
+    documents,
+    { hideExamples },
+  );
   const parentOf = useMemo(() => {
     const parents = new Map(orderedGroups.map((folder) => [folder.id, folder.parentId]));
     return (id: string) => parents.get(id) ?? null;
   }, [orderedGroups]);
-  // How many Documents and Minds each Folder holds, those in its sub-Folders too (its row's count).
+  // How many Documents, Minds and Canvases each Folder holds, those in its sub-Folders too (its
+  // row's count).
   const counts = useMemo(
     () =>
       treeCounts(orderedGroups, [
@@ -194,8 +198,11 @@ export function LibraryFolders({
         ...orderedGroups.flatMap((folder) =>
           (mindsByFolder.get(folder.id) ?? NO_MINDS).map(() => ({ folderId: folder.id })),
         ),
+        ...orderedGroups.flatMap((folder) =>
+          (canvasesByFolder.get(folder.id) ?? NO_CANVASES).map(() => ({ folderId: folder.id })),
+        ),
       ]),
-    [orderedGroups, documentsByFolder, mindsByFolder],
+    [orderedGroups, documentsByFolder, mindsByFolder, canvasesByFolder],
   );
   const tree = useMemo(() => buildFolderTree(orderedGroups), [orderedGroups]);
   const paths = useMemo(
@@ -221,6 +228,7 @@ export function LibraryFolders({
 
   const draggingOut = useDraggedOutOfFolder();
   const looseMinds = mindsByFolder.get(null) ?? NO_MINDS;
+  const looseCanvases = canvasesByFolder.get(null) ?? NO_CANVASES;
   const looseDocuments = documentsByFolder.get(null) ?? NO_DOCUMENTS;
   const newFolderLabel = t("sidebar.newFolderKeys", { keys: shortcutLabel("folder.new") });
 
@@ -253,6 +261,7 @@ export function LibraryFolders({
                 key={node.folder.id}
                 node={node}
                 mindsByFolder={mindsByFolder}
+                canvasesByFolder={canvasesByFolder}
                 documentsByFolder={documentsByFolder}
                 counts={counts}
                 paths={paths}
@@ -263,9 +272,13 @@ export function LibraryFolders({
           </ul>
         </SidebarSection>
       )}
-      {(looseMinds.length > 0 || looseDocuments.length > 0 || draggingOut) && (
+      {(looseMinds.length > 0 ||
+        looseCanvases.length > 0 ||
+        looseDocuments.length > 0 ||
+        draggingOut) && (
         <NotInAFolder
           minds={looseMinds}
+          canvases={looseCanvases}
           documents={looseDocuments}
           renderDocument={renderDocument}
           quiet={quiet}
@@ -277,13 +290,22 @@ export function LibraryFolders({
   );
 }
 
-/** A Folder's or Not in a Folder's contents: its sub-Folders, then its Minds and Documents. */
+type ContentRow =
+  | { kind: "mind"; item: Mind }
+  | { kind: "canvas"; item: Canvas }
+  | { kind: "document"; item: Document };
+
+/**
+ * A Folder's or Not in a Folder's contents: its sub-Folders, then its Minds, Canvases and
+ * Documents.
+ */
 export function Contents({
   listKey,
   scope,
   depth,
   subfolders,
   minds,
+  canvases = NO_CANVASES,
   documents,
   renderDocument,
 }: {
@@ -294,6 +316,7 @@ export function Contents({
   /** The Folders inside it, when it has any: they come first, as on the Library page. */
   subfolders?: ReactNode;
   minds: readonly Mind[];
+  canvases?: readonly Canvas[];
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
 }) {
@@ -303,31 +326,42 @@ export function Contents({
   const extra = useFolds((state) => state.shown[listKey] ?? 0);
   const listed = FIRST_DOCUMENTS + extra;
   const rows = useMemo(() => {
+    const ofDocument = documentFields(t);
+    const fields = (row: ContentRow) =>
+      row.kind === "mind"
+        ? mindFields(row.item)
+        : row.kind === "canvas"
+          ? canvasFields(row.item)
+          : ofDocument(row.item);
+    const mindRows = minds.map((item): ContentRow => ({ kind: "mind", item }));
+    const canvasRows = canvases.map((item): ContentRow => ({ kind: "canvas", item }));
+    const documentRows = documents.map((item): ContentRow => ({ kind: "document", item }));
     if (sort?.foldersFirst === false) {
-      return sorted<Mind | Document>(
-        [...minds, ...documents],
-        sort,
-        (item) => ("autoTitle" in item ? mindFields(item) : documentFields(t)(item)),
-        language,
-      );
+      return sorted([...mindRows, ...canvasRows, ...documentRows], sort, fields, language);
     }
-    // Folders first, or no choice: the Minds, then the Documents, each in its order.
+    // Folders first, or no choice: the Minds, the Canvases, then the Documents, each in its order.
     return [
-      ...sorted(minds, sort, mindFields, language),
-      ...sorted(documents, sort, documentFields(t), language),
+      ...sorted(mindRows, sort, fields, language),
+      ...sorted(canvasRows, sort, fields, language),
+      ...sorted(documentRows, sort, fields, language),
     ];
-  }, [minds, documents, sort, language, t]);
+  }, [minds, canvases, documents, sort, language, t]);
   const more = moreDocumentsToShow(extra, documents.length - listed);
   const showMoreItem = useTreeItem({ depth });
-  if (!subfolders && minds.length === 0 && documents.length === 0) return null;
+  if (!subfolders && minds.length === 0 && canvases.length === 0 && documents.length === 0) {
+    return null;
+  }
   let documentsListed = 0;
   return (
     <ul role="none">
       {subfolders}
-      {rows.map((each) => {
-        if ("autoTitle" in each) return <MindRow key={each.id} mind={each} depth={depth} />;
+      {rows.map((row) => {
+        if (row.kind === "mind") return <MindRow key={row.item.id} mind={row.item} depth={depth} />;
+        if (row.kind === "canvas") {
+          return <CanvasRow key={row.item.id} canvas={row.item} depth={depth} />;
+        }
         documentsListed += 1;
-        return documentsListed <= listed ? renderDocument(each, depth) : null;
+        return documentsListed <= listed ? renderDocument(row.item, depth) : null;
       })}
       {more > 0 && (
         <li role="none" className="flex h-7 items-center">
@@ -352,8 +386,9 @@ export function Contents({
 interface FolderGroupProps {
   node: FolderNode<LibraryGroup>;
   mindsByFolder: ReadonlyMap<string | null, readonly Mind[]>;
+  canvasesByFolder: ReadonlyMap<string | null, readonly Canvas[]>;
   documentsByFolder: ReadonlyMap<string | null, readonly Document[]>;
-  /** How many Documents and Minds each Folder holds, its sub-Folders too. */
+  /** How many Documents, Minds and Canvases each Folder holds, its sub-Folders too. */
   counts: ReadonlyMap<string, number>;
   /** Each Folder's place, "Thesis › Chapter 2", for its tooltip while it is inside another Folder. */
   paths: ReadonlyMap<string, string>;
@@ -372,6 +407,7 @@ interface FolderGroupProps {
 function FolderGroup({
   node,
   mindsByFolder,
+  canvasesByFolder,
   documentsByFolder,
   counts,
   paths,
@@ -438,6 +474,7 @@ function FolderGroup({
             key={child.folder.id}
             node={child}
             mindsByFolder={mindsByFolder}
+            canvasesByFolder={canvasesByFolder}
             documentsByFolder={documentsByFolder}
             counts={counts}
             paths={paths}
@@ -570,6 +607,7 @@ function FolderGroup({
           depth={depth + 1}
           subfolders={inside}
           minds={mindsByFolder.get(folder.id) ?? NO_MINDS}
+          canvases={canvasesByFolder.get(folder.id) ?? NO_CANVASES}
           documents={documentsByFolder.get(folder.id) ?? NO_DOCUMENTS}
           renderDocument={renderDocument}
         />
@@ -580,6 +618,7 @@ function FolderGroup({
 
 function NotInAFolder({
   minds,
+  canvases,
   documents,
   renderDocument,
   quiet,
@@ -587,6 +626,7 @@ function NotInAFolder({
   hasFolders,
 }: {
   minds: readonly Mind[];
+  canvases: readonly Canvas[];
   documents: readonly Document[];
   renderDocument(document: Document, depth: number): ReactNode;
   quiet: boolean;
@@ -603,6 +643,7 @@ function NotInAFolder({
     return (
       quiet &&
       minds.length > 0 &&
+      canvases.length === 0 &&
       minds.every((mind) => examples.some((each) => each.mindId === mind.id))
     );
   });
@@ -614,9 +655,10 @@ function NotInAFolder({
   /** A Folder, offered where one helps: the User's 8th loose Document and no Folder yet. */
   const offerFolder = !examplesOnly && !hasFolders && ownCount >= DAY_ONE_DOCUMENTS;
   // Until the User has a Folder, their loose Notes and Documents are two lists, Notes and
-  // Documents, each counting its rows, whether or not the first open's card is dismissed; once
-  // one exists, Not in a Folder holds them together, Notes first (#2290). An example Mind not
-  // folded to its one row keeps its own Examples heading, never a Note of the User's.
+  // Documents, each counting its rows, whether or not the first open's card is dismissed, and
+  // Canvases a third between them (#3406); once one exists, Not in a Folder holds them together,
+  // Notes first (#2290). An example Mind not folded to its one row keeps its own Examples
+  // heading, never a Note of the User's.
   const apart = !examplesOnly && !hasFolders;
   const exampleIds = useAppStore((state) => exampleMindIds(state).join(" "));
   const ownMinds = useMemo(() => {
@@ -636,7 +678,9 @@ function NotInAFolder({
       : t("sidebar.documents");
   const showSection =
     examplesOnly ||
-    (hasFolders ? minds.length + documents.length > 0 : documents.length > 0 || offerFolder) ||
+    (hasFolders
+      ? minds.length + canvases.length + documents.length > 0
+      : documents.length > 0 || offerFolder) ||
     draggingOut;
   return (
     <div data-testid="not-in-a-folder" data-count={documents.length} data-minds={minds.length}>
@@ -657,6 +701,24 @@ function NotInAFolder({
           />
         </SidebarSection>
       )}
+      {apart && canvases.length > 0 && (
+        <SidebarSection
+          testId="canvases-section"
+          title={t("sidebar.canvases")}
+          headingTestId="canvases-title"
+          count={canvases.length}
+        >
+          <Contents
+            listKey="canvases"
+            scope="sidebar"
+            depth={0}
+            minds={NO_MINDS}
+            canvases={canvases}
+            documents={NO_DOCUMENTS}
+            renderDocument={renderDocument}
+          />
+        </SidebarSection>
+      )}
       {showSection && (
         <SidebarSection
           testId="not-in-a-folder-section"
@@ -672,6 +734,7 @@ function NotInAFolder({
             scope="sidebar"
             depth={0}
             minds={apart ? NO_MINDS : minds}
+            canvases={apart ? NO_CANVASES : canvases}
             documents={examplesOnly ? exampleDocuments : documents}
             renderDocument={renderDocument}
           />

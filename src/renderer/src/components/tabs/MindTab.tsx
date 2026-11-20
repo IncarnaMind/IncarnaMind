@@ -49,6 +49,8 @@ export function MindTab({ mindId }: { mindId: string }) {
   const [count, setCount] = useState<HTMLElement | null>(null);
   const [badge, setBadge] = useState<HTMLElement | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLElement | null>(null);
+  const [outlineButton, setOutlineButton] = useState<HTMLElement | null>(null);
+  const [outline, setOutline] = useState<HTMLElement | null>(null);
   const assistantSlot = useContext(ComposerDockContext);
   const place = useTabPlace();
   const tabId = place?.tabId;
@@ -80,6 +82,8 @@ export function MindTab({ mindId }: { mindId: string }) {
         data-review={reviewShown}
         className="mind-tab-row relative flex min-h-0 flex-grow"
       >
+        <div ref={setOutlineButton} className="note-outline-button-slot" />
+        <div ref={setOutline} className="contents" />
         <div className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col">
           {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, in the capture phase because the note's own handlers accept every drag over the text; "Import a Word file…" does it without dragging. */}
           <div
@@ -120,6 +124,8 @@ export function MindTab({ mindId }: { mindId: string }) {
                       badge,
                       review: review.slot,
                       reviewShown,
+                      outlineButton,
+                      outline,
                     }}
                   >
                     <CompareSheetSlotContext.Provider value={sheetSlot}>

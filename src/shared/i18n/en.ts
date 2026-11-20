@@ -466,6 +466,8 @@ export const en = {
   "palette.kind.conversation": "Conversation",
   "palette.kind.folder": "Folder",
   "palette.kind.tag": "Tag",
+  "palette.group.canvases": "Canvases",
+  "palette.kind.canvas": "Canvas",
   "palette.tag.count": "on {count} Documents",
   "palette.tag.count.one": "on 1 Document",
   "palette.searching": "Searching your text and Documents…",
@@ -690,6 +692,7 @@ export const en = {
   "deleted.kind.document": "Document",
   "deleted.kind.folder": "Folder",
   "deleted.kind.tag": "Tag",
+  "deleted.kind.canvas": "Canvas",
   "deleted.days.one": "1 day",
   "deleted.days": "{count} days",
   "date.today": "Today, {time}",
@@ -733,6 +736,8 @@ export const en = {
   "deleted.lost.folder": "{count} Folders are gone. Their Documents and notes stay, in no Folder.",
   "deleted.lost.tag.one": "The Tag “{name}” and where it was used are gone.",
   "deleted.lost.tag": "{count} Tags and where they were used are gone.",
+  "deleted.lost.canvas.one": "“{name}” and all its versions are gone.",
+  "deleted.lost.canvas": "{count} Canvases and all their versions are gone.",
   "undo.name.tagAdded": "Add Tag",
   "undo.name.tagRemoved": "Remove Tag",
   "undo.name.mergeTags": "Merge Tags",
@@ -2200,6 +2205,20 @@ export const en = {
   "editor.pageBreak.unavailable": "A page break goes in text, not in a Question, a table or code.",
 
   "viewer.label": "Document viewer",
+  // A Canvas an outside agent wrote, shown in a tab (#3406). The interface's word for it is Canvas.
+  "canvas.untitled": "Canvas",
+  "canvas.frame": "Canvas “{title}” by {agent}",
+  "canvas.link": "This Canvas links to {site}.",
+  "canvas.link.open": "Open in Browser",
+  "canvas.link.dismiss": "Dismiss",
+  "canvas.stopped.memory": "This Canvas stopped: it used more memory than a Canvas may.",
+  "canvas.stopped.crashed": "This Canvas stopped working.",
+  "canvas.stopped.again": "Show Again",
+  "canvas.deleted": "This Canvas was deleted.",
+  "canvas.unchecked": "Written by {agent}. Not checked against your files.",
+  "canvas.cite.label": "Citation {n}: {document}, {location}",
+  "canvas.cite.notFound": "citation not found",
+  "canvas.more": "More for {title}",
   "viewer.keep": "Keep open",
   "viewer.keepTip": "Keep this tab open (or double-click its tab)",
   "viewer.pdf.failed": "This PDF couldn’t be opened.",
@@ -5874,6 +5893,8 @@ export const en = {
   "error.organize.invalid": "This Organize request couldn’t be read. Try Organize again.",
   "error.folder.limit": "The Library supports up to 100 Folders.",
   "error.mind.notFound": "That note doesn’t exist or has been deleted.",
+  "error.canvas.notFound": "That Canvas doesn’t exist or has been deleted.",
+  "error.canvas.versionNotFound": "That version of the Canvas isn’t there.",
   "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
   "error.layout.conversation": "The assistant shows a conversation, or a New chat.",
@@ -6343,6 +6364,7 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.cantAsk": "That agent can’t read this note now.",
+  "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.agent.nameEmpty": "Give the agent a name.",
   "error.firstRun.work": "Those aren’t kinds of work the setup asks about.",
@@ -7003,6 +7025,7 @@ export const en = {
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
   "sidebar.notes": "Notes",
+  "sidebar.canvases": "Canvases",
   "examples.banner.label": "About this example",
   "examples.banner.title": "This is an example note.",
   "examples.banner.body":
@@ -8310,7 +8333,7 @@ export const en = {
   "consent.data.scoped-passages":
     "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
-    "The shared Folders’ names, internal ids and Document counts, with each Document’s name, kind and internal id, the names, internal ids and last-change times of the notes in them when the agent lists them, the part of a note it reads, with where the next part starts, and the numbers its code works out on this computer from those names and kinds and the Documents’ Tags, never the lists themselves",
+    "The shared Folders’ names, internal ids and Document counts, with each Document’s name, kind and internal id, the names, internal ids and last-change times of the notes in them and the titles, internal ids, versions and last-change times of the Canvases when the agent lists them, the part of a note it reads, with where the next part starts, a Canvas’s HTML and its files’ names, kinds and sizes when it reads one, and the numbers its code works out on this computer from those names and kinds and the Documents’ Tags, never the lists themselves",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
   "consent.flow.web-search": "Web search",
   "consent.flow.web-search.purpose": "search the web for your Questions",
@@ -8397,6 +8420,30 @@ export const en = {
   "agents.note.undoGone":
     "This change can’t be undone any more. The note’s History has its version from before it.",
   "agents.create.text": "the text",
+  // A Canvas an outside agent publishes (#3406), and why one is refused, for the agent to pass on.
+  "agents.canvas.notFound": "No such Canvas in the Folders shared with this agent.",
+  "agents.canvas.stale":
+    "This Canvas is at version {current} now, not {given}. Read it with read_canvas and build on that version.",
+  "agents.canvas.tooMany":
+    "This agent has published {max} Canvas versions in the last hour, which is the most it may. Try again later.",
+  "agents.canvas.htmlTooLarge":
+    "The page is larger than {max} MB without its inline pictures, or {total} MB with them: give pictures you have as files, draw charts as SVG, and keep the page’s text shorter.",
+  "agents.canvas.paths": "Give files as a list of the full paths of files on this computer.",
+  "agents.canvas.version": "Give version: the version read_canvas returned.",
+  "agents.canvas.nothing": "Give html, title or files to change.",
+  "agents.canvas.unavailable": "This copy of IncarnaMind can’t keep Canvases.",
+  "agents.canvas.refused.unreadable": "can’t be read",
+  "agents.canvas.refused.too-large": "is larger than {max} MB, the most one file may be",
+  "agents.canvas.refused.type":
+    "isn’t a picture, a font, a style sheet, a script or a data file (CSV, JSON or text)",
+  "agents.canvas.refused.name": "has no name the page can refer to it by",
+  "agents.canvas.refused.same-name": "has the name of another file named in this call",
+  "agents.canvas.refused.too-many": "would give the Canvas more than {max} files",
+  "agents.canvas.refused.total": "would take the Canvas past {max} MB in all",
+  "agents.canvas.refused.notInText":
+    "is in a script, a style, an attribute or an SVG, where it stays as written: write it in the page’s HTML text to make it a link",
+  "agents.canvas.refused.network":
+    "is on the network, which a Canvas never reaches: give the file in files and refer to it by its name",
   "agents.create.folder": "Give folderId: one of the Folders list_minds lists.",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
@@ -8474,7 +8521,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
-  "agents.pairing.proposes": "Can write notes there; its changes wait for you",
+  "agents.pairing.proposes": "Writes notes and Canvases there; proposes changes to yours",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
@@ -8511,6 +8558,9 @@ export const en = {
   "agents.activity.report_check": "Checked the note “{text}” itself",
   "agents.activity.calculate": "Worked out “{text}”",
   "agents.activity.run_analysis": "Ran code for “{text}”",
+  "agents.activity.publish_canvas": "Published the Canvas “{text}”",
+  "agents.activity.read_canvas": "Read the Canvas “{text}”",
+  "agents.activity.update_canvas": "Changed the Canvas “{text}”",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",
@@ -8534,7 +8584,7 @@ export const en = {
   "agents.reason.no-python": "this computer can’t run code for it",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders, with the Folders inside them, and the notes and meetings in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, and each note’s name, internal id and last-change time, with when a meeting started. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",
@@ -8544,7 +8594,7 @@ export const en = {
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.hint":
-    "Its notes appear at once, and it can have them checked. Its changes wait for you.",
+    "Its notes and Canvases appear at once, and it can have its notes checked. For a Canvas, IncarnaMind copies in the files it names, and only those. Its changes to your notes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
