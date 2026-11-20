@@ -112,6 +112,32 @@ test("repeating an identical item needs no new evidence and cannot authorize a c
   expect(() => readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }]), draft)).toThrow();
 });
 
+test("a repeated addition never supplies coverage or changes the saved item’s status or evidence", () => {
+  const saved = { id: 2, kind: "action", status: "active", text: "Order the cones." } as const;
+  const utterances = [{ text: "Order the cones. Cancel the cones." }];
+  const input = { previous: null, items: [saved], utterances };
+  const repeated = { ...saved, id: null, quote: "Order the cones." };
+  const unchanged = readMeetingSummaryUpdate(reply([repeated]), input);
+  expect(unchanged.items).toEqual([saved]);
+  expect(unchanged.evidence).toEqual({});
+  expect(() =>
+    readMeetingSummaryUpdate(reply([{ ...repeated, quote: "missing" }]), input),
+  ).toThrow();
+  expect(() => readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }]), input)).toThrow();
+  for (const changes of [
+    [repeated, cancelled],
+    [cancelled, repeated],
+  ]) {
+    expect(() => readMeetingSummaryUpdate(reply(changes), input)).toThrow();
+  }
+  const closing = JSON.stringify({
+    summary: "The cone order stands.",
+    changes: [repeated],
+    unchanged: [],
+  });
+  expect(() => readMeetingSummaryUpdate(closing, { ...input, closing: true })).toThrow();
+});
+
 test("the closing update accounts for every prior active item exactly once", () => {
   const input = { ...draft, closing: true };
   const close = (unchanged: unknown) =>

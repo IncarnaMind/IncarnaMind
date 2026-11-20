@@ -53,27 +53,31 @@ export function readMeetingSummaryUpdate(
   const updated = new Map(existing);
   const evidence: Record<number, string> = {};
   const touched = new Set<number>();
+  const addressed = new Set(reply.data.changes.map((change) => change.id));
   let nextId = 1;
   for (const id of existing.keys()) nextId = Math.max(nextId, id + 1);
   for (const change of reply.data.changes) {
-    const id = change.id ?? nextId++;
-    if (change.id === null) {
-      if (!Number.isSafeInteger(id)) return invalid();
-    } else if (existing.get(id)?.kind !== change.kind || touched.has(id)) {
-      return invalid();
-    }
-    touched.add(id);
-    const prior = existing.get(id);
-    if (
-      prior?.kind === change.kind &&
-      prior.status === change.status &&
-      prior.text === change.text
-    ) {
-      continue;
+    if (change.id !== null) {
+      const prior = existing.get(change.id);
+      if (!prior || prior.kind !== change.kind || touched.has(change.id)) return invalid();
+      touched.add(change.id);
+      if (prior.status === change.status && prior.text === change.text) continue;
     }
     const quote = normalizeSummaryEvidence(change.quote);
     const heard = speech.some((line) => line.includes(quote));
     if (!heard && (change.status !== "active" || !historical.includes(quote))) return invalid();
+    if (change.id === null) {
+      const repeat = input.items?.find(
+        (item) =>
+          item.kind === change.kind && item.status === change.status && item.text === change.text,
+      );
+      if (repeat) {
+        if (addressed.has(repeat.id)) return invalid();
+        continue;
+      }
+    }
+    const id = change.id ?? nextId++;
+    if (!Number.isSafeInteger(id)) return invalid();
     updated.set(id, { id, kind: change.kind, status: change.status, text: change.text });
     evidence[id] = change.quote;
   }
