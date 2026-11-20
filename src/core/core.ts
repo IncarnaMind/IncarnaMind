@@ -23,6 +23,7 @@ import { graphemeBoundary } from "../shared/graphemes";
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { translate } from "../shared/i18n";
 import { organizeModelOf, supportsLibraryImages } from "../shared/libraryModels";
+import { isListedMind } from "../shared/listedMinds";
 import { formatLocation, parseCitedArea, parseLocation, type Translate } from "../shared/locations";
 import { holdsOnlyItsTitle } from "../shared/madeMind";
 import { isPartialMeetingFill } from "../shared/meetingFill";
@@ -5961,7 +5962,7 @@ export function createCore(adapters: CoreAdapters): Core {
       citing,
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
-      minds: () => minds.list().filter((mind) => isKnownKind(mind.kind)),
+      minds: () => listedMinds().filter((mind) => isKnownKind(mind.kind)),
       duplicatedFrom: (mindId) => minds.duplicatedFrom(mindId),
       documentsNamed: (documentIds) =>
         documents
@@ -6479,7 +6480,14 @@ export function createCore(adapters: CoreAdapters): Core {
     listConversations: async (options) => conversations.list(options),
     getConversation: async (conversationId) => conversations.content(conversationId),
     searchConversations: async (query) => conversations.search(query),
-    searchMinds: async (query) => mindIndex.search(query),
+    searchMinds: async (query) => {
+      const unlisted = new Set(
+        listedMinds()
+          .filter((mind) => !isListedMind(mind))
+          .map((mind) => mind.id),
+      );
+      return mindIndex.search(query).filter((match) => !unlisted.has(match.mindId));
+    },
     listMindSnippets: async () => {
       const leading = mindIndex.leadingLines();
       return minds.list().flatMap((mind) => {

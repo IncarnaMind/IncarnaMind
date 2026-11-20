@@ -215,6 +215,12 @@ describe("files an outside agent hands over", () => {
         ["Checking version 1: Harbour review", second.mindId],
       ]),
     );
+    // The agent's list_minds lists the same one Note: the first version's check isn't shown it.
+    const listed = JSON.stringify(
+      structured<unknown>(await agent.callTool({ name: "list_minds", arguments: {} })),
+    );
+    expect(listed).toContain(second.mindId ?? "");
+    expect(listed).not.toContain(firstMind);
     // One Document holds the item's newest version, filed where the agent handed it over.
     const documents = (await core.listDocuments()).filter((each) => each.name === "Harbour review");
     expect(documents).toHaveLength(1);

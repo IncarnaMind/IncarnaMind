@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useId, useRef, useState } from "react";
 import type { Mind } from "../../../../core/api";
 import { mindName } from "../../../../shared/naming";
-import type { AddTarget } from "../../addToNote";
+import { type AddTarget, noteChoices } from "../../addToNote";
 import { Popover } from "../../editor/Popover";
 import { useT } from "../../i18n";
 import { exampleMindIds, useAppStore } from "../../store";
@@ -55,7 +55,6 @@ export function AddToMindPicker({
   const [active, setActive] = useState(0);
   const field = useRef<HTMLInputElement>(null);
   const listId = useId();
-  // The examples aren't the User's notes: Add to note never fills one (#1940).
   const exampleIds = exampleMindIds({ examples, otherExamples });
 
   const nameOf = (mind: Mind) => mindName(mind) || t("mind.untitled");
@@ -69,9 +68,7 @@ export function AddToMindPicker({
     ) ?? false;
   const typed = query.trim().toLocaleLowerCase();
   const matches = (mind: Mind) => nameOf(mind).toLocaleLowerCase().includes(typed);
-  const own = (mind: Mind) => mind.kind === "mind" && !exampleIds.includes(mind.id);
-  const focused = minds.find((mind) => mind.id === focusedMindId && own(mind));
-  const others = minds.filter((mind) => mind.id !== focusedMindId && own(mind));
+  const { focused, others } = noteChoices(minds, focusedMindId, exampleIds);
   const shown = typed ? others.filter(matches).slice(0, FOUND) : others.slice(0, RECENT);
 
   const options: Option[] = [];

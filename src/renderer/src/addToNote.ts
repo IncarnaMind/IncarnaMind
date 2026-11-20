@@ -32,12 +32,14 @@ import {
   MIND_CONTENT_FIELD,
   MIND_FIGURE_RUNS_FIELD,
   MIND_SETTINGS_FIELD,
+  type Mind,
 } from "../../core/api";
 import { messageReference } from "../../core/references";
 import { asGenerated } from "../../shared/aiText";
 import type { NodeJSON } from "../../shared/blockJson";
 import { setOrigins } from "../../shared/blockOrigins";
 import { figureRunsOfAnswer, installFigureRuns } from "../../shared/figureRuns";
+import { isListedMind } from "../../shared/listedMinds";
 import { holdsNothing } from "../../shared/madeMind";
 import { carryAnswerScope } from "../../shared/mindScope";
 import { cutTitle, mindName, numberedName } from "../../shared/naming";
@@ -64,6 +66,23 @@ import { copiedOutOf, scopeOutsideWalls, wallsOf } from "./walls";
 
 /** Where Add to note puts an Answer: a Mind, by id, or a new Mind made from it. */
 export type AddTarget = { kind: "mind"; mindId: string } | { kind: "new" };
+
+/**
+ * The Notes an Answer can be added to: the one in front, whichever it is, then the User's listed
+ * Notes. The examples aren't the User's notes (#1940), and the check of an earlier version of a
+ * file an agent handed over is listed nowhere, so it takes an Answer only while it is in front.
+ */
+export function noteChoices(
+  minds: readonly Mind[],
+  focusedMindId: string | null,
+  exampleIds: readonly string[],
+): { focused: Mind | undefined; others: Mind[] } {
+  const own = (mind: Mind) => mind.kind === "mind" && !exampleIds.includes(mind.id);
+  return {
+    focused: minds.find((mind) => mind.id === focusedMindId && own(mind)),
+    others: minds.filter((mind) => mind.id !== focusedMindId && own(mind) && isListedMind(mind)),
+  };
+}
 
 /** What is added, and from where. */
 export interface AddedAnswer {

@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import type { Document, LibraryGroup } from "../../core/api";
+import { isListedMind } from "../../shared/listedMinds";
 import { useCanvases } from "./canvases";
 import { useLanguage } from "./i18n";
-import { isListedMind } from "./listedMinds";
 import { isListedDocument } from "./meetingTranscript";
 import { sorted } from "./sort";
 import { sortOf, useSort } from "./sortChoices";

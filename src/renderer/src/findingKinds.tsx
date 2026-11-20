@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/core";
 import type { LibrarySnapshot } from "../../core/api";
 import type { CommandId } from "../../shared/commands";
 import { displayName } from "../../shared/documentNames";
+import { isListedMind } from "../../shared/listedMinds";
 import { mindName } from "../../shared/naming";
 import { useCanvases } from "./canvases";
 import { commands } from "./commands/registry";
@@ -20,7 +21,6 @@ import { mindIdOf, onMindEditorOpen, openMindEditors, whenMindEditor } from "./e
 import { KIND_LABELS } from "./fileInfo";
 import { type FoundObject, findable } from "./finding";
 import { folderCounts } from "./libraryPage";
-import { isListedMind } from "./listedMinds";
 import { isListedDocument } from "./meetingTranscript";
 import { noteTabOf, noteTabRef, tabName } from "./noteTabs";
 import type { ObjectRef, Translate } from "./objects";

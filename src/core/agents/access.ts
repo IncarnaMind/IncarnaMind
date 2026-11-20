@@ -31,6 +31,7 @@ import * as Y from "yjs";
 import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
+import { isListedMind } from "../../shared/listedMinds";
 import { mindName } from "../../shared/naming";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
 import {
@@ -1939,7 +1940,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         if (pairing.folderIds.length === 0) {
           throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
         }
-        const minds = deps.minds();
+        const minds = deps.minds().filter(isListedMind);
         const reached = reachedFolders(deps, pairing);
         const held = deps.noteTranscripts();
         const transcripts = new Set(held.map((each) => each.documentId));
