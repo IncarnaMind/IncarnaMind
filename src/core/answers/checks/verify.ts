@@ -394,6 +394,7 @@ export function createVerify(options: VerifyOptions) {
           text: sentence.text,
           occurrence: sentence.occurrence,
           ...(parts && { parts }),
+          ...(found.unsorted.has(index) && { unsorted: true as const }),
         },
       ];
     });
@@ -464,7 +465,11 @@ export function createVerify(options: VerifyOptions) {
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
     let verification = verificationOf(mindId);
-    if (verification.sortedText !== sortingInput(mindId, verification).snapshot) {
+    // Lines whose sort couldn't be read are sorted again, with the rest.
+    if (
+      verification.sortedText !== sortingInput(mindId, verification).snapshot ||
+      verification.claims?.some((claim) => claim.unsorted)
+    ) {
       const found = await findClaims(mindId, input.model, signal, prepare);
       if (found.kind !== "found") return found;
       verification = verificationOf(mindId);
@@ -550,6 +555,28 @@ export function createVerify(options: VerifyOptions) {
           checkedAt: startedAt,
           judgedWith: judgedWithOf(sentence, verification),
         };
+        // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
+        if (claim.unsorted) {
+          markSentence(
+            sentence.element,
+            sentence.from,
+            sentence.to,
+            options.withResult(
+              marked,
+              {
+                verdict: "not-checked",
+                reason: "malformed",
+                detail: null,
+                versions: [],
+                excluded: [],
+              },
+              startedAt,
+              blocks,
+              mindId,
+            ),
+          );
+          return [];
+        }
         const said = saidOf(sentence, verification);
         const contextualRow = said.claim !== sentence.text;
         const row =

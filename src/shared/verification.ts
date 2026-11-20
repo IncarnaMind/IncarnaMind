@@ -22,6 +22,8 @@ export interface VerifiedClaim {
   text: string;
   occurrence?: number;
   parts?: ClaimPartPlan[];
+  /** Its sort's reply couldn't be read, twice (#3506): it is not checked, and sorted again at the next check. */
+  unsorted?: true;
 }
 
 /** A formula whose saved result is not what the workbook's own cells work out to (#3278). */
@@ -100,6 +102,7 @@ function claimsOf(value: unknown): VerifiedClaim[] | null {
           Number.isInteger(each.occurrence) &&
           each.occurrence >= 0 && { occurrence: each.occurrence }),
         ...(parts && { parts }),
+        ...(each.unsorted === true && { unsorted: true as const }),
       },
     ];
   });
