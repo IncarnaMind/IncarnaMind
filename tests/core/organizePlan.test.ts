@@ -743,6 +743,7 @@ describe("Organize the Library into the Review", () => {
       const sizes: number[] = [];
       const organizer = createLibraryOrganizer({
         db,
+        offeredTags: () => ({ offered: new Map(), rejectedTopics: new Map() }),
         folders: () => [],
         settings: () => settings,
         language: () => "en",
@@ -807,6 +808,7 @@ describe("What Organize's run costs, and where it can't go (#1569)", () => {
     const seen = { prepared: 0, estimated: [] as number[] };
     const organizer = createLibraryOrganizer({
       db,
+      offeredTags: () => ({ offered: new Map(), rejectedTopics: new Map() }),
       folders: () => [],
       settings: () => settings,
       language: () => "en",
