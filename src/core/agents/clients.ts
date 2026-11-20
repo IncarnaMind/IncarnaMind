@@ -559,6 +559,14 @@ export function isEmptySettings(format: SettingsFormat, text: string): boolean {
 export const backupPathOf = (path: string) => `${path}.incarnamind-backup`;
 
 /**
+ * Whether `JSON.parse` has already lost digits of a number, which can't be written back as it
+ * was. It judges the value alone, not the source text some runtimes leave out of a reviver, so
+ * where that is missing it refuses too: any whole number past the safe range, however written.
+ */
+export const isInexactNumber = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && !Number.isSafeInteger(value);
+
+/**
  * An `mcpServers` settings file with IncarnaMind's entry set (`entry`) or
  * taken out (null). Throws when the file isn't a JSON object, or holds a whole number JSON
  * can't write back exactly, so nothing of the User's is lost: they are given the settings to
@@ -572,19 +580,10 @@ export function withMcpServersEntry(
   let settings: Record<string, unknown> = {};
   if (before !== null && before.trim() !== "") {
     let inexact = false;
-    const parsed: unknown = JSON.parse(
-      before,
-      (_key, value: unknown, context?: { source?: string }) => {
-        if (
-          typeof value === "number" &&
-          /^-?\d+$/.test(context?.source ?? "") &&
-          !Number.isSafeInteger(value)
-        ) {
-          inexact = true;
-        }
-        return value;
-      },
-    );
+    const parsed: unknown = JSON.parse(before, (_key, value: unknown) => {
+      if (isInexactNumber(value)) inexact = true;
+      return value;
+    });
     if (inexact) throw new Error("The settings file holds a number that can't be kept exactly.");
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw new Error("The settings file isn't a JSON object.");

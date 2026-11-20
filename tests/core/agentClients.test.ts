@@ -3,12 +3,14 @@
  * runs, the settings pasted into its screen, or the entry in its settings file, cited beside each
  * agent in src/core/agents/clients.ts.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentLaunch } from "../../src/core";
 import {
   AGENT_CLIENT_DEFINITIONS,
   clientDefinition,
+  isInexactNumber,
   promptLinkFor,
+  withMcpServersEntry,
 } from "../../src/core/agents/clients";
 import { AGENT_CLIENT_IDS } from "../../src/core/api";
 
@@ -155,5 +157,61 @@ describe("the agents IncarnaMind is set up in", () => {
       expect(promptLinkFor(id, "Fix it?"), id).toBeNull();
     }
     expect(promptLinkFor(null, "Fix it?")).toBeNull();
+  });
+});
+
+describe("a state file's numbers are kept exactly or the file is left alone (#3487)", () => {
+  const ENTRY = { type: "stdio", command: "c", args: [], env: {} };
+  const kept = (text: string) => withMcpServersEntry(text, ENTRY);
+  afterEach(() => vi.restoreAllMocks());
+
+  it("judges a whole number past the safe range inexact, however it is written", () => {
+    for (const value of [JSON.parse("12345678901234567890"), 2 ** 53, -(2 ** 53) - 2, 1e300]) {
+      expect(isInexactNumber(value), String(value)).toBe(true);
+    }
+    for (const value of [
+      0,
+      -0,
+      41,
+      Number.MAX_SAFE_INTEGER,
+      0.1,
+      1.5e-7,
+      "12345678901234567890",
+      null,
+    ]) {
+      expect(isInexactNumber(value), String(value)).toBe(false);
+    }
+  });
+
+  it.each([
+    "12345678901234567890",
+    "-12345678901234567890",
+    "12345678901234567890.0",
+    "1.2345678901234567e19",
+    "9007199254740993",
+  ])("refuses a file holding %s, which JSON can't write back as it was", (number) => {
+    expect(() => kept(`{"count": ${number}}`)).toThrow(/can't be kept exactly/);
+    expect(() => kept(`{"nested": {"list": [${number}]}}`)).toThrow(/can't be kept exactly/);
+  });
+
+  it("keeps the numbers JSON writes back as they were", () => {
+    const written = kept('{"a": 9007199254740991, "b": 0.1, "c": -3, "d": 1.5e-7, "e": 0}');
+    expect(JSON.parse(written)).toMatchObject({
+      a: 9007199254740991,
+      b: 0.1,
+      c: -3,
+      d: 1.5e-7,
+      e: 0,
+    });
+  });
+
+  it("refuses the same where the runtime gives a reviver no source text", () => {
+    const parse = JSON.parse.bind(JSON);
+    vi.spyOn(JSON, "parse").mockImplementation((text, reviver) =>
+      parse(text, reviver ? (key, value) => reviver(key, value) : undefined),
+    );
+    expect(() => kept('{"count": 12345678901234567890}')).toThrow(/can't be kept exactly/);
+    expect(() => kept('{"count": 12345678901234567890.0}')).toThrow(/can't be kept exactly/);
+    expect(JSON.parse(kept('{"count": 12}')).count).toBe(12);
   });
 });

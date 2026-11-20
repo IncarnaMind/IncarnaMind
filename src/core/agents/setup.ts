@@ -24,9 +24,11 @@
  */
 import { existsSync } from "node:fs";
 import {
+  lstat,
   mkdir,
   readdir,
   readFile,
+  realpath,
   rename,
   rm,
   rmdir,
@@ -132,16 +134,39 @@ async function readText(path: string): Promise<string | null> {
   }
 }
 
-/** Replaces a file whole: written beside it, then renamed over it, with the mode it had, so nothing reads half of it. */
+/**
+ * Where a settings file really is: the file a link points to, so a link the User keeps (a
+ * dotfiles manager's) stays a link and its target is what changes. Throws for a link to nothing,
+ * which is no place to write.
+ */
+async function settingsTarget(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const dangling = await lstat(path).then(
+    (found) => found.isSymbolicLink(),
+    () => false,
+  );
+  if (dangling) throw new Error("The settings file is a link to a file that isn't there.");
+  return path;
+}
+
+/**
+ * Replaces a file whole: written beside it, then renamed over it, with the mode it had, so nothing
+ * reads half of it. A link is followed: its target is replaced and the link stays.
+ */
 async function replaceFile(path: string, text: string): Promise<void> {
-  const mode = await stat(path).then(
+  const target = await settingsTarget(path);
+  const mode = await stat(target).then(
     (found) => found.mode & 0o777,
     () => 0o600,
   );
-  const beside = `${path}.incarnamind-new`;
+  const beside = `${target}.incarnamind-new`;
   try {
     await writeFile(beside, text, { mode });
-    await rename(beside, path);
+    await rename(beside, target);
   } catch (error) {
     await unlink(beside).catch(() => undefined);
     throw error;
@@ -364,6 +389,18 @@ export function createAgentSetup(options: AgentSetupOptions) {
     else await replaceFile(path, after);
   };
 
+  /** The copy of a settings file as it was goes with the last pairing of the agent that keeps it. */
+  const dropCopy = async (
+    file: SettingsFile,
+    pairingId: string,
+    client: string | null | undefined,
+  ) => {
+    const stays = options.agents
+      .settings()
+      .pairings.some((each) => each.id !== pairingId && each.client === client);
+    if (file.backup && !stays) await unlink(backupPathOf(pathOf(file))).catch(() => undefined);
+  };
+
   /** What the User is given when a settings file can't be written: the agent's own line, else its settings. */
   const unwritten = (
     client: ClientDefinition,
@@ -385,19 +422,27 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const settle = async (planned: Written, launch: AgentLaunch): Promise<Written> => {
     const { file, path } = planned;
     let now = planned;
-    for (let tries = 0; tries < 3; tries++) {
-      const found = await readText(path);
-      if (found !== now.before)
-        now = { ...now, before: found, after: changed(file, found, launch) };
-      if (file.backup && now.before !== null && !existsSync(backupPathOf(path))) {
-        await writeFile(backupPathOf(path), now.before, { mode: 0o600 });
+    let madeCopy = false;
+    try {
+      for (let tries = 0; tries < 3; tries++) {
+        const found = await readText(path);
+        if (found !== now.before)
+          now = { ...now, before: found, after: changed(file, found, launch) };
+        if (file.backup && now.before !== null && !existsSync(backupPathOf(path))) {
+          await writeFile(backupPathOf(path), now.before, { mode: 0o600 });
+          madeCopy = true;
+        }
+        await mkdir(dirname(path), { recursive: true });
+        if ((await readText(path)) !== now.before) continue;
+        await replaceFile(path, now.after);
+        return now;
       }
-      await mkdir(dirname(path), { recursive: true });
-      if ((await readText(path)) !== now.before) continue;
-      await replaceFile(path, now.after);
-      return now;
+      throw new Error("The settings file kept changing while IncarnaMind wrote to it.");
+    } catch (error) {
+      // A copy of a file that was then not changed is the User's account left lying about for nothing.
+      if (madeCopy) await unlink(backupPathOf(path)).catch(() => undefined);
+      throw error;
     }
-    throw new Error("The settings file kept changing while IncarnaMind wrote to it.");
   };
 
   /** Adds IncarnaMind to the agent's settings files; its own line or the settings to paste if one can't be read or written. */
@@ -413,6 +458,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
       const path = pathOf(file);
       const before = await readText(path);
       try {
+        await settingsTarget(path);
         planned.push({ file, path, before, after: changed(file, before, launch) });
         for (const folder of missingFolders(dirname(path))) {
           if (!created.includes(folder)) created.push(folder);
@@ -554,6 +600,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
       const token =
         (await options.agents.launch(pairingId).catch(() => null))?.env[AGENT_TOKEN_ENV] ?? "";
       const made = options.agents.created(pairingId);
+      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
       for (const file of files) {
         if ((await readText(file.path)) === file.after) {
           if (file.before === null) await unlink(file.path);
@@ -561,10 +608,9 @@ export function createAgentSetup(options: AgentSetupOptions) {
         } else {
           await takeOut(file.file, token, made.includes(file.path));
         }
-        if (file.file.backup) await unlink(backupPathOf(file.path)).catch(() => undefined);
+        await dropCopy(file.file, pairingId, pairing?.client);
       }
       written.delete(pairingId);
-      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
       await removeSkill(pairing?.client ?? null, pairingId).catch(options.reportError);
       await removeCreatedFolders(options.agents.created(pairingId));
       await options.agents.disconnect(pairingId);
@@ -594,9 +640,6 @@ export function createAgentSetup(options: AgentSetupOptions) {
       const files = settingsFilesFor(pairing.client);
       const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";
       const created = options.agents.created(pairing.id);
-      const stays = options.agents
-        .settings()
-        .pairings.some((each) => each.id !== pairing.id && each.client === pairing.client);
       for (const file of files) {
         try {
           await takeOut(file, token, created.includes(pathOf(file)));
@@ -604,7 +647,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
           // The User's file is theirs to tidy: the key in it no longer works anyway.
           options.reportError(error);
         }
-        if (file.backup && !stays) await unlink(backupPathOf(pathOf(file))).catch(() => undefined);
+        await dropCopy(file, pairing.id, pairing.client);
       }
       await removeCreatedFolders(created).catch(options.reportError);
       return { skillsLeft };
