@@ -26,13 +26,14 @@ import type { NoteParagraph, RecordCiteNote } from "../../../core/recordCites/re
 import { readCalculatedFigureEvidence } from "../../../shared/calculatedFigures";
 import { chartCheckText, chartPoints, readChart } from "../../../shared/charts";
 import { citationAttributesOf } from "../../../shared/citations";
-import { asCitedNow, type HeldCitation, passageToAdd } from "../../../shared/citedNow";
+import { asCitedNow } from "../../../shared/citedNow";
 import {
   analysisFigureShown,
   type ClaimCheckShown,
   claimCheckShown,
   claimMarkState,
   figureCheckShown,
+  foundElsewhere,
   type KeptMark,
   type NoteFooting,
   readClaimCheck,
@@ -603,6 +604,8 @@ export const sameCoverage = (a: Coverage, b: Coverage | null | undefined): boole
   a.range?.from === b.range?.from &&
   a.range?.to === b.range?.to;
 
+export { canBeCited, foundElsewhere } from "../../../shared/claimChecks";
+
 /** What a check's margin glyph shows (`claimMarkState`). */
 export const markOf = (claim: ShownClaim) => claimMarkState(claim.shown.state, claim.check);
 
@@ -618,35 +621,6 @@ export function markShown(claim: ShownClaim, everyResult: boolean): boolean {
   if (mark === "not-checked") return everyResult || !foundElsewhere(claim);
   return everyResult || (mark !== "supported" && mark !== "own-view");
 }
-
-/**
- * Whether a sentence the check found Supported has a Passage it can still cite, one no Citation of
- * it is on yet (#3358): what the Note's foot line counts and Add all adds, beside the sentences
- * Supported, not yet cited. Only a check with parts says where its Passages go.
- */
-export function canBeCited(
-  claim: Pick<ShownClaim, "kind" | "shown" | "check">,
-  citations: readonly HeldCitation[],
-): boolean {
-  return (
-    claim.kind !== "chart" &&
-    claimMarkState(claim.shown.state, claim.check) === "supported" &&
-    (claim.check.parts ?? []).some(
-      (part) => part.verdict === "supported" && passageToAdd(part, citations) !== null,
-    )
-  );
-}
-
-/**
- * Whether it is Supported, not yet cited (#3019): the model's ✓, which shows once the Passage its
- * check found is one of the sentence's Citations. Its mark shows, and it is counted apart. A mark an
- * older version stored as Not checked, found elsewhere, has no verdict to bring back: it is Not
- * checked, and a check makes it again.
- */
-export const foundElsewhere = ({ shown, check }: Pick<ShownClaim, "shown" | "check">): boolean =>
-  shown.state === "not-checked" &&
-  shown.reason === "found-elsewhere" &&
-  check.state !== "not-checked";
 
 /**
  * The decision model's first reading a sentence shows (#3118): while the AI model still checks
