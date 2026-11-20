@@ -75,6 +75,43 @@ const heldCall = z.object({
   transcript: z.string().describe("Its Transcript's documentId."),
 });
 
+/** A Note's results, counted as its page counts them. */
+const checkedNote = z.object({
+  models: z.array(z.string()),
+  supported: z.number(),
+  needLook: z.number(),
+  notChecked: z.number(),
+  canBeCited: z.number(),
+  ownViews: z.number(),
+  claims: z.array(
+    z.object({
+      sentence: z.string(),
+      group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
+      result: z.enum([
+        "supported",
+        "citation-not-found",
+        "unsupported",
+        "contradicted",
+        "not-found",
+        "not-checked",
+        "needs-recheck",
+        "changed",
+      ]),
+      reason: z
+        .string()
+        .nullable()
+        .describe(
+          "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
+        ),
+      says: z.string().nullable(),
+      document: z.string().nullable(),
+      location,
+      quote: z.string().nullable(),
+      cite: z.string().nullable(),
+    }),
+  ),
+});
+
 /** A picture or chart it wrote that isn't in the Note, and why (#3413). */
 const leftOut = z.array(z.object({ item: z.string(), reason: z.string() }));
 
@@ -426,39 +463,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         title: z.string(),
         status: z.enum(["checked", "running", "stopped"]),
         stopped: z.string().nullable(),
-        models: z.array(z.string()),
-        supported: z.number(),
-        needLook: z.number(),
-        notChecked: z.number(),
-        canBeCited: z.number(),
-        ownViews: z.number(),
-        claims: z.array(
-          z.object({
-            sentence: z.string(),
-            group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
-            result: z.enum([
-              "supported",
-              "citation-not-found",
-              "unsupported",
-              "contradicted",
-              "not-found",
-              "not-checked",
-              "needs-recheck",
-              "changed",
-            ]),
-            reason: z
-              .string()
-              .nullable()
-              .describe(
-                "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
-              ),
-            says: z.string().nullable(),
-            document: z.string().nullable(),
-            location,
-            quote: z.string().nullable(),
-            cite: z.string().nullable(),
-          }),
-        ),
+        ...checkedNote.shape,
       }),
       // It marks the Note's claims and changes none of its words; its sentences go to the User's AI model.
       annotations: {
@@ -491,6 +496,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
             column: z.string().optional().describe("A table cell's column heading."),
           }),
         ),
+        checked: checkedNote.optional().describe("With no sentence left, the Note's results."),
       }),
       annotations: READ_ONLY,
     },

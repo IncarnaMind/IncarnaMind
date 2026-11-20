@@ -7984,6 +7984,8 @@ export const zhCN = {
   "agents.check.taskChanged":
     "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
   "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
+  "agents.check.nothingLeft":
+    "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户；没有要交给 report_check 的结果。",
   "agents.check.reportAgain":
     "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用、这次核对中 run_analysis 的结果，或一份计算过程（其中每个数都出自所引原文，算式能得出所给结果），且不能来自用户自己的工作文件。",
   "agents.note.writtenBy": "{name} 写入，{when}",

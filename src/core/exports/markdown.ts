@@ -11,6 +11,7 @@
 import { createHash } from "node:crypto";
 import type { TableAlign } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
+import { CHART_FENCE } from "../agents/visuals";
 import type { StyledRun } from "../api";
 import {
   type Block,
@@ -58,11 +59,15 @@ export interface MarkdownExport {
 export interface MarkdownOptions {
   /**
    * Whether a picture kept in the Note's data is written as a file beside the
-   * text (an export) or read as its alt text; "marked", as a picture whose data
-   * is left out, so an outside agent, which can open no file, knows one is there
-   * (#3413).
+   * text (an export) or read as its alt text.
    */
-  pictures?: boolean | "marked";
+  pictures?: boolean;
+  /**
+   * As an outside agent, which can open no file, reads the Note and writes one: a picture kept in
+   * its data as a picture line without the data (#3413), and a chart as a ```chart block under
+   * the table it draws, or under a table of its values when that table isn't in the Note (#3465).
+   */
+  agent?: true;
   /**
    * False reads the Note's own words only, leaving out its Citation markers and
    * footnotes: a snapshot of the Note is what the User wrote and the AI wrote,
@@ -86,12 +91,13 @@ export function renderMarkdown(
       return footnotes.length;
     },
     headingEntries(blocks),
-    options.pictures === false
-      ? null
-      : options.pictures === "marked"
-        ? markedPicture
+    options.agent
+      ? (image) => (image.src ? { src: image.src } : null)
+      : options.pictures === false
+        ? null
         : (image) => pictureFile(image, pictures),
     options.citations !== false,
+    options.agent === true,
   );
   const parts: string[] = [];
   if (title) parts.push(`# ${escapeMarkdownText(title, false)}`);
@@ -133,11 +139,11 @@ function pictureFile(
   return { src: name, alt: image.alt };
 }
 
-/** A picture kept in the Note's data as a picture whose data is left out: "data:image/png;base64,…". */
-function markedPicture(image: Image): { src: string; alt?: string } | null {
-  if (!image.src.startsWith("data:")) return image.src ? { src: image.src } : null;
-  return { src: `${image.src.slice(0, image.src.indexOf(",") + 1)}…`, alt: image.alt };
-}
+/**
+ * Where a picture kept in the Note's data stands, for an outside agent: not its data, which it
+ * read as a link cut short, and in words it doesn't take for a broken placeholder (#3465).
+ */
+export const PICTURE_IN_NOTE = "shown in the Note; its data is left out here";
 
 /** A fenced code block: a fence longer than any run of backticks in the code. */
 export function codeFence(language: string, code: string): string {
@@ -253,6 +259,8 @@ class MarkdownWriter {
       | null = null,
     /** Whether Citation markers and footnotes are written (see `MarkdownOptions.citations`). */
     private readonly citations = true,
+    /** See `MarkdownOptions.agent`. */
+    private readonly agent = false,
   ) {}
 
   blocks(blocks: readonly Block[], context: Context): string {
@@ -366,9 +374,24 @@ class MarkdownWriter {
   }
 
   private chart(block: Extract<Block, { kind: "chart" }>): string {
+    if (this.agent) {
+      const { kind, title } = block.chart;
+      const fence = codeFence(CHART_FENCE, JSON.stringify({ kind, title }));
+      if (block.ofTable) return fence;
+      return [this.table(block.table), fence, this.chartSources(block)]
+        .filter((part) => part !== "")
+        .join("\n\n");
+    }
     const parts = [`*${escapeMarkdownText(this.labels.chart(block.chart.title), false)}*`];
     const table = this.table(block.table);
     if (table) parts.push(table);
+    const sources = this.chartSources(block);
+    if (sources) parts.push(sources);
+    return parts.join("\n\n");
+  }
+
+  /** Where a chart's values come from, on a line: "" for nothing to say. */
+  private chartSources(block: Extract<Block, { kind: "chart" }>): string {
     const sources: string[] = [];
     const cited = this.inline(block.sources, { table: false }).trim();
     if (cited) sources.push(`${escapeMarkdownText(this.labels.chartSources, false)}${cited}`);
@@ -379,8 +402,7 @@ class MarkdownWriter {
     const { rows, cutFrom } = block.chart.data;
     if (cutFrom !== null)
       sources.push(escapeMarkdownText(this.labels.chartCut(rows.length, cutFrom), false));
-    if (sources.length > 0) parts.push(sources.join(" "));
-    return parts.join("\n\n");
+    return sources.join(" ");
   }
 
   /**
@@ -389,6 +411,8 @@ class MarkdownWriter {
    * its own.
    */
   private image(image: Image, context: Context, block: boolean): string {
+    if (this.agent && image.src.startsWith("data:"))
+      return `![${escapeMarkdownText(image.alt, context.table)}](${PICTURE_IN_NOTE})`;
     const placed = this.picture?.(image) ?? null;
     if (!placed) {
       const description = escapeMarkdownText(image.alt, context.table);
