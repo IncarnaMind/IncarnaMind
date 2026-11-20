@@ -249,6 +249,7 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
       text: "Spring tides come twice a month.",
       origin: "other" as const,
       reason: null,
+      row: "supported" as const,
       says: "Rivers says so.",
       evidence: null,
       judgedOn: null,
@@ -277,10 +278,13 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
     );
     expect(await wider.checkMind({ mindId: "note" })).toMatchObject({
       supported: 1,
-      needLook: 1,
+      needLook: 0,
+      notChecked: 1,
+      canBeCited: 0,
       claims: [
         {
           sentence: "Spring tides come twice a month.",
+          group: "notChecked",
           result: "not-checked",
           reason: "beyond-reach",
           says: null,
@@ -312,9 +316,24 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
         checkRecord: async () => ({
           models: [],
           sentences: [
-            { ...item, text: "Spring tides come twice a month.", result: "supported" },
-            { ...item, text: "We should survey at the spring tides.", result: "ownView" },
-            { ...item, text: "Neap tides are twice as strong.", result: "unsupported" },
+            {
+              ...item,
+              text: "Spring tides come twice a month.",
+              result: "supported",
+              row: "supported" as const,
+            },
+            {
+              ...item,
+              text: "We should survey at the spring tides.",
+              result: "ownView",
+              row: "ownViews" as const,
+            },
+            {
+              ...item,
+              text: "Neap tides are twice as strong.",
+              result: "unsupported",
+              row: "look" as const,
+            },
           ],
         }),
       },
@@ -323,6 +342,83 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
     expect(checked).toMatchObject({ supported: 1, needLook: 1, ownViews: 1 });
     expect(checked.claims.map((claim) => claim.sentence)).toEqual([
       "Neap tides are twice as strong.",
+    ]);
+  });
+
+  // protects=each sentence of a checked Note is told in the group its row of the page's check card puts it in, with the words the page uses: Supported, not yet cited reads Supported and counts as one that can be cited, a supported sentence whose Citation isn't found is one that needs a look, and one counted in no row is told nowhere (#3453); fails_when=a group is counted from the check's verdict instead of the card's row, or a result the groups now list has no words
+  it("tells each sentence in the group the page counts it in", async () => {
+    const item = {
+      kind: "sentence" as const,
+      origin: "other" as const,
+      says: null,
+      evidence: null,
+      judgedOn: null,
+      check: {
+        model: null,
+        at: "2026-11-18T09:00:00.000Z",
+        scope: { folderId: "coast", widened: false },
+      },
+    };
+    const access = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        checkRecord: async () => ({
+          models: [],
+          sentences: [
+            { ...item, text: "Cited.", result: "supported", reason: null, row: "supported" },
+            { ...item, text: "Own view.", result: "ownView", reason: null, row: "ownViews" },
+            {
+              ...item,
+              text: "Quote gone.",
+              result: "supported",
+              reason: null,
+              row: "look",
+            },
+            {
+              ...item,
+              text: "Elsewhere.",
+              result: "notChecked",
+              reason: "found-elsewhere",
+              row: "notYetCited",
+            },
+            {
+              ...item,
+              text: "Stopped.",
+              result: "notChecked",
+              reason: "rate-limit",
+              row: "toCheck",
+            },
+            {
+              ...item,
+              text: "Conclusion.",
+              result: "notChecked",
+              reason: "assistant-conclusion",
+              row: null,
+            },
+          ],
+        }),
+      },
+    );
+    const checked = await access.checkMind({ mindId: "note" });
+    expect(checked).toMatchObject({
+      supported: 1,
+      needLook: 1,
+      notChecked: 1,
+      canBeCited: 1,
+      ownViews: 1,
+    });
+    expect(
+      checked.claims.map(({ sentence, group, result, reason }) => [
+        sentence,
+        group,
+        result,
+        reason,
+      ]),
+    ).toEqual([
+      ["Quote gone.", "needLook", "citation-not-found", null],
+      ["Elsewhere.", "canBeCited", "supported", null],
+      ["Stopped.", "notChecked", "not-checked", "rate-limit"],
     ]);
   });
 

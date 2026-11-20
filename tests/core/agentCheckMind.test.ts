@@ -7,7 +7,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { ANALYSIS_TOOLS } from "../../src/core/tools";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import { checkRows, noteHealth } from "../../src/renderer/src/editor/healthCounts";
+import { citationState } from "../../src/shared/citations";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel, isCheckRun, type Plan } from "../helpers/checks";
@@ -29,6 +31,14 @@ const NEAP = "Neap tides have the largest range of the month.";
 const PENGUINS = "Penguins nest on the cliffs above the harbour.";
 const NOTE = [SPRING, NEAP, PENGUINS].join("\n\n");
 
+// One sentence for each count of the Note's page, besides the contradicted and the unsupported.
+const CITED = "Spring tides come twice every month.";
+const ELSEWHERE = "A spring tide has the largest range of its month.";
+const OWN = "We should survey at the spring tides.";
+const UNREAD = "The tide tables for the quay are kept elsewhere.";
+const TWICE = "Spring tides happen twice a month";
+const LARGEST = "The range of a spring tide is the largest of the month.";
+
 const PLANS: Record<string, Plan> = {
   [SPRING]: {
     verdict: "supported",
@@ -41,6 +51,10 @@ const PLANS: Record<string, Plan> = {
     says: "Tides says the spring tide's range is the largest.",
   },
   [PENGUINS]: { verdict: "unsupported" },
+  [CITED]: { verdict: "supported", quote: TWICE, says: "Tides says it twice a month." },
+  [ELSEWHERE]: { verdict: "supported", quote: LARGEST, says: "Tides says the range is largest." },
+  [OWN]: { verdict: "own view", says: "A plan, not a fact." },
+  [UNREAD]: { reply: { text: "It reads well to me." } },
 };
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
@@ -53,8 +67,12 @@ interface Checked {
   models: string[];
   supported: number;
   needLook: number;
+  notChecked: number;
+  canBeCited: number;
+  ownViews: number;
   claims: {
     sentence: string;
+    group: string;
     result: string;
     reason: string | null;
     says: string | null;
@@ -106,6 +124,22 @@ async function paired({ propose = true, calls = [] as ModelCall[], python = fals
   return { ...started, core, coast, agent, pairing };
 }
 
+/** A token that cites `quote`, which Tides holds word for word. */
+async function citeToken(agent: Agent, quote: string): Promise<string> {
+  const { passages } = structured<{ passages: { passageId: string }[] }>(
+    await agent.callTool({ name: "search", arguments: { query: quote } }),
+  );
+  const { citations } = structured<{ citations: { cite: string | null }[] }>(
+    await agent.callTool({
+      name: "cite",
+      arguments: { citations: passages.map(({ passageId }) => ({ passageId, quote })) },
+    }),
+  );
+  const found = citations.find((each) => each.cite !== null)?.cite;
+  if (!found) throw new Error(`No Passage holds “${quote}”.`);
+  return found;
+}
+
 async function written(agent: Agent): Promise<string> {
   const { mindId } = structured<{ mindId: string }>(
     await agent.callTool({
@@ -155,13 +189,29 @@ describe("an outside agent has its Note checked (#3317)", () => {
       title: "Tide notes",
       status: "checked",
       stopped: null,
-      supported: 1,
+      supported: 0,
       needLook: 2,
+      notChecked: 0,
+      canBeCited: 1,
+      ownViews: 0,
     });
     expect(checked.models).toHaveLength(1);
     expect(checked.claims).toEqual([
       {
+        // Supported, with a Passage the sentence doesn't cite: the page counts it as one that can be cited.
+        sentence: SPRING,
+        group: "canBeCited",
+        result: "supported",
+        reason: null,
+        says: "Tides says spring tides happen twice a month.",
+        document: "Tides",
+        location: expect.any(String),
+        quote: "Spring tides happen twice a month",
+        cite: expect.stringMatching(/^\[cite:[^\]]+\]$/),
+      },
+      {
         sentence: NEAP,
+        group: "needLook",
         result: "contradicted",
         reason: null,
         says: "Tides says the spring tide's range is the largest.",
@@ -172,6 +222,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
       },
       {
         sentence: PENGUINS,
+        group: "needLook",
         // Nothing in the Folder speaks of it: the record's "Not found".
         result: "not-found",
         reason: null,
@@ -217,12 +268,83 @@ describe("an outside agent has its Note checked (#3317)", () => {
     // Asked again with nothing changed, it sends nothing and gives the same result.
     expect(structured<Checked>(await check(agent, mindId))).toMatchObject({
       status: "checked",
-      supported: 1,
+      supported: 0,
       needLook: 2,
+      canBeCited: 1,
     });
     expect((await core.listAgentActivity(pairing.id)).map((each) => each.tool)).toContain(
       "check_mind",
     );
+  });
+
+  // protects=an agent tells the User what the Note's page shows: the reply counts the sentences in the page's own groups, so a sentence that isn't checked or can be cited is never one that needs a look, and each of those is listed with its group and a token to cite it by (#3453); fails_when=a count of the reply differs from the page's check card for the same Note, or a sentence that can be cited isn't listed with its cite
+  it("counts the groups the Note's page counts", async () => {
+    const { core, agent, coast } = await paired();
+    const supportedBy = await citeToken(agent, TWICE);
+    // One Citation that holds the Passage the check finds, one that holds another, and one sentence with none.
+    const markdown = [
+      `${CITED.slice(0, -1)}${supportedBy}.`,
+      `${ELSEWHERE.slice(0, -1)}${supportedBy}.`,
+      SPRING,
+      NEAP,
+      PENGUINS,
+      OWN,
+      UNREAD,
+    ].join("\n\n");
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({ name: "create_mind", arguments: { title: "Tide notes", markdown } }),
+    );
+
+    const checked = structured<Checked>(await check(agent, mindId));
+
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const documents = await core.listDocuments();
+    const note = readMind(client);
+    const { claims, kept } = claimsOf(note, {
+      footing: "not-yet-known",
+      versions: new Map(documents.map((each) => [each.id, each.contentHash])),
+      folderId: coast.id,
+      scope: null,
+    });
+    const rows = Object.fromEntries(
+      checkRows(
+        noteHealth(note, {
+          claims,
+          kept,
+          citationCheck: (attributes) => citationState(attributes, documents, []).check,
+        }),
+      ).map(({ row, places }) => [row, places.length]),
+    );
+    expect(rows).toEqual({ look: 2, supported: 1, notYetCited: 2, ownViews: 1, toCheck: 1 });
+    expect({
+      supported: checked.supported,
+      needLook: checked.needLook,
+      notChecked: checked.notChecked,
+      canBeCited: checked.canBeCited,
+      ownViews: checked.ownViews,
+    }).toEqual({
+      supported: rows.supported,
+      needLook: rows.look,
+      notChecked: rows.toCheck,
+      canBeCited: rows.notYetCited,
+      ownViews: rows.ownViews,
+    });
+    expect(
+      checked.claims.map(({ sentence, group, result, reason, cite }) => [
+        sentence,
+        group,
+        result,
+        reason,
+        cite !== null,
+      ]),
+    ).toEqual([
+      [ELSEWHERE, "canBeCited", "supported", null, true],
+      [SPRING, "canBeCited", "supported", null, true],
+      [NEAP, "needLook", "contradicted", null, true],
+      [PENGUINS, "needLook", "not-found", null, false],
+      [UNREAD, "notChecked", "not-checked", "malformed", false],
+    ]);
   });
 
   // protects=nothing of a Note goes to a service the User took checks back from, and an agent's call never puts a question on their screen (ADR-0022); fails_when=check_mind raises the consent dialog or sends while checks aren't allowed there
@@ -254,8 +376,9 @@ describe("an outside agent has its Note checked (#3317)", () => {
     await core.allowDataFlow("checks", saved.service.id);
     expect(structured<Checked>(await check(agent, mindId))).toMatchObject({
       status: "checked",
-      supported: 1,
+      supported: 0,
       needLook: 2,
+      canBeCited: 1,
     });
     expect(asked).toEqual([]);
   });
@@ -298,9 +421,17 @@ describe("an outside agent has its Note checked (#3317)", () => {
     expect(own.kind).toBe("checked");
     calls.length = 0;
     const checked = structured<Checked>(await check(agent, mindId));
-    expect(checked).toMatchObject({ status: "checked", supported: 0, needLook: 3 });
+    expect(checked).toMatchObject({
+      status: "checked",
+      supported: 0,
+      needLook: 0,
+      notChecked: 3,
+      canBeCited: 0,
+      ownViews: 0,
+    });
     expect(
-      checked.claims.map(({ result, reason, says, document, quote, cite }) => [
+      checked.claims.map(({ group, result, reason, says, document, quote, cite }) => [
+        group,
         result,
         reason,
         says,
@@ -308,7 +439,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
         quote,
         cite,
       ]),
-    ).toEqual(Array(3).fill(["not-checked", "beyond-reach", null, null, null, null]));
+    ).toEqual(Array(3).fill(["notChecked", "not-checked", "beyond-reach", null, null, null, null]));
     expect(calls).toEqual([]);
   });
 

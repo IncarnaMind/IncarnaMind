@@ -248,10 +248,13 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
     await add("Tides.md", TIDES);
     const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
     const made = await write(agent);
-    const checked = structured<{ status: string; supported: number; needLook: number }>(
-      await agent.callTool({ name: "check_mind", arguments: { mindId: made.mindId } }),
-    );
-    expect(checked).toMatchObject({ status: "checked", supported: 1, needLook: 1 });
+    const checked = structured<{
+      status: string;
+      supported: number;
+      needLook: number;
+      canBeCited: number;
+    }>(await agent.callTool({ name: "check_mind", arguments: { mindId: made.mindId } }));
+    expect(checked).toMatchObject({ status: "checked", supported: 0, canBeCited: 1, needLook: 1 });
   });
 
   // protects=the User's own Notes in no Folder, and another agent's, stay out of an agent's reach; fails_when=Not in a Folder lets an agent list, read, change or check a Note it didn't write

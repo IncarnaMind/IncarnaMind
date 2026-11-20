@@ -32,6 +32,7 @@ import { citedLocation, type LiveDocument, withShownName } from "../../shared/ci
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
+import type { CheckRow } from "../../shared/noteHealth";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
 import {
   addsOnly,
@@ -374,10 +375,15 @@ export interface AgentCheckMindInput {
   mindId: string;
 }
 
-/** A claim of a checked Note that needs a look. */
+/** A claim of a checked Note that needs a look, isn't checked or can be cited. */
 export interface AgentCheckedClaim {
   sentence: string;
+  /** The count of the Note's page it is in. */
+  group: "needLook" | "notChecked" | "canBeCited";
+  /** "supported" only for a sentence that can be cited, "citation-not-found" for one with a Citation whose quote isn't found. */
   result:
+    | "supported"
+    | "citation-not-found"
     | "unsupported"
     | "contradicted"
     | "not-found"
@@ -410,12 +416,17 @@ export interface AgentMindCheck {
   stopped: string | null;
   /** The models that judged, as the Note's check record names them. */
   models: string[];
-  /** How many claims the check found supported. */
+  /** How many sentences the Note's page counts as supported. */
   supported: number;
-  /** How many need a look; `claims` lists the first `MAX_CHECKED_CLAIMS` of them. */
+  /** How many need a look: unsupported, contradicted, or a quote not found. */
   needLook: number;
+  /** How many weren't checked: no verdict, or one the User's wider check made on Documents this agent can't read. */
+  notChecked: number;
+  /** How many are supported by a Passage no Citation of theirs holds yet: the page's "can be cited". */
+  canBeCited: number;
   /** How many sentences the check found to be the writer's own view (#3322): none needs a look. */
   ownViews: number;
+  /** The first `MAX_CHECKED_CLAIMS` of the sentences that need a look, weren't checked or can be cited, in the Note's order. */
   claims: AgentCheckedClaim[];
 }
 
@@ -778,6 +789,9 @@ async function within<T>(run: Promise<T>, ms: number): Promise<T | null> {
 const SENT: ReadonlySet<string> = new Set(["checked", "failed", "cancelled"]);
 
 const CLAIM_RESULTS = {
+  // A supported sentence or a view is told only when one of its Citations isn't found: it needs a look.
+  supported: "citation-not-found",
+  ownView: "citation-not-found",
   unsupported: "unsupported",
   contradicted: "contradicted",
   notFound: "not-found",
@@ -785,6 +799,13 @@ const CLAIM_RESULTS = {
   needsRecheck: "needs-recheck",
   changed: "changed",
 } as const satisfies Record<string, AgentCheckedClaim["result"]>;
+
+/** The rows of the Note's check card an agent is told sentences of, by the count the page gives each. */
+const CLAIM_GROUPS: Partial<Record<CheckRow, AgentCheckedClaim["group"]>> = {
+  look: "needLook",
+  toCheck: "notChecked",
+  notYetCited: "canBeCited",
+};
 
 const READ_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 
@@ -2454,22 +2475,29 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
         const beyond = (item: (typeof record.sentences)[number]) =>
           item.check !== null && (item.check.scope.widened || item.check.scope.chosen != null);
-        const ownViews = record.sentences.filter(
-          (item) => item.result === "ownView" && !beyond(item),
-        ).length;
-        const needLook = record.sentences.filter(
-          (item) => (item.result !== "supported" && item.result !== "ownView") || beyond(item),
-        );
-        const claims = needLook.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
+        // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
+        const rowOf = (item: (typeof record.sentences)[number]) =>
+          beyond(item) ? "toCheck" : item.row;
+        const counted = (row: CheckRow) =>
+          record.sentences.filter((item) => rowOf(item) === row).length;
+        const listed = record.sentences.flatMap((item) => {
+          const row = rowOf(item);
+          const group = row === null ? undefined : CLAIM_GROUPS[row];
+          return group === undefined ? [] : [{ ...item, group }];
+        });
+        const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
           const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
           const sentence = clip(item.text, READY_QUOTE_CHARS);
+          const { group } = item;
           if (beyond(item)) {
-            return { sentence, result: "not-checked", reason: "beyond-reach", ...unsaid };
+            return { sentence, group, result: "not-checked", reason: "beyond-reach", ...unsaid };
           }
+          // What the page calls Supported, not yet cited reads Supported here, not as the Not checked, found elsewhere it is stored as.
           const claim = {
             sentence,
-            result: CLAIM_RESULTS[item.result as keyof typeof CLAIM_RESULTS],
-            reason: item.reason,
+            group,
+            result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
+            reason: group === "canBeCited" ? null : item.reason,
           };
           const judgedOn = item.judgedOn ? citationOf(item.judgedOn) : null;
           // What a Document outside the pairing's Folders says stays there.
@@ -2501,12 +2529,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               !result || result.kind === "running" ? "running" : stopped ? "stopped" : "checked",
             stopped,
             models: record.models,
-            supported: record.sentences.length - needLook.length - ownViews,
-            needLook: needLook.length,
-            ownViews,
+            supported: counted("supported"),
+            needLook: counted("look"),
+            notChecked: counted("toCheck"),
+            canBeCited: counted("notYetCited"),
+            ownViews: counted("ownViews"),
             claims,
           },
-          count: needLook.length,
+          count: listed.length,
           documentIds: [...read],
         };
       });

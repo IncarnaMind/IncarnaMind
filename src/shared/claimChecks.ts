@@ -27,7 +27,7 @@ import {
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { citedInputs } from "./calculatedFigures";
-import { asCitedNow, citesPassage, type HeldCitation } from "./citedNow";
+import { asCitedNow, citesPassage, type HeldCitation, passageToAdd } from "./citedNow";
 import {
   CLAIM_CHECK_FAILURES,
   checkedCitation,
@@ -813,6 +813,41 @@ export function claimMarkState<State extends ClaimCheckShown["state"]>(
     ? "unsupported"
     : state;
 }
+
+/**
+ * Whether a sentence the check found Supported has a Passage it can still cite, one no Citation of
+ * it is on yet (#3358): what the Note's foot line counts and Add all adds, beside the sentences
+ * Supported, not yet cited. Only a check with parts says where its Passages go.
+ */
+export function canBeCited(
+  claim: { kind?: "chart"; shown: ClaimCheckShown; check: ClaimCheckAttributes },
+  citations: readonly HeldCitation[],
+): boolean {
+  return (
+    claim.kind !== "chart" &&
+    claimMarkState(claim.shown.state, claim.check) === "supported" &&
+    (claim.check.parts ?? []).some(
+      (part) => part.verdict === "supported" && passageToAdd(part, citations) !== null,
+    )
+  );
+}
+
+/**
+ * Whether it is Supported, not yet cited (#3019): the model's ✓, which shows once the Passage its
+ * check found is one of the sentence's Citations. Its mark shows, and it is counted apart. A mark an
+ * older version stored as Not checked, found elsewhere, has no verdict to bring back: it is Not
+ * checked, and a check makes it again.
+ */
+export const foundElsewhere = ({
+  shown,
+  check,
+}: {
+  shown: ClaimCheckShown;
+  check: Pick<ClaimCheckAttributes, "state">;
+}): boolean =>
+  shown.state === "not-checked" &&
+  shown.reason === "found-elsewhere" &&
+  check.state !== "not-checked";
 
 /**
  * Whether a sentence reads Not checked only because what it says is missing couldn't be read whole,
