@@ -2,7 +2,34 @@ import type { Editor } from "@tiptap/core";
 import type { WorkbookCheck } from "../../../shared/verification";
 import { MetaLine } from "../components/MetaLine";
 import { useLanguage, useT } from "../i18n";
+import { shownPair } from "./formulaShown";
 import { ClaimMarkIcon } from "./icons";
+
+/**
+ * What a formula's cell is, as its table in the Note names it (#3493): its row's first cell and its
+ * column's heading, "Staff costs · Change (GBP m)"; null where the Note has no such row.
+ */
+function cellNameOf(editor: Editor, blockId: string): string | null {
+  let name: string | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (name !== null) return false;
+    if (!node.isTextblock || node.attrs.id !== blockId) return true;
+    const place = editor.state.doc.resolve(pos);
+    for (let depth = place.depth; depth > 0; depth--) {
+      if (place.node(depth).type.name !== "tableRow") continue;
+      const row = place.node(depth);
+      const table = place.node(depth - 1);
+      const column = place.index(depth);
+      const label = row.firstChild?.textContent.trim() ?? "";
+      const heading = table.firstChild?.maybeChild(column)?.textContent.trim() ?? "";
+      const named = [column > 0 ? label : "", heading].filter((each) => each !== "");
+      name = named.length > 0 ? named.join(" · ") : null;
+      break;
+    }
+    return false;
+  });
+  return name;
+}
 
 /** Where the paragraph with this id starts in the Note, or null when it is gone. */
 function startOf(editor: Editor, blockId: string): number | null {
@@ -35,12 +62,7 @@ export function VerifyFormulas({
   const unsaved = workbook.unsaved ?? 0;
   const worked = checked + unsaved;
   if (worked === 0 && unchecked === 0) return null;
-  const number = new Intl.NumberFormat(language, { maximumSignificantDigits: 12 });
   const count = (value: number) => ({ count: new Intl.NumberFormat(language).format(value) });
-  const shown = (value: string) => {
-    const parsed = Number(value);
-    return value.trim() !== "" && Number.isFinite(parsed) ? number.format(parsed) : value;
-  };
   return (
     <div data-testid="verify-formulas" className="check-rows">
       <MetaLine
@@ -71,10 +93,10 @@ export function VerifyFormulas({
         ]}
       />
       {differs.map((each) => {
+        const cell = cellNameOf(editor, each.blockId) ?? each.cell;
         const text = t("verify.formulas.cell", {
-          cell: each.cell,
-          saved: shown(each.saved),
-          worked: shown(each.worked),
+          cell,
+          ...shownPair(each.saved, each.worked, language),
         });
         return (
           <button
@@ -83,7 +105,8 @@ export function VerifyFormulas({
             data-testid="verify-formula-differs"
             data-cell={each.cell}
             className="check-row"
-            aria-label={t("verify.formulas.next", { cell: each.cell })}
+            title={each.cell}
+            aria-label={t("verify.formulas.next", { cell })}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               const at = startOf(editor, each.blockId);

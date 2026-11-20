@@ -126,7 +126,8 @@ test("Verify a workbook: its sheet is chosen, its formulas are worked out again 
   await expect(formulas).toContainText("2 formulas worked out again · 1 saved result differs");
   const differs = formulas.getByTestId("verify-formula-differs");
   await expect(differs).toHaveCount(1);
-  await expect(differs).toContainText("C5: saved 23,800, worked out 22,800");
+  // Named as its table names it, its row and its column, and not by its cell alone (#3493).
+  await expect(differs).toContainText("Total · 2027: saved 23,800, worked out 22,800");
   await screenshot(window, "verify-workbook-card-en");
 
   // Each row with typed-in numbers is a claim; the total row of formulas is not.
@@ -154,7 +155,7 @@ test("Verify a workbook: its sheet is chosen, its formulas are worked out again 
 
   await setLanguage(window, "zh-CN");
   await expect(formulas).toContainText("已重新计算 2 个公式 · 1 个保存的结果不一致");
-  await expect(differs).toContainText("C5：保存的是 23,800，重新计算为 22,800");
+  await expect(differs).toContainText("Total · 2027：保存的是 23,800，重新计算为 22,800");
   await screenshot(window, "verify-workbook-card-zh");
   await setLanguage(window, "en");
 });

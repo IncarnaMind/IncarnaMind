@@ -4750,6 +4750,12 @@ export interface Document {
    * it, which is never cited. Null for a file never imported.
    */
   importedAs: string | null;
+  /**
+   * The agent that handed over the file this Document holds (`HandedFile`, #3412), as the User had
+   * named its pairing then; null for every other Document. Such a Document is Not cited until the
+   * User cites it, and no source until then (#3492).
+   */
+  handedBy: string | null;
   /** When the Document was added to IncarnaMind. ISO 8601, UTC. */
   createdAt: string;
   /** ISO 8601, UTC. */
@@ -8873,7 +8879,7 @@ export interface AnswerSteps {
    * there are none, and for an Answer written before #899.
    */
   firstWordMs?: number;
-  /** Its Question asked to check or calculate, so it was written with the larger thinking budget. */
+  /** It called for working (a calculation or an Analysis), so the steps after ran with the larger thinking budget (#3462). */
   careful?: true;
   /**
    * The changes its reply says it made to a Mind that none of its Tool calls

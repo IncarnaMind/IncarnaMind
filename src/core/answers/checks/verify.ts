@@ -309,6 +309,30 @@ export function createVerify(options: VerifyOptions) {
     }
   }
 
+  /**
+   * A deck's lines by slide, as the brief reads a lone figure's label from its slide (#3493); none
+   * for any other document, whose pages are too long to send whole.
+   */
+  function deckSlides(
+    verification: Verification,
+    sentences: readonly { blockId: string; text: string }[],
+  ): Map<number, string[]> {
+    const slides = new Map<number, string[]>();
+    let kind: string | null = null;
+    try {
+      kind = options.document(verification.documentId).kind;
+    } catch (error) {
+      if (!(error instanceof NotFoundError)) throw error;
+    }
+    if (kind !== "pptx") return slides;
+    for (const sentence of sentences) {
+      const page = verification.pages[sentence.blockId];
+      if (page === undefined) continue;
+      slides.set(page, [...(slides.get(page) ?? []), sentence.text]);
+    }
+    return slides;
+  }
+
   function sortingInput(mindId: string, verification: Verification) {
     const sentences = content.read(mindId, (blocks) =>
       everySentence(blocks, { headings: true }).flatMap((sentence) => {
@@ -411,6 +435,7 @@ export function createVerify(options: VerifyOptions) {
       snapshot,
       signal,
       answerTemperature(ready.prepared.capabilities.facts.temperature),
+      deckSlides(verification, sentences),
     )
       .then((brief) => {
         if (!brief) return;
