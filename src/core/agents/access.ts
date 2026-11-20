@@ -1759,6 +1759,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
     placeToWriteIn,
+    again: () => deps.admit(pairingId),
     cited: (pairing, html) => {
       const inScope = new Set(scopeOf(pairing, undefined));
       return citedTokens(html).map((token) => {
