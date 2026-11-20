@@ -8873,7 +8873,7 @@ export interface AnswerSteps {
    * there are none, and for an Answer written before #899.
    */
   firstWordMs?: number;
-  /** Its Question asked to check or calculate, so it was written with the larger thinking budget. */
+  /** It called for working (a calculation or an Analysis), so the steps after ran with the larger thinking budget (#3462). */
   careful?: true;
   /**
    * The changes its reply says it made to a Mind that none of its Tool calls
