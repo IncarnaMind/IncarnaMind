@@ -406,6 +406,11 @@ describe("tabs in a Note", () => {
     expect(added instanceof Y.XmlElement && added.getAttribute(PROPOSAL_ATTRIBUTE)).toEqual(
       proposal,
     );
+    // The panel marks it as waiting, and no other.
+    expect(noteTabsOf(editor.state).tabs.map((each) => each.proposal?.id ?? null)).toEqual([
+      null,
+      "costs",
+    ]);
     const proposals = proposalsIn(editor.state.doc);
     expect(proposals).toHaveLength(1);
     expect(proposals[0]).toMatchObject({ id: "costs", block: "insert", added: "Fuel cost more." });

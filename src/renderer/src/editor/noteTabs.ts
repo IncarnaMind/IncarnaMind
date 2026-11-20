@@ -27,7 +27,14 @@ import {
 } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
-import { BLOCK_ID_ATTRIBUTE, NOTE_TAB_NODE, NOTE_TAB_TITLE_ATTRIBUTE } from "../../../core/api";
+import {
+  BLOCK_ID_ATTRIBUTE,
+  NOTE_TAB_NODE,
+  NOTE_TAB_TITLE_ATTRIBUTE,
+  PROPOSAL_ATTRIBUTE,
+  type ProposalRef,
+} from "../../../core/api";
+import { readProposalAttribute } from "../../../shared/proposals";
 import type { WordsInLine } from "../lineNames";
 import { asOneStep, offerEditorUndo } from "./editorUndo";
 
@@ -41,24 +48,28 @@ export interface NoteTab {
   /** Where its own Blocks start and end: from the one after its tab Block up to the next tab Block. */
   from: number;
   to: number;
+  /** The change that adds its tab Block, while it waits for the User; null for none. */
+  proposal: ProposalRef | null;
 }
 
 /** A Note's tabs, in order; none for a Note without a tab Block, which is one tab. */
 export function tabsOf(doc: ProseMirrorNode): NoteTab[] {
-  const starts: { id: string; title: string; at: number }[] = [];
+  const starts: { id: string; title: string; at: number; proposal: ProposalRef | null }[] = [];
   doc.forEach((node, pos) => {
     if (node.type.name !== NOTE_TAB_NODE) return;
     const title = node.attrs[NOTE_TAB_TITLE_ATTRIBUTE];
+    const proposal = readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]);
     starts.push({
       id: String(node.attrs[BLOCK_ID_ATTRIBUTE] ?? ""),
       title: typeof title === "string" ? title.trim() : "",
       at: pos,
+      proposal: proposal?.kind === "insert" ? proposal : null,
     });
   });
   if (starts.length === 0) return [];
   const tabs: NoteTab[] = [];
   const first = starts[0]?.at ?? 0;
-  if (first > 0) tabs.push({ id: null, title: "", at: null, from: 0, to: first });
+  if (first > 0) tabs.push({ id: null, title: "", at: null, from: 0, to: first, proposal: null });
   starts.forEach((start, index) => {
     const node = doc.nodeAt(start.at);
     tabs.push({

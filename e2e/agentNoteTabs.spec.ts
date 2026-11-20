@@ -162,12 +162,23 @@ test("a tab an agent proposes waits with its first paragraph: Accept keeps it, т
       await pointAndClick(window, window.getByTestId("outline-button"));
     }
     await expect(tabRows(outline)).toHaveText(["Summary", "Fleet", "Costs"]);
+    // Waiting, its row alone is marked as the change is, and says on hover who proposed it.
+    const proposed = outline.locator(".note-tab-row--proposed").getByTestId("note-tab");
+    await expect(proposed).toHaveText(["Costs"]);
+    await expect(proposed).toHaveAttribute("title", "Costs\nProposed by Ferry agent");
+    await expect(proposed).toHaveAccessibleDescription("Proposed by Ferry agent");
 
     // Opened, the tab shows what it holds as the change, its bar there to decide on.
     await pointAndClick(window, tabRows(outline).filter({ hasText: "Costs" }));
     const added = editor.locator("p.proposal-node--insert");
     await expect(added).toBeVisible();
     await expect(added).toHaveText("Fuel cost 3.1 million in 2026.");
+    const look = (locator: Locator) =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return [style.color, style.textDecorationLine, style.textDecorationColor];
+      });
+    expect(await look(proposed)).toEqual(await look(added));
     await pointAndClick(window, added);
     const bar = window.getByTestId("change-bar");
     await expect(bar).toBeVisible();
@@ -176,6 +187,7 @@ test("a tab an agent proposes waits with its first paragraph: Accept keeps it, т
     await pointAndClick(window, bar.getByTestId("change-accept"));
     await expect(window.getByTestId("proposals-count")).toHaveCount(0);
     await expect(tabRows(outline)).toHaveText(["Summary", "Fleet", "Costs"]);
+    await expect(proposed).toHaveCount(0);
     await expect(editor.locator(":scope > p:visible")).toHaveText([
       "Fuel cost 3.1 million in 2026.",
     ]);
@@ -183,6 +195,8 @@ test("a tab an agent proposes waits with its first paragraph: Accept keeps it, т
     await editor.focus();
     await window.keyboard.press("ControlOrMeta+z");
     await expect(window.getByTestId("proposals-count")).toHaveText("1 change waiting");
+    await setLanguage(window, "zh-CN");
+    await expect(proposed).toHaveAttribute("title", "Costs\nFerry agent х╗║шоо");
     await pointAndClick(window, tabRows(outline).filter({ hasText: "Costs" }));
     await pointAndClick(window, added);
     await pointAndClick(window, bar.getByTestId("change-reject"));
