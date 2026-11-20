@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { cutTitleShown } from "../src/shared/naming";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -347,6 +348,27 @@ for (const language of LANGUAGES) {
     await window.keyboard.press("Enter");
     await expect(editorOf(window)).toContainText(/answer this/i);
     await expect(answer).toHaveAttribute("data-status", "done");
+    await app.close();
+  });
+}
+
+const LONG_QUESTIONS = {
+  en: "What do the tides documents say about spring tides, neap tides and the range of each during the month?",
+  "zh-CN":
+    "关于大潮和小潮，tides 文档里是怎么说的？它们在一个月里各出现几次，潮差分别有多大，两者又相差多少，哪一种对港口作业的影响更大，应该如何安排？",
+} as const;
+
+for (const language of LANGUAGES) {
+  test(`a note written from an Answer to a long Question is named by the Question, cut at a word and ended with an ellipsis (${language})`, async () => {
+    const { app, window } = await start(language);
+    const question = LONG_QUESTIONS[language];
+    const answer = await askInAssistant(window, question);
+    await pointAt(window, answer.getByTestId("assistant-answer-text"));
+    await pointAndClick(window, answer.getByTestId("answer-write-note"));
+    await expect(answer.getByTestId("answer-added-undo")).toBeVisible();
+    const name = cutTitleShown(question);
+    expect(name.endsWith("…")).toBe(true);
+    await expect(window.getByTestId("mind-row").getByTestId("row-text")).toHaveText(name);
     await app.close();
   });
 }

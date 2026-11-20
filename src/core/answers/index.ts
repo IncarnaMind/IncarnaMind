@@ -378,7 +378,6 @@ import {
   withFound,
   withHelp,
 } from "./meetingHelp";
-import { paragraphAsked } from "./paragraphAsked";
 import { createPlainCalculator } from "./plainCalculator";
 import { createPrintedNumbers } from "./printedNumbers";
 import {
@@ -788,12 +787,12 @@ export interface AnswersOptions {
   /** What an Answer is written in when its Question has no language of its own. */
   interfaceLanguage(): Language;
   /**
-   * With no Search scope, what an Answer asked from `mindId` in the assistant
-   * searches: the examples until the User has a Document of their own, then
-   * theirs and the examples `mindId` cites (#1942, #3083); an example's Mind
-   * searches every Document. Null: every Document.
+   * With no Search scope, what an Answer asked from `mindId` searches: the examples until the User
+   * has a Document of their own, then theirs and the examples `mindId` cites (#1942, #3083); an
+   * example's Mind searches every Document, unless it is only the assistant's Note in focus
+   * (`focusOnly`, #3487). Null: every Document.
    */
-  unscopedDocuments?(mindId: string | null): string[] | null;
+  unscopedDocuments?(mindId: string | null, focusOnly?: boolean): string[] | null;
   mindFolder(mindId: string): string | null;
   /** The name of a Folder, Tag or Document a Search scope names, as its chip shows it now; null once gone. */
   scopeItemName(kind: ScopeKind, id: string): string | null;
@@ -1256,6 +1255,7 @@ export function createAnswers(options: AnswersOptions) {
       question.scope,
       mindId,
       readsMind ? null : wallOfTurn(question),
+      true,
     );
     // A reply outlives its Note in the conversation; with no Note of its own no call is its own.
     return answer.steps?.pressed !== undefined ? pressScope(documentIds, mindId) : documentIds;
@@ -1647,7 +1647,7 @@ export function createAnswers(options: AnswersOptions) {
     // Worked out now, shown only once the Answer has written into a Mind from new text.
     const writtenFrom =
       !outside && options.minds && input.assistant
-        ? someOfTheDocuments(input.documentIds, input.assistant.focused?.mindId ?? null)
+        ? someOfTheDocuments(input.documentIds, input.assistant.focused?.mindId ?? null, true)
         : null;
     const { place } = home;
     const announce = <E extends CoreEventName>(event: E, payload: CoreEvents[E]) => {
@@ -3243,7 +3243,6 @@ export function createAnswers(options: AnswersOptions) {
                 });
                 return rewriting;
               },
-              paragraph: paragraphAsked(context.question),
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
@@ -4953,15 +4952,29 @@ export function createAnswers(options: AnswersOptions) {
       askedFrom && !askedFrom.deleted ? options.mindFolder(askedFrom.mindId) : null,
     );
 
-  const someOfTheDocuments = (documentIds: string[] | null, mindId: string | null) => {
+  const someOfTheDocuments = (
+    documentIds: string[] | null,
+    mindId: string | null,
+    focusOnly = false,
+  ) => {
     if (documentIds === null) return null;
-    const total = options.documents.searchableCount(options.unscopedDocuments?.(mindId) ?? null);
+    const total = options.documents.searchableCount(
+      options.unscopedDocuments?.(mindId, focusOnly) ?? null,
+    );
     const documents = options.documents.searchableCount(documentIds);
     return documents > 0 && documents < total ? { documents, total } : null;
   };
 
-  /** The Documents of a Search scope as it is now, and whether it covers none to search. */
-  const scopeNow = (scope: SearchScope | null, mindId: string | null, wallId?: string | null) => {
+  /**
+   * The Documents of a Search scope as it is now, and whether it covers none to search. `focusOnly`:
+   * `mindId` is the Note in focus of a Question in the assistant, not the Note it is written in.
+   */
+  const scopeNow = (
+    scope: SearchScope | null,
+    mindId: string | null,
+    wallId?: string | null,
+    focusOnly = false,
+  ) => {
     let documentIds: string[] | null;
     if (wallId === UNKNOWN_WALL) documentIds = [];
     else if (wallId) {
@@ -4971,7 +4984,9 @@ export function createAnswers(options: AnswersOptions) {
     } else {
       const resolved = options.wall.resolveScope(scope ?? NO_SCOPE, mindId);
       const unscoped =
-        scope && hasSearchScope(scope) ? null : (options.unscopedDocuments?.(mindId) ?? null);
+        scope && hasSearchScope(scope)
+          ? null
+          : (options.unscopedDocuments?.(mindId, focusOnly) ?? null);
       documentIds =
         resolved === null
           ? unscoped
@@ -5206,6 +5221,7 @@ export function createAnswers(options: AnswersOptions) {
           scope,
           question.mind?.id ?? null,
           readyMind ? null : wallOfTurn(added.turn.question),
+          true,
         );
         const checked = checkQuotes(
           question.quotes,
@@ -5306,7 +5322,7 @@ export function createAnswers(options: AnswersOptions) {
             ? options.wall.walledFolderId(front)
             : wallOfTurn(question);
       const scoped = front !== null ? folderScope(front) : question.scope;
-      const { documentIds, emptyScope } = scopeNow(scoped, mindId, wall);
+      const { documentIds, emptyScope } = scopeNow(scoped, mindId, wall, true);
       return startInConversation(
         turn,
         ready,

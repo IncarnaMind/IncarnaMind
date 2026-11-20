@@ -1208,7 +1208,9 @@ describe("The Minds' Tools find what the model names", { timeout: 30_000 }, () =
       status: "failed",
       mindProblem: { kind: "no-heading", mindId: mind.id, heading: "Nothing starts like this" },
     });
-    expect(lastResult(model)).toContain("The request may mean paragraph 3.");
+    expect(lastResult(model)).toContain(
+      "there is no heading or paragraph “Nothing starts like this” in it",
+    );
   });
 
   // protects=the User's own first-person words are written as given, whatever they say of finding or looking; fails_when=they are taken for the assistant's talk of searching and left out; no_claim=none beyond protects.

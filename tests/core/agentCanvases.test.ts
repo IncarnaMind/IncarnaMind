@@ -278,7 +278,7 @@ describe("Canvases an outside agent publishes", () => {
     const unfiled = structured<Published>(
       await publish(agent, { title: "Mine", html: PAGE, folderId: NOT_IN_A_FOLDER_ID }),
     );
-    expect(unfiled.folder).toBe("Not in a Folder");
+    expect(unfiled.folder).toBe("");
 
     const listed = structured<Listed>(await other.callTool({ name: "list_minds", arguments: {} }));
     expect(listed.folders.flatMap((folder) => folder.canvases ?? [])).toEqual([]);

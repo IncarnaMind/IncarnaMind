@@ -17,7 +17,7 @@ import type { NodeJSON } from "./blockJson";
 import { figureShownText, readCalculatedFigureAttributes } from "./calculatedFigures";
 import { parseQuotedWords, parseQuotedWordsCheck } from "./citations";
 import { parseLocation } from "./locations";
-import { cutTitle } from "./naming";
+import { cutTitle, cutTitleShown } from "./naming";
 
 /** At most this many Blocks go into a note at once, and this deep. */
 export const MAX_BLOCKS = 2_000;
@@ -218,15 +218,16 @@ export const firstLineOfBlocks = (blocks: readonly NodeJSON[]): string =>
 
 /**
  * What a Note made from an Answer is called (#2870): the Answer's first heading, else its
- * Question, each cut as every name is. Only an Answer with neither falls back to its first
- * line, which can be a sentence from the middle of what it says.
+ * Question, each cut as every name is; a Question's cut ends with "…", as no Block holds the rest
+ * (#3487). Only an Answer with neither falls back to its first line, which can be a sentence from
+ * the middle of what it says.
  */
 export function nameFromAnswer(blocks: readonly NodeJSON[], question: string): string {
   const heading = blocks
     .filter((block) => block.type === "heading")
     .map(textOf)
     .find((text) => text.trim() !== "");
-  return cutTitle(heading ?? "") || cutTitle(question) || cutTitle(firstLineOfBlocks(blocks));
+  return cutTitle(heading ?? "") || cutTitleShown(question) || cutTitle(firstLineOfBlocks(blocks));
 }
 
 const holdsCitation = (node: NodeJSON): boolean =>
