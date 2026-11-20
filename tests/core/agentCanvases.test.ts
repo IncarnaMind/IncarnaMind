@@ -9,8 +9,10 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
+import type { CanvasFiles } from "../../src/core/adapters";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -65,11 +67,23 @@ const PAGE = '<!doctype html><title>Tides</title><img src="chart.png"><p>Spring 
  * A core with "Coast" and "Finance", each with a Document; "Claude Code" may write in Coast and in
  * no Folder, "Codex" may read Finance alone. `files`: a folder of files an agent can name.
  */
-async function twoAgents() {
+async function twoAgents({ waits }: { waits?: Waits } = {}) {
   const kept = await createTempDataFolder();
-  const started = await startAgentsCore(replyingModel(), {
-    canvasFiles: createCanvasFiles(join(kept, "Canvases")),
-  });
+  const keptFiles = createCanvasFiles(join(kept, "Canvases"));
+  const canvasFiles: CanvasFiles = waits
+    ? {
+        ...keptFiles,
+        readNamed: async (path, maxBytes) => {
+          await waits.reading?.();
+          return keptFiles.readNamed(path, maxBytes);
+        },
+        read: async (hash) => {
+          await waits.keptRead?.();
+          return keptFiles.read(hash);
+        },
+      }
+    : keptFiles;
+  const started = await startAgentsCore(replyingModel(), { canvasFiles });
   const { core } = started;
   const sources = await createSourceFolder();
   const [tides, budget] = await addAndProcess(core, [
@@ -91,6 +105,27 @@ async function twoAgents() {
   const files = await createSourceFolder();
   await writeFile(join(files, "chart.png"), PNG);
   return { ...started, core, coast, finance, writer, reader, files };
+}
+
+/** Heard as the Canvas files are read: what a test does meanwhile. */
+interface Waits {
+  /** A file the agent named. */
+  reading?: () => Promise<void>;
+  /** What a Canvas keeps: its HTML and files. */
+  keptRead?: () => Promise<void>;
+}
+
+/** A promise to hold a step at, and how to let it go. */
+function gate() {
+  let open = () => {};
+  const shut = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  let reached = () => {};
+  const at = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  return { shut, open: () => open(), at, reached: () => reached() };
 }
 
 const publish = (agent: Agent, args: Record<string, unknown>) =>
@@ -425,5 +460,95 @@ describe("Canvases an outside agent publishes", () => {
     expect(refusal(await publish(agent, { title: "Tides", html: picture }))).toBe(
       "This copy of IncarnaMind can’t keep Canvases.",
     );
+  });
+});
+
+describe("a Canvas call that waits while the User changes what the agent may do (#3406)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=a Canvas is published only while its agent may still write: a grant the User took back while its files were read publishes nothing; fails_when=publish_canvas writes the Canvas with the grant it had before its files were read
+  it("publishes nothing once the write grant is taken back while its files are read", async () => {
+    const held = gate();
+    let holding = true;
+    const { core, coast, writer, files } = await twoAgents({
+      waits: {
+        reading: async () => {
+          if (!holding) return;
+          held.reached();
+          await held.shut;
+        },
+      },
+    });
+    const agent = await connectLegacyAgent(writer.launch);
+    const asked = publish(agent, {
+      title: "Tide report",
+      html: PAGE,
+      files: [join(files, "chart.png")],
+      folderId: coast.id,
+    });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { propose: false });
+    holding = false;
+    held.open();
+    expect(refusal(await asked)).toBe(translate("en", "agents.problem.read-only"));
+    expect(await core.listCanvases()).toEqual([]);
+  });
+
+  // protects=a Canvas's next version is written only while its agent still reaches the Canvas: one whose Folder the User took away while the files were read gets no version; fails_when=update_canvas adds the version with the grant it had before its files were read
+  it("adds no version once the Canvas's Folder is taken away while its files are read", async () => {
+    const held = gate();
+    let holding = false;
+    const { core, coast, writer, files } = await twoAgents({
+      waits: {
+        reading: async () => {
+          if (!holding) return;
+          held.reached();
+          await held.shut;
+        },
+      },
+    });
+    const agent = await connectLegacyAgent(writer.launch);
+    const { canvasId } = structured<Published>(
+      await publish(agent, { title: "Tide report", html: PAGE, folderId: coast.id }),
+    );
+    holding = true;
+    const asked = agent.callTool({
+      name: "update_canvas",
+      arguments: { canvasId, version: 1, files: [join(files, "chart.png")] },
+    });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { folderIds: [NOT_IN_A_FOLDER_ID] });
+    holding = false;
+    held.open();
+    expect(refusal(await asked)).toBe(translate("en", "agents.canvas.notFound"));
+    expect((await core.listCanvases()).map((each) => each.version)).toEqual([1]);
+  });
+
+  // protects=a Canvas's HTML is given only while its agent still reaches the Canvas once it is read: one whose Folder the User took away meanwhile gives nothing back; fails_when=read_canvas returns the HTML with the reach the agent had before the version was read
+  it("gives back no HTML once the Canvas's Folder is taken away while it is read", async () => {
+    const held = gate();
+    let holding = false;
+    const { core, coast, writer } = await twoAgents({
+      waits: {
+        keptRead: async () => {
+          if (!holding) return;
+          held.reached();
+          await held.shut;
+        },
+      },
+    });
+    const agent = await connectLegacyAgent(writer.launch);
+    const { canvasId } = structured<Published>(
+      await publish(agent, { title: "Tide report", html: PAGE, folderId: coast.id }),
+    );
+    holding = true;
+    const asked = agent.callTool({ name: "read_canvas", arguments: { canvasId } });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { folderIds: [NOT_IN_A_FOLDER_ID] });
+    holding = false;
+    held.open();
+    expect(refusal(await asked)).toBe(translate("en", "agents.problem.reachChanged"));
   });
 });

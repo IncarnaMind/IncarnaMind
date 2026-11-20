@@ -379,7 +379,11 @@ export function createCanvases(options: CanvasesOptions) {
         }));
     },
 
-    /** Publishes a new Canvas as its version 1. */
+    /**
+     * Publishes a new Canvas as its version 1. `allowed` throws unless the publisher may still
+     * write there, read once its files are read and before anything is written: what the User
+     * grants may change while they are.
+     */
     async publish(input: {
       title: string;
       html: string;
@@ -388,11 +392,18 @@ export function createCanvases(options: CanvasesOptions) {
       folderId: string | null;
       pairingId: string;
       agent: string;
+      allowed?(): void;
     }): Promise<{ canvas: StoredCanvas; files: CanvasFileRecord[]; refused: RefusedFile[] }> {
       const html = utf8.encode(input.html);
       const holds: string[] = [];
       const htmlHash = await keep(html, holds);
       const { files, refused } = await gather(input.paths, [], html.byteLength, holds);
+      try {
+        input.allowed?.();
+      } catch (error) {
+        release(holds);
+        throw error;
+      }
       const id = options.newId();
       const at = options.now();
       db.transaction(() => {
@@ -422,6 +433,7 @@ export function createCanvases(options: CanvasesOptions) {
     /**
      * Publishes a Canvas's next version, built on version `basedOn`: what it doesn't give stays as
      * that version has it, its Citations with its HTML. `stale` when there is a newer version since.
+     * `allowed` as for `publish`.
      */
     async update(
       canvasId: string,
@@ -432,6 +444,7 @@ export function createCanvases(options: CanvasesOptions) {
         paths: readonly string[];
         pairingId: string;
         agent: string;
+        allowed?(): void;
       },
     ): Promise<
       | { kind: "updated"; canvas: StoredCanvas; files: CanvasFileRecord[]; refused: RefusedFile[] }
@@ -451,6 +464,12 @@ export function createCanvases(options: CanvasesOptions) {
         htmlBytes,
         holds,
       );
+      try {
+        input.allowed?.();
+      } catch (error) {
+        release(holds);
+        throw error;
+      }
       const added = addVersion(canvasId, basedOn, {
         title: input.title ?? canvas.title,
         htmlHash,
