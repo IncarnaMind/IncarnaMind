@@ -11,6 +11,7 @@ import {
   AgentRefusedError,
   createAgentAccess,
   createCheckRuns,
+  MAX_CHECKED_CLAIMS,
   MAX_CHECKS_AN_HOUR,
 } from "../../src/core/agents/access";
 import type { AgentCitation } from "../../src/core/agents/citations";
@@ -417,8 +418,62 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
       ]),
     ).toEqual([
       ["Quote gone.", "needLook", "citation-not-found", null],
-      ["Elsewhere.", "canBeCited", "supported", null],
       ["Stopped.", "notChecked", "not-checked", "rate-limit"],
+      ["Elsewhere.", "canBeCited", "supported", null],
+    ]);
+  });
+
+  // protects=the claims an agent is given list what needs a look first, then what isn't checked, then what can be cited, each in the Note's order, so the cap on them never hides a sentence that needs a look behind sentences that can be cited (#3453); fails_when=claims keeps the Note's order across the groups, and a long Note's unsupported sentence is counted in needLook but not listed
+  it("lists what needs a look before what can be cited, whatever the Note's order", async () => {
+    const item = {
+      kind: "sentence" as const,
+      origin: "other" as const,
+      reason: null,
+      says: null,
+      evidence: null,
+      judgedOn: null,
+      check: {
+        model: null,
+        at: "2026-11-18T09:00:00.000Z",
+        scope: { folderId: "coast", widened: false },
+      },
+    };
+    const access = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        checkRecord: async () => ({
+          models: [],
+          sentences: [
+            ...Array.from({ length: MAX_CHECKED_CLAIMS + 1 }, (_, index) => ({
+              ...item,
+              text: `Uncited ${index + 1}.`,
+              result: "supported" as const,
+              row: "notYetCited" as const,
+            })),
+            { ...item, text: "Not found.", result: "unsupported" as const, row: "look" as const },
+            {
+              ...item,
+              text: "Stopped.",
+              result: "notChecked" as const,
+              reason: "rate-limit" as const,
+              row: "toCheck" as const,
+            },
+          ],
+        }),
+      },
+    );
+    const checked = await access.checkMind({ mindId: "note" });
+    expect(checked).toMatchObject({
+      needLook: 1,
+      notChecked: 1,
+      canBeCited: MAX_CHECKED_CLAIMS + 1,
+    });
+    expect(checked.claims).toHaveLength(MAX_CHECKED_CLAIMS);
+    expect(checked.claims.slice(0, 3).map(({ sentence, group }) => [sentence, group])).toEqual([
+      ["Not found.", "needLook"],
+      ["Stopped.", "notChecked"],
+      ["Uncited 1.", "canBeCited"],
     ]);
   });
 

@@ -426,7 +426,7 @@ export interface AgentMindCheck {
   canBeCited: number;
   /** How many sentences the check found to be the writer's own view (#3322): none needs a look. */
   ownViews: number;
-  /** The first `MAX_CHECKED_CLAIMS` of the sentences that need a look, weren't checked or can be cited, in the Note's order. */
+  /** The first `MAX_CHECKED_CLAIMS` of the sentences that need a look, then those not checked, then those that can be cited, each in the Note's order. */
   claims: AgentCheckedClaim[];
 }
 
@@ -800,12 +800,15 @@ const CLAIM_RESULTS = {
   changed: "changed",
 } as const satisfies Record<string, AgentCheckedClaim["result"]>;
 
-/** The rows of the Note's check card an agent is told sentences of, by the count the page gives each. */
-const CLAIM_GROUPS: Partial<Record<CheckRow, AgentCheckedClaim["group"]>> = {
-  look: "needLook",
-  toCheck: "notChecked",
-  notYetCited: "canBeCited",
-};
+/**
+ * The rows of the Note's check card an agent is told sentences of, with the count the page gives
+ * each, in the order `claims` lists them: what needs a look first, so the cap never hides it.
+ */
+const CLAIM_GROUPS = [
+  ["look", "needLook"],
+  ["toCheck", "notChecked"],
+  ["notYetCited", "canBeCited"],
+] as const satisfies readonly (readonly [CheckRow, AgentCheckedClaim["group"]])[];
 
 const READ_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 
@@ -2480,11 +2483,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           beyond(item) ? "toCheck" : item.row;
         const counted = (row: CheckRow) =>
           record.sentences.filter((item) => rowOf(item) === row).length;
-        const listed = record.sentences.flatMap((item) => {
-          const row = rowOf(item);
-          const group = row === null ? undefined : CLAIM_GROUPS[row];
-          return group === undefined ? [] : [{ ...item, group }];
-        });
+        const listed = CLAIM_GROUPS.flatMap(([row, group]) =>
+          record.sentences
+            .filter((item) => rowOf(item) === row)
+            .map((item) => ({ ...item, group })),
+        );
         const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
           const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
           const sentence = clip(item.text, READY_QUOTE_CHARS);

@@ -198,18 +198,6 @@ describe("an outside agent has its Note checked (#3317)", () => {
     expect(checked.models).toHaveLength(1);
     expect(checked.claims).toEqual([
       {
-        // Supported, with a Passage the sentence doesn't cite: the page counts it as one that can be cited.
-        sentence: SPRING,
-        group: "canBeCited",
-        result: "supported",
-        reason: null,
-        says: "Tides says spring tides happen twice a month.",
-        document: "Tides",
-        location: expect.any(String),
-        quote: "Spring tides happen twice a month",
-        cite: expect.stringMatching(/^\[cite:[^\]]+\]$/),
-      },
-      {
         sentence: NEAP,
         group: "needLook",
         result: "contradicted",
@@ -231,6 +219,18 @@ describe("an outside agent has its Note checked (#3317)", () => {
         location: null,
         quote: null,
         cite: null,
+      },
+      {
+        // Supported, with a Passage the sentence doesn't cite: the page counts it as one that can be cited.
+        sentence: SPRING,
+        group: "canBeCited",
+        result: "supported",
+        reason: null,
+        says: "Tides says spring tides happen twice a month.",
+        document: "Tides",
+        location: expect.any(String),
+        quote: "Spring tides happen twice a month",
+        cite: expect.stringMatching(/^\[cite:[^\]]+\]$/),
       },
     ]);
     // The token cites the Passage the claim was judged on: the agent can use it as any other.
@@ -339,11 +339,11 @@ describe("an outside agent has its Note checked (#3317)", () => {
         cite !== null,
       ]),
     ).toEqual([
-      [ELSEWHERE, "canBeCited", "supported", null, true],
-      [SPRING, "canBeCited", "supported", null, true],
       [NEAP, "needLook", "contradicted", null, true],
       [PENGUINS, "needLook", "not-found", null, false],
       [UNREAD, "notChecked", "not-checked", "malformed", false],
+      [ELSEWHERE, "canBeCited", "supported", null, true],
+      [SPRING, "canBeCited", "supported", null, true],
     ]);
   });
 
