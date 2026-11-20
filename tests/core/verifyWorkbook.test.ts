@@ -229,11 +229,7 @@ describe("Verify a workbook", () => {
       .formula("B5", "NOSUCHFUNCTION(B2)", null)
       .text("A6", "Twice that")
       .formula("B6", "B5*2", null);
-    const path = await writeSourceFile(
-      sources,
-      "Model.xlsx",
-      book.xlsx({ withoutResults: true }),
-    );
+    const path = await writeSourceFile(sources, "Model.xlsx", book.xlsx({ withoutResults: true }));
 
     const result = await core.verifyDocument({ path, sheet: "Model" });
     if (!result.ok) throw new Error(`Not verified: ${result.reason}`);

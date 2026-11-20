@@ -338,7 +338,8 @@ describe("Verify a deck", () => {
     if (!result.ok) throw new Error(`The deck wasn't verified: ${result.reason}`);
     const client = await connectToMind(core, result.mind.id);
     await client.settled();
-    expect(readMind(client).toJSON().content?.map((block) => block.type)).toEqual(["heading"]);
+    const blocks: JSONContent[] = readMind(client).toJSON().content ?? [];
+    expect(blocks.map((block) => block.type)).toEqual(["heading"]);
     expect(verificationOf(client.doc)?.pictures).toBe(1);
 
     expect(await core.findClaims(request(result.mind.id))).toEqual({ kind: "found", claims: 1 });
