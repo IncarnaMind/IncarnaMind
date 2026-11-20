@@ -92,6 +92,7 @@ export function recordOpinions(blocks: Y.XmlFragment, sorted: readonly SortedSen
         text: sentence.text,
         occurrence: sentence.occurrence,
         ...(parts && { parts: [...parts] }),
+        ...(found?.unsorted && { unsorted: true as const }),
       },
     ];
   });
