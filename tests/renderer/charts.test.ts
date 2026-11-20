@@ -341,6 +341,56 @@ describe("changing a chart in place", () => {
     ).toBe("365.0");
   });
 
+  // protects=a chart its maker drew without a row (a total, say) keeps that row out when its table is corrected and when its rows and columns switch; fails_when=the row comes back on a redraw, or a name that is no row is kept to leave out a row added later
+  test("keeps out the rows its maker named, on a redraw and switched (#3466)", () => {
+    const editor = editorWith([QUARTERS, paragraph()]);
+    const drawn = (leaveOut: string[]) => {
+      const made = coreChartOfTable(
+        editor.state.doc.child(0).toJSON(),
+        "table-1",
+        { kind: "bar", title: "Revenue", leftOut: leaveOut },
+        "en",
+        null,
+      );
+      if (!("chart" in made)) throw new Error("The core drew no chart.");
+      return readChart((made.chart.attrs ?? {}) as Record<string, unknown>);
+    };
+    const all = drawn(["Total"]);
+    expect(all.source).toEqual({ kind: "table", blockId: "table-1" });
+    expect(all.data.rows.map((row) => row.label)).toEqual(["Q1", "Q2"]);
+    // One quarter left, its years across are the axis.
+    const chart = drawn([" q2 "]);
+    expect(chart.source).toEqual({
+      kind: "table",
+      blockId: "table-1",
+      switched: true,
+      leftOut: ["Q2"],
+    });
+    expect(chart.data.series).toEqual(["Q1"]);
+    insertChart(editor, chart);
+    const node = () => editor.state.doc.nodeAt(chartAt(editor).pos);
+
+    let at = -1;
+    editor.state.doc.descendants((child, place) => {
+      if (at < 0 && child.isText && child.text === "341.5 ") at = place;
+      return at < 0;
+    });
+    editor.view.dispatch(editor.state.tr.insertText("345.0", at, at + 5));
+    const update = tableUpdate(editor.state.doc, node()?.attrs ?? {}, "en");
+    expect(update?.series).toEqual(["Q1"]);
+    expect(update?.rows.map((row) => row.values[0]?.shown)).toEqual(["289.4", "345.0"]);
+    changeChart(editor, chartAt(editor).pos, { data: update ?? chart.data });
+
+    const back = switchedChartIn(editor.state.doc, node()?.attrs ?? {}, "en");
+    changeChart(editor, chartAt(editor).pos, back ?? {});
+    expect(chartAt(editor).chart.source).toEqual({
+      kind: "table",
+      blockId: "table-1",
+      leftOut: ["Q2"],
+    });
+    expect(chartAt(editor).chart.data.rows.map((row) => row.label)).toEqual(["Q1"]);
+  });
+
   test("switched there and back, a row with no number is where it was, and the table hasn't changed", () => {
     const editor = editorWith([
       {

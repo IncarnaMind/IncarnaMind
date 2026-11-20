@@ -100,6 +100,8 @@ function whyNot(problem: MindProblem | undefined): string {
       return "its sources were written as text, as markers with no Citation recorded, or not cited at all";
     case "length":
       return "the new text wasn't the length the User asked for";
+    case "call-markup":
+      return "its text held the markup of the call itself";
     case "local-mode":
       return "“Keep everything on this computer” is on";
     case "not-ready":

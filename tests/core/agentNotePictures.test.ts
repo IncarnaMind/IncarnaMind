@@ -355,6 +355,33 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     expect(blocks.filter((block) => block.kind === "table")).toHaveLength(3);
   });
 
+  // protects=a chart an agent draws leaves out the rows it names, a total say, so the lines it charts aren't dwarfed; which rows is the agent's to say; fails_when=the named row is drawn as a bar, or a leaveOut that isn't a list of words is taken as one
+  it("leaves out of a chart the rows the agent names in leaveOut (#3466)", async () => {
+    const { core, agent } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const chartWith = (asked: string) =>
+      create(
+        agent,
+        [...table(apples, pears), "| Total | 2,450 |", "", "```chart", asked, "```"].join("\n"),
+      );
+    const made = structured<Written>(
+      await chartWith('{"kind": "bar", "title": "Tonnes", "leaveOut": ["Total"]}'),
+    );
+    expect(made.refused).toEqual([]);
+    const chart = readChart(
+      (await blocksOf(core, made.mindId)).find((block) => block.kind === CHART_NODE)?.attrs ?? {},
+    );
+    expect(chart.data.rows.map((row) => row.label)).toEqual(["Apples", "Pears"]);
+    expect(chart.source).toMatchObject({ kind: "table", leftOut: ["Total"] });
+
+    const unread = structured<Written>(
+      await chartWith('{"kind": "bar", "title": "Tonnes", "leaveOut": "Total"}'),
+    );
+    expect(unread.refused.map((each) => each.reason)).toEqual([
+      "its ```chart block isn’t JSON that gives its kind and title",
+    ]);
+  });
+
   it("keeps a value whose token isn't this agent's in the chart, uncited and saying so", async () => {
     const { core, agent } = await paired();
     const { apples } = await tokens(agent);

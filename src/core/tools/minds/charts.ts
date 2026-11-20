@@ -28,22 +28,28 @@ export interface ChartAsked {
   title: string;
   /** An Analysis chart's marker: the rows its chart draws, so it goes beneath the table that holds them. */
   rows?: readonly (readonly AnalysisCell[])[];
+  /** Rows of the table not to draw, by their first cell: which they are is the model's to say (#3466). */
+  leftOut?: readonly string[];
 }
 
 export const chartProperty = {
   chart: {
     type: "object",
     description:
-      "Only when the User asks for a chart: drawn from the last table in content, right after it. Give it before content. For a table already in the Note, give it with content empty.",
+      "Only if the User asks for one: drawn from content's last table, right after it. Give it before content; for a table already in the Note, with content empty.",
     properties: {
       kind: {
         type: "string",
         enum: [...CHART_KINDS],
-        description: "The kind the User asked for. Leave it out when they named none.",
       },
       title: {
         type: "string",
-        description: "A short title, from the User's words, in their language.",
+        description: "A short title in the User's words and language.",
+      },
+      leaveOut: {
+        type: "array",
+        items: { type: "string" },
+        description: "Rows not to draw, e.g. a total.",
       },
     },
     required: ["title"],
@@ -56,9 +62,15 @@ const isKind = (value: unknown): value is ChartKind =>
 
 export function chartAsked(value: unknown): ChartAsked | null {
   if (!isRecord(value)) return null;
+  const leftOut = Array.isArray(value.leaveOut)
+    ? value.leaveOut.flatMap((label) =>
+        typeof label === "string" && label.trim() !== "" ? [label.trim()] : [],
+      )
+    : [];
   return {
     kind: isKind(value.kind) ? value.kind : null,
     title: typeof value.title === "string" ? value.title.trim() : "",
+    ...(leftOut.length > 0 && { leftOut }),
   };
 }
 
@@ -117,6 +129,7 @@ export function chartOfTable(
     blockId: tableId,
     title: asked.title,
     language,
+    ...(asked.leftOut && { leftOut: asked.leftOut }),
   });
   if (!chart) {
     return {

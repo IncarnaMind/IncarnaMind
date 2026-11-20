@@ -149,6 +149,7 @@ import {
 } from "../../proposals/write";
 import type { PreparedChatModel } from "../../providers/chat";
 import { MIND_TOOLS, type Tool, type ToolProviderInfo } from "..";
+import { callMarkupIn } from "../callMarkup";
 import { partialFields } from "../partialInput";
 import {
   type ChartAsked,
@@ -1875,6 +1876,25 @@ export function mindTools(options: MindToolsOptions): {
     );
   };
 
+  /**
+   * `argument` holds the call's own markup: a malformed call, whose text would read as words in
+   * the Note (#3476). Null for text that holds none.
+   */
+  const markupRefusal = (
+    mindId: string,
+    nothing: string,
+    argument: string,
+    given: string | null,
+  ): Refusal | null => {
+    const markup = given === null ? null : callMarkupIn(given, argument);
+    return markup === null
+      ? null
+      : new Refusal(
+          { kind: "call-markup", mindId },
+          `${nothing}: ${argument} holds the markup of the call itself, ${markup}, not words for the Note. Send the call again with each argument in its own field.`,
+        );
+  };
+
   /** Takes back what a writer wrote: the call ended up meaning another Mind, or another place. */
   const withdraw = (writer: Writer): void => writer.change.takeBack();
 
@@ -1989,6 +2009,8 @@ export function mindTools(options: MindToolsOptions): {
     }
     const { writer } = stream;
     if (stream.copy !== null || stream.uncited) return;
+    // The call is refused once it ends, and what it wrote taken back (`finishContent`).
+    if (callMarkupIn(content.value, "content") !== null) return;
     const { blocks, cited, unrecorded, firstUnrecorded, sourcesAsText } = options.blocksOf(
       content.value,
     );
@@ -2134,6 +2156,19 @@ export function mindTools(options: MindToolsOptions): {
     streams.delete(toolCallId);
     ended.add(toolCallId);
     const markdown = typeof given === "string" ? given : null;
+    const malformed = markupRefusal(
+      mind.id,
+      made ? `“${mind.name}” wasn't written` : `Nothing was added to “${mind.name}”`,
+      "content",
+      markdown,
+    );
+    if (malformed) {
+      if (stream?.writer) {
+        withdraw(stream.writer);
+        minds.writing(stream.writer.mind.id, null);
+      }
+      throw malformed;
+    }
     const content =
       typeof given === "string" ? options.blocksOf(given) : answerContent(given.blocks);
     const { blocks, cited, notFound, unrecorded, analysisTables, chartsPlaced, ...notes } = content;
@@ -2715,6 +2750,13 @@ export function mindTools(options: MindToolsOptions): {
       removesOnly?: boolean;
     } = {},
   ): Written & { change: MindChange; writing: Change; dropped: number } => {
+    const malformed = markupRefusal(
+      mind.id,
+      `Nothing was changed in “${mind.name}”`,
+      "content",
+      markdown,
+    );
+    if (malformed) throw malformed;
     const content = options.blocksOf(markdown);
     const { blocks, cited, notFound, unrecorded, analysisTables, ...notes } = content;
     if (blocks.some(unmadeTable)) throw noTable(mind);
@@ -2905,6 +2947,13 @@ export function mindTools(options: MindToolsOptions): {
       const instruction = markdown === null && !swap ? text(input.instruction, "instruction") : "";
       const times = swap ? null : timesAsked(input.times_as_long);
       const mind = picked.get(toolCallId) ?? found(targetOf(input));
+      const malformed = markupRefusal(
+        mind.id,
+        `Nothing was changed in “${mind.name}”`,
+        "new_text",
+        swap?.now ?? null,
+      );
+      if (malformed) throw malformed;
       const part = optional(input.part);
       // The selection counts only in the Mind it is in, and only when no section is named.
       const selected = focused?.mindId === mind.id && part === null ? focused.blockIds : [];
@@ -3420,6 +3469,11 @@ export function mindTools(options: MindToolsOptions): {
         options.notFiled();
         return NOT_FILED;
       }
+      const titled = markupRefusal("", "No Note was made", "title", title);
+      if (titled) {
+        takeBackStream(toolCallId);
+        throw titled;
+      }
       const { folderId } = filed;
       const mind =
         streamed ??
@@ -3451,7 +3505,9 @@ export function mindTools(options: MindToolsOptions): {
         // A new Note whose content was refused is empty: the call made again makes it again.
         if (
           error instanceof Refusal &&
-          (error.problem.kind === "uncited" || error.problem.kind === "copy")
+          (error.problem.kind === "uncited" ||
+            error.problem.kind === "copy" ||
+            error.problem.kind === "call-markup")
         )
           minds.discard(mind.id);
         throw error;

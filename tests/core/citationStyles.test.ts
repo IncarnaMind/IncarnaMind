@@ -671,8 +671,9 @@ describe("exporting a Mind in its citation style", () => {
     const { core, mind } = await written("apa");
     await core.setMindCitationStyle(mind.id, "numbered");
     const files = unzip((await core.exportMind(mind.id, { format: "docx" })).data);
+    // Two notes side by side are set apart, as Word would show 1 and 2 as 12 (#3466).
     expect(paragraphsOf(part(files, "word/document.xml")).map((each) => each.text)).toEqual([
-      "Losses loom larger than gains[1][2]. Systems are open[3].",
+      "Losses loom larger than gains[1],[2]. Systems are open[3].",
     ]);
     expect(Object.values(footnotesOf(part(files, "word/footnotes.xml")))).toEqual([
       "prospect, p. 265",

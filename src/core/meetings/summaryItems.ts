@@ -85,7 +85,7 @@ export function readMeetingSummaryUpdate(
   if (input.closing) {
     if (!reply.data.unchanged) return invalid();
     for (const id of reply.data.unchanged) {
-      if (existing.get(id)?.status !== "active" || touched.has(id)) return invalid();
+      if (!existing.has(id) || touched.has(id)) return invalid();
       touched.add(id);
     }
     if (input.items?.some((item) => item.status === "active" && !touched.has(item.id))) {

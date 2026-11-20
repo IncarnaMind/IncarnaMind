@@ -83,6 +83,7 @@ import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
 import { insertBlocks } from "../noteAdding";
+import { callMarkupIn } from "../tools/callMarkup";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -1020,6 +1021,7 @@ function changeText(value: unknown, name: string, t: Say): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new AgentRefusedError("invalid", t("agents.propose.text", { name }));
   }
+  refuseCallMarkup(value, "text", t);
   if (value.length > MAX_CHANGE_CHARS + inlinePictureChars(value)) {
     throw new AgentRefusedError(
       "invalid",
@@ -1027,6 +1029,14 @@ function changeText(value: unknown, name: string, t: Say): string {
     );
   }
   return value.trim();
+}
+
+/** Text that holds the call's own markup is a malformed call's, never words for the Note (#3476). */
+function refuseCallMarkup(value: string, argument: string, t: Say): void {
+  const markup = callMarkupIn(value, argument);
+  if (markup !== null) {
+    throw new AgentRefusedError("invalid", t("agents.problem.callMarkup", { argument, markup }));
+  }
 }
 
 function parseChanges(value: unknown, t: Say): AskedChange[] {
@@ -1772,6 +1782,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
     placeToWriteIn,
+    again: () => deps.admit(pairingId),
     cited: (pairing, html) => {
       const inScope = new Set(scopeOf(pairing, undefined));
       return citedTokens(html).map((token) => {
@@ -2554,6 +2565,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           "markdown",
           MAX_DRAFT_CHARS + inlinePictureChars(draft),
         );
+        refuseCallMarkup(title, "title", t);
+        refuseCallMarkup(written, "markdown", t);
         placeToWriteIn(admitted, input?.folderId);
         const visuals = await visualsFor([written]);
         // What the User grants may have changed while the pictures were read.
@@ -2592,10 +2605,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
         }
         // Named by its title heading, as a Note written in the window is, so the name follows the
-        // heading whoever changes it (#3378). A text that begins with a heading of its own keeps
-        // that one alone; one that begins with none gets `title` as its heading. Only a text that
-        // begins with a section's heading keeps `title` as a name of its own. A text in tabs
-        // begins inside its first, and so does a title heading written above it (#3414).
+        // heading whoever changes it (#3378). A text that begins with a heading 1, or with a
+        // heading in the words of `title`, keeps it as its title; any other gets `title` as its
+        // heading above it, as the page shows no title of its own (#3466). A text in tabs begins
+        // inside its first, and so does a title heading written above it (#3414).
         const [above, start] = made.nodes;
         const nodes =
           above?.type === "heading" && above.attrs?.level === 1 && start?.type === NOTE_TAB_NODE
@@ -2606,7 +2619,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const ownHeading = first?.type === "heading";
         const titleHeading =
           ownHeading && first.attrs?.level === 1 && (first.content?.length ?? 0) > 0;
-        const mind = deps.createMind(ownHeading && !titleHeading ? title : "", folder.id);
+        const titled =
+          titleHeading ||
+          (ownHeading &&
+            comparableName((first.content ?? []).map((each) => each.text ?? "").join("")) ===
+              comparableName(title));
+        const mind = deps.createMind(titled && !titleHeading ? title : "", folder.id);
         const heading = {
           type: "heading",
           attrs: { level: 1 },
@@ -2615,7 +2633,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         deps.editMind(mind.id, (blocks) => {
           insertBlocks(
             blocks,
-            ownHeading ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
+            titled ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
           );
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {

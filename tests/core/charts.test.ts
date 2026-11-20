@@ -307,11 +307,12 @@ describe("a chart from a cited table", { timeout: 30_000 }, () => {
     expect(part(files, "word/_rels/document.xml.rels")).toContain('Target="media/image1.png"');
     expect(part(files, "[Content_Types].xml")).toContain('Extension="png"');
 
-    // Under it, its caption and its sources, each a footnote Word numbers with the rest.
+    // Under it, its caption and its sources, each a footnote Word numbers with the rest, set apart
+    // by a comma as the printed Note sets them: side by side, Word shows 1 and 2 as 12 (#3466).
     const captions = paragraphsOf(document).filter((paragraph) => paragraph.style === "Caption");
     expect(captions.map((paragraph) => paragraph.text)).toEqual([
       "Chart: Revenue by quarter",
-      "Source: [1][2] 1 value has no Citation.",
+      "Source: [1],[2] 1 value has no Citation.",
     ]);
     expect(footnotesOf(part(files, "word/footnotes.xml"))).toMatchObject({
       "1": "Acme, p. 1",
