@@ -530,7 +530,12 @@ export function VerifyCard({
   return (
     <>
       <p className="check-card-title">{t("verify.card.title")}</p>
-      <HandedFileLine mindId={mindId} />
+      <HandedFileLine
+        mindId={mindId}
+        doc={doc}
+        kept={verification.kept ?? 0}
+        running={running !== null}
+      />
       {brief && (
         <VerifyBrief
           editor={editor}

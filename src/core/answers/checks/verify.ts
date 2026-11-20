@@ -23,8 +23,9 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
+import { checkedSentence, claimCheckShown, type NoteFooting } from "../../../shared/claimChecks";
 import { partsToCheck } from "../../../shared/claimParts";
-import { isClaim } from "../../../shared/sentences";
+import { mindScopeIn } from "../../../shared/mindScope";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import type { UnitText } from "../../../shared/units";
 import {
@@ -103,6 +104,14 @@ const READ: readonly DocumentStatus[] = ["waiting-for-model", "embedding", "read
 /** A workbook, checked a sheet at a time (#3278). */
 const WORKBOOK_FILE = /\.xlsx$/i;
 
+const NO_FOOTING: NoteFooting = new Map();
+
+/** A result a check landed, which a later version of the file may keep. */
+const LANDED = new Set(["supported", "unsupported", "contradicted"]);
+
+/** A letter or digit: a line with none states nothing to sort. */
+const WORDS = /[\p{L}\p{N}]/u;
+
 /** A file Word import takes, or refuses with its reason (an older .doc, macros). */
 const WORD_FILE = /\.(?:docx|docm|doc|dotx|dotm|dot)$/i;
 
@@ -175,6 +184,9 @@ export interface VerifyOptions extends CheckRuns {
    * agent starts), or why it can't: the same as a check from the window would need, asked of no one.
    */
   prepareUnasked(choice: ChatModelChoice | null): Promise<PreparedChatModel | NotAskedReason>;
+  /** Each live Document's current version, by id: what a kept result is compared with. */
+  documentVersions(): ReadonlyMap<string, string>;
+  mindFolder(mindId: string): string | null;
   /** The path of a Document's own file, for a check of one the Library holds (#3412). */
   filePath(documentId: string): Promise<string>;
   evidenceScope(mindId: string, allDocuments: boolean, verification: Verification): MindCheckScope;
@@ -309,7 +321,8 @@ export function createVerify(options: VerifyOptions) {
       everySentence(blocks, { headings: true }).flatMap((sentence) => {
         if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
         const said = claimOf(sentence, verification)?.claim;
-        return said !== undefined && isClaim(said) ? [{ ...sentence, said }] : [];
+        // The model decides which lines state a claim, a short one with a figure too (#3412).
+        return said !== undefined && WORDS.test(said) ? [{ ...sentence, said }] : [];
       }),
     );
     return {
@@ -420,10 +433,16 @@ export function createVerify(options: VerifyOptions) {
     return { kind: "found", claims: verificationOf(mindId).claims?.length ?? 0 };
   }
 
+  /**
+   * Checks the Mind's claims. With `keep`, a claim whose line already holds a result that still
+   * stands (its text unchanged, checked against the same Documents at the same versions, as Check
+   * this Note keeps one) keeps it, and only the rest are checked; the count kept is recorded.
+   */
   async function verifyClaims(
     input: ReturnType<typeof parseRequest>,
     signal: AbortSignal,
     prepare: PrepareModel = options.prepare,
+    keep = false,
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
     let verification = verificationOf(mindId);
@@ -447,8 +466,34 @@ export function createVerify(options: VerifyOptions) {
     const startedAt = options.now().toISOString();
     const claims = verification.claims;
     const unread = options.unread(check.wanted);
+    const versions = options.documentVersions();
+    const folderId = options.mindFolder(mindId);
+    const scope = content.readSettings(mindId, mindScopeIn);
+    let kept = 0;
     const queued = content.edit(mindId, (blocks) => {
       const sentences = everySentence(blocks, { headings: true });
+      const stands = (sentence: SelectedSentence) =>
+        markedSentences(blocks).some(
+          (mark) =>
+            mark.element === sentence.element &&
+            mark.from < sentence.to &&
+            mark.to > sentence.from &&
+            mark.check.text === sentence.text &&
+            checkedSentence({
+              text: sentence.text,
+              hasFigures: (sentence.figures?.length ?? 0) > 0,
+              check: claimCheckShown(mark.check, {
+                footing: NO_FOOTING,
+                text: sentence.text,
+                citations: sentence.citations,
+                versions,
+                folderId,
+                scope,
+              }),
+              skipped: false,
+              kept: false,
+            }).kind === "covered",
+        );
       const marked = claims.flatMap((claim) => {
         const sentence = sentences.find(
           (each) =>
@@ -457,6 +502,10 @@ export function createVerify(options: VerifyOptions) {
             each.occurrence === (claim.occurrence ?? 0),
         );
         if (!sentence) return [];
+        if (keep && stands(sentence)) {
+          kept++;
+          return [];
+        }
         const owners = markedSentences(blocks).filter(
           (mark) =>
             mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
@@ -516,6 +565,12 @@ export function createVerify(options: VerifyOptions) {
         ];
       });
       if (marked.length > 0) options.recordUnread(blocks, requestId, unread);
+      const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
+      const now = settings && readVerification(settings);
+      if (settings && now) {
+        const { kept: _, ...rest } = now;
+        writeVerification(settings, { ...rest, ...(kept > 0 && { kept }) });
+      }
       return marked;
     });
     if (queued.length === 0) return { kind: "nothing" };
@@ -844,7 +899,7 @@ export function createVerify(options: VerifyOptions) {
      * when nothing need be asked of the User (#3412): an outside agent started it, and background
      * work never asks. One verify run at a time, as the window's.
      */
-    async checkUnasked(mindId: string): Promise<UnaskedCheck> {
+    async checkUnasked(mindId: string, keep = false): Promise<UnaskedCheck> {
       options.requireMind(mindId);
       const ready = await options.prepareUnasked(options.defaultModel());
       if (typeof ready === "string") return { kind: "not-asked", reason: ready };
@@ -855,8 +910,59 @@ export function createVerify(options: VerifyOptions) {
       if (found.kind !== "found") return found;
       const requestId = randomUUID();
       return oneAtATime(requestId, mindId, (signal) =>
-        verifyClaims({ requestId, mindId, allDocuments: false, model: null }, signal, prepared),
+        verifyClaims(
+          { requestId, mindId, allDocuments: false, model: null },
+          signal,
+          prepared,
+          keep,
+        ),
       );
+    },
+
+    /**
+     * Copies the results of `fromMindId`'s checked lines onto the same lines of `toMindId`, a later
+     * version of the same file (#3412): a line is the same when its claim reads the same, a table
+     * row with its headings. Whether each result still stands is the check's to decide, as it
+     * decides for Check this Note. Returns how many lines took one.
+     */
+    carryChecks(fromMindId: string, toMindId: string): number {
+      const from = verificationOf(fromMindId);
+      const landed = content.read(fromMindId, (blocks) => {
+        const marks = markedSentences(blocks);
+        const byClaim = new Map<string, ClaimCheckAttributes[]>();
+        for (const sentence of everySentence(blocks, { headings: true })) {
+          const said = claimOf(sentence, from)?.claim;
+          const mark = marks.find(
+            (each) =>
+              each.element === sentence.element &&
+              each.from < sentence.to &&
+              each.to > sentence.from &&
+              each.check.text === sentence.text,
+          );
+          if (said === undefined || !mark || !LANDED.has(mark.check.state)) continue;
+          byClaim.set(said, [...(byClaim.get(said) ?? []), mark.check]);
+        }
+        return byClaim;
+      });
+      const to = verificationOf(toMindId);
+      return content.edit(toMindId, (blocks) => {
+        const taken = new Map<string, number>();
+        let carried = 0;
+        for (const sentence of everySentence(blocks, { headings: true })) {
+          const said = claimOf(sentence, to)?.claim;
+          if (said === undefined) continue;
+          const at = taken.get(said) ?? 0;
+          const check = landed.get(said)?.[at];
+          if (!check) continue;
+          taken.set(said, at + 1);
+          markSentence(sentence.element, sentence.from, sentence.to, {
+            ...check,
+            id: randomUUID(),
+          });
+          carried++;
+        }
+        return carried;
+      });
     },
 
     async findClaims(input: unknown): Promise<FindClaimsResult> {

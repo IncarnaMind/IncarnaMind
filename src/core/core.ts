@@ -5750,7 +5750,8 @@ export function createCore(adapters: CoreAdapters): Core {
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
-    checkUnasked: (mindId) => inFlow("verify", () => checks.checkUnasked(mindId)),
+    checkUnasked: (mindId, keep) => inFlow("verify", () => checks.checkUnasked(mindId, keep)),
+    carryChecks: (from, to) => checks.carryChecks(from, to),
     nameMind: (mindId, title) => {
       minds.rename(mindId, title);
       mindsChanged();

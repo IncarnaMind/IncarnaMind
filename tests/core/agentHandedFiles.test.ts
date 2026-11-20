@@ -10,13 +10,15 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { verificationOf } from "../../src/shared/verification";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
-import { checkingModel, type Plan } from "../helpers/checks";
+import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
+import type { ModelCall } from "../helpers/models";
 import { plainDeck } from "../helpers/pptx";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
@@ -109,9 +111,9 @@ const DECK = plainDeck([
 ]);
 
 /** "Claude Code" may write in Coast; the Coast has the harbour survey. */
-async function started() {
+async function started(calls: ModelCall[] = []) {
   const kept = await createTempDataFolder();
-  const started = await startAgentsCore(checkingModel(PLANS), {
+  const started = await startAgentsCore(checkingModel(PLANS, calls), {
     canvasFiles: createCanvasFiles(join(kept, "Canvases")),
   });
   const { core } = started;
@@ -134,7 +136,7 @@ async function started() {
   });
   const reader = await core.connectAgent({ name: "Codex", folderIds: [coast.id] });
   const files = await createSourceFolder();
-  return { core, coast, writer, reader, files };
+  return { core, coast, writer, reader, files, added };
 }
 
 const handOver = (agent: Agent, args: Record<string, unknown>) =>
@@ -235,6 +237,50 @@ describe("files an outside agent hands over", () => {
       why: null,
       needLook: 2,
     });
+  });
+
+  // protects=a new version keeps the result of each line the version before had too while it still stands, checks only what changed or what its Documents changed under, says how many it kept, and checks every claim again when the User asks (#3412); fails_when=an unchanged line is sent to the model again, a line whose Document changed keeps a stale result, or the count isn't recorded
+  it("keeps the results of unchanged lines in the next version, checks the rest, and checks every claim again when asked", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, writer, files, added } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, DECK);
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const checkedNow = () => calls.filter(isCheckRun).map(sentenceOf);
+    const before = checkedNow().length;
+
+    await writeFile(
+      path,
+      plainDeck([{ title: "Harbour review" }, { lines: [NORTH, SOUTH] }, { lines: [OFFICE] }]),
+    );
+    const second = structured<Handed>(await handOver(agent, { path }));
+    expect(second).toMatchObject({ version: 2, status: "checked", supported: 2, needLook: 1 });
+    // Every line stood as it was: none was sent to the model again.
+    expect(checkedNow().slice(before)).toEqual([]);
+    const client = await connectToMind(core, second.mindId ?? "");
+    await client.settled();
+    expect(verificationOf(client.doc)?.kept).toBe(3);
+
+    // A line whose Document changed is checked again, though its words didn't.
+    const survey = added.find((each) => each.name === "Harbour survey");
+    if (!survey) throw new Error("No survey.");
+    await core.deleteDocuments([survey.id]);
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const third = structured<Handed>(await handOver(agent, { path }));
+    expect(third).toMatchObject({ version: 3, status: "checked" });
+    expect(checkedNow()).toContain(NORTH);
+
+    // Check every claim again: nothing kept.
+    const atAll = checkedNow().length;
+    const again = await core.verifyClaims({
+      requestId: crypto.randomUUID(),
+      mindId: second.mindId ?? "",
+    });
+    expect(again).toMatchObject({ kind: "checked", claims: 3 });
+    expect(new Set(checkedNow().slice(atAll))).toEqual(new Set([NORTH, OFFICE, SOUTH]));
+    await client.settled();
+    expect(verificationOf(client.doc)?.kept).toBeUndefined();
   });
 
   // protects=a workbook an agent made is checked whole in one hand-over: each sheet's typed-in numbers traced and every formula worked out, though the file saved no results (#3412); fails_when=only a sheet is read, or formulas with no saved result are left unchecked

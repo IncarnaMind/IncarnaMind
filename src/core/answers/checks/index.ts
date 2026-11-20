@@ -1315,6 +1315,7 @@ export function createChecks(options: ChecksOptions) {
 
   const verify = createVerify({
     ...options,
+    documentVersions: options.watch.documentVersions,
     prepare,
     prepareUnasked,
     evidenceScope: (mindId, allDocuments, verification) =>

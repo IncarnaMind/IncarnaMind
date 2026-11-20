@@ -28,7 +28,8 @@ test.skip(
 
 /*
  * A deck an agent made and handed over (#3412): each version's check is a Note of its own, and its
- * card says which agent handed it over and which version it is, and opens the other versions. The
+ * card says which agent handed it over and which version it is, how many claims kept the version
+ * before's result, with a press to check every claim again, and opens the other versions. The
  * scripted model (src/main/fakeChat/) finds a claim contradicted when it shares three words with a
  * Document's line and has a number the line doesn't. Set INCARNAMIND_SCREENSHOTS to a folder to also
  * save stills there.
@@ -57,10 +58,17 @@ async function shot(window: Page, name: string) {
 }
 
 const TIDES = buildPdf([
-  { lines: ["Harbour times", "Harbours publish the times of high water every 12 months."] },
+  {
+    lines: [
+      "Harbour times",
+      "Harbours publish the times of high water every 12 months.",
+      "Spring tides happen at new moon and at full moon.",
+    ],
+  },
 ]);
 const WRONG = "Harbours publish the times of high water every 6 months.";
 const RIGHT = "Harbours publish the times of high water every 12 months.";
+const SPRING = "Spring tides happen at new moon and at full moon.";
 
 for (const language of ["en", "zh-CN"] as const) {
   const words =
@@ -70,6 +78,8 @@ for (const language of ["en", "zh-CN"] as const) {
           firstName: "Checking version 1: Harbour review",
           second: "From Claude Code · version 2 of 2",
           first: "From Claude Code · version 1 of 2",
+          kept: "1 claim kept its result from version 1",
+          checkAll: "Check every claim again",
           open: ["Version 1", "Version 2"],
         }
       : {
@@ -77,6 +87,8 @@ for (const language of ["en", "zh-CN"] as const) {
           firstName: "核对第 1 版：Harbour review",
           second: "来自 Claude Code · 第 2 版，共 2 版",
           first: "来自 Claude Code · 第 1 版，共 2 版",
+          kept: "1 条说法沿用第 1 版的结果",
+          checkAll: "重新核对全部说法",
           open: ["第 1 版", "第 2 版"],
         };
 
@@ -99,14 +111,14 @@ for (const language of ["en", "zh-CN"] as const) {
       const agent = await connectCanvasAgent(window);
 
       const deck = join(sources, "Harbour review.pptx");
-      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [WRONG] }]));
+      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [WRONG, SPRING] }]));
       const first = await callTool<{ version: number; mindId: string; needLook: number }>(
         agent,
         "hand_over_file",
         { path: deck },
       );
       expect(first).toMatchObject({ version: 1, needLook: 1 });
-      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [RIGHT] }]));
+      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [RIGHT, SPRING] }]));
       const second = await callTool<{ version: number; mindId: string; needLook: number }>(
         agent,
         "hand_over_file",
@@ -121,7 +133,14 @@ for (const language of ["en", "zh-CN"] as const) {
       const card = await checkCard(window);
       const handed = card.getByTestId("verify-handed");
       await expect(handed).toContainText(words.second);
+      // The spring tides line stood as it was: it kept version 1's result.
+      await expect(handed).toContainText(words.kept);
       await shot(window, `handed-version-2-${language}`);
+      const checkAll = handed.getByTestId("verify-handed-check-all");
+      await expect(checkAll).toHaveText(words.checkAll);
+      await pointAndClick(window, checkAll);
+      await expect(handed).not.toContainText(words.kept);
+      await expect(checkAll).toHaveCount(0);
 
       const other = handed.getByTestId("verify-handed-version");
       await expect(other).toHaveText([words.open[0] ?? ""]);

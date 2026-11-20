@@ -52,7 +52,10 @@ export interface HandOverDeps {
     folderId: string | null;
     allSheets?: boolean;
   }): Promise<VerifyDocumentResult>;
-  checkUnasked(mindId: string): Promise<UnaskedCheck>;
+  /** With `keep`, a line whose result still stands keeps it, and only the rest are checked. */
+  checkUnasked(mindId: string, keep: boolean): Promise<UnaskedCheck>;
+  /** Copies the results of one check's lines onto the same lines of another's; how many took one. */
+  carryChecks(fromMindId: string, toMindId: string): number;
   nameMind(mindId: string, title: string): void;
   /** Records the agent as the writer of the check's Note, by which one in no Folder is reached. */
   recordWriter(mindId: string, writer: { agent: string; pairingId: string }): void;
@@ -60,6 +63,13 @@ export interface HandOverDeps {
   say(key: MessageKey, params?: MessageParams): string;
   sleep(ms: number): Promise<void>;
   log: Logger;
+}
+
+/** A check started on a version's Note, and whether it keeps the results carried onto it. */
+interface CheckRun {
+  done: Promise<UnaskedCheck>;
+  outcome: UnaskedCheck | null;
+  keep: boolean;
 }
 
 /** The copy's file name: the item's title, kept to what every file system takes. */
@@ -76,7 +86,7 @@ function fileNameOf(title: string, kind: HandedFile["kind"]): string {
 export function createHandOver(deps: HandOverDeps) {
   const { store } = deps;
   /** Each check started, by its Note, while this run of IncarnaMind lasts. */
-  const runs = new Map<string, { done: Promise<UnaskedCheck>; outcome: UnaskedCheck | null }>();
+  const runs = new Map<string, CheckRun>();
   /** Why a version made no Note, by the version's id. */
   const unread = new Map<string, string>();
   let queue: Promise<unknown> = Promise.resolve();
@@ -92,17 +102,18 @@ export function createHandOver(deps: HandOverDeps) {
     }
   }
 
-  async function checkRun(mindId: string): Promise<UnaskedCheck> {
+  async function checkRun(mindId: string, keep: boolean): Promise<UnaskedCheck> {
     for (let tried = 0; ; tried++) {
-      const outcome = await deps.checkUnasked(mindId);
+      const outcome = await deps.checkUnasked(mindId, keep);
       if (outcome.kind !== "busy" || tried >= BUSY_TRIES) return outcome;
       await deps.sleep(BUSY_WAIT_MS);
     }
   }
 
-  function startCheck(mindId: string): void {
-    const run: { done: Promise<UnaskedCheck>; outcome: UnaskedCheck | null } = {
-      done: checkRun(mindId).catch((error: unknown): UnaskedCheck => {
+  function startCheck(mindId: string, keep: boolean): void {
+    const run: CheckRun = {
+      keep,
+      done: checkRun(mindId, keep).catch((error: unknown): UnaskedCheck => {
         deps.log.warn("handedFile.check.failed", {
           message: error instanceof Error ? error.message : String(error),
         });
@@ -227,7 +238,14 @@ export function createHandOver(deps: HandOverDeps) {
       deps.say("verify.handed.mindTitle", { name: input.title, version: version.number }),
     );
     deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
-    startCheck(made.mind.id);
+    // A line the version before had too keeps that result while it still stands (#3412): only what
+    // changed, or what its Documents changed under, is checked again.
+    const before = store
+      .versions(file.id)
+      .filter((each) => each.number < version.number && each.mindId !== null)
+      .at(-1);
+    const carried = before?.mindId ? deps.carryChecks(before.mindId, made.mind.id) : 0;
+    startCheck(made.mind.id, carried > 0);
     return {
       file: store.get(file.id) ?? file,
       version: version.number,
@@ -279,8 +297,8 @@ export function createHandOver(deps: HandOverDeps) {
         return supported + needLook.length === 0;
       };
       // A check that couldn't run, or that a quit stopped before it marked anything, runs when asked again.
-      if ((before === undefined || before.outcome?.kind === "not-asked") && unmarked()) {
-        startCheck(mindId);
+      if ((before === undefined && unmarked()) || before?.outcome?.kind === "not-asked") {
+        startCheck(mindId, before?.keep ?? false);
       }
       const run = runs.get(mindId);
       if (run && run.outcome === null) {
