@@ -8677,7 +8677,8 @@ export const en = {
   "agents.ask.request.fixAll":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says these {count} sentences need a look:\n\n{sentences}\n\nFix each of them from my Documents, and change nothing else in the note. Then check the note again yourself.",
   "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}",
-  "agents.ask.request.note": "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
+  "agents.ask.request.note":
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
   "agents.ask.verdict.contradicted": "is contradicted by my Documents",
   "agents.ask.verdict.not-found": "isn’t found in my Documents",

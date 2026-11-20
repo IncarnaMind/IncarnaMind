@@ -40,13 +40,7 @@ import { unreadFiguresOf } from "../../../shared/unreadFigures";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
-import {
-  askAgent,
-  askedAbout,
-  useAgentRequests,
-  useAgentsToAsk,
-  useNoModel,
-} from "../askYourAi";
+import { askAgent, askedAbout, useAgentRequests, useAgentsToAsk, useNoModel } from "../askYourAi";
 import {
   addAsCitation,
   addPartCitations,
@@ -304,8 +298,12 @@ export function ClaimMark({
   const agents = useAgentsToAsk(mindId);
   const noModel = useNoModel();
   const requests = useAgentRequests(mindId);
-  const askedSentence = comparableSentence(sentenceOf(editor, claim));
-  const asked = askedAbout(requests, agents, claim.check.id, askedSentence);
+  const asked = askedAbout(
+    requests,
+    agents,
+    claim.check.id,
+    comparableSentence(claim.sentence.text),
+  );
 
   /** `now`: the keyboard's focus shows or hides the card at once; the pointer waits (#3102). */
   const hold = useCallback((source: string, on: boolean, now = false) => {

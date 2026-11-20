@@ -8077,7 +8077,7 @@ export const zhCN = {
   "agents.activity.read_canvas": "读取了页面“{text}”",
   "agents.activity.update_canvas": "修改了页面“{text}”",
   "agents.activity.read_request": "读取了你关于“{text}”的请求",
-  "agents.activity.read_request.none": "查找你的请求",
+  "agents.activity.read_request.none": "查找了你的请求",
   "agents.activity.request": "查看请求",
   "agents.activity.count.one": "1 条结果",
   "agents.activity.count.other": "{count} 条结果",
@@ -8181,7 +8181,8 @@ export const zhCN = {
   "agents.ask.request.fixAll":
     "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，有 {count} 句需要留意：\n\n{sentences}\n\n请根据我的文档逐句改正，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
   "agents.ask.request.fixAll.item": "{n}. 这句话{verdict}：{sentence}",
-  "agents.ask.request.note": "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
+  "agents.ask.request.note":
+    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
   "agents.ask.verdict.unsupported": "没有依据",
   "agents.ask.verdict.contradicted": "与我的文档矛盾",
   "agents.ask.verdict.not-found": "在我的文档中找不到",

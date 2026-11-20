@@ -1,4 +1,4 @@
-import { realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -14,6 +14,7 @@ import {
   expectReadyDocuments,
   frontMind,
   launchApp,
+  openSettings,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -26,12 +27,13 @@ test.skip(
 );
 
 /*
- * Ask your AI (#3373): a User who connected their own AI and set up no model finds the page above
- * the Note bare and the assistant folded out of sight, with no rail, and a pill that asks that AI
- * about the Note, whose ⌄ also opens IncarnaMind's own chat on model setup; they ask it
- * to fix a sentence that needs a look, and with what they typed in the chat box. Claude Code has a
- * link that opens it with the request typed; VS Code has none, so the request is copied. The app
- * opens nothing here: each link it would open is recorded.
+ * Ask your AI (#3373, #3419): a User who connected their own AI and set up no model finds the page
+ * above the Note bare and the assistant folded out of sight, with no rail, and a pill that asks
+ * that AI about the Note, whose ⌄ also opens IncarnaMind's own chat on model setup; they ask it to
+ * fix a sentence that needs a look, all of them at once, and with what they typed in the chat box.
+ * Claude Code has a link that opens it with one line typed; VS Code has none, so the line is
+ * copied. The rest waits for the agent's read_request, which the card and its Activity then show.
+ * The app opens nothing here: each link it would open is recorded.
  */
 
 let dataDir: string;
@@ -81,10 +83,19 @@ async function connected(window: Page): Promise<AgentLaunch> {
   return launch;
 }
 
-/** The Note Claude Code wrote, its fuel sentence checked by Claude Code itself as overstated. */
-async function writtenAndChecked(launch: AgentLaunch): Promise<string> {
+/** Claude Code's own connection, as the agent's Tools reach IncarnaMind. */
+async function claudeCode(launch: AgentLaunch): Promise<Client> {
   const agent = new Client({ name: "test-agent", version: "1.0.0" });
   await agent.connect(new StdioClientTransport({ ...launch, stderr: "pipe" }));
+  return agent;
+}
+
+/**
+ * The Note Claude Code wrote, its fuel sentence checked by Claude Code itself as overstated and
+ * its booking sentence as unsupported.
+ */
+async function writtenAndChecked(launch: AgentLaunch): Promise<string> {
+  const agent = await claudeCode(launch);
   try {
     const made = await agent.callTool({
       name: "create_mind",
@@ -95,18 +106,30 @@ async function writtenAndChecked(launch: AgentLaunch): Promise<string> {
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
     ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
     const fuel = sentences.find((each) => each.text === OVERSTATED);
+    const booking = sentences.find((each) => each.text === BOOKING);
     await agent.callTool({
       name: "report_check",
       arguments: {
         mindId,
         task,
-        results: [{ n: fuel?.n, verdict: "overstated", explanation: "£310,000 against £284,000." }],
+        results: [
+          { n: fuel?.n, verdict: "overstated", explanation: "£310,000 against £284,000." },
+          { n: booking?.n, verdict: "unsupported", explanation: "No Document mentions it." },
+        ],
       },
     });
     return mindId;
   } finally {
     await agent.close();
   }
+}
+
+/** Saves a screenshot when INCARNAMIND_SCREENSHOTS names a folder for them. */
+async function shot(window: Page, name: string) {
+  const folder = process.env.INCARNAMIND_SCREENSHOTS;
+  if (!folder) return;
+  await mkdir(folder, { recursive: true });
+  await window.screenshot({ path: join(folder, `${name}.png`) });
 }
 
 /** The prompt a recorded link would have typed in Claude Code. */
@@ -119,13 +142,15 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
   try {
     await dismissChatSetup(window);
     await catchCopies(window);
-    const mindId = await writtenAndChecked(await connected(window));
+    const launch = await connected(window);
+    const mindId = await writtenAndChecked(launch);
     await pointAndClick(
       window,
       window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`),
     );
     await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
-    const noteNamed = `In IncarnaMind, about my note “${TITLE}” (mindId: ${mindId}):`;
+    const noteNamed = `About my note “${TITLE}” in IncarnaMind:`;
+    const fixLine = `Fix the sentence IncarnaMind flagged in “${TITLE}”.`;
 
     // No line above the Note, the assistant folded out of sight with no rail, and the pill asks
     // Claude Code, used last.
@@ -146,7 +171,9 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
 
     // The card's first action asks Claude Code, reached with the keyboard: Space goes into the card
     // on its mark.
-    const mark = frontMind(window).locator('[data-testid="claim-mark"][data-check="unsupported"]');
+    const mark = frontMind(window)
+      .locator('[data-testid="claim-mark"][data-check="unsupported"]')
+      .first();
     await mark.focus();
     await window.keyboard.press("Space");
     const card = window.getByTestId("claim-card");
@@ -157,12 +184,32 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(card).toBeHidden();
     await expect.poll(() => urlsOpened(app)).toHaveLength(2);
     link = (await urlsOpened(app))[1];
-    const request = typedIn(link);
+    expect(typedIn(link)).toBe(fixLine);
+
+    // The card says the request waits for Claude Code; Claude Code reads the rest once, over its
+    // connection, and the card says so.
+    await pointAndClick(window, mark);
+    await expect(card.getByTestId("claim-asked")).toHaveText(
+      "Waiting for Claude Code to read your request.",
+    );
+    await shot(window, "ask-card-waiting-en");
+    await window.keyboard.press("Escape");
+    const agent = await claudeCode(launch);
+    let request = "";
+    try {
+      const read = await agent.callTool({ name: "read_request", arguments: { note: TITLE } });
+      request = (read.structuredContent as { request: string }).request;
+    } finally {
+      await agent.close();
+    }
     expect(request).toBe(
       `In IncarnaMind, the check of my note “${TITLE}” (mindId: ${mindId}) says this sentence is overstated:\n\n“${OVERSTATED}”\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.`,
     );
     expect(request).not.toContain(CROSSINGS);
     expect(request).not.toContain(BOOKING);
+    await pointAndClick(window, mark);
+    await expect(card.getByTestId("claim-asked")).toHaveText("Claude Code read your request.");
+    await shot(window, "ask-card-read-en");
 
     // VS Code has no such link: from the card's ⋯ the request is copied, and the line says where to.
     await pointAndClick(window, mark);
@@ -172,14 +219,25 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
       card.getByTestId("check-actions").getByRole("menuitem", { name: "Ask VS Code" }),
     );
     await expect(window.getByTestId("copied-line")).toHaveText("Copied. Paste it into VS Code.");
-    expect(await copied(window)).toBe(request);
+    expect(await copied(window)).toBe(fixLine);
     expect(await urlsOpened(app)).toHaveLength(2);
+
+    // Every sentence that needs a look, in one request from the Note's check.
+    await pointAndClick(window, window.getByTestId("check-badge-open"));
+    const askAll = window.getByTestId("badge-ask-agent-all");
+    await expect(askAll).toHaveText("Ask Claude Code to fix 2");
+    await shot(window, "ask-all-en");
+    await pointAndClick(window, askAll);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
+    expect(typedIn((await urlsOpened(app))[2])).toBe(
+      `Fix the 2 sentences IncarnaMind flagged in “${TITLE}”.`,
+    );
 
     // The pill's key does what the pill does.
     await pointAndClick(window, frontMind(window).getByTestId("mind-editor"));
     await window.keyboard.press("ControlOrMeta+j");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
-    expect(typedIn((await urlsOpened(app))[2])).toBe(noteNamed);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(4);
+    expect(typedIn((await urlsOpened(app))[3])).toBe(noteNamed);
     await expect(assistant).toBeHidden();
 
     // IncarnaMind's own chat is under the pill's ⌄, last, by the keyboard as its agents are: it
@@ -214,8 +272,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
     await expect(window.getByTestId("model-setup")).toHaveCount(0);
     await window.keyboard.press("Enter");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(4);
-    expect(typedIn((await urlsOpened(app))[3])).toBe(`${noteNamed}\n\nWhat did fuel cost in 2025?`);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(5);
+    expect(typedIn((await urlsOpened(app))[4])).toBe(`${noteNamed}\n\nWhat did fuel cost in 2025?`);
     await expect(offer).toBeHidden();
     await expect(window.getByTestId("composer-input")).toHaveValue("");
 
@@ -224,10 +282,20 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-ask-agent")).toHaveText("交给 Claude Code");
     await pointAndClick(window, card.getByTestId("claim-ask-agent"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(5);
-    expect(typedIn((await urlsOpened(app))[4])).toContain(
-      `我的笔记“${TITLE}”（mindId：${mindId}）经核对，这句话有夸大：`,
+    await expect.poll(() => urlsOpened(app)).toHaveLength(6);
+    expect(typedIn((await urlsOpened(app))[5])).toBe(
+      `把 IncarnaMind 在笔记“${TITLE}”里标出来的那句改好。`,
     );
+
+    // What Claude Code read can be read again in its Activity.
+    const settings = await openSettings(window, "agents");
+    const row = settings.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
+    await pointAndClick(window, row.getByTestId("agent-activity-toggle"));
+    const call = row.getByTestId("agent-activity-call").filter({ hasText: "读取了你关于" });
+    await expect(call).toContainText(`读取了你关于“${TITLE}”的请求`);
+    await pointAndClick(window, call.getByText("查看请求"));
+    await expect(call.getByTestId("agent-activity-request")).toContainText(OVERSTATED);
+    await shot(window, "activity-request-zh-CN");
   } finally {
     await app.close();
   }

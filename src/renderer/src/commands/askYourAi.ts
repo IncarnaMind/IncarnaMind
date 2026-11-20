@@ -45,7 +45,8 @@ export const askYourAiCommands: readonly Command[] = [
     run() {
       const at = withAskableSentence();
       const sentence = at && askedSentenceOf(at.editor, at.claim);
-      if (at && sentence) void askAgent(at.agent, at.mindId, { kind: "fix", sentences: [sentence] });
+      if (at && sentence)
+        void askAgent(at.agent, at.mindId, { kind: "fix", sentences: [sentence] });
     },
   },
   {

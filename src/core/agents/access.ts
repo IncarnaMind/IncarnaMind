@@ -98,8 +98,8 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
-import type { AgentRequests } from "./requests";
 import { AgentRefusedError, text, whole } from "./refusals";
+import type { AgentRequests } from "./requests";
 import {
   type AgentAnalysed,
   type AgentCalculated,
@@ -2544,21 +2544,26 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         ? [{ action: "read", scope: { kind: "mind", mindId: chosen.mindId } }]
         : [];
       const summary = chosen ? titleOf(chosen.mindId) : (input?.note ?? "");
-      return call("read_request", typeof summary === "string" ? summary : "", effects, (pairing) => {
-        if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
-        const mind = minds.get(chosen.mindId);
-        if (!mind || !reaches(pairing, mind)) {
-          throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
-        }
-        const read = deps.requests.markRead(chosen.id);
-        if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
-        return {
-          result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
-          count: 1,
-          documentIds: [],
-          requestId: read.id,
-        };
-      });
+      return call(
+        "read_request",
+        typeof summary === "string" ? summary : "",
+        effects,
+        (pairing) => {
+          if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+          const mind = minds.get(chosen.mindId);
+          if (!mind || !reaches(pairing, mind)) {
+            throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+          }
+          const read = deps.requests.markRead(chosen.id);
+          if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+          return {
+            result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
+            count: 1,
+            documentIds: [],
+            requestId: read.id,
+          };
+        },
+      );
     },
   };
 }

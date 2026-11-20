@@ -6,7 +6,7 @@ import { agentSocketPath } from "../../src/core/agents";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
-import { agentsAdapter, connectLegacyAgent, resultText } from "../helpers/agents";
+import { agentsAdapter } from "../helpers/agents";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { replyingModel, scriptedModels } from "../helpers/models";
 import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
@@ -86,13 +86,6 @@ test.each(["en", "zh-CN"] as const)(
     const line = new URL(openLink.mock.calls[0]?.[0] ?? "").searchParams.get("prompt");
     expect(line).not.toContain(meeting.mindId);
     expect(line).not.toContain(sentence);
-    const agent = await connectLegacyAgent(await reopened.getAgentLaunch(pairing.id));
-    const prompt = resultText(await agent.callTool({ name: "read_request", arguments: {} }));
-    expect(prompt).toContain(meeting.mindId);
-    expect(prompt).toContain(documentId);
-    expect(prompt).toContain("check_citations");
-    expect(prompt?.includes("propose_changes")).toBe(pairing.propose);
-    expect(prompt).not.toContain(sentence);
     const privateFolder = await reopened.createLibraryGroup({
       name: "Separate transcript",
       description: "",
@@ -108,8 +101,14 @@ test.each(["en", "zh-CN"] as const)(
     expect(openLink).toHaveBeenCalledTimes(1);
     reopened.close();
     await vi.waitFor(() => expect(existsSync(agentSocketPath(dataDir))).toBe(false));
-    // A legacy meeting whose Note and Transcript were filed behind different walls (#2528).
     const db = openDatabase(join(dataDir, DATABASE_FILE));
+    const kept = db.get<{ text: string }>("SELECT text FROM agent_requests")?.text ?? "";
+    expect(kept).toContain(meeting.mindId);
+    expect(kept).toContain(documentId);
+    expect(kept).toContain("check_citations");
+    expect(kept.includes("propose_changes")).toBe(pairing.propose);
+    expect(kept).not.toContain(sentence);
+    // A legacy meeting whose Note and Transcript were filed behind different walls (#2528).
     db.run("UPDATE documents SET meeting_mind_id = NULL WHERE id = ?", [documentId]);
     db.close();
     const legacy = startCore(dataDir, adapters);

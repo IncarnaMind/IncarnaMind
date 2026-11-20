@@ -68,9 +68,9 @@ export function useReadAgentsToAsk(mindId: string | null, documentId?: string): 
 
 const NO_REQUESTS: readonly AgentRequest[] = [];
 
-const useRequests = create<{ byMind: Readonly<Record<string, readonly AgentRequest[]>> }>()(
-  () => ({ byMind: {} }),
-);
+const useRequests = create<{ byMind: Readonly<Record<string, readonly AgentRequest[]>> }>()(() => ({
+  byMind: {},
+}));
 
 const keepRequest = (request: AgentRequest) =>
   useRequests.setState(({ byMind }) => {

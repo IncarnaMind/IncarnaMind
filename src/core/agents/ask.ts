@@ -36,9 +36,11 @@ export interface AgentAskOptions {
   minds(): Mind[];
   meetingTranscript(meetingId: string, mindId: string): string | null;
   /** Keeps what the line doesn't say, for the pairing to read (`createAgents().keepRequest`). */
-  keepRequest(request: Pick<AgentRequest, "pairingId" | "mindId" | "sentences"> & {
-    text: string;
-  }): AgentRequest;
+  keepRequest(
+    request: Pick<AgentRequest, "pairingId" | "mindId" | "sentences"> & {
+      text: string;
+    },
+  ): AgentRequest;
   /** Opens a link in the agent's app; null where this copy of IncarnaMind can't. */
   openLink: ((url: string) => Promise<void>) | null;
   say: Say;

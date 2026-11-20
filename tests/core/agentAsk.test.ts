@@ -331,7 +331,11 @@ describe("asking the User's own AI", () => {
     const agent = await connectLegacyAgent(pairing.launch);
     await requestRead(agent);
     const [call] = await core.listAgentActivity(pairing.id);
-    expect(call).toMatchObject({ tool: "read_request", outcome: "done", request: LONG_FIX(mind.id) });
+    expect(call).toMatchObject({
+      tool: "read_request",
+      outcome: "done",
+      request: LONG_FIX(mind.id),
+    });
     expect(activityWords(call ?? never(), (key, params) => translate("en", key, params))).toBe(
       `Read your request about “${TITLE}”`,
     );
@@ -352,9 +356,9 @@ describe("asking the User's own AI", () => {
       first.name,
     ]);
     expect((await core.listAgentsToAsk(null)).map((each) => each.name)).toHaveLength(3);
-    await expect(
-      core.askAgent({ pairingId: codex.id, mindId: mind.id, ask: fix }),
-    ).rejects.toThrow("That agent can’t read this note now.");
+    await expect(core.askAgent({ pairingId: codex.id, mindId: mind.id, ask: fix })).rejects.toThrow(
+      "That agent can’t read this note now.",
+    );
     expect(await core.listAgentRequests(mind.id)).toEqual([]);
     await core.setLocalOnly(true);
     expect(await core.listAgentsToAsk(mind.id)).toEqual([]);

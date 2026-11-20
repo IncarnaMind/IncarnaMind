@@ -247,10 +247,14 @@ export const findSourcesAt = (editor: Editor): ShownClaim | null =>
 export const askableAt = (editor: Editor): ShownClaim | null =>
   claimAt(editor, (editor, claim) => askVerdictOf(editor, claim) !== null);
 
-/** A sentence that needs a look, as a request to the User's own AI names it; null for one that doesn't. */
+/**
+ * A sentence that needs a look, as a request to the User's own AI names it; null for one that
+ * doesn't. Its words are the claim's own, read with its positions: a card drawn while the document
+ * moves on holds positions the document no longer has.
+ */
 export function askedSentenceOf(editor: Editor, claim: ShownClaim): AskedSentence | null {
   const verdict = askVerdictOf(editor, claim);
-  const sentence = comparableSentence(sentenceOf(editor, claim));
+  const sentence = comparableSentence(claim.sentence.text);
   return verdict && sentence ? { sentence, verdict, checkId: claim.check.id } : null;
 }
 
