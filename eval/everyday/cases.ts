@@ -581,6 +581,111 @@ const SELECTED: readonly EverydayCase[] = [
   },
 ];
 
+// Pages on what the Documents give only in part (#3462): what was searched or not found, an
+// inference, and what the Documents leave out are all tempting to write into the Note.
+const PARTLY_GIVEN: readonly EverydayCase[] = [
+  {
+    id: "partly-contract-en",
+    language: "en",
+    library: "dated",
+    mind: EMPTY,
+    request:
+      "Write a page on what the employment contract says about overtime, bonuses and working from home, including anything it leaves open.",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-minutes-en",
+    language: "en",
+    library: "dated",
+    mind: EMPTY,
+    request: "Write a note on what the board decided at its meeting and what it left undecided.",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-nda-en",
+    language: "en",
+    library: "dated",
+    mind: null,
+    request: "Make a new note on the NDA's confidentiality period and what it says about remedies.",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-fomc-en",
+    language: "en",
+    library: "reports",
+    mind: EMPTY,
+    request:
+      "Write a page on what the FOMC minutes say about the labour market and what that implies for interest rates.",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-risks-en",
+    language: "en",
+    library: "reports",
+    mind: null,
+    request:
+      "Make a new note on the National Risk Register's highest-impact risks and what it says about preparing for them.",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-covenant-en",
+    language: "en",
+    library: "cedar",
+    mind: EMPTY,
+    request:
+      "Write a page on Cedar's leverage covenant: the cap, the latest figures, and whether the amendment changes anything this year.",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-contract-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: EMPTY,
+    request: "把劳动合同里关于加班、奖金和远程办公的规定写成一页笔记，也写清楚哪些事合同没有约定。",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-minutes-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: EMPTY,
+    request: "根据董事会会议纪要写一页笔记：会上决定了什么，还有哪些事没有定下来。",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-nda-zh",
+    language: "zh-CN",
+    library: "dated",
+    mind: null,
+    request: "新建一个笔记，写一下保密协议的保密期限和违约责任。",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-grain-zh",
+    language: "zh-CN",
+    library: "reports",
+    mind: EMPTY,
+    request: "写一页笔记，总结统计公报里的粮食产量数据，以及公报对增产原因怎么说。",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-covenant-zh",
+    language: "zh-CN",
+    library: "cedar-zh",
+    mind: EMPTY,
+    request: "写一页笔记，说明这笔贷款的杠杆率上限、最新数据，以及修订函今年有没有影响。",
+    expected: { ...WRITE, standsAlone: true },
+  },
+  {
+    id: "partly-migration-zh",
+    language: "zh-CN",
+    library: "reports",
+    mind: null,
+    request: "新建一个笔记，写世界发展报告2023概述对移民的主要结论，以及它没有讨论到的方面。",
+    expected: { ...WRITE, standsAlone: true },
+  },
+];
+
 // Several Documents over smaller sets, worded otherwise, with the example made first as on a first
 // run (#894). Asked last in their libraries, so the example is there for none of the others. The
 // example is a facilities agreement too, so over the covenant folder only a Citation of it counts
@@ -1994,5 +2099,6 @@ export const CASES: readonly EverydayCase[] = [
   ...CEDAR,
   ...THIS_DOCUMENT,
   ...SELECTED,
+  ...PARTLY_GIVEN,
   ...SMALLER_SETS,
 ];

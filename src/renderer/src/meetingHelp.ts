@@ -242,7 +242,7 @@ export function addHelpToNotes(
     const question = helpAsked(help, translateNow);
     const { blockIds } = await core.addToNote({
       mindId: meeting.mindId,
-      blocks: withAnswerChecks(pageBlocks(answer, question), answer, question, scope),
+      blocks: withAnswerChecks(pageBlocks(answer), answer, scope),
       origin: { from: messageReference(answer.conversationId, answer.id), question },
       model: answer.model,
     });

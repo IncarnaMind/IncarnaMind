@@ -49,8 +49,6 @@
  */
 import { changeLogOf } from "../../src/core/answers/claimedChanges";
 import { COVERED_AT_ONCE } from "../../src/core/answers/coverage";
-import { forPage, withoutPointersBack } from "../../src/core/answers/pointersBack";
-import { withoutSearchTalk } from "../../src/core/answers/searchTalk";
 import { toolTextIn } from "../../src/core/answers/toolText";
 import type {
   AskedQuote,
@@ -213,7 +211,6 @@ export type RequestFailure =
   | { kind: "as-text"; sources: string[] }
   | { kind: "earlier"; said: string }
   | { kind: "example"; said: string }
-  | { kind: "content-lost"; sentences: string[] }
   | { kind: "unseen-attempt"; said: string }
   | { kind: "date-not-in-text"; dates: string[] }
   | { kind: "wrong-language"; wanted: "en" | "zh-CN"; share: number }
@@ -346,84 +343,6 @@ function leftOut(given: string, written: string): string[] {
   return proseSentences(given).filter((sentence) => !there.includes(lettersOf(sentence)));
 }
 
-function blocksIn(text: string): string[] {
-  const blocks: string[] = [];
-  let block: string[] = [];
-  let fenced = false;
-  for (const line of [...text.split("\n"), ""]) {
-    if (/^\s*(?:```|~~~)/.test(line)) fenced = !fenced;
-    if (fenced || line.trim() !== "") block.push(line);
-    else if (block.length > 0) {
-      blocks.push(block.join("\n"));
-      block = [];
-    }
-  }
-  return blocks;
-}
-
-/**
- * How the guard's `output` differs from its `input`, Block by Block: the
- * Blocks it took out, and those of its output that aren't an input Block
- * kept word for word and in order.
- */
-export function guardTook(input: string, output: string): { removed: string[]; changed: string[] } {
-  const kept = blocksIn(output);
-  const removed: string[] = [];
-  const changed: string[] = [];
-  let at = 0;
-  for (const block of blocksIn(input)) {
-    const found = kept.indexOf(block, at);
-    if (found < 0) {
-      removed.push(block);
-      continue;
-    }
-    changed.push(...kept.slice(at, found));
-    at = found + 1;
-  }
-  return { removed, changed: [...changed, ...kept.slice(at)] };
-}
-
-// The words a pointer is made of, so what a sentence says besides is what's left.
-const POINTER_WORDS = new Set(
-  (
-    "see refer to check for the a an my in is are was were be been has have i i've already as like " +
-    "covered set out described explained discussed listed given summarised summarized detailed " +
-    "addressed answered outlined shown showed noted mentioned included dealt with stated said " +
-    "above earlier previous prior last first original answer answers reply response conversation " +
-    "chat this that these those it they all both and or also please more further full rest other " +
-    "details detail information list breakdown same which of on"
-  ).split(" "),
-);
-const POINTER_ZH =
-  /上一条|上条|前一条|上一个|上一次|之前|先前|前面|刚才|上面|回答|回复|答复|上文|前文|参见|详见|请见|参阅|参考|查看|具体|更多|信息|详情|内容|其余|其他|正如|所述|所说|已经|说明|介绍|列出|提到|一致|[的请可见如已在中里我同与，。]/gu;
-
-function onlyAPointer(sentence: string): boolean {
-  if (!POINTS_BACK.test(sentence) || /[\d"“”「」『』]/.test(sentence)) return false;
-  const words = sentence.toLocaleLowerCase().match(/[a-z]+(?:['’][a-z]+)?/g) ?? [];
-  const han = sentence.replace(POINTER_ZH, "").match(/\p{Script=Han}/gu) ?? [];
-  return words.filter((word) => !POINTER_WORDS.has(word)).length <= 4 && han.length <= 10;
-}
-
-const NOT_A_PARAGRAPH = /^\s*(?:#|[-*+]\s|\d{1,3}[.)]\s|\||>|```|~~~)|^ {4}/;
-
-/**
- * Whether the guard may take out a Block, by this evaluation's own reading
- * rather than the app's: a paragraph of one line and one sentence, which is
- * only a pointer to an earlier Answer (it names one, holds no figure, marker
- * or quote, and says at most four words, or ten Chinese characters, besides).
- */
-const aPointerParagraph = (block: string) =>
-  !block.includes("\n") &&
-  !NOT_A_PARAGRAPH.test(block) &&
-  proseSentences(block).length === 1 &&
-  onlyAPointer(block.trim());
-
-/** What the guard lost going from `input` to `output`: each Block it took that it may not take, and each Block it changed. */
-export function guardLosses(input: string, output: string): string[] {
-  const { removed, changed } = guardTook(input, output);
-  return [...removed.filter((block) => !aPointerParagraph(block)), ...changed];
-}
-
 /** The sentences of what goes into a page that point to an earlier Answer. */
 export const pointersIn = (text: string): string[] =>
   proseSentences(text).filter((sentence) => POINTS_BACK.test(sentence));
@@ -527,9 +446,8 @@ export function documentsCovered(outcome: RequestOutcome): {
 
 /**
  * What a call of add_to_mind, create_mind or edit_mind gave to write: its
- * `content`; or, given `answer: true`, the earlier Answer it copied, which
- * the guard reads as Add to note does, with that Answer's Question. `landed`:
- * it went into a Mind.
+ * `content`; or, given `answer: true`, the earlier Answer it copied, with
+ * that Answer's Question. `landed`: it went into a Mind.
  */
 export interface GivenToMind {
   content: string;
@@ -550,30 +468,6 @@ export function givenToMindsOf(
     }
     return typeof call.input.content === "string" ? [{ content: call.input.content, landed }] : [];
   });
-}
-
-const guarded = ({ content, question }: GivenToMind) =>
-  question === undefined ? withoutPointersBack(content).markdown : forPage(content, question);
-
-/**
- * What the guard took out on the way into a page, Block by Block: of the
- * reply, by Add to note, and of what the calls gave to write into Minds; and
- * what of it was lost: a Block it may not take, or a Block it changed.
- */
-export function takenOut(outcome: RequestOutcome): { removed: string[]; lost: string[] } {
-  const pairs: [string, string][] = [
-    ...(outcome.addedToPage === undefined
-      ? []
-      : [[outcome.answer.text, outcome.addedToPage] as [string, string]]),
-    ...(outcome.givenToMinds ?? []).map((given): [string, string] => [
-      given.content,
-      guarded(given),
-    ]),
-  ];
-  return {
-    removed: pairs.flatMap(([input, output]) => guardTook(input, output).removed),
-    lost: pairs.flatMap(([input, output]) => guardLosses(input, output)),
-  };
 }
 
 const wordsOf = (text: string) =>
@@ -599,9 +493,9 @@ function onlyTakenOut(given: string, now: string): boolean {
 }
 
 /**
- * The sentences the guard and search-talk filtering left in what the calls
- * gave that the Mind no longer holds as written: the model's edit_mind, or
- * the app's check of the sentences written, changed them after the guard.
+ * The sentences of what the calls gave that the Mind no longer holds as
+ * written: the model's edit_mind, or the app's check of the sentences
+ * written, changed them after they were written.
  * Each is beside the Mind's sentence that is it with words only taken out
  * (`cut`), else the Block of the Mind that shares most of its words.
  */
@@ -611,7 +505,7 @@ export function rewrittenLater(
   const written = outcome.writtenInMinds ?? [];
   const given = (outcome.givenToMinds ?? [])
     .filter(({ landed }) => landed)
-    .map((given) => withoutSearchTalk(guarded(given)).markdown)
+    .map((given) => given.content)
     .join("\n\n");
   return leftOut(given, written.join("\n\n")).map((sentence) => {
     const cut = written
@@ -741,8 +635,6 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const written = [answer.text, ...inMinds].join("\n\n");
   const example = expected.noExample ? written.match(EXAMPLE)?.[0] : undefined;
   if (example) failures.push({ kind: "example", said: example });
-  const { lost } = takenOut(outcome);
-  if (lost.length > 0) failures.push({ kind: "content-lost", sentences: lost });
   const unseen = outcome.askedAgain ? aboutAnUnseenAttempt(answer.text) : null;
   if (unseen) failures.push({ kind: "unseen-attempt", said: unseen });
   const dates = expected.textDates ? datesNotInText(answer.text, outcome.texts ?? []) : [];
@@ -931,8 +823,6 @@ export function failureLine(failure: RequestFailure): string {
       return `talks about an earlier Answer: “${failure.said}”`;
     case "example":
       return `mentions the example unasked: “${failure.said}”`;
-    case "content-lost":
-      return `left out of a page what says more than a pointer: ${failure.sentences.map((sentence) => `“${sentence}”`).join(" ")}`;
     case "unseen-attempt":
       return `says something of an earlier try the User never saw: “${failure.said}”`;
     case "date-not-in-text":

@@ -41,6 +41,8 @@ const meetingWords = {
     ],
     closing: "Thanks, that is everything for today.",
     overview: "The partner briefing stays on schedule. The launch and payment review have moved.",
+    corrected: "Keep the preview invitations on hold until the next review.",
+    discarded: "Send the preview invitations today.",
     disclosure: "Decisions and action items (5)",
     decisions: "Decisions",
     actions: "Action items",
@@ -62,12 +64,19 @@ const meetingWords = {
     ],
     closing: "谢谢，今天就到这里。",
     overview: "合作伙伴说明会如期举行。上线和审核日期已调整。",
+    corrected: "预览邀请暂缓发送，等下次审核后再决定。",
+    discarded: "今天发送预览邀请。",
     disclosure: "决定和待办事项（5 项）",
     decisions: "决定",
     actions: "待办事项",
     status: { current: "当前", open: "待完成", done: "已完成", cancelled: "已取消" },
   },
-};
+} as const;
+
+async function expectItem(row: Locator, text: string, status: string) {
+  await expect(row.getByTestId("meeting-summary-item-text")).toHaveText(text);
+  await expect(row.getByTestId("meeting-summary-item-status")).toHaveText(status);
+}
 
 async function expectSummaryItems(
   items: Locator,
@@ -77,26 +86,31 @@ async function expectSummaryItems(
   const actions = items.getByRole("list", { name: words.actions, exact: true });
   await expect(decisions.getByRole("listitem")).toHaveCount(2);
   await expect(actions.getByRole("listitem")).toHaveCount(3);
-  await expect(decisions.getByRole("listitem").nth(0)).toHaveText(
-    `${words.opening[0]}${words.status.current}`,
-  );
-  await expect(decisions.getByRole("listitem").nth(1)).toHaveText(
-    `${words.correction[0]}${words.status.current}`,
-  );
-  await expect(actions.getByRole("listitem").nth(0)).toHaveText(
-    `${words.correction[1]}${words.status.open}`,
-  );
-  await expect(actions.getByRole("listitem").nth(1)).toHaveText(
-    `${words.correction[2]}${words.status.cancelled}`,
-  );
-  await expect(actions.getByRole("listitem").nth(2)).toHaveText(
-    `${words.correction[3]}${words.status.done}`,
-  );
-  await expect(items).not.toContainText(words.opening[1] ?? "");
-  await expect(items).not.toContainText(words.opening[2] ?? "");
+  const decisionRows = decisions.getByTestId("meeting-summary-item");
+  const actionRows = actions.getByTestId("meeting-summary-item");
+  const [briefing] = words.opening;
+  const [launch, review, invitations, checklist] = words.correction;
+  await expectItem(decisionRows.nth(0), briefing, words.status.current);
+  await expectItem(decisionRows.nth(1), launch, words.status.current);
+  await expectItem(actionRows.nth(0), review, words.status.open);
+  await expectItem(actionRows.nth(1), invitations, words.status.cancelled);
+  await expectItem(actionRows.nth(2), checklist, words.status.done);
+  await expect(items).not.toContainText(words.opening[1]);
+  await expect(items).not.toContainText(words.opening[2]);
   await expect
     .poll(() => items.evaluate((element) => element.scrollWidth - element.clientWidth))
     .toBeLessThanOrEqual(1);
+}
+
+function summaryItem(items: Locator, id: string) {
+  return items.locator(`[data-testid="meeting-summary-item"][data-item-id="${id}"]`);
+}
+
+async function showSpeech(window: Page, row: Locator, quote: string) {
+  await pointAndClick(window, row.getByTestId("meeting-summary-item-original"));
+  const sources = row.getByTestId("meeting-summary-item-sources");
+  await expect(sources).toBeVisible();
+  return sources.getByRole("listitem").filter({ hasText: quote });
 }
 
 async function chooseSummaryModel(window: Page, route: Locator, modelId?: string): Promise<string> {
@@ -123,24 +137,35 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`an opted-in summary appears after Stop across the meeting's views (${language})`, async () => {
     const dir = await createDataFolder();
     const words = meetingWords[language];
-    const { app, window } = await launchApp(dir, {
-      fakeChat: true,
-      computerSound: "silent",
-      transcriber: {
-        live: true,
-        lines: [
-          words.opening.join(" "),
-          [words.opening[0], ...words.correction].join(" "),
-          words.closing,
-        ],
-      },
-    });
+    let running: Awaited<ReturnType<typeof launchApp>> | null = null;
     try {
+      running = await launchApp(dir, {
+        fakeChat: true,
+        computerSound: "silent",
+        transcriber: {
+          live: true,
+          lines: [
+            words.opening.join(" "),
+            [words.opening[0], ...words.correction].join(" "),
+            words.closing,
+          ],
+        },
+      });
+      const { app, window } = running;
       if (screenshots) await window.emulateMedia({ reducedMotion: "reduce" });
       await setWindowSize(app, window, language === "en" ? 1280 : 900, 660);
       await dismissChatSetup(window);
       const bridge = await coreOf(window);
-      const afterShot = async (view: "notes" | "transcript" | "transcript-collapsed") => {
+      const afterShot = async (
+        view:
+          | "notes"
+          | "transcript"
+          | "transcript-collapsed"
+          | "original"
+          | "source"
+          | "editing"
+          | "corrected",
+      ) => {
         if (!screenshots) return;
         await expect
           .poll(
@@ -263,6 +288,29 @@ for (const language of ["en", "zh-CN"] as const) {
         await pointAndClick(window, window.getByTestId("assistant-fold"));
       await afterShot("transcript");
 
+      const [launchQuote, , invitationsQuote] = words.correction;
+      const launchItem = items.getByTestId("meeting-summary-item").filter({ hasText: launchQuote });
+      const originalLaunch = await showSpeech(window, launchItem, launchQuote);
+      const timestamp = originalLaunch.getByTestId("meeting-summary-item-source");
+      await expect(timestamp).toBeVisible();
+      const originalText = await originalLaunch.locator("blockquote").innerText();
+      if (screenshots) await timestamp.scrollIntoViewIfNeeded();
+      await afterShot("original");
+      await timestamp.focus();
+      await window.keyboard.press("Enter");
+      const marked = window.locator(
+        '[data-testid="viewer-transcript"] [data-cue-start] mark[data-quote-highlight]',
+      );
+      await expect
+        .poll(async () => (await marked.allTextContents()).join("").replace(/\s+/g, ""))
+        .toBe(originalText.replace(/\s+/g, ""));
+      await expect(marked.first()).toBeInViewport();
+      await afterShot("source");
+      const sourceTab = window.getByTestId("document-tab");
+      await expect(sourceTab).toHaveCount(1);
+      await pointAndClick(window, sourceTab.getByTestId("tab-close"));
+      await expect(sourceTab).toHaveCount(0);
+
       await showMeetingView(window, window, "notes");
       await expect(transcript).toHaveCount(0);
       await expect(window.getByTestId("meeting-summary-text")).toHaveText(words.overview);
@@ -274,6 +322,54 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(editor.getByTestId("meeting-summary-text")).toHaveCount(0);
 
       await afterShot("notes");
+      const invitations = noteItems
+        .getByTestId("meeting-summary-item")
+        .filter({ hasText: invitationsQuote });
+      const itemId = await invitations.getAttribute("data-item-id");
+      if (!itemId) throw new Error("The preview invitations item needs its saved ID.");
+      const row = summaryItem(noteItems, itemId);
+      const edit = row.getByTestId("meeting-summary-item-edit");
+      await edit.focus();
+      await window.keyboard.press("Enter");
+      const editForm = noteItems.getByTestId("meeting-summary-item-editor");
+      const text = editForm.getByRole("textbox");
+      const kind = editForm.getByRole("combobox").nth(0);
+      const status = editForm.getByRole("combobox").nth(1);
+      await expect(text).toHaveValue(invitationsQuote);
+      await expect(kind).toHaveValue("action");
+      await expect(status).toHaveValue("cancelled");
+      await text.fill(words.discarded);
+      await status.selectOption("done");
+      await expect(editForm.getByTestId("meeting-summary-item-cancel")).toBeVisible();
+      await text.focus();
+      await window.keyboard.press("Escape");
+      await expect(editForm).toHaveCount(0);
+      await expectItem(row, invitationsQuote, words.status.cancelled);
+      await expect(edit).toBeFocused();
+
+      await pointAndClick(window, edit);
+      await text.fill(words.corrected);
+      await kind.selectOption("decision");
+      await status.selectOption("active");
+      const save = editForm.getByTestId("meeting-summary-item-save");
+      if (screenshots) await save.evaluate((button) => button.scrollIntoView({ block: "center" }));
+      await afterShot("editing");
+      await pointAndClick(window, save);
+      await expect(editForm).toHaveCount(0);
+      const decisionList = noteItems.getByRole("list", { name: words.decisions, exact: true });
+      await expectItem(summaryItem(decisionList, itemId), words.corrected, words.status.current);
+      await expect(decisionList.getByTestId("meeting-summary-item")).toHaveCount(3);
+      await expect(
+        noteItems
+          .getByRole("list", { name: words.actions, exact: true })
+          .getByTestId("meeting-summary-item"),
+      ).toHaveCount(2);
+      await expect(noteItems).not.toContainText(words.discarded);
+      const preservedQuote = await showSpeech(window, row, invitationsQuote);
+      await expect(preservedQuote).toBeVisible();
+      await expect(preservedQuote).not.toContainText(words.corrected);
+      if (screenshots) await preservedQuote.scrollIntoViewIfNeeded();
+      await afterShot("corrected");
       await showMeetingView(window, window, "mine");
       await expect(window.getByTestId("meeting-summary")).toHaveCount(0);
       await expect(editor).toContainText(myText);
@@ -292,8 +388,35 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(copy.getByTestId("meeting-summary")).toHaveCount(0);
         await expect(original.getByTestId("meeting-summary-text")).toHaveText(words.overview);
       }
-    } finally {
+
       await app.close();
+      running = null;
+      const reopened = await launchApp(dir, { fakeChat: true });
+      running = reopened;
+      await setWindowSize(reopened.app, reopened.window, language === "en" ? 1280 : 900, 660);
+      const persisted = await (await coreOf(reopened.window)).evaluate(async (core, id) => {
+        const [meeting] = await core.listMeetings();
+        return meeting?.summary?.items?.find((item) => item.id === id);
+      }, Number(itemId));
+      expect(persisted).toMatchObject({
+        id: Number(itemId),
+        kind: "decision",
+        status: "active",
+        text: words.corrected,
+        corrected: true,
+      });
+      await pointAndClick(reopened.window, reopened.window.getByTestId("mind-tab").first());
+      const focused = reopened.window.locator('[data-testid="tab-group"][data-focused="true"]');
+      await showMeetingView(reopened.window, focused, "notes");
+      const restartedItems = focused.getByTestId("meeting-summary-items");
+      await expect(restartedItems).toBeVisible();
+      if ((await restartedItems.getAttribute("open")) === null)
+        await pointAndClick(reopened.window, restartedItems.locator("summary"));
+      const savedRow = summaryItem(restartedItems, itemId);
+      await expectItem(savedRow, words.corrected, words.status.current);
+      await expect(await showSpeech(reopened.window, savedRow, invitationsQuote)).toBeVisible();
+    } finally {
+      await running?.app.close();
       await removeDataFolder(dir);
     }
   });

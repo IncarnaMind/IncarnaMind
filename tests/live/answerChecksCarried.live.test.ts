@@ -18,7 +18,6 @@
 import { appendFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import type { ConversationAnswer, Core } from "../../src/core";
-import { forPage } from "../../src/core/answers/pointersBack";
 import { CITATION_NODE, type ConversationQuestion } from "../../src/core/api";
 import { messageReference } from "../../src/core/references";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
@@ -59,9 +58,9 @@ const wordsOf = (text: string) => comparableSentence(text).replace(/\s+/gu, "");
  * What the Answer's own Citations say of each cited sentence: contradicted or unsupported when one
  * of them was judged so, supported when every one was judged supported, else nothing.
  */
-function judgedSentences(answer: ConversationAnswer, question: string) {
+function judgedSentences(answer: ConversationAnswer) {
   const byMarker = new Map(answer.citations.map((citation) => [citation.marker, citation]));
-  return citedSentences(forPage(answer.text, question), answer.figures).map((cited) => {
+  return citedSentences(answer.text, answer.figures).map((cited) => {
     const citations = cited.markers.map((marker) => byMarker.get(marker));
     const known = citations.flatMap((citation) => (citation ? [citation] : []));
     const verdict: Verdict | null = cited.calculated
@@ -131,13 +130,8 @@ async function noteFrom(
   const scope = question?.scope ?? null;
   const blocks =
     entry === "selected"
-      ? withAnswerChecks(
-          asQuoteChecked(firstCitedBlock(answer), answer.status),
-          answer,
-          asked,
-          scope,
-        )
-      : withAnswerChecks(pageBlocks(answer, asked), answer, asked, scope);
+      ? withAnswerChecks(asQuoteChecked(firstCitedBlock(answer), answer.status), answer, scope)
+      : withAnswerChecks(pageBlocks(answer), answer, scope);
   const mind = await core.createMind({ title: entry === "write" ? asked : "My notes" });
   const client = await connectToMind(core, mind.id);
   if (entry !== "write") {
@@ -211,7 +205,7 @@ describe.skipIf(!KEY)(
           try {
             const made = await answered(core, each.question);
             totals.runs++;
-            const judged = judgedSentences(made.answer, made.question?.text ?? "");
+            const judged = judgedSentences(made.answer);
             const repeated = new Set(
               judged
                 .map((sentence) => sentence.words)

@@ -202,7 +202,12 @@ export function createLiveSummaries(options: Options) {
           return;
         }
         if (reply.length > 32_768) throw new Error("Invalid summary response");
-        const value = readMeetingSummaryUpdate(reply, input);
+        // A revised Transcript can drop an AI item. Its locally corrected copy still owns its ID.
+        const lastCorrectedId = now.summary?.items?.reduce(
+          (last, item) => (item.corrected ? Math.max(last, item.id) : last),
+          0,
+        );
+        const value = readMeetingSummaryUpdate(reply, input, lastCorrectedId);
         for (const [id, words] of Object.entries(value.evidence)) {
           const quote = normalizeSummaryEvidence(words);
           const quotes = evidence[Number(id)] ?? [];

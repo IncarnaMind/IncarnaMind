@@ -3250,6 +3250,11 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE agent_pairings ADD COLUMN share_tag_names INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 149,
+    description: "Locally corrected decisions and actions in a stopped Meeting",
+    sql: "ALTER TABLE meetings ADD COLUMN summary_corrections TEXT;",
+  },
 ];
 
 /**

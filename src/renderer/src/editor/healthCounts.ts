@@ -76,8 +76,17 @@ const holdsFigures = memoized(
   (words: string) => MAY_HOLD_FIGURE.test(words) && readFigures(words).length > 0,
 );
 
-/** Blocks whose text isn't counted. */
-const UNCOUNTED: ReadonlySet<string> = new Set(["question", "heading", "codeBlock", "blockMath"]);
+/**
+ * Blocks whose text isn't counted: a table's header cell among them, which names its column or
+ * row, as no check reads one (`inTableHeader`, #2378, #3465).
+ */
+const UNCOUNTED: ReadonlySet<string> = new Set([
+  "question",
+  "heading",
+  "codeBlock",
+  "blockMath",
+  "tableHeader",
+]);
 
 /** Words or a node a change adds: not the Mind's until it is accepted. */
 const proposed = (node: ProseMirrorNode) =>
@@ -208,7 +217,8 @@ function eachSentence(
           text,
           hasFigures: true,
           check: claim?.shown ?? null,
-          skipped: false,
+          // As the core reads it: a check's model may find a chart has nothing to check (#3465).
+          skipped: skipped.has(sentenceKey(text)),
           kept: keptOn(kept, { from, to, text }),
         }),
       });

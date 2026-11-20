@@ -84,7 +84,7 @@ test("Add to note puts the mark into the Note", async () => {
   const mind = await core.createMind({ title: "Growth" });
   await core.addToNote({
     mindId: mind.id,
-    blocks: pageBlocks(answer("Harbour's growth was [=1].", "done"), "What was the growth?"),
+    blocks: pageBlocks(answer("Harbour's growth was [=1].", "done")),
     origin: null,
     model: null,
   });

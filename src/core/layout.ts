@@ -196,6 +196,20 @@ function parsePlace(value: unknown): DocumentPlace {
       throw new InvalidInputError("A place shows the current version or not.");
     place.currentVersion = true;
   }
+  if (value.transcriptCue !== undefined) {
+    const cue = value.transcriptCue;
+    if (
+      !isRecord(cue) ||
+      typeof cue.startMs !== "number" ||
+      typeof cue.endMs !== "number" ||
+      !Number.isSafeInteger(cue.startMs) ||
+      !Number.isSafeInteger(cue.endMs) ||
+      cue.startMs < 0 ||
+      cue.endMs < cue.startMs
+    )
+      throw new InvalidInputError({ key: "error.layout.transcriptCue" });
+    place.transcriptCue = { startMs: cue.startMs, endMs: cue.endMs };
+  }
   if (value.wordPlace !== undefined) {
     if (typeof value.wordPlace !== "string" || !WORD_PLACE.test(value.wordPlace)) {
       throw new InvalidInputError({ key: "error.layout.wordPlace" });
