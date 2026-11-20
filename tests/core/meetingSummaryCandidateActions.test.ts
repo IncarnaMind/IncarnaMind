@@ -336,7 +336,7 @@ test("a failed explicit review can be retried and sends the final edited items",
       text: manual,
     });
     await expect(core.reviewMeetingSummaryCandidates(meeting.id)).rejects.toMatchObject({
-      wording: { key: "meetings.summary.candidates.failed" },
+      wording: { key: "error.meeting.candidateReviewFailed" },
     });
     expect((await core.listMeetings())[0]?.summary?.candidatesReviewed).toBeUndefined();
     await expect(core.reviewMeetingSummaryCandidates(meeting.id)).rejects.toMatchObject({

@@ -8337,7 +8337,7 @@ export const zhCN = {
     "首次展开会将转写稿和当前的决定、待办发给所选 AI 核对一次。",
   "meetings.summary.candidates.checking": "所选 AI 正在核对转写稿…",
   "meetings.summary.candidates.empty": "没有待确认的原话。",
-  "meetings.summary.candidates.failed": "所选 AI 未能核对转写稿。重试会重新发起核对。",
+  "error.meeting.candidateReviewFailed": "所选 AI 未能核对转写稿。重试会重新发起核对。",
   "meetings.summary.candidates": "候选原话（{count} 条）",
   "meetings.summary.candidate.add": "加入待办",
   "meetings.summary.candidate.added": "已加入待办。",

@@ -74,7 +74,7 @@ export function createCandidateReviews(options: Options) {
           error.wording?.key === "error.meeting.summaryCandidateReviewUnavailable")
       )
         throw error;
-      throw new TranslatableError({ key: "meetings.summary.candidates.failed" });
+      throw new TranslatableError({ key: "error.meeting.candidateReviewFailed" });
     }
   }
 

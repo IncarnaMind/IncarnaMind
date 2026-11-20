@@ -83,7 +83,7 @@ export function MeetingSummaryCandidates({
     } catch (error) {
       const failure = describeError(error);
       console.warn("Meeting quote review failed", failure.reason);
-      setCheckError(failure.wording?.key ?? "meetings.summary.candidates.failed");
+      setCheckError(failure.wording?.key ?? "error.meeting.candidateReviewFailed");
     } finally {
       reviewing.current = false;
       setChecking(false);
