@@ -5795,7 +5795,11 @@ export function createCore(adapters: CoreAdapters): Core {
     setNotCited: (documentId, notCited) => void documents.setNotCited(documentId, notCited),
     connectedAt: (pairingId) =>
       agents.settings().pairings.find((pairing) => pairing.id === pairingId)?.createdAt ?? null,
-    retire: (documentId) => void documents.delete([documentId]),
+    retire: (documentId) =>
+      db.transaction(() => {
+        documents.delete([documentId]);
+        recentlyDeleted.deletePermanently([{ kind: "document", id: documentId }]);
+      }),
     repoint: (mindId, documentId) =>
       content.edit(mindId, (blocks) => {
         const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);

@@ -11,9 +11,11 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
 import { agentMadeIt } from "../../src/core/agentFiles/handOver";
+import { verificationOf } from "../../src/shared/verification";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { waitForProcessing } from "../helpers/documents";
 import { type Handed, handOver, refusal, started, structured } from "../helpers/handedFiles";
+import { connectToMind } from "../helpers/mindClient";
 import { plainDeck } from "../helpers/pptx";
 
 const EAST = "The east quay holds 31 boats.";
@@ -300,6 +302,36 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     expect(kept?.versions.map((each) => each.mindId)).toEqual([handed.mindId]);
   });
 
+  // protects=the copy a scan's Document takes the place of goes for good, never to Recently deleted: the User didn't delete it, and restoring it would bring the second Document back; each version's check Note still opens, on the folder's Document (#3499); fails_when=Recently deleted lists the copy, or a version's Note checks the copy
+  it("the copy that goes isn't in Recently deleted, and each version's check still opens", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Quay review.pptx");
+    await writeFile(path, deck());
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    await writeFile(path, deck([EAST, WEST]));
+    const second = structured<Handed>(await handOver(agent, { path }));
+    const [copy] = (await quay(core)).documents;
+
+    const folder = await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    const { documents } = await quay(core);
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({ linkedFolderId: folder.id, notCited: true });
+    expect((await core.listDeleted()).map((each) => each.id)).not.toContain(copy?.id);
+    for (const [handed, words] of [
+      [first, EAST],
+      [second, WEST],
+    ] as const) {
+      const kept = await core.handedFileOf(handed.mindId ?? "");
+      expect(kept?.file.documentId).toBe(documents[0]?.id);
+      expect(kept?.versions.map((each) => each.mindId)).toEqual([first.mindId, second.mindId]);
+      const note = await connectToMind(core, handed.mindId ?? "");
+      expect(verificationOf(note.doc)?.documentId).toBe(documents[0]?.id);
+      expect(note.blocks.toString()).toContain(words);
+    }
+  });
+
   // protects=a file handed over while its Linked folder is paused is a copy; once resumed, the scan's Document is the handed file's (#3499)
   it("a paused folder resumed: the scan's Document is the handed file's", async () => {
     const { core, coast, agent, path, folder } = await linked();
@@ -355,6 +387,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     expect(documents[0]?.linkedFolderId).not.toBeNull();
     expect(documents[0]?.notCited).toBe(true);
     expect(searched).toBe(false);
+    expect(await again.listDeleted()).toEqual([]);
     again.close();
   });
 });

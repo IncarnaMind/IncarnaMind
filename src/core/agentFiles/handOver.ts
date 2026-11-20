@@ -58,7 +58,11 @@ export interface HandOverDeps {
   setNotCited(documentId: string, notCited: boolean): void;
   /** When the agent of this pairing was first connected; null once its pairing is gone. */
   connectedAt(pairingId: string): string | null;
-  /** Takes a Document out of the Library, as the User's Delete does: kept 30 days, then purged. */
+  /**
+   * Takes a Document the User never deleted out of the Library for good, at once, as Recently
+   * deleted's purge does: never listed there, since restoring it would bring the second Document
+   * back. Only for a copy whose bytes another Document and a kept version hold.
+   */
   retire(documentId: string): void;
   /** Points a version's check at the Document that holds the file now. */
   repoint(mindId: string, documentId: string): void;
