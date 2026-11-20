@@ -285,16 +285,42 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     expect((await task(agent, mindId)).sentences).toEqual([]);
   });
 
-  // protects=a result is never laid on words the agent didn't judge; fails_when=results for an earlier state of the Note mark it as it is now
-  it("refuses results for a Note that changed since its sentences were given", async () => {
-    const { agent, mindId } = await paired();
+  // protects=an agent that hands back its results in parts, or again, has each part marked on the sentences it was given (#3432); fails_when=its own first report counts as the Note changing, and the rest is refused
+  it("takes a report on the same sentences after the first one landed, by the numbers it gave", async () => {
+    const { core, agent, mindId, coast } = await paired();
     const given = await task(agent, mindId);
     const twice = await cited(agent, "Spring tides happen twice a month");
     structured<Reported>(
       await report(agent, mindId, given.task, [{ n: 1, verdict: "supported", cites: [twice] }]),
     );
 
-    expect(refusal(await report(agent, mindId, given.task, [{ n: 1, verdict: "not found" }]))).toBe(
+    const rest = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 3, verdict: "not found", explanation: "Tides says nothing of penguins." },
+      ]),
+    );
+    expect(rest).toMatchObject({ marked: 1, unconfirmed: [], unreported: [2, 4] });
+    expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
+      [SPRING, "supported"],
+      [PENGUINS, "unsupported"],
+    ]);
+  });
+
+  // protects=a result is never laid on words the agent didn't judge; fails_when=results for an earlier state of the Note mark it as it is now
+  it("refuses results for a Note whose words changed since its sentences were given", async () => {
+    const { agent, mindId } = await paired();
+    const given = await task(agent, mindId);
+    const { version } = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    structured(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: { mindId, version, changes: [{ paragraph: "¶2", text: SPRING_RANGE }] },
+      }),
+    );
+
+    expect(refusal(await report(agent, mindId, given.task, [{ n: 2, verdict: "not found" }]))).toBe(
       "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
     );
   });
