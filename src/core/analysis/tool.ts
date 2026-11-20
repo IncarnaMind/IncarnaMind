@@ -283,8 +283,7 @@ export function analysisTool(options: AnalysisToolOptions): Tool {
         library: list,
       };
     }
-    const numbered = [input.value, input.number, input.quote].some((each) => each !== undefined);
-    if (!numbered && input.passage !== undefined) {
+    if (input.value === undefined && input.number === undefined && input.passage !== undefined) {
       return lead(readRangeInput(name, input));
     }
     const read = options.number(input);

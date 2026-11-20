@@ -1079,7 +1079,11 @@ describe("a number a Passage gives, as an Analysis takes it (#3393)", () => {
   const QUOTE = "The board approved a price rise of 4.5% for 2027.";
 
   /** Searches for the sheet and the minutes, then runs one Analysis that reads `rate` from the minutes. */
-  function ratedModel(rate: Record<string, unknown>, answer: string): MockLanguageModelV4 {
+  function ratedModel(
+    rate: Record<string, unknown>,
+    answer: string,
+    sales: Record<string, unknown>,
+  ): MockLanguageModelV4 {
     const queries = ["revenue", "price rise"];
     return scriptedModel((call) => {
       const searches = call.results.filter((result) => result.tool === "search_documents");
@@ -1099,7 +1103,7 @@ describe("a number a Passage gives, as an Analysis takes it (#3393)", () => {
             input: {
               title: "Revenue after the price rise",
               inputs: [
-                { name: "sales", passage: passageOf(passages, "sales") },
+                { name: "sales", passage: passageOf(passages, "sales"), ...sales },
                 {
                   name: "rate",
                   passage: minutes.id,
@@ -1116,8 +1120,12 @@ describe("a number a Passage gives, as an Analysis takes it (#3393)", () => {
     });
   }
 
-  async function run(rate: Record<string, unknown>, answer = "Revenue after the rise is [=1].") {
-    const model = ratedModel(rate, answer);
+  async function run(
+    rate: Record<string, unknown>,
+    answer = "Revenue after the rise is [=1].",
+    sales: Record<string, unknown> = {},
+  ) {
+    const model = ratedModel(rate, answer, sales);
     const jobs: AnalysisJob[] = [];
     const { core } = await setUp(
       model,
@@ -1146,6 +1154,13 @@ describe("a number a Passage gives, as an Analysis takes it (#3393)", () => {
       name: "rate",
       value: 0.045,
     });
+  });
+
+  test("a sheet's Passage given with a quote of a row is still its rows", async () => {
+    const { jobs } = await run({ value: 0.045 }, undefined, { quote: "North,2026Q1,120" });
+    expect(jobs).toHaveLength(1);
+    const sales = jobs[0]?.inputs.find((input) => input.name === "sales");
+    expect(sales?.kind === "table" && sales.rows).toHaveLength(4);
   });
 
   test("a value whose digits the quote doesn't write is refused with the numbers the quote has, and nothing runs", async () => {
