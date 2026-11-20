@@ -4,7 +4,7 @@
  * charts' text and its speaker notes, which count as part of the slide (ADR-0011). A slide with
  * no text makes no Block.
  */
-import type { SlideOutline } from "../../documents/formats/pptx";
+import type { SlideBox, SlideOutline } from "../../documents/formats/pptx";
 import { headingRowsOf, isFigure, join } from "../../documents/tableCells";
 import type { TableGrid } from "../../documents/tables";
 import type { NodeJSON } from "../blocks";
@@ -47,6 +47,26 @@ function gridOf(rows: readonly string[][]): TableGrid {
       return filled.length > 0 && filled.every(isFigure);
     }),
   };
+}
+
+const percent = (share: number) => `${Math.round(share * 100)}%`;
+
+const placed = (box: SlideBox) =>
+  box.place
+    ? `${box.kind}, left ${percent(box.place.left)}, top ${percent(box.place.top)}, ${percent(box.place.width)} wide, ${percent(box.place.height)} high`
+    : `${box.kind}, place not given`;
+
+/**
+ * A slide as the file holds it (#3455), for the models that read its lines: every box's text in
+ * the file's order, each with where it sits on the slide, and the speaker notes. Which box says
+ * what a number in another is, is theirs to read; nothing here pairs boxes. Its number is not in
+ * it, so a slide put in before it leaves its lines' results standing (`slideHeading` names it).
+ */
+export function slideText(slide: SlideOutline): string {
+  return [
+    ...slide.boxes.map((box) => `[${placed(box)}] ${box.lines.join("\n  ")}`),
+    ...(slide.notes.length > 0 ? ["[speaker notes]", ...slide.notes] : []),
+  ].join("\n");
 }
 
 /** The Blocks a deck's slides make, each with its slide's number, as `documentBlocks` gives a PDF's. */

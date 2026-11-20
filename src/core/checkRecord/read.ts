@@ -319,9 +319,6 @@ export function readRecord(sources: RecordSources): {
     requests.push(check.request);
     const shown = reading.ofMarked(
       {
-        element,
-        from,
-        to,
         sentence,
         citations,
         place,

@@ -8235,6 +8235,18 @@ export interface FigureSchedule {
  * A Figure schedule as a change to one the caller holds (`since`, that one's `token`): its rows
  * `from` to `to` give way to `rows`. With no `since`, `rows` are all of them.
  */
+/**
+ * What each result of a Note that keeps what it was judged with (`ClaimCheckBasis.judgedWith`)
+ * would be judged with now, by the result's id, read at the Note's fingerprint `basis`
+ * (`fingerprintOfMind`). The core works it out from the Note, a deck's slides and a table's
+ * headings, and the window reads each result with it, as the core does (#3455).
+ */
+export interface JudgedWithNow {
+  mindId: string;
+  basis: string;
+  lines: Record<string, string>;
+}
+
 export interface FigureScheduleChange extends Omit<FigureSchedule, "rows"> {
   /** Names this schedule, for asking for the next as a change to it. */
   token: string;
@@ -14517,6 +14529,8 @@ export interface CoreApi {
    * schedule crossing over. The whole schedule once the core no longer keeps that one.
    */
   getFigureScheduleChange(mindId: string, since: string | null): Promise<FigureScheduleChange>;
+  /** See `JudgedWithNow`: one source of it for the window, so its page reads each result as the core does. */
+  judgedWithNow(mindId: string): Promise<JudgedWithNow>;
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
@@ -15964,6 +15978,7 @@ const methods: Record<CoreApiMethod, true> = {
   libraryListsVersion: true,
   getFigureSchedule: true,
   getFigureScheduleChange: true,
+  judgedWithNow: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
