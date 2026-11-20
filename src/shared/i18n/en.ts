@@ -8759,18 +8759,27 @@ export const en = {
   "meetings.notesAgent.settings": "Agent settings",
   "meetings.summary.setting": "Automatic meeting summary",
   "meetings.summary.disclosure":
-    "The selected AI receives new transcript lines and the previous summary about once a minute and after you stop. Cloud requests count toward your AI’s usage.",
+    "The selected AI receives newly confirmed transcript lines, the previous overview, and its decisions and action items about once a minute and after you stop. Cloud requests count toward your AI’s usage.",
   "meetings.summary.off": "Off",
   "meetings.summary.builtin": "{model} via {provider}",
   "meetings.summary.setup":
     "Set up IncarnaMind AI or choose Codex or Claude Code for meeting notes.",
   "meetings.summary.agentUnavailable": "Selected AI unavailable",
   "meetings.summary.title": "Quick AI summary",
+  "meetings.summary.items": "Decisions and action items ({count})",
+  "meetings.summary.items.decision": "Decisions",
+  "meetings.summary.items.action": "Action items",
+  "meetings.summary.status.active": "Current",
+  "meetings.summary.status.open": "To do",
+  "meetings.summary.status.done": "Completed",
+  "meetings.summary.status.cancelled": "Canceled",
   "meetings.summary.preparing": "Preparing a summary…",
   "meetings.summary.updating": "Finishing the summary…",
   "meetings.summary.coverage": "Covers the transcript through {time}",
   "meetings.summary.empty": "No summary was generated.",
   "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
+  "error.meeting.codexSummaryTooLong":
+    "This update exceeds your installed Codex client’s 4,000-byte limit. Retry with a Codex version that supports longer meeting updates.",
   "error.meeting.summaryUnavailable":
     "Check the selected summary AI and its access to this meeting in Settings.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",
