@@ -59,6 +59,50 @@ const documents = {
   ],
 } as const;
 
+const businessNames = {
+  hard: { en: "Repair shop", "zh-CN": "修理铺" },
+  publisher: { en: "Print studio", "zh-CN": "印刷工坊" },
+} as const;
+
+const publisherDocuments = {
+  en: [
+    [
+      "Contact records",
+      "This privacy notice from our print studio tells subscribers how long we retain their email addresses, how to withdraw permission and how to request deletion.",
+    ],
+    [
+      "Music evening",
+      "The chamber choir will rehearse its spring programme on Friday at six. The print studio has lent us the room. Bring scores for the two new songs.",
+    ],
+    [
+      "Monday allocation",
+      "Next week's print studio operations: assign two operators to the large press, buy cyan ink and set the binding line to meet the outstanding booklet orders.",
+    ],
+    [
+      "Throughput review",
+      "Our print studio completed 82 customer orders this month. The main press lost a shift waiting for rollers. We are changing how we schedule jobs to reduce turnaround.",
+    ],
+  ],
+  "zh-CN": [
+    [
+      "联系方式的处理",
+      "本印刷工坊的隐私声明告知订阅者，我们保留电子邮箱多久、怎样撤回授权，以及如何申请删除个人资料。",
+    ],
+    [
+      "周五排练",
+      "室内合唱团周五六点排练春季曲目。印刷工坊借给我们一间屋子。请团员带上两首新歌的乐谱。",
+    ],
+    [
+      "周一排班",
+      "印刷工坊下周的生产安排：两位师傅轮值大印机，补充青色油墨，装订线优先完成已经接下的手册订单。",
+    ],
+    [
+      "本月生产小结",
+      "印刷工坊本月交付八十二笔客户订单，主机等待滚筒配件停了一个班次。下月调整工单排序，缩短交货时间。",
+    ],
+  ],
+} as const;
+
 function accepts(
   tags: readonly { kind: string | null; tagId: string | null }[],
   wanted: string | null,
@@ -67,7 +111,11 @@ function accepts(
   return wanted === null ? topics.length === 0 : topics.length === 1 && topics[0]?.tagId === wanted;
 }
 
-export async function hardCases(model: ChatLanguageModel, language: Language) {
+export async function hardCases(
+  model: ChatLanguageModel,
+  language: Language,
+  panel: "hard" | "publisher" = "hard",
+) {
   if (
     [[], [{ kind: null, tagId: "other" }], [{ kind: null, tagId: null }]].some((tags) =>
       accepts(tags, "expected"),
@@ -86,7 +134,7 @@ export async function hardCases(model: ChatLanguageModel, language: Language) {
     const en = language === "en";
     const kitchen = await core.createTag({ name: en ? "厨房装修" : "Kitchen renovation" });
     const fundraising = await core.createTag({ name: en ? "Fundraising" : "融资" });
-    const business = await core.createTag({ name: en ? "Repair shop" : "修理铺" });
+    const business = await core.createTag({ name: businessNames[panel][language] });
     const source = await createSourceFolder();
     const write = (name: string, body: string) => writeSourceFile(source, `${name}.txt`, body);
     const [member] = await addAndProcess(core, [
@@ -99,8 +147,12 @@ export async function hardCases(model: ChatLanguageModel, language: Language) {
     ]);
     if (!member) throw new Error("Missing anchor Document");
     await core.addDocumentTag(member.id, kitchen.id);
-    const paths = await Promise.all(documents[language].map(([name, body]) => write(name, body)));
-    const wants = [fundraising.id, null, kitchen.id, kitchen.id, null, null];
+    const cases = panel === "hard" ? documents[language] : publisherDocuments[language];
+    const paths = await Promise.all(cases.map(([name, body]) => write(name, body)));
+    const wants =
+      panel === "hard"
+        ? [fundraising.id, null, kitchen.id, kitchen.id, null, null]
+        : [null, null, business.id, business.id];
     const expected = new Map(paths.map((path, i) => [basename(path).normalize(), wants[i]]));
     const docs = await addAndProcess(core, paths);
     if (docs.length !== paths.length) throw new Error("Missing hard-case Document");
@@ -117,7 +169,10 @@ export async function hardCases(model: ChatLanguageModel, language: Language) {
       return {
         name: doc.name,
         tags: tags.map((tag) => tag.name),
+        expectedBusiness: wanted === business.id,
         business: ids.includes(business.id),
+        fundraising: ids.includes(fundraising.id),
+        renovation: ids.includes(kitchen.id),
         pass: accepts(tags, wanted),
       };
     });
