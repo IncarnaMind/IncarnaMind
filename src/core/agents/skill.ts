@@ -34,6 +34,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "59e011bac664580915757c59fb28762139b0b084ebd0c7cd7db5324b1407ecf3",
   "0f4438c1f35bf5137aab3873687384c1469af65a27f0e8d3a36d7f41f22ba906",
   "e7b362fc042f4598657cbcafa00eba758d26f316df716e915e5184d5b3f0c57c",
+  "b804c31a3e1edf6977723bee0684ab2ce8a790edd9342d4b4fc0dd19b7a349b5",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -74,7 +75,7 @@ Only when the User asks to organize Documents or suggest Tags (for example, “�
 
 When the User asks for a document of their own (a report, a summary, a draft), \`create_mind\` writes it as a new Note in IncarnaMind, with a token after each claim: they see it there at once, each Citation checked. It is refused unless they let you write.
 
-A Note can hold pictures and charts. A picture is \`![alt](path)\` on a line of its own: the full path of a PNG, JPEG, GIF, WebP or SVG file on this computer, read only when you name it, at most 1 MB and 10 in a call; with no file here, a \`data:\` URL (an SVG you draw, say). A chart is a table of its figures, each cell a figure with its token, and right under it a \`\`\`chart block of JSON, \`{"kind": "bar", "title": "…"}\` (bar, line, pie or scatter): IncarnaMind draws it from the table, each value keeping its Citation, and checks it as it checks a sentence; to chart a table already in the Note, add the block after its last cell (\`¶n+\`). What it can't add comes back in \`refused\`, and the Note has a line saying so.
+A Note can hold pictures and charts. A picture is \`![alt](path)\` on a line of its own: the full path of a PNG, JPEG, GIF, WebP or SVG file on this computer, read only when you name it, at most 1 MB and 10 in a call; with no file here, a \`data:\` URL (an SVG you draw, say). A chart is a table of its figures, each cell a figure with its token, and right under it a \`\`\`chart block of JSON, \`{"kind": "bar", "title": "…"}\` (bar, line, pie or scatter), with \`"leaveOut": ["Total"]\` for rows not to draw, such as a total: IncarnaMind draws it from the table, each value keeping its Citation, and checks it as it checks a sentence; to chart a table already in the Note, add the block after its last cell (\`¶n+\`). What it can't add comes back in \`refused\`, and the Note has a line saying so.
 
 ## When the User asks for a page: a Canvas
 

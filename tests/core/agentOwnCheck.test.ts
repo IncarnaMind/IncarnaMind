@@ -4,6 +4,7 @@
  * `report_check`. IncarnaMind sends nothing to a model, confirms each Citation in its Document and
  * marks the Note, where the User sees the marks.
  */
+import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
@@ -418,5 +419,91 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
         "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
       );
     }
+  });
+});
+
+describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  const HARVEST = "# Harvest\n\nPears came to 610 tonnes in 2026.";
+
+  // protects=once the agent corrects a cell its check found contradicted and checks it again, the cell shows that result alone; fails_when=a mark of the earlier check stays beside the new one, shown as Needs re-check, because the agent's rewrite carried it onto the space before the cell's Citation
+  it("shows the new result alone once the agent corrects the cell and checks it again", async () => {
+    const started = await startAgentsCore(checkingModel({}));
+    const { core } = started;
+    const sources = await createSourceFolder();
+    const [harvest] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Harvest.md", HARVEST),
+    ]);
+    const orchard = await core.createLibraryGroup({ name: "Orchard", description: "Fruit." });
+    await core.assignDocumentGroup(harvest?.id ?? "", orchard.id);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [orchard.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    const call = async <T>(name: string, args: Record<string, unknown>) =>
+      structured<T>(await agent.callTool({ name, arguments: args }));
+    const { passages } = await call<{ passages: { passageId: string }[] }>("search", {
+      query: "pears tonnes 2026",
+    });
+    const { citations } = await call<{ citations: { cite: string }[] }>("cite", {
+      citations: [{ passageId: passages[0]?.passageId, quote: "Pears came to 610 tonnes in 2026" }],
+    });
+    const pears = citations[0]?.cite ?? "";
+    const { mindId } = await call<{ mindId: string }>("create_mind", {
+      title: "Harvest report",
+      markdown: ["| Fruit | Tonnes |", "|---|---|", `| Pears | 610 ${pears} |`].join("\n"),
+    });
+    const check = async (verdict: string) => {
+      const given = await call<Task>("check_mind_yourself", { mindId });
+      const results = given.sentences.map(({ n, text }) =>
+        /^\d/.test(text) ? { n, verdict, cites: [pears] } : { n, verdict: "nothing to check" },
+      );
+      return call<Reported>("report_check", { mindId, task: given.task, results });
+    };
+    await check("supported");
+
+    // The User types 710 over 610: the agent's check finds it contradicted.
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const typed = (node: JSONContent): JSONContent => ({
+      ...node,
+      ...(node.text === "610" && { text: "710" }),
+      ...(node.content && { content: node.content.map(typed) }),
+    });
+    editMind(client, (blocks) => blocks.map(typed));
+    await client.settled();
+    expect(await check("contradicted")).toMatchObject({ marked: 1 });
+
+    // The agent puts 610 back and checks the cell again.
+    const named = await call<{ markdown: string; version: string }>("read_mind", {
+      mindId,
+      named: true,
+    });
+    const cell = /(¶\d+) 710 /.exec(named.markdown)?.[1];
+    await call("propose_changes", {
+      mindId,
+      version: named.version,
+      changes: [{ paragraph: cell, text: `610 ${pears}` }],
+    });
+    expect(await check("supported")).toMatchObject({ marked: 1, unreported: [] });
+    await client.settled();
+    expect(
+      claimSpans(readMind(client)).map((span) => [
+        span.sentence.text.trim(),
+        claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions: null,
+          folderId: null,
+          scope: null,
+        }).state,
+      ]),
+    ).toEqual([["610", "supported"]]);
   });
 });

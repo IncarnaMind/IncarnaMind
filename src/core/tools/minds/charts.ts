@@ -28,6 +28,8 @@ export interface ChartAsked {
   title: string;
   /** An Analysis chart's marker: the rows its chart draws, so it goes beneath the table that holds them. */
   rows?: readonly (readonly AnalysisCell[])[];
+  /** Rows of the table not to draw, by their first cell: which they are is the model's to say (#3466). */
+  leftOut?: readonly string[];
 }
 
 export const chartProperty = {
@@ -45,6 +47,11 @@ export const chartProperty = {
         type: "string",
         description: "A short title, from the User's words, in their language.",
       },
+      leaveOut: {
+        type: "array",
+        items: { type: "string" },
+        description: "Rows not to draw, by their first cell as written, such as a total.",
+      },
     },
     required: ["title"],
     additionalProperties: false,
@@ -56,9 +63,15 @@ const isKind = (value: unknown): value is ChartKind =>
 
 export function chartAsked(value: unknown): ChartAsked | null {
   if (!isRecord(value)) return null;
+  const leftOut = Array.isArray(value.leaveOut)
+    ? value.leaveOut.flatMap((label) =>
+        typeof label === "string" && label.trim() !== "" ? [label.trim()] : [],
+      )
+    : [];
   return {
     kind: isKind(value.kind) ? value.kind : null,
     title: typeof value.title === "string" ? value.title.trim() : "",
+    ...(leftOut.length > 0 && { leftOut }),
   };
 }
 
@@ -117,6 +130,7 @@ export function chartOfTable(
     blockId: tableId,
     title: asked.title,
     language,
+    ...(asked.leftOut && { leftOut: asked.leftOut }),
   });
   if (!chart) {
     return {

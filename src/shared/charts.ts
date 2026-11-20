@@ -100,8 +100,12 @@ export interface ChartData {
 }
 
 export type ChartSource =
-  /** `switched`: the chart's rows are its table's columns. */
-  { kind: "table"; blockId: string | null; switched?: boolean } | { kind: "figures" };
+  /**
+   * `switched`: the chart's rows are its table's columns. `leftOut`: rows of the table it doesn't
+   * draw, by their first cell, as the model that made it named them (a total, say: #3466).
+   */
+  | { kind: "table"; blockId: string | null; switched?: boolean; leftOut?: string[] }
+  | { kind: "figures" };
 
 export interface ChartAttributes {
   kind: ChartKind;
@@ -203,10 +207,15 @@ export const listedRows = (data: ChartData): ChartRow[] => [...data.rows, ...dat
 function readSource(value: unknown): ChartSource {
   if (isRecord(value) && value.kind === "figures") return { kind: "figures" };
   const blockId = isRecord(value) && typeof value.blockId === "string" ? value.blockId : null;
+  const leftOut =
+    isRecord(value) && Array.isArray(value.leftOut)
+      ? value.leftOut.filter((label): label is string => typeof label === "string")
+      : [];
   return {
     kind: "table",
     blockId,
     ...(isRecord(value) && value.switched === true ? { switched: true } : {}),
+    ...(leftOut.length > 0 && { leftOut }),
   };
 }
 
@@ -711,7 +720,12 @@ export interface FromTableOptions {
   language: string;
   /** True: the first row is the labels. Left out, the table's periods decide (`chartFromTable`). */
   switched?: boolean;
+  /** Rows not drawn, by their first cell (`ChartSource`). */
+  leftOut?: readonly string[];
 }
+
+/** A row's first cell as a row a chart leaves out is named: its words, whatever their case. */
+export const rowName = (label: string): string => label.trim().toLocaleLowerCase();
 
 const BLANK_MARK = /^(?:[-–—−]+|n\/?a|n\.a\.|nm|无|暂无)$/i;
 
@@ -1008,10 +1022,17 @@ export function chartFromTable(
     };
   };
 
+  const leaving = new Set((options.leftOut ?? []).map(rowName));
+  const leftOut = dataRows.flatMap((row) =>
+    leaving.has(rowName(row[0]?.text ?? "")) ? [row[0]?.text.trim() ?? ""] : [],
+  );
+  const drawnRows = dataRows.flatMap((row, index) =>
+    leaving.has(rowName(row[0]?.text ?? "")) ? [] : [{ row, at: firstDataRow + index }],
+  );
   const seriesColumns: number[] = [];
   for (let column = 1; column < columns; column++) {
-    const holdsNumber = dataRows.some(
-      (row, index) => valueAt(row[column] ?? null, firstDataRow + index, column)?.value != null,
+    const holdsNumber = drawnRows.some(
+      ({ row, at }) => valueAt(row[column] ?? null, at, column)?.value != null,
     );
     if (holdsNumber) seriesColumns.push(column);
   }
@@ -1020,15 +1041,13 @@ export function chartFromTable(
   const labelled: UncutData = {
     labelHeading: headingRow ? (first[0]?.text.trim() ?? "") : "",
     series: seriesColumns.map((column) => (headingRow ? (first[column]?.text.trim() ?? "") : "")),
-    rows: dataRows.map((row, index) => ({
+    rows: drawnRows.map(({ row, at }) => ({
       label: row[0]?.text.trim() ?? "",
-      values: seriesColumns.map((column) =>
-        valueAt(row[column] ?? null, firstDataRow + index, column),
-      ),
+      values: seriesColumns.map((column) => valueAt(row[column] ?? null, at, column)),
     })),
   };
   const periodsAcross = headingRow && holdsPeriods(first.slice(1).map((cell) => cell?.text ?? ""));
-  const periodsDown = holdsPeriods(dataRows.map((row) => row[0]?.text ?? ""));
+  const periodsDown = holdsPeriods(drawnRows.map(({ row }) => row[0]?.text ?? ""));
   const fewRows =
     labelled.rows.filter((row) => row.values.some((value) => value?.value != null)).length <=
     CATEGORY_COUNT;
@@ -1044,6 +1063,7 @@ export function chartFromTable(
       kind: "table",
       blockId: options.blockId,
       ...(switched ? { switched: true } : {}),
+      ...(leftOut.length > 0 && { leftOut }),
     },
   };
 }
@@ -1347,6 +1367,7 @@ export function redrawnData(
     title: chart.title,
     language,
     switched: chart.source.kind === "table" && chart.source.switched === true,
+    ...(chart.source.kind === "table" && { leftOut: chart.source.leftOut }),
   });
   if (!fresh) return null;
   const data = keepingStoredValues(fresh.data, chart.data);

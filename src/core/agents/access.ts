@@ -2412,10 +2412,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
         }
         // Named by its title heading, as a Note written in the window is, so the name follows the
-        // heading whoever changes it (#3378). A text that begins with a heading of its own keeps
-        // that one alone; one that begins with none gets `title` as its heading. Only a text that
-        // begins with a section's heading keeps `title` as a name of its own. A text in tabs
-        // begins inside its first, and so does a title heading written above it (#3414).
+        // heading whoever changes it (#3378). A text that begins with a heading 1, or with a
+        // heading in the words of `title`, keeps it as its title; any other gets `title` as its
+        // heading above it, as the page shows no title of its own (#3466). A text in tabs begins
+        // inside its first, and so does a title heading written above it (#3414).
         const [above, start] = made.nodes;
         const nodes =
           above?.type === "heading" && above.attrs?.level === 1 && start?.type === NOTE_TAB_NODE
@@ -2426,7 +2426,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const ownHeading = first?.type === "heading";
         const titleHeading =
           ownHeading && first.attrs?.level === 1 && (first.content?.length ?? 0) > 0;
-        const mind = deps.createMind(ownHeading && !titleHeading ? title : "", folder.id);
+        const titled =
+          titleHeading ||
+          (ownHeading &&
+            comparableName((first.content ?? []).map((each) => each.text ?? "").join("")) ===
+              comparableName(title));
+        const mind = deps.createMind(titled && !titleHeading ? title : "", folder.id);
         const heading = {
           type: "heading",
           attrs: { level: 1 },
@@ -2435,7 +2440,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         deps.editMind(mind.id, (blocks) => {
           insertBlocks(
             blocks,
-            ownHeading ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
+            titled ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
           );
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {

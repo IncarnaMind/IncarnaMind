@@ -15,6 +15,7 @@ import {
 } from "../../src/core/api";
 import { decideProposals, waitingChanges } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
+import { paragraphsOf, part, unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
 import { heading, note, readMind, writeMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
@@ -190,6 +191,52 @@ describe("an agent and a Note with tabs", () => {
       "tab Fleet",
       "paragraph",
     ]);
+  });
+
+  // protects=a Note an agent writes in tabs, each opening on a section's heading, shows its title at the top, in the window and in the Word file; fails_when=the title is only the Note's name, so the page and the export start at the first tab's section heading
+  it("puts the title heading above a first tab that opens on a section's heading (#3466)", async () => {
+    const { core, agent } = await paired();
+    const made = structured<{ mindId: string; title: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Harbourline Ferries",
+          markdown: [
+            fence("Summary"),
+            "## Sailings",
+            "Sailings ran on time on most days.",
+            fence("Fleet"),
+            "## Refits",
+            "Two ferries were refitted over the winter.",
+          ].join("\n\n"),
+        },
+      }),
+    );
+    expect(made.title).toBe("Harbourline Ferries");
+    const headings: string[] = [];
+    readMind(await connectToMind(core, made.mindId)).forEach((block) => {
+      if (block.type.name === "heading") headings.push(`${block.attrs.level} ${block.textContent}`);
+    });
+    expect(headings).toEqual(["1 Harbourline Ferries", "2 Sailings", "2 Refits"]);
+    expect(await shapeOf(core, made.mindId)).toEqual([
+      "tab Summary",
+      "heading",
+      "heading",
+      "paragraph",
+      "tab Fleet",
+      "heading",
+      "paragraph",
+    ]);
+    // The Word file opens with the title, above the first tab's section.
+    const document = part(
+      unzip((await core.exportMind(made.mindId, { format: "docx" })).data),
+      "word/document.xml",
+    );
+    expect(
+      paragraphsOf(document)
+        .slice(0, 3)
+        .map((paragraph) => paragraph.text),
+    ).toEqual(["Harbourline Ferries", "Summary", "Sailings"]);
   });
 
   it("reads a tab written as one block holding its Markdown, its title on the fence or inside", async () => {

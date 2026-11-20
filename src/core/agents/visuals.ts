@@ -15,7 +15,7 @@ import { inertBrackets } from "../../shared/inertBrackets";
 import type { NodeJSON } from "../answers/blocks";
 import { BLOCK_ID_ATTRIBUTE, PICTURE_NODE } from "../api";
 import type { Language } from "../language";
-import { chartOfTable } from "../tools/minds/charts";
+import { chartAsked, chartOfTable } from "../tools/minds/charts";
 import {
   HELD_PICTURE,
   HOLDING_PICTURES,
@@ -66,13 +66,22 @@ export function chartUnder(
   if (typeof asked !== "object" || asked === null || Array.isArray(asked)) {
     return { refused: "json" };
   }
-  const { kind, title } = asked as { kind?: unknown; title?: unknown };
+  const { kind, title, leaveOut } = asked as {
+    kind?: unknown;
+    title?: unknown;
+    leaveOut?: unknown;
+  };
   if (kind !== undefined && !isKind(kind)) return { refused: "kind" };
+  if (
+    leaveOut !== undefined &&
+    !(Array.isArray(leaveOut) && leaveOut.every((label) => typeof label === "string"))
+  )
+    return { refused: "json" };
   if (!table) return { refused: "noTable" };
   const drawn = chartOfTable(
     table,
     tableId,
-    { kind: kind ?? null, title: typeof title === "string" ? title.trim() : "" },
+    chartAsked({ kind, title, leaveOut }) ?? { kind: null, title: "" },
     language,
     null,
   );

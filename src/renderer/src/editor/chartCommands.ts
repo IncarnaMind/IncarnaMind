@@ -239,6 +239,7 @@ export function switchedChartIn(
       title: chart.title,
       language,
       switched: chart.source.switched !== true,
+      leftOut: chart.source.leftOut,
     });
   return switchedChart(chart, fresh ? fresh.data : null);
 }

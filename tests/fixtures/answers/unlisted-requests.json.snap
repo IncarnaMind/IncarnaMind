@@ -1235,6 +1235,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -1285,6 +1292,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -1799,6 +1813,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -1849,6 +1870,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -2396,6 +2424,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -2446,6 +2481,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -2953,6 +2995,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -3005,6 +3054,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -3541,6 +3597,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -3593,6 +3656,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -4162,6 +4232,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
@@ -4214,6 +4291,13 @@
          "title": {
           "type": "string",
           "description": "A short title, from the User's words, in their language."
+         },
+         "leaveOut": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Rows not to draw, by their first cell as written, such as a total."
          }
         },
         "required": [
