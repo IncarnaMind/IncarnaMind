@@ -70,7 +70,7 @@ import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup } from "./agents/setup";
-import { createSkillFiles } from "./agents/skillFiles";
+import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -5728,6 +5728,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const agentChanges = createOwnChanges(content, () => crypto.randomUUID());
   const skillFiles = createSkillFiles({
     home,
+    files: adapters.agentSkillFiles ?? NO_SKILL_FILES,
     readValue: (key) => settings.readDeviceValue(key),
     writeValue: (key, value) => settings.writeDeviceValue(key, value),
     reportError: (error) => console.error(error),

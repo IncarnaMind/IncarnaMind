@@ -12,11 +12,12 @@
 export const SKILL_NAME = "incarnamind";
 
 /**
- * The SHA-256 of each text the Skill had before IncarnaMind recorded what it writes (#3430), so a
- * copy an earlier release wrote still counts as its own. Closed: a text written from now on is
- * recognised by the record, so a change to the Skill adds nothing here.
+ * The SHA-256 of each text the Skill has had, the current one too, so that a copy an earlier
+ * release wrote counts as IncarnaMind's even where there is no record of it (#3430). A change to
+ * the Skill adds the new text's hash here: a test fails until it does.
  */
 export const EARLIER_SKILL_HASHES: readonly string[] = [
+  "ed317f62891621e7d29eb26e38cb4b593a5edb84285238a5141a4d580f3e6394",
   "0cb37477f28c0e115871c0cc91861609978994fb1d8b3aa2fcf957382e9088fd",
   "9edb0f719c6493598487d1183a12d1695d8dab459c2ef02c4fbaa5b8a0688d3d",
   "37b7bff10e9c5d79530c3a9cf2f804d820d2501cc6b553e46e311569c9834c32",

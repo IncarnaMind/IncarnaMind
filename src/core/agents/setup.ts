@@ -202,7 +202,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const addSkill = async (client: ClientDefinition, made: string[]): Promise<boolean> => {
     const [path, ...others] = skillPathsFor(options.home, client.id);
     if (path === undefined) return false;
-    for (const each of [path, ...others]) if ((await readText(each)) !== null) return false;
+    if ([path, ...others].some((each) => options.skills.has(each))) return false;
     made.push(...missingFolders(dirname(path)));
     await options.skills.write(path);
     return true;

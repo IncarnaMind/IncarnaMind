@@ -6,7 +6,7 @@
  * text; every path is in a temporary home folder.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
@@ -238,10 +238,39 @@ describe("the Skill when a release changes its text", () => {
     await vi.waitFor(async () => expect(await readFile(claudeFile(at.home), "utf8")).toBe(next));
   });
 
-  it("lists each earlier text once, as a SHA-256", () => {
+  it("lists the current text's hash, so a change to the Skill adds the new one", () => {
+    // Fails when the Skill's text changes until its hash is added to EARLIER_SKILL_HASHES
+    // (src/core/agents/skill.ts), so no copy of it goes unrecognised once a later text replaces it.
+    expect(EARLIER_SKILL_HASHES).toContain(sha256(SKILL_MARKDOWN));
     expect(EARLIER_SKILL_HASHES.every((hash) => /^[0-9a-f]{64}$/.test(hash))).toBe(true);
     expect(new Set(EARLIER_SKILL_HASHES).size).toBe(EARLIER_SKILL_HASHES.length);
-    expect(EARLIER_SKILL_HASHES).not.toContain(sha256(SKILL_MARKDOWN));
+  });
+
+  it("reads, writes and removes the Skill only through the host's files", async () => {
+    const at = await place();
+    const kept = new Map<string, string>();
+    const core = startCore(at.dataDir, {
+      keychain: at.keychain,
+      paths: { home: at.home, tempDir: at.tempDir },
+      agentSkillFiles: {
+        read: (path) => kept.get(path) ?? null,
+        write: async (path, text) => {
+          kept.set(path, text);
+        },
+        remove: async (path) => {
+          kept.delete(path);
+        },
+      },
+    });
+    const {
+      pairings: [claude],
+    } = await connected(core, ["claude-code"]);
+    expect([...kept]).toEqual([[claudeFile(at.home), SKILL_MARKDOWN]]);
+    expect(await readdir(at.home)).toEqual([]);
+    expect((await core.getAgents()).skills).toEqual([claude?.id]);
+
+    await core.disconnectAgent(claude?.id ?? "");
+    expect(kept.size).toBe(0);
   });
 
   it("never writes outside the skills folders, whatever its record holds", async () => {

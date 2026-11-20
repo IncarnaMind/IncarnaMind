@@ -9,11 +9,10 @@
  * recorded for its path, or one an earlier release wrote before there was a record. A file with
  * any other text is the User's changed copy where a record says IncarnaMind wrote it, and was
  * never IncarnaMind's where none does. Only the Skill's own file, in the folders an agent reads
- * Skills from (./clients), is ever written or removed.
+ * Skills from (./clients), is ever written or removed, and only through the host's `AgentSkillFiles`.
  */
-import { readFileSync } from "node:fs";
-import { mkdir, rmdir, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { join, relative, sep } from "node:path";
+import type { AgentSkillFiles } from "../adapters";
 import { hashBytes } from "../documents/files";
 import { isRecord } from "../errors";
 import { everySkillPath, skillPathsFor } from "./clients";
@@ -35,9 +34,17 @@ export type SkillFile =
   /** Never IncarnaMind's, or unreadable. */
   | { kind: "theirs" };
 
+/** For a host that gave the core no `AgentSkillFiles`: no Skill is found there, and none can be written. */
+export const NO_SKILL_FILES: AgentSkillFiles = {
+  read: () => null,
+  write: () => Promise.reject(new Error("This host keeps no Skill files.")),
+  remove: async () => undefined,
+};
+
 export interface SkillFilesOptions {
   /** The User's home folder, where the agents' skills folders are. */
   home: string;
+  files: AgentSkillFiles;
   readValue(key: string): unknown;
   writeValue(key: string, value: unknown): void;
   reportError(error: unknown): void;
@@ -70,15 +77,14 @@ export function createSkillFiles(options: SkillFilesOptions) {
   };
 
   const inspect = (path: string): SkillFile => {
-    let text: string;
+    let text: string | null;
     try {
-      text = readFileSync(path, "utf8");
-    } catch (error) {
-      // Not there, or not a file we can read: either way it is not ours to touch.
-      return (error as NodeJS.ErrnoException).code === "ENOENT"
-        ? { kind: "absent" }
-        : { kind: "theirs" };
+      text = options.files.read(path);
+    } catch {
+      // Not a file we can read: it is not ours to touch.
+      return { kind: "theirs" };
     }
+    if (text === null) return { kind: "absent" };
     const hash = hashOf(text);
     const wrote = recorded()[keyOf(path)];
     if (hash === CURRENT || hash === wrote || EARLIER.has(hash)) {
@@ -88,8 +94,7 @@ export function createSkillFiles(options: SkillFilesOptions) {
   };
 
   const write = async (path: string) => {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, SKILL_MARKDOWN);
+    await options.files.write(path, SKILL_MARKDOWN);
     remember(path, CURRENT);
   };
 
@@ -101,6 +106,9 @@ export function createSkillFiles(options: SkillFilesOptions) {
 
   return {
     write,
+
+    /** Whether there is a file at the path, IncarnaMind's or not. */
+    has: (path: string) => inspect(path).kind !== "absent",
 
     /** Every path IncarnaMind has recorded writing a Skill to. */
     recordedPaths: (): string[] =>
@@ -130,10 +138,7 @@ export function createSkillFiles(options: SkillFilesOptions) {
      */
     async remove(path: string): Promise<"removed" | "edited" | "none"> {
       const file = inspect(path);
-      if (file.kind === "ours") {
-        await unlink(path);
-        await rmdir(dirname(path)).catch(() => undefined);
-      }
+      if (file.kind === "ours") await options.files.remove(path);
       if (file.kind === "edited") return "edited";
       remember(path, null);
       return file.kind === "ours" ? "removed" : "none";
