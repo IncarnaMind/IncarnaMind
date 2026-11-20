@@ -287,7 +287,7 @@ import {
   meetingRecord,
   otherCallTranscripts,
 } from "./meetings";
-import { listParts, meetingFolder, systemRecording } from "./meetings/audioFiles";
+import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
@@ -5221,7 +5221,8 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const speakerReview = createMeetingSpeakerReview({
     parts: (id) => listParts(meetingFolder(dataDir, id)),
-    recording: systemRecording,
+    recording: sourceRecording,
+    roomReviewer: adapters.roomSpeakerReviewer,
     now,
     settings,
     cloud: cloudTranscription,

@@ -227,11 +227,12 @@ export function readStretch(
   return mixed;
 }
 
-/** A WAV of only the computer's sound, retaining Meeting time through gaps and pauses. */
-export async function systemRecording(
+/** A WAV of one source, retaining Meeting time through gaps and pauses. */
+export async function sourceRecording(
   parts: readonly AudioPart[],
   durationMs: number,
   signal: AbortSignal,
+  source: AudioPart["source"] = "system",
 ): Promise<Blob> {
   const sampleAt = (ms: number) => Math.round((ms * MEETING_SAMPLE_RATE) / 1000);
   const samples = sampleAt(durationMs);
@@ -246,7 +247,7 @@ export async function systemRecording(
     }
   };
   for (const part of parts) {
-    if (part.source !== "system") continue;
+    if (part.source !== source) continue;
     signal.throwIfAborted();
     const start = sampleAt(part.offsetMs);
     const end = Math.min(samples, start + sampleAt(part.durationMs));

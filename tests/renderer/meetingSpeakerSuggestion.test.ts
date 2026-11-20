@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { MeetingSpeakerSuggestion, TranscriptSpeakers } from "../../src/core/api";
 import type { Cue } from "../../src/core/documents/formats/vtt";
-import { suggestionLine, suggestionLines } from "../../src/renderer/src/viewer/speakerSuggestion";
+import {
+  reviewSpeakersMatch,
+  suggestionLine,
+  suggestionLines,
+} from "../../src/renderer/src/viewer/speakerSuggestion";
 import { lineKey } from "../../src/shared/speakers";
 
 const systemCue: Cue = {
@@ -91,4 +95,14 @@ describe("Verifying a meeting speaker suggestion before saving", () => {
       ),
     ).toBeNull();
   });
+});
+
+test("a room review can assign an unknown microphone voice and a manual edit invalidates a proposed new identity", () => {
+  const room = { ...systemCue, speaker: "Speaker ?" };
+  const proposed = { ...suggestion, fileLabel: room.speaker, currentLabel: room.speaker };
+  expect(
+    suggestionLine(document, suggestionLines([room], null), document.contentHash, proposed),
+  ).toEqual({ startMs: room.startMs, label: room.speaker });
+  expect(reviewSpeakersMatch(null, { labels: { "Speaker 1": "Dana" }, lines: {} })).toBe(false);
+  expect(reviewSpeakersMatch(null, null)).toBe(true);
 });

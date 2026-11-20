@@ -4,6 +4,7 @@ import type {
   MeetingSpeakerReviewResult,
   MeetingSpeakerSuggestion,
 } from "../../core/api";
+import { parseTranscriptSpeakers, withSpeakerChosen } from "../../shared/speakers";
 import { core } from "./core";
 import { describeError } from "./errors";
 
@@ -79,6 +80,7 @@ export async function runSpeakerReview(meetingId: string) {
     const result = await core.reviewMeetingSpeakers({
       meetingId,
       confirmed: true,
+      ...(review.phase.quote.roomDownloadBytes !== undefined && { onDevice: true as const }),
       ...(review.phase.quote.cached && { reuseOnly: true as const }),
     });
     update(meetingId, phase, { kind: "result", result, decisions: {}, applying: null });
@@ -117,9 +119,26 @@ export async function decideSpeakerSuggestion(
   const applying = { ...phase, applying: index };
   if (apply) update(meetingId, phase, applying);
   const next = apply ? await apply(suggestion, phase.result) : "kept";
+  const { result } = phase;
+  const updated =
+    next === "accepted" && result.reviewedSpeakers !== undefined
+      ? {
+          ...result,
+          reviewedSpeakers: parseTranscriptSpeakers(
+            withSpeakerChosen(
+              result.reviewedSpeakers,
+              [],
+              { startMs: suggestion.startMs, label: suggestion.fileLabel },
+              { label: suggestion.suggestedLabel },
+              false,
+            ),
+          ).speakers,
+        }
+      : result;
   update(meetingId, apply ? applying : phase, {
     ...phase,
     applying: null,
+    result: updated,
     decisions: { ...phase.decisions, [index]: next },
   });
 }
