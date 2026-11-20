@@ -6085,6 +6085,9 @@ export const zhCN = {
   "error.meeting.reviewChanged": "转写稿已更改。请重新打开发言人复核，查看当前的发言人。",
   "error.meeting.reviewCap": "这次复核会超出本月的费用上限。",
   "error.meeting.reviewService": "请先在会议设置里选择 Soniox，再复核发言人。",
+  "error.meeting.roomReviewFailed": "未能在本机检查说话人，请重试。",
+  "error.meeting.roomReviewPeople": "这份转写稿中已有超过四位发言人。",
+  "error.meeting.roomReviewPlatform": "这台电脑无法在本机复核会议室里的发言人。",
   "error.meeting.reviewDuration": "每次最多可复核 5 小时录音。",
   "error.meeting.reviewCancelled": "已取消发言人复核。",
   "error.meeting.reviewConsent": "请先确认要上传的录音和预计费用。",
@@ -7204,7 +7207,6 @@ export const zhCN = {
   "meetings.review.unavailable.platform": "这台电脑暂不支持在本机复核会议室里的说话人。",
   "meetings.review.unavailable.people": "本机最多可复核四位说话人。",
   "meetings.review.roomDuration": "{duration} 的麦克风录音",
-  "meetings.review.roomError": "未能在本机检查说话人，请重试。",
   "meetings.review.disclosure":
     "将这场会议的电脑声音发送给 Soniox，用于推荐发言人。麦克风音轨留在这台电脑上。",
   "meetings.review.duration": "{duration}的电脑声音",

@@ -6410,6 +6410,9 @@ export const en = {
     "The transcript changed. Open the review again to check the current speakers.",
   "error.meeting.reviewCap": "This review would go over your monthly cap.",
   "error.meeting.reviewService": "Choose Soniox in Meeting settings to check the speakers.",
+  "error.meeting.roomReviewFailed": "Could not run the on-device speaker check. Try again.",
+  "error.meeting.roomReviewPeople": "This transcript already has more than four speakers.",
+  "error.meeting.roomReviewPlatform": "This computer cannot run the on-device room speaker check.",
   "error.meeting.reviewDuration": "Speaker review supports up to five hours of audio at a time.",
   "error.meeting.reviewCancelled": "The speaker review was canceled.",
   "error.meeting.reviewConsent": "Confirm the upload and estimated cost to check the speakers.",
@@ -7623,7 +7626,6 @@ export const en = {
     "On-device room speaker review is unavailable on this computer.",
   "meetings.review.unavailable.people": "This speaker check supports up to four people.",
   "meetings.review.roomDuration": "{duration} of microphone audio",
-  "meetings.review.roomError": "Could not run the on-device speaker check. Try again.",
   "meetings.review.disclosure":
     "Send this meeting’s computer audio to Soniox for speaker suggestions. Your microphone track stays here.",
   "meetings.review.duration": "{duration} of computer audio",

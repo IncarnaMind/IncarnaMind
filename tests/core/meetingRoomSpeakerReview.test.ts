@@ -150,7 +150,7 @@ test("a room review skips a shared sentence and refuses a transcript with five k
       reason: "people",
     });
     await expect(core.reviewMeetingSpeakers(input)).rejects.toMatchObject({
-      wording: { key: "meetings.review.unavailable.people" },
+      wording: { key: "error.meeting.roomReviewPeople" },
     });
     expect(separate).toHaveBeenCalledTimes(1);
   } finally {

@@ -31,8 +31,8 @@ type Reason = MeetingSpeakerReviewQuote["reason"];
 
 function unavailable(reason: Reason) {
   const key = {
-    platform: "meetings.review.unavailable.platform",
-    people: "meetings.review.unavailable.people",
+    platform: "error.meeting.roomReviewPlatform",
+    people: "error.meeting.roomReviewPeople",
     audio: "error.meeting.audioGone",
     cap: "error.meeting.reviewCap",
     transcript: "error.meeting.reviewChanged",
@@ -296,7 +296,7 @@ export function createMeetingSpeakerReview(options: {
       options.log.warn("meeting.roomSpeakerReview", {
         reason: error instanceof Error ? error.name : "unknown",
       });
-      throw new InvalidInputError({ key: "meetings.review.roomError" });
+      throw new InvalidInputError({ key: "error.meeting.roomReviewFailed" });
     });
     stop.signal.throwIfAborted();
     if (!valid()) throw unavailable("transcript");
