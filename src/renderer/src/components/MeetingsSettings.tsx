@@ -11,6 +11,7 @@ import {
 import { CalendarSettings } from "./meetings/CalendarSettings";
 import { HelpSettings } from "./meetings/HelpSettings";
 import { MeetingNotesAgentSetting } from "./meetings/MeetingNotesAgentSetting";
+import { MeetingSummarySetting } from "./meetings/MeetingSummarySetting";
 import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
 import { WordsToKnow } from "./meetings/WordsToKnow";
 import { PopUpSelect } from "./settings/PopUpButton";
@@ -81,6 +82,7 @@ export function MeetingsSettings() {
             }
           />
           <MeetingNotesAgentSetting />
+          <MeetingSummarySetting />
           <SettingsSwitchRow
             label={t("meetings.settings.keepAudio")}
             detail={t(

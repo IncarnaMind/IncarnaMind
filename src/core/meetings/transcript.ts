@@ -1768,6 +1768,10 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   return {
+    confirmedCues(meetingId: string): readonly Cue[] {
+      return load(meetingId).cues;
+    },
+
     /**
      * Indexes a recording Meeting's Transcript again now, for a Question asked during the call
      * (#144): what was said up to now can be found and cited. Resolves once its file is checked

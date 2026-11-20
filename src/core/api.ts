@@ -3742,6 +3742,8 @@ export interface DeviceSettings {
   meetingSystemAudio: boolean;
   /** The connected agent chosen for notes after Stop on this device. */
   meetingNotesAgentId: string | null;
+  /** The pairing or chat model allowed to prepare a summary during Meetings on this device. */
+  meetingSummaryRoute: string | null;
   /**
    * "Keep a meeting's audio" (#687): a Meeting that starts recording while it is on keeps its
    * audio until the User deletes it, instead of for a day. Off by default; turning it on or off
@@ -11992,11 +11994,18 @@ export interface MeetingGap {
   reason: "interrupted" | "sleep";
 }
 
+export interface MeetingSummary {
+  text: string;
+  throughMs: number;
+  state: "preparing" | "updating" | "ready" | "failed";
+}
+
 export interface Meeting {
   id: string;
   /** The Mind it belongs to, where its notes are written. */
   mindId: string;
   kind: MeetingKind;
+  summary?: MeetingSummary;
   status: MeetingStatus;
   /** Why it is paused: the User did, or IncarnaMind closed while it was recording. Null unless paused. */
   pausedBy: "user" | "interrupted" | null;
@@ -15179,6 +15188,7 @@ export interface CoreApi {
    * on Try again. The model is the Answers one the User chose; nothing asks first.
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
+  retryMeetingSummary(meetingId: string): Promise<Meeting>;
   /** Takes back what filling in added, leaving the notes as the User left them (#142). */
   undoMeetingFill(meetingId: string): Promise<Meeting>;
   /**
@@ -16050,6 +16060,7 @@ const methods: Record<CoreApiMethod, true> = {
   getTranscriptionModel: true,
   retryTranscript: true,
   fillMeetingNotes: true,
+  retryMeetingSummary: true,
   undoMeetingFill: true,
   followMeetingFillUndo: true,
   openAudioSettings: true,

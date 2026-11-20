@@ -9,6 +9,7 @@ import { MeetingTranscriptView } from "../viewer/TranscriptView";
 import { type ViewerFrame, ViewerFrameContext } from "../viewer/ViewerHeader";
 import { OpenBesideLineIcon } from "./lineIcons";
 import { LiveMeetingBar } from "./MeetingInMind";
+import { MeetingSummary } from "./meetings/MeetingSummary";
 import { useTabPlace } from "./tabs/tabItems";
 
 /**
@@ -66,6 +67,7 @@ export function MeetingTranscriptInNote({ meeting, tabId }: { meeting: Meeting; 
           </div>
         </div>
       )}
+      <MeetingSummary meeting={meeting} inTranscript />
       <ViewerFrameContext.Provider value={frame}>
         <MeetingTranscriptView
           key={meeting.id}

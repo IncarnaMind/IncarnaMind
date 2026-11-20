@@ -191,3 +191,7 @@ Terms and ACP support were checked on 2026-10-31 against each agent's source and
 - #353's design shows the agent's name and version, not its sign-in, and its acceptance criteria follow this record once it is accepted (no Proposals, no "For this run").
 - CONTEXT.md gains a term for the User's agent running the assistant when this is built.
 - **Before release**, each listed agent is tried by hand with the cheapest model that answers (`AGENTS.md`), its "runs without asking" filled in from that, and its terms read again.
+
+## Addendum, 2026-11-20 · preparing a Meeting summary
+
+A device can prepare a read-only Meeting summary in its selected Codex or Claude Code client when the User explicitly enables automatic summaries for that pairing. The installed client uses its own authentication and billing. The core checks access to both the Meeting Note and its Transcript before sending confirmed lines and the previous summary. Tool use is disabled for this operation. The User can revoke it, and the manual Ask your AI handoff remains available. This decision applies to the meeting summary operation. [Claude Code product terms](https://code.claude.com/docs/en/legal-and-compliance#can-customers-offer-claude-code-in-their-products)
