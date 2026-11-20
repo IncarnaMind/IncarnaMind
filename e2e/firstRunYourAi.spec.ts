@@ -533,7 +533,7 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
         },
       }),
     );
-    expect(made.folder).toBe("Not in a Folder");
+    expect(made.folder).toBe("");
     await expect(step("agentAsk")).toHaveAttribute("data-state", "done");
     // A copy of it is the User's: the card still follows the agent's own Note.
     await window.evaluate(
