@@ -21,7 +21,7 @@ describe("the agent strings in a sentence", () => {
 
     it.each(KEYS)("%s reads with every agent's name", (key) => {
       for (const agent of sentenceNames) {
-        const text = translate(language, key, { agent, path: "~/x.json" });
+        const text = translate(language, key, { agent, path: "~/x.json", count: 2 });
         expect(text).not.toContain("{");
         expect(text).not.toContain("Other agent");
         expect(text).not.toContain("其他智能体");
