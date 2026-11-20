@@ -110,6 +110,7 @@ registerMixedMenu(["selection.moveTo", "selection.delete"]);
 
 registerMenu("linkedFolder", [
   "linkedFolder.pause",
+  "linkedFolder.makeProject",
   "folder.sort",
   "linkedFolder.download",
   "linkedFolder.reveal",

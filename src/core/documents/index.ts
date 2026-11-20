@@ -3382,6 +3382,9 @@ export function createDocuments(options: DocumentsOptions) {
     /** The live Linked folder a path is inside, and the live Document at it (see `library.placeOf`). */
     placeOf: (path: string) => library.placeOf(path),
 
+    /** The Folders a file at this path is inside in its Linked folder (see `library.foldersAbove`). */
+    foldersAbove: (path: string) => library.foldersAbove(path),
+
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
 

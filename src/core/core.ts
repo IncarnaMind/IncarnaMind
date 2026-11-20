@@ -1226,7 +1226,10 @@ export function createCore(adapters: CoreAdapters): Core {
         batches.changed([document.id]);
         rebuildMayHaveProgressed();
       },
-      emitMoved: (moved) => events.emit("documents.moved", moved),
+      emitMoved: (moved) => {
+        for (const document of moved) fileInBoundFolder(document.id);
+        events.emit("documents.moved", moved);
+      },
       emitRemoved: (ids) => {
         events.emit("documents.removed", ids);
         batches.changed(ids);
@@ -1244,7 +1247,10 @@ export function createCore(adapters: CoreAdapters): Core {
         events.emit("linkedFolders.changed", list);
         batches.linkedFoldersChanged(list);
       },
-      onFound: (documentId) => batches.found(documentId),
+      onFound: (documentId) => {
+        batches.found(documentId);
+        fileInBoundFolder(documentId);
+      },
       handedCopyAt: (path) =>
         handedCopyAt(
           handedFiles,
@@ -3684,6 +3690,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const unlinkFolder = (linkedFolderId: string, keep: readonly string[] = []) => {
+    const own = documents.linkedFolders.list().find((each) => each.id === linkedFolderId)?.folderId;
+    if (own) library.unbindLinkedFolder(linkedFolderId, own);
     documents.linkedFolders.remove(linkedFolderId, keep);
     outputs.forgetLinkedFolder(linkedFolderId);
   };
@@ -4080,6 +4088,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     prepare: prepareOrganize,
   });
+  /** The Folder a Linked folder's file is filed in as it arrives (ADR-0030); null for none. */
+  const boundFolderAt = (path: string) => library.boundTo(documents.foldersAbove(path));
+  /** Files a Linked folder's Document in its bound Folder, as the User's, unless it has a filing. */
+  const fileInBoundFolder = (documentId: string) => {
+    const [document] = documents.getMany([documentId]);
+    if (!document?.linkedFolderId || library.hasFiling(documentId)) return;
+    const groupId = boundFolderAt(document.path);
+    if (groupId !== null) library.file(documentId, groupId);
+  };
   const mindSources = createMindSources({
     dataDir,
     now,
@@ -5789,6 +5806,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readAgain: (path) => documents.checkNow(path),
     placeOf: (path) => documents.placeOf(path),
     filedIn: (documentId) => library.folderOfDocument(documentId),
+    filedOnArrival: (path) => boundFolderAt(path),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
@@ -7554,6 +7572,27 @@ export function createCore(adapters: CoreAdapters): Core {
 
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
+    createBoundFolder: async (folderId) => {
+      // A Linked folder's own Folder is known before a scan has made its row: binding works by id.
+      const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
+      const folder = linked
+        ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
+        : folders.get(folderId);
+      const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
+      if (already) return already;
+      const made = library.create({
+        name: folder.name.slice(0, 100),
+        description: "",
+        keepInside: true,
+      });
+      const bound = library.bind(made.id, folder.id);
+      for (const document of documents.list({ linkedFolderId: folder.linkedFolderId })) {
+        if (documents.foldersAbove(document.path).includes(folder.id)) {
+          fileInBoundFolder(document.id);
+        }
+      }
+      return bound;
+    },
     updateLibraryGroup: async (id, input) => library.update(id, input),
     moveLibraryGroups: async (moves) => library.moveGroups(moves),
     deleteLibraryGroup: async (id) => removeFolder(id),

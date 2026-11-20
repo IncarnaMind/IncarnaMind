@@ -111,6 +111,7 @@ export function definitions(language: Language): {
       description: translate(language, `library.preset.${key}.description`),
       parentId: null,
       countsOwnFiles: false,
+      boundFolderId: null,
       keepInside: false,
       createdAt: "",
       updatedAt: "",

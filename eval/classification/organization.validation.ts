@@ -14,6 +14,7 @@ const groups: LibraryGroup[] = [
   ...g,
   parentId: null,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside: false,
   createdAt: "",
   updatedAt: "",

@@ -44,6 +44,7 @@ const folder = (countsOwnFiles: boolean): LibraryGroup => ({
   name: "Drafts",
   description: "",
   countsOwnFiles,
+  boundFolderId: null,
   createdAt: "",
   updatedAt: "",
 });

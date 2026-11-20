@@ -140,6 +140,7 @@ test("compare text and PDF images on fixed, labelled local fixtures", async () =
     description,
     parentId: null,
     countsOwnFiles: false,
+    boundFolderId: null,
     keepInside: false,
     createdAt: "",
     updatedAt: "",

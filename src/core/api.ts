@@ -13010,6 +13010,13 @@ export type AgentChangeStep = "done" | "nothing-left" | "unavailable";
 export interface CoreApi {
   getLibrary(): Promise<LibrarySnapshot>;
   createLibraryGroup(input: LibraryGroupInput): Promise<LibraryGroup>;
+  /**
+   * Makes a Folder bound to a folder on disk (ADR-0030): `folderId` is a Linked folder's own
+   * Folder (`LinkedFolder.folderId`) or one inside it (`listFolders`). The new Folder is named
+   * after it and keeps its work inside it; the folder's Documents with no filing of their own are
+   * filed in it now, and its new ones as they arrive. One already bound to it is returned as it is.
+   */
+  createBoundFolder(folderId: string): Promise<LibraryGroup>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
   /**
    * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
@@ -16006,6 +16013,7 @@ const methods: Record<CoreApiMethod, true> = {
   listFolders: true,
   getLibrary: true,
   createLibraryGroup: true,
+  createBoundFolder: true,
   updateLibraryGroup: true,
   moveLibraryGroups: true,
   deleteLibraryGroup: true,
