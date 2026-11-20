@@ -450,7 +450,6 @@
   "tests/core/ownWorkings.test.ts": 1.7,
   "tests/core/pageSetup.test.ts": 6.3,
   "tests/core/pageTables.test.ts": 0,
-  "tests/core/paragraphAsked.test.ts": 0,
   "tests/core/paragraphFormat.test.ts": 6.7,
   "tests/core/paragraphFormatOlderVersion.test.ts": 0.2,
   "tests/core/partModelsOlderVersion.test.ts": 0.3,
