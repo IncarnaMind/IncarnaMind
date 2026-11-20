@@ -5075,6 +5075,49 @@
     opacity: 0.6;
     text-decoration: line-through 1px var(--color-ink-meta);
   }
+  /*
+   * A picture or chart a change adds or takes out whole (#3429), marked as its words would be: one
+   * added underlined in the accent; one taken out faded, with "Removed" on its frame in ink-meta,
+   * never a line across what it shows. The change's class lands on the element around its own.
+   */
+  .mind-editor .proposal-node--insert:has(> :is(.mind-picture-block, .chart-block)) {
+    text-decoration: none;
+    box-shadow: 0 6px 0 -5px var(--color-accent);
+  }
+  .mind-editor .proposal-node--delete:has(> :is(.mind-picture-block, .chart-block)) {
+    position: relative;
+    text-decoration: none;
+
+    & > * {
+      opacity: 0.45;
+    }
+    &::after {
+      content: attr(data-removed);
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      padding: 0 6px;
+      border-radius: 4px;
+      background: var(--color-sheet);
+      box-shadow: inset 0 0 0 1px var(--color-rule-strong);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      line-height: 20px;
+      color: var(--color-ink-meta);
+      pointer-events: none;
+    }
+  }
+  /* A chart's own controls are of no use on one taken out: its label stands where they were. */
+  .mind-editor .proposal-node--delete:has(> .chart-block) {
+    .chart-head > :not(.chart-title) {
+      visibility: hidden;
+    }
+    &::after {
+      top: 8px;
+      right: 0;
+      left: auto;
+    }
+  }
   .mind-editor .proposal-current,
   .mind-editor .proposal-target,
   .mind-editor .review-picked {

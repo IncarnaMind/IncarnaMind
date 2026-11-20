@@ -469,7 +469,7 @@ function useBarPlace(
         ?.getBoundingClientRect();
       const pill = editor.view.dom
         .closest(".workbench")
-        ?.querySelector('[data-testid="ask-pill"]')
+        ?.querySelector("[data-ask-pill]")
         ?.getBoundingClientRect();
       const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
       // Its width at the widest it is drawn, before this placement's own cap.

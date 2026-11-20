@@ -1985,6 +1985,7 @@ export const zhCN = {
   "proposal.unknownAuthor": "未知作者",
   "proposal.madeBy": "{author}，{date}",
   "proposal.proposedBy": "{agent} 建议",
+  "proposal.removedBlock": "已删除",
   "proposal.uncited.one": "1 句没有引用",
   "proposal.uncited": "{count} 句没有引用",
   "proposal.uncited.next": "选中下一句没有引用的句子",
@@ -8057,6 +8058,7 @@ export const zhCN = {
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.visualAdded":
     "{name} 的改写只能是文字：图片、图表或标签页要单独成段。请用 {name}+ 添加。",
+  "agents.propose.visualKept": "{name} 保持原样。{line}",
   "agents.propose.emptyTab":
     "{name} 中有一个空的标签页：请在它的 ```tab 块之后写上其中的内容，让用户能看到并决定是否接受。",
   "agents.propose.unplaced":
