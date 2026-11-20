@@ -1330,9 +1330,13 @@ export function createChecks(options: ChecksOptions) {
     track,
   });
 
+  const searched = (documentIds: readonly string[] | null) =>
+    options.documents.searchableBySize(documentIds).map((each) => each.id);
+
   const mindCheck = createMindCheck({
     ...options,
     documentVersions: options.watch.documentVersions,
+    searched,
     prepare,
     prepareUnasked,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
@@ -1353,6 +1357,7 @@ export function createChecks(options: ChecksOptions) {
     content,
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     documentVersions: options.watch.documentVersions,
+    searched,
     requireMind: options.requireMind,
     withResult: noteResult,
     retainEvidence,

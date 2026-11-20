@@ -30,7 +30,6 @@ import { setTextOrigin } from "../../../shared/textOrigins";
 import type { UnitText } from "../../../shared/units";
 import {
   type FormulaDifference,
-  isVerifiedBlock,
   readVerification,
   type Verification,
   writeVerification,
@@ -75,7 +74,7 @@ import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
 import { runChecks } from "./runChecks";
 import { everySentence, markedSentences, markSentence, type SelectedSentence } from "./sentences";
-import { claimOf, judgedWithOf, readingOf, saidOf } from "./standing";
+import { fileCheckLines, judgedWithOf, readingOf, saidOf } from "./standing";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks } from "./verifySlides";
 import { documentBlocks } from "./verifyTables";
@@ -119,9 +118,6 @@ function within(check: CheckScope, reach: ReadonlySet<string>): CheckScope {
   const documentIds = (check.scope.documentIds ?? [...reach]).filter((id) => reach.has(id));
   return { ...check, scope: { ...check.scope, documentIds } };
 }
-
-/** A letter or digit: a line with none states nothing to sort. */
-const WORDS = /[\p{L}\p{N}]/u;
 
 /** A file Word import takes, or refuses with its reason (an older .doc, macros). */
 const WORD_FILE = /\.(?:docx|docm|doc|dotx|dotm|dot)$/i;
@@ -309,15 +305,32 @@ export function createVerify(options: VerifyOptions) {
     }
   }
 
+  /**
+   * A deck's lines by slide, as the brief reads a lone figure's label from its slide (#3493); none
+   * for any other document, whose pages are too long to send whole.
+   */
+  function deckSlides(
+    verification: Verification,
+    sentences: readonly { blockId: string; text: string }[],
+  ): Map<number, string[]> {
+    const slides = new Map<number, string[]>();
+    let kind: string | null = null;
+    try {
+      kind = options.document(verification.documentId).kind;
+    } catch (error) {
+      if (!(error instanceof NotFoundError)) throw error;
+    }
+    if (kind !== "pptx") return slides;
+    for (const sentence of sentences) {
+      const page = verification.pages[sentence.blockId];
+      if (page === undefined) continue;
+      slides.set(page, [...(slides.get(page) ?? []), sentence.text]);
+    }
+    return slides;
+  }
+
   function sortingInput(mindId: string, verification: Verification) {
-    const sentences = content.read(mindId, (blocks) =>
-      everySentence(blocks, { headings: true }).flatMap((sentence) => {
-        if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
-        const said = claimOf(sentence, verification)?.claim;
-        // The model decides which lines state a claim, a short one with a figure too (#3412).
-        return said !== undefined && WORDS.test(said) ? [{ ...sentence, said }] : [];
-      }),
-    );
+    const sentences = content.read(mindId, (blocks) => fileCheckLines(blocks, verification));
     return {
       sentences,
       snapshot: JSON.stringify(
@@ -372,6 +385,7 @@ export function createVerify(options: VerifyOptions) {
           text: sentence.text,
           occurrence: sentence.occurrence,
           ...(parts && { parts }),
+          ...(found.unsorted.has(index) && { unsorted: true as const }),
         },
       ];
     });
@@ -411,6 +425,7 @@ export function createVerify(options: VerifyOptions) {
       snapshot,
       signal,
       answerTemperature(ready.prepared.capabilities.facts.temperature),
+      deckSlides(verification, sentences),
     )
       .then((brief) => {
         if (!brief) return;
@@ -441,7 +456,11 @@ export function createVerify(options: VerifyOptions) {
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
     let verification = verificationOf(mindId);
-    if (verification.sortedText !== sortingInput(mindId, verification).snapshot) {
+    // Lines whose sort couldn't be read are sorted again, with the rest.
+    if (
+      verification.sortedText !== sortingInput(mindId, verification).snapshot ||
+      verification.claims?.some((claim) => claim.unsorted)
+    ) {
       const found = await findClaims(mindId, input.model, signal, prepare);
       if (found.kind !== "found") return found;
       verification = verificationOf(mindId);
@@ -527,6 +546,28 @@ export function createVerify(options: VerifyOptions) {
           checkedAt: startedAt,
           judgedWith: judgedWithOf(sentence, verification),
         };
+        // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
+        if (claim.unsorted) {
+          markSentence(
+            sentence.element,
+            sentence.from,
+            sentence.to,
+            options.withResult(
+              marked,
+              {
+                verdict: "not-checked",
+                reason: "malformed",
+                detail: null,
+                versions: [],
+                excluded: [],
+              },
+              startedAt,
+              blocks,
+              mindId,
+            ),
+          );
+          return [];
+        }
         const said = saidOf(sentence, verification);
         const contextualRow = said.claim !== sentence.text;
         const row =

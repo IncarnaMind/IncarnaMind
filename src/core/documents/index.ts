@@ -557,6 +557,8 @@ export interface DocumentsOptions {
   onText?: (documentId: string) => void;
   /** A scan found a new Document, announced but not yet queued for processing. */
   onFound?: (documentId: string) => void;
+  /** See `LibraryHooks.handedCopyAt`. */
+  handedCopyAt?: (path: string) => string | null;
   /** Asks iCloud Drive to download a file an ".icloud" stub stands for. */
   downloadStub?: (path: string) => Promise<void>;
   /**
@@ -693,6 +695,13 @@ export function createDocuments(options: DocumentsOptions) {
       [documentId],
     )?.mind_id ?? null;
 
+  const handedByOf = (documentId: string): string | null =>
+    db.get<{ agent: string }>(
+      `SELECT agent FROM agent_files WHERE document_id = ? AND deleted_at IS NULL
+       ORDER BY created_at, rowid LIMIT 1`,
+      [documentId],
+    )?.agent ?? null;
+
   // A damaged `unread_parts` is said once for each Document: a list reads every Document again
   // and again, and the log would fill with the same line.
   const loggedUnreadParts = new Set<string>();
@@ -770,6 +779,7 @@ export function createDocuments(options: DocumentsOptions) {
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
+      handedBy: handedByOf(row.id),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2067,6 +2077,7 @@ export function createDocuments(options: DocumentsOptions) {
       },
       announce,
       added: (id) => options.onFound?.(id),
+      handedCopyAt: (path) => options.handedCopyAt?.(path) ?? null,
       moved: (ids) => {
         const moved = ids.flatMap((id) => {
           const row = find(id);
@@ -3360,6 +3371,9 @@ export function createDocuments(options: DocumentsOptions) {
 
     /** As `check`, and resolves only once the file has been read: for a file just written. */
     checkNow: (path: string) => library.check([path], true),
+
+    /** The live Linked folder a path is inside, and the live Document at it (see `library.placeOf`). */
+    placeOf: (path: string) => library.placeOf(path),
 
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,

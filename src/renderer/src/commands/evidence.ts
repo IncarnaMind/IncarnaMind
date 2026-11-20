@@ -1,7 +1,7 @@
 import type { Document } from "../../../core/api";
 import { countedByChoice, leftOutOfEvidence } from "../../../shared/evidence";
 import { mindName } from "../../../shared/naming";
-import { countAsEvidence, markNotCited } from "../evidence";
+import { allHanded, countAsEvidence, markNotCited } from "../evidence";
 import { countNow } from "../i18n";
 import { isListedDocument } from "../meetingTranscript";
 import { useAppStore } from "../store";
@@ -78,8 +78,15 @@ export const evidenceCommands: readonly Command[] = [
   },
   {
     id: "document.citeAgain",
+    // A file an agent handed over was never cited: it isn't cited "again" (#3493).
     label: (ctx, t) => {
-      const count = documentsOf(ctx).length;
+      const documents = documentsOf(ctx);
+      const count = documents.length;
+      if (allHanded(documents)) {
+        return count > 1
+          ? t("evidence.citeHandedMany", { count: countNow(count) })
+          : t("evidence.citeHanded");
+      }
       return count > 1
         ? t("evidence.citeAgainMany", { count: countNow(count) })
         : t("evidence.citeAgain");

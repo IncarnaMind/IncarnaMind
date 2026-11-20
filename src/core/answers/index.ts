@@ -214,7 +214,7 @@ import { messageReference } from "../references";
 import type { CodeRunner } from "../runCode";
 import { runCodeTool } from "../runCode/tool";
 import { currentTask } from "../runs/current";
-import type { GateDecision, TokenUsage } from "../runs/engine";
+import type { GateDecision, RunStep, TokenUsage } from "../runs/engine";
 import type { RepliesOut } from "../runs/replies";
 import { pendingWaits, REPLY_WAIT_LIMIT_MS, waitingOnLimits } from "../runs/requestWait";
 import type { SkillScript, SkillSession } from "../skills";
@@ -229,6 +229,7 @@ import { scriptCallInput, skillTools } from "../skills/tools";
 import { type PaceTimers, realTimers } from "../sources/pace";
 import { inFlow, inStep } from "../timing/flows";
 import {
+  ANALYSIS_TOOLS,
   ASK_TOOLS,
   COMMAND_TOOLS,
   DOCUMENT_TOOLS,
@@ -270,7 +271,6 @@ import {
   topLevelBlocks,
 } from "./blocks";
 import { answerLanguage, whole } from "./calculations";
-import { asksToCheckOrCalculate } from "./carefulIntent";
 import { type ChangedScale, changedScale, changedScaleNote } from "./changedScale";
 import {
   type AnswerCheckInput,
@@ -376,7 +376,6 @@ import {
   withFound,
   withHelp,
 } from "./meetingHelp";
-import { paragraphAsked } from "./paragraphAsked";
 import { createPlainCalculator } from "./plainCalculator";
 import { createPrintedNumbers } from "./printedNumbers";
 import {
@@ -433,6 +432,13 @@ const ANSWER_WRITE_INTERVAL_MS = 50;
 
 /** The commands that only propose, whose reply the app writes (#1569, #2339). */
 const PROPOSES: ReadonlySet<string> = new Set(["documents.organize", "documents.tagWithAi"]);
+
+/** The Tools an Answer calls to work a figure out: once it calls one, its later steps think harder (#3462). */
+const WORKING_TOOLS: ReadonlySet<string> = new Set([
+  DOCUMENT_TOOLS.calculate,
+  ANALYSIS_TOOLS.run,
+  ANALYSIS_TOOLS.code,
+]);
 
 type Outcome = { status: "done" | "stopped" } | { status: "failed"; error: ProviderError };
 
@@ -1766,7 +1772,8 @@ export function createAnswers(options: AnswersOptions) {
     /** When the text the Answer keeps began: a preamble taken back doesn't count. */
     let firstTextAt: number | null = null;
     let firstMindWordAt: number | null = null;
-    const careful = asksToCheckOrCalculate(context.question);
+    /** The Answer called for working (a calculation or an Analysis), so its later steps think harder (#3462). */
+    let careful = false;
     const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
     /** The Documents of the scope still being read, looked at once, when the Answer ends. */
     let stillReadingAtEnd: AnswerSteps["stillReading"] | null | undefined;
@@ -2840,10 +2847,10 @@ export function createAnswers(options: AnswersOptions) {
       // Nothing is sent before the User says: the Answer waits for them.
       if (consenting) showPhase();
       let prepared: PreparedChatModel;
+      /** The same model asked to think harder, prepared once the Answer first calls for working. */
+      let harder: Promise<PreparedChatModel | null> | null = null;
       // Help during a call is read within seconds: the model answers without thinking first.
-      const thinking = help
-        ? "off"
-        : (input.thinking ?? (input.task ? "task" : careful ? "careful" : "answer"));
+      const thinking = help ? "off" : (input.thinking ?? (input.task ? "task" : "answer"));
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
       try {
         prepared = await options.prepareModel(model, thinking);
@@ -3247,7 +3254,6 @@ export function createAnswers(options: AnswersOptions) {
                 });
                 return rewriting;
               },
-              paragraph: paragraphAsked(context.question),
               ...input.assistant,
               ...(askInTray && { ask: askInTray }),
               language: answerLanguage(context.question),
@@ -4024,6 +4030,21 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
+        ...(thinking === "answer" && {
+          modelAfter: (step: RunStep) => {
+            if (!step.calls.some((call) => WORKING_TOOLS.has(call.tool))) return undefined;
+            harder ??= options.prepareModel(model, "careful").catch((error: unknown) => {
+              console.warn(
+                `The Answer's later steps couldn't be asked to think harder, so they go on as they began: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              return null;
+            });
+            return harder.then((each) => {
+              if (each) careful = true;
+              return each?.model;
+            });
+          },
+        }),
         ...(prepareQuick && {
           quickModel: () => prepareQuick(model, prepared),
           ...(context.meetingFacts && { ownQuickModel: () => prepareQuick(model, prepared, true) }),

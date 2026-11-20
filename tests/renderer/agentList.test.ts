@@ -1,6 +1,7 @@
 /**
- * The list of agents to connect (#3374), in the setup's Your AI step and Settings › Agents: those
- * on this computer first, then the most used, and any other found by typing its name.
+ * The list of agents to connect (#3374), in the setup's Your AI step and Settings › Agents: chat
+ * apps before coding tools (#3487), those on this computer first in each, then the most used, and
+ * any other found by typing its name.
  */
 import { describe, expect, it } from "vitest";
 import { AGENT_CLIENT_DEFINITIONS } from "../../src/core/agents/clients";
@@ -13,6 +14,7 @@ function listed(found: readonly string[]): AgentClient[] {
     id: each.id,
     name: each.name,
     otherNames: [...(each.otherNames ?? [])],
+    chat: each.chat === true,
     installed: found.includes(each.id),
     setup: each.setup,
     skillPath: null,
@@ -23,20 +25,34 @@ const nameOf = (client: AgentClient) => (client.id === "other" ? "Other agent" :
 const ids = (clients: readonly AgentClient[]) => clients.map((each) => each.id);
 
 describe("the agents a list shows", () => {
-  // protects=a long list stays short until the User types; fails_when=every agent shows at once, the found ones aren't first, or Other agent is missing
-  it("shows the found agents first, then the most used, and Other agent last", () => {
+  // protects=a long list stays short until the User types, chat apps come first, the found ones first of each kind, and Other agent is last; fails_when=every agent shows at once, a coding tool is listed before a chat app, or Other agent is missing
+  it("shows chat apps before coding tools, the found ones first of each, then Other agent", () => {
     const shown = agentsShown(listed(["zed", "qwen-code"]), "", nameOf);
     expect(ids(shown)).toEqual([
+      "claude-desktop",
+      "codex",
       "zed",
       "qwen-code",
-      "claude-desktop",
       "claude-code",
-      "codex",
       "cursor",
       "vscode",
       "other",
     ]);
     expect(shown).toHaveLength(LISTED_AT_FIRST + 1);
+  });
+
+  // protects=a coding tool found on this computer doesn't push the chat apps down the list; fails_when=Claude Code is listed before the Claude app or the ChatGPT app
+  it("lists the chat apps first when only a coding tool is found", () => {
+    expect(ids(agentsShown(listed(["claude-code"]), "", nameOf))).toEqual([
+      "claude-desktop",
+      "codex",
+      "claude-code",
+      "cursor",
+      "vscode",
+      "opencode",
+      "openclaw",
+      "other",
+    ]);
   });
 
   // protects=every agent found on this computer is listed, however many; fails_when=a found agent is cut off by the length

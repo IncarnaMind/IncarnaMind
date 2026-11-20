@@ -85,5 +85,5 @@ export async function sortedByDecision(
     parts.set(index, each);
     if (each.some((part) => part.kind === "fact")) claims.add(index);
   }
-  return { kind: "found", claims, parts, undecided: new Set() };
+  return { kind: "found", claims, parts, undecided: new Set(), unsorted: new Set() };
 }

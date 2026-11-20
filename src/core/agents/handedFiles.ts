@@ -197,6 +197,8 @@ export function createHandedFileTool(context: HandedFileToolContext) {
           pairingId: pairing.id,
           agent: pairing.name,
           path,
+          place: read.path,
+          connectedAt: pairing.createdAt,
           title,
           kind,
           bytes: read.bytes,
@@ -211,6 +213,11 @@ export function createHandedFileTool(context: HandedFileToolContext) {
               throw new AgentRefusedError("not-found", t("agents.handOver.notFound"));
             }
           },
+          reaches: (folderId) => {
+            const reach = context.reached(context.again());
+            return folderId === null ? reach.has(NOT_IN_A_FOLDER_ID) : reach.has(folderId);
+          },
+          reachesNote: (mindId) => context.noteReached(context.again(), mindId),
           reach: () => context.documentsIn(context.again()),
         });
         const check: HandedCheck =
