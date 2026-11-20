@@ -1502,6 +1502,14 @@ export function createLibrary(options: {
     allTreeDocumentIds(folderId: string): string[] {
       return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
     },
+    /** The live Folder a Document is filed in, or null for one in none, "Not in a Folder". */
+    folderOfDocument(documentId: string): string | null {
+      const groupId = assignment(documentId)?.group_id ?? null;
+      const live =
+        groupId !== null &&
+        db.get("SELECT 1 FROM library_groups WHERE id = ? AND deleted_at IS NULL", [groupId]);
+      return live ? groupId : null;
+    },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": a Linked
      * folder's Documents are in none until they are filed, and a Meeting's Transcript is where

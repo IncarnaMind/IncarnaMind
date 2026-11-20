@@ -557,6 +557,8 @@ export interface DocumentsOptions {
   onText?: (documentId: string) => void;
   /** A scan found a new Document, announced but not yet queued for processing. */
   onFound?: (documentId: string) => void;
+  /** See `LibraryHooks.handedCopyAt`. */
+  handedCopyAt?: (path: string) => string | null;
   /** Asks iCloud Drive to download a file an ".icloud" stub stands for. */
   downloadStub?: (path: string) => Promise<void>;
   /**
@@ -2075,6 +2077,7 @@ export function createDocuments(options: DocumentsOptions) {
       },
       announce,
       added: (id) => options.onFound?.(id),
+      handedCopyAt: (path) => options.handedCopyAt?.(path) ?? null,
       moved: (ids) => {
         const moved = ids.flatMap((id) => {
           const row = find(id);
@@ -3368,6 +3371,9 @@ export function createDocuments(options: DocumentsOptions) {
 
     /** As `check`, and resolves only once the file has been read: for a file just written. */
     checkNow: (path: string) => library.check([path], true),
+
+    /** The live Linked folder a path is inside, and the live Document at it (see `library.placeOf`). */
+    placeOf: (path: string) => library.placeOf(path),
 
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
