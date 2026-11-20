@@ -226,10 +226,22 @@ export async function fixSentence(
     const to = end();
     return from !== null && to !== null && from < to ? { from, to } : null;
   };
-  const made = await requestEdit(editor, mindId, doc, "fix-sentence", instruction, {
-    from: claim.sentence.from,
-    to: claim.sentence.to,
-  });
+  // Tried again after a failure, the fix runs whole again on the sentence, if it still offers one.
+  const again = async () => {
+    const at = range();
+    const still = at && claimIn(editor, at.from, at.to);
+    if (still && offersFixSentence(editor, still)) await fixSentence(editor, mindId, doc, still);
+  };
+  const made = await requestEdit(
+    editor,
+    mindId,
+    doc,
+    "fix-sentence",
+    instruction,
+    { from: claim.sentence.from, to: claim.sentence.to },
+    undefined,
+    again,
+  );
   const at = range();
   if (!made || !at || editor.isDestroyed) return "not-made";
   const step = undoStackOf(editor)?.undoStack.at(-1) ?? null;

@@ -34,6 +34,8 @@ import { checkWithParts } from "../../src/shared/claimParts";
 const edits = vi.hoisted(() => ({
   asked: [] as { action: string; instruction?: string; range?: { from: number; to: number } }[],
   rewrite: null as string | null,
+  /** What the failure's Try again would run, from the last request. */
+  again: null as (() => Promise<unknown>) | null,
 }));
 const checks = vi.hoisted(() => ({
   asked: [] as unknown[],
@@ -65,8 +67,11 @@ vi.mock("../../src/renderer/src/editWithAi", () => ({
     action: string,
     instruction?: string,
     range?: { from: number; to: number },
+    _from?: "menu",
+    again?: () => Promise<unknown>,
   ) => {
     edits.asked.push({ action, ...(instruction && { instruction }), ...(range && { range }) });
+    edits.again = again ?? null;
     if (!range || edits.rewrite === null) return Promise.resolve(false);
     // The words go; a marker keeps its place, as the core keeps it.
     let end = range.to;
@@ -244,6 +249,7 @@ const ALONE = "The company plans a route to Norway.";
 beforeEach(() => {
   edits.asked.length = 0;
   edits.rewrite = null;
+  edits.again = null;
   checks.asked.length = 0;
   checks.answer = null;
   useNotices.setState({ errors: [], confirmation: null });
@@ -399,6 +405,36 @@ describe("Fix the sentence", () => {
 
     editor.commands.undo();
 
+    expect(editor.state.doc.textContent).toBe(LATE);
+    expect(shownClaims(editor.state).map((each) => [each.check.id, each.shown.state])).toEqual([
+      ["late", "contradicted"],
+    ]);
+  });
+
+  test("tried again after a failure, runs the whole fix: the new check, its Citation and Undo to the old check", async () => {
+    const { editor, doc } = editorWith([
+      {
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [marked(LATE, contradicted("late", LATE))],
+      },
+    ]);
+    answerWith(editor, "supported");
+
+    expect(await fixSentence(editor, "mind", doc, claim(editor, "late"))).toBe("not-made");
+    expect(checks.asked).toEqual([]);
+
+    edits.rewrite = "The terminal opened six months later than planned.";
+    await edits.again?.();
+
+    expect(edits.asked.map((each) => each.action)).toEqual(["fix-sentence", "fix-sentence"]);
+    expect(checks.asked).toHaveLength(1);
+    const quotes: unknown[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "citation") quotes.push(node.attrs.quote);
+    });
+    expect(quotes).toEqual([QUOTE]);
+    editor.commands.undo();
     expect(editor.state.doc.textContent).toBe(LATE);
     expect(shownClaims(editor.state).map((each) => [each.check.id, each.shown.state])).toEqual([
       ["late", "contradicted"],
