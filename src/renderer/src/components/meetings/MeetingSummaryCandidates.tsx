@@ -11,7 +11,12 @@ import { type Undoable, useUndo } from "../../undo";
 import { ChevronRightLineIcon } from "../lineIcons";
 import { LineAction, ProblemLine, ProblemMark } from "../ProblemLine";
 
-function useCanReview(meetingId: string, documentId: string | null | undefined, reviewed: boolean) {
+function useCanReview(
+  meetingId: string,
+  mindId: string,
+  documentId: string | null | undefined,
+  reviewed: boolean,
+) {
   const [eligible, setEligible] = useState(false);
   useEffect(() => {
     setEligible(false);
@@ -19,7 +24,6 @@ function useCanReview(meetingId: string, documentId: string | null | undefined, 
     let sequence = 0;
     const refresh = () => {
       const request = ++sequence;
-      setEligible(false);
       void core.canReviewMeetingSummaryCandidates(meetingId).then(
         (allowed) => {
           if (request === sequence) setEligible(allowed);
@@ -47,6 +51,9 @@ function useCanReview(meetingId: string, documentId: string | null | undefined, 
           "chatReadiness.changed",
         ] as const
       ).map((event) => core.on(event, refresh)),
+      core.on("mind.update", (updated) => {
+        if (updated.mindId === mindId) refresh();
+      }),
       core.on("documents.removed", (ids) => {
         if (ids.includes(documentId)) refresh();
       }),
@@ -59,7 +66,7 @@ function useCanReview(meetingId: string, documentId: string | null | undefined, 
       sequence++;
       for (const stop of stops) stop();
     };
-  }, [meetingId, documentId, reviewed]);
+  }, [meetingId, mindId, documentId, reviewed]);
   return eligible;
 }
 
@@ -104,7 +111,7 @@ export function MeetingSummaryCandidates({
     rows: MeetingSummaryCandidate[];
   } | null>(null);
   const rows = reviewed && loaded?.lookup === lookup ? loaded.rows : null;
-  const eligible = useCanReview(meetingId, doc, reviewed);
+  const eligible = useCanReview(meetingId, meeting.mindId, doc, reviewed);
 
   const previous = useRef({ reviewed, version, doc });
   useEffect(() => {

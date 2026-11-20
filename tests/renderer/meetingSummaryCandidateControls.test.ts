@@ -14,7 +14,7 @@ const api = vi.hoisted(() => ({
   review: vi.fn<CoreApi["reviewMeetingSummaryCandidates"]>(),
   add: vi.fn<CoreApi["addMeetingSummaryCandidate"]>(),
   undo: vi.fn<CoreApi["undoAddMeetingSummaryCandidate"]>(),
-  listeners: new Map<string, () => void>(),
+  listeners: new Map<string, (payload?: { mindId: string }) => void>(),
   store: { documents: [{ id: "transcript", contentHash: "first" }], minds: [], library: null },
 }));
 vi.mock("../../src/renderer/src/core", () => ({
@@ -24,7 +24,7 @@ vi.mock("../../src/renderer/src/core", () => ({
     reviewMeetingSummaryCandidates: api.review,
     addMeetingSummaryCandidate: api.add,
     undoAddMeetingSummaryCandidate: api.undo,
-    on: (event: string, callback: () => void) => {
+    on: (event: string, callback: (payload?: { mindId: string }) => void) => {
       api.listeners.set(event, callback);
       return () => api.listeners.delete(event);
     },
@@ -131,7 +131,9 @@ test("the newest access answer controls first-open; cached quotes stay local aft
   api.eligible.mockReturnValueOnce(initial.promise).mockResolvedValueOnce(false);
   await show(fresh);
   expect(disclosure()).toBeNull();
-  await act(() => api.listeners.get("agents.changed")?.());
+  await act(() => api.listeners.get("mind.update")?.({ mindId: "other-note" }));
+  expect(api.eligible).toHaveBeenCalledTimes(1);
+  await act(() => api.listeners.get("mind.update")?.({ mindId: meeting.mindId }));
   await act(() => initial.resolve(true));
   expect(disclosure()).toBeNull();
   expect(api.review).not.toHaveBeenCalled();
