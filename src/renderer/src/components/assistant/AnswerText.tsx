@@ -2,7 +2,7 @@ import "katex/dist/katex.min.css";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
-import type { RetainedFigureAnalysis } from "../../../../core/api";
+import type { RetainedFigureAnalysis, UncitedCheck } from "../../../../core/api";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { installFigureRuns, readFigureRunClosure } from "../../../../shared/figureRuns";
 import { lendAnswerEditor } from "../../answerEditors";
@@ -24,6 +24,7 @@ import {
 import { noteExtensions } from "../../editor/noteSchema";
 import { PictureView } from "../../editor/PictureView";
 import { UncheckedFigures } from "../../editor/uncheckedFigures";
+import { setUncitedChecks, UncitedChecks } from "../../editor/uncitedChecks";
 import { useT } from "../../i18n";
 import { useTableFades } from "../useTableFades";
 import { OpenAsTable } from "./OpenAsTable";
@@ -37,6 +38,8 @@ const citationView = ReactNodeViewRenderer(CitationView, {
     return true;
   },
 });
+
+const NONE: readonly UncitedCheck[] = [];
 
 const docOf = (blocks: readonly NodeJSON[]) => ({
   type: "doc",
@@ -68,6 +71,7 @@ export function AnswerText({
   regenerate,
   judged,
   onOpenTable,
+  uncited = NONE,
 }: {
   answerId: string;
   blocks: readonly NodeJSON[];
@@ -79,6 +83,8 @@ export function AnswerText({
   /** The Answer itself, whose sentences are judged and can be checked again. */
   judged: JudgedAnswer;
   onOpenTable(table: NodeJSON): void;
+  /** Its sentences with no Citation its judgement found the Passages it read don't back (#3410). */
+  uncited?: readonly UncitedCheck[];
 }) {
   const t = useT();
   const shown = useRef(JSON.stringify(blocks));
@@ -126,6 +132,7 @@ export function AnswerText({
         AnswerTableSlots,
         // A figure an Answer read from a scan's unsure word shows quietly, with a "?" (#535).
         UncheckedFigures,
+        UncitedChecks,
       ],
     },
     [],
@@ -142,6 +149,12 @@ export function AnswerText({
     shown.current = next;
     editor.commands.setContent(docOf(blocks), { emitUpdate: false });
   }, [editor, blocks]);
+
+  const uncitedKey = JSON.stringify(uncited);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the checks are read again only when their words change.
+  useEffect(() => {
+    if (!editor.isDestroyed) setUncitedChecks(editor.view, uncited);
+  }, [editor, uncitedKey]);
 
   // When the language changes: relabelled.
   useEffect(() => {

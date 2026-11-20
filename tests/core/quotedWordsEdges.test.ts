@@ -213,34 +213,27 @@ describe("Quoted words, at the edges", { timeout: 30_000 }, () => {
     ]);
   });
 
-  describe("a Citation added for a quotation written without a marker (#760)", () => {
+  describe("a quotation written without a marker (#760)", () => {
     const writes = async (answer: string) => {
-      const model = scriptedModel((call) =>
-        call.results.some((result) => result.tool === "search_documents")
+      const model = scriptedModel((call) => {
+        // The one request for the Answer's Citations: the model gives none.
+        if (call.json) return { text: JSON.stringify({ citations: [] }) };
+        return call.results.some((result) => result.tool === "search_documents")
           ? { text: answer }
-          : { calls: [{ tool: "search_documents", input: { query: "training coverage" } }] },
-      );
+          : { calls: [{ tool: "search_documents", input: { query: "training coverage" } }] };
+      });
       const { core, client, mind } = await setUpWithDocuments(model, [report]);
       const { answerId } = await askAndFinish(core, client, mind.id, "How many were trained?");
       return citationsIn(client, answerId);
     };
     const line = "Safety training: coverage reached 98% of site staff, up 6 points on 2024.";
 
-    test("is found when the quotation is the Passage's own", async () => {
-      expect((await writes(`It says "${line}" So it rose.`)).map((each) => each.check)).toEqual([
-        "found",
-      ]);
-    });
-
-    test("is not found when the quotation's words differ from the sentence it was matched to", async () => {
-      const [citation] = await writes(
-        `It says "${line.replace("Safety", "Workplace")}" So it rose.`,
-      );
-
-      expect(citation).toMatchObject({
-        check: "not-found",
-        checkReason: "quoted-words-not-on-pages",
-      });
+    // Code no longer cites a sentence by its words, a quotation's included (#3410): only the model does.
+    test.each([
+      ["the Passage's own", line],
+      ["not the Passage's", line.replace("Safety", "Workplace")],
+    ])("gets no Citation from its words when they are %s", async (_, quoted) => {
+      expect(await writes(`It says "${quoted}" So it rose.`)).toEqual([]);
     });
   });
 

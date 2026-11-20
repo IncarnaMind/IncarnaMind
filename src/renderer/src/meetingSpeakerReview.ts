@@ -71,15 +71,18 @@ export async function quoteSpeakerReview(meetingId: string, documentId: string, 
   }
 }
 
-export async function runSpeakerReview(meetingId: string) {
+export async function runSpeakerReview(meetingId: string, selfLabel?: string) {
   const review = reviewOf(meetingId);
   if (review?.phase.kind !== "quote" || !review.phase.quote.available) return;
+  const match = review.phase.quote.selfMatch;
+  if (match && (!selfLabel || !match.labels.includes(selfLabel))) return;
   const phase = { kind: "running" } as const;
   setReview(meetingId, { ...review, phase });
   try {
     const result = await core.reviewMeetingSpeakers({
       meetingId,
       confirmed: true,
+      ...(match && selfLabel && { selfMatch: { label: selfLabel, revision: match.revision } }),
       ...(review.phase.quote.roomDownloadBytes !== undefined && { onDevice: true as const }),
       ...(review.phase.quote.cached && { reuseOnly: true as const }),
     });
