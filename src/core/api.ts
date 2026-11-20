@@ -1527,6 +1527,8 @@ export type MindProblem =
         | "uncited"
         /** New text off the length the User asked for (#1385). */
         | "length"
+        /** A text argument held the call's own markup, from a malformed call (#3476). */
+        | "call-markup"
         // Only in Answers written before #1559.
         | "new-mind";
       mindId: string;

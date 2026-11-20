@@ -147,6 +147,8 @@ export function problemText(t: Translate, problem: MindProblem, mind: string): s
       return t("mindCall.failed.uncited", { mind });
     case "length":
       return t("mindCall.failed.length", { mind });
+    case "call-markup":
+      return t("mindCall.failed.callMarkup", { mind });
     case "no-chart":
       return t(`mindCall.failed.noChart.${problem.problem}`, { mind });
     case "new-mind":

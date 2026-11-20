@@ -7826,6 +7826,7 @@ export const zhCN = {
   "mindCall.failed.misnamed": "改写没有说清每处修改替换“{mind}”里的哪一段，因此没有改动",
   "mindCall.failed.uncited": "未添加到“{mind}”：出处没有引用",
   "mindCall.failed.length": "未修改“{mind}”：新内容的长度不符合要求",
+  "mindCall.failed.callMarkup": "未写入“{mind}”：AI 的调用格式有误",
   "mindCall.failed.noChart.noTable": "没有生成图表：“{mind}”里没有表格",
   "mindCall.failed.noChart.several": "没有生成图表：“{mind}”里有多个表格，光标不在其中任何一个",
   "mindCall.failed.noChart.noNumbers": "没有生成图表：“{mind}”里的表格没有数字列",
@@ -7955,6 +7956,8 @@ export const zhCN = {
   "agents.answer.notFound": "[未找到引文]",
   "agents.answer.cantCheck": "[无法核对]",
   "agents.mind.outsideCitation": "未共享给此智能体的文件夹中的文档",
+  "agents.problem.callMarkup":
+    "{argument} 里有调用本身的标记 {markup}，不是笔记的文字：没有写入。请重新调用，每个参数各放在自己的字段里。",
   "agents.problem.read-only":
     "这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → 智能体”中允许。",
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",

@@ -8266,6 +8266,7 @@ export const en = {
     "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.length": "Didn’t change “{mind}”: the new text wasn’t the length asked for",
+  "mindCall.failed.callMarkup": "Didn’t write in “{mind}”: the AI’s call came in malformed",
   "mindCall.failed.noChart.noTable": "No chart: “{mind}” has no table",
   "mindCall.failed.noChart.several":
     "No chart: “{mind}” has more than one table, and your cursor is in none",
@@ -8422,6 +8423,8 @@ export const en = {
   "agents.answer.notFound": "[quote not found]",
   "agents.answer.cantCheck": "[can’t be checked]",
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
+  "agents.problem.callMarkup":
+    "{argument} holds the markup of the call itself, {markup}, not words for the note: nothing was written. Send the call again with each argument in its own field.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":
