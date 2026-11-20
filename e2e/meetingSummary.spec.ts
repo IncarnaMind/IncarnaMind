@@ -281,12 +281,16 @@ for (const language of ["en", "zh-CN"] as const) {
         await showMeetingView(window, window, "notes");
         await setWindowSize(app, window, 1600, 660);
         await runCommand(window, "tab.split", "Split to the Right");
-        await expect(window.getByTestId("tab-group")).toHaveCount(2);
-        await expect(window.getByTestId("meeting-summary")).toHaveCount(1);
-        const focused = window.locator('[data-testid="tab-group"][data-focused="true"]');
-        await showMeetingView(window, focused, "mine");
-        await expect(focused.getByTestId("meeting-summary")).toHaveCount(0);
-        await expect(window.getByTestId("meeting-summary")).toHaveCount(1);
+        const panes = window.getByTestId("tab-group");
+        await expect(panes).toHaveCount(2);
+        const original = panes.nth(0);
+        const copy = panes.nth(1);
+        await expect(copy).toHaveAttribute("data-focused", "true");
+        await expect(copy.getByTestId("meeting-summary-text")).toHaveText(words.overview);
+        await expect(original.getByTestId("meeting-summary")).toHaveCount(0);
+        await showMeetingView(window, copy, "mine");
+        await expect(copy.getByTestId("meeting-summary")).toHaveCount(0);
+        await expect(original.getByTestId("meeting-summary-text")).toHaveText(words.overview);
       }
     } finally {
       await app.close();
@@ -294,6 +298,35 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+// protects=the first note fill offers recording details in the focused copy of a split meeting
+// fails_when=the background copy opens its popover and dismisses the focused copy's view menu
+test("the first fill opens the recorded meeting menu in the focused split pane", async () => {
+  const dir = await createDataFolder();
+  const { app, window } = await launchApp(dir, { fakeChat: true });
+  try {
+    await setWindowSize(app, window, 1600, 660);
+    await dismissChatSetup(window);
+    await selectLocalChatModel(window);
+    await startRecording(window, await recordMeeting(window), { notice: true });
+    await firstTranscriptLine(window);
+    await runCommand(window, "tab.split", "Split to the Right");
+    const panes = window.getByTestId("tab-group");
+    await expect(panes).toHaveCount(2);
+    const original = panes.nth(0);
+    const copy = panes.nth(1);
+    await expect(copy).toHaveAttribute("data-focused", "true");
+    await pointAndClick(window, copy.getByTestId("meeting-stop"));
+    await expect(copy.getByTestId("meeting-view-menu")).toBeVisible({ timeout: 30_000 });
+    await expect(original.getByTestId("meeting-view-menu")).toBeHidden();
+    await pointAndClick(window, copy.getByTestId("meeting-view-mine"));
+    await expect(copy.getByTestId("meeting-view-chip")).toHaveText("My notes");
+    await expect(original.getByTestId("meeting-view-chip")).toContainText("Recorded");
+  } finally {
+    await app.close();
+    await removeDataFolder(dir);
+  }
+});
 
 // protects=a stopped meeting with a failed summary still shows its saved Transcript
 // fails_when=a provider failure produces a blank result or hides the meeting's words
