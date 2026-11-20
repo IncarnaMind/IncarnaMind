@@ -7640,6 +7640,11 @@ export const en = {
     "Check up to four people on this device using NVIDIA Sortformer. Your recording stays on this computer. Listen to each suggestion and choose which to apply.",
   "meetings.review.roomDownload": "Download about {mb} MB",
   "meetings.review.roomInstall": "Download and check speakers",
+  "meetings.review.namedLabel": "{name} ({label})",
+  "meetings.review.selfLabel": "Which speaker are you?",
+  "meetings.review.chooseSelfLabel": "Choose your other label",
+  "meetings.review.selfHelp":
+    "This choice applies only to this review. If you are a fifth speaker, this check is unavailable.",
   "meetings.review.roomCheck": "Check speakers on this device",
   "meetings.review.unavailable.platform":
     "On-device room speaker review is unavailable on this computer.",
