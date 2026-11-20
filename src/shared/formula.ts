@@ -581,10 +581,13 @@ function powerOfTen(value: Value): number | null {
   return Math.abs(10 ** exponent - value.n) <= 1e-9 * value.n ? exponent : null;
 }
 
+/** An input as the evaluator takes it: a formula's, or a plain number with no unit (`evaluateArithmetic`). */
+type Named = Omit<FormulaInput, "unit"> & { unit: Unit };
+
 function evaluate(
   tree: Node,
   formula: string,
-  inputs: ReadonlyMap<string, FormulaInput>,
+  inputs: ReadonlyMap<string, Named>,
   changes?: Map<Node, ScaleChange>,
 ): Value {
   const source = (node: Node) => {
@@ -868,8 +871,8 @@ function evaluate(
 }
 
 /** Names ignore case, as Excel's do. */
-function inputsByName(inputs: readonly FormulaInput[]): Map<string, FormulaInput> {
-  const byName = new Map<string, FormulaInput>();
+function inputsByName<T extends Named>(inputs: readonly T[]): Map<string, T> {
+  const byName = new Map<string, T>();
   for (const input of inputs) {
     if (!NAME_ONLY.test(input.name))
       refuse(
@@ -935,6 +938,46 @@ export function evaluateFormula(
         node.type === "number" ? [{ text: node.text, value: node.value, at: node.from }] : [],
       ),
       scales: value.scales,
+    };
+  } catch (error) {
+    if (error instanceof Refusal) return { ok: false, kind: error.kind, message: error.message };
+    throw error;
+  }
+}
+
+/**
+ * Works out `formula` over plain numbers, by the same arithmetic as `evaluateFormula` with no
+ * units: every input is a number with none, so no combination is refused for what its numbers
+ * measure (#3393). What can't be worked out (a name that isn't an input, a division by zero, a
+ * syntax error) comes back as a problem in one line.
+ */
+export function evaluateArithmetic(
+  formula: string,
+  values: readonly { name: string; value: number }[],
+): { ok: true; value: number | boolean; literals: FormulaLiteral[] } | FormulaProblem {
+  try {
+    const byName = inputsByName(
+      values.map((each) => ({
+        name: each.name,
+        value: each.value,
+        scale: 1,
+        scaleWord: null,
+        unit: NUMBER_UNIT,
+        decimals: 0,
+        approximate: false,
+      })),
+    );
+    const tree = parse(formula);
+    for (const node of nodesIn(tree, (each) => each.type === "name"))
+      if (node.type === "name" && !byName.has(node.name.toLowerCase()))
+        refuse("name", `the formula uses ${node.name}, which isn't one of its inputs.`);
+    const value = evaluate(tree, formula, byName);
+    return {
+      ok: true,
+      value: value.unit.kind === "yes-no" ? value.n === 1 : value.n,
+      literals: nodesIn(tree, (node) => node.type === "number").flatMap((node) =>
+        node.type === "number" ? [{ text: node.text, value: node.value, at: node.from }] : [],
+      ),
     };
   } catch (error) {
     if (error instanceof Refusal) return { ok: false, kind: error.kind, message: error.message };

@@ -480,6 +480,7 @@
   "tests/core/quoteOnPage.test.ts": 0,
   "tests/core/quoteRetry.test.ts": 2.8,
   "tests/core/quotedName.test.ts": 30.3,
+  "tests/core/quotedNumbers.test.ts": 52,
   "tests/core/quotedWords.test.ts": 16,
   "tests/core/quotedWordsEdges.test.ts": 5.2,
   "tests/core/quotedWordsOnPage.test.ts": 7.4,

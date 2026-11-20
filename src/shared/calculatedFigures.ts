@@ -17,6 +17,7 @@ import type { NodeJSON } from "./blockJson";
 import { citationAttributesOf, parseQuotedWordsCheck } from "./citations";
 import { FORMULA_MAX_LENGTH, type ResultUnit, type ShowAs } from "./formula";
 import { parseLocation } from "./locations";
+import { plainNumber } from "./plainFigures";
 import { parseCellRef } from "./units";
 
 export const MAX_INPUTS_PER_FIGURE = 30;
@@ -504,6 +505,21 @@ export function readCalculatedFigureAttributes(value: unknown): CalculatedFigure
   if (!isRecord(value) || !named(value.id)) return null;
   const evidence = readCalculatedFigureEvidence(value);
   return evidence ? { id: value.id, ...evidence } : null;
+}
+
+/**
+ * An input as a figure's working line writes it: the number as its quote writes it, or, where the
+ * model used it moved by a power of ten (#3393: "142" used as 1.42), the value used. The input's
+ * own row shows the quote, so the line and the row together show both.
+ */
+export function inputInWorking(input: FigureInput): string {
+  const { number } = input;
+  const moved =
+    number.unit.kind === "plain" &&
+    number.scaleWord === null &&
+    input.unitStatement === null &&
+    number.scale !== 1;
+  return moved ? plainNumber(number.value) : number.chars;
 }
 
 /** A calculated figure node's words as the note shows them. */

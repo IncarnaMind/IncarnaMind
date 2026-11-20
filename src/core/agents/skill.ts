@@ -31,6 +31,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "2d1bc143d05c5fe8b15cff7d8860fdc58a8203abe78b69d6ce1d13bd47271bd3",
   "da9d17409bfdddb4505f497cfec1d799a650e0e0038e7db74b959e44786dea2c",
   "312f4df56cd3427db641077d4ea16bcb32451dc07ae2fcef42d4255e2aa4346f",
+  "59e011bac664580915757c59fb28762139b0b084ebd0c7cd7db5324b1407ecf3",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -83,7 +84,7 @@ For a page to look at, such as a report with pictures or a small dashboard, \`pu
 
 To change a Note, read it with \`read_mind\` and \`named\`, then \`propose_changes\`: in a Note you wrote, your changes apply at once and the User can undo them; in any other, they wait for the User. In a Note you wrote, paragraphs marked as the User's are theirs: leave them as they are unless the User asks you to change them.
 
-To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. It gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`calculate\` or \`run_analysis\` and reported on the id they give, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note, where the User sees the marks. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
+To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. It gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`run_analysis\` and reported on the id it gives; one you work out yourself from numbers Passages give is reported with its working, each number with its Citation, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note, where the User sees the marks. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
 
 \`check_mind\` is IncarnaMind's own check of that Note instead, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general. When it answers "running", call it again.
 `;

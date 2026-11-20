@@ -310,8 +310,10 @@ describe("an Analysis an Answer runs", () => {
                 figures: [
                   {
                     marker: calculated + 1,
-                    inputs: [{ name: "a", citation: 1, number: "120" }],
+                    label: "North revenue",
+                    inputs: [{ name: "a", citation: 1, value: 120 }],
                     formula: "a",
+                    shown: "120",
                   },
                 ],
               },

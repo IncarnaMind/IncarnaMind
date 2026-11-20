@@ -228,9 +228,10 @@ const RATIO = {
   marker: 1,
   label: "Leverage at 30 September 2026",
   formula: "debt / ebitda",
+  shown: "3.26x",
   inputs: [
-    { name: "debt", label: "Total Net Debt", citation: 1, number: "310" },
-    { name: "ebitda", label: "EBITDA", citation: 1, number: "95" },
+    { name: "debt", label: "Total Net Debt", citation: 1, value: 310 },
+    { name: "ebitda", label: "EBITDA", citation: 1, value: 95 },
   ],
 };
 
