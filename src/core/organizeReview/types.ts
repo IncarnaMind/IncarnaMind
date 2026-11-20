@@ -10,6 +10,7 @@ export type OrganizeReviewOrigin =
   | "library"
   | "folder"
   | "retag"
+  | "agent"
   | "assistant"
   | "background"
   | "migrated";
@@ -61,6 +62,7 @@ export interface OrganizeReviewItem {
   placement: OrganizeReviewPlacement;
   ticked: boolean;
   origin: OrganizeReviewOrigin;
+  agent?: string;
   /** The User changed it: no run replaces it. */
   edited: boolean;
   tags: OrganizeReviewTag[];

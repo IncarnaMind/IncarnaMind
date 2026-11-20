@@ -3193,7 +3193,8 @@ export const zhCN = {
   "setupPage.sorting.chat.line": "无需再设置",
   "setupPage.sorting.local": "这台电脑上的模型",
   "setupPage.sorting.local.line": "免费",
-  "setupPage.sorting.agentAlone": "有分类模型或这台电脑上的模型时，整理会自动进行；否则会等待。",
+  "setupPage.sorting.agentAlone":
+    "文档会优先由分类模型自动整理，其次是 IncarnaMind 中设置的模型，再其次是这台电脑上的模型。你也可以让已连接的 AI 整理文档，再到“建议”中确认。",
   "setupPage.sorting.local.none": "这台电脑上还没有可以整理的模型。",
   "setupPage.sorting.provider": "服务",
   "setupPage.meetings.title": "会议转写",
@@ -7921,7 +7922,7 @@ export const zhCN = {
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
   "consent.data.scoped-passages":
-    "所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多；以及 IncarnaMind 在这台电脑上为它推算的结果：根据它引用的数字推算，或用代码处理这些文件夹中的表格或 CSV 文件（代码给出的数字、表格和打印的文字）",
+    "整理时会读取待整理文档的名称、类型、开头的文字和版本，以及可选文件夹和标签的名称和内部 ID。所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多；以及 IncarnaMind 在这台电脑上为它推算的结果：根据它引用的数字推算，或用代码处理这些文件夹中的表格或 CSV 文件（代码给出的数字、表格和打印的文字）",
   "consent.data.scoped-minds":
     "共享文件夹的名称、内部 ID 和文档数，以及其中每个文档的名称、类型和内部 ID；智能体列出时，其中笔记的名称、内部 ID 和最后修改时间，以及页面的标题、内部 ID、版本号和最后修改时间；智能体读取时，笔记的部分内容和下一部分的起始位置，或页面的 HTML 及其中文件的名称、类型和大小；以及它的代码在这台电脑上根据这些名称、类型和文档的标签算出的数字，不含列表本身",
   "consent.data.answers": "IncarnaMind 对智能体所提问题的回答，以及其中的引文",
@@ -8146,6 +8147,14 @@ export const zhCN = {
   "agents.activity.cite": "引用了“{text}”",
   "agents.activity.check_citations": "核对了引用",
   "agents.activity.show_citation": "向你展示了一条引用",
+  "ai.jobs.organize.agent": "你可以让已连接的 AI 推荐文件夹和标签。",
+  "agents.sorting.tagConsent": "允许将这些文档的标签名称发送给 {agent} 使用的 AI 模型吗？",
+  "agents.sorting.shareTags": "允许共享标签名称",
+  "agents.sorting.invalid":
+    "文档或可选项已更改。请重新列出待整理的文档，再使用当前可选的文件夹和标签。",
+  "agents.activity.list_sorting": "读取了待整理的文档",
+  "agents.activity.propose_sorting": "推荐了文件夹和标签",
+  "organizeReview.agent": "{agent} 推荐",
   "agents.activity.list_minds": "列出了你的笔记",
   "agents.activity.read_mind": "读取了笔记“{text}”",
   "agents.activity.ask": "提问：“{text}”",
@@ -8186,7 +8195,7 @@ export const zhCN = {
   "agents.reason.no-python": "这台电脑无法为它运行代码",
   "agents.connect.title": "允许{agent}读取你的文档？",
   "agents.connect.body":
-    "它可以读取你所选的文件夹及其中的文件夹，以及其中的笔记、会议和页面，包括每场会议的转写稿及其中的发言人名字；选了“不在文件夹中”时，还能读取它自己写在那里的笔记和页面。只在本文件夹内工作的文件夹只能单独共享。列出时会发送每个文件夹的名称、内部 ID 和它在其中的位置、其中每个文档的名称、类型和内部 ID、每篇笔记的名称、内部 ID 和最后修改时间（会议笔记还有会议开始的时间），以及每个页面的标题、内部 ID、版本号和最后修改时间；读取页面时会发送页面的 HTML，以及其中文件的名称、类型和大小。IncarnaMind 还可以在这台电脑上为它运行代码：对这些文件夹中的表格或 CSV 文件运行时，发送代码给出的结果；对它可读取内容的名称、类型、文件夹和标签运行时，只发送算出的数字。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。",
+    "它可以读取你所选的文件夹及其中的文件夹，以及其中的笔记、会议和页面，包括每场会议的转写稿及其中的发言人名字；选了“不在文件夹中”时，还能读取它自己写在那里的笔记和页面。只在本文件夹内工作的文件夹只能单独共享。列出时会发送每个文件夹的名称、内部 ID 和它在其中的位置、其中每个文档的名称、类型和内部 ID、每篇笔记的名称、内部 ID 和最后修改时间（会议笔记还有会议开始的时间），以及每个页面的标题、内部 ID、版本号和最后修改时间；读取页面时会发送页面的 HTML，以及其中文件的名称、类型和大小。IncarnaMind 还可以在这台电脑上为它运行代码：对这些文件夹中的表格或 CSV 文件运行时，发送代码给出的结果；对它可读取内容的名称、类型、文件夹和标签运行时，只发送算出的数字。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。你让它整理文档时，它可以读取文档开头的文字，以及共享文件夹内文档上已有标签的名称和内部 ID。它提出的建议由你确认。",
   "agents.connect.name": "名称",
   "agents.connect.namePlaceholder": "我的智能体",
   "agents.connect.folders": "它可以读取的文件夹",

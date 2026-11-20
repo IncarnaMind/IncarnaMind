@@ -135,6 +135,7 @@ interface PairingRow {
   folder_ids: string;
   client: string | null;
   propose: number;
+  share_tag_names: number;
   last_used_at: string | null;
   created_at: string;
 }
@@ -169,6 +170,7 @@ const toPairing = (row: PairingRow): AgentPairing => ({
   folderIds: parseList<string>(row.folder_ids).filter((id) => typeof id === "string"),
   client: row.client,
   propose: row.propose === 1,
+  ...(row.share_tag_names === 0 && { tagNamesNotShared: true }),
   lastUsedAt: row.last_used_at,
   createdAt: row.created_at,
 });
@@ -226,14 +228,14 @@ export function createAgents(options: AgentsOptions) {
   const livePairings = () =>
     db
       .all<PairingRow>(
-        `SELECT id, name, folder_ids, client, propose, last_used_at, created_at FROM agent_pairings
+        `SELECT id, name, folder_ids, client, propose, share_tag_names, last_used_at, created_at FROM agent_pairings
          WHERE deleted_at IS NULL ORDER BY created_at, rowid`,
       )
       .map(toPairing);
 
   const findPairing = (pairingId: string): AgentPairing | null => {
     const row = db.get<PairingRow>(
-      `SELECT id, name, folder_ids, client, propose, last_used_at, created_at FROM agent_pairings
+      `SELECT id, name, folder_ids, client, propose, share_tag_names, last_used_at, created_at FROM agent_pairings
        WHERE id = ? AND deleted_at IS NULL`,
       [pairingId],
     );
@@ -407,6 +409,7 @@ export function createAgents(options: AgentsOptions) {
       name: pairing.name,
       folderIds,
       createdAt: pairing.createdAt,
+      shareTagNames: pairing.tagNamesNotShared !== true,
       propose: pairing.propose,
     };
   };
@@ -635,8 +638,8 @@ export function createAgents(options: AgentsOptions) {
       await options.secrets.set(secretName(id), token);
       const at = options.now();
       db.run(
-        `INSERT INTO agent_pairings (id, name, folder_ids, client, propose, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO agent_pairings (id, name, folder_ids, client, propose, share_tag_names, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
         [id, name, JSON.stringify(folderIds), client, propose ? 1 : 0, at, at],
       );
       tokens.set(id, token);
@@ -655,8 +658,15 @@ export function createAgents(options: AgentsOptions) {
       const propose = parsePropose(input.propose, pairing.propose);
       const at = options.now();
       db.run(
-        "UPDATE agent_pairings SET name = ?, folder_ids = ?, propose = ?, updated_at = ? WHERE id = ?",
-        [name, JSON.stringify(folderIds), propose ? 1 : 0, at, pairing.id],
+        "UPDATE agent_pairings SET name = ?, folder_ids = ?, propose = ?, share_tag_names = ?, updated_at = ? WHERE id = ?",
+        [
+          name,
+          JSON.stringify(folderIds),
+          propose ? 1 : 0,
+          input.shareTagNames === true || !pairing.tagNamesNotShared ? 1 : 0,
+          at,
+          pairing.id,
+        ],
       );
       changed();
       return requirePairing(pairing.id);

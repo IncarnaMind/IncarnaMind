@@ -3240,6 +3240,16 @@ export const migrations: readonly Migration[] = [
     description: "A Meeting’s summary prepared during the call",
     sql: "ALTER TABLE meetings ADD COLUMN summary TEXT;",
   },
+  {
+    version: 148,
+    description: "The agent that suggested a Folder or Tags",
+    sql: `
+      ALTER TABLE organize_review_items ADD COLUMN agent TEXT;
+      CREATE INDEX organize_review_items_by_document ON organize_review_items (document_id)
+        WHERE deleted_at IS NULL;
+      ALTER TABLE agent_pairings ADD COLUMN share_tag_names INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 /**

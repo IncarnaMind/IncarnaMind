@@ -6,9 +6,11 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { Core } from "../../src/core";
+import { type Core, DATABASE_FILE } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
+import type { SortingBatch } from "../../src/core/agents/sorting";
 import { estimateTokens } from "../../src/core/answers/context";
+import { openDatabase } from "../../src/core/storage";
 import {
   buildAgentShim,
   connectLegacyAgent,
@@ -590,6 +592,110 @@ describe("outside agents", () => {
     errors.mockRestore();
   });
 
+  it("holds an agent’s scoped Folder and Tag suggestions until confirmation", async () => {
+    const { core, launch, tides, budget, coast, finance } = await pairedToCoast();
+    const shore = await core.createLibraryGroup({
+      name: "Shore",
+      description: "Tides and waves",
+      parentId: coast.id,
+    });
+    const privateTag = await core.createTag({ name: "Budget cycle" });
+    await core.addDocumentTag(budget.id, privateTag.id);
+    const agent = await connectLegacyAgent(launch);
+    const list = async () =>
+      structured<SortingBatch>(await agent.callTool({ name: "list_sorting", arguments: {} }));
+    const batch = await list();
+    expect(batch.folders.map((f) => f.id).sort()).toEqual([coast.id, shore.id].sort());
+    expect(batch.documents.map((d) => d.id)).toEqual([tides.id]);
+    expect(batch.documents[0]?.text).toContain(SPRING);
+    expect(batch.tags.map((t) => t.id)).not.toContain(privateTag.id);
+    const tag = batch.tags[0];
+    if (!tag || !batch.documents[0]) throw new Error("Expected sorting choices");
+    const proposal = {
+      documentId: tides.id,
+      version: batch.documents[0].version,
+      folderId: shore.id,
+      tagIds: [tag.id],
+    };
+    const submit = (proposals: (typeof proposal)[]) =>
+      agent.callTool({ name: "propose_sorting", arguments: { proposals } });
+    for (const change of [
+      { folderId: finance.id },
+      { tagIds: [privateTag.id] },
+      { documentId: budget.id },
+      { version: "old" },
+    ]) {
+      expect((await submit([{ ...proposal, ...change }])).isError).toBe(true);
+    }
+    expect((await submit([proposal, { ...proposal, documentId: budget.id }])).isError).toBe(true);
+    expect((await core.getOrganizeReview()).items).toEqual([]);
+    const before = await core.listDocuments();
+    expect(structured(await submit([proposal]))).toEqual({ waiting: 1 });
+    expect((await submit([proposal])).isError).toBe(true);
+    expect((await list()).documents).toEqual([]);
+    const { items } = await core.getOrganizeReview();
+    const item = items[0];
+    if (!item) throw new Error("Expected a suggestion");
+    expect(items).toHaveLength(1);
+    expect(item).toMatchObject({
+      origin: "agent",
+      agent: "Claude Code",
+      documentId: tides.id,
+      placement: { kind: "folder", folderId: shore.id },
+      tags: [{ name: tag.name }],
+    });
+    expect((await core.listDocuments()).find((d) => d.id === tides.id)?.tags).toEqual(
+      before.find((d) => d.id === tides.id)?.tags,
+    );
+    const folder = async () =>
+      (await core.getLibrary()).assignments.find((a) => a.documentId === tides.id)?.groupId;
+    expect(await folder()).toBe(coast.id);
+    const dismissed = await core.discardOrganizeReview([item.id]);
+    expect(await folder()).toBe(coast.id);
+    expect((await list()).documents).toEqual([]);
+    if (!dismissed) throw new Error("Expected a discarded suggestion");
+    await core.restoreDiscardedOrganizeReview(dismissed);
+    await core.confirmOrganizeReview([item.id]);
+    expect(await folder()).toBe(shore.id);
+    expect((await core.listDocuments()).find((d) => d.id === tides.id)?.tags).toHaveLength(1);
+    expect((await list()).documents).toEqual([]);
+  });
+
+  it("shares custom Tag names with an earlier connection only after the User allows it", async () => {
+    const { core, dataDir, pairing, launch, tides, budget } = await pairedToCoast();
+    const shared = await core.createTag({ name: "Estuary fieldwork" });
+    const hidden = await core.createTag({ name: "Fiscal forecast" });
+    await core.addDocumentTag(tides.id, shared.id);
+    await core.addDocumentTag(budget.id, hidden.id);
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE agent_pairings SET share_tag_names = 0 WHERE id = ?", [pairing.id]);
+    } finally {
+      db.close();
+    }
+    const agent = await connectLegacyAgent(launch);
+    const list = async () =>
+      structured<SortingBatch>(await agent.callTool({ name: "list_sorting", arguments: {} }));
+    const legacy = await list();
+    expect(legacy.tags.every((t) => t.id.startsWith("kind:"))).toBe(true);
+    const doc = legacy.documents[0];
+    if (!doc) throw new Error("Expected a waiting Document");
+    const useTag = (tagId: string) =>
+      agent.callTool({
+        name: "propose_sorting",
+        arguments: { proposals: [{ documentId: doc.id, version: doc.version, tagIds: [tagId] }] },
+      });
+    expect((await useTag(shared.id)).isError).toBe(true);
+    expect((await core.updateAgent(pairing.id, { name: "My helper" })).tagNamesNotShared).toBe(
+      true,
+    );
+    await core.updateAgent(pairing.id, { shareTagNames: true });
+    const renewed = await list();
+    expect(renewed.tags).toContainEqual({ id: shared.id, name: shared.name });
+    expect(renewed.tags.map((t) => t.id)).not.toContain(hidden.id);
+    expect((await useTag(hidden.id)).isError).toBe(true);
+  });
+
   it("answer the current protocol (2026-07-28) and the one before it", async () => {
     const { launch } = await pairedToCoast();
     const legacy = await connectLegacyAgent(launch);
@@ -606,7 +712,9 @@ describe("outside agents", () => {
         "cite",
         "create_mind",
         "list_minds",
+        "list_sorting",
         "propose_changes",
+        "propose_sorting",
         "publish_canvas",
         "read_canvas",
         "read_mind",
@@ -637,7 +745,7 @@ describe("outside agents", () => {
     // calculate went and report_check took a working instead (#3393); 2,858 before tabs (#3414);
     // 2,874 before check_mind_yourself's shorter description (#3432); 2,873 before check_mind's
     // counts as the Note's page gives them (#3453).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(2_935);
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_153);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
@@ -647,6 +755,7 @@ describe("outside agents", () => {
       expect(tool.annotations?.readOnlyHint).toBe(
         ![
           "propose_changes",
+          "propose_sorting",
           "create_mind",
           "check_mind",
           "report_check",
