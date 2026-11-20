@@ -619,14 +619,16 @@ describe("what else reads a sheet's Passages", () => {
         return { calls: [{ tool: "search_documents", input: { query: "Glass beads TOTAL" } }] };
       const passage = shownPassages(search.text)[0]?.id;
       const calculated = call.results.filter((result) => result.tool === "calculate").length;
+      const last = (row: string) => Number(row.split("\t").at(-1));
       const figure = (rows: readonly [string, string]) => ({
         marker: calculated + 1,
         label: "Load",
         inputs: [
-          { name: "a", passage, quote: rows[0], number: rows[0].split("\t").at(-1) },
-          { name: "b", passage, quote: rows[1], number: rows[1].split("\t").at(-1) },
+          { name: "a", passage, quote: rows[0], value: last(rows[0]) },
+          { name: "b", passage, quote: rows[1], value: last(rows[1]) },
         ],
         formula: "a + b",
+        shown: (last(rows[0]) + last(rows[1])).toFixed(2),
       });
       if (calculated === 0)
         return {

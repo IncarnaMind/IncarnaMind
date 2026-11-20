@@ -636,13 +636,13 @@ const RECORD = `the Passage's id, where the quote is, and a short quote copied e
  */
 const CALCULATE = [
   'Never work out a number yourself, not even a simple one: for any number not in a Passage (a difference, sum, average, ratio, share, growth rate, change in percentage points, a conversion between 万 and 亿 or millions and billions, or which of two is larger), call calculate and write its marker in the number\'s place, with no number or unit beside it: "grew [=1] in 2025", not "grew 20.4% [=1]".',
-  '- Name each input\'s number as it is written in its quote, labelled with what it is and its period; give the line that states its scale ("单位：万元", "All amounts in £\'000") as unitQuote, also from a parent section or an earlier whole-Document page. Inputs come in base units with that scale applied: give scale ("亿", "billion") to show another, never convert in the formula.',
+  "- Give each input as a plain number with the quote it is in: its own digits, moved by a power of ten only where you mean another scale or unit. The label says what the figure is, with its unit; shown is how it reads in the Answer, with its unit and scale.",
   "- A number copied from a Passage is cited with [^n]; calculate is only for numbers you work out.",
   "- If calculate refuses a figure, fix what it says and call it again; never write that you couldn't calculate a cited number.",
 ].join("\n");
 
 /** Structured output's `calculations`, for a model offered them: what `CALCULATE` is to the Tool loop. */
-const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; its inputs, each a name for the formula, a label with its year or period, the marker of the Citation whose quote holds the number, and the number as it is written there; and a formula over the names in Excel's syntax, such as (b - a) / a, with "as": "percent" for a growth rate or share. When a number's unit or scale is only in a table's heading ("单位：万元") or in another Passage whose line says it holds for the whole Document ("All amounts in £'000", under a parent heading or on an earlier page), give that line as unitQuote. Inputs are read in base units with that scale applied: give "scale" ("亿", "billion") for the scale a figure is shown in, never a division by 10000 or 1000. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction written in brackets off a total by adding it, never by subtracting it. ${ROW_CONTEXT}.`;
+const CALCULATIONS = `- calculations: one for each number the Answer works out from numbers in Passages (a difference, sum, average, ratio, share, growth rate, a change in percentage points, a conversion between 万 and 亿 or millions and billions), with [=1] in the answer where the number goes, never the number itself: its marker; a label that says what it is, with its period and unit; its inputs, each a name for the formula, the marker of the Citation whose quote holds the number, and the number as a plain value, the quote's own digits moved by a power of ten only where you mean another scale or unit; a formula over the names in Excel's syntax, such as (b - a) / a; and shown, the figure as the answer writes it, with its unit and scale. ${ROW_CONTEXT}.`;
 
 /**
  * For a model that answers without Tools and isn't offered `calculations` (#1796): asked to use
@@ -1045,10 +1045,10 @@ export const QUOTE_RETRY_INSTRUCTIONS = [
  * (see ./figureRetry).
  */
 export const FIGURE_RETRY_INSTRUCTIONS = [
-  "You fix the calculated figures of an Answer. A program reads each input's number from its quote and does the arithmetic, and couldn't for these figures, for the reason given with each.",
-  "- Give each figure again, with its marker, label, inputs and formula, fixed: copy each quote and number character for character from its Passage's text, and give unitQuote or reading where the reason asks for one.",
+  "You fix the calculated figures of an Answer. A program checks each input's value against the digits of its quote and does the arithmetic, and couldn't for these figures, for the reason given with each.",
+  "- Give each figure again, with its marker, label, inputs, formula and shown, fixed: copy each quote character for character from its Passage's text, and give each value from the digits the quote writes.",
   "- If a Passage's text has nothing to work a figure out from, leave that figure out.",
-  'Reply with one JSON object: {"calculations": [{"marker": 1, "label": "…", "inputs": [{"name": "a", "label": "…", "passage": "P1", "quote": "…", "number": "…"}], "formula": "…"}]}.',
+  'Reply with one JSON object: {"calculations": [{"marker": 1, "label": "…", "inputs": [{"name": "a", "passage": "P1", "quote": "…", "value": 0}], "formula": "…", "shown": "…"}]}.',
 ].join("\n");
 
 /** A figure that couldn't be worked out, as the request to fix it shows it. */

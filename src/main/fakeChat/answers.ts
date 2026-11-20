@@ -58,6 +58,7 @@
  */
 
 import { readFigures } from "../../shared/figures";
+import { writtenNumbers, writtenValue } from "../../shared/plainFigures";
 import { namesIn } from "./asks";
 import { cellReply, isCell } from "./cells";
 import {
@@ -858,19 +859,39 @@ function answerFrom(
     const calculated = toolResults(prompt, "calculate");
     const share = /\bshare\b|占比/i.test(question);
     if (calculated.length === 0) {
-      const inputs = [1, 2].map((position) => ({
-        name: `n${position}`,
-        label: position === 1 ? "Later" : "Earlier",
+      // The first two amounts of the first Citation's quote, as it writes their digits; a year is no amount.
+      const quote = String(recordsFor(searches.at(-1) ?? "", question)[0]?.quote ?? "");
+      const [later = 0, earlier = 1] = readFigures(quote)
+        .filter((each) => !/^(?:19|20)\d{2}$/.test(each.chars))
+        .map((each) => writtenValue(writtenNumbers(each.chars)[0]?.chars ?? "0"));
+      const inputs = [later, earlier].map((value, at) => ({
+        name: `n${at + 1}`,
+        label: at === 0 ? "Later" : "Earlier",
         citation: 1,
-        position,
+        value,
       }));
+      const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
       return {
         tool: "calculate",
         input: {
           figures: [
-            { marker: 1, label: "Growth", inputs, formula: "n1 / n2 - 1", as: "percent" },
+            {
+              marker: 1,
+              label: "Growth (%)",
+              inputs,
+              formula: "n1 / n2 - 1",
+              shown: percent(later / earlier - 1),
+            },
             ...(share
-              ? [{ marker: 2, label: "Share", inputs, formula: "n2 / n1", as: "percent" }]
+              ? [
+                  {
+                    marker: 2,
+                    label: "Share (%)",
+                    inputs,
+                    formula: "n2 / n1",
+                    shown: percent(earlier / later),
+                  },
+                ]
               : []),
           ],
         },

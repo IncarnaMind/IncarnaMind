@@ -1,3 +1,7 @@
+/**
+ * What `calculate` takes (#3393): each figure's inputs as plain numbers with the quotes they come
+ * from, a formula over their names, and the figure's label and shown text, which say what it is.
+ */
 export const calculationsSchema = {
   type: "array",
   items: {
@@ -10,7 +14,7 @@ export const calculationsSchema = {
       },
       label: {
         type: "string",
-        description: 'What the result is, with its period: "Revenue growth 2025".',
+        description: 'What the figure is, with its period and unit: "Revenue growth 2025 (%)".',
       },
       inputs: {
         type: "array",
@@ -20,7 +24,12 @@ export const calculationsSchema = {
             name: { type: "string", description: "A short name for the formula: rev2024." },
             label: {
               type: "string",
-              description: 'What it is, with its year or period: "Revenue 2024".',
+              description: 'What it is, with its year or period and unit: "Revenue 2024 ($)".',
+            },
+            value: {
+              type: "number",
+              description:
+                "The number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit (2.7亿 as 270000000, 45 cents as 0.45 dollars, 6% as 0.06).",
             },
             citation: {
               type: "integer",
@@ -41,48 +50,17 @@ export const calculationsSchema = {
             },
             number: {
               type: "string",
-              description: 'The number as it is written in the quote: "1.2亿", "$1,482.6 million".',
-            },
-            position: {
-              type: "integer",
               description:
-                "Instead of number, when the number is in the quote twice: its place among the quote's numbers, 1 for the first.",
-            },
-            unitQuote: {
-              type: "string",
-              description:
-                'When the number\'s scale or currency is only in a table\'s heading or caption ("单位：万元", "in millions"), or in another Passage whose line says it holds for the whole Document ("All amounts in £\'000", under a parent heading or on an earlier page): that line, copied word for word.',
-            },
-            reading: {
-              type: "integer",
-              description:
-                "Only when told the number can be read more than one way: the reading to use, as numbered then.",
-            },
-            rate: {
-              type: "string",
-              description:
-                'Only for an exchange rate: the currencies it converts, as "CNY per USD".',
+                "Only when the quote has the same digits twice: the number as the quote writes it.",
             },
           },
-          required: ["name"],
+          required: ["name", "value"],
         },
       },
       formula: {
         type: "string",
         description:
-          "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b. A percent is a share, 25% is 0.25: never multiply by 100, give as instead. Inputs are in base units: never multiply or divide by 1000 or 10000 to change the scale, give scale instead.",
-      },
-      as: {
-        type: "string",
-        enum: ["number", "percent", "points", "currency", "times", "yes-no"],
-        description:
-          "How to show the result: percent for a growth rate or a share. Default: from the inputs.",
-      },
-      decimals: { type: "integer", description: "Decimal places, when the default won't do." },
-      scale: {
-        type: "string",
-        description:
-          "Show an amount in this scale: 万, 亿, thousand, million, billion. Inputs are in base units with their page's scale applied, so this, never the formula, sets the scale shown.",
+          "Available functions: SUM, AVERAGE, MIN, MAX, ABS, SIGN, ROUND, RRI, SQRT. In Excel's syntax, over the inputs' names: (rev2025 - rev2024) / rev2024, SUM(q1, q2, q3, q4), RRI(4, start, end), a > b.",
       },
       constants: {
         type: "array",
@@ -90,47 +68,12 @@ export const calculationsSchema = {
         description:
           "Only when calculate's reply asks for it: the numbers written in the formula that are constants of the arithmetic itself, such as 12 months in a year.",
       },
-    },
-    required: ["marker", "inputs", "formula"],
-  },
-} as const;
-
-/**
- * In a check Run (#707), each figure also names the number of the sentence it
- * is for, which IncarnaMind compares the result with.
- */
-export const checkCalculationsSchema = {
-  ...calculationsSchema,
-  items: {
-    ...calculationsSchema.items,
-    properties: {
-      ...calculationsSchema.items.properties,
-      inputs: {
-        ...calculationsSchema.items.properties.inputs,
-        items: {
-          ...calculationsSchema.items.properties.inputs.items,
-          properties: {
-            ...calculationsSchema.items.properties.inputs.items.properties,
-            bracketedCost: {
-              type: "boolean",
-              description:
-                'True when the number is a cost or deduction printed in brackets ("Finance costs (41.2)", "财务费用 (41.2)"), so its size is meant. Never for a loss or another result in brackets.',
-            },
-          },
-        },
-      },
-      stated: {
+      shown: {
         type: "string",
         description:
-          'The exact quantity copied from the sentence to check, in its original language: "1.1x", "12%", "three", "三年". Never translate it or replace written words with digits.',
-      },
-      relation: {
-        type: "string",
-        enum: ["equals", "at most", "at least"],
-        description:
-          'How the figure stands to stated: "equals" when stated is the figure; "at most" or "at least" when stated is a limit the sentence says the figure stays within or above ("inside a 3.25x covenant", "不超过3.25倍", "至少5倍").',
+          'The figure as the Answer writes it in place of its marker, with its unit and scale and one number in it: "20.4%", "$251.6 million", "1,842万元". Its digits are the result\'s, rounded as you show it.',
       },
     },
-    required: [...calculationsSchema.items.required, "stated", "relation"],
+    required: ["marker", "label", "inputs", "formula", "shown"],
   },
 } as const;

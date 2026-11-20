@@ -6,6 +6,7 @@
  * models write it. The reply gives the totals and the fastest growth as the same figures.
  */
 
+import { plainNumber, writtenValue } from "../../shared/plainFigures";
 import { passagesIn, UNIT_MARK } from "./passages";
 import { lastResult, type Prompt, type Reply, toolResults } from "./prompt";
 
@@ -79,26 +80,29 @@ export function regionalChart(prompt: Prompt, question: string, tools: readonly 
     name: `q${row.quarter}`,
     label: `${row.region} revenue Q${row.quarter} 2026`,
     citation: marker(row),
-    number: row.revenue,
+    value: writtenValue(row.revenue),
   });
+  const sum = (rows: readonly Row[]) =>
+    rows.reduce((total, row) => total + writtenValue(row.revenue), 0);
   if (!tools.includes("calculate")) return { text: "I can't calculate here." };
   if (toolResults(prompt, "calculate").length === 0) {
     const totals = REGIONS.map((region, index) => ({
       marker: index + 1,
-      label: `${region} total revenue Q1–Q3 2026`,
+      label: `${region} total revenue Q1–Q3 2026 (USD)`,
       inputs: of(region).map(input),
       formula: of(region)
         .map((row) => `q${row.quarter}`)
         .join(" + "),
+      shown: `$${plainNumber(sum(of(region)))}`,
     }));
     const growth = REGIONS.map((region, index) => {
       const ends = of(region).filter((row) => row.quarter === first || row.quarter === last);
       return {
         marker: REGIONS.length + index + 1,
-        label: `${region} growth Q${first} to Q${last} 2026`,
+        label: `${region} growth Q${first} to Q${last} 2026 (%)`,
         inputs: ends.map(input),
         formula: `q${last} / q${first} - 1`,
-        as: "percent",
+        shown: `${((sum(ends.filter((row) => row.quarter === last)) / sum(ends.filter((row) => row.quarter === first)) - 1) * 100).toFixed(1)}%`,
       };
     });
     return { tool: "calculate", input: { figures: [...totals, ...growth] } };

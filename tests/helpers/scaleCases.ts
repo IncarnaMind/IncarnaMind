@@ -1,14 +1,16 @@
 /**
- * A Document's two rows calculated through the core as the assistant uses it, with a scripted
- * model that searches once, cites both rows and works out their difference: what the figure
- * records, and what the calculation told the model (#2365).
+ * A Document's two rows read through the core as the assistant uses it, with a scripted model
+ * that searches once, cites both rows and gives them to an Analysis as quoted numbers: what each
+ * number is read as, and what the Analysis told the model (#2365). An Analysis's quoted number
+ * is read as `calculate` read one before #3393, so its scale rules are pinned here.
  */
 import type { MockLanguageModelV4 } from "ai/test";
 import type { Core } from "../../src/core";
+import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
 import { answerEnded, type ShownPassage, shownPassages } from "./citations";
 import { createTempDataFolder, startCore } from "./core";
 import { addAndProcess, writeSourceFile } from "./documents";
-import { answerRequests, scriptedModel, scriptedModels } from "./models";
+import { answerRequests, judgesNothing, scriptedModel, scriptedModels } from "./models";
 import { buildPdf } from "./pdf";
 
 type Call = { tool: string; input: unknown };
@@ -24,59 +26,56 @@ function passageWriting(passages: readonly ShownPassage[], quote: string): Shown
 }
 
 /**
- * A model that searches once, cites both rows from the Passage that writes them, works out the
- * second from the first, and writes the marker. `unitQuote` goes on both inputs.
+ * A model that searches once, cites both rows from the Passage that writes them, gives both to
+ * an Analysis as quoted numbers, and answers. `unitQuote` goes on both inputs.
  */
-function calculatingModel(
+function analysingModel(
   query: string,
   cites: readonly [string, string],
   numbers: readonly [string, string],
   unitQuote: string | undefined,
   unitQuotes: UnitQuotes | undefined,
 ): MockLanguageModelV4 {
-  return scriptedModel((call) => {
-    const searches = call.results.filter((result) => result.tool === "search_documents");
-    if (searches.length === 0) {
-      return { calls: [{ tool: "search_documents", input: { query } }] };
-    }
-    if (call.index === 1) {
-      const passages = searches.flatMap((each) => shownPassages(each.text));
-      const cited = cites.map((quote, index) => {
-        const passage = passageWriting(passages, quote);
-        return {
-          marker: index + 1,
-          passage: passage.id,
-          location: passage.location ?? "p. 1",
-          quote,
+  return scriptedModel(
+    (call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0) {
+        return { calls: [{ tool: "search_documents", input: { query } }] };
+      }
+      if (call.index === 1) {
+        const passages = searches.flatMap((each) => shownPassages(each.text));
+        const cited = cites.map((quote, index) => {
+          const passage = passageWriting(passages, quote);
+          return {
+            marker: index + 1,
+            passage: passage.id,
+            location: passage.location ?? "p. 1",
+            quote,
+          };
+        });
+        const input = (name: string, index: number) => {
+          const quoted = unitQuotes?.[index] ?? unitQuote;
+          return {
+            name,
+            citation: index + 1,
+            number: numbers[index],
+            ...(quoted !== undefined && { unitQuote: quoted }),
+          };
         };
-      });
-      const input = (name: string, label: string, index: number) => {
-        const quoted = unitQuotes?.[index] ?? unitQuote;
-        return {
-          name,
-          label,
-          citation: index + 1,
-          number: numbers[index],
-          ...(quoted !== undefined && { unitQuote: quoted }),
+        const call: Call = {
+          tool: "run_analysis",
+          input: {
+            title: "Difference",
+            inputs: [input("rev", 0), input("cost", 1)],
+            code: 'print(inputs["rev"] - inputs["cost"])',
+          },
         };
-      };
-      const call: Call = {
-        tool: "calculate",
-        input: {
-          figures: [
-            {
-              marker: 1,
-              label: "Difference",
-              formula: "rev - cost",
-              inputs: [input("rev", "Revenue", 0), input("cost", "Costs", 1)],
-            },
-          ],
-        },
-      };
-      return { calls: [{ tool: "cite", input: { citations: cited } }, call] };
-    }
-    return { text: "[=1][^1]" };
-  });
+        return { calls: [{ tool: "cite", input: { citations: cited } }, call] };
+      }
+      return { text: "Revenue and costs are in the report.[^1]" };
+    },
+    { generate: judgesNothing },
+  );
 }
 
 function told(model: MockLanguageModelV4, tool: string): string {
@@ -94,7 +93,7 @@ function told(model: MockLanguageModelV4, tool: string): string {
 }
 
 async function askAndRead(core: Core) {
-  const asked = await core.askInConversation({ text: "What is the difference?" });
+  const asked = await core.askInConversation({ text: "What is the difference?", analyse: true });
   if (!asked.asked) throw new Error(`The Question wasn't asked: ${JSON.stringify(asked)}`);
   const ended = await answerEnded(core, asked.answerId);
   if (ended.event !== "finished") throw new Error(`The Answer failed: ${JSON.stringify(ended)}`);
@@ -114,10 +113,15 @@ export interface Case {
   query: string;
 }
 
+/**
+ * The two numbers as the Analysis read them: `value` is the first less the second, null when
+ * either was refused; scale, currency, statement and unit are the first's.
+ */
 export async function record(c: Case) {
-  const model = calculatingModel(c.query, c.cites, c.numbers, c.unitQuote, c.unitQuotes);
+  const model = analysingModel(c.query, c.cites, c.numbers, c.unitQuote, c.unitQuotes);
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
+    analysisRuntime: createFakeAnalysisRuntime(),
     answerPaths: { retrievesFirst: () => false },
   });
   const saved = await core.saveChatProvider({
@@ -130,13 +134,17 @@ export async function record(c: Case) {
   await addAndProcess(core, [await writeSourceFile(sources, c.file.name, c.file.contents)]);
   const answer = await askAndRead(core);
   core.close();
+  const read = (answer.analyses[0]?.inputs ?? []).flatMap((each) =>
+    each.kind === "figure" ? [each.input] : [],
+  );
+  const [rev, cost] = read;
   return {
-    value: answer.figures[0]?.value ?? null,
-    scale: answer.figures[0]?.inputs[0]?.unitStatement?.scale ?? null,
-    currency: answer.figures[0]?.inputs[0]?.unitStatement?.currency ?? null,
-    statement: answer.figures[0]?.inputs[0]?.unitStatement?.citation.quote ?? null,
-    unit: answer.figures[0]?.inputs[0]?.number.unit ?? null,
-    asked: told(model, "calculate"),
+    value: rev && cost ? rev.number.value - cost.number.value : null,
+    scale: rev?.unitStatement?.scale ?? null,
+    currency: rev?.unitStatement?.currency ?? null,
+    statement: rev?.unitStatement?.citation.quote ?? null,
+    unit: rev?.number.unit ?? null,
+    asked: told(model, "run_analysis"),
   };
 }
 

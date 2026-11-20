@@ -45,12 +45,14 @@ async function calculate(
                   marker: 1,
                   label: "Worksheet input",
                   formula: "input",
+                  shown: number,
                   inputs: [
                     {
                       name: "input",
                       label: "Worksheet input",
                       ...(recorded ? { citation: 1 } : { passage: passage.id, location, quote }),
                       number,
+                      value: Number(number),
                     },
                   ],
                 },

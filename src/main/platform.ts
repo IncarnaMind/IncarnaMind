@@ -48,6 +48,7 @@ import type { FakeTranscriberOptions } from "../core/transcription/fake";
 import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
 import { PLOT_FONT } from "../shared/analysisWindow";
+import { createAgentSkillFiles } from "./agentSkillFiles";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCanvasFiles } from "./canvasFiles";
 import { createCitedPageCapture } from "./citedPageCapture";
@@ -1030,6 +1031,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     browser: systemBrowser,
     shell: fileShell,
     canvasFiles: createCanvasFiles(join(dataDir, "Canvases")),
+    agentSkillFiles: createAgentSkillFiles(),
     modelRuntimeFolder: createModelRuntimeFolder({
       platform: process.platform,
       home: homeFolder(),
