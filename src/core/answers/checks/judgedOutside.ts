@@ -129,6 +129,8 @@ export interface JudgedOutsideOptions {
   /** Each live Document's version now. */
   documentVersions(): ReadonlyMap<string, string>;
   searched: Searched;
+  /** Whether the Document is a file an agent cited by its path: evidence for what cites it (#3509). */
+  citedOutside(documentId: string): boolean;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
   withResult(
@@ -370,8 +372,10 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             else skipped.add(sentence.key);
             continue;
           }
-          const evidence = each.evidence.filter((citation) =>
-            scope.documentIds.has(citation.documentId),
+          const evidence = each.evidence.filter(
+            (citation) =>
+              scope.documentIds.has(citation.documentId) ||
+              options.citedOutside(citation.documentId),
           );
           const judgedResult = worked
             ? workedResult(each, worked, evidence, sentence.said.length)

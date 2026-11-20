@@ -1358,6 +1358,7 @@ export function createChecks(options: ChecksOptions) {
     scopeOf: (mindId, allDocuments) => scopeOf(mindId, allDocuments),
     documentVersions: options.watch.documentVersions,
     searched,
+    citedOutside: (documentId) => (options.documents.live([documentId])[0]?.citedBy ?? null) !== null,
     requireMind: options.requireMind,
     withResult: noteResult,
     retainEvidence,
@@ -1453,8 +1454,9 @@ export function createChecks(options: ChecksOptions) {
           source &&
           !source.documentDeleted &&
           !source.notCited &&
-          !scope.excluded.has(source.documentId) &&
-          (scope.documentIds === null || scope.documentIds.includes(source.documentId));
+          (source.citedBy !== null ||
+            (!scope.excluded.has(source.documentId) &&
+              (scope.documentIds === null || scope.documentIds.includes(source.documentId))));
         if (!source || !inScope) return [];
         const { pageFrom, pageTo } = source;
         const location =

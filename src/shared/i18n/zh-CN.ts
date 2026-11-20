@@ -2477,6 +2477,9 @@ export const zhCN = {
   "evidence.citeAgain.transcript": "重新引用转写稿",
   "evidence.notCited.hint": "只用来理解问题，不会被引用，也不作为核对依据。",
   "evidence.notCited.label": "不引用",
+  "library.citedBy.label": "{agent} 引用",
+  "library.citedBy.hint":
+    "{agent} 引用的文库之外的文件。IncarnaMind 不搜索它，也不把它归入文件夹，它只作为引用它的句子的依据。",
   "evidence.notCited.done": "“{name}”不再作为引用来源",
   "evidence.notCited.doneMany": "{count} 个文档不再作为引用来源",
   "evidence.citeAgain.done": "“{name}”已恢复为引用来源",
@@ -4666,6 +4669,7 @@ export const zhCN = {
   "citation.reason.source-removed": "来源已移除。",
   "citation.yourNote": "你的笔记：{title}，{date}",
   "citation.ownRecord": "你自己的记录",
+  "citation.outsideLibrary": "文库之外的文件",
   "citation.foundByCheck": "核对这句话时找到",
   "citation.reason.kept-inside": "仅在“{folder}”内使用",
   "citation.reason.quoted-words-not-on-pages": "所引位置没有引号里的文字。",
@@ -8197,6 +8201,8 @@ export const zhCN = {
   "agents.handOver.tooLarge": "文件超过 {max} MB，这是 IncarnaMind 接收的上限。",
   "agents.handOver.tooMany": "这个智能体在过去一小时内已提交 {max} 个文件，已达上限。请稍后再试。",
   "agents.handOver.notFound": "这个文件所在的文件夹已不再与这个智能体共享。",
+  "agents.cite.fileKind": "IncarnaMind 无法读取这类文件，所以无法引用它。",
+  "agents.cite.fileHidden": "IncarnaMind 不读取隐藏文件，也不读取隐藏文件夹或系统文件夹里的文件，所以无法引用它。",
   "agents.handOver.notShared": "用户没有与这个智能体共享这个文件所在的文件夹，所以无法从那里提交。",
   "agents.handOver.paused":
     "用户已在 IncarnaMind 中暂停这个文件所在的关联文件夹，恢复前不会读取其中的任何内容。恢复后，再提交一次。",

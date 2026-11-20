@@ -48,6 +48,7 @@ function transcriptSession() {
     pageTo: 1,
     documentDeleted: false,
     notCited: false,
+    citedBy: null,
     yourNoteAt: null,
   };
   const passage: WindowedPassage = {

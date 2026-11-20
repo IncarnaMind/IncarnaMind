@@ -73,6 +73,7 @@ import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
+import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup } from "./agents/setup";
@@ -211,7 +212,7 @@ import {
 } from "./documents";
 import { createEvidence, parseCheckedDocument, passageResult } from "./documents/evidence";
 import { pdfIsLocked, pdfOpensWith, pdfTablePages } from "./documents/extract";
-import { hashBytes, statIdentity } from "./documents/files";
+import { hashBytes, kindOf, statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
@@ -5961,6 +5962,22 @@ export function createCore(adapters: CoreAdapters): Core {
     writeValue: (key, value) => settings.writeDeviceValue(key, value),
     reportError: (error) => console.error(error),
   });
+  // A file an agent cites by its path, from outside the Library (#3509).
+  const fileCiting = createFileCiting({
+    ...(adapters.canvasFiles && { readNamed: adapters.canvasFiles.readNamed }),
+    kindOf,
+    placeOf: (path) => documents.placeOf(path),
+    readAgain: (path) => documents.checkNow(path),
+    add: async (path, citedBy) =>
+      (await documents.add([path], (documentId) => documents.setCitedBy(documentId, citedBy)))
+        .documents[0]?.id ?? null,
+    document: (documentId) => documents.get(documentId),
+    passages: (documentId) => documents.passagesCovering(documentId, null, null),
+    citeQuote: (passageId, quote) => citing.citeQuote(passageId, quote),
+    now,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    say: (key, params) => translate(settings.get().language, key, params),
+  });
   const agents = createAgents({
     offered: adapters.agents?.offered ?? true,
     log: adapters.log ?? silentLogger,
@@ -6032,6 +6049,8 @@ export function createCore(adapters: CoreAdapters): Core {
       libraryLists: agentLibraryLists,
       libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
       citing,
+      citeFile: (path, quote, agent, reaches) => fileCiting.cite(path, quote, agent, reaches),
+      citedOutside: (documentId) => (documents.getMany([documentId])[0]?.citedBy ?? null) !== null,
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
       minds: () => listedMinds().filter((mind) => isKnownKind(mind.kind)),
@@ -6216,6 +6235,10 @@ export function createCore(adapters: CoreAdapters): Core {
         onNew?.(documentId);
       })
       .finally(() => batches.done(batchId));
+    // A file an agent cited by its path that the User adds themselves is one of their own (#3509).
+    for (const document of result.documents) {
+      if (document.citedBy !== null) documents.setCitedBy(document.id, null);
+    }
     skippedForShowing.clear();
     for (const skipped of result.skipped) skippedForShowing.add(skipped.path);
     usageData.record({ event: "documents_added", fields: addedCounts(result, since) });

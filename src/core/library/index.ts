@@ -756,9 +756,14 @@ export function createLibrary(options: {
     }
     return doc;
   };
-  /** What Organize leaves where it is: the examples' Documents (#1942) and Meetings' Transcripts (#2528). */
+  /**
+   * What Organize leaves where it is: the examples' Documents (#1942), Meetings' Transcripts (#2528)
+   * and a file from outside the Library an agent cited by its path (#3509).
+   */
   const leftAlone = (id: string): boolean =>
-    options.isExampleDocument?.(id) === true || isTranscriptOfNote(id);
+    options.isExampleDocument?.(id) === true ||
+    isTranscriptOfNote(id) ||
+    db.get("SELECT 1 FROM documents WHERE id = ? AND cited_by IS NOT NULL", [id]) !== undefined;
   const assignment = (id: string) =>
     db.get<AssignmentRow>(
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",

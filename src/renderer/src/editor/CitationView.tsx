@@ -208,6 +208,8 @@ export function CitationView({
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
   const keptInside = useKeptInside(attributes.documentId);
+  const outside =
+    documents?.some((each) => each.id === attributes.documentId && each.citedBy !== null) ?? false;
   /** Its card waits while the assistant is folded, and comes back with it (#2270). */
   const assistantFolded = useContext(AssistantFoldedContext) === true;
   /** The Mind's group: the Document opens in the group to its right. */
@@ -1088,6 +1090,11 @@ function CitationCard({
         {attributes.yourNoteAt && (
           <p data-testid="citation-own-record" className="citation-card-note">
             {t("citation.ownRecord")}
+          </p>
+        )}
+        {outside && (
+          <p data-testid="citation-outside" className="citation-card-note">
+            {t("citation.outsideLibrary")}
           </p>
         )}
         {attributes.foundByCheck && (

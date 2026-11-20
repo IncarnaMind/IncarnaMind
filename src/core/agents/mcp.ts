@@ -216,17 +216,23 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Cite quotes",
       description:
-        "Get a Citation for each quote, copied word for word from a Passage. A quote found gets `cite` to write after the claim; one not found gets none, and the Passage's text to copy from.",
+        "Get a Citation for each quote, copied word for word from a Passage, or from a file on this computer by its full path. A quote found gets `cite` to write after the claim; one not found gets none, and a Passage's text to copy from.",
       inputSchema: z.object({
         citations: z
-          .array(z.object({ passageId, quote: z.string() }))
+          .array(
+            z.object({
+              passageId: passageId.optional(),
+              path: z.string().optional().describe("A file's full path, in place of passageId."),
+              quote: z.string(),
+            }),
+          )
           .min(1)
           .max(MAX_CITES),
       }),
       outputSchema: z.object({
         citations: z.array(
           z.object({
-            passageId: z.string(),
+            passageId: z.string().nullable(),
             quote: z.string(),
             check: z.enum(["found", "not-found", "cant-check"]),
             cite: z.string().nullable(),

@@ -93,6 +93,7 @@ import {
   createCanvasTools,
 } from "./canvases";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
+import type { FileCiting } from "./citedFiles";
 import { type AgentHandedFile, createHandedFileTool, type HandedFileToolDeps } from "./handedFiles";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
 import {
@@ -113,7 +114,7 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
-import { AgentRefusedError, text, whole } from "./refusals";
+import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
 import type { AgentRequests } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
@@ -185,11 +186,13 @@ export interface AgentReadResult {
 }
 
 export interface AgentCiteInput {
-  citations: { passageId: string; quote: string }[];
+  /** Each quote from a Passage, or from a file on this computer named by its full path (#3509). */
+  citations: { passageId?: string; path?: string; quote: string }[];
 }
 
 export interface AgentCited {
-  passageId: string;
+  /** The Passage the quote was found in; null for a file's quote not found. */
+  passageId: string | null;
   quote: string;
   /** "found": the quote is word for word at that Location. Never a verdict on the claim. */
   check: "found" | "not-found" | "cant-check";
@@ -197,7 +200,7 @@ export interface AgentCited {
   cite: string | null;
   document: string | null;
   location: string | null;
-  /** When not found: the Passage's text, to copy the quote from exactly. */
+  /** When not found: the Passage's text, to copy the quote from exactly; never a file's. */
   text: string | null;
 }
 
@@ -683,6 +686,10 @@ export interface AgentAccessDeps {
   /** The version of the Library's lists as a Note's own Check counts them, which its marks compare. */
   libraryVersion(mindId: string): string;
   citing: Pick<Citing, "citeQuote" | "locate">;
+  /** A quote of a file an agent cites by its path (`FileCiting`, #3509). */
+  citeFile: FileCiting["cite"];
+  /** Whether the Document is a file an agent cited by its path, evidence for what cites it alone. */
+  citedOutside(documentId: string): boolean;
   /** Whether the Passage's Document is the User's own workings: an agent reads it and never cites it. */
   notCited(passageId: string): boolean;
   /** A Citation checked again against its Document as it is now. */
@@ -1394,6 +1401,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const mint = (pairing: AdmittedPairing, citation: Citation): AgentCitation =>
     deps.citations.mint(pairing.id, citation);
 
+  /**
+   * Whether a Citation the pairing was given may be used: of a Document it reaches, or of a file it
+   * cited by its path (#3509), whose tokens only it was given.
+   */
+  const usable = (inScope: ReadonlySet<string>, documentId: string) =>
+    inScope.has(documentId) || deps.citedOutside(documentId);
+
   /** A Passage as a search result: its best sentence cited, if the check finds it. */
   const asResult = (
     pairing: AdmittedPairing,
@@ -1458,7 +1472,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     token: string,
   ): { cited: CitedToken | null; report: AgentCheckedCitation } => {
     const kept = deps.citations.find(pairing.id, token);
-    if (!kept || !inScope.has(kept.documentId)) {
+    if (!kept || !usable(inScope, kept.documentId)) {
       return {
         cited: null,
         report: {
@@ -1787,7 +1801,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const inScope = new Set(scopeOf(pairing, undefined));
       return citedTokens(html).map((token) => {
         const kept = deps.citations.find(pairing.id, token);
-        if (!kept || !inScope.has(kept.documentId)) return { token, citation: null };
+        if (!kept || !usable(inScope, kept.documentId)) return { token, citation: null };
         const { pairingId: _, ...citation } = kept;
         return { token, citation };
       });
@@ -1977,20 +1991,52 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         )
         .filter(Boolean)
         .join(" · ");
-      return call("cite", summary, [READ_DOCUMENTS], (pairing) => {
+      return call("cite", summary, [READ_DOCUMENTS], async (pairing) => {
         if (list.length === 0 || list.length > MAX_CITES) {
           throw new AgentRefusedError(
             "invalid",
-            `citations must list 1 to ${MAX_CITES} quotes, each with its passageId.`,
+            `citations must list 1 to ${MAX_CITES} quotes, each with its passageId or path.`,
           );
         }
         const inScope = new Set(scopeOf(pairing, undefined));
         const read: string[] = [];
-        const citations: AgentCited[] = list.map((entry) => {
+        const citations: AgentCited[] = [];
+        for (const entry of list) {
           const record = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
             string,
             unknown
           >;
+          if (record.passageId === undefined && record.path !== undefined) {
+            const quote = text(record.quote, "quote", MAX_QUOTE_CHARS);
+            const filed = await deps.citeFile(
+              text(record.path, "path", MAX_PATH_CHARS),
+              quote,
+              pairing.name,
+              (documentId) => inScope.has(documentId),
+            );
+            read.push(filed.documentId);
+            const found = filed.citation;
+            if (found && deps.notCited(found.passageId)) {
+              throw new AgentRefusedError(
+                "invalid",
+                "That Passage is from the User's own working file, which is read but never cited.",
+              );
+            }
+            const minted = found ? mint(pairing, found) : null;
+            citations.push({
+              passageId: found?.passageId ?? null,
+              quote: found?.quote ?? quote,
+              check: found ? "found" : "not-found",
+              cite: minted ? citeTag(minted.token) : null,
+              document: filed.name,
+              location: found
+                ? label(found.location, found.pageFrom, found.pageTo, filed.documentId)
+                : null,
+              // The agent has the file: IncarnaMind gives back nothing of it but where its quote is.
+              text: null,
+            });
+            continue;
+          }
           const passage = passageInScope(pairing, inScope, record.passageId);
           if (deps.notCited(passage.passageId)) {
             throw new AgentRefusedError(
@@ -2007,7 +2053,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               ? citation.check
               : "not-found";
           const minted = check === "found" ? mint(pairing, citation) : null;
-          return {
+          citations.push({
             passageId: passage.passageId,
             quote: citation.quote,
             check,
@@ -2020,8 +2066,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               passage.documentId,
             ),
             text: check === "found" ? null : excerpt(passage.text, null),
-          };
-        });
+          });
+        }
         return {
           result: { citations },
           count: citations.filter((each) => each.check === "found").length,
@@ -2042,7 +2088,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (seen.has(token)) continue;
           seen.add(token);
           const kept = deps.citations.find(pairing.id, token);
-          if (!kept || !inScope.has(kept.documentId)) {
+          if (!kept || !usable(inScope, kept.documentId)) {
             citations.push({
               cite: citeTag(token),
               check: "unknown",
@@ -2091,7 +2137,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const tag = text(input?.cite, "cite", 100);
         const token = [...tag.matchAll(CITATION_TOKEN)][0]?.[1] ?? tag;
         const kept = deps.citations.find(pairing.id, token);
-        if (!kept || !scopeOf(pairing, undefined).includes(kept.documentId)) {
+        if (!kept || !usable(new Set(scopeOf(pairing, undefined)), kept.documentId)) {
           throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
         }
         const now = deps.recheck({
@@ -2786,7 +2832,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             const kept = deps.citations.find(pairing.id, token);
             confirmed.set(
               token,
-              kept && inScope.has(kept.documentId) && !deps.notCited(kept.passageId)
+              kept && usable(inScope, kept.documentId) && !deps.notCited(kept.passageId)
                 ? foundNow(kept, recheckKept(kept))
                 : null,
             );
