@@ -301,6 +301,7 @@ import {
   otherCallTranscripts,
 } from "./meetings";
 import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
+import { createMeetingCandidateReview } from "./meetings/candidateReviews";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { createLiveSummaries } from "./meetings/liveSummary";
@@ -5179,6 +5180,7 @@ export function createCore(adapters: CoreAdapters): Core {
     dataDir,
     now,
     capture: adapters.audioCapture,
+    transcriptVersion: documents.currentVersion,
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
@@ -6113,19 +6115,20 @@ export function createCore(adapters: CoreAdapters): Core {
   if (adapters.agents?.offered ?? true) {
     agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
   }
+  const summaryRoute = meetingSummaryRoute({
+    settings: () => settings.get().device,
+    model: (mindId) => ownModelIn(mindId) ?? settings.get().user.chatModel,
+    chat,
+    get: (id) => meetings.get(id),
+    documentPresent: (id) => !!liveDocument(id),
+    insideWall: (mindId, documentId) =>
+      walledFolder(mindId) !== null || walledDocument(documentId) !== null,
+    client: (mindId, documentId, route) =>
+      agents.askable(mindId, documentId).find((pair) => pair.id === route)?.client ?? null,
+    agent: adapters.summarizeWithMeetingAgent,
+  });
   const liveSummaries = createLiveSummaries({
-    ...meetingSummaryRoute({
-      settings: () => settings.get().device,
-      model: (mindId) => ownModelIn(mindId) ?? settings.get().user.chatModel,
-      chat,
-      get: (id) => meetings.get(id),
-      documentPresent: (id) => !!liveDocument(id),
-      insideWall: (mindId, documentId) =>
-        walledFolder(mindId) !== null || walledDocument(documentId) !== null,
-      client: (mindId, documentId, route) =>
-        agents.askable(mindId, documentId).find((pair) => pair.id === route)?.client ?? null,
-      agent: adapters.summarizeWithMeetingAgent,
-    }),
+    ...summaryRoute,
     cues: (id) => transcripts?.confirmedCues(id) ?? [],
     saved: (id) => meetings.storedSummary(id),
     save: (id, value) => meetings.setSummary(id, value),
@@ -6136,8 +6139,51 @@ export function createCore(adapters: CoreAdapters): Core {
       });
     },
   });
-  events.on("meetings.changed", (list) => liveSummaries.changed(list));
-  const summaryAccessChanged = () => liveSummaries.changed(meetings.list(), true);
+  function meetingSummaryDocument(meetingId: string, documentId: string) {
+    const meeting = meetings.get(meetingId);
+    const doc = liveDocument(documentId);
+    if (
+      meeting.kind !== "meeting" ||
+      meeting.status !== "stopped" ||
+      doc?.kind !== "transcript" ||
+      meetings.transcriptOf(meetingId) !== documentId ||
+      (doc.meetingMindId !== null && doc.meetingMindId !== meeting.mindId) ||
+      walledDocument(documentId) !== walledFolder(meeting.mindId)
+    )
+      return null;
+    return doc;
+  }
+
+  const candidateReviews = createMeetingCandidateReview({
+    meetings,
+    documents,
+    summaryRoute,
+    meetingSummaryDocument,
+    walledFolder,
+    language: () => settings.get().language,
+    extract: (documentId) => extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS),
+    readTranscript: async (documentId) => readFile(await documents.filePath(documentId)),
+    closed: () => lifetime.signal.aborted,
+    failed(meetingId, error) {
+      (adapters.log ?? silentLogger).warn("meeting.candidateReviewFailed", {
+        meetingId,
+        kind: error instanceof Error ? error.name : "unknown",
+      });
+    },
+  });
+
+  events.on("meetings.changed", (list) => {
+    liveSummaries.changed(list);
+    candidateReviews.changed();
+  });
+  events.on("document.status", (document) => {
+    candidateReviews.changed();
+    if (document.kind === "transcript") meetings.candidateReviewTranscriptChanged(document.id);
+  });
+  const summaryAccessChanged = () => {
+    liveSummaries.changed(meetings.list(), true);
+    candidateReviews.changed();
+  };
   for (const event of [
     "settings.changed",
     "privacy.changed",
@@ -8288,23 +8334,17 @@ export function createCore(adapters: CoreAdapters): Core {
       const documentId = meetings.transcriptOf(meetingId);
       if (!documentId) return null;
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      const meeting = meetings.get(meetingId);
-      const doc = liveDocument(documentId);
-      if (
-        meeting.kind !== "meeting" ||
-        meeting.status !== "stopped" ||
-        doc?.kind !== "transcript" ||
-        meetings.transcriptOf(meetingId) !== documentId ||
-        (doc.meetingMindId !== null && doc.meetingMindId !== meeting.mindId) ||
-        walledDocument(documentId) !== walledFolder(meeting.mindId)
-      )
-        return null;
+      if (!meetingSummaryDocument(meetingId, documentId)) return null;
       const evidence = meetings.summaryItemEvidence(meetingId, itemId);
       const version = documents.currentVersion(documentId);
       if (!evidence || evidence.documentId !== documentId || !version) return null;
       const units = documents.pageTexts(documentId, version, null, null);
       return { documentId, sources: meetingSummarySources(units, evidence.quotes) };
     },
+    getMeetingSummaryCandidates: candidateReviews.get,
+    reviewMeetingSummaryCandidates: candidateReviews.review,
+    addMeetingSummaryCandidate: candidateReviews.add,
+    undoAddMeetingSummaryCandidate: candidateReviews.undo,
     correctMeetingSummaryItem: async (meetingId, expected, replacement) =>
       meetings.correctSummaryItem(meetingId, expected, replacement),
     retryMeetingSummary: async (meetingId) => {
@@ -8559,6 +8599,7 @@ export function createCore(adapters: CoreAdapters): Core {
     close: () => {
       if (lifetime.signal.aborted) return;
       lifetime.abort();
+      candidateReviews.close();
       // What a Meeting has captured is saved before anything else stops, a line left unsent too.
       for (const meetingId of [...quickNoteDrafts.keys()]) keepUnsentLine(meetingId);
       liveSummaries.close();

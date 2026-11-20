@@ -59,6 +59,7 @@ import {
   type MeetingKind,
   type MeetingLevel,
   type MeetingSourceState,
+  type MeetingSummarySource,
   type Mind,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError, TranslatableError } from "../errors";
@@ -77,9 +78,23 @@ import {
   writePart,
   writeRecording,
 } from "./audioFiles";
+import { type CandidateReviewScope, candidateReviewUnavailable } from "./candidateReviewLifecycle";
 import type { CaptureHealthRecords } from "./health";
 import type { StoredMeetingSummary } from "./liveSummary";
-import { correctItem, itemEvidence, readCorrections, visibleSummary } from "./summaryCorrections";
+import {
+  acceptedSummaryCandidates,
+  availableSummaryCandidates,
+  correctItem,
+  itemEvidence,
+  promoteSummaryCandidate,
+  readCorrections,
+  type StoredSummaryWithReview,
+  type SummaryCandidateReference,
+  summaryCandidateUnavailable,
+  undoSummaryCandidate,
+  visibleSummary,
+  withReviewedCandidates,
+} from "./summaryCorrections";
 import type { Transcripts } from "./transcript";
 
 /** The longest stretch of audio read at once for playing: the player asks for the next as it goes. */
@@ -153,8 +168,8 @@ export interface StoredFill extends MeetingFill {
   blocks: string[];
 }
 
-function storedSummaryOf(row: Pick<MeetingRow, "summary">): StoredMeetingSummary | null {
-  return row.summary ? (JSON.parse(row.summary) as StoredMeetingSummary) : null;
+function storedSummaryOf(row: Pick<MeetingRow, "summary">): StoredSummaryWithReview | null {
+  return row.summary ? (JSON.parse(row.summary) as StoredSummaryWithReview) : null;
 }
 
 function storedFillOf(row: Pick<MeetingRow, "fill">): StoredFill | null {
@@ -206,6 +221,7 @@ interface Live {
 }
 
 export interface MeetingsOptions {
+  transcriptVersion?(documentId: string): string | null;
   db: Database;
   dataDir: string;
   now: () => string;
@@ -350,6 +366,19 @@ export function createMeetings(options: MeetingsOptions) {
     return row;
   };
 
+  function storeCandidateAction(
+    row: MeetingRow,
+    stored: StoredSummaryWithReview,
+    corrections: ReturnType<typeof readCorrections>,
+  ) {
+    const lastItemId = Math.max(stored.lastItemId ?? 0, ...corrections.map(({ item }) => item.id));
+    const summary = withReviewedCandidates({ ...stored, lastItemId }, corrections);
+    save(row.id, {
+      summary: JSON.stringify(summary),
+      summary_corrections: corrections.length ? JSON.stringify(corrections) : null,
+    });
+  }
+
   const periodsOf = (row: MeetingRow): Period[] => JSON.parse(row.periods) as Period[];
 
   const isLiveRow = (row: MeetingRow) => row.status === "recording" || row.status === "paused";
@@ -373,6 +402,15 @@ export function createMeetings(options: MeetingsOptions) {
     return { ...fill, addedBlockIds: [...(blocks ?? [])] };
   }
 
+  function isCurrentCandidateReview(row: MeetingRow, stored: StoredSummaryWithReview | null) {
+    const review = stored?.candidateReview;
+    return (
+      !!review &&
+      row.transcript_document_id === review.documentId &&
+      options.transcriptVersion?.(review.documentId) === review.contentHash
+    );
+  }
+
   function toMeeting(row: MeetingRow): Meeting {
     const periods = periodsOf(row);
     const last = periods.at(-1);
@@ -389,7 +427,12 @@ export function createMeetings(options: MeetingsOptions) {
       });
     }
     const current = live?.meetingId === row.id ? live : null;
-    const summary = visibleSummary(storedSummaryOf(row), readCorrections(row.summary_corrections));
+    const storedSummary = storedSummaryOf(row);
+    const summary = visibleSummary(
+      storedSummary,
+      readCorrections(row.summary_corrections),
+      isCurrentCandidateReview(row, storedSummary),
+    );
     return {
       id: row.id,
       mindId: row.mind_id,
@@ -1230,12 +1273,149 @@ export function createMeetings(options: MeetingsOptions) {
       return toMeeting(rowOf(meetingId));
     },
 
+    candidateReviewTranscriptChanged(documentId: string): void {
+      const review = db.get<{ id: string }>(
+        `SELECT id FROM meetings WHERE transcript_document_id = ? AND deleted_at IS NULL
+          AND json_extract(summary, '$.candidateReview.documentId') = ? LIMIT 1`,
+        [documentId, documentId],
+      );
+      if (review) changed();
+    },
+
+    summaryCandidateReview(meetingId: string) {
+      const row = rowOf(meetingId);
+      const stored = storedSummaryOf(row);
+      if (row.kind !== "meeting" || row.status !== "stopped" || !stored) return null;
+      const corrections = readCorrections(row.summary_corrections);
+      const review = isCurrentCandidateReview(row, stored) ? stored.candidateReview : undefined;
+      return {
+        review: review && {
+          ...review,
+          candidates: availableSummaryCandidates(stored, corrections),
+        },
+        accepted: acceptedSummaryCandidates(corrections),
+      };
+    },
+
+    saveCandidateReview(scope: CandidateReviewScope, sources: readonly MeetingSummarySource[][]) {
+      const result = db.transaction(() => {
+        const row = rowOf(scope.meetingId);
+        const stored = storedSummaryOf(row);
+        const corrections = readCorrections(row.summary_corrections);
+        if (
+          row.kind !== "meeting" ||
+          row.status !== "stopped" ||
+          row.mind_id !== scope.mindId ||
+          row.transcript_document_id !== scope.documentId ||
+          options.transcriptVersion?.(scope.documentId) !== scope.contentHash ||
+          stored?.summary.state !== "ready" ||
+          stored.documentId !== scope.documentId ||
+          JSON.stringify(visibleSummary(stored, corrections)?.items ?? []) !==
+            JSON.stringify(scope.items)
+        )
+          throw candidateReviewUnavailable();
+        if (isCurrentCandidateReview(row, stored))
+          return { written: false, candidates: availableSummaryCandidates(stored, corrections) };
+
+        let lastCandidateId = stored.lastCandidateId ?? 0;
+        const candidates = sources.map((each) => {
+          const id = ++lastCandidateId;
+          if (!Number.isSafeInteger(id)) throw candidateReviewUnavailable();
+          return { id, sources: each };
+        });
+        const updated = withReviewedCandidates(
+          {
+            ...stored,
+            lastCandidateId,
+            candidateReview: {
+              documentId: scope.documentId,
+              contentHash: scope.contentHash,
+              route: scope.route,
+              candidates,
+            },
+          },
+          corrections,
+        );
+        save(row.id, { summary: JSON.stringify(updated) });
+        return { written: true, candidates: availableSummaryCandidates(updated, corrections) };
+      });
+      if (result.written) changed();
+      return result.candidates;
+    },
+
+    addSummaryCandidate(meetingId: string, expected: SummaryCandidateReference): Meeting {
+      const written = db.transaction(() => {
+        const row = rowOf(meetingId);
+        const stored = storedSummaryOf(row);
+        if (
+          row.kind !== "meeting" ||
+          row.status !== "stopped" ||
+          !stored ||
+          !isCurrentCandidateReview(row, stored)
+        )
+          throw summaryCandidateUnavailable();
+        const before = readCorrections(row.summary_corrections);
+        const after = promoteSummaryCandidate(stored, before, expected);
+        if (after === before) return false;
+        storeCandidateAction(row, stored, after);
+        return true;
+      });
+      if (written) changed();
+      return toMeeting(rowOf(meetingId));
+    },
+
+    undoAddSummaryCandidate(meetingId: string, candidateId: number, canRestore: boolean): Meeting {
+      const written = db.transaction(() => {
+        const row = rowOf(meetingId);
+        const stored = storedSummaryOf(row);
+        if (row.kind !== "meeting" || row.status !== "stopped" || !stored)
+          throw summaryCandidateUnavailable();
+        const before = readCorrections(row.summary_corrections);
+        const { corrections: after, restored } = undoSummaryCandidate(
+          stored,
+          before,
+          candidateId,
+          canRestore,
+        );
+        if (after === before) return false;
+        const previous = stored.candidateReview;
+        const next =
+          restored && previous
+            ? {
+                ...stored,
+                candidateReview: { ...previous, candidates: [restored, ...previous.candidates] },
+              }
+            : stored;
+        storeCandidateAction(row, next, after);
+        return true;
+      });
+      if (written) changed();
+      return toMeeting(rowOf(meetingId));
+    },
+
     storedSummary(meetingId: string): StoredMeetingSummary | null {
       return storedSummaryOf(rowOf(meetingId));
     },
 
     setSummary(meetingId: string, value: StoredMeetingSummary): void {
-      save(meetingId, { summary: JSON.stringify(value) });
+      const row = rowOf(meetingId);
+      const previous = storedSummaryOf(row);
+      const lastItemId = Math.max(
+        previous?.lastItemId ?? 0,
+        value.lastItemId ?? 0,
+        ...(value.summary.items?.map(({ id }) => id) ?? []),
+      );
+      const scoped: StoredSummaryWithReview = {
+        ...value,
+        ...(lastItemId && { lastItemId }),
+        ...(previous?.lastCandidateId && { lastCandidateId: previous.lastCandidateId }),
+        ...(previous?.candidateReview && { candidateReview: previous.candidateReview }),
+      };
+      save(meetingId, {
+        summary: JSON.stringify(
+          withReviewedCandidates(scoped, readCorrections(row.summary_corrections)),
+        ),
+      });
       changed();
     },
 

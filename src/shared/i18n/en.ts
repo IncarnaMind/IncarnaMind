@@ -8838,6 +8838,26 @@ export const en = {
   "meetings.summary.status.cancelled": "Canceled",
   "meetings.summary.preparing": "Preparing a summary…",
   "meetings.summary.updating": "Finishing the summary…",
+  "meetings.summary.candidates.find": "Find quotes to review",
+  "meetings.summary.candidates.disclosure":
+    "Opening sends the transcript and current items to your selected AI once.",
+  "meetings.summary.candidates.checking": "Your AI is checking the transcript…",
+  "meetings.summary.candidates.empty": "No quotes are waiting for review.",
+  "meetings.summary.candidates.failed":
+    "Your AI couldn’t check the transcript. Try again to request a new check.",
+  "meetings.summary.candidates": "Quotes to review ({count})",
+  "meetings.summary.candidate.add": "Add to action items",
+  "meetings.summary.candidate.added": "Added to action items.",
+  "error.meeting.candidateReviewTooLong":
+    "The transcript is too long for this AI to check in one request.",
+  "error.meeting.candidateReviewIncomplete":
+    "The AI returned an incomplete quote list. Try again to request a new check.",
+  "error.meeting.summaryCandidateReviewNotReady":
+    "You can check quotes when the transcript and summary have finished.",
+  "error.meeting.summaryCandidateReviewUnavailable":
+    "The transcript or AI access has changed. Check the meeting’s AI settings and try again.",
+  "error.meeting.summaryCandidateUnavailable":
+    "This quote has changed or is no longer available. Open the transcript to check the original words.",
   "meetings.summary.item.original": "Original speech",
   "meetings.summary.item.loading": "Looking up the original speech…",
   "meetings.summary.item.unavailable": "Couldn’t locate a unique source in the transcript.",

@@ -486,3 +486,141 @@ test("a failed automatic meeting summary shows a problem beside the transcript",
     await removeDataFolder(dir);
   }
 });
+
+// protects=reviewing a literal exchange and explicitly adding it to a stopped Meeting's action items
+// fails_when=review text is automatically filed, only one turn is saved, or a confirmed quote is offered again after restart
+for (const [language, request, reply] of [
+  [
+    "en",
+    "Could each department report how many packing crates it needs?",
+    "We would have to count them first.",
+  ],
+  ["zh-CN", "各部门能报一下需要多少个周转箱吗？", "这个要先回去统计一下。"],
+] as const) {
+  test(`a stopped meeting offers original quotes to add as an action (${language})`, async () => {
+    const dir = await createDataFolder();
+    let running: Awaited<ReturnType<typeof launchApp>> | null = null;
+    try {
+      running = await launchApp(dir, {
+        fakeChat: true,
+        computerSound: "silent",
+        transcriber: {
+          live: true,
+          lines: [
+            meetingWords[language].opening[0],
+            request,
+            reply,
+            meetingWords[language].closing,
+          ],
+        },
+      });
+      const { app, window } = running;
+      await setWindowSize(app, window, language === "en" ? 1280 : 900, 660);
+      await dismissChatSetup(window);
+      const settings = await openSettings(window, "meetings");
+      await chooseSummaryModel(window, settings.getByTestId("meeting-summary-route"));
+      await closeSettings(window);
+      await setLanguage(window, language);
+      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await firstTranscriptLine(window);
+      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+      const transcript = window.getByTestId("meeting-note-transcript");
+      await expect(transcript.getByTestId("viewer-transcript")).toContainText(reply);
+      await pointAndClick(window, transcript.getByTestId("meeting-stop"));
+      await transcriptSaved(window);
+      const summary = transcript.getByTestId("meeting-summary");
+      await expect(summary).toHaveAttribute("data-state", "ready", { timeout: 45_000 });
+      const candidates = summary.getByTestId("meeting-summary-candidates");
+      const disclosure = candidates.locator("button[aria-expanded]");
+      await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+      await expect(summary.getByTestId("meeting-summary-items")).not.toContainText(request);
+      const before = await (await coreOf(window)).evaluate(async (core) => {
+        const [meeting] = await core.listMeetings();
+        return meeting?.summary?.candidatesReviewed;
+      });
+      expect(before).toBeUndefined();
+      if (screenshots) {
+        const fold = window.getByTestId("assistant-fold");
+        if (await fold.isVisible()) await pointAndClick(window, fold);
+        await motionSettled(window);
+        await window.screenshot({
+          animations: "disabled",
+          path: join(screenshots, `meeting-review-collapsed-${language}.png`),
+        });
+      }
+      await disclosure.focus();
+      await window.keyboard.press("Enter");
+      const row = candidates.getByTestId("meeting-summary-candidate");
+      await expect(row).toHaveCount(1);
+      await pointAndClick(window, disclosure);
+      await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+      await pointAndClick(window, disclosure);
+      await expect(row).toHaveCount(1);
+      const quotes = row.locator("blockquote p");
+      await expect(quotes).toHaveCount(2);
+      await expect(quotes.nth(0)).toContainText(request);
+      await expect(quotes.nth(1)).toContainText(reply);
+      await expect(quotes.getByRole("button")).toHaveCount(2);
+      expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+      if (screenshots) {
+        await row.scrollIntoViewIfNeeded();
+        await window.screenshot({
+          animations: "disabled",
+          path: join(screenshots, `meeting-review-quotes-${language}.png`),
+        });
+      }
+      await pointAndClick(window, quotes.nth(1).getByRole("button"));
+      const mark = window.locator(
+        '[data-testid="viewer-transcript"] [data-cue-start] mark[data-quote-highlight]',
+      );
+      await expect
+        .poll(async () => (await mark.allTextContents()).join("").replace(/\s/g, ""))
+        .toBe(reply.replace(/\s/g, ""));
+      const sourceTab = window.getByTestId("document-tab");
+      await pointAndClick(window, sourceTab.getByTestId("tab-close"));
+      await expect(sourceTab).toHaveCount(0);
+      if ((await disclosure.getAttribute("aria-expanded")) !== "true")
+        await pointAndClick(window, disclosure);
+      const add = row.getByRole("button", {
+        name: language === "en" ? "Add to action items" : "加入待办",
+      });
+      await add.focus();
+      await window.keyboard.press("Enter");
+      await expect(candidates.getByTestId("meeting-summary-candidate")).toHaveCount(0);
+      const items = summary.getByTestId("meeting-summary-items");
+      await pointAndClick(window, items.locator("summary"));
+      const action = items
+        .getByRole("list", { name: meetingWords[language].actions, exact: true })
+        .getByTestId("meeting-summary-item");
+      await expect(action).toHaveCount(1);
+      await expectItem(action, `${request}\n${reply}`, meetingWords[language].status.open);
+
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(action).toHaveCount(0);
+      await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+      await pointAndClick(window, candidates.getByTestId("meeting-summary-add-candidate"));
+      await expect(action).toHaveCount(1);
+      await expect(candidates.getByTestId("meeting-summary-candidate")).toHaveCount(0);
+
+      await running.app.close();
+      running = null;
+      running = await launchApp(dir, { fakeChat: true });
+      const snapshot = await (await coreOf(running.window)).evaluate(async (core) => {
+        const [meeting] = await core.listMeetings();
+        if (!meeting) throw new Error("Missing stopped meeting.");
+        return {
+          actions: meeting.summary?.items?.filter((item) => item.kind === "action"),
+          candidates: await core.getMeetingSummaryCandidates(meeting.id),
+          checked: meeting.summary?.candidatesReviewed,
+        };
+      });
+      expect(snapshot.actions).toHaveLength(1);
+      expect(snapshot.actions?.[0]?.text).toBe(`${request}\n${reply}`);
+      expect(snapshot.candidates).toEqual([]);
+      expect(snapshot.checked).toBe(true);
+    } finally {
+      await running?.app.close();
+      await removeDataFolder(dir);
+    }
+  });
+}
