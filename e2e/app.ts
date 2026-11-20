@@ -3799,7 +3799,7 @@ export async function addToNote(window: Page, answer: Locator): Promise<void> {
   await expect(window.locator(".block-just-added")).toHaveCount(0);
 }
 
-export type MindChild = Y.XmlElement | string;
+export type MindChild = Y.XmlElement | Y.XmlText | string;
 
 /** A node as the editor stores it in a Mind's Yjs document; strings are its text. */
 export function mindNode(
@@ -3823,6 +3823,47 @@ export function blocksUpdate(blocks: Y.XmlElement[]): Uint8Array {
   const doc = new Y.Doc();
   doc.getXmlFragment("blocks").insert(0, blocks);
   return Y.encodeStateAsUpdate(doc);
+}
+
+/**
+ * A Block of a Note as the editor stores it: a heading, a paragraph (with its check, as the core
+ * keeps one), or where a tab starts (#3414).
+ */
+export type NoteBlock =
+  | { heading: string; level: number }
+  | { text: string; check?: Record<string, unknown> }
+  | { tab: string };
+
+/** A Note of these Blocks, made through the core as another device's edit arrives; its id. */
+export async function writeNote(
+  window: Page,
+  title: string,
+  blocks: readonly NoteBlock[],
+): Promise<string> {
+  const doc = new Y.Doc();
+  doc.getXmlFragment("blocks").push(
+    blocks.map((block) => {
+      const id = crypto.randomUUID();
+      if ("tab" in block) return mindNode("noteTab", { id, title: block.tab });
+      // Stored as the editor stores them: a heading's level is a number.
+      if ("heading" in block)
+        return mindNode("heading", { id, level: block.level }, [block.heading]);
+      const text = new Y.XmlText();
+      text.insert(0, block.text, block.check ? { claimCheck: block.check } : {});
+      return mindNode("paragraph", { id }, [text]);
+    }),
+  );
+  const update = Array.from(Y.encodeStateAsUpdate(doc));
+  return window.evaluate(
+    async ([name, change]) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const mind = await core.createMind({ title: name });
+      await core.applyMindUpdate(mind.id, new Uint8Array(change));
+      await core.closeMind(mind.id);
+      return mind.id;
+    },
+    [title, update] as const,
+  );
 }
 
 /** A Block of a Mind as Minds held them before Questions went to the assistant (#201). */

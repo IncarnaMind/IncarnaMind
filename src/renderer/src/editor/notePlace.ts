@@ -18,23 +18,27 @@ export interface NotePlace {
 const isEmptyLine = (node: ProseMirrorNode | null | undefined) =>
   node?.type.name === "paragraph" && node.content.size === 0;
 
-/** At the end of the Mind: on its empty last line, or after its last Block. */
-function atEnd(doc: ProseMirrorNode): NotePlace {
-  const size = doc.content.size;
-  const last = doc.lastChild;
+/** At `end`, the Mind's or its open tab's (#3414): on its empty last line, or after its last Block. */
+function atEnd(doc: ProseMirrorNode, end: number): NotePlace {
+  const last = doc.resolve(end).nodeBefore;
   return isEmptyLine(last) && last
-    ? { from: size - last.nodeSize, to: size }
-    : { from: size, to: size };
+    ? { from: end - last.nodeSize, to: end }
+    : { from: end, to: end };
 }
 
 /**
  * Where Blocks put into the note now go, given the Mind's selection, or null
- * when the cursor isn't in the Mind: at its end then. On an empty line they
- * take the line's place; in any other Block they go after the Block, never
- * splitting its text; in a Question, after that Question's Answer.
+ * when the cursor isn't in the Mind: at its end then, or the end of the tab
+ * shown (`end`). On an empty line they take the line's place; in any other
+ * Block they go after the Block, never splitting its text; in a Question,
+ * after that Question's Answer.
  */
-export function notePlace(doc: ProseMirrorNode, selection: Selection | null): NotePlace {
-  if (!selection) return atEnd(doc);
+export function notePlace(
+  doc: ProseMirrorNode,
+  selection: Selection | null,
+  end = doc.content.size,
+): NotePlace {
+  if (!selection) return atEnd(doc, end);
   const { $to } = selection;
   // Between Blocks, or a whole Block selected: right there, or after it.
   if ($to.depth === 0) {
@@ -44,15 +48,15 @@ export function notePlace(doc: ProseMirrorNode, selection: Selection | null): No
   const index = $to.index(0);
   const block = doc.child(index);
   const start = $to.before(1);
-  const end = start + block.nodeSize;
-  if (isEmptyLine(block)) return { from: start, to: end };
+  const after = start + block.nodeSize;
+  if (isEmptyLine(block)) return { from: start, to: after };
   if (block.type.name === QUESTION_BLOCK && index + 1 < doc.childCount) {
     const next = doc.child(index + 1);
     const answers =
       next.type.name === ANSWER_BLOCK && next.attrs.questionId === block.attrs[BLOCK_ID_ATTRIBUTE];
-    if (answers) return { from: end + next.nodeSize, to: end + next.nodeSize };
+    if (answers) return { from: after + next.nodeSize, to: after + next.nodeSize };
   }
-  return { from: end, to: end };
+  return { from: after, to: after };
 }
 
 /**

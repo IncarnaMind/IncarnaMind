@@ -1,9 +1,11 @@
+import type { Editor } from "@tiptap/core";
 import type { LibrarySnapshot } from "../../core/api";
 import type { CommandId } from "../../shared/commands";
 import { displayName } from "../../shared/documentNames";
 import { mindName } from "../../shared/naming";
 import { useCanvases } from "./canvases";
 import { commands } from "./commands/registry";
+import { mindInFront } from "./commands/targets";
 import {
   ConversationLineIcon,
   DocumentLineIcon,
@@ -13,12 +15,16 @@ import {
 import { TagDot } from "./components/TagColour";
 import { conversationLabel, openConversation, useConversations } from "./conversations";
 import { nameWithPlace, placesOf } from "./documentPlaces";
+import { noteTabsOf, openNoteTab } from "./editor/noteTabs";
+import { mindIdOf, onMindEditorOpen, openMindEditors, whenMindEditor } from "./editor/openEditors";
 import { KIND_LABELS } from "./fileInfo";
 import { type FoundObject, findable } from "./finding";
 import { folderCounts } from "./libraryPage";
 import { isListedDocument } from "./meetingTranscript";
+import { noteTabOf, noteTabRef, tabName } from "./noteTabs";
 import type { ObjectRef, Translate } from "./objects";
 import { useAppStore } from "./store";
+import { OutlineToggleIcon } from "./viewer/icons";
 
 type AppState = ReturnType<typeof useAppStore.getState>;
 
@@ -97,6 +103,72 @@ findable.register({
     };
   },
   open: (ref, { inTab }) => openWith(inTab ? "canvas.openTab" : "canvas.open", ref),
+});
+
+/** What the tabs of every Note open in an editor are now: whether ⌘K's list of them changed. */
+const tabsNow = () =>
+  openMindEditors()
+    .map((editor) =>
+      noteTabsOf(editor.state)
+        .tabs.map((tab) => `${tab.id ?? ""}\u0000${tab.title}`)
+        .join("\u0001"),
+    )
+    .join("\u0002");
+
+// The tabs of the Notes open (#3414), found by their titles; one opens its Note, then the tab.
+findable.register({
+  kind: "noteTab",
+  group: { id: "noteTabs", title: "palette.group.noteTabs" },
+  objects(t) {
+    const seen = new Set<string>();
+    return [...openMindEditors()].flatMap((editor) => {
+      const mindId = mindIdOf(editor);
+      if (!mindId || seen.has(mindId)) return [];
+      seen.add(mindId);
+      const mind = store().minds.find((each) => each.id === mindId);
+      const note = mind ? mindName(mind) || t("mind.untitled") : undefined;
+      return noteTabsOf(editor.state).tabs.map(
+        (tab, index): FoundObject => ({
+          ref: noteTabRef(mindId, tab),
+          name: tabName(tab, index, t),
+          meta: withFolder(t("palette.kind.noteTab"), note),
+          icon: (className) => <OutlineToggleIcon className={className} />,
+        }),
+      );
+    });
+  },
+  subscribe(changed) {
+    let last = tabsNow();
+    const check = () => {
+      const now = tabsNow();
+      if (now === last) return;
+      last = now;
+      changed();
+    };
+    const watched = new Set<Editor>();
+    const watch = (editor: Editor) => {
+      if (watched.has(editor)) return;
+      watched.add(editor);
+      editor.on("transaction", check);
+    };
+    for (const editor of openMindEditors()) watch(editor);
+    const stopOpen = onMindEditorOpen((_mindId, editor) => {
+      watch(editor);
+      check();
+    });
+    return () => {
+      stopOpen();
+      for (const editor of watched) editor.off("transaction", check);
+    };
+  },
+  open: async (ref) => {
+    const mindId = ref.id.slice(0, ref.id.indexOf("/"));
+    if (!mindId) return;
+    if (mindInFront() !== mindId) store().openMind(mindId);
+    const editor = await whenMindEditor(mindId, 3_000);
+    const found = editor ? noteTabOf(ref) : null;
+    if (found) openNoteTab(found.editor, found.index, { focus: true });
+  },
 });
 
 findable.register({

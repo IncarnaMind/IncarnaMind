@@ -122,6 +122,7 @@ import {
   showsEveryQuote,
 } from "./ClaimPartRows";
 import { ClaimSentence } from "./ClaimSentence";
+import { ClaimTab } from "./ClaimTab";
 import { CorrectionConflict, correctionLabel } from "./CorrectionOffer";
 import { type CardAction, splitActions } from "./cardActions";
 import {
@@ -1572,6 +1573,7 @@ export function ClaimCard({
             {badge}
             {cardMenu}
             <ClaimSentence sentence={sentence} marks={marks} />
+            <ClaimTab editor={editor} at={claim.sentence.from} />
             {decisionMissing && (
               <p data-testid="claim-court-decision" className="claim-card-says">
                 {t("claim.courtDecision.body")}
@@ -1650,6 +1652,7 @@ export function ClaimCard({
             {badge}
             {cardMenu}
             {sentence && <ClaimSentence sentence={sentence} marks={[]} />}
+            <ClaimTab editor={editor} at={claim.sentence.from} />
             {state === "contradicted" && check.says && (
               <p data-testid="claim-says" className="claim-card-says">
                 {check.says}

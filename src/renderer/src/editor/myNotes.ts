@@ -575,6 +575,11 @@ function historyStep(
   options: MyNotesHistoryOptions,
 ): boolean {
   const before = editor.state;
+  // y-tiptap leaves the selection the last step taken stored until the next change to the Note,
+  // which then puts the cursor back by positions of a longer document and fails past its end, as
+  // two steps that each added Blocks at the end, taken back one after the other, did (#3414).
+  const binding = ySyncPluginKey.getState(before)?.binding;
+  if (binding) binding.beforeTransactionSelection = null;
   const run = () => (step === "undo" ? undo(before) : redo(before)) === true;
   const mine = KEY.getState(before);
   if (!mine?.on) return run();

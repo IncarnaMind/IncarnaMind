@@ -4,12 +4,36 @@ import { useEditorState } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { shortcutLabel } from "../commands/keymap";
-import { OutlineButton, OutlinePanel } from "../components/OutlinePanel";
+import { OutlineButton } from "../components/OutlinePanel";
 import { holdOutline, useNoteOutlineOpen, useNoteOutlines } from "../noteOutline";
+import { NoteTabsPanel } from "./NoteTabsPanel";
+import { type NoteTab, noteTabsOf } from "./noteTabs";
 import { type Heading, headingAt, outlineEntries, sameHeadings, shownHeadings } from "./outline";
 
-/** Fewer headings than this have nowhere to go: the button isn't drawn. */
+/**
+ * Fewer headings than this have nowhere to go: in a Note without tabs that can't have one, as a
+ * read-only Note can't, the button isn't drawn.
+ */
 const MIN_HEADINGS = 2;
+
+const NOTE_WORDS = { show: "noteTabs.show", hide: "noteTabs.hide" } as const;
+
+interface ShownTabs {
+  tabs: readonly NoteTab[];
+  open: number;
+  editable: boolean;
+}
+
+const sameTabs = (a: ShownTabs, b: ShownTabs | null) =>
+  b !== null &&
+  a.open === b.open &&
+  a.editable === b.editable &&
+  a.tabs.length === b.tabs.length &&
+  a.tabs.every((tab, index) => tab.id === b.tabs[index]?.id && tab.title === b.tabs[index]?.title);
+
+/** Whether the panel has something to offer: tabs, headings to go to, or a tab to add. */
+const offers = (shown: ShownTabs, headings: number) =>
+  shown.tabs.length > 0 || shown.editable || headings >= MIN_HEADINGS;
 /** Where a heading jumped to lands, from the top of what scrolls: clear of the bar of changes. */
 const LANDING = 48;
 /** The line the heading being read is the last one above, from the top of what scrolls. */
@@ -19,9 +43,10 @@ const sameShown = (a: readonly Heading[], b: readonly Heading[] | null) =>
   b !== null && sameHeadings(a, b);
 
 /**
- * A Note's outline (#3414), as the viewers have theirs: the button at the top left of the Note's
- * tab, and the panel at the left of its page, listing the headings the page shows. The list
- * draws again only when a heading is added, renamed or removed, never as the text around it moves.
+ * A Note's tabs and outline (#3414), as the viewers have their outline: the button at the top left
+ * of the Note's tab, and the panel at the left of its page, listing its tabs and the headings the
+ * page shows. The list draws again only when a tab or a heading is added, renamed or removed,
+ * never as the text around it moves.
  */
 export function NoteOutline({
   editor,
@@ -40,7 +65,15 @@ export function NoteOutline({
     equalityFn: sameShown,
   });
   const entries = useMemo(() => outlineEntries(headings), [headings]);
-  const available = entries.length >= MIN_HEADINGS;
+  const shownTabs = useEditorState({
+    editor,
+    selector: ({ editor: now }): ShownTabs => ({
+      ...noteTabsOf(now.state),
+      editable: now.isEditable,
+    }),
+    equalityFn: sameTabs,
+  });
+  const available = offers(shownTabs, entries.length);
   const open = useNoteOutlineOpen(mindId);
   const shown = available && open;
   const panel = useRef<HTMLDivElement>(null);
@@ -62,7 +95,12 @@ export function NoteOutline({
   useEffect(
     () =>
       holdOutline(mindId, {
-        has: () => !editor.isDestroyed && shownHeadings(editor.state).length >= MIN_HEADINGS,
+        has: () =>
+          !editor.isDestroyed &&
+          offers(
+            { ...noteTabsOf(editor.state), editable: editor.isEditable },
+            shownHeadings(editor.state).length,
+          ),
         toggle: () => {
           const opening = !useNoteOutlines.getState().open.has(mindId);
           if (!opening && panel.current?.contains(document.activeElement)) backToNote();
@@ -159,6 +197,7 @@ export function NoteOutline({
             <OutlineButton
               open={shown}
               keys={shortcutLabel("mind.outline")}
+              words={NOTE_WORDS}
               onToggle={() => useNoteOutlines.getState().setOpen(mindId, !shown)}
             />
           </div>,
@@ -168,7 +207,11 @@ export function NoteOutline({
         panelSlot &&
         createPortal(
           <div ref={panel} className="contents">
-            <OutlinePanel
+            <NoteTabsPanel
+              editor={editor}
+              mindId={mindId}
+              tabs={shownTabs.tabs}
+              open={shownTabs.open}
               entries={entries}
               current={current}
               onGo={go}
@@ -176,7 +219,6 @@ export function NoteOutline({
                 useNoteOutlines.getState().setOpen(mindId, false);
                 backToNote();
               }}
-              className="note-outline"
             />
           </div>,
           panelSlot,

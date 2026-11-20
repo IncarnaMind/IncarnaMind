@@ -142,7 +142,7 @@ for (const [language, width] of [
       for (const word of words) {
         await expect(window.getByTestId("viewer")).toContainText(word);
       }
-      await expect(window.getByTestId("outline-button")).toBeVisible();
+      await expect(window.getByTestId("viewer").getByTestId("outline-button")).toBeVisible();
     }
 
     // Two files it can't take: the next step each, and where each is.

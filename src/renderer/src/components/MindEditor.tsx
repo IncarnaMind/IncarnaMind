@@ -23,7 +23,7 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type * as Y from "yjs";
-import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD } from "../../../core/api";
+import { ANSWER_BLOCK, type EditPart, MIND_CONTENT_FIELD, NOTE_TAB_NODE } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import type { CitationForm } from "../../../shared/citationStyles";
 import type { CitationLive } from "../../../shared/citations";
@@ -125,6 +125,7 @@ import { NoteOutline } from "../editor/NoteOutline";
 import { ListMenu } from "../editor/NumberingMenu";
 import { NoteKeymap } from "../editor/noteKeymap";
 import { noteExtensions } from "../editor/noteSchema";
+import { NoteTabs } from "../editor/noteTabs";
 import { NoteUndoKeys } from "../editor/noteUndoKeys";
 import { registerMindEditor } from "../editor/openEditors";
 import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
@@ -687,6 +688,8 @@ function MindEditorView({
           ...(history && { yUndoOptions: { undoManager: history } }),
         }),
         NoteUndoKeys,
+        // One tab of the Note shown at a time (#3414).
+        NoteTabs.configure({ mindId }),
         MyNotes,
         MyNotesHistory.configure({
           fillNext: fillNextIn,
@@ -699,7 +702,10 @@ function MindEditorView({
         Placeholder.configure({
           // An empty Mind's line and the line after an Answer have their hint drawn over them (EndHint).
           placeholder: ({ editor: current, node, pos }) => {
-            if (pos === 0 && isTitleLine(node)) return placeholder.current.title;
+            // A Note's title line opens its first tab, after the tab's own Block (#3414).
+            const first = current.state.doc.firstChild;
+            const titleAt = first?.type.name === NOTE_TAB_NODE ? first.nodeSize : 0;
+            if (pos === titleAt && isTitleLine(node)) return placeholder.current.title;
             if (isEmptyMind(current.state.doc)) return "";
             const before = current.state.doc.resolve(pos).nodeBefore;
             return before?.type.name === ANSWER_BLOCK ? "" : placeholder.current.body;
