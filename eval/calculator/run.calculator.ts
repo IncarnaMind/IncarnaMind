@@ -88,11 +88,12 @@ function setProblems(): string[] {
   const problems: string[] = [];
   const names = new Set<string>();
   for (const each of CALCULATOR_CASES) {
-    if (names.has(each.document.name))
-      problems.push(`${each.id}: its Document's name is another's`);
-    names.add(each.document.name);
+    for (const name of [each.document.name, ...(each.sheet ? [each.sheet.name] : [])]) {
+      if (names.has(name)) problems.push(`${each.id}: its Document's name is another's`);
+      names.add(name);
+    }
     for (const input of each.inputs)
-      if (!each.document.text.includes(input))
+      if (!each.document.text.includes(input) && !each.sheet?.text.includes(input))
         problems.push(`${each.id}: "${input}" isn't in its Document`);
     const right = figureIn(each, each.right);
     if (!right.valueRight || right.unitShown !== "right")
@@ -290,6 +291,8 @@ async function spentUsd(core: Core): Promise<number> {
     .reduce((sum, each) => sum + each.amount, 0);
 }
 
+const sheetKey = (each: CalculatorCase) => `${each.id}#sheet`;
+
 async function documentsFolder(): Promise<{
   folder: string;
   paths: { key: string; path: string }[];
@@ -300,6 +303,10 @@ async function documentsFolder(): Promise<{
     const path = join(folder, `${each.document.name}.md`);
     await writeFile(path, each.document.text);
     paths.push({ key: each.id, path });
+    if (!each.sheet) continue;
+    const sheet = join(folder, `${each.sheet.name}.csv`);
+    await writeFile(sheet, each.sheet.text);
+    paths.push({ key: sheetKey(each), path: sheet });
   }
   return { folder, paths };
 }
@@ -345,15 +352,20 @@ async function libraryFor(
     apiKey: setup.chat.apiKey ?? "",
   });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
-  const idOf = (each: CalculatorCase) => {
-    const document = library.documents.get(each.id);
-    if (!document) throw new Error(`${each.id}'s Document wasn't added.`);
+  const idOf = (key: string) => {
+    const document = library.documents.get(key);
+    if (!document) throw new Error(`${key}'s Document wasn't added.`);
     return document.id;
   };
+  /** A case's Document, and its sheet where it has one. */
+  const idsOf = (each: CalculatorCase) => [
+    idOf(each.id),
+    ...(each.sheet ? [idOf(sheetKey(each))] : []),
+  ];
   return {
     library,
     heard: recorded.heard,
-    idOf,
+    idsOf,
     settled: recorded.settled,
     close: async () => {
       await recorded.settled();
@@ -399,7 +411,7 @@ async function answerPath(setup: Setup) {
     for (const [question, id] of byQuestion) if (prompt.includes(question)) return id;
     return null;
   });
-  const { library, heard, idOf } = opened;
+  const { library, heard, idsOf } = opened;
   const { core } = library;
   try {
     let stopped = false;
@@ -408,7 +420,7 @@ async function answerPath(setup: Setup) {
       const started = Date.now();
       const asked = await core.askInConversation({
         text: each.question,
-        scope: { folderIds: [], tagIds: [], documentIds: [idOf(each)] },
+        scope: { folderIds: [], tagIds: [], documentIds: idsOf(each) },
       });
       if (!asked.asked) throw new Error(`${each.id} wasn't asked: ${JSON.stringify(asked)}`);
       const ended = await new Promise<boolean>((resolve) => {
@@ -509,10 +521,11 @@ async function checkedInNote(
   read: string,
 ) {
   const folder = await core.createLibraryGroup({ name: `${each.id} ${ROUND}`, description: "" });
-  const documentId = (await core.listDocuments()).find(
-    (doc) => doc.name === each.document.name,
-  )?.id;
-  if (documentId) await core.moveToFolder({ documentIds: [documentId], folderId: folder.id });
+  const names = [each.document.name, ...(each.sheet ? [each.sheet.name] : [])];
+  const documentIds = (await core.listDocuments())
+    .filter((doc) => names.includes(doc.name))
+    .map((doc) => doc.id);
+  if (documentIds.length > 0) await core.moveToFolder({ documentIds, folderId: folder.id });
   const shown = answer.figures[0]?.shown ?? "";
   const checked = async (blocks: NodeJSON[]) => {
     const mind = await core.createMind({ title: "Answer", folderId: folder.id });
@@ -599,13 +612,13 @@ async function checkPath(setup: Setup) {
       if (prompt.includes(sentence.text)) return `${sentence.each.id}/${sentence.which}`;
     return null;
   });
-  const { library, heard, idOf } = opened;
+  const { library, heard, idsOf } = opened;
   const { core } = library;
   try {
     const folders = new Map<string, string>();
     for (const each of cases) {
       const folder = await core.createLibraryGroup({ name: each.document.name, description: "" });
-      await core.moveToFolder({ documentIds: [idOf(each)], folderId: folder.id });
+      await core.moveToFolder({ documentIds: idsOf(each), folderId: folder.id });
       folders.set(each.id, folder.id);
     }
     let stopped = false;
@@ -750,7 +763,7 @@ async function agentPath(setup: Setup) {
       version: "0.0.0-test",
     },
   });
-  const { library, idOf } = opened;
+  const { library, idsOf } = opened;
   const { core } = library;
   let spent = 0;
   let stopped = false;
@@ -766,7 +779,7 @@ async function agentPath(setup: Setup) {
         description: "",
       });
       for (const sentence of note.sentences)
-        await core.moveToFolder({ documentIds: [idOf(sentence.each)], folderId: folder.id });
+        await core.moveToFolder({ documentIds: idsOf(sentence.each), folderId: folder.id });
       folders.set(note.group, folder.id);
     }
     let index = 0;

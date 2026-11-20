@@ -33,6 +33,7 @@ import {
 import { type Figure, readFigures } from "../shared/figures";
 import { englishLocation } from "../shared/locations";
 import { memoized, perBlock } from "../shared/memo";
+import { locate } from "../shared/plainFigures";
 import {
   figureSignOffBasis,
   figureSignOffSources,
@@ -41,14 +42,10 @@ import {
   signOffShown,
   signOffsOf,
 } from "../shared/signOffs";
-import { anchorsOf, columnName, parseCellRef, type UnitText } from "../shared/units";
+import { anchorsOf, cellNumber, columnName, parseCellRef, type UnitText } from "../shared/units";
 import { sheetRows } from "./analysis/ranges";
 import { nodeOf } from "./answers/blocks";
-import {
-  answerLanguage,
-  createCalculationSession,
-  documentFigureContext,
-} from "./answers/calculations";
+import { documentFigureContext } from "./answers/calculations";
 import { type FigureOccurrence, figuresInMind } from "./answers/checks/figureOccurrences";
 import { checkedSentences } from "./answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "./answers/citations";
@@ -362,13 +359,62 @@ function sourceFootingFor(
     return null;
   const citations = createCitationSession(documents, { onRecord: () => undefined });
   citations.show([{ ...source, seq: 0, position: 0, windowFrom: 0, windowTo: 0 }]);
-  const calculations = createCalculationSession({
-    documents,
-    quotes: citations.quotes,
-    language: answerLanguage(source.text),
-  });
   const supplemental: FigureInput[] = [];
   const used = new Set([...group.componentIds, targetId]);
+  // A cell beside the total in its own column or row, read in the unit and scale the total's line
+  // states, its number the one the cell holds.
+  const cellInput = (
+    entry: FootingEntry,
+    unit: UnitText,
+    quote: string,
+    from: number,
+    to: number,
+  ): FigureInput | null => {
+    const position = parseCellRef(entry.id);
+    const held = position ? rows.get(position.row)?.[position.column] : undefined;
+    const matches = readFigures(quote, {
+      ...documentFigureContext(units),
+      header: stated.unitStatement?.citation.quote,
+      midLine: true,
+    }).filter((figure) => figure.start >= from && figure.end <= to);
+    const [matched, ...more] = matches;
+    if (!position || !matched || more.length > 0) return null;
+    const reading = [matched, ...matched.ambiguous.flatMap((each) => each.readings)].find(
+      (each) => each.scale === stated.number.scale && same(each.unit, stated.number.unit),
+    );
+    if (!reading) return null;
+    const quoted = citations.quotes.quote({
+      passage: source.passageId,
+      location: englishLocation({
+        kind: "rows",
+        sheet: cell.sheet,
+        from: position.row,
+        to: position.row,
+      }),
+      quote,
+      pageFrom: null,
+      pageTo: null,
+    });
+    if ("problem" in quoted) return null;
+    return {
+      name: `source_${entry.id}`,
+      label: entry.label,
+      citation: { ...quoted.citation, ...quoted.check() },
+      number: {
+        chars: matched.chars,
+        at: matched.start,
+        value: typeof held === "number" ? held * reading.scale : reading.value,
+        scale: reading.scale,
+        scaleWord: reading.scaleWord,
+        unit: reading.unit,
+        decimals: reading.decimals,
+        approximate: matched.approximate,
+        reading: null,
+      },
+      cell: { sheet: cell.sheet, ref: entry.id, stored: cellNumber(unit.label, entry.id) },
+      unitStatement: stated.unitStatement,
+    };
+  };
   const proven = entries.map((entry): FootingEntry => {
     if (!used.has(entry.id)) return entry;
     const position = parseCellRef(entry.id);
@@ -377,8 +423,9 @@ function sourceFootingFor(
     const represented = covered.get(entry.id)?.[0];
     if (!input && represented) {
       const previous = findings.get(represented)?.sourceInput;
-      const checked = previous ? calculations.recheck(previous) : null;
-      if (checked && "input" in checked) input = checked.input;
+      // The same version of the Document: its number is confirmed by its digits in the quote again.
+      if (previous && locate(previous.number.value, previous.citation.quote, previous.number.chars))
+        input = previous;
       if (!input) return entry;
     }
     if (!input) {
@@ -393,27 +440,7 @@ function sourceFootingFor(
       const start = unit.text.lastIndexOf("\n", anchor.start - 1) + 1;
       const ending = unit.text.indexOf("\n", anchor.end);
       const quote = unit.text.slice(start, ending < 0 ? unit.text.length : ending);
-      const figures = readFigures(quote, documentFigureContext(units));
-      const matches = figures.filter(
-        (figure) => figure.start >= anchor.start - start && figure.end <= anchor.end - start,
-      );
-      const matched = matches[0];
-      if (matches.length !== 1 || !matched) return entry;
-      const found = calculations.number({
-        name: `source_${entry.id}`,
-        label: entry.label,
-        passage: source.passageId,
-        location: englishLocation({
-          kind: "rows",
-          sheet: cell.sheet,
-          from: position.row,
-          to: position.row,
-        }),
-        quote,
-        position: figures.indexOf(matched) + 1,
-        unitQuote: stated.unitStatement?.citation.quote,
-      });
-      if ("input" in found) input = found.input;
+      input = cellInput(entry, unit, quote, anchor.start - start, anchor.end - start);
     }
     if (
       !input ||

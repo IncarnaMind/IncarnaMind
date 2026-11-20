@@ -1,7 +1,6 @@
 import { expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
-import { createCalculationSession } from "../../src/core/answers/calculations";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
 import {
   everySentence,
@@ -18,6 +17,7 @@ import type {
   FigureCheckAttributes,
   FigureCheckResult,
   FigureFinding,
+  FigureInput,
 } from "../../src/core/api";
 import { MIND_CONTENT_FIELD } from "../../src/core/api";
 import { figureScheduleBook } from "../../src/core/exports/figureScheduleBook";
@@ -292,22 +292,41 @@ function sourceTable(lines: string[]) {
   const passage = documents.citationSource("passage");
   if (!passage) throw new Error("Missing source Passage");
   citations.show([{ ...passage, seq: 0, position: 0, windowFrom: 0, windowTo: 0 }]);
-  const calculations = createCalculationSession({
-    documents,
-    quotes: citations.quotes,
-    language: "en",
-  });
-  const input = (row: number, position = 1) => {
-    const found = calculations.number({
-      name: "source",
-      label: lines[row - 1]?.split("\t")[0] ?? "",
+  // A source input as a check recorded one before #3081: the cell's number with its Citation.
+  const input = (row: number, position = 1): FigureInput => {
+    const quote = lines[row - 1] ?? "";
+    const cells = quote.split("\t");
+    const numbered = cells.flatMap((cell, column) => (/^\d/.test(cell) ? [column] : []));
+    const column = numbered[position - 1];
+    const chars = column === undefined ? undefined : cells[column];
+    if (column === undefined || chars === undefined)
+      throw new Error(`No number ${position} in row ${row}`);
+    const quoted = citations.quotes.quote({
       passage: "passage",
       location: `Accounts, row ${row}`,
-      quote: lines[row - 1],
-      position,
+      quote,
+      pageFrom: null,
+      pageTo: null,
     });
-    if (!("input" in found)) throw new Error(found.problem);
-    return found.input;
+    if ("problem" in quoted) throw new Error(quoted.problem);
+    return {
+      name: "source",
+      label: cells[0] ?? "",
+      citation: { ...quoted.citation, ...quoted.check() },
+      number: {
+        chars,
+        at: cells.slice(0, column).join("\t").length + 1,
+        value: Number(chars),
+        scale: 1,
+        scaleWord: null,
+        unit: { kind: "plain" },
+        decimals: 0,
+        approximate: false,
+        reading: null,
+      },
+      cell: { sheet: "Accounts", ref: `${String.fromCharCode(65 + column)}${row}`, stored: null },
+      unitStatement: null,
+    };
   };
   return { documents, input };
 }

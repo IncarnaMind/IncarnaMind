@@ -8,7 +8,10 @@
  * Kinds, as the issue's bars name them: a sum or difference of two stated amounts; a share, a
  * margin or a growth rate; a quantity times a price per unit (`minorUnit` when the price is in
  * pence, cents, 港仙 or 美分); amounts under a scale line or word; two currencies that must not be
- * added as they stand; percent against percentage points; a figure over a table's row or column.
+ * added as they stand; percent against percentage points; a figure over a table's row or column;
+ * and a figure an Analysis works out over a sheet's rows with one number a Document states
+ * (`analysis-number`): a price in a minor unit, a rate, a headcount or a budget under a scale line,
+ * a percent, an amount with a scale word.
  */
 import type { Language } from "../../src/core/language";
 
@@ -19,7 +22,8 @@ export type CalculatorKind =
   | "scale"
   | "currencies"
   | "percent-points"
-  | "table";
+  | "table"
+  | "analysis-number";
 
 /** What the figure measures: money in a currency, a percent, percentage points, or a count of things. */
 export type ExpectedUnit =
@@ -38,6 +42,8 @@ export interface CalculatorCase {
   /** An input is written under a scale line or with a scale word ("in thousands", "万元"). */
   scaled: boolean;
   document: { name: string; text: string };
+  /** A CSV whose rows the figure is worked out over, beside the Document that states one of its numbers. */
+  sheet?: { name: string; text: string };
   question: string;
   /** In base units: 3,503,500 for £3,503,500; 0.037 for 3.7 percentage points. A change by its size. */
   expected: { value: number; unit: ExpectedUnit };
@@ -1021,4 +1027,356 @@ const CHINESE: readonly CalculatorCase[] = [
   },
 ];
 
-export const CALCULATOR_CASES: readonly CalculatorCase[] = [...ENGLISH, ...CHINESE];
+const csv = (name: string, ...rows: string[]) => ({ name, text: `${rows.join("\n")}\n` });
+
+const ANALYSIS: readonly CalculatorCase[] = [
+  {
+    id: "an-en-minor",
+    language: "en",
+    kind: "analysis-number",
+    minorUnit: true,
+    scaled: false,
+    document: doc(
+      "Corrow Freight fuel terms 2025",
+      "Corrow Freight runs four depots on the east coast.",
+      "Under the 2025 supply contract, diesel is bought at 138 pence a litre at every depot.",
+    ),
+    sheet: csv(
+      "Corrow Freight diesel by depot 2025",
+      "Depot,Litres",
+      "Harwick,41250",
+      "Stannow,38900",
+      "Bellport,52300",
+      "Ryecombe,29550",
+    ),
+    question: "What did diesel cost Corrow Freight's four depots in 2025, in pounds?",
+    expected: { value: 162_000 * 1.38, unit: GBP },
+    traps: [{ value: 162_000 * 138, why: "pence taken as pounds" }],
+    quantityWords: ["litre", "liter"],
+    right: "Diesel cost Corrow Freight's four depots £223,560 in 2025.",
+    wrong: {
+      sentence: "Diesel cost Corrow Freight's four depots £22,356,000 in 2025.",
+      why: "pence taken as pounds",
+    },
+    inputs: ["138"],
+  },
+  {
+    id: "an-en-headcount",
+    language: "en",
+    kind: "analysis-number",
+    scaled: true,
+    document: doc(
+      "Quenby Analytics people report 2025",
+      "Key people figures ($000)",
+      "| Measure | 2025 |\n|---|---:|\n| Training spend | 214 |\n| Average headcount | 152 |",
+      "Quenby Analytics opened a second office in 2025.",
+    ),
+    sheet: csv(
+      "Quenby Analytics staff cost by team 2025",
+      "Team,Staff cost ($)",
+      "Data engineering,1284000",
+      "Client delivery,962500",
+      "Research,1553500",
+    ),
+    question:
+      "What was Quenby Analytics' staff cost per employee in 2025, from the team cost sheet and the average headcount?",
+    expected: { value: 3_800_000 / 152, unit: USD },
+    traps: [{ value: 3_800_000 / 152_000, why: "the headcount taken in thousands" }],
+    right: "Quenby Analytics' staff cost per employee was $25,000 in 2025.",
+    wrong: {
+      sentence: "Quenby Analytics' staff cost per employee was $25 in 2025.",
+      why: "the headcount taken in thousands",
+    },
+    inputs: ["152"],
+  },
+  {
+    id: "an-en-rate",
+    language: "en",
+    kind: "analysis-number",
+    scaled: false,
+    document: doc(
+      "Pembury Toys treasury note H1 2025",
+      "Treasury converted all US receipts for the half year at $1.35 to £1.",
+      "Receipts in euros are reported in a separate note.",
+    ),
+    sheet: csv(
+      "Pembury Toys US sales H1 2025",
+      "Month,Sales ($)",
+      "January,380000",
+      "February,410000",
+      "March,395000",
+      "April,420000",
+      "May,405000",
+      "June,420000",
+    ),
+    question: "What were Pembury Toys' US sales for the half year in pounds, at the treasury rate?",
+    expected: { value: 2_430_000 / 1.35, unit: GBP },
+    traps: [{ value: 2_430_000 * 1.35, why: "multiplied by the rate" }],
+    right: "Pembury Toys' US sales for the half year were £1,800,000.",
+    wrong: {
+      sentence: "Pembury Toys' US sales for the half year were £3,280,500.",
+      why: "multiplied by the rate",
+    },
+    inputs: ["1.35"],
+  },
+  {
+    id: "an-en-budget",
+    language: "en",
+    kind: "analysis-number",
+    scaled: true,
+    document: doc(
+      "Whitlow Council libraries budget 2025",
+      "Approved budgets (£000)",
+      "| Service | 2025 |\n|---|---:|\n| Libraries | 2,950 |\n| Archives | 410 |",
+      "The libraries budget includes the mobile library service.",
+    ),
+    sheet: csv(
+      "Whitlow Council libraries spending 2025",
+      "Line,Spend (£)",
+      "Staff,1327700",
+      "Buildings,845900",
+      "Books and media,612400",
+    ),
+    question: "By how much was Whitlow Council's 2025 libraries spending under its budget?",
+    expected: { value: 2_950_000 - 2_786_000, unit: GBP },
+    traps: [{ value: 2_786_000 - 2_950, why: "the budget's thousands left out" }],
+    right: "Whitlow Council's 2025 libraries spending was £164,000 under budget.",
+    wrong: {
+      sentence: "Whitlow Council's 2025 libraries spending was £1,640,000 under budget.",
+      why: "a slip of ten",
+    },
+    inputs: ["2,950"],
+  },
+  {
+    id: "an-en-percent",
+    language: "en",
+    kind: "analysis-number",
+    scaled: false,
+    document: doc(
+      "Aldergrove Kitchens board minutes November 2025",
+      "The board approved a price rise of 3.5% on every product from January 2026.",
+      "The board also noted the new warehouse lease.",
+    ),
+    sheet: csv(
+      "Aldergrove Kitchens revenue by product 2025",
+      "Product,Revenue 2025 ($)",
+      "Cabinets,712000",
+      "Worktops,438000",
+      "Sinks,276000",
+      "Fittings,214000",
+    ),
+    question:
+      "If Aldergrove Kitchens sells the same volumes in 2026, what will its revenue be after the price rise?",
+    expected: { value: 1_640_000 * 1.035, unit: USD },
+    traps: [
+      { value: 1_640_000 * 0.035, why: "the rise alone" },
+      { value: 1_640_000 * 4.5, why: "the percent taken as a whole number" },
+    ],
+    right: "After the price rise, Aldergrove Kitchens' revenue would be $1,697,400 in 2026.",
+    wrong: {
+      sentence: "After the price rise, Aldergrove Kitchens' revenue would be $1,679,400 in 2026.",
+      why: "digits swapped",
+    },
+    inputs: ["3.5%"],
+  },
+  {
+    id: "an-en-scaleword",
+    language: "en",
+    kind: "analysis-number",
+    scaled: true,
+    document: doc(
+      "Lintwell Engineering remuneration note 2025",
+      "The remuneration committee set the 2025 bonus pool at £1.2 million.",
+      "Bonuses are paid in March.",
+    ),
+    sheet: csv(
+      "Lintwell Engineering payroll by department 2025",
+      "Department,Payroll (£)",
+      "Design,2650000",
+      "Manufacturing,4180000",
+      "Sales,1570000",
+      "Support,1200000",
+    ),
+    question: "What share of Lintwell Engineering's 2025 payroll is the bonus pool?",
+    expected: { value: 1_200_000 / 9_600_000, unit: PERCENT },
+    traps: [{ value: 1.2 / 9_600, why: "the million left out" }],
+    right: "Lintwell Engineering's bonus pool is 12.5% of its 2025 payroll.",
+    wrong: {
+      sentence: "Lintwell Engineering's bonus pool is 14.3% of its 2025 payroll.",
+      why: "divided by payroll less the pool",
+    },
+    inputs: ["1.2"],
+  },
+  {
+    id: "an-zh-minor",
+    language: "zh-CN",
+    kind: "analysis-number",
+    minorUnit: true,
+    scaled: false,
+    document: doc(
+      "嘉禾电机美国工厂电价说明",
+      "嘉禾电机在美国设有三家工厂。",
+      "2025年美国工厂的电价为每千瓦时8.5美分。",
+    ),
+    sheet: csv(
+      "嘉禾电机美国工厂用电量2025",
+      "工厂,用电量（千瓦时）",
+      "俄亥俄工厂,412000",
+      "密歇根工厂,538500",
+      "印第安纳工厂,349500",
+    ),
+    question: "嘉禾电机三家美国工厂2025年电费合计多少美元？",
+    expected: { value: 1_300_000 * 0.085, unit: USD },
+    traps: [{ value: 1_300_000 * 8.5, why: "美分 taken as 美元" }],
+    quantityWords: ["千瓦时", "度"],
+    right: "嘉禾电机三家美国工厂2025年电费合计110,500美元。",
+    wrong: {
+      sentence: "嘉禾电机三家美国工厂2025年电费合计11,050,000美元。",
+      why: "美分 taken as 美元",
+    },
+    inputs: ["8.5"],
+  },
+  {
+    id: "an-zh-rate",
+    language: "zh-CN",
+    kind: "analysis-number",
+    scaled: false,
+    document: doc(
+      "启明玩具外币折算说明",
+      "财务部按1美元兑7.20元人民币折算本期美元收入。",
+      "欧元收入另行说明。",
+    ),
+    sheet: csv(
+      "启明玩具美国销售额2025",
+      "月份,销售额（美元）",
+      "7月,860000",
+      "8月,940000",
+      "9月,910000",
+      "10月,890000",
+    ),
+    question: "启明玩具这四个月的美元销售额按财务部的汇率折合人民币多少元？",
+    expected: { value: 3_600_000 * 7.2, unit: CNY },
+    traps: [{ value: 3_600_000 / 7.2, why: "divided by the rate" }],
+    right: "启明玩具这四个月的美元销售额折合人民币25,920,000元。",
+    wrong: {
+      sentence: "启明玩具这四个月的美元销售额折合人民币500,000元。",
+      why: "divided by the rate",
+    },
+    inputs: ["7.20"],
+  },
+  {
+    id: "an-zh-headcount",
+    language: "zh-CN",
+    kind: "analysis-number",
+    scaled: true,
+    document: doc(
+      "锦程医药研发情况摘要",
+      "研发情况（单位：人民币千元）",
+      "| 项目 | 2025年 |\n|---|---:|\n| 研发设备投入 | 3,260 |\n| 研发人员数量 | 140 |",
+      "公司2025年新增两条中试生产线。",
+    ),
+    sheet: csv(
+      "锦程医药研发费用2025",
+      "部门,研发费用（元）",
+      "化学药研究所,4120000",
+      "生物药研究所,3860000",
+      "临床研究部,1820000",
+    ),
+    question: "锦程医药2025年人均研发费用是多少元？按研发费用表与研发人员数量计算。",
+    expected: { value: 9_800_000 / 140, unit: CNY },
+    traps: [{ value: 9_800_000 / 140_000, why: "the headcount taken in thousands" }],
+    right: "锦程医药2025年人均研发费用为70,000元。",
+    wrong: {
+      sentence: "锦程医药2025年人均研发费用为70元。",
+      why: "the headcount taken in thousands",
+    },
+    inputs: ["140"],
+  },
+  {
+    id: "an-zh-budget",
+    language: "zh-CN",
+    kind: "analysis-number",
+    scaled: true,
+    document: doc(
+      "白鹭社区服务中心2025年预算",
+      "2025年预算（单位：万元）",
+      "| 项目 | 预算 |\n|---|---:|\n| 日常运营 | 310 |\n| 设备更新 | 45 |",
+      "预算经理事会审议通过。",
+    ),
+    sheet: csv(
+      "白鹭社区服务中心日常运营支出2025",
+      "项目,支出（元）",
+      "人员,1625000",
+      "场地,742000",
+      "活动,478000",
+    ),
+    question: "白鹭社区服务中心2025年日常运营实际支出比预算少多少元？",
+    expected: { value: 3_100_000 - 2_845_000, unit: CNY },
+    traps: [{ value: 2_845_000 - 310, why: "万 left out" }],
+    right: "白鹭社区服务中心2025年日常运营实际支出比预算少255,000元。",
+    wrong: {
+      sentence: "白鹭社区服务中心2025年日常运营实际支出比预算少2,550,000元。",
+      why: "a slip of ten",
+    },
+    inputs: ["310"],
+  },
+  {
+    id: "an-zh-percent",
+    language: "zh-CN",
+    kind: "analysis-number",
+    scaled: false,
+    document: doc(
+      "禾风茶饮董事会决议摘要",
+      "董事会批准自2026年1月起全部产品提价6%。",
+      "董事会同时审议了新门店选址。",
+    ),
+    sheet: csv(
+      "禾风茶饮门店营收2025",
+      "门店,2025年营收（元）",
+      "解放路店,2460000",
+      "滨湖店,1980000",
+      "高新区店,2140000",
+      "老城店,1420000",
+    ),
+    question: "若销量不变，禾风茶饮四家门店2026年提价后营收合计多少元？",
+    expected: { value: 8_000_000 * 1.06, unit: CNY },
+    traps: [
+      { value: 8_000_000 * 0.06, why: "the rise alone" },
+      { value: 8_000_000 * 7, why: "the percent taken as a whole number" },
+    ],
+    right: "若销量不变，禾风茶饮四家门店2026年营收合计8,480,000元。",
+    wrong: {
+      sentence: "若销量不变，禾风茶饮四家门店2026年营收合计8,840,000元。",
+      why: "digits swapped",
+    },
+    inputs: ["6%"],
+  },
+  {
+    id: "an-zh-minor-hk",
+    language: "zh-CN",
+    kind: "analysis-number",
+    minorUnit: true,
+    scaled: false,
+    document: doc(
+      "瀚海航运末期股息公告摘要",
+      "董事会建议派发2025年度末期股息每股12港仙。",
+      "股息将于2026年6月派付。",
+    ),
+    sheet: csv(
+      "瀚海航运股东持股2025",
+      "股东类别,持股数（股）",
+      "控股股东,198000000",
+      "机构投资者,117000000",
+      "公众股东,45000000",
+    ),
+    question: "按表中持股数计算，瀚海航运末期股息总额为多少港元？",
+    expected: { value: 360_000_000 * 0.12, unit: HKD },
+    traps: [{ value: 360_000_000 * 12, why: "港仙 taken as 港元" }],
+    quantityWords: ["股"],
+    right: "瀚海航运末期股息总额为43,200,000港元。",
+    wrong: { sentence: "瀚海航运末期股息总额为4,320,000,000港元。", why: "港仙 taken as 港元" },
+    inputs: ["12"],
+  },
+];
+
+export const CALCULATOR_CASES: readonly CalculatorCase[] = [...ENGLISH, ...CHINESE, ...ANALYSIS];
