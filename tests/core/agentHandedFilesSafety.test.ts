@@ -29,6 +29,7 @@ import {
   structured,
 } from "../helpers/handedFiles";
 import { connectToMind } from "../helpers/mindClient";
+import { editMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { plainDeck } from "../helpers/pptx";
 
@@ -456,6 +457,34 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     await writeFile(path, deck("2026"));
     structured<Handed>(await handOver(agent, { path }));
     expect(sentAfter(calls, before)).toEqual(new Set([NORTH]));
+  });
+
+  // protects=what a result was judged with survives the window's editor: a Note the User opened and edited there still carries its results to the file's next version (#3412); fails_when=the editor's write-back drops the fingerprint from every mark, and the next version checks every line again
+  it("carries results to the next version after the User edited the Note in the window", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, writer, files } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, DECK);
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const client = await connectToMind(core, first.mindId ?? "");
+    await client.settled();
+    // Written back through the window's editor, as any edit there writes its Blocks.
+    editMind(client, (blocks) => blocks);
+    await client.settled();
+    const before = calls.length;
+
+    await writeFile(
+      path,
+      plainDeck([
+        { title: "Harbour review" },
+        { lines: [NORTH, SOUTH] },
+        { lines: [OFFICE, NEVER_CLOSES] },
+        { lines: [SUNDAYS] },
+      ]),
+    );
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, before)).toEqual(new Set());
   });
 
   // protects=a hand-over tells as Supported only a result whose Documents are still at the versions it read: once one changed, the result is checked again before it is counted, a file in no Folder too, which no background check covers (#3412 review); fails_when=the same file handed over again after its evidence Document changed reports the earlier Supported as current
