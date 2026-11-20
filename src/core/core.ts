@@ -70,7 +70,7 @@ import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
-import { createHandOver, type HandedMarks } from "./agentFiles/handOver";
+import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import type { FoundClaim } from "./agents/handedFiles";
@@ -1244,6 +1244,12 @@ export function createCore(adapters: CoreAdapters): Core {
         batches.linkedFoldersChanged(list);
       },
       onFound: (documentId) => batches.found(documentId),
+      handedCopyAt: (path) =>
+        handedCopyAt(
+          handedFiles,
+          path,
+          (documentId) => documents.getMany([documentId])[0]?.linkedFolderId === null,
+        ),
       onReady: (documentId) => {
         // There is something to search now: the built-in reranking model downloads, if it reranks.
         prepareRerank();
@@ -5780,6 +5786,8 @@ export function createCore(adapters: CoreAdapters): Core {
     newId: () => crypto.randomUUID(),
     addHanded: (id, name, file, kind) => documents.addHanded(id, name, file, kind),
     readAgain: (path) => documents.checkNow(path),
+    placeOf: (path) => documents.placeOf(path),
+    filedIn: (documentId) => library.folderOfDocument(documentId),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),

@@ -8696,6 +8696,10 @@ export const en = {
   "agents.handOver.tooMany":
     "This agent has handed over {max} files in the last hour, which is the most it may. Try again later.",
   "agents.handOver.notFound": "That file is kept in a Folder this agent no longer reaches.",
+  "agents.handOver.notShared":
+    "That file is in a Folder the User hasn’t shared with this agent, so it can’t be handed over from there.",
+  "agents.handOver.paused":
+    "That file is in a Linked folder the User has paused in IncarnaMind, which reads nothing in it until it is resumed. Once it is, hand the file over again.",
   "agents.handOver.unavailable": "This copy of IncarnaMind can’t read files an agent names.",
   "agents.handOver.inLibrary":
     "The User’s Library holds this file already, and IncarnaMind keeps one copy of a file: change it before you hand it over.",
