@@ -8732,6 +8732,7 @@ export const en = {
   "agents.ask.others": "Ask another AI",
   "agents.ask.setUpModel": "Set up a model",
   "agents.ask.copied": "Copied. Paste it into {agent}.",
+  "agents.ask.opened": "Opened {agent} with your request typed. Send it there.",
   "agents.ask.fixCommand": "Ask your AI to fix this sentence",
   "agents.ask.noteCommand": "Ask your AI about this note",
   "agents.ask.fixAllCommand": "Ask your AI to fix every flagged sentence",
