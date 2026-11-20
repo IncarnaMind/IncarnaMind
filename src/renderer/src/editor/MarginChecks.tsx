@@ -2,6 +2,7 @@ import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
+import { useReadAgentRequests } from "../askYourAi";
 import { setClaimFocus, setOpenClaim } from "../checks";
 import { useEarlyChecks } from "../earlyChecks";
 import { focusFigure, useFigureFocus } from "../figures";
@@ -265,6 +266,7 @@ export function MarginChecks({
   mind: { id: string; doc: Y.Doc };
 }) {
   const place = useCardPlace(mind.id);
+  useReadAgentRequests(mind.id);
   const layer = useRef<HTMLDivElement>(null);
   // The outline draws in the layer, which a figure shown before this note opened waits for.
   const [layerReady, setLayerReady] = useState(false);

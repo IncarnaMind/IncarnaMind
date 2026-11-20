@@ -264,6 +264,16 @@ export function AgentPairingRow({
             >
               <span className="text-ink-meta">{timeWords(call.at, language)}</span>
               <span className="break-words text-ink-secondary">{activityWords(call, t)}</span>
+              {call.request !== null && (
+                <details data-testid="agent-activity-request" className="col-start-2">
+                  <summary className="cursor-pointer text-[12px] leading-[18px] text-ink-meta">
+                    {t("agents.activity.request")}
+                  </summary>
+                  <p className="mt-1 text-[12px] leading-[18px] whitespace-pre-wrap break-words text-ink-secondary">
+                    {call.request}
+                  </p>
+                </details>
+              )}
             </li>
           ))}
         </ol>

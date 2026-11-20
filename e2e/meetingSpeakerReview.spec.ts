@@ -55,12 +55,19 @@ async function reviewService(
           available: true,
           reason: null,
           durationMs: 9000,
+          ...(result.source === "microphone" && { roomDownloadBytes: 154315111 }),
           ...(runs >= 4 ? { cached: true, estimatedUsd: 0 } : { estimatedUsd: 0.003 }),
         };
       });
       ipcMain.handle("core:reviewMeetingSpeakers", (_event, input) => {
         if (input.meetingId !== meetingId || input.confirmed !== true) {
           throw new Error("The upload was not confirmed for this meeting.");
+        }
+        if (result.source === "microphone") {
+          if (!input.onDevice || input.reuseOnly)
+            throw new Error("Room review requires the on-device option.");
+          runs++;
+          return runs === 1 ? result : { ...result, suggestions: [], uncertainSpeakers: true };
         }
         if (runs >= 4) {
           if (input.reuseOnly !== true)
@@ -369,6 +376,94 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     expect(await activity()).toMatchObject({ runs: 4, cacheReads: 1 });
   } finally {
     await stopFilming?.();
+    await app.close();
+    await removeDataFolder(dataDir);
+  }
+});
+
+test("a saved room meeting offers the model download and plays the suggested microphone line", async () => {
+  const dataDir = await createDataFolder();
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  try {
+    await dismissChatSetup(window);
+    await chooseLocalChatModel(window);
+    await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+        device: { meetingNoticeAccepted: true, meetingSystemAudio: false },
+      }),
+    );
+    const meeting = await savedMeeting(window);
+    const { documentId, savedPath } = meeting.transcript ?? {};
+    if (!documentId || !savedPath) throw new Error("Missing room transcript.");
+    const doc = await window.evaluate(
+      async (id) =>
+        (
+          await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments()
+        ).find((doc) => doc.id === id),
+      documentId,
+    );
+    if (!doc?.contentHash) throw new Error("Missing indexed room transcript.");
+    const original = await readFile(savedPath);
+    const roomLines = readVtt(original.toString())
+      .cues.filter((cue) => cue.speaker === "Speaker ?")
+      .slice(0, 3);
+    const cue = roomLines[0];
+    expect(roomLines).toHaveLength(3);
+    if (!cue?.speaker) throw new Error("Missing room microphone line.");
+    const activity = await reviewService(app, meeting.id, {
+      documentId,
+      contentHash: doc.contentHash,
+      reviewedSpeakers: doc.speakers,
+      source: "microphone",
+      suggestions: roomLines.map((line, index) => ({
+        startMs: line.startMs,
+        endMs: line.endMs,
+        text: line.text,
+        fileLabel: "Speaker ?",
+        currentLabel: "Speaker ?",
+        suggestedLabel: index < 2 ? "Speaker 1" : "Speaker 2",
+      })),
+    });
+    await runCommand(window, "meeting.showTranscript", "Show the Transcript");
+    await window
+      .getByTestId("meeting-note-transcript")
+      .getByRole("button", { name: "Review speakers…" })
+      .click();
+    const panel = window.getByRole("region", { name: "Review speakers" });
+    await expect(panel).toContainText("NVIDIA Sortformer");
+    await expect(panel).toContainText("155 MB");
+    expect((await activity()).runs).toBe(0);
+    await panel.getByRole("button", { name: "Download and check speakers" }).click();
+    const items = panel.getByRole("listitem");
+    await items
+      .first()
+      .getByRole("button", { name: /Listen to microphone audio from/ })
+      .click();
+    await expect
+      .poll(async () => (await activity()).audioReads)
+      .toEqual([
+        { meetingId: meeting.id, fromMs: cue.startMs, toMs: cue.endMs, source: "microphone" },
+      ]);
+    await items.first().getByRole("button", { name: "Accept" }).click();
+    await expect(items.first()).toContainText("Accepted");
+    await items.nth(1).getByRole("button", { name: "Accept" }).click();
+    await expect(items.nth(1)).toContainText("Accepted");
+    await window.evaluate(async (id) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const current = (await core.listDocuments()).find((entry) => entry.id === id)?.speakers;
+      if (!current) throw new Error("Missing accepted room suggestions.");
+      await core.setTranscriptSpeakers({
+        documentId: id,
+        speakers: { ...current, labels: { ...current.labels, "Speaker 2": "Dana" } },
+      });
+    }, documentId);
+    await expect(items.nth(2)).toContainText("This line changed since the review.");
+    await expect(items.nth(2).getByRole("button", { name: "Accept" })).toHaveCount(0);
+    await panel.getByRole("button", { name: "Review again…" }).click();
+    await panel.getByRole("button", { name: "Download and check speakers" }).click();
+    await expect(panel).toContainText("could not reliably distinguish the speakers");
+    expect(await readFile(savedPath)).toEqual(original);
+  } finally {
     await app.close();
     await removeDataFolder(dataDir);
   }

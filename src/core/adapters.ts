@@ -960,6 +960,11 @@ export interface VoiceTurn {
   voice: number;
 }
 
+export interface RoomSpeakerReviewer {
+  downloadBytes(): number;
+  separate(meetingId: string, recording: Blob, signal: AbortSignal): Promise<VoiceTurn[]>;
+}
+
 /**
  * Tells the voices in one source's recording apart after the call (#138), off the core's
  * thread and at low priority: the desktop app runs it in a utility process of its own
@@ -1491,6 +1496,7 @@ export interface CoreAdapters {
    * that aren't about it): lines keep the labels of where they came from.
    */
   speakerSeparator?: SpeakerSeparator;
+  roomSpeakerReviewer?: RoomSpeakerReviewer;
   /** Where the speaker models are downloaded from. Defaults to the pinned Hugging Face revisions. */
   speakerModelSource?: { segmentation: EmbeddingModelSource; embedding: EmbeddingModelSource };
   /**

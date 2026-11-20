@@ -574,6 +574,33 @@ async function speak(call: StampedCall, fromMs: number, toMs: number) {
 }
 
 describe("Microphone frames are kept by when they were captured, not when they arrive", () => {
+  test("frames the app takes in a second and a half late, stamped with when they were captured, leave no gap (#3000)", async () => {
+    const call = await stampedCall(async (call) => {
+      await speak(call, 0, 3000);
+      call.to(4500);
+      for (let capturedTo = 3100; capturedTo <= 4500; capturedTo += 100) {
+        await call.hear(100, { capturedTo });
+      }
+      await speak(call, 4500, 6000);
+    });
+
+    expect(call.gaps).toEqual([]);
+    expect(msIn(call.sent)).toBe(6000);
+    expect(call.parts.reduce((sum, part) => sum + part.durationMs, 0)).toBe(6000);
+  });
+
+  test("a stretch the capture gave nothing in is still a gap, however its frames arrive", async () => {
+    const call = await stampedCall(async (call) => {
+      await speak(call, 0, 3000);
+      call.to(4600);
+      await call.hear(100, { capturedTo: 4600 });
+      await speak(call, 4600, 6000);
+    });
+
+    expect(call.gaps).toEqual([{ fromMs: 3000, toMs: 4500, reason: "stalled" }]);
+    expect(call.parts.reduce((sum, part) => sum + part.durationMs, 0)).toBe(4500);
+  });
+
   test("a frame captured while the microphone was paused but heard after the resume reaches neither the transcriber nor the disk", async () => {
     const call = await stampedCall(async (call) => {
       await speak(call, 0, 1000);

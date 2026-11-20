@@ -55,6 +55,7 @@ import { createSentryCrashReporter } from "./crashReports";
 import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { createElectronAudioCapture } from "./meetings/capture";
+import { createRoomSpeakerReviewer } from "./meetings/roomSpeakerReviewer";
 import { createModelRuntimeFolder } from "./modelRuntimeFolder";
 import { createOfficeConverter } from "./officeConverter";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
@@ -1069,7 +1070,10 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
       ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))
       : createUtilityProcessTranscriber(),
     // The fake engine's audio is tones: there are no voices to tell apart.
-    ...(!fakeTranscriber && { speakerSeparator: createUtilityProcessSeparator() }),
+    ...(!fakeTranscriber && {
+      speakerSeparator: createUtilityProcessSeparator(),
+      roomSpeakerReviewer: createRoomSpeakerReviewer(dataDir),
+    }),
     ...(fakeTranscriber && {
       transcriptionModelSource: testModelDownloads?.speech ?? {
         model: { baseUrl: "http://localhost/", files: [] },

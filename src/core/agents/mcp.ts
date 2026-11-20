@@ -8,9 +8,9 @@
  * GHSA-345p-7cg4-v4c7).
  *
  * The Tools are few and their descriptions short, because each agent turn
- * carries their definitions; `search` and `ask` are marked to load at once
- * where a client defers Tools. Their names fit every client's rules (letters,
- * digits and underscores; Kiro allows no others). Each result is typed
+ * carries their definitions; `search`, `ask` and `read_request` are marked to
+ * load at once where a client defers Tools. Their names fit every client's
+ * rules (letters, digits and underscores; Kiro allows no others). Each result is typed
  * (`outputSchema`), with the same JSON as text for clients that read only text.
  * A refusal comes back as a Tool error in plain words, which the agent can
  * pass on to the User. This module loads the SDK, so ./index imports it only
@@ -44,9 +44,9 @@ export const SERVER_INSTRUCTIONS = [
   "Cite only with the [cite:…] tokens IncarnaMind returns, written exactly as given, right after the claim. Never write one yourself. A token means its quote is word for word at its Location, not that it proves your claim.",
   "For a question about them, `search` first, never your memory: read a Passage's neighbours with `read_passages` if you need them, cite each claim with its token, and call `check_citations` on your draft before you finish.",
   "`ask` gives IncarnaMind's whole Answer with checked Citations in one call (it can take a minute): pass it on with its tokens.",
-  "When the User wants to see a source, `show_citation` opens it in IncarnaMind.",
-  "To change a Note, read it with `read_mind` and `named`, then `propose_changes`, which returns the Note as it is now with its new version. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User.",
-  "In a Note you wrote, the paragraphs `read_mind` marks as the User's are theirs: leave them as they are unless the User asks you to change them.",
+  "Asked to fix what IncarnaMind flagged, or about a note or meeting in it? `read_request` first: it holds the rest.",
+  "To change a Note, read it with `read_mind` and `named`, then `propose_changes`, which returns the Note's new version. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User.",
+  "In a Note you wrote, the paragraphs `read_mind` marks as the User's are theirs: leave them as they are unless the User asks.",
   "To hand the User a new document, `create_mind` writes it as a Note of its own; a page to look at, `publish_canvas`.",
   "To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with `check_mind_yourself`, not with `check_mind` or a search of your own: it gives the Note's sentences and how to judge them. Judge each from the Documents and hand your results back with `report_check`, which marks the Note for the User. Tell them what needs a look.",
   "A figure no Passage states: work it out with `calculate` or `run_analysis`, and report it on its id.",
@@ -674,6 +674,23 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       annotations: publishes,
     },
     (input) => answer(() => access.updateCanvas(input)),
+  );
+
+  server.registerTool(
+    tool("read_request"),
+    {
+      title: "Read the User's request",
+      description:
+        "The rest of what the User asked you from IncarnaMind: the note, the sentences it flagged with what its check found, and what to change and leave alone. Read it first when they ask you to fix what IncarnaMind flagged, or about a note or meeting in it. Each is read once.",
+      inputSchema: z.object({
+        note: z.string().optional().describe("The note's name, as the User wrote it."),
+      }),
+      outputSchema: z.object({ mindId: z.string(), title: z.string(), request: z.string() }),
+      // It reads the User's own request; reading it once is all that changes.
+      annotations: { ...READ_ONLY, idempotentHint: false },
+      _meta: ALWAYS_LOAD,
+    },
+    (input) => answer(() => access.readRequest(input)),
   );
 
   return server;
