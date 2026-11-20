@@ -99,7 +99,7 @@ describe("Answers use Connector Tools", { timeout: 30_000 }, () => {
     });
     // Both Tools, under the Connector's name; no Documents, so no search.
     const first = model.doStreamCalls[0];
-    expect(first?.tools?.map((each) => each.name).sort()).toEqual([BOOK, LOOKUP]);
+    expect(first?.tools?.map((each) => each.name).sort()).toEqual(["find_sources", BOOK, LOOKUP]);
     expect(first?.tools?.find((each) => each.name === LOOKUP)).toMatchObject({
       description: expect.stringContaining('Connector "Tides"'),
     });
@@ -250,7 +250,9 @@ describe("Answers use Connector Tools", { timeout: 30_000 }, () => {
 
     await askAndFinish(core, client, mind.id, "When is high tide?");
 
-    expect(model.doStreamCalls[0]?.tools ?? []).toEqual([]);
+    expect((model.doStreamCalls[0]?.tools ?? []).map((each) => each.name)).toEqual([
+      "find_sources",
+    ]);
     const system = String(
       model.doStreamCalls[0]?.prompt.find((message) => message.role === "system")?.content,
     );
@@ -328,6 +330,7 @@ describe("Answers use Connector Tools", { timeout: 30_000 }, () => {
 
     expect(model.doStreamCalls[0]?.tools?.map((each) => each.name).sort()).toEqual([
       "cite",
+      "find_sources",
       "read_document",
       "read_skill_file",
       "search_documents",

@@ -236,8 +236,8 @@ describe("Answers cite Passages", { timeout: 30_000 }, () => {
     expect(system).toContain(
       "Revision worksheets need every item row and its revision, no bare values.",
     );
-    // Short: it is sent with every Question that reads the Documents.
-    expect(system.length).toBeLessThan(5300);
+    // Short: it is sent with every Question that reads the Documents, Find sources' lines included (#3462).
+    expect(system.length).toBeLessThan(5700);
   });
 
   // protects=what the model is sent tells it a cited sentence says only what its quote supports, with an inference in a sentence of its own; fails_when=the rule is left out of the answering prompt or loses its examples in either language; no_claim=whether a model follows it (eval/everyday).

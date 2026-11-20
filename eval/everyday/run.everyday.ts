@@ -8,7 +8,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
-import type { AnswerUsage } from "../../src/core";
+import type { AnswerUsage, DataFlowId } from "../../src/core";
 import { catalogFacts, modelsProviderOfKind } from "../../src/core/providers/catalog";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { evalOllamaModels } from "../lib/citations";
@@ -122,14 +122,21 @@ async function runModel(
     });
     try {
       const { core } = library;
-      // Setting the variables is the consent to send the requests and Passages to the model.
+      // Setting the variables is the consent to send the requests and Passages to the model. Any
+      // other flow, Find sources' and web search's included, is declined, so nothing else is sent,
+      // and forgotten before the next request, which is offered those Tools as a User who hasn't
+      // decided is (#3462).
+      const declined = new Map<string, { flow: DataFlowId; service: string }>();
       core.on("consent.requested", (request) => {
-        void core.respondToConsent(
-          request.requestId,
-          request.flow.id === "chat" || request.flow.id === "checks",
-        );
+        const accepted = request.flow.id === "chat" || request.flow.id === "checks";
+        if (!accepted) {
+          const { id, service } = request.flow;
+          declined.set(`${id} ${service.id}`, { flow: id, service: service.id });
+        }
+        void core.respondToConsent(request.requestId, accepted);
       });
       await core.saveChatProvider(chatProviderOf(chat));
+      await core.updateSettings({ user: { webSearch: true } });
       const scoped = [...library.documents.values()].map((document) => ({
         id: document.id,
         name: document.name,
@@ -137,6 +144,10 @@ async function runModel(
       }));
       for (const each of wanted.flatMap((each) => Array.from({ length: runs }, () => each))) {
         log(`${model} · ${each.id}: ${each.request}`);
+        for (const decided of declined.values()) {
+          await core.revokeConsent(decided.flow, decided.service);
+        }
+        declined.clear();
         let result: CaseResult;
         try {
           result = await runCase(library, scoped, judge, model, each, {
