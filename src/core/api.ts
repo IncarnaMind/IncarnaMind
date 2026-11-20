@@ -4750,6 +4750,12 @@ export interface Document {
    * it, which is never cited. Null for a file never imported.
    */
   importedAs: string | null;
+  /**
+   * The agent that handed over the file this Document holds (`HandedFile`, #3412), as the User had
+   * named its pairing then; null for every other Document. Such a Document is Not cited until the
+   * User cites it, and no source until then (#3492).
+   */
+  handedBy: string | null;
   /** When the Document was added to IncarnaMind. ISO 8601, UTC. */
   createdAt: string;
   /** ISO 8601, UTC. */

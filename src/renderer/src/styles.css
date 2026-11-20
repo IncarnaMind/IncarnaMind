@@ -2053,10 +2053,6 @@
   .check-row.verify-brief-row .mind-health-icon {
     margin-top: 2px;
   }
-  .verify-brief-conclusion {
-    grid-template-columns: 1fr;
-    padding-inline-start: 8px;
-  }
   .verify-brief-text {
     overflow-wrap: anywhere;
     line-height: 18px;
@@ -6395,6 +6391,18 @@
     stroke: var(--color-attention);
     stroke-width: 1.5;
     stroke-dasharray: 3 2;
+  }
+  /* Where a checked deck's slide starts in its Note (#3493): a quiet label, drawn, never the Note's text. */
+  .slide-break {
+    margin: 24px 0 4px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: 600;
+    color: var(--color-ink-meta);
+    user-select: none;
+  }
+  .slide-break:first-child {
+    margin-top: 0;
   }
   /* A figure read from a scan's unsure word (#535): the quiet unchecked-figure wash, as an unquoted figure. */
   .unchecked-figure-wash {
