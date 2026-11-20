@@ -36,6 +36,7 @@ declare global {
  * a page held up that long would lose any.
  */
 const QUEUED_BLOCKS = 500;
+const QUEUED_MS = QUEUED_BLOCKS * 10;
 
 interface Open {
   stream: MediaStream;
@@ -43,8 +44,6 @@ interface Open {
   heard: boolean;
   /** Resolves once its track's audio has ended and what was held has been sent. */
   flushed: Promise<void>;
-  /** When its track was stopped: what is sent after that was captured by then. */
-  stoppedAt: number | null;
 }
 
 const open = new Map<AudioSource, Open>();
@@ -82,16 +81,26 @@ function connect(source: AudioSource, stream: MediaStream): Open {
     track,
     maxBufferSize: QUEUED_BLOCKS,
   }).readable.getReader();
-  const entry: Open = { stream, heard: false, stoppedAt: null, flushed: Promise.resolve() };
+  const entry: Open = { stream, heard: false, flushed: Promise.resolve() };
+  // A block's stamp counts on the page's clock from an origin of its own: the quickest any block
+  // came counts as no wait, and one that came later than that was captured that much earlier.
+  let quickest = Number.POSITIVE_INFINITY;
+  let capturedAt = Date.now();
   const frames = createFrames((frame) => {
     if (!entry.heard) entry.heard = frame.some((sample) => sample !== 0);
-    bridge.audio(source, toPcm16(frame), entry.stoppedAt ?? Date.now());
+    bridge.audio(source, toPcm16(frame), capturedAt);
   });
   entry.flushed = (async () => {
     for (;;) {
       const { value: block, done } = await reader.read();
       if (done) break;
       try {
+        const took =
+          performance.now() -
+          block.timestamp / 1000 -
+          (1000 * block.numberOfFrames) / block.sampleRate;
+        quickest = Math.min(quickest, took);
+        capturedAt = Math.round(Date.now() - Math.min(took - quickest, QUEUED_MS));
         frames.push(channelsOf(block), block.sampleRate);
       } finally {
         block.close();
@@ -112,7 +121,6 @@ async function close(source: AudioSource): Promise<void> {
   const entry = open.get(source);
   if (!entry) return;
   open.delete(source);
-  entry.stoppedAt = Date.now();
   for (const track of entry.stream.getTracks()) {
     track.onended = null;
     track.stop();
