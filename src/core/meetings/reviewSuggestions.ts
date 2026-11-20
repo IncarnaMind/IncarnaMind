@@ -109,6 +109,44 @@ function liveCorroboration(
   };
 }
 
+export function matchReviewVoices(
+  candidates: readonly { voice: string; current: string; coveredMs: number }[],
+): Map<string, string> {
+  // Speaker numbers are local to each transcription. Pair only voices with a clear, mutual anchor.
+  const anchors = new Map<string, Map<string, number>>();
+  for (const { voice, current, coveredMs } of candidates) {
+    const totals = anchors.get(voice) ?? new Map<string, number>();
+    totals.set(current, (totals.get(current) ?? 0) + coveredMs);
+    anchors.set(voice, totals);
+  }
+  const mapping = new Map<string, string>();
+  const labels = new Map<string, { voice: string; ms: number }[]>();
+  for (const [voice, totals] of anchors) {
+    for (const [label, ms] of totals) {
+      const matches = labels.get(label) ?? [];
+      matches.push({ voice, ms });
+      labels.set(label, matches);
+    }
+  }
+  for (const [label, matches] of labels) {
+    const [best, next] = matches.sort((a, b) => b.ms - a.ms);
+    if (
+      !best ||
+      (next && next.ms >= best.ms * 0.9) ||
+      2 * best.ms <= matches.reduce((total, match) => total + match.ms, 0)
+    )
+      continue;
+    const rivals = anchors.get(best.voice);
+    if (
+      rivals &&
+      2 * best.ms > [...rivals.values()].reduce((total, ms) => total + ms, 0) &&
+      ![...rivals].some(([other, ms]) => other !== label && ms >= best.ms * 0.9)
+    )
+      mapping.set(best.voice, label);
+  }
+  return mapping;
+}
+
 export function reviewSuggestions(
   cues: readonly Cue[],
   speakers: TranscriptSpeakers | null,
@@ -155,38 +193,7 @@ export function reviewSuggestions(
     }
   }
   const reliable = candidates.filter(({ key }) => !duplicates.has(key));
-  // Speaker numbers are local to each transcription. Pair only voices with a clear, mutual anchor.
-  const anchors = new Map<string, Map<string, number>>();
-  for (const { voice, current, coveredMs } of reliable) {
-    const totals = anchors.get(voice) ?? new Map<string, number>();
-    totals.set(current, (totals.get(current) ?? 0) + coveredMs);
-    anchors.set(voice, totals);
-  }
-  const mapping = new Map<string, string>();
-  const labels = new Map<string, { voice: string; ms: number }[]>();
-  for (const [voice, totals] of anchors) {
-    for (const [label, ms] of totals) {
-      const matches = labels.get(label) ?? [];
-      matches.push({ voice, ms });
-      labels.set(label, matches);
-    }
-  }
-  for (const [label, matches] of labels) {
-    const [best, next] = matches.sort((a, b) => b.ms - a.ms);
-    if (
-      !best ||
-      (next && next.ms >= best.ms * 0.9) ||
-      2 * best.ms <= matches.reduce((total, match) => total + match.ms, 0)
-    )
-      continue;
-    const rivals = anchors.get(best.voice);
-    if (
-      rivals &&
-      2 * best.ms > [...rivals.values()].reduce((total, ms) => total + ms, 0) &&
-      ![...rivals].some(([other, ms]) => other !== label && ms >= best.ms * 0.9)
-    )
-      mapping.set(best.voice, label);
-  }
+  const mapping = matchReviewVoices(reliable);
   const corroborates = liveCorroboration(parts, speakers, duplicates);
   return reliable.flatMap(({ part, current, voice }) => {
     const suggested = mapping.get(voice);

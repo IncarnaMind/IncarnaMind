@@ -1,4 +1,4 @@
-import type { Logger } from "../adapters";
+import type { Logger, RoomSpeakerReviewer } from "../adapters";
 import type {
   Document,
   Meeting,
@@ -17,6 +17,7 @@ import {
 } from "../transcription/cloud/sonioxReview";
 import type { AudioPart } from "./audioFiles";
 import { reviewSuggestions } from "./reviewSuggestions";
+import { roomReviewLines, roomReviewSuggestions } from "./roomReviewSuggestions";
 
 const USD_PER_HOUR = 0.1;
 const MAX_MS = 300 * 60_000;
@@ -30,6 +31,8 @@ type Reason = MeetingSpeakerReviewQuote["reason"];
 
 function unavailable(reason: Reason) {
   const key = {
+    platform: "meetings.review.unavailable.platform",
+    people: "meetings.review.unavailable.people",
     audio: "error.meeting.audioGone",
     cap: "error.meeting.reviewCap",
     transcript: "error.meeting.reviewChanged",
@@ -42,7 +45,13 @@ function unavailable(reason: Reason) {
 
 export function createMeetingSpeakerReview(options: {
   parts(id: string): AudioPart[];
-  recording(parts: AudioPart[], durationMs: number, signal: AbortSignal): Promise<Blob>;
+  recording(
+    parts: AudioPart[],
+    durationMs: number,
+    signal: AbortSignal,
+    source?: AudioPart["source"],
+  ): Promise<Blob>;
+  roomReviewer?: RoomSpeakerReviewer;
   now(): string;
   meeting(id: unknown): Meeting;
   document(id: string): Document | undefined;
@@ -57,7 +66,12 @@ export function createMeetingSpeakerReview(options: {
   const { settings, cloud, lifetime } = options;
   const running = new Map<
     string,
-    { stop: AbortController; promise: Promise<MeetingSpeakerReviewResult>; valid?: () => boolean }
+    {
+      onDevice: boolean;
+      stop: AbortController;
+      promise: Promise<MeetingSpeakerReviewResult>;
+      valid?: () => boolean;
+    }
   >();
   const activeReceipts = new Set<string>();
   let cache: {
@@ -87,18 +101,18 @@ export function createMeetingSpeakerReview(options: {
     return null;
   }
 
-  function inspect(id: unknown) {
+  function inspect(id: unknown, requested: AudioPart["source"] | "auto" = "system") {
     const meeting = options.meeting(id);
     const reason = local(meeting);
     const doc = meeting.transcript?.documentId
       ? options.document(meeting.transcript.documentId)
       : undefined;
-    const parts =
-      reason || !doc
-        ? []
-        : options
-            .parts(meeting.id)
-            .filter((part) => part.source === "system" && part.durationMs > 0);
+    const kept =
+      reason || !doc ? [] : options.parts(meeting.id).filter((part) => part.durationMs > 0);
+    const room =
+      kept.some((p) => p.source === "microphone") && !kept.some((p) => p.source === "system");
+    const source = requested === "auto" ? (room ? "microphone" : "system") : requested;
+    const parts = kept.filter((p) => p.source === source);
     const durationMs = parts.reduce(
       (end, part) => Math.max(end, part.offsetMs + part.durationMs),
       0,
@@ -111,11 +125,12 @@ export function createMeetingSpeakerReview(options: {
           ? "audio"
           : durationMs > MAX_MS
             ? "duration"
-            : options.localOnly()
+            : source === "system" && options.localOnly()
               ? "local"
               : null);
     return {
       doc,
+      room,
       parts,
       durationMs,
       problem,
@@ -242,8 +257,7 @@ export function createMeetingSpeakerReview(options: {
   if (Object.keys(receiptBook()).length) schedule();
 
   const snapshot = (doc: Document) => JSON.stringify([doc.id, doc.contentHash, doc.speakers]);
-  async function prepare(id: string) {
-    const state = inspect(id);
+  async function prepare(id: string, state = inspect(id)) {
     const grant = state.problem ? null : await cloud.speakerReviewGrant();
     const budget = cloud.reviewBudget(state.estimatedUsd);
     const cached =
@@ -257,6 +271,44 @@ export function createMeetingSpeakerReview(options: {
     const reason: Reason =
       state.problem ?? (!grant ? "soniox" : !cached && !budget.allowed() ? "cap" : null);
     return { ...state, grant, budget, cached, reason };
+  }
+
+  async function checkRoom(id: string, stop: AbortController) {
+    const reviewer = options.roomReviewer;
+    const { doc, room, parts, durationMs, problem } = inspect(id, "microphone");
+    if (!room || !doc || problem) throw unavailable(problem ?? "audio");
+    if (!reviewer) throw unavailable("platform");
+    const version = snapshot(doc);
+    const valid = () => {
+      const current = inspect(id, "microphone");
+      return current.room && !current.problem && !!current.doc && version === snapshot(current.doc);
+    };
+    const active = running.get(id);
+    if (active) active.valid = valid;
+    const cues = await options.cues(doc);
+    const lines = roomReviewLines(cues, doc.speakers);
+    if (lines.reason || !valid()) throw unavailable(lines.reason ?? "transcript");
+    const audio = await options.recording(parts, durationMs, stop.signal, "microphone");
+    stop.signal.throwIfAborted();
+    if (!valid()) throw unavailable("transcript");
+    const turns = await reviewer.separate(id, audio, stop.signal).catch((error: unknown) => {
+      stop.signal.throwIfAborted();
+      options.log.warn("meeting.roomSpeakerReview", {
+        reason: error instanceof Error ? error.name : "unknown",
+      });
+      throw new InvalidInputError({ key: "meetings.review.roomError" });
+    });
+    stop.signal.throwIfAborted();
+    if (!valid()) throw unavailable("transcript");
+    const suggestions = roomReviewSuggestions(lines, doc.speakers, turns);
+    return {
+      source: "microphone" as const,
+      reviewedSpeakers: doc.speakers,
+      documentId: doc.id,
+      contentHash: doc.contentHash,
+      suggestions: suggestions ?? [],
+      ...(suggestions === null && { uncertainSpeakers: true as const }),
+    };
   }
 
   async function run(id: string, stop: AbortController, reuseOnly: boolean) {
@@ -340,7 +392,24 @@ export function createMeetingSpeakerReview(options: {
 
   return {
     async quote(id: string): Promise<MeetingSpeakerReviewQuote> {
-      const { reason, durationMs, estimatedUsd, cached } = await prepare(id);
+      const state = inspect(id, "auto");
+      if (state.room) {
+        const reason =
+          state.problem ??
+          (!options.roomReviewer
+            ? "platform"
+            : state.doc
+              ? roomReviewLines(await options.cues(state.doc), state.doc.speakers).reason
+              : "transcript");
+        return {
+          available: !reason,
+          reason,
+          estimatedUsd: 0,
+          durationMs: state.durationMs,
+          ...(options.roomReviewer && { roomDownloadBytes: options.roomReviewer.downloadBytes() }),
+        };
+      }
+      const { reason, durationMs, estimatedUsd, cached } = await prepare(id, state);
       return {
         available: reason === null,
         reason,
@@ -349,21 +418,32 @@ export function createMeetingSpeakerReview(options: {
         ...(cached && { cached: true }),
       };
     },
-    review(input: { meetingId: string; confirmed: true; reuseOnly?: true }) {
+    review(input: { meetingId: string; confirmed: true; reuseOnly?: true; onDevice?: true }) {
       if (!isRecord(input) || input.confirmed !== true)
         throw new InvalidInputError({ key: "error.meeting.reviewConsent" });
       const { id } = options.meeting(input.meetingId);
       const current = running.get(id);
+      const onDevice = input.onDevice === true;
+      if (
+        (input.onDevice !== undefined && !onDevice) ||
+        (onDevice && input.reuseOnly) ||
+        (current && current.onDevice !== onDevice)
+      )
+        throw unavailable("transcript");
       if (current) return current.promise;
       const stop = new AbortController();
-      const promise = run(id, stop, input.reuseOnly === true)
+      const work = Promise.resolve().then(() => {
+        stop.signal.throwIfAborted();
+        return onDevice ? checkRoom(id, stop) : run(id, stop, input.reuseOnly === true);
+      });
+      const promise = work
         .catch((error: unknown) => {
           if (stop.signal.aborted && error === stop.signal.reason)
             throw new InvalidInputError({ key: "error.meeting.reviewCancelled" });
           throw error;
         })
         .finally(() => running.delete(id));
-      running.set(id, { stop, promise });
+      running.set(id, { onDevice, stop, promise });
       return promise;
     },
     async cancel(id: string) {
