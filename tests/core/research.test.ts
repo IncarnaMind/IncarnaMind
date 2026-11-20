@@ -736,7 +736,7 @@ describe("Research", { timeout: 30_000 }, () => {
     ]);
     expect(steps.slice(8, 10)).toEqual(reads);
     expect(steps.slice(10)).toEqual([
-      ["1 source saved in “How did tea reach Europe”", "done"],
+      ["1 source saved in “How did tea reach Europe”; its Tags wait in Suggested Tags", "done"],
       ["Wrote a cited draft as 1 change in “Credit memo”", "done"],
     ]);
     expect(web.heard).toContain("encyclopedia.example/tea");
@@ -760,13 +760,22 @@ describe("Research", { timeout: 30_000 }, () => {
       assignments.find((each) => each.documentId === id)?.groupId;
     expect(folderOf(page?.id)).toBe(filed?.id);
     expect(folderOf(report.id)).toBe(folder.id);
-    const tea = (await core.listTags()).find((tag) => tag.name === "Tea");
-    // Research made it, not the User.
-    expect(tea?.madeByUser).toBe(false);
-    const tagged = (await core.listDocuments()).find((each) => each.id === page?.id);
-    expect(tagged?.tags).toEqual([
-      expect.objectContaining({ tagId: tea?.id, source: "automatic" }),
+    // Its Tags wait in the Review (#2890): no Tag is made and the page is tagged with none until
+    // the User confirms; a Tag the Library has no such name for is proposed as a new one.
+    expect((await core.listTags()).find((tag) => tag.name === "Tea")).toBeUndefined();
+    expect(page?.tags).toEqual([]);
+    const review = await core.getOrganizeReview();
+    expect(review.items).toEqual([
+      expect.objectContaining({
+        documentId: page?.id,
+        placement: { kind: "unchanged" },
+        tags: [expect.objectContaining({ tagId: null, name: "Tea" })],
+      }),
     ]);
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
+    const tea = (await core.listTags()).find((tag) => tag.name === "Tea");
+    const tagged = (await core.listDocuments()).find((each) => each.id === page?.id);
+    expect(tagged?.tags.map((each) => each.tagId)).toEqual([tea?.id]);
 
     // The draft is a change to accept in the Mind; Review opens it there. Its sentence quotes the
     // Question, which the page doesn't have, so its Citation is not found there as in the Answer (#2612).
@@ -866,12 +875,38 @@ describe("Research", { timeout: 30_000 }, () => {
     expect(await folderNamed()).toHaveLength(1);
     // The filing was allowed before the pause: going on doesn't ask again.
     expect(asked).toHaveLength(1);
+    // Going on proposes the Tags, as a run that wasn't stopped does: they wait in the Review.
+    expect((await core.listTags()).find((tag) => tag.name === "Tea")).toBeUndefined();
+    const review = await core.getOrganizeReview();
+    expect(review.items.map((item) => [item.documentId, item.tags.map((tag) => tag.name)])).toEqual(
+      [[page?.id, ["Tea"]]],
+    );
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
     const tea = (await core.listTags()).find((tag) => tag.name === "Tea");
-    // Research made it, not the User.
-    expect(tea?.madeByUser).toBe(false);
     const tagged = (await core.listDocuments()).find((each) => each.id === page?.id);
     expect(tagged?.tags.map((each) => each.tagId)).toEqual([tea?.id]);
     expect((await changesIn(core, mind.id)).ids).toHaveLength(1);
+  });
+
+  // protects=Research's Tags wait in the Review (#2890): a Tag the Library already has is proposed for the page, and the page is tagged only when the User confirms; fails_when=a finished Research run tags its pages before the User confirms
+  test("a Tag the Library already has is proposed for the page, which is tagged only when the User confirms", async () => {
+    const { core, folder, mind } = await setUp(researcher([]));
+    const tea = await core.createTag({ name: "Tea", description: "About tea" });
+    const task = await started(core, startInput(mind.id, folder.id));
+    await waitForTask(core, task.id, (each) => each.finishedAt !== null);
+    const page = (await core.listDocuments()).find((each) => each.kind === "web");
+    expect(page?.tags).toEqual([]);
+    const review = await core.getOrganizeReview();
+    expect(review.items).toEqual([
+      expect.objectContaining({
+        documentId: page?.id,
+        tags: [expect.objectContaining({ tagId: tea.id, name: "Tea" })],
+      }),
+    ]);
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
+    const tagged = (await core.listDocuments()).find((each) => each.id === page?.id);
+    expect(tagged?.tags.map((each) => each.tagId)).toEqual([tea.id]);
+    expect((await core.listTags()).filter((tag) => tag.name === "Tea")).toHaveLength(1);
   });
 
   test("with the Library only, it files nothing and writes its draft; with nothing found, it says it couldn't finish and proposes nothing", async () => {

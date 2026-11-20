@@ -4708,6 +4708,9 @@ export const en = {
   "research.step.saving": "Save the sources in a new Folder",
   "research.step.saved.one": "1 source saved in “{folder}”",
   "research.step.saved.other": "{count} sources saved in “{folder}”",
+  "research.step.savedTags.one": "1 source saved in “{folder}”; its Tags wait in Suggested Tags",
+  "research.step.savedTags.other":
+    "{count} sources saved in “{folder}”; their Tags wait in Suggested Tags",
   "research.step.savedNone": "No web pages to save",
   "research.step.writing": "Write a cited draft",
   "research.step.wrote.one": "Wrote a cited draft as 1 change in “{mind}”",

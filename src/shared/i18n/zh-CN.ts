@@ -4496,6 +4496,9 @@ export const zhCN = {
   "research.step.saving": "把来源保存到新文件夹",
   "research.step.saved.one": "已把 1 个来源保存到“{folder}”",
   "research.step.saved.other": "已把 {count} 个来源保存到“{folder}”",
+  "research.step.savedTags.one": "已把 1 个来源保存到“{folder}”，它的标签在“建议的标签”中待确认",
+  "research.step.savedTags.other":
+    "已把 {count} 个来源保存到“{folder}”，它们的标签在“建议的标签”中待确认",
   "research.step.savedNone": "没有要保存的网页",
   "research.step.writing": "撰写带引用的草稿",
   "research.step.wrote.one": "已把带引用的草稿写进“{mind}”，共 1 处修订",

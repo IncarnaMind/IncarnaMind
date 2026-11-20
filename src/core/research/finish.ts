@@ -27,6 +27,7 @@ import { classifyProviderError } from "../providers/providerErrors";
 import { RECORD_PREFIX } from "../runs/journal";
 import { runStopOf } from "../runs/stop";
 import type { TaskEnd, TaskRun } from "../runs/tasks";
+import type { ProposedTag } from "../tags/proposals";
 import type { WorkWall } from "../workWall";
 import { draftContext, readTags, TAG_INSTRUCTIONS, tagPrompt } from "./prompt";
 
@@ -72,9 +73,8 @@ export interface FinishOptions {
   };
   tags: {
     list(): { id: string; name: string }[];
-    create(name: string, description: string): string;
-    /** Adds Tags to a Document as IncarnaMind's, beside those it has. */
-    apply(documentId: string, tagIds: readonly string[]): void;
+    /** Proposes Tags for Documents: they wait in the Review until the User confirms, as any AI Tag does (#2890). */
+    propose(proposals: readonly { documentId: string; tags: readonly ProposedTag[] }[]): void;
   };
   notes: {
     /** A request's changes in a Mind, once it has proposed there; null before. */
@@ -218,27 +218,28 @@ async function tagPages(
     options.reportError(error);
     return { tags: [] };
   }
-  const applied: string[] = [];
+  const named: string[] = [];
+  const proposed = new Map<string, ProposedTag[]>();
   for (const tag of readTags(reply, pages.length)) {
     const known = existing.find(
       (each) => each.name.toLocaleLowerCase() === tag.name.toLocaleLowerCase(),
     );
-    let tagId: string;
-    try {
-      tagId =
-        known?.id ??
-        options.tags.create(tag.name, options.say("research.tag.description", { title }));
-    } catch (error) {
-      options.reportError(error);
-      continue;
-    }
+    const proposal: ProposedTag = known
+      ? { tagId: known.id }
+      : { name: tag.name, description: options.say("research.tag.description", { title }) };
     for (const number of tag.pages) {
       const page = pages[number - 1];
-      if (page) options.tags.apply(page.id, [tagId]);
+      if (page) proposed.set(page.id, [...(proposed.get(page.id) ?? []), proposal]);
     }
-    applied.push(known?.name ?? tag.name);
+    named.push(known?.name ?? tag.name);
   }
-  return { tags: applied };
+  try {
+    options.tags.propose([...proposed].map(([documentId, tags]) => ({ documentId, tags })));
+  } catch (error) {
+    options.reportError(error);
+    return { tags: [] };
+  }
+  return { tags: named };
 }
 
 /**

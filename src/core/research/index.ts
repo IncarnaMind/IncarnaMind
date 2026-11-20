@@ -345,8 +345,11 @@ export function createResearch(options: ResearchOptions) {
       if (!saved) return options.say("research.step.saving");
       if (saved.declined) return options.say("research.step.notFiled");
       if (saved.documents === 0) return options.say("research.step.savedNone");
+      const waiting = saved.tags.length > 0 ? "Tags" : "";
       return options.say(
-        saved.documents === 1 ? "research.step.saved.one" : "research.step.saved.other",
+        saved.documents === 1
+          ? `research.step.saved${waiting}.one`
+          : `research.step.saved${waiting}.other`,
         { count: saved.documents, folder: saved.folder },
       );
     }
