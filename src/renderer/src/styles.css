@@ -9669,8 +9669,9 @@
     white-space: pre;
     text-overflow: ellipsis;
   }
+  /* The name gives way to the count, but never to nothing: “” says no Note was read (#3487). */
   .answer-steps-mind {
-    min-width: 0;
+    min-width: 3ch;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;

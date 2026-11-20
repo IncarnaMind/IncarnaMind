@@ -179,9 +179,7 @@ export function createCanvasTools(context: CanvasToolContext) {
   };
 
   const folderName = (folderId: string | null) =>
-    folderId === null
-      ? t("library.unsorted")
-      : (deps.folders().find((folder) => folder.id === folderId)?.name ?? "");
+    deps.folders().find((folder) => folder.id === folderId)?.name ?? "";
 
   const withinHourlyLimit = (pairing: AdmittedPairing) => {
     const since = new Date(Date.parse(deps.now()) - HOUR_MS).toISOString();

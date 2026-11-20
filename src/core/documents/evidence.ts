@@ -14,8 +14,9 @@
  *   any Document with one of its content fingerprints, at any path, and any
  *   that holds nearly all of the text of one of them (./textCopies). Always.
  *
- * Transcripts and saved web pages are sources and count. Ordinary Answers
- * search as they always did: nothing here is in their way.
+ * Transcripts and saved web pages are sources and count. A file an outside agent handed over is
+ * no source at all while it is Not cited (./sources): no search looks at it, an Answer's neither,
+ * so none names it. Otherwise Answers search as they always did: nothing here is in their way.
  *
  * Left out is never hidden: a search also says which of the Documents left
  * out matched, and where, so a result can name them, with Count it.
@@ -33,6 +34,7 @@ import type { Database } from "../storage";
 import { PASSAGE_PARAMETERS } from "./passages";
 import type { WindowedPassage } from "./search";
 import type { Reranker, SearchToolOptions, SearchToolParameters } from "./searchTool";
+import { isSource } from "./sources";
 import type { TextCopies, TextVersion } from "./textCopies";
 
 const EXCLUDED_DOCUMENTS = 4;
@@ -310,7 +312,8 @@ export function createEvidence(deps: EvidenceDependencies) {
       }
 
       const workings = db.all<{ id: string }>(
-        `SELECT d.id FROM documents d WHERE d.deleted_at IS NULL AND d.not_cited = 1 ${scoped}`,
+        `SELECT d.id FROM documents d
+         WHERE d.deleted_at IS NULL AND d.not_cited = 1 AND ${isSource("d")} ${scoped}`,
         scopeParams,
       );
       for (const row of workings) excluded.set(row.id, "own-workings");
