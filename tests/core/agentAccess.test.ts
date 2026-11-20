@@ -254,6 +254,7 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
       says: "Rivers says so.",
       evidence: null,
       judgedOn: null,
+      toCite: null,
     };
     const checkedAt = { model: null, at: "2026-11-01T09:00:00.000Z" };
     const wider = accessChecking(
@@ -267,11 +268,13 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
               ...item,
               result: "supported",
               check: { ...checkedAt, scope: { folderId: "coast", widened: true } },
+              scope: { folderId: "coast", widened: true },
             },
             {
               ...item,
               result: "supported",
               check: { ...checkedAt, scope: { folderId: "coast", widened: false } },
+              scope: { folderId: "coast", widened: false },
             },
           ],
         }),
@@ -304,11 +307,13 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
       says: null,
       evidence: null,
       judgedOn: null,
+      toCite: null,
       check: {
         model: null,
         at: "2026-11-18T09:00:00.000Z",
         scope: { folderId: "coast", widened: false },
       },
+      scope: { folderId: "coast", widened: false },
     };
     const access = accessChecking(
       async () => CHECKED,
@@ -354,11 +359,13 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
       says: null,
       evidence: null,
       judgedOn: null,
+      toCite: null,
       check: {
         model: null,
         at: "2026-11-18T09:00:00.000Z",
         scope: { folderId: "coast", widened: false },
       },
+      scope: { folderId: "coast", widened: false },
     };
     const access = accessChecking(
       async () => CHECKED,
@@ -423,6 +430,71 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
     ]);
   });
 
+  // protects=a sentence the User's wider check left a mark on is told as not checked whatever row of the page's check card counts it in, also when the record keeps no check for it (a sentence with no verdict, as one found supported elsewhere or one the check couldn't read), so nothing of what a Document beyond the agent's Folders holds is passed on (#3453); fails_when=a row's sentence is told with its own result, reason, quote or cite, or counted outside not checked
+  it("tells every sentence of a wider check as not checked, whatever row it is in", async () => {
+    const item = {
+      kind: "sentence" as const,
+      origin: "other" as const,
+      says: "Rivers says so.",
+      evidence: {
+        name: "Rivers",
+        file: "Rivers.md",
+        deleted: false,
+        size: null,
+        sha256: null,
+        location: "§ Rivers",
+        quote: "Gulls nest on the cliffs.",
+      },
+      judgedOn: null,
+      toCite: null,
+      check: null,
+      scope: { folderId: "coast", widened: true },
+    };
+    const rows = [
+      ["Elsewhere.", "notYetCited", "found-elsewhere"],
+      ["Stopped.", "toCheck", "rate-limit"],
+      ["Quote gone.", "look", "found-elsewhere"],
+      ["Conclusion.", null, "assistant-conclusion"],
+    ] as const;
+    const access = accessChecking(
+      async () => CHECKED,
+      () => 0,
+      {
+        checkRecord: async () => ({
+          models: [],
+          sentences: rows.map(([text, row, reason]) => ({
+            ...item,
+            text,
+            result: "notChecked" as const,
+            reason,
+            row,
+          })),
+        }),
+      },
+    );
+    const checked = await access.checkMind({ mindId: "note" });
+    expect(checked).toMatchObject({
+      supported: 0,
+      needLook: 0,
+      notChecked: rows.length,
+      canBeCited: 0,
+      ownViews: 0,
+    });
+    expect(
+      checked.claims.map(({ group, result, reason, says, document, quote, cite }) => [
+        group,
+        result,
+        reason,
+        says,
+        document,
+        quote,
+        cite,
+      ]),
+    ).toEqual(
+      rows.map(() => ["notChecked", "not-checked", "beyond-reach", null, null, null, null]),
+    );
+  });
+
   // protects=the claims an agent is given list what needs a look first, then what isn't checked, then what can be cited, each in the Note's order, so the cap on them never hides a sentence that needs a look behind sentences that can be cited (#3453); fails_when=claims keeps the Note's order across the groups, and a long Note's unsupported sentence is counted in needLook but not listed
   it("lists what needs a look before what can be cited, whatever the Note's order", async () => {
     const item = {
@@ -432,11 +504,13 @@ describe("check_mind, on a Note the agent wrote (#3317)", () => {
       says: null,
       evidence: null,
       judgedOn: null,
+      toCite: null,
       check: {
         model: null,
         at: "2026-11-18T09:00:00.000Z",
         scope: { folderId: "coast", widened: false },
       },
+      scope: { folderId: "coast", widened: false },
     };
     const access = accessChecking(
       async () => CHECKED,

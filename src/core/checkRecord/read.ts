@@ -14,6 +14,7 @@ import {
   liveDocumentOf,
   shownDocumentName,
 } from "../../shared/citations";
+import { partToCite } from "../../shared/citedNow";
 import {
   checkedSentence,
   checkJudges,
@@ -106,6 +107,15 @@ export type SentenceItem = RecordItemFields & {
   judgedOn: Partial<CitationAttributes> | null;
   /** Null when no check ran: the model refused or couldn't be reached. */
   check: SentenceCheck | null;
+  /**
+   * For a sentence that can be cited: the Passage an Add cites first, none of its Citations on it
+   * yet, with what its part says (#3453). Null for any other, or when a Citation overlaps it.
+   */
+  toCite:
+    | (Pick<RecordItemFields, "says" | "evidence"> & { judgedOn: Partial<CitationAttributes> })
+    | null;
+  /** Where the check that marked it searched: kept for a sentence that reads Not checked too, which has no `check` (#3453). */
+  scope: ClaimCheckScope;
 };
 
 /**
@@ -322,24 +332,32 @@ export function readRecord(sources: RecordSources): {
         ]),
       ).values(),
     ];
+    const row = checkRowOf({
+      from: sentences.length,
+      text: sentence,
+      ...chart,
+      claim: { shown, check, ...chart },
+      citations: citations.map((attributes, pos) => ({
+        attributes,
+        pos,
+        check: citationState(attributes, documents, sources.kept).check,
+      })),
+      inTable: false,
+      state: checkedSentence({ text: sentence, check: shown, skipped: false, kept: false }),
+    });
+    const toCite = row === "notYetCited" ? partToCite(check, citations) : null;
     sentences.push({
       kind: "sentence",
       text: recordSentence(sentence),
       result,
       reason: shown.state === "not-checked" ? shown.reason : null,
-      row: checkRowOf({
-        from: sentences.length,
-        text: sentence,
-        ...chart,
-        claim: { shown, check, ...chart },
-        citations: citations.map((attributes, pos) => ({
-          attributes,
-          pos,
-          check: citationState(attributes, documents, sources.kept).check,
-        })),
-        inTable: false,
-        state: checkedSentence({ text: sentence, check: shown, skipped: false, kept: false }),
-      }),
+      scope: check.scope,
+      row,
+      toCite: toCite && {
+        says: toCite.part.says,
+        evidence: documentOf(toCite.passage, sources),
+        judgedOn: toCite.passage,
+      },
       origin,
       says: check.says,
       evidence: check.evidence

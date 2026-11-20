@@ -100,6 +100,22 @@ export function passageToAdd(
 }
 
 /**
+ * The first Supported part of a check with a Passage to add (`passageToAdd`), and that Passage: what
+ * Add cites first for a sentence that can be cited (#3358, #3453). Null when no part has one.
+ */
+export function partToCite(
+  check: Pick<ClaimCheckAttributes, "parts">,
+  citations: readonly HeldCitation[],
+): { part: ClaimCheckPart; passage: CitationAttributes } | null {
+  for (const part of check.parts ?? []) {
+    if (part.verdict !== "supported") continue;
+    const passage = passageToAdd(part, citations);
+    if (passage) return { part, passage };
+  }
+  return null;
+}
+
+/**
  * Whether a part's ✓ rests on a Passage the sentence's Citations don't hold: it shows none until
  * that Passage is one of them (#3019).
  */

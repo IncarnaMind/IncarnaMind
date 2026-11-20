@@ -2477,7 +2477,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const read = new Set<string>();
         // A mark the User's wider check left says what Documents beyond the agent's Folders hold.
         const beyond = (item: (typeof record.sentences)[number]) =>
-          item.check !== null && (item.check.scope.widened || item.check.scope.chosen != null);
+          item.scope.widened || item.scope.chosen != null;
         // Told as not checked, whatever the wider check found: what a Document it can't read holds stays there.
         const rowOf = (item: (typeof record.sentences)[number]) =>
           beyond(item) ? "toCheck" : item.row;
@@ -2502,13 +2502,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             result: group === "canBeCited" ? ("supported" as const) : CLAIM_RESULTS[item.result],
             reason: group === "canBeCited" ? null : item.reason,
           };
-          const judgedOn = item.judgedOn ? citationOf(item.judgedOn) : null;
+          // A sentence that can be cited is given the Passage an Add would cite, not the one it rests on.
+          const passage = group === "canBeCited" ? item.toCite : item;
+          const judgedOn = passage?.judgedOn ? citationOf(passage.judgedOn) : null;
           // What a Document outside the pairing's Folders says stays there.
-          if (!judgedOn || !item.evidence || !inScope.has(judgedOn.documentId)) {
+          if (!passage || !judgedOn || !passage.evidence || !inScope.has(judgedOn.documentId)) {
             return { ...claim, ...unsaid };
           }
           read.add(judgedOn.documentId);
-          const { quote } = item.evidence;
+          const { quote } = passage.evidence;
           const found =
             quote !== null &&
             judgedOn.quote !== "" &&
@@ -2517,9 +2519,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             deps.recheck(judgedOn).check === "found";
           return {
             ...claim,
-            says: item.says,
-            document: item.evidence.name,
-            location: item.evidence.location,
+            says: passage.says,
+            document: passage.evidence.name,
+            location: passage.evidence.location,
             quote,
             cite: found ? citeTag(mint(granted, { ...judgedOn, check: "found" }).token) : null,
           };

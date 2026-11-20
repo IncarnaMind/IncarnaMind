@@ -27,7 +27,7 @@ import {
 } from "../core/api";
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { citedInputs } from "./calculatedFigures";
-import { asCitedNow, citesPassage, type HeldCitation, passageToAdd } from "./citedNow";
+import { asCitedNow, citesPassage, type HeldCitation, partToCite } from "./citedNow";
 import {
   CLAIM_CHECK_FAILURES,
   checkedCitation,
@@ -826,9 +826,7 @@ export function canBeCited(
   return (
     claim.kind !== "chart" &&
     claimMarkState(claim.shown.state, claim.check) === "supported" &&
-    (claim.check.parts ?? []).some(
-      (part) => part.verdict === "supported" && passageToAdd(part, citations) !== null,
-    )
+    partToCite(claim.check, citations) !== null
   );
 }
 
