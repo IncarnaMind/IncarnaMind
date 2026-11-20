@@ -92,6 +92,11 @@ export interface NamedParagraph {
   users: "wrote" | "changed" | null;
   /** A picture or a chart (#3429): its rewrite replaces it whole. */
   visual?: true;
+  /**
+   * What a picture or chart holds, hashed (`visualContent`): `text` leaves a picture's data out,
+   * and the version changes whenever it does.
+   */
+  content?: string;
 }
 
 export interface NamedNote {
@@ -286,6 +291,7 @@ export function namedNote(
         held: waits ? "waiting" : null,
         users: null,
         visual: true,
+        content: visualContent(element),
       });
       places.push(topOf(element, tops));
       continue;
@@ -323,7 +329,7 @@ export function namedNote(
     paragraphs
       .map(
         (paragraph) =>
-          `${paragraph.blockId}\u0000${paragraph.held ?? ""}\u0000${paragraph.users ?? ""}\u0000${paragraph.text}`,
+          `${paragraph.blockId}\u0000${paragraph.held ?? ""}\u0000${paragraph.users ?? ""}\u0000${paragraph.text}\u0000${paragraph.content ?? ""}`,
       )
       .join("\u0001"),
   );
@@ -387,6 +393,20 @@ function namedBlocks(blocks: Y.XmlFragment): { element: Y.XmlElement; visual: st
     if (top instanceof Y.XmlElement && visual !== null) return [{ element: top, visual }];
     return textBlocksOf(top).map(({ element }) => ({ element, visual: null }));
   });
+}
+
+/**
+ * A picture's or chart's own content, hashed: everything it holds but its id, the change waiting in
+ * it and its check's mark, which the version of a paragraph's words leaves out too.
+ */
+function visualContent(block: Y.XmlElement): string {
+  const held = Object.entries(block.getAttributes())
+    .filter(
+      ([key]) =>
+        key !== BLOCK_ID_ATTRIBUTE && key !== PROPOSAL_ATTRIBUTE && key !== CLAIM_CHECK_MARK,
+    )
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return targetHash(JSON.stringify(held));
 }
 
 /**

@@ -194,9 +194,18 @@ export function chartTable(
 }
 
 /**
- * Null when the table is gone, unchanged, or no longer has a column of numbers. A chart a change
- * adds is compared with its table as that change leaves it, as it was drawn (#3429).
+ * A chart's table on its grid, as the chart reads it: for a chart a change adds, as that change
+ * leaves the table, which it was drawn from (#3429).
  */
+function gridForChart(
+  table: ProseMirrorNode,
+  attributes: Readonly<Record<string, unknown>>,
+): SourceGrid {
+  const adding = readProposalAttribute(attributes[PROPOSAL_ATTRIBUTE]);
+  return gridOfTable(table.toJSON(), adding?.kind === "insert" ? adding.request : null);
+}
+
+/** Null when the table is gone, unchanged, or no longer has a column of numbers. */
 export function tableUpdate(
   doc: ProseMirrorNode,
   attributes: Readonly<Record<string, unknown>>,
@@ -204,10 +213,7 @@ export function tableUpdate(
 ): ChartData | null {
   const chart = readChart(attributes);
   const table = chartTable(doc, chart);
-  if (!table) return null;
-  const adding = readProposalAttribute(attributes[PROPOSAL_ATTRIBUTE]);
-  const drawnWith = adding?.kind === "insert" ? adding.request : null;
-  return redrawnData(gridOfTable(table.toJSON(), drawnWith), chart, language);
+  return table ? redrawnData(gridForChart(table, attributes), chart, language) : null;
 }
 
 /**
@@ -228,7 +234,7 @@ export function switchedChartIn(
   const fresh =
     table &&
     chart.source.kind === "table" &&
-    chartFromTable(tableGrid(table), {
+    chartFromTable(gridForChart(table, attributes), {
       blockId: chart.source.blockId,
       title: chart.title,
       language,

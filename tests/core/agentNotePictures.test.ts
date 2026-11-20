@@ -641,6 +641,51 @@ describe("an agent replaces or removes a picture or chart by its name (#3429)", 
     expect(changed.markdown).toMatch(/¶9 ```chart\n\{"kind":"bar","title":"Tonnes"\}\n```$/);
   });
 
+  it("refuses a change on a reading from before the User put another file in a picture", async () => {
+    const { core, agent, orchard } = await paired();
+    const mind = await core.createMind({ title: "Field notes", folderId: orchard.id });
+    const client = await connectToMind(core, mind.id);
+    const picture = (src: string) => ({
+      type: PICTURE_NODE,
+      attrs: { id: "map", src, alt: "Map" },
+    });
+    writeMind(client, [
+      heading(1, "Field notes"),
+      note("The map of the orchard."),
+      picture(`data:image/png;base64,${base64(PNG)}`),
+    ]);
+    await client.settled();
+    const read = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    // The same picture by its id and alt, another file in it: the line read is the same.
+    writeMind(client, [
+      heading(1, "Field notes"),
+      note("The map of the orchard."),
+      picture(`data:image/svg+xml;base64,${base64(SVG)}`),
+    ]);
+    await client.settled();
+    const again = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    expect(again.markdown.replace("svg+xml", "png")).toBe(read.markdown);
+    expect(again.version).not.toBe(read.version);
+    expect(
+      refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: mind.id,
+            version: read.version,
+            changes: [{ paragraph: "¶2", remove: true }],
+          },
+        }),
+      ),
+    ).toBe(
+      "The User changed this note after you read it. Read it again with named, then make your changes again.",
+    );
+  });
+
   it("in the User's Note, a picture swapped for another file waits as one change, and so does one taken out", async () => {
     const { core, agent, files, orchard } = await paired();
     const mind = await core.createMind({ title: "Field notes", folderId: orchard.id });

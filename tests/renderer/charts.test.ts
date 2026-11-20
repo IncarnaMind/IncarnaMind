@@ -1012,6 +1012,23 @@ describe("a chart a change adds, and its table's line", () => {
     expect(updateOf(drawnFrom(table(text("3.4"))))).toBeNull();
   });
 
+  test("read the other way round, a chart a change adds keeps the table as that change leaves it", () => {
+    const added = {
+      ...drawnFrom(table(text("3.1"))),
+      proposal: { ...proposal("insert"), kind: "insert" },
+    };
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [fixed, { type: CHART_NODE, attrs: added }],
+    });
+    const switched = switchedChartIn(doc, doc.lastChild?.attrs ?? {}, "en");
+    const shown = (switched?.data.rows ?? []).flatMap((each) =>
+      each.values.map((value) => value?.shown),
+    );
+    expect(shown).toContain("3.1");
+    expect(shown).not.toContain("3.4");
+  });
+
   test("says the table changed for a chart its change didn't draw", () => {
     const update = updateOf(drawnFrom(table(text("3.1"))));
     expect(update?.rows.map((each) => each.values[0]?.shown)).toEqual(["2.7", "3.4"]);
