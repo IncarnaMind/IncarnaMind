@@ -198,7 +198,7 @@ export function documentTableInput(
   if (tables.length === 0) {
     return {
       ok: false,
-      problem: `${source.documentName} has no table of figures with rows and columns the app could read; quote its numbers with calculate instead`,
+      problem: `${source.documentName} has no table of figures with rows and columns the app could read; work the figure out from the numbers its Passages quote instead`,
     };
   }
   const kind = units[0]?.kind ?? "page";
@@ -241,7 +241,7 @@ export function documentTableInput(
   if (!first) {
     return {
       ok: false,
-      problem: `the rows of table ${table.number} aren't in ${source.documentName}'s text as it was read; quote its numbers with calculate instead`,
+      problem: `the rows of table ${table.number} aren't in ${source.documentName}'s text as it was read; work the figure out from the numbers its Passages quote instead`,
     };
   }
   const shown = [...new Set(rows.map((row) => row.unit))];

@@ -1370,7 +1370,7 @@ describe("a Document with no table of figures (#448)", { timeout: 60_000 }, () =
     });
     expect(inputs).toEqual([]);
     expect(reports[0]).toContain(
-      "letter: Letter has no table of figures with rows and columns the app could read; quote its numbers with calculate instead",
+      "letter: Letter has no table of figures with rows and columns the app could read; work the figure out from the numbers its Passages quote instead",
     );
   });
 });

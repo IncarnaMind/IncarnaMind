@@ -19,9 +19,53 @@ import {
   readFigures,
   readStatedUnits,
 } from "../../shared/figures";
-import { joinUnits } from "../../shared/locations";
+import { joinUnits, quoteInUnits } from "../../shared/locations";
 import type { Language } from "../language";
-import { documentFigureContext, type QuotedText, quotedLines, readOnItsLine } from "./calculations";
+import { documentFigureContext } from "./calculations";
+import type { Quoted } from "./citations";
+
+/** What reading a quote's figures needs of it: the quote, and the Units it cites. */
+export type QuotedText = Pick<Quoted, "units"> & { citation: Pick<Quoted["citation"], "quote"> };
+
+/** The whole lines of its cited Units that a quote is on; the quote itself when it isn't found there. */
+export function quotedLines(quoted: QuotedText): string {
+  const { quote } = quoted.citation;
+  const ranges = quoteInUnits(quoted.units, quote);
+  if (!ranges || ranges.length === 0) return quote;
+  const { text } = joinUnits(quoted.units);
+  const from = Math.min(...ranges.map((range) => range.start));
+  const to = Math.max(...ranges.map((range) => range.end));
+  const end = text.indexOf("\n", to);
+  return text.slice(text.lastIndexOf("\n", from - 1) + 1, end < 0 ? text.length : end);
+}
+
+const writtenNumber = (reading: Reading) => reading.value / reading.scale;
+
+/**
+ * A quote's figure as `lines` read it, when they give it a unit or scale of its own: a sheet's
+ * unit cell beside the number ("31000 | 万元"), which a quote of the number alone leaves out
+ * (#1798). Null when they read it as the quote does, or read its digits more than one way.
+ */
+export function readOnItsLine(
+  lines: string,
+  figure: Figure,
+  context: FigureContext,
+): Figure | null {
+  const own = (each: Reading) =>
+    `${each.scale}:${each.unit.kind === "currency" ? each.unit.code : each.unit.kind}`;
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+  // Only a scale or currency the quote lacks: a quote that reads "310000 GBP" knows more than its
+  // row's bare "310000" cell.
+  const adds = (each: Reading) =>
+    (figure.scale === 1 && each.scale !== 1) ||
+    (figure.unit.kind === "plain" && each.unit.kind === "currency");
+  const found = readFigures(lines, context).filter(
+    (each) => near(writtenNumber(each), writtenNumber(figure)) && adds(each),
+  );
+  const [first] = found;
+  if (!first || !found.every((each) => own(each) === own(first))) return null;
+  return first.unit.kind === "plain" ? { ...first, unit: figure.unit } : first;
+}
 
 export interface ChangedScale {
   /** The amount as the cell writes it: "310,000 GBP million". */

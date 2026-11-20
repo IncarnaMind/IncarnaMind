@@ -102,6 +102,7 @@ const groups: [string, (each: CalculatorCase) => boolean][] = [
   ["currencies", (each) => each.kind === "currencies"],
   ["percent-points", (each) => each.kind === "percent-points"],
   ["table", (each) => each.kind === "table"],
+  ["analysis-number", (each) => each.kind === "analysis-number"],
   ["any scaled input", (each) => each.scaled],
   ["English", (each) => each.language === "en"],
   ["Chinese", (each) => each.language !== "en"],
