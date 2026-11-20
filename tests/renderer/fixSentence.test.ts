@@ -35,12 +35,21 @@ const edits = vi.hoisted(() => ({
   asked: [] as { action: string; instruction?: string; range?: { from: number; to: number } }[],
   rewrite: null as string | null,
 }));
-const checks = vi.hoisted(() => ({ asked: [] as unknown[] }));
+const checks = vi.hoisted(() => ({
+  asked: [] as unknown[],
+  /** What the check writes into the Note, as the core's result reaches the editor. */
+  answer: null as ((input: CheckInput) => void) | null,
+}));
+type CheckInput = {
+  from: { blockId: string; offset: number };
+  to: { blockId: string; offset: number };
+};
 vi.mock("../../src/renderer/src/core", () => ({
   core: {
     recordAiUse: () => Promise.resolve([]),
-    checkSentences: (input: unknown) => {
+    checkSentences: (input: CheckInput) => {
       checks.asked.push(input);
+      checks.answer?.(input);
       return Promise.resolve({ kind: "checked", sentences: 1, checked: 1, smallModel: false });
     },
   },
@@ -59,7 +68,12 @@ vi.mock("../../src/renderer/src/editWithAi", () => ({
   ) => {
     edits.asked.push({ action, ...(instruction && { instruction }), ...(range && { range }) });
     if (!range || edits.rewrite === null) return Promise.resolve(false);
-    editor.view.dispatch(editor.state.tr.insertText(edits.rewrite, range.from, range.to));
+    // The words go; a marker keeps its place, as the core keeps it.
+    let end = range.to;
+    editor.state.doc.nodesBetween(range.from, range.to, (node, pos) => {
+      if (node.isInline && !node.isText && pos < end) end = Math.max(range.from, pos);
+    });
+    editor.view.dispatch(editor.state.tr.insertText(edits.rewrite, range.from, end));
     return Promise.resolve(true);
   },
 }));
@@ -191,6 +205,33 @@ function editorWith(blocks: JSONContent[]): { editor: Editor; doc: Y.Doc } {
   return { editor, doc };
 }
 
+/** Answers each check with `verdict`, written over the words it was asked about and kept out of Undo, as a result is. */
+function answerWith(editor: Editor, verdict: "supported" | "unsupported") {
+  checks.answer = ({ from, to }) => {
+    const at = (place: { blockId: string; offset: number }) => {
+      let found = -1;
+      editor.state.doc.forEach((node, pos) => {
+        if (node.attrs.id === place.blockId) found = pos + 1 + place.offset;
+      });
+      return found;
+    };
+    const start = at(from);
+    const end = at(to);
+    const text = editor.state.doc.textBetween(start, end);
+    const attrs = checkWithParts(basis(`checked-${start}`, text), [
+      part(text.length, verdict, verdict === "supported" ? { evidence: [evidence()] } : {}),
+    ]);
+    const type = editor.state.schema.marks[CLAIM_CHECK_MARK];
+    if (!type) throw new Error("No claim check mark.");
+    editor.view.dispatch(
+      editor.state.tr
+        .removeMark(start, end, type)
+        .addMark(start, end, type.create(attrs))
+        .setMeta("addToHistory", false),
+    );
+  };
+}
+
 const claim = (editor: Editor, id: string) => {
   const found = shownClaims(editor.state).find((each) => each.check.id === id);
   if (!found) throw new Error(`No shown claim ${id}.`);
@@ -204,6 +245,7 @@ beforeEach(() => {
   edits.asked.length = 0;
   edits.rewrite = null;
   checks.asked.length = 0;
+  checks.answer = null;
   useNotices.setState({ errors: [], confirmation: null });
 });
 
@@ -254,6 +296,7 @@ describe("Fix the sentence", () => {
       },
     ]);
     edits.rewrite = "The terminal opened six months later than planned.";
+    answerWith(editor, "unsupported");
 
     await fixSentence(editor, "mind", doc, claim(editor, "late"));
 
@@ -290,6 +333,7 @@ describe("Fix the sentence", () => {
       },
     ]);
     edits.rewrite = "It opened six months later than planned.";
+    answerWith(editor, "unsupported");
 
     await fixSentences(editor, "mind", doc);
 
@@ -297,11 +341,91 @@ describe("Fix the sentence", () => {
     expect(edits.asked.map((each) => each.action)).toEqual(["fix-sentence", "fix-sentence"]);
     expect(editor.state.doc.textContent).toBe(`${edits.rewrite}${ALONE}${edits.rewrite}`);
     expect(checks.asked).toHaveLength(2);
-    // The scripted check writes no verdict here, so neither new sentence is Supported yet.
+    // Neither new sentence is Supported: the line that says so carries no tick.
     expect(useNotices.getState().confirmation).toMatchObject({
       message: "claim.fix.doneMany",
       params: { fixed: 0, needsLook: 2 },
+      look: true,
     });
+  });
+
+  test("says a new sentence that still needs a look once its check has landed, with no tick", async () => {
+    const { editor, doc } = editorWith([
+      {
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [marked(LATE, contradicted("late", LATE))],
+      },
+    ]);
+    edits.rewrite = "The terminal opened later than planned.";
+    answerWith(editor, "unsupported");
+    const write = checks.answer;
+    // The check's result reaches the editor after the request that asked for it has returned.
+    checks.answer = (input) => setTimeout(() => write?.(input), 20);
+
+    const ended = fixSentence(editor, "mind", doc, claim(editor, "late"));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(useNotices.getState().confirmation).toBeNull();
+
+    expect(await ended).toBe("needs-look");
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "claim.fix.needsLook",
+      look: true,
+    });
+  });
+
+  test("cites the quote it rests on once the new sentence is Supported by it, and one Undo brings back the old words and their check", async () => {
+    const { editor, doc } = editorWith([
+      {
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [marked(LATE, contradicted("late", LATE))],
+      },
+    ]);
+    edits.rewrite = "The terminal opened six months later than planned.";
+    answerWith(editor, "supported");
+
+    expect(await fixSentence(editor, "mind", doc, claim(editor, "late"))).toBe("fixed");
+
+    const citations: { quote: unknown; foundByCheck: unknown }[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "citation")
+        citations.push({ quote: node.attrs.quote, foundByCheck: node.attrs.foundByCheck });
+    });
+    expect(citations).toEqual([{ quote: QUOTE, foundByCheck: true }]);
+    // The sentence keeps the check that found it Supported: the Citation adds no words to check.
+    expect(shownClaims(editor.state).map((each) => each.shown.state)).toEqual(["supported"]);
+    expect(useNotices.getState().confirmation).toBeNull();
+
+    editor.commands.undo();
+
+    expect(editor.state.doc.textContent).toBe(LATE);
+    expect(shownClaims(editor.state).map((each) => [each.check.id, each.shown.state])).toEqual([
+      ["late", "contradicted"],
+    ]);
+  });
+
+  test("leaves a cited sentence's Citations as they are", async () => {
+    const { editor, doc } = editorWith([
+      {
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [
+          marked(LATE, contradicted("late", LATE)),
+          { type: "citation", attrs: { ...evidence("The terminal is run by the port.") } },
+        ],
+      },
+    ]);
+    edits.rewrite = "The terminal opened six months later than planned.";
+    answerWith(editor, "supported");
+
+    await fixSentence(editor, "mind", doc, claim(editor, "late"));
+
+    const quotes: unknown[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "citation") quotes.push(node.attrs.quote);
+    });
+    expect(quotes).toEqual(["The terminal is run by the port."]);
   });
 
   test("goes to the User's own AI with the quote it rests on", () => {

@@ -21,7 +21,8 @@ import {
 /*
  * Fix the sentence (#3383): a sentence its check found the Documents say otherwise of offers the
  * rewrite first on its card. The scripted model rewrites it to the quote, the new sentence is
- * checked again, and one Undo brings the old words and their check back.
+ * checked again and, Supported by that quote, cited with it; one Undo brings the old words and
+ * their check back.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -131,17 +132,23 @@ for (const [language, width] of [
     await screenshot(window, `fix-sentence-card-${language}`);
 
     await pointAndClick(window, fix);
-    await expect(line).toHaveText(words.quote, { timeout: 30_000 });
-    // Checked again on the scripted model, which finds the English Document's line word for word,
-    // and no Chinese line: there the card says the new sentence still needs a look.
-    await expect(marks.first()).toHaveAttribute(
-      "data-check",
-      language === "en" ? "supported" : "unsupported",
-      { timeout: 30_000 },
-    );
+    await expect(line).toContainText(words.quote, { timeout: 30_000 });
+    const chip = line.getByTestId("citation-chip");
+    const badge = window.getByTestId("check-badge");
+    if (language === "en") {
+      // The scripted check finds the English Document's line word for word: the new sentence is
+      // Supported by the quote it rests on, which is placed as its Citation in the same step.
+      await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
+      await expect(badge).toContainText(translate(language, "health.state.checked.noTime"));
+    } else {
+      // No Chinese line is found: the new sentence still needs a look, as the badge counts it.
+      await expect(marks.first()).toHaveAttribute("data-check", "unsupported", { timeout: 30_000 });
+      await expect(badge).toContainText(translate(language, "health.state.look.one"));
+      await expect(window.getByText(translate(language, "claim.fix.needsLook"))).toBeVisible();
+      await expect(chip).toHaveCount(0);
+    }
     await screenshot(window, `fix-sentence-fixed-${language}`);
     if (language === "zh-CN") {
-      await expect(window.getByText(translate(language, "claim.fix.needsLook"))).toBeVisible();
       // Its card says why, and offers no rewrite: nothing was found to rest one on.
       await pointAndClick(window, marks.first());
       await expect(card).toBeVisible();
@@ -150,10 +157,11 @@ for (const [language, width] of [
       await window.keyboard.press("Escape");
     }
 
-    // One Undo brings the old words back; the newer check over them asks for a check again.
+    // One Undo brings the old words back with their check, and takes the Citation back with them.
     await pointAndClick(window, window.getByTestId("applied-line").getByTestId("applied-undo"));
     await expect(line).toHaveText(words.sentence);
-    await expect(marks.first()).toHaveAttribute("data-check", "needs-recheck");
+    await expect(chip).toHaveCount(0);
+    await expect(marks.first()).toHaveAttribute("data-check", "contradicted");
     await app.close();
   });
 }

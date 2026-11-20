@@ -141,9 +141,10 @@ async function spentUsd(core: Core): Promise<number> {
     .reduce((sum, each) => sum + each.amount, 0);
 }
 
-/** Every request the core sends, counted, with the failed ones' messages. */
+/** Every request the core sends, counted, with the failed ones' messages and each fix's own reply. */
 function counted() {
   const failed: string[] = [];
+  const fixReplies: string[] = [];
   let requests = 0;
   const failure = (error: unknown) =>
     error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 200) : String(error);
@@ -163,8 +164,10 @@ function counted() {
               throw error;
             }
           },
-          wrapStream: async ({ doStream }) => {
+          wrapStream: async ({ doStream, params }) => {
             requests++;
+            const fix = JSON.stringify(params.prompt).includes("Rewrite the passage so it says");
+            let said = "";
             let result: Awaited<ReturnType<typeof doStream>>;
             try {
               result = await doStream();
@@ -176,7 +179,11 @@ function counted() {
               new TransformStream({
                 transform(part, controller) {
                   if (part.type === "error") failed.push(failure(part.error));
+                  if (fix && part.type === "text-delta") said += part.delta;
                   controller.enqueue(part);
+                },
+                flush() {
+                  if (fix) fixReplies.push(said);
                 },
               }),
             );
@@ -184,7 +191,7 @@ function counted() {
           },
         },
       }) as ReturnType<ChatModelFactory>;
-  return { wrap, failed, requests: () => requests };
+  return { wrap, failed, fixReplies, requests: () => requests };
 }
 
 /** A Note's paragraph by its id, as the Mind holds it now. */
@@ -431,6 +438,7 @@ test(
                 });
                 if (!instruction || !selection) continue;
                 const failedAt = requests.failed.length;
+                const repliedAt = requests.fixReplies.length;
                 const asked = Date.now();
                 const result = await core.editWithAi({
                   requestId: `${ARM}-fix-${each.id}`,
@@ -471,6 +479,7 @@ test(
                   checkSeconds: (Date.now() - checked) / 1000,
                   after: verdictIn(client, each.id, versions, group.id),
                   change: changes.find((change) => change.each.id === each.id)?.text ?? null,
+                  reply: requests.fixReplies.slice(repliedAt).join("\n---\n") || null,
                   failed: requests.failed.slice(failedAt),
                 });
               }

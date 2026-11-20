@@ -551,6 +551,7 @@ describe("Edit with AI", () => {
     expect(calls[0]?.action).toBe("fix-sentence");
     expect(calls[0]?.prompt).toContain(instruction);
     expect(calls[0]?.prompt).toContain("add no figure, name, date or claim the quote doesn't give");
+    expect(calls[0]?.prompt).toContain("IncarnaMind places the Citations");
     await resolveChanges(client, "accept");
     expect(shownWithChanges(client)).toEqual([
       "Spring tides happen at new moon and at full moon ⟨found⟩.",

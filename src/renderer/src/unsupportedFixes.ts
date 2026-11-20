@@ -15,6 +15,7 @@ import type * as Y from "yjs";
 import {
   type AskedSentence,
   type AskVerdict,
+  type CitationAttributes,
   CLAIM_CHECK_MARK,
   type ClaimCalculation,
   type ClaimCheckPart,
@@ -247,16 +248,19 @@ export const findSourcesAt = (editor: Editor): ShownClaim | null =>
 export const askableAt = (editor: Editor): ShownClaim | null =>
   claimAt(editor, (editor, claim) => askVerdictOf(editor, claim) !== null);
 
+/** The Passage the sentence's check found, that a fix rests on (#3383); undefined for none. */
+export const foundPassageOf = (claim: ShownClaim): CitationAttributes | undefined =>
+  claim.reads.evidence ??
+  claim.reads.unsupported?.quoted ??
+  (claim.reads.parts ?? []).flatMap((part) => part.evidence)[0];
+
 /**
  * The quote a fix rests on (#3383): what the sentence's check found, else what its own Citations
  * quote, which a check of a cited sentence reads; null when there is none.
  */
 export function fixQuoteOf(editor: Editor, claim: ShownClaim): string | null {
-  const check = claim.reads;
   const quote =
-    check.evidence?.quote ??
-    check.unsupported?.quoted?.quote ??
-    (check.parts ?? []).flatMap((part) => part.evidence.map((each) => each.quote))[0] ??
+    foundPassageOf(claim)?.quote ??
     citationsOf(editor.state, claim)
       .map((each) => each.attributes.quote)
       .filter(Boolean)
