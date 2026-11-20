@@ -1024,3 +1024,50 @@ describe("A fix asked for in one step is still owed in the next (#489)", {
     expect(answer.citations.map(quoteCheck)).toEqual(["found"]);
   });
 });
+
+describe("An Answer that calls for working (#3462)", { timeout: 60_000 }, () => {
+  /** Asks with `plain` for every kind of call but the harder one, which `harder` gets. */
+  async function asked(plain: MockLanguageModelV4, harder: MockLanguageModelV4) {
+    const kinds: (string | undefined)[] = [];
+    const { core } = await setUpCalculating(plain, [ACME], undefined, {
+      createChatModel: (spec) => {
+        kinds.push(spec.thinking);
+        return spec.thinking === "careful" ? harder : plain;
+      },
+    });
+    const { answer } = await askAndRead(core, "How much did Acme's revenue grow in 2025?");
+    return { answer, kinds };
+  }
+
+  // protects=an Answer starts at its modest thinking budget, and once the model itself calls calculate the steps after it go to the same model asked to think harder; one that calls nothing to work out stays where it began; no rule reads the Question for it; fails_when=the first step thinks harder, the steps after a calculate call don't, or an Answer that calculates nothing does; no_claim=how hard the model thinks, or that it reasons better.
+  test("thinks harder in the steps after it calls calculate, and not before", async () => {
+    const plain = calculatingModel({
+      queries: ["revenue gross margin"],
+      steps: [citeAndCalculate],
+      answer: "Revenue grew [=1][^1].",
+    });
+    const harder = scriptedModel(() => ({ text: "Revenue grew [=1] in 2025[^1]." }), {
+      generate: judgesNothing,
+    });
+
+    const { answer } = await asked(plain, harder);
+
+    expect(plain.doStreamCalls).toHaveLength(2);
+    expect(harder.doStreamCalls).toHaveLength(1);
+    expect(answer.steps?.careful).toBe(true);
+  });
+
+  test("stays at its modest budget when it calls nothing to work out", async () => {
+    const plain = calculatingModel({
+      queries: ["revenue"],
+      steps: [],
+      answer: "Revenue was $1,482.6 million in 2025.",
+    });
+    const harder = scriptedModel(() => ({ text: "Never asked." }), { generate: judgesNothing });
+
+    const { answer } = await asked(plain, harder);
+
+    expect(harder.doStreamCalls).toHaveLength(0);
+    expect(answer.steps?.careful).toBeUndefined();
+  });
+});

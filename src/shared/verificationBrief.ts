@@ -22,6 +22,12 @@ export interface BriefSentence {
   occurrence?: number;
 }
 
+/** A figure the conclusions rest on: its sentence, and the model's line naming it (#3493). */
+export interface BriefFigure extends BriefSentence {
+  /** What the figure is and the figure, in the document's language: "2024 revenue: 2.9 million". */
+  line?: string;
+}
+
 export interface BriefConclusion {
   /** The line the model wrote, in the document's language. */
   line: string;
@@ -32,7 +38,7 @@ export interface BriefConclusion {
 export interface VerificationBrief {
   conclusions: readonly BriefConclusion[];
   /** The claims the conclusions rest on that are figures, in the order the model gave them. */
-  figures: readonly BriefSentence[];
+  figures: readonly BriefFigure[];
   /** The sentences it was written from, as `sortedText` names them: a brief of an older text is not shown. */
   sortedText: string;
 }
@@ -67,9 +73,11 @@ export function readBrief(settings: Y.Map<unknown>): VerificationBrief | null {
       })
     : [];
   const figures = Array.isArray(value.figures)
-    ? value.figures.flatMap((each): BriefSentence[] => {
+    ? value.figures.flatMap((each): BriefFigure[] => {
         const sentence = sentenceOf(each);
-        return sentence ? [sentence] : [];
+        if (!sentence) return [];
+        const line = isRecord(each) && typeof each.line === "string" ? each.line.trim() : "";
+        return [line ? { ...sentence, line } : sentence];
       })
     : [];
   return conclusions.length === 0 && figures.length === 0

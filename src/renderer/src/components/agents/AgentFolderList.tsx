@@ -21,6 +21,13 @@ export function useAgentFolderRows(enabled = true, keepUnfiled = false): AgentFo
   }, [enabled, folders, assignments, documents, keepUnfiled, examples, otherExamples]);
 }
 
+/** Whether the User has a Document of their own: the examples are not theirs. */
+export function useAnyOwnDocument(): boolean {
+  return useAppStore((state) =>
+    state.documents.some((document) => isOwnDocument(document, allExamples(state))),
+  );
+}
+
 /**
  * The choices of what an agent may read, ticked in place: each Folder under the one it is inside,
  * with the Documents an agent given it reads, Not in a Folder last. With no Document at all, Not
@@ -41,9 +48,7 @@ export function AgentFolderList({
 }) {
   const t = useT();
   const language = useLanguage();
-  const anyDocument = useAppStore((state) =>
-    state.documents.some((document) => isOwnDocument(document, allExamples(state))),
-  );
+  const anyDocument = useAnyOwnDocument();
 
   return (
     <>

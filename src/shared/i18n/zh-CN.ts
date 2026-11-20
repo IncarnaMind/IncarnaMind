@@ -1787,6 +1787,7 @@ export const zhCN = {
   "verify.checked": "已核对 {count} 条说法",
   "verify.brief.concludes": "结论",
   "verify.brief.figures": "结论依据的数字",
+  "verify.slide": "第 {n} 张幻灯片",
   "verify.brief.noSource": "你的文档中没有出处",
   "verify.brief.filling": "核对完成后会补全…",
   "verify.brief.none": "没有发现",
@@ -2480,6 +2481,12 @@ export const zhCN = {
   "evidence.notCited.doneMany": "{count} 个文档不再作为引用来源",
   "evidence.citeAgain.done": "“{name}”已恢复为引用来源",
   "evidence.citeAgain.doneMany": "{count} 个文档已恢复为引用来源",
+  "evidence.citeHanded": "作为引用来源",
+  "evidence.citeHandedMany": "将 {count} 个文档作为引用来源",
+  "evidence.citeHanded.done": "“{name}”已作为引用来源",
+  "evidence.citeHanded.doneMany": "{count} 个文档已作为引用来源",
+  "evidence.notCited.handedHint":
+    "{agent} 制作的文件，供你核对：在你将它作为引用来源之前，不会被读取或引用。",
   "evidence.settings.title": "核对",
   "evidence.settings.switch": "不把 IncarnaMind 导出的文件计为依据",
   "evidence.settings.body": "导出的文件不计为依据。",
@@ -8202,7 +8209,7 @@ export const zhCN = {
   "agents.handOver.unread.range": "这个工作簿没有这个名字的工作表。",
   "agents.handOver.unread.word": "IncarnaMind 已保留文件，但无法作为 Word 文件读取。",
   "agents.handOver.notChecked.not-ready":
-    "IncarnaMind 还没有设置用于核对的 AI 模型，所以没有核对。用户可以在它的笔记里核对。",
+    "IncarnaMind 还没有设置用于核对的 AI 模型，所以没有核对。IncarnaMind 里没有模型时，请你自己核对，就像核对你写的笔记一样：用它的 mindId 调用 check_mind_yourself，再用 report_check 交回结果。",
   "agents.handOver.notChecked.consent-needed":
     "用户还没有允许把 IncarnaMind 的核对发送到其 AI 模型服务，所以没有核对。用户可以在它的笔记里核对。",
   "agents.handOver.notChecked.local-mode":
@@ -8254,9 +8261,19 @@ export const zhCN = {
   "agents.connect.noneYet": "还没有文档：之后添加且不在文件夹中的文档，它都能读取。",
   "agents.connect.pickOne": "至少选择一个文件夹。",
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
+  "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
     "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版并加以核对。它对你笔记的修改等你处理。",
+  "agents.connect.reads.folders":
+    "它可以读取你在下面勾选的文件夹。它读取的内容会发送给{agent}所用的 AI 模型。",
+  "agents.connect.reads.all":
+    "它可以读取你的全部文档，包括之后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
+  "agents.connect.reads.none":
+    "你还没有添加文档，之后添加的它都能读取。它读取的内容会发送给{agent}所用的 AI 模型。",
+  "agents.connect.disconnect": "你可以随时断开连接。",
+  "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
+  "agents.connect.backup": "它会把该文件现在的样子保留一份在 {path}，直到你断开连接。",
   "agents.connect.skill": "还会在 {path} 添加一个简短的技能。",
   "agents.connect.showChange": "显示添加的内容",
   "agents.connect.allow": "允许并连接",
@@ -8282,6 +8299,8 @@ export const zhCN = {
     "已复制。在 MiniMax Code 中打开插件管理 › MCP Servers，切换到 JSON，粘贴后保存。",
   "agents.done.paste.kilo-code":
     "在 Kilo Code 中打开 Settings › MCP，选择 Add Server › Local (stdio)，按“技术细节”逐项填写。",
+  "agents.done.unreadable.command":
+    "无法修改{agent}的设置文件，未作改动。命令已复制：粘贴到终端中运行。",
   "agents.done.unreadable": "无法读取{agent}的设置文件，未作改动。设置已复制：粘贴到 {path} 中。",
   "agents.done.undo": "撤销",
   "agents.ask.action": "交给{agent}",

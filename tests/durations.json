@@ -99,7 +99,6 @@
   "tests/core/callHelpMarks.test.ts": 16,
   "tests/core/callHelpModel.test.ts": 5.8,
   "tests/core/captureHealth.test.ts": 9.8,
-  "tests/core/carefulIntent.test.ts": 0,
   "tests/core/catalog.test.ts": 0.1,
   "tests/core/catalogUpdate.test.ts": 0.3,
   "tests/core/cellNumbers.test.ts": 0.9,

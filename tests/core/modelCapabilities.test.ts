@@ -138,16 +138,16 @@ describe("Models in the app, by the catalog", () => {
     expect(all).toContain("Newest note.");
   });
 
-  // protects=an Answer asks for a modest thinking budget, and a Question that asks to check or calculate for a larger one; fails_when=an Answer to "Calculate" is built with the modest budget or one to "Write a summary" with the larger; no_claim=only what the core asks the model factory for, not what a provider does with it.
-  test("an Answer is prepared with a modest thinking budget, and one that asks to calculate with a larger", async () => {
+  // protects=every Answer starts at a modest thinking budget, one to a Question that asks to calculate included: no rule reads the Question for it, and the larger budget is prepared only once the model calls for working (#3462, tests/core/calculations.test.ts); fails_when=an Answer to "Calculate" is prepared with another budget, or the larger one is prepared for an Answer that called nothing; no_claim=only what the core asks the model factory for, not what a provider does with it.
+  test("every Answer starts at a modest thinking budget, a calculation's too", async () => {
     const { core, models } = await startWithCloudModel({
       kind: "anthropic",
       modelId: "claude-sonnet-5-5",
     });
     await askBelow(core, [], "Write a summary page of these documents");
-    expect(models.specs.at(-1)?.thinking).toBe("answer");
     await askBelow(core, [], "Calculate the leverage headroom after the step-down");
-    expect(models.specs.at(-1)?.thinking).toBe("careful");
+    expect(models.specs.map((spec) => spec.thinking)).not.toContain("careful");
+    expect(models.specs.at(-1)?.thinking).toBe("answer");
   });
 
   test("a model the catalog says gives no structured output isn't tried with it when it refuses Tools", async () => {

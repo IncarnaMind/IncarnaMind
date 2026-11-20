@@ -66,6 +66,7 @@ import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
 import { fixSentence, offersFixSentence } from "../fixSentence";
+import { useHandedFile } from "../handedFiles";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
 import { useModelNames } from "../modelNames";
@@ -203,6 +204,24 @@ const NONE_OPEN: ReadonlySet<string> = new Set();
  * Asks the assistant to look for the sentence on the web (#128), which a model
  * that can search does. The card says so first when web search is off (`ClaimCard`).
  */
+/**
+ * The table row the Note's text at `at` is in, its cells as the agent is told them:
+ * "Fuel | 4,215 | 3,900"; null outside a table.
+ */
+function rowAt(editor: Editor, at: number): string | null {
+  const place = editor.state.doc.resolve(Math.min(at, editor.state.doc.content.size));
+  for (let depth = place.depth; depth > 0; depth--) {
+    const row = place.node(depth);
+    if (row.type.name !== "tableRow") continue;
+    const cells: string[] = [];
+    row.forEach((cell) => {
+      cells.push(cell.textContent.trim());
+    });
+    return cells.join(" | ");
+  }
+  return null;
+}
+
 function searchTheWeb(mindId: string, sentence: string): void {
   void askInAssistant({
     text: translateNow("claim.webQuestion", { sentence }),
@@ -294,10 +313,14 @@ export function ClaimMark({
   const heading = t(checkStateKey(editor, claim));
   const editing = useEdits((store) => store.pending[mindId] !== undefined);
   const noModel = useNoModel();
-  const fixable = !noModel && offersFixSentence(editor, claim);
+  // The Note checks a file an agent handed over: no change to its words reaches the file, which is
+  // the agent's to fix, so asking it is the card's first action (#3493).
+  const fileOnly = useHandedFile(mindId, doc) !== null;
+  const fixable = !noModel && !fileOnly && offersFixSentence(editor, claim);
   // A check or an Edit with AI under way would write over the words a correction changes. With a
   // model, the model writes them, as Fix the sentence: pasted in by code they broke 33 of 48 (#3383).
-  const corrections = running || editing || fixable ? [] : correctionsFor(editor, claim);
+  const corrections =
+    running || editing || fixable || fileOnly ? [] : correctionsFor(editor, claim);
   const label = ownNoteOnly ? t("claim.ownNote") : t("claim.mark.label", { state: heading });
   const agents = useAgentsToAsk(mindId);
   const requests = useAgentRequests(mindId);
@@ -574,7 +597,7 @@ export function ClaimMark({
               checking={state === "checking" || running}
               verified={verificationOf(doc)?.documentId ?? null}
               cited={citationsOf(editor.state, claim)}
-              fixes={offersFixes(editor, claim)}
+              fixes={!fileOnly && offersFixes(editor, claim)}
               notFound={offersNotFound(editor, claim)}
               keep={offersKeepAsView(editor, claim)}
               corrections={corrections}
@@ -675,13 +698,14 @@ export function ClaimMark({
                 applyCorrection(editor, mindId, doc, claim, span);
                 done(true);
               }}
-              use={offersUseFigure(editor, claim)}
+              use={!fileOnly && offersUseFigure(editor, claim)}
               onUse={() => {
                 applyFigure(editor, mindId, doc, claim);
                 done(true);
               }}
               ask={askVerdictOf(editor, claim) === null ? [] : agents}
-              askFirst={noModel}
+              askFirst={noModel || fileOnly}
+              fileOnly={fileOnly}
               asked={
                 asked &&
                 t(asked.read ? "agents.ask.read" : "agents.ask.waiting", { agent: asked.agent })
@@ -873,6 +897,7 @@ export function ClaimCard({
   onUse,
   ask = NO_AGENTS,
   askFirst = false,
+  fileOnly = false,
   asked = null,
   onAsk,
 }: {
@@ -920,6 +945,8 @@ export function ClaimCard({
   ask?: readonly AgentPairing[];
   /** No model is set up: asking the first is the card's first action, the others under its ⋯. */
   askFirst?: boolean;
+  /** It checks a file an agent handed over, whose words no fix here changes (#3493). */
+  fileOnly?: boolean;
   /** Whom the User asked to fix it and whether that agent read the request, in a line (#3419). */
   asked?: string | null;
   onAsk?(agent: AgentPairing): void;
@@ -950,7 +977,11 @@ export function ClaimCard({
   const state = shown.state;
   const mark = markOf(claim);
   const ownNoteOnly = mark === "supported" && supportedByOwnNotesOnly(check);
-  const sentence = comparableSentence(claim.sentence.text);
+  // A checked file's table row is checked whole, on its first cell (#3412): the card says the whole
+  // row, its figures with it, not the first cell alone (#3493).
+  const sentence = comparableSentence(
+    (verified !== null && rowAt(editor, claim.sentence.from)) || claim.sentence.text,
+  );
   const decided = state === "supported" || state === "contradicted";
   const calculation = decided ? check.calculation : null;
   // A figure that agrees can sit beside a Passage that contradicts the rest of the sentence.
@@ -1344,14 +1375,15 @@ export function ClaimCard({
           onOpen();
         },
       },
-      (fixable || differs) && {
-        key: "fix",
-        testId: "claim-fix",
-        label: t("claim.fixSentence"),
-        primary: fixable,
-        disabled: fixable && noteRunning,
-        onClick: onFix,
-      },
+      (fixable || differs) &&
+        !fileOnly && {
+          key: "fix",
+          testId: "claim-fix",
+          label: t("claim.fixSentence"),
+          primary: fixable,
+          disabled: fixable && noteRunning,
+          onClick: onFix,
+        },
       searchesAll && {
         key: "search-all",
         testId: "claim-search-all",

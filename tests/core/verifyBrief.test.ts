@@ -7,6 +7,7 @@ import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { scriptedModel, scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
+import { plainDeck } from "../helpers/pptx";
 
 /**
  * The brief of a document someone else wrote (#3277): once its claims are found the model says
@@ -147,6 +148,62 @@ describe("The brief of a verified document", { timeout: 30_000 }, () => {
     } finally {
       errors.mockRestore();
     }
+  });
+});
+
+describe("The brief of a deck", { timeout: 30_000 }, () => {
+  const LONE = "£84.6m";
+  const GREW = "Revenue grew 7% in 2025.";
+  const DECK_PLANS: Record<string, Plan> = {
+    [LONE]: { verdict: "unsupported" },
+    [GREW]: { verdict: "unsupported" },
+  };
+
+  // protects=a stat card's number alone on a slide is named in the brief by what its slide says it is: the model reads the slide's lines and writes each figure's line, the code only gives it the slide (#3493); fails_when=the slide's lines aren't given, or the line the model wrote isn't kept
+  test("reads each claim's slide, and keeps the line naming each figure", async () => {
+    const asked: string[] = [];
+    const model = scriptedModel((call) => checkReply(call, DECK_PLANS), {
+      generate: (call) => {
+        if (call.question !== "verify-brief") return checkGenerate(DECK_PLANS)(call);
+        asked.push(call.prompt);
+        return {
+          text: JSON.stringify({
+            conclusions: [{ line: "Revenue grew 7% in 2025.", claim: 2 }],
+            figures: [{ claim: 1, line: "2025 revenue: £84.6m" }, { claim: 2 }],
+          }),
+        };
+      },
+    });
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+    const path = await writeSourceFile(
+      sources,
+      "Results.pptx",
+      plainDeck([{ title: "Results" }, { lines: ["Revenue", LONE, GREW] }]),
+    );
+    const result = await core.verifyDocument({ path });
+    if (!result.ok) throw new Error(`The deck wasn't verified: ${result.reason}`);
+    const client = await connectToMind(core, result.mind.id);
+    await client.settled();
+    await core.findClaims({ requestId: crypto.randomUUID(), mindId: result.mind.id });
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+
+    expect(JSON.parse(asked[0] ?? "{}")).toEqual({
+      slides: { "2": ["Revenue", LONE, GREW] },
+      claims: [
+        { number: 1, page: 2, text: LONE },
+        { number: 2, page: 2, text: GREW },
+      ],
+    });
+    await vi.waitFor(() => expect(briefOf(client.doc)?.figures).toHaveLength(2));
+    expect(briefOf(client.doc)?.figures.map((each) => [each.text, each.line])).toEqual([
+      [LONE, "2025 revenue: £84.6m"],
+      [GREW, undefined],
+    ]);
   });
 });
 
