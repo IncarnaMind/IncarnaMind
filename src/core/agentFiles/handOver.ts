@@ -59,6 +59,11 @@ export interface HandOverDeps {
   /** When the agent of this pairing was first connected; null once its pairing is gone. */
   connectedAt(pairingId: string): string | null;
   /**
+   * Whether a Citation that can show again points at the Document: in a Note, one in Recently
+   * deleted too, in a conversation, or kept by a feature.
+   */
+  cited(documentId: string): boolean;
+  /**
    * Takes a Document the User never deleted out of the Library for good, at once, as Recently
    * deleted's purge does: never listed there, since restoring it would bring the second Document
    * back. Only for a copy whose bytes another Document and a kept version hold.
@@ -436,7 +441,8 @@ export function createHandOver(deps: HandOverDeps) {
      * handed file's Document, not another: the handed file takes it, Not cited as its copy was left
      * by the User, or, with none, as `agentMadeIt` says; the copy is taken out of the Library and the
      * checks of its versions point at the folder's Document. A file edited since it was handed over
-     * holds bytes no version has: an ordinary Document, since nothing says who changed it.
+     * holds bytes no version has: an ordinary Document, since nothing says who changed it. A copy a
+     * Citation points at stays, and so does the folder's Document beside it.
      */
     adopt(documentId: string): void {
       const found = deps.document(documentId);
@@ -448,6 +454,8 @@ export function createHandOver(deps: HandOverDeps) {
         );
       if (!file || file.documentId === documentId) return;
       const before = liveDocumentOf(file);
+      // The copy's Citations would no longer open: the User cited it, so both stay as they are.
+      if (before !== null && deps.cited(before)) return;
       if (before !== null) {
         deps.setNotCited(documentId, deps.document(before).notCited);
         deps.retire(before);

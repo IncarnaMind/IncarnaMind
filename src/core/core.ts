@@ -938,6 +938,16 @@ export function createCore(adapters: CoreAdapters): Core {
       else content.peekDeleted(mind.id, look);
     }
   };
+  // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
+  // conversations. Features other than Citations retain what they need too.
+  const citedUnitsOf = (documentIds: readonly string[]): CitedUnits[] => {
+    const wanted = new Set(documentIds);
+    const cited: CitedUnits[] = [];
+    eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
+    conversations.addCitedUnits(wanted, cited);
+    retention.addRetainedUnits(wanted, cited);
+    return cited;
+  };
   let noteReadAgain: ((mindId: string) => void) | undefined;
   const mindIndex = createMindIndex({
     db,
@@ -1259,16 +1269,7 @@ export function createCore(adapters: CoreAdapters): Core {
       },
       // Tagged as soon as its text, or a scan's first pages, can be read, not once embedded (#2308).
       onText: (documentId) => documentReady(documentId),
-      // Citations live in Minds, anywhere: in Answers, or copied into Notes; and in
-      // conversations. Features other than Citations retain what they need too.
-      citedUnits: (documentIds) => {
-        const wanted = new Set(documentIds);
-        const cited: CitedUnits[] = [];
-        eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
-        conversations.addCitedUnits(wanted, cited);
-        retention.addRetainedUnits(wanted, cited);
-        return cited;
-      },
+      citedUnits: citedUnitsOf,
       // iCloud Drive before macOS 14 downloads a stub's file when asked by its command-line tool.
       ...(platform === "darwin" && {
         downloadStub: async (path: string) => {
@@ -4280,14 +4281,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const recentlyDeleted = createRecentlyDeleted({
     db,
     now,
-    documentText: (documentIds) => {
-      const wanted = new Set(documentIds);
-      const cited: CitedUnits[] = [];
-      eachCitingMind((fragment) => addCitedUnits(fragment, wanted, cited));
-      conversations.addCitedUnits(wanted, cited);
-      retention.addRetainedUnits(wanted, cited);
-      documents.purgeText(documentIds, cited);
-    },
+    documentText: (documentIds) => documents.purgeText(documentIds, citedUnitsOf(documentIds)),
     say: (key, params) => translate(settings.get().language, key, params),
     minds,
     content,
@@ -5795,6 +5789,7 @@ export function createCore(adapters: CoreAdapters): Core {
     setNotCited: (documentId, notCited) => void documents.setNotCited(documentId, notCited),
     connectedAt: (pairingId) =>
       agents.settings().pairings.find((pairing) => pairing.id === pairingId)?.createdAt ?? null,
+    cited: (documentId) => citedUnitsOf([documentId]).length > 0,
     retire: (documentId) =>
       db.transaction(() => {
         documents.delete([documentId]);

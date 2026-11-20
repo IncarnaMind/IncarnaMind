@@ -11,11 +11,13 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
 import { agentMadeIt } from "../../src/core/agentFiles/handOver";
+import type { CitationAttributes } from "../../src/core/api";
 import { verificationOf } from "../../src/shared/verification";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { waitForProcessing } from "../helpers/documents";
 import { type Handed, handOver, refusal, started, structured } from "../helpers/handedFiles";
 import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 import { plainDeck } from "../helpers/pptx";
 
 const EAST = "The east quay holds 31 boats.";
@@ -333,6 +335,55 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     const kept = await core.handedFileOf(handed.mindId ?? "");
     expect(kept?.file.documentId).toBe(documents[0]?.id);
     expect(kept?.versions.map((each) => each.mindId)).toEqual([handed.mindId]);
+  });
+
+  // protects=a copy a Note cites is never taken away from its Citation: the scan leaves it, cited, and the folder's Document beside it, both sources by the User's choice (#3499); fails_when=the copy goes and the Note's Citation can't open it
+  it("a copy the User cited in a Note: the scan leaves it and the folder's Document beside it", async () => {
+    const { core, coast, writer, files, restart } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Quay review.pptx");
+    await writeFile(path, deck());
+    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const [copy] = (await quay(core)).documents;
+    if (!copy) throw new Error("No Document holds the deck.");
+    await core.setNotCited(copy.id, false);
+    const mind = await core.createMind({ title: "Quay notes" });
+    const client = await connectToMind(core, mind.id);
+    const cited = note("The east quay");
+    const citation: CitationAttributes = {
+      passageId: "passage",
+      documentId: copy.id,
+      documentName: copy.name,
+      contentHash: copy.contentHash,
+      pageFrom: 2,
+      pageTo: 2,
+      location: null,
+      quote: EAST,
+      check: "found",
+      checkReason: null,
+    };
+    cited.content?.push({ type: "citation", attrs: citation });
+    writeMind(client, [cited]);
+    await client.settled();
+
+    await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    const bothStay = async (each: Core) => {
+      const { documents, searched } = await quay(each);
+      expect(documents.map((one) => [one.linkedFolderId !== null, one.notCited]).sort()).toEqual([
+        [false, false],
+        [true, false],
+      ]);
+      expect(documents.map((one) => one.id)).toContain(copy.id);
+      expect(searched).toBe(true);
+      expect((await each.handedFileOf(handed.mindId ?? ""))?.file.documentId).toBe(copy.id);
+      expect(await each.listDeleted()).toEqual([]);
+    };
+    await bothStay(core);
+    // Nor at the next start, which joins a copy kept from before.
+    const again = await restart();
+    await bothStay(again);
+    again.close();
   });
 
   // protects=the copy a scan's Document takes the place of goes for good, never to Recently deleted: the User didn't delete it, and restoring it would bring the second Document back; each version's check Note still opens, on the folder's Document (#3499); fails_when=Recently deleted lists the copy, or a version's Note checks the copy
