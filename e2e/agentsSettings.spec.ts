@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { openDatabase } from "../src/core/storage";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
@@ -441,6 +443,83 @@ test("Disconnect takes away the settings file Connect made, and the agent stays 
     await expect(stat(join(home, ".workbuddy"))).rejects.toThrow(/ENOENT/);
     await search.fill("");
     await expect.poll(order).toEqual(before);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Skill the User changed is left out of date, Replace asks first, and Disconnect leaves it and says where", async () => {
+  const skillFile = join(home, ".agents", "skills", "incarnamind", "SKILL.md");
+  const added = "\nA line the User added.\n";
+  let current = "";
+  const first = await launchApp(dataDir, { home });
+  try {
+    await dismissChatSetup(first.window);
+    await withCoast(first.window);
+    await acceptPlainTextKeys(first.window);
+    await first.window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const coast = (await bridge.getLibrary()).groups.find((group) => group.name === "Coast");
+      await bridge.setAgentsEnabled(true);
+      await bridge.setUpAgent({ client: "codex", folderIds: [coast?.id ?? ""] });
+    });
+    current = await readFile(skillFile, "utf8");
+  } finally {
+    await first.app.close();
+  }
+  // As an earlier release left it, with a line the User added: IncarnaMind's text has changed since.
+  await writeFile(skillFile, `${current}${added}`);
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  db.run("UPDATE device_settings SET value = ? WHERE key = 'agentSkillFiles'", [
+    JSON.stringify({
+      ".agents/skills/incarnamind/SKILL.md": createHash("sha256")
+        .update("An earlier text.")
+        .digest("hex"),
+    }),
+  ]);
+  db.close();
+
+  const { app, window } = await launchApp(dataDir, { home });
+  try {
+    await dismissChatSetup(window);
+    const page = await openSettings(window, "agents");
+    const row = page.getByTestId("agent-pairing");
+    await expect(row.getByTestId("agent-pairing-skill-old")).toContainText(
+      "Skill out of date: you changed it",
+    );
+    await expect(row.getByTestId("agent-pairing-skill")).toBeHidden();
+
+    // Replace asks first, naming what is lost; Esc keeps the file and leaves Settings open.
+    await row.getByTestId("agent-skill-replace").click();
+    await expect(row.getByTestId("agent-pairing-skill-old")).toContainText(
+      "Replacing discards your changes to the Skill file.",
+    );
+    await expect(row.getByTestId("agent-skill-replace-cancel")).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(row.getByTestId("agent-skill-replace")).toBeFocused();
+    await expect(page).toBeVisible();
+    expect(await readFile(skillFile, "utf8")).toBe(`${current}${added}`);
+
+    await setLanguage(window, "zh-CN");
+    await expect(row.getByTestId("agent-pairing-skill-old")).toContainText(
+      "技能已过期：你改过这个文件",
+    );
+    await setLanguage(window, "en");
+
+    await row.getByTestId("agent-skill-replace").click();
+    await row.getByTestId("agent-skill-replace-confirm").click();
+    await expect(row.getByTestId("agent-pairing-skill")).toContainText("Skill installed");
+    await expect(row.getByTestId("agent-pairing-skill-old")).toBeHidden();
+    expect(await readFile(skillFile, "utf8")).toBe(current);
+
+    // Changed again, Disconnect leaves the file, and says where it stays.
+    await writeFile(skillFile, `${current}${added}`);
+    await row.getByTestId("agent-disconnect").click();
+    await expect(page.getByTestId("agent-pairing")).toHaveCount(0);
+    await expect(page.getByTestId("agent-skill-left")).toContainText(
+      `Its Skill stays at ${skillFile}: you changed it.`,
+    );
+    expect(await readFile(skillFile, "utf8")).toBe(`${current}${added}`);
   } finally {
     await app.close();
   }
