@@ -8464,7 +8464,8 @@ export const en = {
     "a ```chart block goes right under the table of the figures it draws",
   "agents.chart.refused.json": "its ```chart block isn’t JSON that gives its kind and title",
   "agents.chart.refused.kind": "its kind is bar, line, pie or scatter",
-  "agents.chart.refused.noNumbers": "its table holds no column of numbers",
+  "agents.chart.refused.noNumbers":
+    "its table holds no column of figures: put each figure alone in its cell, with its token",
   "agents.chart.refused.needsTwo": "a scatter chart needs two columns of numbers",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",

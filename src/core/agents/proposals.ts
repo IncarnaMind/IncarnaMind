@@ -39,7 +39,7 @@ import {
 } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
 import { type ChangedParagraph, sentenceWords, uncitedSpans } from "../../shared/uncitedSentences";
-import { createElement } from "../answers/blocks";
+import { createElement, nodeOf } from "../answers/blocks";
 import { emphasisOf, markdownToBlocks, withoutEmphasisEscapes } from "../answers/markdown";
 import {
   BLOCK_ID_ATTRIBUTE,
@@ -313,6 +313,13 @@ export function namedNote(
   return { paragraphs, text, version };
 }
 
+/** The top-level table an element is in; null when it is in none. */
+function tableOf(element: Y.XmlElement): Y.XmlElement | null {
+  let top: Y.XmlElement = element;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  return top.nodeName === "table" ? top : null;
+}
+
 /** The place among the Note's top-level Blocks of the one an element is in. */
 function topOf(element: Y.XmlElement, tops: ReadonlyMap<unknown, number>): number {
   let top: Y.XmlElement = element;
@@ -505,6 +512,7 @@ export function newBlocks(
   written: string,
   name: string,
   options: Pick<ProposeOptions, "cited" | "notFound" | "visuals">,
+  before: NodeJSON | null = null,
 ): { nodes: NodeJSON[]; cited: Attributes[]; refused: VisualRefused[] } {
   const tokens: { token: string; attributes: Attributes | null; held: number; back: number }[] = [];
   const held = new Map<string, number>();
@@ -578,7 +586,7 @@ export function newBlocks(
     (block) => !(block.type === "paragraph" && (block.content?.length ?? 0) === 0),
   );
   const { nodes, refused } = options.visuals
-    ? placeVisuals(parsedNodes, pictures, options.visuals)
+    ? placeVisuals(parsedNodes, pictures, options.visuals, before)
     : { nodes: parsedNodes, refused: [] };
   // A token the parse took into a formula or a link's address is neither a Citation nor words:
   // it never came back, or its held place is still there.
@@ -751,7 +759,12 @@ function writeNamed(
   for (const change of changes) {
     if (change.kind === "add") {
       const anchor = change.after === null ? "¶0" : elementAt(change.after).paragraph.name;
-      const added = newBlocks(change.text, `${anchor}+`, options);
+      // What is added first after a table's paragraph follows the table: a chart there draws it.
+      const table =
+        change.after === null || adds.has(change.after)
+          ? null
+          : tableOf(elementAt(change.after).element);
+      const added = newBlocks(change.text, `${anchor}+`, options, table && nodeOf(table));
       adds.set(change.after, [...(adds.get(change.after) ?? []), ...added.nodes]);
       citedAnew.push(...added.cited);
       leftOut.push(...added.refused);

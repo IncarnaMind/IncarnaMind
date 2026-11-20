@@ -7980,7 +7980,7 @@ export const zhCN = {
   "agents.chart.refused.noTable": "```chart 代码块要紧接在它所绘制的数据表格下方",
   "agents.chart.refused.json": "```chart 代码块不是写明 kind 和 title 的 JSON",
   "agents.chart.refused.kind": "kind 应为 bar、line、pie 或 scatter",
-  "agents.chart.refused.noNumbers": "表格中没有数字列",
+  "agents.chart.refused.noNumbers": "表格中没有数字列：每个单元格只放一个数字及其引用标记",
   "agents.chart.refused.needsTwo": "散点图需要两列数字",
   "agents.mind.waiting": "（修订待处理）",
   "agents.mind.busy": "（正在写入）",

@@ -115,12 +115,14 @@ function withoutNotFound(table: NodeJSON, notFound: string): NodeJSON {
 
 /**
  * The Blocks with their pictures and charts in place, and what was left out. `held` are the
- * pictures the Markdown was read with, by marker.
+ * pictures the Markdown was read with, by marker; `before`, the Note's Block they are added after,
+ * which a ```chart block they start with draws when it is a table.
  */
 export function placeVisuals(
   nodes: readonly NodeJSON[],
   held: readonly NamedPicture[],
   visuals: NoteVisuals,
+  before: NodeJSON | null = null,
 ): { nodes: NodeJSON[]; refused: VisualRefused[] } {
   const refused: VisualRefused[] = [];
   const line = (left: VisualRefused): NodeJSON => {
@@ -177,7 +179,7 @@ export function placeVisuals(
   for (const node of nodes) {
     if (node.type === "codeBlock" && node.attrs?.language === CHART_FENCE) {
       const fence = textOf(node);
-      const above = placed.at(-1);
+      const above = placed.length === 0 ? before : placed.at(-1);
       const table = above?.type === "table" ? above : null;
       const kept = table?.attrs?.[BLOCK_ID_ATTRIBUTE];
       const tableId = typeof kept === "string" ? kept : visuals.newId();
@@ -194,7 +196,7 @@ export function placeVisuals(
         continue;
       }
       // The chart draws its table by the table's id, which a Block keeps once it is given one.
-      if (table && typeof kept !== "string") {
+      if (table && placed.length > 0 && typeof kept !== "string") {
         placed[placed.length - 1] = {
           ...table,
           attrs: { ...table.attrs, [BLOCK_ID_ATTRIBUTE]: tableId },

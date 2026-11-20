@@ -413,6 +413,65 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     expect(readChart(blocks.at(-1)?.attrs ?? {}).kind).toBe("pie");
   });
 
+  it("charts a table already in the Note from a chart block added after its last cell", async () => {
+    const { core, agent } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const made = structured<Written>(
+      await create(agent, [`Apples led ${apples}.`, "", ...table(apples, pears)].join("\n")),
+    );
+    const read = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
+    );
+    const last = /(¶\d+) 610 \[cite:/.exec(read.markdown)?.[1];
+    const changed = structured<Written>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: made.mindId,
+          version: read.version,
+          changes: [{ paragraph: `${last}+`, text: '```chart\n{"title": "Tonnes"}\n```' }],
+        },
+      }),
+    );
+    expect(changed.refused).toEqual([]);
+    const blocks = await blocksOf(core, made.mindId);
+    expect(blocks.map((block) => block.kind)).toEqual([
+      "heading",
+      "paragraph",
+      "table",
+      CHART_NODE,
+    ]);
+    const chart = readChart(blocks[3]?.attrs ?? {});
+    expect(chart.source).toEqual({ kind: "table", blockId: blocks[2]?.attrs.id });
+    expect(chart.data.rows.map((row) => row.values[0]?.citation?.quote)).toEqual([
+      "picked 1,840 tonnes of apples in 2026",
+      "Pears came to 610 tonnes in 2026",
+    ]);
+  });
+
+  it("says how to write a table it can't chart: each figure alone in its cell, with its token", async () => {
+    const { agent } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const written = structured<Written>(
+      await create(
+        agent,
+        [
+          "| Fruit | 2026 (tonnes) |",
+          "|---|---|",
+          `| Apples | 1,840 | ${apples}`,
+          `| Pears | 610 | ${pears}`,
+          "",
+          "```chart",
+          '{"title": "Tonnes"}',
+          "```",
+        ].join("\n"),
+      ),
+    );
+    expect(written.refused.map((each) => each.reason)).toEqual([
+      "its table holds no column of figures: put each figure alone in its cell, with its token",
+    ]);
+  });
+
   it("exports to Word with its picture, an SVG drawn as a PNG, and its chart", async () => {
     const drawn: string[] = [];
     const pictures: Pictures = {
