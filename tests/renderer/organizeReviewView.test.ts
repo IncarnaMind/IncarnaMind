@@ -29,6 +29,7 @@ const folder = (id: string, name: string, parentId: string | null = null): Libra
   description: "",
   parentId,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside: false,
   createdAt: "2026-11-01T00:00:00.000Z",
   updatedAt: "2026-11-01T00:00:00.000Z",

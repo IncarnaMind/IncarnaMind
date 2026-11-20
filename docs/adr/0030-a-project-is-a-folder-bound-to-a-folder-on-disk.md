@@ -1,14 +1,14 @@
 ---
-status: proposed (2026-11-20)
+status: accepted (2026-11-20)
 ---
 
-# A Folder can be bound to a folder on disk
+# A Project is a Folder bound to a folder on disk
 
 A User's piece of work often lives in a folder on their computer, and the AI agent they run works in that folder. Today the two don't meet. A Linked folder's Documents are in no Folder until the User files each one. So an agent given a Folder doesn't reach the files in the folder it works in, a new file lands in Not in a Folder, and a file the agent hands over from there is refused (#3499).
 
 ## Decision
 
-An in-app Folder may be **bound** to one folder on disk: a Linked folder, or a folder inside one. In the interface this is a **＿＿＿** (the owner chooses the word). Binding is the only new idea: the Folder stays a Folder, and the folder stays a Linked folder.
+An in-app Folder may be **bound** to one folder on disk: a Linked folder, or a folder inside one. In the interface it is a **Project** (项目), the owner's word. Binding is the only new idea: the Project stays a Folder, and the folder stays a Linked folder. The interface for it is minimal: one item on a Linked folder's menu makes one, and it shows wherever a Folder shows, as a Folder.
 
 - **Its files are filed in it as they arrive.** A Document under the bound folder that has no filing of its own is filed in the bound Folder, as the User's own choice, when the scan adds it or a file moves in. Binding files the Documents already there that have none. Organize leaves these filings alone, as it leaves any filing of the User's. A Document the User files elsewhere by hand stays where they put it. A folder bound inside a larger bound one takes its own files. Nothing rewrites a filing that already exists.
 - **It keeps its work inside it by default** (the existing work wall), which the User can turn off.
@@ -19,7 +19,7 @@ An in-app Folder may be **bound** to one folder on disk: a Linked folder, or a f
 
 ## What this changes
 
-ADR-0012 rejected "Projects as a kind of their own", because two ideas for "where my work lives" are harder to pick up. That stands: a bound Folder is a Folder with one more property, not a second kind. The line in `CONTEXT.md` that avoids "project" in the interface stays until the owner names the word above, and the term is added there with it.
+ADR-0012 rejected "Projects as a kind of their own", because two ideas for "where my work lives" are harder to pick up. That stands: a Project is a Folder with one more property, not a second kind. ADR-0012's line is amended to say so. `CONTEXT.md` no longer avoids "project": it is the word for a Folder bound to a folder on disk, and only for that.
 
 ## Not decided here
 

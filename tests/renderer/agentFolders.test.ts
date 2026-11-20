@@ -8,6 +8,7 @@ import {
 import {
   agentFolderRows,
   onlyNotInAFolder,
+  projectPlaces,
   sharedInside,
 } from "../../src/renderer/src/agentFolders";
 
@@ -20,6 +21,7 @@ const folder = (id: string, name = id): LibraryGroup => ({
   description: "",
   parentId: null,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside: false,
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-01T00:00:00.000Z",
@@ -33,6 +35,7 @@ const top = (id: string, name: string | null, documents: number) => ({
   depth: 0,
   walled: false,
   sharedWith: [],
+  place: null,
 });
 
 const filed = (document: Document, groupId: string | null) =>
@@ -149,5 +152,47 @@ describe("what an agent may be allowed to read", () => {
     expect(sharedInside(folders, ["legal"])).toEqual(["drafts"]);
     expect(sharedInside(folders, ["engineering"])).toEqual(["yard"]);
     expect(sharedInside(folders, ["coast", "engineering"])).toEqual(["yard"]);
+  });
+});
+
+describe("a Project in the list (#3507)", () => {
+  // protects=a Project's row names the folder on disk it is bound to, its Linked folder's or one inside it, in the path's own separators; any other Folder names none (ADR-0030); fails_when=the picker gives a Project no place, or a wrong one
+  test("names the folder on disk a Project is bound to, and none for another Folder", () => {
+    const quay = { ...folder("quay", "Quay works"), boundFolderId: "disk-root" };
+    const yard = { ...folder("yard", "Yard"), boundFolderId: "disk-yard" };
+    const places = projectPlaces(
+      [quay, yard, folder("legal", "Legal")],
+      [
+        { id: "disk-root", linkedFolderId: "linked", relativePath: "" },
+        { id: "disk-yard", linkedFolderId: "linked", relativePath: "plans/yard" },
+      ],
+      [{ id: "linked", path: "/Users/ada/Quay works" }],
+    );
+    expect(places).toEqual(
+      new Map([
+        ["quay", "/Users/ada/Quay works"],
+        ["yard", "/Users/ada/Quay works/plans/yard"],
+      ]),
+    );
+    expect(
+      projectPlaces(
+        [yard],
+        [{ id: "disk-yard", linkedFolderId: "linked", relativePath: "plans/yard" }],
+        [{ id: "linked", path: "C:\\Users\\ada\\Quay works" }],
+      ).get("yard"),
+    ).toBe("C:\\Users\\ada\\Quay works\\plans\\yard");
+    const rows = agentFolderRows(
+      [quay, folder("legal", "Legal")],
+      [],
+      [],
+      false,
+      () => false,
+      places,
+    );
+    expect(rows.map((row) => [row.id, row.place])).toEqual([
+      ["quay", "/Users/ada/Quay works"],
+      ["legal", null],
+      [NOT_IN_A_FOLDER_ID, null],
+    ]);
   });
 });

@@ -116,7 +116,7 @@ interface DocumentRow {
   status: string;
 }
 const GROUP_COLUMNS =
-  "id, name, description, parent_id AS parentId, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
+  "id, name, description, parent_id AS parentId, counts_own_files, keep_inside, bound_folder_id AS boundFolderId, created_at AS createdAt, updated_at AS updatedAt";
 
 /** A live Folder and every live Folder inside it, at any depth; none for a deleted one. */
 const SUBTREE = `

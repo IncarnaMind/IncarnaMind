@@ -8,6 +8,7 @@ const group = (id: string, name: string): LibraryGroup => ({
   description: "",
   parentId: null,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside: false,
   createdAt: "",
   updatedAt: "",
