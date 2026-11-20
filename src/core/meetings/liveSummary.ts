@@ -1,7 +1,7 @@
 import type { Meeting, MeetingSummary } from "../api";
 import { hashBytes } from "../documents/files";
 import type { Cue } from "../documents/formats/vtt";
-import { InvalidInputError } from "../errors";
+import { InvalidInputError, TranslatableError } from "../errors";
 import { normalizeSummaryEvidence, readMeetingSummaryUpdate } from "./summaryItems";
 import type { MeetingSummaryInput } from "./summaryModel";
 
@@ -60,9 +60,14 @@ export function createLiveSummaries(options: Options) {
     return m.status === "recording" || m.status === "paused";
   }
 
-  function fail(id: string, value: StoredMeetingSummary) {
-    if (value.summary.state !== "failed")
-      options.save(id, { ...value, summary: { ...value.summary, state: "failed" } });
+  function fail(id: string, value: StoredMeetingSummary, problem?: MeetingSummary["problem"]) {
+    const { problem: previous, ...summary } = value.summary;
+    if (summary.state !== "failed" || previous !== problem) {
+      options.save(id, {
+        ...value,
+        summary: { ...summary, state: "failed", ...(problem && { problem }) },
+      });
+    }
   }
 
   function eligible(m: Meeting, route: string) {
@@ -226,7 +231,10 @@ export function createLiveSummaries(options: Options) {
           if (final) armed.delete(m.id);
           failedAt.set(m.id, endMs);
           options.failed(m.id, error);
-          fail(m.id, options.saved(m.id) ?? pending);
+          const tooLong =
+            error instanceof TranslatableError &&
+            error.wording?.key === "error.meeting.codexSummaryTooLong";
+          fail(m.id, options.saved(m.id) ?? pending, tooLong ? "codex-input-limit" : undefined);
         }
       })
       .finally(() => {

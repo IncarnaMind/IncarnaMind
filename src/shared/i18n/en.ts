@@ -8778,6 +8778,8 @@ export const en = {
   "meetings.summary.coverage": "Covers the transcript through {time}",
   "meetings.summary.empty": "No summary was generated.",
   "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
+  "error.meeting.codexSummaryTooLong":
+    "This update exceeds your installed Codex client’s 4,000-byte limit. Retry with a Codex version that supports longer meeting updates.",
   "error.meeting.summaryUnavailable":
     "Check the selected summary AI and its access to this meeting in Settings.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",

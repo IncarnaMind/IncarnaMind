@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import type { CoreAdapters } from "../../src/core/adapters";
+import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
@@ -153,37 +154,48 @@ test("choosing a notes agent alone keeps live and stopped transcription out of b
   }
 });
 
-test("a failed summary waits after restart and retries only when the User asks the same authorized AI", async () => {
-  let online = false;
-  const run = vi.fn(async () => {
-    if (!online) throw new Error("offline");
-    return launchReply("Launch on Monday.", monday, null);
-  });
-  const { dir, core, adapters, meeting, push, summary } = await setup(run);
-  push(2500);
-  await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
-  await core.stopMeeting(meeting.id);
-  await until(core, meeting.id, (m) => m.state === "saved");
-  await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
-  core.close();
-  const count = run.mock.calls.length;
-  const reopened = startCore(dir, adapters);
-  try {
-    await Promise.resolve();
-    expect(run).toHaveBeenCalledTimes(count);
-    online = true;
-    await reopened.retryMeetingSummary(meeting.id);
-    await vi.waitFor(async () =>
-      expect((await reopened.listMeetings())[0]?.summary).toMatchObject({
-        text: "Launch on Monday.",
-        state: "ready",
-      }),
-    );
-    expect(run).toHaveBeenCalledTimes(count + 1);
-  } finally {
-    reopened.close();
-  }
-});
+test.each([
+  { problem: undefined, error: new Error("offline") },
+  {
+    problem: "codex-input-limit",
+    error: new TranslatableError({ key: "error.meeting.codexSummaryTooLong" }),
+  },
+])(
+  "a failed summary ($problem) keeps its reason and retries only when the User asks the same authorized AI",
+  async ({ problem, error }) => {
+    let online = false;
+    const run = vi.fn(async () => {
+      if (!online) throw error;
+      return launchReply("Launch on Monday.", monday, null);
+    });
+    const { dir, core, adapters, meeting, push, summary } = await setup(run);
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (m) => m.state === "saved");
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    core.close();
+    const count = run.mock.calls.length;
+    const reopened = startCore(dir, adapters);
+    try {
+      expect((await reopened.listMeetings())[0]?.summary?.problem).toBe(problem);
+      await Promise.resolve();
+      expect(run).toHaveBeenCalledTimes(count);
+      online = true;
+      await reopened.retryMeetingSummary(meeting.id);
+      await vi.waitFor(async () =>
+        expect((await reopened.listMeetings())[0]?.summary).toMatchObject({
+          text: "Launch on Monday.",
+          state: "ready",
+        }),
+      );
+      expect(run).toHaveBeenCalledTimes(count + 1);
+      expect((await reopened.listMeetings())[0]?.summary?.problem).toBeUndefined();
+    } finally {
+      reopened.close();
+    }
+  },
+);
 
 test("a silent call ends with no summary text and no model request", async () => {
   const run = vi.fn(async () => "unexpected");

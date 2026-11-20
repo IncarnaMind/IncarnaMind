@@ -12007,6 +12007,7 @@ export interface MeetingSummaryItem {
 export interface MeetingSummary {
   text: string;
   items?: MeetingSummaryItem[];
+  problem?: "codex-input-limit";
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
 }

@@ -8275,6 +8275,8 @@ export const zhCN = {
   "meetings.summary.coverage": "涵盖转写稿截至 {time} 的内容",
   "meetings.summary.empty": "未生成摘要。",
   "error.meeting.summaryIncomplete": "AI 未能生成完整的会议摘要。",
+  "error.meeting.codexSummaryTooLong":
+    "本次更新超出了当前 Codex 客户端的 4,000 字节上限。请使用支持较长会议更新的 Codex 版本后重试。",
   "error.meeting.summaryUnavailable": "请在设置中查看所选的摘要 AI，以及它是否有权读取这场会议。",
   "meetings.summary.failed": "无法生成摘要。",
   "meetings.summary.updateFailed": "无法补全摘要。",

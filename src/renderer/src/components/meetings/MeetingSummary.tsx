@@ -132,7 +132,9 @@ export function MeetingSummary({
           }}
         >
           <ProblemMark />
-          {t(text ? "meetings.summary.updateFailed" : "meetings.summary.failed")}
+          {summary.problem === "codex-input-limit"
+            ? t("error.meeting.codexSummaryTooLong")
+            : t(text ? "meetings.summary.updateFailed" : "meetings.summary.failed")}
         </ProblemLine>
       )}
       {(progress || coverage) && (
