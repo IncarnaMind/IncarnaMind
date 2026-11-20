@@ -5,7 +5,8 @@ import { updateYFragment } from "@tiptap/y-tiptap";
 import { DOMParser } from "linkedom";
 import { afterEach, describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { MIND_CONTENT_FIELD } from "../../src/core/api";
+import { MIND_CONTENT_FIELD, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
+import { blockProposal } from "../../src/core/proposals/write";
 import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { checkRows, noteHealth } from "../../src/renderer/src/editor/healthCounts";
 import { MyNotesHistory } from "../../src/renderer/src/editor/myNotes";
@@ -24,6 +25,7 @@ import {
   tabIndexAt,
 } from "../../src/renderer/src/editor/noteTabs";
 import { shownHeadings } from "../../src/renderer/src/editor/outline";
+import { proposalsIn } from "../../src/renderer/src/editor/proposalReview";
 import { editorExtensions } from "../helpers/editor";
 
 function domDocument() {
@@ -72,6 +74,9 @@ const tab = (id: string, title: string): JSONContent => ({
   type: "noteTab",
   attrs: { id, title },
 });
+/** A PNG of one pixel. */
+const PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const cited = (value: string, check: "found" | "not-found"): JSONContent => ({
   type: "paragraph",
   content: [
@@ -84,8 +89,7 @@ const cited = (value: string, check: "found" | "not-found"): JSONContent => ({
  * A Note of these Blocks, as stored, in an editor on a page and bound to it, as the Note's is:
  * nothing to undo yet.
  */
-function noteWith(blocks: JSONContent[]): Editor {
-  const doc = new Y.Doc();
+function noteWith(blocks: JSONContent[], doc = new Y.Doc()): Editor {
   updateYFragment(
     doc,
     doc.getXmlFragment(MIND_CONTENT_FIELD),
@@ -386,5 +390,61 @@ describe("tabs in a Note", () => {
       editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(place))),
     );
     expect(open(editor)).toBe(2);
+  });
+
+  test("a tab an agent proposes keeps its Proposal as the User writes, one change with the Block after it", () => {
+    const doc = new Y.Doc();
+    const proposal = blockProposal({ id: "costs", request: "agent" }, "insert", "");
+    const editor = noteWith(
+      [
+        tab("summary", "Summary"),
+        paragraph("Sailings ran on time."),
+        { type: "noteTab", attrs: { id: "costs", title: "Costs", proposal } },
+        { ...paragraph("Fuel cost more."), attrs: { proposal } },
+      ],
+      doc,
+    );
+    editor.view.dispatch(editor.state.tr.insertText("Most ", 3));
+    const added = doc.getXmlFragment(MIND_CONTENT_FIELD).get(2);
+    expect(added instanceof Y.XmlElement && added.getAttribute(PROPOSAL_ATTRIBUTE)).toEqual(
+      proposal,
+    );
+    // The panel marks it as waiting, and no other.
+    expect(noteTabsOf(editor.state).tabs.map((each) => each.proposal?.id ?? null)).toEqual([
+      null,
+      "costs",
+    ]);
+    const proposals = proposalsIn(editor.state.doc);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toMatchObject({ id: "costs", block: "insert", added: "Fuel cost more." });
+  });
+
+  test("a proposed tab holding only a picture keeps one Proposal on both, which the picture shows", () => {
+    const doc = new Y.Doc();
+    const proposal = blockProposal({ id: "plan", request: "agent" }, "insert", "");
+    const editor = noteWith(
+      [
+        tab("summary", "Summary"),
+        paragraph("Sailings ran on time."),
+        { type: "noteTab", attrs: { id: "plan", title: "Plan", proposal } },
+        { type: "picture", attrs: { src: PIXEL, alt: "Deck plan", proposal } },
+      ],
+      doc,
+    );
+    editor.view.dispatch(editor.state.tr.insertText("Most ", 3));
+    const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+    for (const at of [2, 3]) {
+      const block = blocks.get(at);
+      expect(block instanceof Y.XmlElement && block.getAttribute(PROPOSAL_ATTRIBUTE)).toEqual(
+        proposal,
+      );
+    }
+    const proposals = proposalsIn(editor.state.doc);
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toMatchObject({ id: "plan", block: "insert" });
+    const picture = editor.state.doc.child(3);
+    expect(picture.type.name).toBe("picture");
+    const at = editor.state.doc.content.size - picture.nodeSize;
+    expect(proposals[0]?.ranges.some((range) => range.from <= at && at < range.to)).toBe(true);
   });
 });

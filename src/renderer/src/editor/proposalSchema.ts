@@ -3,6 +3,8 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import {
+  NOTE_BLOCK_TYPES,
+  NOTE_TAB_NODE,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -12,22 +14,14 @@ import { ySyncOf } from "../../../shared/markKeys";
 import { readProposalAttribute, readProposalRef } from "../../../shared/proposals";
 
 /**
- * The node types that can carry a `proposal` attribute: Blocks a Proposal
- * adds or removes whole, and the inline nodes it adds or removes in a text
- * (see `PROPOSAL_ATTRIBUTE`).
+ * The node types that can carry a `proposal` attribute: every Block of a Note, and a tab's start
+ * (#3414), which a Proposal adds or removes whole, with a list item, a comparison table, and the
+ * inline nodes it adds or removes in a text (see `PROPOSAL_ATTRIBUTE`).
  */
 export const PROPOSAL_NODE_TYPES = [
-  "paragraph",
-  "heading",
-  "blockquote",
-  "bulletList",
-  "orderedList",
+  ...NOTE_BLOCK_TYPES,
+  NOTE_TAB_NODE,
   "listItem",
-  "codeBlock",
-  "blockMath",
-  "horizontalRule",
-  "table",
-  "chart",
   "comparisonTable",
   "citation",
   "footnote",
@@ -100,13 +94,17 @@ const HOLDERS: ReadonlySet<string> = new Set([
   "blockquote",
 ]);
 
-/** A Block with no text: an empty paragraph or heading, or a list item or quote of only those. */
+/**
+ * A Block with no text: an empty paragraph or heading, or a list item or quote of only those. A
+ * tab's start holds none, ever: it is decided with the Block after it (#3414).
+ */
 const blank = (node: ProseMirrorNode): boolean =>
-  node.isTextblock
+  node.type.name !== NOTE_TAB_NODE &&
+  (node.isTextblock
     ? node.content.size === 0
     : HOLDERS.has(node.type.name) &&
       node.childCount > 0 &&
-      Array.from({ length: node.childCount }, (_, index) => node.child(index)).every(blank);
+      Array.from({ length: node.childCount }, (_, index) => node.child(index)).every(blank));
 
 /** The User's own edit, not a change that came from the Mind's document. */
 const typedHere = (tr: Transaction) => tr.docChanged && !tr.getMeta(ySyncPluginKey)?.isChangeOrigin;

@@ -19,16 +19,22 @@ export function withTabSections(
     out.push(title);
     rest.splice(opening, 1);
   }
+  // Numbered as the panel numbers them: the Blocks before the first tab Block are tab 1, even
+  // when the title was all they held.
+  let number = opening === 0 ? 1 : 0;
   let sections = 0;
   const section = (name: string) => {
     if (sections > 0) out.push({ kind: "paragraph", content: [{ kind: "pageBreak" }] });
     sections++;
-    out.push(tabHeading(name || untitled(sections)));
+    out.push(tabHeading(name || untitled(number)));
   };
   if (rest[0] && rest[0].kind !== "tab") section("");
   for (const block of rest) {
-    if (block.kind === "tab") section(block.title);
-    else out.push(block);
+    if (block.kind !== "tab") out.push(block);
+    else {
+      number++;
+      section(block.title);
+    }
   }
   return out;
 }
