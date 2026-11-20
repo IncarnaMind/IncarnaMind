@@ -729,8 +729,9 @@ for (const passage of ["1", "P1 (p. 1)"]) {
                     marker: 1,
                     label: "Revenue",
                     formula: "r",
+                    shown: "120",
                     inputs: [
-                      { name: "r", passage, location: "p. 1", quote: "Revenue 120", number: "120" },
+                      { name: "r", passage, location: "p. 1", quote: "Revenue 120", value: 120 },
                     ],
                   },
                 ],
