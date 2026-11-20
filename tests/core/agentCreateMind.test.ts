@@ -252,6 +252,52 @@ describe("a Note an outside agent writes (#3306)", () => {
     expect(await reader.core.listMinds()).toHaveLength(0);
   });
 
+  // protects=text a malformed call ran its own markup into is refused in a plain line, by create_mind and propose_changes alike, and a Note that quotes the markup in code is written (#3476); fails_when=the markup is written into the Note as words, or a quote of it in code is refused
+  it("refuses text that holds the call's own markup, and writes it quoted in code", async () => {
+    const { core, agent } = await paired();
+    const leaked = 'The quay is 40 m long.</markdown>\n<parameter name="folderId">Coast';
+    expect(refusal(await create(agent, { title: "Harbour", markdown: leaked }))).toBe(
+      "markdown holds the markup of the call itself, </markdown>, not words for the note: nothing was written. Send the call again with each argument in its own field.",
+    );
+    expect(await core.listMinds()).toHaveLength(0);
+
+    const quoted = [
+      "A broken call ends with `</markdown>`.",
+      "",
+      "```",
+      '<parameter name="folderId">Coast',
+      "```",
+    ].join("\n");
+    const made = structured<Created>(await create(agent, { title: "Harbour", markdown: quoted }));
+    const client = await connectToMind(core, made.mindId);
+    expect(blocksOf(client).map((block) => block.text)).toContain(
+      "A broken call ends with </markdown>.",
+    );
+
+    const { version } = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
+    );
+    expect(
+      refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: made.mindId,
+            version,
+            changes: [
+              {
+                paragraph: "¶1",
+                text: 'The quay is 42 m long.</parameter>\n<parameter name="version">',
+              },
+            ],
+          },
+        }),
+      ),
+    ).toBe(
+      "text holds the markup of the call itself, </parameter>, not words for the note: nothing was written. Send the call again with each argument in its own field.",
+    );
+  });
+
   it("writes at most so many Notes an hour, and says so in the interface language", async () => {
     const { core, agent, pairing } = await paired({ language: "zh-CN" });
     for (let n = 1; n <= MAX_NOTES_AN_HOUR; n++) {

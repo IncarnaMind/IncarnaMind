@@ -83,6 +83,7 @@ import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
 import { insertBlocks } from "../noteAdding";
+import { callMarkupIn } from "../tools/callMarkup";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -1020,6 +1021,7 @@ function changeText(value: unknown, name: string, t: Say): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new AgentRefusedError("invalid", t("agents.propose.text", { name }));
   }
+  refuseCallMarkup(value, "text", t);
   if (value.length > MAX_CHANGE_CHARS + inlinePictureChars(value)) {
     throw new AgentRefusedError(
       "invalid",
@@ -1027,6 +1029,14 @@ function changeText(value: unknown, name: string, t: Say): string {
     );
   }
   return value.trim();
+}
+
+/** Text that holds the call's own markup is a malformed call's, never words for the Note (#3476). */
+function refuseCallMarkup(value: string, argument: string, t: Say): void {
+  const markup = callMarkupIn(value, argument);
+  if (markup !== null) {
+    throw new AgentRefusedError("invalid", t("agents.problem.callMarkup", { argument, markup }));
+  }
 }
 
 function parseChanges(value: unknown, t: Say): AskedChange[] {
@@ -2554,6 +2564,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           "markdown",
           MAX_DRAFT_CHARS + inlinePictureChars(draft),
         );
+        refuseCallMarkup(title, "title", t);
+        refuseCallMarkup(written, "markdown", t);
         placeToWriteIn(admitted, input?.folderId);
         const visuals = await visualsFor([written]);
         // What the User grants may have changed while the pictures were read.
