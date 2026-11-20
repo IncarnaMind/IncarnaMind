@@ -12,7 +12,7 @@ import { documentTables } from "../analysis/documentTables";
 import { sheetsOf, shownSheetRows } from "../analysis/ranges";
 import type { QuoteCell } from "../api";
 import { type Cell, headerRow, looksLikeFigure } from "../documents/formats/grid";
-import { cellsOf, isRow, isRule, tableAt } from "./checks/figureMeasures";
+import { cellsOf, isRow, isRule, tableAt } from "./checks/textTables";
 
 export type { QuoteCell };
 
