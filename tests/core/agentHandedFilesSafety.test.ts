@@ -10,7 +10,7 @@ import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
-import { claimsOf } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
@@ -387,6 +387,57 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     );
     structured<Handed>(await handOver(agent, { path }));
     expect(sentAfter(calls, changed)).toEqual(new Set([OFFICE, NEVER_CLOSES]));
+  });
+
+  // protects=a result stands on exactly what its check was sent: a deck's cell that Check this Note judged with its slide keeps its result into the next version while its slide is the same, and loses it once anything else on the slide changes (#3455 review); fails_when=a cell judged with its slide is fingerprinted by the Note's lines alone, so its result stays current after its slide changed
+  it("keeps a deck cell's own check while its slide stands, and drops it once the slide changes", async () => {
+    const plans: Record<string, Plan> = {
+      ...PLANS,
+      "42": {
+        verdict: "supported",
+        quote: "The north quay holds 42 boats",
+        says: "Harbour survey says the north quay holds 42 boats.",
+      },
+    };
+    const { core, coast, writer, files } = await started([], { plans });
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    const deck = (title: string, office: readonly string[]) =>
+      plainDeck([
+        {
+          title,
+          table: [
+            ["Berth", "Boats"],
+            ["North quay", "42"],
+          ],
+        },
+        { title: "Office", lines: [...office] },
+      ]);
+    const marks = async (mindId: string | null) => {
+      const client = await connectToMind(core, mindId ?? "");
+      await client.settled();
+      return claimSpans(readMind(client))
+        .filter((span) => span.sentence.text === "42")
+        .map((span) => span.check.state);
+    };
+    await writeFile(path, deck("Moorings", [OFFICE]));
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    await core.checkMind({
+      requestId: crypto.randomUUID(),
+      mindId: first.mindId ?? "",
+      mode: "all",
+    });
+    expect(await marks(first.mindId)).toEqual(["supported"]);
+
+    // Another slide changed: the cell's slide is the same, and its result stands.
+    await writeFile(path, deck("Moorings", [OFFICE, NEVER_CLOSES]));
+    const second = structured<Handed>(await handOver(agent, { path }));
+    expect(await marks(second.mindId)).toEqual(["supported"]);
+
+    // Its own slide's title changed: what it was judged with changed, and its result goes.
+    await writeFile(path, deck("Berths", [OFFICE, NEVER_CLOSES]));
+    const third = structured<Handed>(await handOver(agent, { path }));
+    expect(await marks(third.mindId)).toEqual([]);
   });
 
   // protects=the Note's page reads each result by the one reading the core and the agents use: a row whose column heading the User changed in the window since its check shows Needs re-check on the page, from what the core says the row is judged with now, and the agent's hand-over checks it again (#3455); fails_when=the page keeps showing a result that exports and the agent are told needs a re-check, or the window's editor drops what a result was judged with

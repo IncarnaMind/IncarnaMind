@@ -74,7 +74,14 @@ import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
 import { runChecks } from "./runChecks";
 import { everySentence, markedSentences, markSentence, type SelectedSentence } from "./sentences";
-import { fileCheckLines, judgedWithOf, readingOf, saidOf, slideOf } from "./standing";
+import {
+  fileCheckLines,
+  fingerprintOf,
+  judgedWithOf,
+  readingOf,
+  saidOf,
+  slideOf,
+} from "./standing";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks, slideText } from "./verifySlides";
 import { documentBlocks } from "./verifyTables";
@@ -533,6 +540,7 @@ export function createVerify(options: VerifyOptions) {
         );
         const previous = owners.find((mark) => mark.check.text === sentence.text)?.check.parts;
         const priorParts = owners.length === 1 ? owners[0]?.check.parts : undefined;
+        const said = saidOf(sentence, verification);
         const marked: ClaimCheckAttributes = {
           id: randomUUID(),
           request: requestId,
@@ -553,7 +561,7 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
-          judgedWith: judgedWithOf(sentence, verification),
+          judgedWith: fingerprintOf(said),
         };
         // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
         if (claim.unsorted) {
@@ -577,7 +585,6 @@ export function createVerify(options: VerifyOptions) {
           );
           return [];
         }
-        const said = saidOf(sentence, verification);
         const contextualRow = said.claim !== sentence.text;
         const row =
           sentence.element.parent instanceof Y.XmlElement ? sentence.element.parent.parent : null;

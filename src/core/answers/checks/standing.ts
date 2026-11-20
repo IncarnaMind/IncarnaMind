@@ -77,9 +77,23 @@ export function claimOf(
   return deckSaidOf(sentence, verification) ?? row ?? checkText(sentence);
 }
 
-/** What a line's check is given: its claim, and what stands above it. */
-export const saidOf = (sentence: SelectedSentence, verification: Verification | null) =>
+/**
+ * What a line's check is given: its claim, and what it is read with: a deck's line its slide
+ * (`deckSaidOf`), a table row whole, else the sentence with what stands above it.
+ */
+export const saidOf = (
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): ReturnType<typeof checkText> & { onSlide?: number } =>
+  deckSaidOf(sentence, verification) ??
   claimOf(sentence, verification) ?? { claim: sentence.text, context: sentence.context };
+
+/**
+ * The fingerprint of what a check was given (`ClaimCheckBasis.judgedWith`), made from exactly what
+ * it was sent, so a result stands only while its line would be sent the same.
+ */
+export const fingerprintOf = ({ claim, context }: { claim: string; context: string }): string =>
+  createHash("sha256").update(`${claim}\n\n${context}`).digest("base64url").slice(0, 22);
 
 /** A letter or digit: a line with none states nothing to sort. */
 const WORDS = /[\p{L}\p{N}]/u;
@@ -107,8 +121,7 @@ export function judgedWithOf(
   sentence: SelectedSentence,
   verification: Verification | null,
 ): string {
-  const { claim, context } = saidOf(sentence, verification);
-  return createHash("sha256").update(`${claim}\n\n${context}`).digest("base64url").slice(0, 22);
+  return fingerprintOf(saidOf(sentence, verification));
 }
 
 const verificationIn = (blocks: Y.XmlFragment): Verification | null =>

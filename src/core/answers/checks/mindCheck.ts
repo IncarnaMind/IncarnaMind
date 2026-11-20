@@ -91,7 +91,7 @@ import {
   topLevelBlockId,
   unmarkSourceNames,
 } from "./sentences";
-import { deckSaidOf, judgedWithOf, readingOf } from "./standing";
+import { deckSaidOf, fingerprintOf, readingOf } from "./standing";
 import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
 import { widerRun } from "./widerRun";
@@ -798,7 +798,7 @@ export function createMindCheck(options: MindCheckOptions) {
       // A line of a deck is judged with its slide, as the file's check judges it (#3455).
       const verification = blocks.doc ? verificationOf(blocks.doc) : null;
       const deck = deckSaidOf(sentence, verification);
-      if (deck) mark.judgedWith = judgedWithOf(sentence, verification);
+      if (deck) mark.judgedWith = fingerprintOf(deck);
       const own = checkText(sentence);
       const said = deck ?? row ?? own;
       // A row is asked whole, in words that aren't the sentence's.
