@@ -1243,7 +1243,15 @@ export function createCore(adapters: CoreAdapters): Core {
         events.emit("linkedFolders.changed", list);
         batches.linkedFoldersChanged(list);
       },
-      onFound: (documentId) => batches.found(documentId),
+      onFound: (documentId) => {
+        batches.found(documentId);
+        // A file an agent handed over is that handed file's Document, not a new one (#3499).
+        try {
+          handOver.adopt(documentId);
+        } catch (error) {
+          console.error(`A handed-over file couldn't take the Document ${documentId}.`, error);
+        }
+      },
       onReady: (documentId) => {
         // There is something to search now: the built-in reranking model downloads, if it reranks.
         prepareRerank();
@@ -5784,7 +5792,16 @@ export function createCore(adapters: CoreAdapters): Core {
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
-    setNotCited: (documentId) => void documents.setNotCited(documentId, true),
+    setNotCited: (documentId, notCited) => void documents.setNotCited(documentId, notCited),
+    connectedAt: (pairingId) =>
+      agents.settings().pairings.find((pairing) => pairing.id === pairingId)?.createdAt ?? null,
+    retire: (documentId) => void documents.delete([documentId]),
+    repoint: (mindId, documentId) =>
+      content.edit(mindId, (blocks) => {
+        const settings = blocks.doc?.getMap<unknown>(MIND_SETTINGS_FIELD);
+        const now = settings && readVerification(settings);
+        if (settings && now) writeVerification(settings, { ...now, documentId });
+      }),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
@@ -5811,6 +5828,11 @@ export function createCore(adapters: CoreAdapters): Core {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     log: adapters.log ?? silentLogger,
   });
+  try {
+    handOver.adoptKept();
+  } catch (error) {
+    console.error("Handed-over files couldn't take their Linked folders' Documents.", error);
+  }
 
   /** The words of a Block, as its text reads without marks. */
   const textOfBlock = (element: Y.XmlElement): string =>

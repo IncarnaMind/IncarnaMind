@@ -54,8 +54,14 @@ export interface HandOverDeps {
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
   contentHashInUse(contentHash: string, exceptDocumentId: string | null): boolean;
-  /** Someone else's file, checked: never the evidence for its own claims. */
-  setNotCited(documentId: string): void;
+  /** Someone else's file, checked: never the evidence for its own claims, until the User cites it. */
+  setNotCited(documentId: string, notCited: boolean): void;
+  /** When the agent of this pairing was first connected; null once its pairing is gone. */
+  connectedAt(pairingId: string): string | null;
+  /** Takes a Document out of the Library, as the User's Delete does: kept 30 days, then purged. */
+  retire(documentId: string): void;
+  /** Points a version's check at the Document that holds the file now. */
+  repoint(mindId: string, documentId: string): void;
   rename(documentId: string, name: string): void;
   assign(documentId: string, folderId: string): void;
   verify(input: {
@@ -259,7 +265,13 @@ export function createHandOver(deps: HandOverDeps) {
       documentId = deps.placeOf(input.place).documentId;
     }
     if (documentId === null) return null;
-    if (agentMadeIt(deps.document(documentId), input.connectedAt)) deps.setNotCited(documentId);
+    // Set once, as the Document first becomes a handed file's: what the User chose since stands.
+    if (
+      store.holding(documentId).length === 0 &&
+      agentMadeIt(deps.document(documentId), input.connectedAt)
+    ) {
+      deps.setNotCited(documentId, true);
+    }
     store.setDocument(file.id, documentId);
     return documentId;
   }
@@ -292,7 +304,7 @@ export function createHandOver(deps: HandOverDeps) {
       const written = await writeWholeFile(path, input.bytes, deps.now());
       const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
       documentId = document.id;
-      deps.setNotCited(documentId);
+      deps.setNotCited(documentId, true);
       if (file.folderId !== null) deps.assign(documentId, file.folderId);
       store.setDocument(file.id, documentId);
     } else if (deps.document(documentId).contentHash !== contentHash) {
@@ -350,6 +362,7 @@ export function createHandOver(deps: HandOverDeps) {
     const place = deps.placeOf(input.place);
     // A file in a Linked folder is known by its Document there too, which follows it when renamed.
     const known =
+      store.atPath(input.pairingId, input.place) ??
       store.atPath(input.pairingId, input.path) ??
       (place.documentId === null ? null : store.ofDocument(input.pairingId, place.documentId));
     const newest = known ? store.versions(known.id).at(-1) : undefined;
@@ -366,7 +379,7 @@ export function createHandOver(deps: HandOverDeps) {
       store.create({
         title: input.title,
         kind: input.kind,
-        path: input.path,
+        path: input.place,
         folderId: input.folderId,
         pairingId: input.pairingId,
         agent: input.agent,
@@ -413,6 +426,51 @@ export function createHandOver(deps: HandOverDeps) {
   };
 
   return {
+    /**
+     * A file a Linked folder's scan has just found, which an agent handed over (#3499): at the path
+     * a live handed file was handed from, holding exactly the bytes of one of its versions. It is that
+     * handed file's Document, not another: the handed file takes it, Not cited as its copy was left
+     * by the User, or, with none, as `agentMadeIt` says; the copy is taken out of the Library and the
+     * checks of its versions point at the folder's Document. A file edited since it was handed over
+     * holds bytes no version has: an ordinary Document, since nothing says who changed it.
+     */
+    adopt(documentId: string): void {
+      const found = deps.document(documentId);
+      if (found.linkedFolderId === null) return;
+      const file = store
+        .handedFrom(found.path)
+        .find((each) =>
+          store.versions(each.id).some((version) => version.contentHash === found.contentHash),
+        );
+      if (!file || file.documentId === documentId) return;
+      const before = liveDocumentOf(file);
+      if (before !== null) {
+        deps.setNotCited(documentId, deps.document(before).notCited);
+        deps.retire(before);
+      } else {
+        const connectedAt = deps.connectedAt(file.pairingId);
+        if (connectedAt !== null && agentMadeIt(found, connectedAt)) {
+          deps.setNotCited(documentId, true);
+        }
+      }
+      store.setDocument(file.id, documentId);
+      for (const version of store.versions(file.id)) {
+        if (version.mindId !== null) deps.repoint(version.mindId, documentId);
+      }
+      deps.notesChanged();
+    },
+
+    /**
+     * Each handed file whose folder's Document the Library holds already beside a copy, as a scan
+     * before #3499 left them: adopted as `adopt` does a file it has just found. Run at start.
+     */
+    adoptKept(): void {
+      for (const file of store.list()) {
+        const { documentId } = deps.placeOf(file.path);
+        if (documentId !== null && documentId !== file.documentId) this.adopt(documentId);
+      }
+    },
+
     handOver(input: HandOverInput): Promise<HandOverDone> {
       const next = queue.then(() => handOverNow(input));
       queue = next.catch(() => undefined);

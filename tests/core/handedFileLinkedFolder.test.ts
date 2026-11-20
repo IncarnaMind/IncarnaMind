@@ -230,6 +230,135 @@ describe("a file an agent hands over from a Linked folder", () => {
   });
 });
 
+describe("the User's choice, and a scan that meets a handed file", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=Not cited is set once, when a handed copy first takes its Document: the User citing it stands through the next version (#3492, #3499); fails_when=a version handed over after the User cited the file makes it Not cited again
+  it("a copy outside any Linked folder: the User's citing stands through the next version", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Quay review.pptx");
+    await writeFile(path, deck());
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const [copy] = (await quay(core)).documents;
+    if (!copy) throw new Error("No Document holds the deck.");
+    expect(copy.notCited).toBe(true);
+    await core.setNotCited(copy.id, false);
+
+    await writeFile(path, deck([EAST, WEST]));
+    expect(structured<Handed>(await handOver(agent, { path }))).toMatchObject({ version: 2 });
+    const { documents, searched } = await quay(core);
+    expect(documents.map((each) => [each.id, each.notCited])).toEqual([[copy.id, false]]);
+    expect(searched).toBe(true);
+  });
+
+  // protects=in a Linked folder too, the User citing the handed file stands through its next version and through another agent handing the same file over (#3499); fails_when=an agent's hand-over undoes the User's choice
+  it("in a Linked folder: the User's citing stands through a new version and another agent", async () => {
+    const { core, coast, agent, path } = await linked();
+    await writeFile(path, deck());
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const [document] = (await quay(core)).documents;
+    if (!document) throw new Error("No Document holds the deck.");
+    await core.setNotCited(document.id, false);
+
+    await writeFile(path, deck([EAST, WEST]));
+    structured<Handed>(await handOver(agent, { path }));
+    const other = await core.connectAgent({
+      name: "Cursor",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    await writeFile(path, deck([WEST, EAST]));
+    structured<Handed>(
+      await handOver(await connectLegacyAgent(other.launch), { path, folderId: coast.id }),
+    );
+    const { documents, searched } = await quay(core);
+    expect(documents.map((each) => [each.id, each.notCited])).toEqual([[document.id, false]]);
+    expect(searched).toBe(true);
+  });
+
+  // protects=a file handed over from a folder the User links later is that handed file's Document when the scan finds it: one Document, Not cited as its copy was, the copy gone and its check pointed at the folder's Document (#3499); fails_when=the scan makes an ordinary Document beside the copy
+  it("a folder linked after the hand-over: the scan's Document is the handed file's, and the copy goes", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Quay review.pptx");
+    await writeFile(path, deck());
+    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const [copy] = (await quay(core)).documents;
+
+    const folder = await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    const { documents, searched } = await quay(core);
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({ linkedFolderId: folder.id, notCited: true });
+    expect(documents[0]?.id).not.toBe(copy?.id);
+    expect(searched).toBe(false);
+    const kept = await core.handedFileOf(handed.mindId ?? "");
+    expect(kept?.file.documentId).toBe(documents[0]?.id);
+    expect(kept?.versions.map((each) => each.mindId)).toEqual([handed.mindId]);
+  });
+
+  // protects=a file handed over while its Linked folder is paused is a copy; once resumed, the scan's Document is the handed file's (#3499)
+  it("a paused folder resumed: the scan's Document is the handed file's", async () => {
+    const { core, coast, agent, path, folder } = await linked();
+    await core.setLinkedFolderPaused(folder.id, true);
+    await writeFile(path, deck());
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    expect((await quay(core)).documents[0]?.linkedFolderId).toBeNull();
+
+    await core.setLinkedFolderPaused(folder.id, false);
+    await core.reconcileDocuments();
+    const { documents, searched } = await quay(core);
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({ linkedFolderId: folder.id, notCited: true });
+    expect(searched).toBe(false);
+  });
+
+  // protects=a file edited since it was handed over holds bytes no version has: the scan makes an ordinary Document of it, since nothing says who changed it (#3499)
+  it("edited since it was handed over: an ordinary Document beside the copy", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Quay review.pptx");
+    await writeFile(path, deck());
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    await writeFile(path, deck([EAST, WEST]));
+    await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    const { documents } = await quay(core);
+    expect(documents.map((each) => [each.linkedFolderId !== null, each.notCited]).sort()).toEqual([
+      [false, true],
+      [true, false],
+    ]);
+  });
+
+  // protects=a copy the Library kept beside the folder's Document before #3499 is joined at the next start, when the folder's file holds a version the agent handed over (#3499)
+  it("a copy kept beside the folder's Document from before: joined at the next start", async () => {
+    const { core, coast, writer, files, restart } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Quay review.pptx");
+    await writeFile(path, deck());
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    // The folder's Document made from other bytes, then given the handed ones: no scan finds it new.
+    await writeFile(path, deck([EAST, WEST]));
+    await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    await quay(core);
+    await writeFile(path, deck());
+    await core.reconcileDocuments();
+    expect((await quay(core)).documents).toHaveLength(2);
+
+    const again = await restart();
+    const { documents, searched } = await quay(again);
+    expect(documents).toHaveLength(1);
+    expect(documents[0]?.linkedFolderId).not.toBeNull();
+    expect(documents[0]?.notCited).toBe(true);
+    expect(searched).toBe(false);
+    again.close();
+  });
+});
+
 describe("whether a file in a Linked folder is the agent's (#3499)", () => {
   const connectedAt = "2026-11-20T10:00:00.000Z";
   // protects=the agent's word stands unless a recorded fact says the User had the file first: the Library held it before the connection, or it was last modified before then; a file whose modified time isn't known is the agent's

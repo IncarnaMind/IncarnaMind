@@ -12,7 +12,11 @@ import type { Database } from "../storage";
 /** A handed-over file with the pairing that handed it, by which one in no Folder is reached. */
 export interface StoredHandedFile extends HandedFile {
   pairingId: string;
-  /** The path the agent named, by which it hands the same file over again. */
+  /**
+   * The path it was handed over from: where the file is, links in its folders followed (#3499); an
+   * item handed over before then keeps the path the agent named. It hands the same file over again
+   * by it, and a Linked folder's scan knows the file by it.
+   */
   path: string;
 }
 
@@ -135,6 +139,16 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
       );
       return row ? toFile(row) : null;
     },
+
+    /** The live items whose Document is `documentId`. */
+    holding: (documentId: string): StoredHandedFile[] =>
+      db
+        .all<FileRow>(`SELECT ${LIVE} AND f.document_id = ? ORDER BY f.created_at`, [documentId])
+        .map(toFile),
+
+    /** The live items handed over from `path`, by any agent, the oldest first. */
+    handedFrom: (path: string): StoredHandedFile[] =>
+      db.all<FileRow>(`SELECT ${LIVE} AND f.path = ? ORDER BY f.created_at`, [path]).map(toFile),
 
     versions,
 
