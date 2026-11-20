@@ -93,6 +93,12 @@ export interface CellResult {
   problem: CellProblem | null;
   /** The cells with problems it depends on, itself included, the first few. */
   dependsOn: Dependence[];
+  /**
+   * The problem of a cell along its chain that no value was worked out for, whose saved value stood
+   * in: a cell after it that the file saved no result for shows nothing (#3412). None when every
+   * cell it reads was worked out.
+   */
+  restsOn?: CellProblem;
 }
 
 /** Places as one number: the sheet's place in the workbook, then `cellIndex`. */
@@ -656,6 +662,11 @@ export interface RunOptions {
   changes?: ReadonlyMap<number, Scalar>;
   /** Cells a first run found differing from their saved values: their saved values stand. */
   untrusted?: ReadonlyMap<number, CellProblem>;
+  /**
+   * A cell whose saved value differs gives the cells that read it the value worked out, so each of
+   * them is compared on its own formula, not on the wrong value before it (#3412).
+   */
+  fromWorked?: boolean;
   signal?: AbortSignal;
 }
 
@@ -674,7 +685,12 @@ export async function recalculate(
   const { order, circular, tooMany } = await closure(engine, targets, pace);
   if (tooMany) return { results: new Map(), order: [], stopped: false, tooMany, ms: pace.ms };
   const results = new Map<number, CellResult>();
-  let current: { dependsOn: Dependence[]; seen: Set<string>; unread?: CellProblem } = {
+  let current: {
+    dependsOn: Dependence[];
+    seen: Set<string>;
+    unread?: CellProblem;
+    restsOn?: CellProblem;
+  } = {
     dependsOn: [],
     seen: new Set(),
   };
@@ -684,7 +700,13 @@ export async function recalculate(
   };
   const blockCache = new Map<
     string,
-    { matrix?: Matrix; filled?: PlacedValue[]; dependsOn: Dependence[]; unread?: CellProblem }
+    {
+      matrix?: Matrix;
+      filled?: PlacedValue[];
+      dependsOn: Dependence[];
+      unread?: CellProblem;
+      restsOn?: CellProblem;
+    }
   >();
 
   const read = (sheetName: string, row: number, column: number): Scalar | null => {
@@ -729,6 +751,12 @@ export async function recalculate(
     }
     for (const dependence of result.dependsOn)
       addDependence(current.dependsOn, current.seen, dependence);
+    // Nothing stands for a formula worked out here that the file saved no value for (#3412).
+    if (result.worked === undefined && cell.unsaved)
+      current.unread ??= result.problem ?? { kind: "no-saved-value" };
+    const rests =
+      result.worked === undefined ? (result.problem ?? { kind: "no-saved-value" }) : result.restsOn;
+    if (rests) current.restsOn ??= rests;
     return result.value;
   };
 
@@ -749,9 +777,11 @@ export async function recalculate(
         if (!entry.dependsOn.some((each) => each === dependence)) entry.dependsOn.push(dependence);
       }
       if (current.unread) entry.unread = current.unread;
+      if (current.restsOn) entry.restsOn = current.restsOn;
       current = outer;
     }
     if (entry.unread) current.unread ??= entry.unread;
+    if (entry.restsOn) current.restsOn ??= entry.restsOn;
     for (const dependence of entry.dependsOn)
       addDependence(current.dependsOn, current.seen, dependence);
     return entry;
@@ -805,6 +835,14 @@ export async function recalculate(
       done.push(key);
       continue;
     }
+    // Nor for one the file saved no value for after a cell no value was worked out for, though a
+    // saved value stood in between: its chain couldn't be worked out (#3412).
+    const { restsOn } = current;
+    if (restsOn && !options.changes && cell.unsaved) {
+      results.set(key, own(restsOn));
+      done.push(key);
+      continue;
+    }
     const untrusted = options.untrusted?.get(key);
     if (untrusted) {
       addDependence(current.dependsOn, current.seen, {
@@ -818,6 +856,7 @@ export async function recalculate(
         worked,
         problem: untrusted,
         dependsOn: current.dependsOn,
+        ...(restsOn && { restsOn }),
       });
     } else if (!options.changes && cell.unsaved) {
       addDependence(current.dependsOn, current.seen, {
@@ -835,9 +874,21 @@ export async function recalculate(
     } else if (!options.changes && !sameValue(worked, cell.saved)) {
       const problem: CellProblem = { kind: "differs", saved: cell.saved, worked };
       addDependence(current.dependsOn, current.seen, { sheet: sheet.name, row, column, problem });
-      results.set(key, { value: cell.saved, worked, problem, dependsOn: current.dependsOn });
+      results.set(key, {
+        value: options.fromWorked ? worked : cell.saved,
+        worked,
+        problem,
+        dependsOn: current.dependsOn,
+        ...(restsOn && { restsOn }),
+      });
     } else {
-      results.set(key, { value: worked, worked, problem: null, dependsOn: current.dependsOn });
+      results.set(key, {
+        value: worked,
+        worked,
+        problem: null,
+        dependsOn: current.dependsOn,
+        ...(restsOn && { restsOn }),
+      });
     }
     done.push(key);
   }

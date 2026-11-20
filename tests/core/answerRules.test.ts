@@ -11,6 +11,7 @@ import { describe, expect, test } from "vitest";
 import { createCitationSession } from "../../src/core/answers/citations";
 import {
   bracketedAmountsNote,
+  CITE_RETRY_INSTRUCTIONS,
   datedDocumentsNote,
   documentInstructions,
   fileDatesNote,
@@ -35,6 +36,10 @@ interface Seen {
   system: string[];
   results: string[];
 }
+
+/** The instructions the Answer was written with: the one request for its Citations comes after it. */
+const answeredWith = (seen: Seen) =>
+  seen.system.filter((system) => !system.startsWith(CITE_RETRY_INSTRUCTIONS)).at(-1) ?? "";
 
 /** A model that calls Tools: it searches once, then answers. */
 function searchingModel(seen: Seen) {
@@ -126,7 +131,7 @@ describe("The Passages handed to the model", { timeout: 30_000 }, () => {
     const { finished } = await askAndFinish(core, client, mind.id, QUESTION);
 
     expect(finished.citationSupport).toBe(support);
-    expect(datesIn(seen.system.at(-1) ?? "")).toEqual(EXPECTED_DATES);
+    expect(datesIn(answeredWith(seen))).toEqual(EXPECTED_DATES);
   });
 
   test("carry no date when none is known", async () => {
@@ -407,6 +412,6 @@ describe("The note on Documents of different dates (#660)", { timeout: 30_000 },
 
     await askAndFinish(core, client, mind.id, QUESTION);
 
-    expect(seen.system.at(-1)).toContain(`${NOTE} "Outage memo" (2025)`);
+    expect(answeredWith(seen)).toContain(`${NOTE} "Outage memo" (2025)`);
   });
 });

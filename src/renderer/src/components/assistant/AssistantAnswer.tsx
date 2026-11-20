@@ -183,6 +183,7 @@ function AnswerArticle({
             regenerate={regenerate}
             judged={answer}
             onOpenTable={(table) => keeping.openTable(answer, table)}
+            uncited={answer.steps?.uncitedChecks}
           />
         </ConversationIdContext.Provider>
       )}

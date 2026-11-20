@@ -8574,10 +8574,18 @@ export interface VerifyDocumentInput {
   path: string;
   /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
-  /** A workbook's sheet to check, by its name (#3278); without it the sheets are listed (`choose-sheet`). */
+  /**
+   * A workbook's sheet to check, by its name (#3278); without it, or `allSheets`, the sheets are
+   * listed (`choose-sheet`).
+   */
   sheet?: string;
   /** A range of that sheet, "B2:M40"; the whole sheet when left out. */
   range?: string;
+  /**
+   * Every sheet of a workbook in one Note (#3412), in place of `sheet` and `range`. The most
+   * typed-in numbers one check reads counts every sheet's together (`too-many`).
+   */
+  allSheets?: boolean;
 }
 
 /** What a workbook's sheet holds, for choosing what to check (#3278). */
@@ -8745,6 +8753,20 @@ export interface AnswerReasoning extends AnswerPlace {
  * How an Answer in a conversation was reached, beside its Tool calls and
  * Citations (#391). Times are ISO 8601, UTC.
  */
+/**
+ * A sentence of an Answer in the assistant that its model didn't cite, which the Answer's own
+ * judgement found the Passages it read don't back (#3410): it is marked where it stands.
+ */
+export interface UncitedCheck {
+  /** The sentence's words, without its Markdown. */
+  sentence: string;
+  check: "unsupported" | "contradicted";
+  /** What the Passages say about it, in one plain sentence. */
+  verdict: string | null;
+  /** When it was judged (ISO 8601). */
+  judgedAt: string;
+}
+
 export interface AnswerSteps {
   /** When its Question went to the model; null when none did (its Search scope had no Documents). */
   sentAt: string | null;
@@ -8765,10 +8787,20 @@ export interface AnswerSteps {
    */
   readShare?: number;
   /**
-   * How many of its Citations were added after it was written, for sentences
-   * it wrote without markers that match the Passages it read (#760).
+   * How many of its Citations were added after it was written, by the one request for those its
+   * model left out (#760).
    */
   citedAfterChecking?: number;
+  /**
+   * The Passages it read, by id (#3410): what its judgement reads a sentence its model left
+   * uncited against. Absent: it read none, or it was written before this was kept.
+   */
+  readPassages?: string[];
+  /**
+   * Its sentences with no Citation that its judgement found the Passages it read don't back
+   * (#3410), once that judgement has ended: empty when it marked none. Absent: none was judged.
+   */
+  uncitedChecks?: UncitedCheck[];
   /**
    * The model was asked once for the Citations its reply left out, and none came of it that
    * could be checked (#1415). Absent: it wasn't asked, or Citations came of it.
@@ -12319,6 +12351,8 @@ export type TranscriptionModelStatus = EmbeddingModelStatus;
 export interface MeetingSpeakerReviewQuote {
   /** Present for an on-device room review, zero when its files are installed. */
   roomDownloadBytes?: number;
+  /** Me and four other labels. Pick the User's other label for this review only. */
+  selfMatch?: { labels: string[]; revision: string };
   available: boolean;
   reason:
     | "audio"
@@ -15108,6 +15142,7 @@ export interface CoreApi {
     meetingId: string;
     confirmed: true;
     onDevice?: true;
+    selfMatch?: { label: string; revision: string };
     /** View a previous review without authorizing another upload. */
     reuseOnly?: true;
   }): Promise<MeetingSpeakerReviewResult>;

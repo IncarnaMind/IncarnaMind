@@ -431,6 +431,13 @@ export function VerifyCard({
             ...(look > 0
               ? [t(look === 1 ? "verify.needLook.one" : "verify.needLook", { count: format(look) })]
               : []),
+            ...(verification.pictures
+              ? [
+                  t(verification.pictures === 1 ? "verify.pictures.one" : "verify.pictures", {
+                    count: format(verification.pictures),
+                  }),
+                ]
+              : []),
             ...(stopped ? runStopParts(stopped, t, language) : []),
           ];
     const summaryLine = (

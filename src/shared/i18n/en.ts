@@ -1824,6 +1824,7 @@ export const en = {
   "verify.workbook.note":
     "Choose the sheet to check. Each typed-in number is looked for in your Documents, and each formula is worked out again.",
   "verify.workbook.sheet": "Sheet",
+  "verify.workbook.allSheets": "All sheets",
   "verify.workbook.typed.one": "1 typed-in number",
   "verify.workbook.typed": "{count} typed-in numbers",
   "verify.workbook.formulas.one": "1 formula",
@@ -1840,6 +1841,8 @@ export const en = {
   "verify.formulas.noneDiffer": "none differ",
   "verify.formulas.differ.one": "1 saved result differs",
   "verify.formulas.differ": "{count} saved results differ",
+  "verify.formulas.unsaved.one": "1 with no saved result to compare",
+  "verify.formulas.unsaved": "{count} with no saved result to compare",
   "verify.formulas.unchecked.one": "1 can’t be worked out here",
   "verify.formulas.unchecked": "{count} can’t be worked out here",
   "verify.formulas.cell": "{cell}: saved {saved}, worked out {worked}",
@@ -1870,6 +1873,8 @@ export const en = {
   "verify.row.supported": "{count} supported",
   "verify.checkedOf.one": "Checked {checked} of 1 claim",
   "verify.checkedOf": "Checked {checked} of {count} claims",
+  "verify.pictures.one": "1 picture not read",
+  "verify.pictures": "{count} pictures not read",
   "verify.needLook.one": "1 needs a look",
   "verify.needLook": "{count} need a look",
   "verify.notChecked": "{count} not checked",
@@ -2079,6 +2084,7 @@ export const en = {
   "proposal.madeBy": "{author}, {date}",
   // An outside agent's change waiting in a Note (#352), named after its pairing.
   "proposal.proposedBy": "Proposed by {agent}",
+  "proposal.removedBlock": "Removed",
   "proposal.uncited.one": "1 sentence with no Citation",
   "proposal.uncited": "{count} sentences with no Citation",
   "proposal.uncited.next": "Select the next sentence with no Citation",
@@ -4899,6 +4905,9 @@ export const en = {
   "citation.picture.unsure.other": "Read from a picture · {count} words may be misread",
   "citation.scan.unsureWord": "May be misread: check it on the page",
   "citation.scan.picture": "The page this scan’s text was read from: {document}",
+  "uncitedCheck.label": "{heading}. {why}",
+  "uncitedCheck.why":
+    "This sentence has no Citation, and the passages this Answer read don’t back it.",
   "uncheckedFigure.heading": "Not checked",
   "uncheckedFigure.mark": "Not checked: a word a scan may have misread",
   "uncheckedFigure.why":
@@ -7645,6 +7654,11 @@ export const en = {
     "Check up to four people on this device using NVIDIA Sortformer. Your recording stays on this computer. Listen to each suggestion and choose which to apply.",
   "meetings.review.roomDownload": "Download about {mb} MB",
   "meetings.review.roomInstall": "Download and check speakers",
+  "meetings.review.namedLabel": "{name} ({label})",
+  "meetings.review.selfLabel": "Which speaker are you?",
+  "meetings.review.chooseSelfLabel": "Choose your other label",
+  "meetings.review.selfHelp":
+    "This choice applies only to this review. If you are a fifth speaker, this check is unavailable.",
   "meetings.review.roomCheck": "Check speakers on this device",
   "meetings.review.unavailable.platform":
     "On-device room speaker review is unavailable on this computer.",
@@ -8544,6 +8558,7 @@ export const en = {
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.visualAdded":
     "{name} is rewritten in words alone: a picture, a chart or a tab goes in a paragraph of its own. Add it with {name}+.",
+  "agents.propose.visualKept": "{name} is kept as it is. {line}",
   "agents.propose.emptyTab":
     "In {name}, a tab holds nothing: write what it holds after its ```tab block, so the User sees it to decide on.",
   "agents.propose.unplaced":
@@ -8559,6 +8574,10 @@ export const en = {
     "1 sentence of the note holds no check result now: check it before you finish, with check_mind_yourself, which gives only that one.",
   "agents.propose.unchecked":
     "{count} sentences of the note hold no check result now: check them before you finish, with check_mind_yourself, which gives only those.",
+  "agents.read.unchecked.one":
+    "1 sentence of this note holds no check result yet: to tell the User whether it is right, check it with check_mind_yourself, which gives it.",
+  "agents.read.unchecked":
+    "{count} sentences of this note hold no check result yet: to tell the User whether they are right, check them with check_mind_yourself, which gives them.",
   "agents.mind.namedChoice": "named must be true or false.",
   // Settings → Agents (#351): plain words for people who never edit a settings file.
   "settings.pages.agents": "Agents",

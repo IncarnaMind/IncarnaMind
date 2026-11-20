@@ -1,20 +1,21 @@
 /**
- * Verify a workbook someone else built (#3278): the User picks a sheet, or a range of it, and it
- * becomes a Note of one table, each row a claim on its typed-in numbers, each formula worked out
- * again and the saved results that differ kept with the Note. Which cell is typed in and which a
- * formula comes from the file's structure.
+ * Verify a workbook someone else built (#3278): the User picks a sheet, or a range of it, or every
+ * sheet (#3412), and it becomes a Note of tables, each row with a typed-in number a claim on what
+ * it shows, each formula worked out again and the saved results that differ kept with the Note.
+ * Which cell is typed in and which a formula comes from the file's structure.
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { Core } from "../../src/core";
 import { verificationOf } from "../../src/shared/verification";
-import { checkGenerate, checkReply, listedSentences } from "../helpers/checks";
+import { checkGenerate, checkReply, listedSentences, type Plan } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
+import { xlsxPackage } from "../helpers/office";
 
 /** A plan with two years of typed-in costs, each total a formula, and one total whose saved result is wrong. */
 function planWorkbook(): WorkbookBuilder {
@@ -40,12 +41,13 @@ function planWorkbook(): WorkbookBuilder {
 const RENT = "Rent — 2026: 14000; 2027: 14000";
 const SALARIES = "Salaries — 2026: 41500; 2027: 43000";
 
-async function setUp() {
+async function setUp(
+  plans: Record<string, Plan> = {
+    [RENT]: { verdict: "supported" },
+    [SALARIES]: { verdict: "supported" },
+  },
+) {
   const sorted: string[][] = [];
-  const plans = {
-    [RENT]: { verdict: "supported" as const },
-    [SALARIES]: { verdict: "supported" as const },
-  };
   const answer = checkGenerate(plans);
   const model = scriptedModel((call: ModelCall) => checkReply(call, plans), {
     generate: (call) => {
@@ -208,5 +210,222 @@ describe("Verify a workbook", () => {
       ok: false,
       reason: "no-text",
     });
+  });
+
+  // protects=a workbook a program wrote, which saves no formula results, still has its formulas worked out and shown (#3412); fails_when=a formula with no saved result is counted unchecked or left blank, or a cell after one that can't be worked out shows a guess
+  test("a formula the file saved no result for is worked out and shown; one that can't be worked out, and a cell after it, say so and show nothing", async () => {
+    const { core, sources } = await setUp();
+    const book = new WorkbookBuilder();
+    book
+      .sheet("Model")
+      .text("A1", "Item")
+      .text("B1", "Value")
+      .text("A2", "Tonnes")
+      .number("B2", 3450)
+      .text("A3", "Price")
+      .number("B3", 700)
+      .text("A4", "Cost")
+      .formula("B4", "B2*B3", null)
+      .text("A5", "Looked up")
+      .formula("B5", "NOSUCHFUNCTION(B2)", null)
+      .text("A6", "Twice that")
+      .formula("B6", "B5*2", null);
+    const path = await writeSourceFile(sources, "Model.xlsx", book.xlsx({ withoutResults: true }));
+
+    const result = await core.verifyDocument({ path, sheet: "Model" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client, blocks } = await tableOf(core, result.mind.id);
+
+    const rows = blocks[1]?.content ?? [];
+    expect(
+      rows.map((row) => row.content?.map((cell) => cell.content?.[0]?.content?.[0]?.text ?? "")),
+    ).toEqual([
+      ["Item", "Value"],
+      ["Tonnes", "3450"],
+      ["Price", "700"],
+      ["Cost", "2415000"],
+      ["Looked up", ""],
+      ["Twice that", ""],
+    ]);
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({
+      checked: 0,
+      unsaved: 1,
+      unchecked: 2,
+      differs: [],
+    });
+  });
+
+  // protects=a cell with no saved result after a formula that can't be worked out shows nothing though a cell between them has a saved result (#3412); fails_when=the saved value in between stands in, and the last cell shows a figure and counts as worked out though its chain couldn't be
+  test("a cell after a formula that can't be worked out shows nothing, though a cell between them saved a result", async () => {
+    const { core, sources } = await setUp();
+    const book = new WorkbookBuilder();
+    book
+      .sheet("Model")
+      .text("A1", "Item")
+      .text("B1", "Value")
+      .text("A2", "Tonnes")
+      .number("B2", 3450)
+      .text("A3", "Looked up")
+      .formula("B3", "NOSUCHFUNCTION(B2)", null)
+      .text("A4", "Plus one")
+      .formula("B4", "B3+1", 10)
+      .text("A5", "Plus two")
+      .formula("B5", "B4+1", null);
+    const path = await writeSourceFile(sources, "Chain.xlsx", book.xlsx());
+
+    const result = await core.verifyDocument({ path, sheet: "Model" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client, blocks } = await tableOf(core, result.mind.id);
+
+    const rows = blocks[1]?.content ?? [];
+    expect(
+      rows.map((row) => row.content?.map((cell) => cell.content?.[0]?.content?.[0]?.text ?? "")),
+    ).toEqual([
+      ["Item", "Value"],
+      ["Tonnes", "3450"],
+      ["Looked up", ""],
+      ["Plus one", "10"],
+      ["Plus two", ""],
+    ]);
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({
+      checked: 0,
+      unsaved: 0,
+      unchecked: 3,
+      differs: [],
+    });
+  });
+
+  // protects=a cell after a formula whose saved result is wrong is compared on its own formula (#3412); fails_when=it is worked from the wrong saved value, and a right cell is flagged as differing
+  test("a cell after a formula whose saved result differs is worked from the value worked out, and only the wrong one is flagged", async () => {
+    const { core, sources } = await setUp();
+    const book = new WorkbookBuilder();
+    book
+      .sheet("Budget")
+      .text("A1", "Line")
+      .text("B1", "Value")
+      .text("A2", "Tonnes")
+      .number("B2", 3450)
+      .text("A3", "Price")
+      .number("B3", 700)
+      .text("A4", "Cost")
+      .formula("B4", "B2*B3", 2451000)
+      .text("A5", "Discount")
+      .number("B5", 0)
+      .text("A6", "After discount")
+      .formula("B6", "B4-B5", 2415000);
+    const path = await writeSourceFile(sources, "Budget 2026.xlsx", book.xlsx());
+
+    const result = await core.verifyDocument({ path, sheet: "Budget" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client } = await tableOf(core, result.mind.id);
+
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({
+      checked: 2,
+      differs: [{ cell: "B4", saved: "2451000", worked: "2415000" }],
+    });
+  });
+
+  // protects=no mark sits beside a figure the check never judged (#3412): a row of a formula's result and a note is no claim, and a row with typed-in numbers is judged with its formula's result; fails_when=a row is judged on its words with its formula's result left out, and its mark is shown beside that result
+  test("a row whose number is a formula's result is no claim, even with a note beside it; a row with typed-in numbers is judged with its total", async () => {
+    const ROW = "Rent — 2026: 14000; 2027: 14000; Total: 28000";
+    const { core, sorted, sources } = await setUp({ [ROW]: { verdict: "supported" } });
+    const book = new WorkbookBuilder();
+    book
+      .sheet("Plan")
+      .text("A1", "Item")
+      .text("B1", "2026")
+      .text("C1", "2027")
+      .text("D1", "Total")
+      .text("E1", "Note")
+      .text("A2", "Rent")
+      .number("B2", 14000)
+      .number("C2", 14000)
+      .formula("D2", "B2+C2", 28000)
+      .text("A3", "Rent next year")
+      .formula("C3", "C2", 14000)
+      .text("E3", "Taken from the lease");
+    const path = await writeSourceFile(sources, "Rent plan.xlsx", book.xlsx());
+
+    const result = await core.verifyDocument({ path, sheet: "Plan" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    expect(
+      (await core.findClaims({ requestId: crypto.randomUUID(), mindId: result.mind.id })).kind,
+    ).toBe("found");
+
+    expect(sorted.flat()).toEqual([ROW]);
+  });
+
+  // protects=a whole workbook is checked in one call, each sheet its own table, within the check's one limit on typed-in numbers (#3412); fails_when=only one sheet is read, a differing cell doesn't name its sheet, or the limit is counted a sheet at a time
+  test("every sheet at once: each with something to check is a table under its name, a differing cell names its sheet, and the limit counts every sheet's numbers together", async () => {
+    const { core, sources } = await setUp();
+    const book = planWorkbook();
+    book.sheet("Inputs").text("A1", "Tonnes").number("B1", 3450);
+    const path = await writeSourceFile(sources, "Plan and inputs.xlsx", book.xlsx());
+
+    const result = await core.verifyDocument({ path, allSheets: true });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client, blocks } = await tableOf(core, result.mind.id);
+
+    expect(blocks.map((block) => [block.type, block.content?.[0]?.text])).toEqual([
+      ["heading", "Plan"],
+      ["table", undefined],
+      ["heading", "Inputs"],
+      ["table", undefined],
+    ]);
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({
+      sheet: "",
+      checked: 2,
+      differs: [{ cell: "Plan!C4", saved: "58000", worked: "57000" }],
+    });
+
+    const large = new WorkbookBuilder();
+    for (const name of ["First", "Second"]) {
+      const sheet = large.sheet(name);
+      for (let row = 1; row <= 600; row++)
+        sheet.text(`A${row}`, `Entry ${row}`).number(`B${row}`, row);
+    }
+    const both = await writeSourceFile(sources, "Two logs.xlsx", large.xlsx());
+    expect(await core.verifyDocument({ path: both, allSheets: true })).toEqual({
+      ok: false,
+      reason: "too-many",
+      typed: 1200,
+      most: 1000,
+    });
+    expect((await core.verifyDocument({ path: both, sheet: "First" })).ok).toBe(true);
+  });
+
+  // protects=a formula the file saved no result for shows what it works out to in its cell's own number format, as the file would show it (#3412); fails_when=a money or percent cell shows a plain number, or a cell with no format shows one
+  test("a formula with no saved result shows what it works out to in its cell's number format, and one with none plainly", async () => {
+    const { core, sources } = await setUp();
+    const text = (ref: string, words: string) =>
+      `<c r="${ref}" t="inlineStr"><is><t>${words}</t></is></c>`;
+    const book = xlsxPackage({
+      styles:
+        '<numFmts count="1"><numFmt numFmtId="164" formatCode="£#,##0.00"/></numFmts><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="10" applyNumberFormat="1"/></cellXfs>',
+      sheets: [
+        {
+          name: "Costs",
+          xml: `<sheetData><row r="1">${text("A1", "Item")}${text("B1", "Value")}</row><row r="2">${text("A2", "Rent")}<c r="B2"><v>14000</v></c></row><row r="3">${text("A3", "Insurance")}<c r="B3"><v>2200</v></c></row><row r="4">${text("A4", "Total")}<c r="B4" s="1"><f>B2+B3</f><v></v></c></row><row r="5">${text("A5", "Total again")}<c r="B5"><f>B2+B3</f></c></row><row r="6">${text("A6", "Insurance share")}<c r="B6" s="2"><f>B3/B4</f></c></row></sheetData>`,
+        },
+      ],
+    });
+    const path = await writeSourceFile(sources, "Costs.xlsx", book);
+
+    const result = await core.verifyDocument({ path, sheet: "Costs" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client, blocks } = await tableOf(core, result.mind.id);
+
+    const rows = blocks[1]?.content ?? [];
+    expect(
+      rows.map((row) => row.content?.map((cell) => cell.content?.[0]?.content?.[0]?.text ?? "")),
+    ).toEqual([
+      ["Item", "Value"],
+      ["Rent", "14000"],
+      ["Insurance", "2200"],
+      ["Total", "£16,200.00"],
+      ["Total again", "16200"],
+      ["Insurance share", "13.58%"],
+    ]);
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({ unsaved: 3, unchecked: 0 });
   });
 });

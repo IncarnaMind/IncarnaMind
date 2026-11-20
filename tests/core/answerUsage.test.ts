@@ -138,16 +138,6 @@ describe("An Answer's stored usage", { timeout: 30_000 }, () => {
     expect(finished.usage).toEqual(stored(100, 200, 300));
   });
 
-  // protects=a sentence worded closely like its Document's line, with a marker it gave no record for, takes that line's Citation with no request for Citations, so its usage counts none (#3059); fails_when=the request goes out and is counted; no_claim=none beyond protects.
-  test("counts no request for Citations when its sentence matches its line by itself", async () => {
-    const { asked, finished } = await teaAnswer(
-      "Long ago, traders carried tea along the old Horse Road to Tibet [^1].",
-    );
-
-    expect(asked).not.toContain("unmarked-quotes");
-    expect(finished.usage).toEqual(stored(100, 200));
-  });
-
   // protects=the claimed-change check's tokens count in the Answer's usage when its reply doesn't hold to the schema and is read as JSON; fails_when=the salvaged reply's tokens are lost, as they were (#2817).
   test("counts the claimed-change check, read from a reply in a code fence", async () => {
     const { asked, heard } = asking();

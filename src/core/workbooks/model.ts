@@ -20,6 +20,8 @@ export interface WorkbookCell {
   formula: string | null;
   /** The workbook saved no result for its formula. */
   unsaved: boolean;
+  /** The number format the file gives a formula's cell that saved no result (#3412). */
+  format?: string;
   /** The Unit whose text holds it, for its Citation. */
   unit: UnitText | null;
 }
@@ -169,6 +171,7 @@ export function workbookModel(
       } else {
         formulaCount++;
         const given = unit.label?.saved?.[ref];
+        const format = unit.label?.formats?.[ref];
         put(sheet, {
           row,
           column,
@@ -177,6 +180,7 @@ export function workbookModel(
           formula,
           unsaved: given === undefined,
           unit: given === undefined ? null : unit,
+          ...(format !== undefined && { format }),
         });
       }
     }

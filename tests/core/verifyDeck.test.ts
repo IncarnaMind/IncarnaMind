@@ -16,7 +16,7 @@ import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModels } from "../helpers/models";
 import { encryptedOfficeFile } from "../helpers/office";
-import { plainDeck } from "../helpers/pptx";
+import { para, plainDeck, pptxOf, rel, sp, txBody } from "../helpers/pptx";
 
 const HARBOUR = [
   "# Harbour survey",
@@ -299,5 +299,69 @@ describe("Verify a deck", () => {
       reason: "password-protected",
     });
     expect((await core.listMinds()).map((mind) => mind.title)).toEqual([]);
+  });
+
+  // protects=a slide's title is read like any other line and the model decides whether it states a claim, and a picture the check can't read is said so (#3412); fails_when=a title is skipped as a heading, so a figure stated only there is never checked, or a deck's pictures go unmentioned
+  test("a slide's title that states a figure is checked like a line, and the deck's pictures are counted as not read", async () => {
+    const TITLE = "The south quay holds 17 boats";
+    const calls: ModelCall[] = [];
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(
+        checkingModel(
+          {
+            [TITLE]: {
+              verdict: "contradicted",
+              quote: "the south quay holds 19 boats",
+              says: "Harbour survey says the south quay holds 19 boats, not 17.",
+            },
+          },
+          calls,
+        ),
+      ).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, "Harbour survey.md", HARBOUR)]);
+    const picture = `<p:pic><p:nvPicPr><p:cNvPr id="5" name="Picture" descr="Boats by quay"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rImage"/></p:blipFill><p:spPr/></p:pic>`;
+    const deck = pptxOf({
+      slides: [
+        {
+          shapes: `${sp({ id: 2, name: "Title", ph: `<p:ph type="title"/>`, body: txBody(para(TITLE)) })}${picture}`,
+          rels: rel("rImage", "image", "../media/image1.png"),
+        },
+      ],
+      parts: [{ name: "ppt/media/image1.png", data: Buffer.from("not really a picture") }],
+    });
+    const path = await writeSourceFile(sources, "Quays.pptx", deck);
+
+    const result = await core.verifyDocument({ path });
+    if (!result.ok) throw new Error(`The deck wasn't verified: ${result.reason}`);
+    const client = await connectToMind(core, result.mind.id);
+    await client.settled();
+    const blocks: JSONContent[] = readMind(client).toJSON().content ?? [];
+    expect(blocks.map((block) => block.type)).toEqual(["heading"]);
+    expect(verificationOf(client.doc)?.pictures).toBe(1);
+
+    expect(await core.findClaims(request(result.mind.id))).toEqual({ kind: "found", claims: 1 });
+    expect(await core.verifyClaims(request(result.mind.id))).toMatchObject({
+      kind: "checked",
+      checked: 1,
+    });
+    await client.settled();
+    const versions = new Map(
+      (await core.listDocuments()).map((each) => [each.id, each.contentHash]),
+    );
+    expect(
+      claimSpans(readMind(client)).map((span) => [
+        span.sentence.text,
+        claimCheckShown(span.check, {
+          footing: "not-yet-known",
+          text: span.sentence.text,
+          versions,
+          folderId: null,
+          scope: null,
+        }).state,
+      ]),
+    ).toEqual([[TITLE, "contradicted"]]);
   });
 });

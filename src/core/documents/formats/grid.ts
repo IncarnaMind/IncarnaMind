@@ -66,6 +66,8 @@ export interface Sheet {
   formulas?: Map<string, string>;
   /** Values its cells saved that their shown text doesn't give, by cell (#2347); see `UnitLabel.saved`. */
   saved?: Map<string, number | string | boolean>;
+  /** The number formats of its formulas' cells that saved no result (#3412); see `UnitLabel.formats`. */
+  formats?: Map<string, string>;
   /** Rows the file sets aside, as `UnitLabel.struckRows` and `hiddenRows` (#1979). */
   struckRows?: Set<number>;
   hiddenRows?: Set<number>;
@@ -202,7 +204,7 @@ function rowLine(cells: readonly Cell[], firstColumn: number, width: number): st
 }
 
 /**
- * Puts a sheet's formulas and saved values (#2347) in the labels of the Units
+ * Puts a sheet's formulas, saved values (#2347) and formats (#3412) in the labels of the Units
  * that hold their rows; a cell whose row has nothing to show goes in the
  * nearest Unit above it, or the sheet's first.
  */
@@ -226,6 +228,10 @@ function placeCellFacts(
   for (const [ref, value] of sheet.saved ?? []) {
     const label = labelOf(ref);
     if (label) label.saved = { ...label.saved, [ref]: value };
+  }
+  for (const [ref, format] of sheet.formats ?? []) {
+    const label = labelOf(ref);
+    if (label) label.formats = { ...label.formats, [ref]: format };
   }
 }
 

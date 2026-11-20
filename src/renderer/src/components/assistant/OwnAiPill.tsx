@@ -20,6 +20,7 @@ export function OwnAiPill({ mindId, agents }: Pill) {
   return (
     <div
       data-testid="own-ai-pill"
+      data-ask-pill=""
       className="absolute bottom-5 left-1/2 z-10 flex h-10 -translate-x-1/2 items-center gap-1 rounded-full bg-sheet pr-2 font-sans text-[14px] text-ink-meta shadow-[inset_0_0_0_1px_var(--color-rule-strong),0_4px_16px_var(--color-shadow-soft)]"
     >
       <button

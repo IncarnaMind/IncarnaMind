@@ -11,13 +11,13 @@ import {
 import { createTempDataFolder } from "../helpers/core";
 import { savedCues, stoppedMeeting, transcribingCore, until } from "../helpers/transcription";
 
-async function recordRoom(reviewer: RoomSpeakerReviewer) {
+async function recordRoom(reviewer: RoomSpeakerReviewer, duration = 12_000) {
   const dataDir = await createTempDataFolder();
   const { core, record } = await transcribingCore(dataDir, { roomSpeakerReviewer: reviewer });
   try {
     const { id } = await core.createMeeting();
     await core.startMeeting({ meetingId: id, systemAudio: false });
-    record(12_000, ["microphone"]);
+    record(duration, ["microphone"]);
     await until(core, id, (tr) => tr.lines >= 4);
     const { document, meeting } = await stoppedMeeting(core, dataDir, id);
     const cues = await savedCues(core, id);
@@ -255,6 +255,104 @@ test("a self-marked line without a clear voice permits suggestions for known spe
         (row) => row.startMs === mine.startMs || row.startMs === extra.startMs,
       ),
     ).toBe(false);
+  } finally {
+    core.close();
+  }
+});
+
+test("a room with Me and four labels needs a current choice before checking the other people", async () => {
+  const separate = vi.fn<RoomSpeakerReviewer["separate"]>();
+  const { core, id, document, cues, meeting } = await recordRoom(
+    { downloadBytes: () => 0, separate },
+    28_000,
+  );
+  try {
+    const [mine, one, two, three, four, other] = cues.filter((_, index) => index % 2 === 0);
+    if (!mine || !one || !two || !three || !four || !other || !meeting.transcript?.savedPath)
+      throw new Error("Expected six microphone lines and a saved Transcript.");
+    const path = meeting.transcript.savedPath;
+    const original = readFileSync(path);
+    const labels = ["Speaker 1", "Speaker 2", "Speaker 3", "Speaker 4"];
+    let speakers = document.speakers;
+    for (const [i, cue] of [mine, one, two, three, four].entries()) {
+      speakers = withSpeakerChosen(
+        speakers,
+        [],
+        { startMs: cue.startMs, label: cue.speaker ?? SPEAKER_UNKNOWN },
+        { label: i === 0 ? SPEAKER_ME : `Speaker ${i}` },
+        false,
+      );
+    }
+    if (!speakers) throw new Error("Expected stored speaker choices.");
+    await core.setTranscriptSpeakers({ documentId: document.id, speakers });
+    const ask = () => core.getMeetingSpeakerReview(id);
+    const input = { meetingId: id, onDevice: true, confirmed: true } as const;
+    const first = (await ask()).selfMatch;
+    expect(first?.labels).toEqual(labels);
+    if (!first) throw new Error("Expected a choice of existing speakers.");
+    await expect(core.reviewMeetingSpeakers(input)).rejects.toThrow();
+    await expect(
+      core.reviewMeetingSpeakers({
+        ...input,
+        selfMatch: { label: "Speaker 5", revision: first.revision },
+      }),
+    ).rejects.toThrow();
+    speakers = { ...speakers, labels: { ...speakers.labels, "Speaker 1": "Dana" } };
+    await core.setTranscriptSpeakers({ documentId: document.id, speakers });
+    await expect(
+      core.reviewMeetingSpeakers({
+        ...input,
+        selfMatch: { label: "Speaker 1", revision: first.revision },
+      }),
+    ).rejects.toThrow();
+    expect(separate).not.toHaveBeenCalled();
+    const fresh = (await ask()).selfMatch;
+    if (!fresh) throw new Error("Expected the renamed speaker to be available.");
+    const selfMatch = { label: "Speaker 1", revision: fresh.revision };
+    separate.mockResolvedValue(
+      [mine, one, two, three, four, other].map((cue, i) => ({
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        voice: i === 0 ? 0 : Math.min(i - 1, 3),
+      })),
+    );
+    const start = core.reviewMeetingSpeakers({ ...input, selfMatch });
+    await expect(async () =>
+      core.reviewMeetingSpeakers({ ...input, selfMatch: { ...selfMatch, label: "Speaker 2" } }),
+    ).rejects.toThrow();
+    const review = await start;
+    expect(review.suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ startMs: other.startMs, suggestedLabel: "Speaker 4" }),
+      ]),
+    );
+    expect(
+      review.suggestions.every(
+        (s) =>
+          ![SPEAKER_ME, selfMatch.label].includes(s.currentLabel) &&
+          ![SPEAKER_ME, selfMatch.label].includes(s.suggestedLabel),
+      ),
+    ).toBe(true);
+    const conflict = await core.reviewMeetingSpeakers({
+      ...input,
+      selfMatch: { ...selfMatch, label: "Speaker 2" },
+    });
+    expect(conflict).toMatchObject({ uncertainSpeakers: true, suggestions: [] });
+    separate.mockResolvedValue(
+      [one, two, three, four, other].map((cue, i) => ({
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        voice: Math.min(i, 3),
+      })),
+    );
+    expect(await core.reviewMeetingSpeakers({ ...input, selfMatch })).toMatchObject({
+      uncertainSpeakers: true,
+      suggestions: [],
+    });
+    expect(readFileSync(path)).toEqual(original);
+    expect((await core.listDocuments()).find((d) => d.id === document.id)?.speakers).toEqual(
+      speakers,
+    );
   } finally {
     core.close();
   }

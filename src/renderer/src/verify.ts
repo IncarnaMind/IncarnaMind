@@ -167,8 +167,12 @@ async function openMade(made: Extract<VerifyDocumentResult, { ok: true }>): Prom
 /** The chooser is closed: nothing was made. */
 export const closeWorkbookChoice = () => useVerify.setState({ choosing: null });
 
-/** Checks the sheet, or the range of it, the User chose in the chooser. */
-export async function checkWorkbook(sheet: string, range: string): Promise<void> {
+/** Checks the sheet, or the range of it, or every sheet (#3412), the User chose in the chooser. */
+export async function checkWorkbook(
+  sheet: string,
+  range: string,
+  allSheets = false,
+): Promise<void> {
   const choosing = useVerify.getState().choosing;
   if (!choosing || choosing.reading) return;
   const taken = (problem: WorkbookProblem | null, reading: boolean) =>
@@ -178,8 +182,9 @@ export async function checkWorkbook(sheet: string, range: string): Promise<void>
     const made = await core.verifyDocument({
       path: choosing.path,
       folderId: choosing.folderId,
-      sheet,
-      ...(range.trim() !== "" && { range: range.trim() }),
+      ...(allSheets
+        ? { allSheets: true }
+        : { sheet, ...(range.trim() !== "" && { range: range.trim() }) }),
     });
     if (made.ok) {
       closeWorkbookChoice();

@@ -161,7 +161,7 @@ async function withinTime<T>(
  * is checked. `stop`: why the run can't go on, when the provider or the cap
  * stopped the check.
  */
-async function checkNote(
+export async function checkNote(
   core: Core,
   mindId: string,
   question: string,

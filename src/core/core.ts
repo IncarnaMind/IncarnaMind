@@ -2492,8 +2492,8 @@ export function createCore(adapters: CoreAdapters): Core {
         return answer !== null;
       },
       answer: (answerId) => conversations.answer(answerId),
-      writeCitations: (answerId, text, citations, marked) => {
-        const answer = conversations.writeCitations(answerId, text, citations, marked);
+      writeCitations: (answerId, text, citations, marked, uncited) => {
+        const answer = conversations.writeCitations(answerId, text, citations, marked, uncited);
         if (answer) events.emit("conversation.message", answer);
         return answer !== null;
       },
