@@ -36,7 +36,6 @@ export function roomReviewSuggestions(
       if (seen.has(key)) ambiguous.add(key);
       seen.add(key);
       const current = speakerOf(speakers, part.startMs, part.label);
-      if (current === SPEAKER_ME) return [];
       const duration = part.endMs - part.startMs;
       const shared = new Map<number, number>();
       for (const turn of turns) {
@@ -49,18 +48,25 @@ export function roomReviewSuggestions(
       return [{ part, key, voice: numberedVoice(best[0] + 1), current, coveredMs: best[1] }];
     })
     .filter((row) => !ambiguous.has(row.key));
-  const mapping = matchReviewVoices(rows.filter((row) => known.has(row.current)));
-  if (!rows.length || mapping.size !== known.size) return null;
+  // A User can mark a single line as Me and leave the same voice's other lines numbered.
+  const selfVoice = matchReviewVoices(rows.filter((row) => row.current === SPEAKER_ME))
+    .keys()
+    .next().value;
+  const others = new Set(known);
+  const hasSelf = others.delete(SPEAKER_ME);
+  const mapping = matchReviewVoices(rows.filter((row) => others.has(row.current)));
+  const mayAddVoice = !hasSelf || selfVoice !== undefined;
+  if (!rows.length || mapping.size !== others.size || (!mayAddVoice && !mapping.size)) return null;
   const reserved = new Set([...known, ...Object.keys(speakers?.labels ?? {})]);
   let number = 1;
   for (const { voice } of rows) {
-    if (mapping.has(voice)) continue;
+    if (!mayAddVoice || mapping.has(voice) || voice === selfVoice) continue;
     while (reserved.has(numberedVoice(number))) number++;
     mapping.set(voice, numberedVoice(number++));
   }
   return rows.flatMap(({ part, voice, current }) => {
     const suggested = mapping.get(voice);
-    return suggested && suggested !== current
+    return suggested && suggested !== current && current !== SPEAKER_ME && voice !== selfVoice
       ? [
           {
             startMs: part.startMs,
