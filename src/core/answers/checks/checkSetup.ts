@@ -149,16 +149,19 @@ export function keptInside(
  * Document behind another wall keeps that wall's reason (`keptInside`).
  */
 export function citedOutsideScope(
-  deps: Pick<ClaimCheckDependencies, "walledDocument">,
+  deps: Pick<ClaimCheckDependencies, "walledDocument" | "documents">,
   request: Pick<ClaimCheckRequest, "cited" | "scope">,
 ): { name: string; every: boolean } | null {
   const { scope, cited = [] } = request;
   const { documentIds } = scope;
   if (documentIds === null) return null;
-  const outside = ({ documentId }: CheckedCitation): string | null =>
-    documentId !== undefined && !documentIds.includes(documentId) && !scope.excluded.has(documentId)
-      ? documentId
-      : null;
+  const outside = ({ documentId, passageId }: CheckedCitation): string | null => {
+    if (documentId === undefined || documentIds.includes(documentId)) return null;
+    if (scope.excluded.has(documentId)) return null;
+    // A file an agent cited by path is evidence for the sentence that cites it, wherever it is (#3509).
+    const source = passageId ? deps.documents.citationSource(passageId) : null;
+    return source?.citedBy ? null : documentId;
+  };
   const named = cited.find((citation) => {
     const documentId = outside(citation);
     return documentId !== null && deps.walledDocument(documentId) === null;

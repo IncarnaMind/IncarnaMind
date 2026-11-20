@@ -10,8 +10,8 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
-import { PLANS, refusal, started, structured } from "../helpers/handedFiles";
 import { createSourceFolder } from "../helpers/documents";
+import { PLANS, refusal, started, structured } from "../helpers/handedFiles";
 
 const LINE = "The east quay holds 31 boats.";
 const RIGHT = "The east quay holds 31 boats.";
@@ -152,13 +152,15 @@ describe("a file outside the Library, cited by its path (#3509)", () => {
     const cited = await cite("The east quay holds 31 boats");
     await writeFile(path, "# Quay notes\n\nThe east quay holds 35 boats.\n");
     await core.reconcileDocuments();
-    const checked = structured<{ citations: { check: string; changed: boolean }[] }>(
-      await agent.callTool({
-        name: "check_citations",
-        arguments: { text: `${RIGHT} ${cited?.cite}` },
-      }),
-    );
-    expect(checked.citations[0]).toMatchObject({ changed: true });
+    // The new version is the Document's once it is read.
+    const changed = async () =>
+      structured<{ citations: { changed: boolean }[] }>(
+        await agent.callTool({
+          name: "check_citations",
+          arguments: { text: `${RIGHT} ${cited?.cite}` },
+        }),
+      ).citations[0]?.changed;
+    await expect.poll(changed, { timeout: 15_000 }).toBe(true);
   });
 
   // protects=the User adding the file themselves makes it one of their own Documents, a source like any (#3509); fails_when=a file the User added stays out of search

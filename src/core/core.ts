@@ -6069,6 +6069,7 @@ export function createCore(adapters: CoreAdapters): Core {
       citing,
       citeFile: (path, quote, agent, reaches) => fileCiting.cite(path, quote, agent, reaches),
       citedOutside: (documentId) => (documents.getMany([documentId])[0]?.citedBy ?? null) !== null,
+      citedFiles: () => documents.citedFiles(),
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
       minds: () => listedMinds().filter((mind) => isKnownKind(mind.kind)),

@@ -690,6 +690,8 @@ export interface AgentAccessDeps {
   citeFile: FileCiting["cite"];
   /** Whether the Document is a file an agent cited by its path, evidence for what cites it alone. */
   citedOutside(documentId: string): boolean;
+  /** Every file an agent cited by its path (`citedOutside`). */
+  citedFiles(): string[];
   /** Whether the Passage's Document is the User's own workings: an agent reads it and never cites it. */
   notCited(passageId: string): boolean;
   /** A Citation checked again against its Document as it is now. */
@@ -1408,6 +1410,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const usable = (inScope: ReadonlySet<string>, documentId: string) =>
     inScope.has(documentId) || deps.citedOutside(documentId);
 
+  /**
+   * The Documents a check's results may rest on for the pairing: those it reaches, and files cited
+   * by path (#3509), which hold no more than the quotes cited from them and are no source.
+   */
+  const checkReach = (pairing: AdmittedPairing): Set<string> =>
+    new Set([...scopeOf(pairing, undefined), ...deps.citedFiles()]);
+
   /** A Passage as a search result: its best sentence cited, if the check finds it. */
   const asResult = (
     pairing: AdmittedPairing,
@@ -1557,7 +1566,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       );
     }
     started.set(pairing.id, [...lately, now]);
-    const run = deps.checkNote(mindId, scopeOf(pairing, undefined));
+    const run = deps.checkNote(mindId, [...checkReach(pairing)]);
     run.then(
       (outcome) => {
         if (outcome.asked && SENT.has(outcome.result.kind)) return;
@@ -1820,12 +1829,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     // record is read again with what it reaches once it is read, and nothing told goes beyond.
     let granted = deps.admit(pairingId);
     mindInScope(granted, mindId);
-    let inScope = new Set(scopeOf(granted, undefined));
+    let inScope = checkReach(granted);
     let record = await deps.checkRecord(mindId, inScope);
     for (let reads = 1; ; reads++) {
       granted = deps.admit(pairingId);
       mindInScope(granted, mindId);
-      const now = new Set(scopeOf(granted, undefined));
+      const now = checkReach(granted);
       if (now.size === inScope.size && [...now].every((id) => inScope.has(id))) break;
       if (reads >= MAX_RECORD_READS) {
         throw new AgentRefusedError("outside-scope", t("agents.problem.reachChanged"));
@@ -2782,7 +2791,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
       return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
         const mind = ownNote(pairing, input?.mindId);
-        const found = deps.checkTask(mind.id, new Set(scopeOf(pairing, undefined)));
+        const found = deps.checkTask(mind.id, checkReach(pairing));
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
         const { task, sentences } = found.value;

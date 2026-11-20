@@ -3563,6 +3563,14 @@ export function createDocuments(options: DocumentsOptions) {
       return toDocument(updated);
     },
 
+    /** The live Documents that are files an agent cited by its path (`Document.citedBy`, #3509). */
+    citedFiles: (): string[] =>
+      db
+        .all<{ id: string }>(
+          "SELECT id FROM documents WHERE cited_by IS NOT NULL AND deleted_at IS NULL",
+        )
+        .map((row) => row.id),
+
     /**
      * Marks a Document as a file the agent named cited by its path (`Document.citedBy`, #3509), or,
      * with null, as the User's own.

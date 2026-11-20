@@ -208,8 +208,6 @@ export function CitationView({
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
   const keptInside = useKeptInside(attributes.documentId);
-  const outside =
-    documents?.some((each) => each.id === attributes.documentId && each.citedBy !== null) ?? false;
   /** Its card waits while the assistant is folded, and comes back with it (#2270). */
   const assistantFolded = useContext(AssistantFoldedContext) === true;
   /** The Mind's group: the Document opens in the group to its right. */
@@ -962,6 +960,7 @@ function CitationCard({
   const language = useLanguage();
   const gap = useGap();
   const live = useAppStore((store) => store.documents.find((each) => each.id === state.documentId));
+  const outside = (live?.citedBy ?? null) !== null;
   const web = live?.web ?? null;
   const place = useDocumentPlace(state.documentId ?? null);
   const location = citationLocation(attributes);
