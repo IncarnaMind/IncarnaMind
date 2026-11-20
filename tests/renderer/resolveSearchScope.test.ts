@@ -9,6 +9,7 @@ const group = (id: string, parentId: string | null, keepInside: boolean): Librar
   description: "",
   parentId,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside,
   createdAt: "2026-11-10T00:00:00.000Z",
   updatedAt: "2026-11-10T00:00:00.000Z",
