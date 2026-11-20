@@ -321,6 +321,22 @@ describe("asking the User's own AI", () => {
     expect(await requestRead(agent)).toMatchObject({ request: LONG_FIX(mind.id) });
   });
 
+  // protects=a request about a Note deleted since says so, and goes, so it doesn't stand in front of the next one; fails_when=the agent is sent to share a Folder that can't help, or the same refusal comes back on every call
+  it("says the Note was deleted, and lets that request go", async () => {
+    const { core, mind, connect } = await started({ openLink: false });
+    const asked = await connect("VS Code", "vscode");
+    await core.askAgent({ pairingId: asked.id, mindId: mind.id, ask: fix });
+    await core.deleteMind(mind.id);
+
+    const agent = await connectLegacyAgent(asked.launch);
+    const refused = await requestRead(agent);
+    expect(refused).toEqual({ refused: translate("en", "agents.problem.requestNoteDeleted") });
+    expect(JSON.stringify(refused)).not.toContain(OVERSTATED);
+    expect(await requestRead(agent)).toEqual({
+      refused: translate("en", "agents.problem.noRequest"),
+    });
+  });
+
   // protects=the User can read afterwards what the agent was given, in its activity, and the card knows the request was read; fails_when=the request isn't shown with the call, or its state isn't kept
   it("shows the request read in the agent's activity", async () => {
     const { core, mind, connect } = await started({ openLink: false });

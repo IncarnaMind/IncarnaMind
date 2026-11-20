@@ -2556,7 +2556,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         (pairing) => {
           if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
           const mind = minds.get(chosen.mindId);
-          if (!mind || !reaches(pairing, mind)) {
+          if (!mind) {
+            // Sharing a Folder can't bring it back, so the request goes rather than wait in front of
+            // the User's next one.
+            deps.requests.markRead(chosen.id);
+            throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+          }
+          if (!reaches(pairing, mind)) {
             throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
           }
           const read = deps.requests.markRead(chosen.id);

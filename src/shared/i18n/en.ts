@@ -8360,6 +8360,8 @@ export const en = {
   "agents.problem.answer-failed": "IncarnaMind couldn’t answer: {message}",
   "agents.problem.noRequest":
     "No request from the User is waiting in IncarnaMind: each is read once. Go by what they wrote, or ask them to send it again from IncarnaMind.",
+  "agents.problem.requestNoteDeleted":
+    "The note this request is about was deleted in IncarnaMind, so there is nothing to change. Tell the User; if they restore it, they can ask again.",
   "agents.problem.requestOutOfReach":
     "This request is about a note this agent can’t read now. Tell the User to share its Folder with you in Settings → Agents, then ask again.",
   "agents.problem.invalid": "IncarnaMind couldn’t read that request.",
