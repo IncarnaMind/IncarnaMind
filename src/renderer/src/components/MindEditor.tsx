@@ -177,6 +177,7 @@ import { requestEdit, startEditing, TRANSLATE_LANGUAGES, useEdits } from "../edi
 import { useFigureSchedule } from "../figures";
 import { useFirstOpen } from "../firstOpen";
 import { translateNow, useT } from "../i18n";
+import { useJudgedNow } from "../judgedNow";
 import { useKeptScope, useMindScope } from "../keptScope";
 import { markSelectionAsMine } from "../markAsMine";
 import { fillNextIn, fillStateIn } from "../meetingFillSteps";
@@ -862,6 +863,7 @@ function MindEditorView({
         : null,
     [rows],
   );
+  const judgedNow = useJudgedNow(mindId, doc);
   const walls = useWalls();
   const keptInside = useCallback(
     (documentId: string) => keptInsideName(walls, documentId, folderId),
@@ -877,8 +879,19 @@ function MindEditorView({
         figureContexts,
         figurePlaces,
         keptInside,
+        judgedNow,
       });
-  }, [editor, footing, versions, folderId, scope, figureContexts, figurePlaces, keptInside]);
+  }, [
+    editor,
+    footing,
+    versions,
+    folderId,
+    scope,
+    figureContexts,
+    figurePlaces,
+    keptInside,
+    judgedNow,
+  ]);
 
   // The Citations and References in the Mind's citation style (#289), formatted off the
   // window's thread, and the footnotes numbered again when the style counts Citations otherwise.

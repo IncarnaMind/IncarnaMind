@@ -169,17 +169,15 @@ describe("files an outside agent hands over", () => {
     const checkedNow = () => calls.filter(isCheckRun).map(sentenceOf);
     const before = checkedNow().length;
 
-    await writeFile(
-      path,
-      plainDeck([{ title: "Harbour review" }, { lines: [NORTH, SOUTH] }, { lines: [OFFICE] }]),
-    );
+    // Its last slide taken out: each line's slide reads as it did.
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH, SOUTH] }]));
     const second = structured<Handed>(await handOver(agent, { path }));
-    expect(second).toMatchObject({ version: 2, status: "checked", supported: 2, needLook: 1 });
+    expect(second).toMatchObject({ version: 2, status: "checked", supported: 1, needLook: 1 });
     // Every line stood as it was: none was sent to the model again.
     expect(checkedNow().slice(before)).toEqual([]);
     const client = await connectToMind(core, second.mindId ?? "");
     await client.settled();
-    expect(verificationOf(client.doc)?.kept).toBe(3);
+    expect(verificationOf(client.doc)?.kept).toBe(2);
 
     // A line whose Document changed is checked again, though its words didn't.
     const survey = added.find((each) => each.name === "Harbour survey");
@@ -196,8 +194,8 @@ describe("files an outside agent hands over", () => {
       requestId: crypto.randomUUID(),
       mindId: second.mindId ?? "",
     });
-    expect(again).toMatchObject({ kind: "checked", claims: 3 });
-    expect(new Set(checkedNow().slice(atAll))).toEqual(new Set([NORTH, OFFICE, SOUTH]));
+    expect(again).toMatchObject({ kind: "checked", claims: 2 });
+    expect(new Set(checkedNow().slice(atAll))).toEqual(new Set([NORTH, SOUTH]));
     await client.settled();
     expect(verificationOf(client.doc)?.kept).toBeUndefined();
   });

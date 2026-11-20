@@ -29,6 +29,7 @@ import { citationAttributesOf } from "../../../shared/citations";
 import { asCitedNow } from "../../../shared/citedNow";
 import {
   analysisFigureShown,
+  type ClaimCheckNow,
   type ClaimCheckShown,
   claimCheckShown,
   claimMarkState,
@@ -360,7 +361,15 @@ export interface ClaimContext {
   scope: SearchScope | null;
   /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
   keptInside?: ((documentId: string) => string | null) | null;
+  /** What each result that keeps what it was judged with would be judged with now, as the core says (`useJudgedNow`). */
+  judgedNow?: ReadonlyMap<string, string> | null;
 }
+
+/** A result as it shows now, read as the core reads it, with what its line would be judged with now. */
+const shownNow = (
+  check: ClaimCheckAttributes,
+  now: ClaimCheckNow & Pick<ClaimContext, "judgedNow">,
+) => claimCheckShown(check, { ...now, judgedWith: () => now.judgedNow?.get(check.id) ?? null });
 
 export function claimPartRows(check: ClaimCheckAttributes): ClaimCheckAttributes["parts"] {
   return showsPartRows(check) ? check.parts : undefined;
@@ -451,7 +460,7 @@ export function claimsOf(
     const citations = span.kind === "chart" ? [] : citationsWithin(doc, span.sentence);
     // No check reads a sentence that only names its source, so an earlier mark on it shows no card (#3093).
     if (span.kind !== "chart" && onlyNamesItsSource(span.sentence.text, citations)) continue;
-    let shown = claimCheckShown(span.check, {
+    let shown = shownNow(span.check, {
       ...context,
       text: span.sentence.text,
       citations,
@@ -459,7 +468,7 @@ export function claimsOf(
     });
     const holdsWithItsText =
       shown.state === "needs-recheck" && shown.why === "edited"
-        ? claimCheckShown(span.check, {
+        ? shownNow(span.check, {
             ...context,
             text: span.check.text,
             citations,
@@ -703,14 +712,14 @@ export function figureShownIn(
       // A sentence is judged whole, its figures in it: a figure with no result of its own shows
       // its sentence's check.
       if (!span.check.figures?.length) {
-        if (span.check.kept) return claimCheckShown(span.check, now);
+        if (span.check.kept) return shownNow(span.check, now);
         // An Analysis's figure is its run's: no check of the sentence's words stands for it (#2378).
         if (result !== null) continue;
-        return claimCheckShown({ ...span.check, figures: undefined }, now);
+        return shownNow({ ...span.check, figures: undefined }, now);
       }
       continue;
     }
-    if (span.check.kept) return claimCheckShown(span.check, now);
+    if (span.check.kept) return shownNow(span.check, now);
     const shown = analysisFigureShown(figureCheckShown(child, now), {
       run,
       result,
@@ -749,6 +758,7 @@ export function setClaimContext(view: EditorView, context: ClaimContext): void {
     now.figureContexts === context.figureContexts &&
     now.figurePlaces === context.figurePlaces &&
     now.keptInside === context.keptInside &&
+    now.judgedNow === context.judgedNow &&
     now.footing === context.footing
   )
     return;

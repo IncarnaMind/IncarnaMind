@@ -90,7 +90,7 @@ import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { checkedSentences } from "./answers/checks/sentences";
-import { readingOf } from "./answers/checks/standing";
+import { judgedNow, readingOf } from "./answers/checks/standing";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -7364,6 +7364,14 @@ export function createCore(adapters: CoreAdapters): Core {
     libraryListsVersion: async (mindId) => libraryVersion(libraryListsOf(mindId)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
+    judgedWithNow: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => ({
+        mindId: mind.id,
+        basis: fingerprintOfBlocks(fragment),
+        lines: Object.fromEntries(judgedNow(fragment)),
+      }));
+    },
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
