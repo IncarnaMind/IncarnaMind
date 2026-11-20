@@ -120,11 +120,12 @@ function setProblems(): string[] {
   const problems: string[] = [];
   const names = new Set<string>();
   for (const each of CALCULATOR_CASES) {
-    if (names.has(each.document.name))
-      problems.push(`${each.id}: its Document's name is another's`);
-    names.add(each.document.name);
+    for (const name of [each.document.name, ...(each.sheet ? [each.sheet.name] : [])]) {
+      if (names.has(name)) problems.push(`${each.id}: its Document's name is another's`);
+      names.add(name);
+    }
     for (const input of each.inputs)
-      if (!each.document.text.includes(input))
+      if (!each.document.text.includes(input) && !each.sheet?.text.includes(input))
         problems.push(`${each.id}: "${input}" isn't in its Document`);
     const right = figureIn(each, each.right);
     if (!right.valueRight || right.unitShown !== "right")
@@ -322,14 +323,21 @@ async function spentUsd(core: Core): Promise<number> {
     .reduce((sum, each) => sum + each.amount, 0);
 }
 
-/** A Document to add, by the key a path finds it with. */
+/** A Document to add, by the key a path finds it with: Markdown, or a sheet as CSV. */
 interface Written {
   key: string;
   name: string;
   text: string;
+  csv?: true;
 }
 
-const caseDocuments = (): Written[] => cases.map((each) => ({ key: each.id, ...each.document }));
+const sheetKey = (each: CalculatorCase) => `${each.id}#sheet`;
+
+const caseDocuments = (): Written[] =>
+  cases.flatMap((each): Written[] => [
+    { key: each.id, ...each.document },
+    ...(each.sheet ? [{ key: sheetKey(each), ...each.sheet, csv: true as const }] : []),
+  ]);
 
 async function documentsFolder(documents: readonly Written[]): Promise<{
   folder: string;
@@ -338,7 +346,7 @@ async function documentsFolder(documents: readonly Written[]): Promise<{
   const folder = await mkdtemp(join(tmpdir(), "calculator-documents-"));
   const paths: { key: string; path: string }[] = [];
   for (const each of documents) {
-    const path = join(folder, `${each.name}.md`);
+    const path = join(folder, `${each.name}.${each.csv ? "csv" : "md"}`);
     await writeFile(path, each.text);
     paths.push({ key: each.key, path });
   }
@@ -392,10 +400,16 @@ async function libraryFor(
     if (!document) throw new Error(`${key}'s Document wasn't added.`);
     return document.id;
   };
+  /** A case's Document, and its sheet where it has one. */
+  const idsOf = (each: CalculatorCase) => [
+    idOf(each.id),
+    ...(each.sheet ? [idOf(sheetKey(each))] : []),
+  ];
   return {
     library,
     heard: recorded.heard,
     idOf,
+    idsOf,
     settled: recorded.settled,
     close: async () => {
       await recorded.settled();
@@ -441,7 +455,7 @@ async function answerPath(setup: Setup) {
     for (const [question, id] of byQuestion) if (prompt.includes(question)) return id;
     return null;
   });
-  const { library, heard, idOf } = opened;
+  const { library, heard, idsOf } = opened;
   const { core } = library;
   try {
     let stopped = false;
@@ -450,7 +464,7 @@ async function answerPath(setup: Setup) {
       const started = Date.now();
       const asked = await core.askInConversation({
         text: each.question,
-        scope: { folderIds: [], tagIds: [], documentIds: [idOf(each.id)] },
+        scope: { folderIds: [], tagIds: [], documentIds: idsOf(each) },
       });
       if (!asked.asked) throw new Error(`${each.id} wasn't asked: ${JSON.stringify(asked)}`);
       const ended = await new Promise<boolean>((resolve) => {
@@ -471,6 +485,14 @@ async function answerPath(setup: Setup) {
       if (answer?.kind !== "answer") throw new Error(`${each.id}: no Answer.`);
       const { text, figures } = readAnswer(answerBlocks(answer));
       const mine = heard.filter((request) => request.key === each.id);
+      /** What each call of `tool` told the model, once each. */
+      const told = (tool: string) => [
+        ...new Set(
+          mine.flatMap((request) =>
+            request.results.filter((result) => result.tool === tool).map((result) => result.output),
+          ),
+        ),
+      ];
       const scored = scoreAnswer(each, text, figures);
       const leftOut =
         scored.figure.chars !== null &&
@@ -511,15 +533,8 @@ async function answerPath(setup: Setup) {
           })),
         })),
         calls: mine.flatMap((request) => request.calls),
-        calculated: [
-          ...new Set(
-            mine.flatMap((request) =>
-              request.results
-                .filter((result) => result.tool === "calculate")
-                .map((result) => result.output),
-            ),
-          ),
-        ],
+        calculated: told("calculate"),
+        analysed: told("run_analysis"),
       });
       if ((await spentUsd(core)) > CAP_USD) stopped = true;
     });
@@ -551,10 +566,11 @@ async function checkedInNote(
   read: string,
 ) {
   const folder = await core.createLibraryGroup({ name: `${each.id} ${ROUND}`, description: "" });
-  const documentId = (await core.listDocuments()).find(
-    (doc) => doc.name === each.document.name,
-  )?.id;
-  if (documentId) await core.moveToFolder({ documentIds: [documentId], folderId: folder.id });
+  const names = [each.document.name, ...(each.sheet ? [each.sheet.name] : [])];
+  const documentIds = (await core.listDocuments())
+    .filter((doc) => names.includes(doc.name))
+    .map((doc) => doc.id);
+  if (documentIds.length > 0) await core.moveToFolder({ documentIds, folderId: folder.id });
   const shown = answer.figures[0]?.shown ?? "";
   const checked = async (blocks: NodeJSON[]) => {
     const mind = await core.createMind({ title: "Answer", folderId: folder.id });
@@ -641,13 +657,13 @@ async function checkPath(setup: Setup) {
       if (prompt.includes(sentence.text)) return `${sentence.each.id}/${sentence.which}`;
     return null;
   });
-  const { library, heard, idOf } = opened;
+  const { library, heard, idsOf } = opened;
   const { core } = library;
   try {
     const folders = new Map<string, string>();
     for (const each of cases) {
       const folder = await core.createLibraryGroup({ name: each.document.name, description: "" });
-      await core.moveToFolder({ documentIds: [idOf(each.id)], folderId: folder.id });
+      await core.moveToFolder({ documentIds: idsOf(each), folderId: folder.id });
       folders.set(each.id, folder.id);
     }
     let stopped = false;
@@ -958,7 +974,7 @@ async function writeNote(
 async function agentPath(setup: Setup) {
   const usd = agentUsd(setup);
   const opened = await agentLibrary("agent", setup);
-  const { library, idOf } = opened;
+  const { library, idsOf } = opened;
   const { core } = library;
   let spent = 0;
   let stopped = false;
@@ -973,7 +989,7 @@ async function agentPath(setup: Setup) {
         description: "",
       });
       for (const sentence of note.sentences)
-        await core.moveToFolder({ documentIds: [idOf(sentence.each.id)], folderId: folder.id });
+        await core.moveToFolder({ documentIds: idsOf(sentence.each), folderId: folder.id });
       folders.set(note.group, folder.id);
     }
     let index = 0;

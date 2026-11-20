@@ -139,6 +139,13 @@ function markedPicture(image: Image): { src: string; alt?: string } | null {
   return { src: `${image.src.slice(0, image.src.indexOf(",") + 1)}…`, alt: image.alt };
 }
 
+/** A fenced code block: a fence longer than any run of backticks in the code. */
+export function codeFence(language: string, code: string): string {
+  const longest = Math.max(0, ...(code.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `${fence}${language.replace(/[`\s]/g, "")}\n${code}\n${fence}`;
+}
+
 /**
  * The picture files a Markdown export writes beside it, by the names it writes, each once
  * (#1937), in the order the text first links them.
@@ -272,11 +279,8 @@ class MarkdownWriter {
         const text = this.inline(changedContent(block), context);
         return `**${this.labels.question}**${text ? ` ${text}` : ""}`;
       }
-      case "code": {
-        const longest = Math.max(0, ...(block.code.match(/`+/g) ?? []).map((run) => run.length));
-        const fence = "`".repeat(Math.max(3, longest + 1));
-        return `${fence}${block.language.replace(/[`\s]/g, "")}\n${block.code}\n${fence}`;
-      }
+      case "code":
+        return codeFence(block.language, block.code);
       case "math":
         return `$$\n${block.latex}\n$$`;
       case "list":

@@ -162,7 +162,7 @@ export function createWorkOut(deps: WorkOutDeps) {
       },
       number: () => ({
         problem:
-          "run_analysis reads a file's rows and the lists only: work out a figure from numbers Passages give with calculate",
+          "run_analysis reads a file's rows and the lists only: a figure from numbers Passages give is your own working",
       }),
       figure: () => ++figures,
       language: answerLanguage(title),

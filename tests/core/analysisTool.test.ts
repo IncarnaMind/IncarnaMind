@@ -1071,6 +1071,113 @@ describe("an Analysis an Answer runs", () => {
   });
 });
 
+describe("a number a Passage gives, as an Analysis takes it (#3393)", () => {
+  const MINUTES = {
+    name: "board minutes.md",
+    contents: "# Board minutes\n\nThe board approved a price rise of 4.5% for 2027.\n",
+  };
+  const QUOTE = "The board approved a price rise of 4.5% for 2027.";
+
+  /** Searches for the sheet and the minutes, then runs one Analysis that reads `rate` from the minutes. */
+  function ratedModel(
+    rate: Record<string, unknown>,
+    answer: string,
+    sales: Record<string, unknown>,
+  ): MockLanguageModelV4 {
+    const queries = ["revenue", "price rise"];
+    return scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length < queries.length) {
+        return {
+          calls: [{ tool: "search_documents", input: { query: queries[searches.length] } }],
+        };
+      }
+      if (call.results.some((result) => result.tool === "run_analysis")) return { text: answer };
+      const passages = searches.flatMap((each) => shownPassages(each.text));
+      const minutes = passages.find((each) => each.document.startsWith("board minutes"));
+      if (!minutes) throw new Error("No Passage of the minutes was shown.");
+      return {
+        calls: [
+          {
+            tool: "run_analysis",
+            input: {
+              title: "Revenue after the price rise",
+              inputs: [
+                { name: "sales", passage: passageOf(passages, "sales"), ...sales },
+                {
+                  name: "rate",
+                  passage: minutes.id,
+                  location: minutes.location,
+                  quote: QUOTE,
+                  ...rate,
+                },
+              ],
+              code: 'result("after", inputs["sales"]["Revenue"].sum() * (1 + inputs["rate"]), "Revenue after the rise", "USD")',
+            },
+          },
+        ],
+      };
+    });
+  }
+
+  async function run(
+    rate: Record<string, unknown>,
+    answer = "Revenue after the rise is [=1].",
+    sales: Record<string, unknown> = {},
+  ) {
+    const model = ratedModel(rate, answer, sales);
+    const jobs: AnalysisJob[] = [];
+    const { core } = await setUp(
+      model,
+      (job) => {
+        jobs.push(job);
+        return {
+          output: {
+            results: [
+              { kind: "figure", name: "after", label: "Revenue", unit: "USD", value: 366.27 },
+            ],
+          },
+        };
+      },
+      [{ name: "sales.csv", contents: SALES_CSV }, MINUTES],
+    );
+    await askAndRead(core, "What would revenue be after the price rise?");
+    return { jobs, told: told(model, "run_analysis") };
+  }
+
+  test("the code reads the value the model gives once the quote writes its digits, at the scale the model means", async () => {
+    const { jobs, told: said } = await run({ value: 0.045 });
+    expect(said[0]).not.toContain("Nothing ran");
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.inputs.find((input) => input.name === "rate")).toEqual({
+      kind: "number",
+      name: "rate",
+      value: 0.045,
+    });
+  });
+
+  test("a sheet's Passage given with a quote of a row is still its rows", async () => {
+    const { jobs } = await run({ value: 0.045 }, undefined, { quote: "North,2026Q1,120" });
+    expect(jobs).toHaveLength(1);
+    const sales = jobs[0]?.inputs.find((input) => input.name === "sales");
+    expect(sales?.kind === "table" && sales.rows).toHaveLength(4);
+  });
+
+  test("a value whose digits the quote doesn't write is refused with the numbers the quote has, and nothing runs", async () => {
+    const { jobs, told: said } = await run({ value: 0.054 }, "It couldn't be worked out.");
+    expect(jobs).toEqual([]);
+    expect(said[0]).toContain(
+      "rate: 0.054 isn't in its quote, which has 4.5, 2027: give the number the quote writes, as a plain number",
+    );
+  });
+
+  test("a number given only as the quote writes it is asked for its value", async () => {
+    const { jobs, told: said } = await run({ number: "4.5%" }, "It couldn't be worked out.");
+    expect(jobs).toEqual([]);
+    expect(said[0]).toContain("rate: give value, the number the code reads, as a plain number.");
+  });
+});
+
 describe("an Analysis table writes its numbers as the Answer's language does (#2102)", () => {
   const table = (name: string, columns: string[], rows: (string | number)[][]) => ({
     kind: "table" as const,
