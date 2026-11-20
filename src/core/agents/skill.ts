@@ -11,6 +11,28 @@
 /** The Skill's folder name, and its `name`. */
 export const SKILL_NAME = "incarnamind";
 
+/**
+ * The SHA-256 of each text the Skill has had, the current one too, so that a copy an earlier
+ * release wrote counts as IncarnaMind's even where there is no record of it (#3430). A change to
+ * the Skill adds the new text's hash here: a test fails until it does.
+ */
+export const EARLIER_SKILL_HASHES: readonly string[] = [
+  "ed317f62891621e7d29eb26e38cb4b593a5edb84285238a5141a4d580f3e6394",
+  "0cb37477f28c0e115871c0cc91861609978994fb1d8b3aa2fcf957382e9088fd",
+  "9edb0f719c6493598487d1183a12d1695d8dab459c2ef02c4fbaa5b8a0688d3d",
+  "37b7bff10e9c5d79530c3a9cf2f804d820d2501cc6b553e46e311569c9834c32",
+  "268db75f0097a8f8edbf87aad140168bab8faa81da75633fb7a4d59b93b45eff",
+  "12520776f2960853e11c60660f659e346350141ea011df9ec34e8fb94c2e89a9",
+  "0b7e5ae1e8611995734fb23f3d726a22f005a258ca5f6ced61b9e06f7fb92ae1",
+  "7aacd1b3e81a88e2f965c19bf0590651017fbcbb0103d0256a25d8586fa52b84",
+  "a4b899f085316e587704cc2d2ad51a5e16e30517515d2959eff62f3792c7d54e",
+  "8e09d9cb45912fe7aafb8e1589eb8bfe49850956b23201e2ee8b9b1d7edb1f99",
+  "15d5c573e04f2757ef50f5ed38cd0a7e2f9dba9c47887692c4000fc879ca16ef",
+  "2d1bc143d05c5fe8b15cff7d8860fdc58a8203abe78b69d6ce1d13bd47271bd3",
+  "da9d17409bfdddb4505f497cfec1d799a650e0e0038e7db74b959e44786dea2c",
+  "312f4df56cd3427db641077d4ea16bcb32451dc07ae2fcef42d4255e2aa4346f",
+];
+
 export const SKILL_MARKDOWN = `---
 name: ${SKILL_NAME}
 description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". Do not answer such a question from memory.

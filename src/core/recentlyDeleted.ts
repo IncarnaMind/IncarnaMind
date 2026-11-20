@@ -62,7 +62,7 @@ const NAMES: Readonly<Record<DeletedKind, string>> = {
   canvas: "title",
 };
 
-const earliestRestorable = (now: string) =>
+export const earliestRestorable = (now: string) =>
   new Date(Date.parse(now) - RECENTLY_DELETED_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
 /**
