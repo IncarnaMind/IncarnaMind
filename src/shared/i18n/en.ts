@@ -6410,7 +6410,10 @@ export const en = {
     "The transcript changed. Open the review again to check the current speakers.",
   "error.meeting.reviewCap": "This review would go over your monthly cap.",
   "error.meeting.reviewService": "Choose Soniox in Meeting settings to check the speakers.",
-  "error.meeting.reviewDuration": "Soniox can check up to five hours of audio at a time.",
+  "error.meeting.roomReviewFailed": "Could not run the on-device speaker check. Try again.",
+  "error.meeting.roomReviewPeople": "This transcript already has more than four speakers.",
+  "error.meeting.roomReviewPlatform": "This computer cannot run the on-device room speaker check.",
+  "error.meeting.reviewDuration": "Speaker review supports up to five hours of audio at a time.",
   "error.meeting.reviewCancelled": "The speaker review was canceled.",
   "error.meeting.reviewConsent": "Confirm the upload and estimated cost to check the speakers.",
   "error.meeting.reviewCleanup":
@@ -7614,18 +7617,27 @@ export const en = {
   "meetings.review.title": "Review speakers",
   "meetings.review.close": "Close speaker review",
   "meetings.review.quoting": "Checking availability and cost…",
+  "meetings.review.roomDisclosure":
+    "Check up to four people on this device using NVIDIA Sortformer. Your recording stays on this computer. Listen to each suggestion and choose which to apply.",
+  "meetings.review.roomDownload": "Download about {mb} MB",
+  "meetings.review.roomInstall": "Download and check speakers",
+  "meetings.review.roomCheck": "Check speakers on this device",
+  "meetings.review.unavailable.platform":
+    "On-device room speaker review is unavailable on this computer.",
+  "meetings.review.unavailable.people": "This speaker check supports up to four people.",
+  "meetings.review.roomDuration": "{duration} of microphone audio",
   "meetings.review.disclosure":
     "Send this meeting’s computer audio to Soniox for speaker suggestions. Your microphone track stays here.",
   "meetings.review.duration": "{duration} of computer audio",
   "meetings.review.confirm": "Send to Soniox and review",
   "meetings.review.cached": "Use the existing review. No new upload or charge is needed.",
   "meetings.review.viewCached": "View existing suggestions",
-  "meetings.review.unavailable.audio": "This meeting’s computer audio is no longer available.",
+  "meetings.review.unavailable.audio": "This meeting’s recording is no longer available.",
   "meetings.review.unavailable.transcript": "A saved meeting transcript is needed.",
   "meetings.review.unavailable.soniox": "Set up Soniox in Settings › AI to review speakers.",
   "meetings.review.unavailable.local": "“Keep everything on this computer” is on.",
   "meetings.review.unavailable.cap": "The review would exceed the transcription spending cap.",
-  "meetings.review.unavailable.duration": "Soniox can review at most five hours of audio.",
+  "meetings.review.unavailable.duration": "Speaker review supports up to five hours of audio.",
   "meetings.review.running": "Reviewing speakers…",
   "meetings.review.cancelling": "Cancelling the review…",
   "meetings.review.cancel": "Cancel review",
@@ -7633,10 +7645,13 @@ export const en = {
   "meetings.review.failed": "Couldn’t complete the speaker review.",
   "meetings.review.tryAgain": "Try again",
   "meetings.review.again": "Review again…",
+  "meetings.review.uncertain":
+    "The recording could not reliably distinguish the speakers in this transcript. No changes suggested.",
   "meetings.review.empty": "No speaker changes suggested.",
   "meetings.review.suggestions": "Review each suggested speaker change.",
   "meetings.review.change": "{from} → {to}",
   "meetings.review.listen": "Listen",
+  "meetings.review.roomListenAt": "Listen to microphone audio from {time}",
   "meetings.review.listenAt": "Listen to computer audio from {time}",
   "meetings.review.accept": "Accept",
   "meetings.review.keep": "Keep current speaker",
@@ -8358,6 +8373,12 @@ export const en = {
   "agents.problem.chat-consent":
     "IncarnaMind’s AI model isn’t allowed yet. Ask a Question in IncarnaMind to allow it.",
   "agents.problem.answer-failed": "IncarnaMind couldn’t answer: {message}",
+  "agents.problem.noRequest":
+    "No request from the User is waiting in IncarnaMind: each is read once. Go by what they wrote, or ask them to send it again from IncarnaMind.",
+  "agents.problem.requestNoteDeleted":
+    "The note this request is about was deleted in IncarnaMind, so there is nothing to change. Tell the User; if they restore it, they can ask again.",
+  "agents.problem.requestOutOfReach":
+    "This request is about a note this agent can’t read now. Tell the User to share its Folder with you in Settings → Agents, then ask again.",
   "agents.problem.invalid": "IncarnaMind couldn’t read that request.",
   "agents.problem.failed": "Something went wrong in IncarnaMind. Try again.",
   "agents.answer.notFound": "[quote not found]",
@@ -8445,6 +8466,29 @@ export const en = {
   "agents.canvas.refused.network":
     "is on the network, which a Canvas never reaches: give the file in files and refer to it by its name",
   "agents.create.folder": "Give folderId: one of the Folders list_minds lists.",
+  // A picture or chart an outside agent wrote that isn't in its note (#3413): the note's line
+  // about it, and the reason, which the agent is told too.
+  "agents.picture.notAdded": "Picture not added: {reason}.",
+  "agents.picture.notAddedNamed": "Picture “{name}” not added: {reason}.",
+  "agents.picture.refused.unreadable":
+    "its file can’t be read (a file named by its full path, never a link, a folder or a device)",
+  "agents.picture.refused.too-large":
+    "it is larger than {max} MB, the most a picture in a note may be",
+  "agents.picture.refused.type": "it isn’t a PNG, JPEG, GIF, WebP or SVG picture",
+  "agents.picture.refused.network":
+    "a note loads nothing from the internet: give it as a file on this computer or as a data: URL",
+  "agents.picture.refused.where": "give it by its full path on this computer, or as a data: URL",
+  "agents.picture.refused.too-many": "one call adds at most {max} pictures",
+  "agents.picture.refused.own-line": "a picture goes on a line of its own",
+  "agents.picture.refused.svg": "its SVG couldn’t be drawn as a picture",
+  "agents.chart.notDrawn": "Chart not drawn: {reason}.",
+  "agents.chart.refused.noTable":
+    "a ```chart block goes right under the table of the figures it draws",
+  "agents.chart.refused.json": "its ```chart block isn’t JSON that gives its kind and title",
+  "agents.chart.refused.kind": "its kind is bar, line, pie or scatter",
+  "agents.chart.refused.noNumbers":
+    "its table holds no column of figures: put each figure alone in its cell, with its token",
+  "agents.chart.refused.needsTwo": "a scatter chart needs two columns of numbers",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
   "agents.mind.busy": "(being written)",
@@ -8474,6 +8518,8 @@ export const en = {
     "The text for {name} has lines that read as a table’s rows but make no table.",
   "agents.propose.lost":
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
+  "agents.propose.visualAdded":
+    "{name} is rewritten in words alone: a picture or a chart goes in a paragraph of its own. Add it with {name}+.",
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
   "agents.propose.missingNumber":
@@ -8567,6 +8613,9 @@ export const en = {
   "agents.activity.publish_canvas": "Published the Canvas “{text}”",
   "agents.activity.read_canvas": "Read the Canvas “{text}”",
   "agents.activity.update_canvas": "Changed the Canvas “{text}”",
+  "agents.activity.read_request": "Read your request about “{text}”",
+  "agents.activity.read_request.none": "Looked for a request from you",
+  "agents.activity.request": "Show the request",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",
@@ -8600,7 +8649,7 @@ export const en = {
   "agents.connect.pickOne": "Choose at least one Folder.",
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.hint":
-    "Its notes and Canvases appear at once, and it can have its notes checked. For a Canvas, IncarnaMind copies in the files it names, and only those. Its changes to your notes wait for you.",
+    "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. Its changes to your notes wait for you.",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.skill": "It also adds a short Skill at {path}.",
   "agents.connect.showChange": "Show the lines",
@@ -8640,6 +8689,10 @@ export const en = {
   "agents.ask.copied": "Copied. Paste it into {agent}.",
   "agents.ask.fixCommand": "Ask your AI to fix this sentence",
   "agents.ask.noteCommand": "Ask your AI about this note",
+  "agents.ask.fixAllCommand": "Ask your AI to fix every flagged sentence",
+  "agents.ask.fixAll": "Ask {agent} to fix {count}",
+  "agents.ask.waiting": "Waiting for {agent} to read your request.",
+  "agents.ask.read": "{agent} read your request.",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",
@@ -8659,12 +8712,21 @@ export const en = {
     "To use {agent}, move this meeting note to a folder shared with it.",
   "meetings.notesAgent.unavailable": "Reconnect your AI or resume its access in Settings.",
   "meetings.notesAgent.settings": "Agent settings",
+  // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
+  "agents.ask.line.fix": "Fix the sentence IncarnaMind flagged in {title}.",
+  "agents.ask.line.fixAll": "Fix the {count} sentences IncarnaMind flagged in {title}.",
+  "agents.ask.line.note": "About my note {title} in IncarnaMind:",
+  "agents.ask.line.question": "About my note {title} in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionAlone": "From my Documents in IncarnaMind:\n\n{question}",
+  "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
+  // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
-  "agents.ask.request.question":
-    "In IncarnaMind, about my note {title} (mindId: {mindId}):\n\n{question}",
-  "agents.ask.request.questionAlone": "From my Documents in IncarnaMind:\n\n{question}",
-  "agents.ask.request.note": "In IncarnaMind, about my note {title} (mindId: {mindId}):",
+  "agents.ask.request.fixAll":
+    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says these {count} sentences need a look:\n\n{sentences}\n\nFix each of them from my Documents, and change nothing else in the note. Then check the note again yourself.",
+  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}",
+  "agents.ask.request.note":
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
   "agents.ask.verdict.contradicted": "is contradicted by my Documents",
   "agents.ask.verdict.not-found": "isn’t found in my Documents",

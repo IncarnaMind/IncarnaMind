@@ -96,8 +96,10 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
         throw new Error("Not called.");
       },
     },
+    requests: { ofPairing: () => [], markRead: () => null },
     record: () => undefined,
     say: (key, params) => translate("en", key, params),
+    language: () => "en",
     clock: () => 0,
     now: () => "2026-11-01T09:00:00.000Z",
     newId: () => "id",

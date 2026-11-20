@@ -288,7 +288,7 @@ import {
   meetingRecord,
   otherCallTranscripts,
 } from "./meetings";
-import { listParts, meetingFolder, systemRecording } from "./meetings/audioFiles";
+import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
@@ -5222,7 +5222,8 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const speakerReview = createMeetingSpeakerReview({
     parts: (id) => listParts(meetingFolder(dataDir, id)),
-    recording: systemRecording,
+    recording: sourceRecording,
+    roomReviewer: adapters.roomSpeakerReviewer,
     now,
     settings,
     cloud: cloudTranscription,
@@ -5786,6 +5787,9 @@ export function createCore(adapters: CoreAdapters): Core {
       passagesCovering: (documentId, from, to, overlapping) =>
         documents.passagesCovering(documentId, from, to, overlapping),
       ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
+      ...(adapters.canvasFiles && { readNamed: adapters.canvasFiles.readNamed }),
+      ...(adapters.pictures && { pictures: adapters.pictures }),
+      language: () => settings.get().language,
       libraryLists: agentLibraryLists,
       libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
       citing,
@@ -5825,7 +5829,7 @@ export function createCore(adapters: CoreAdapters): Core {
         });
         // A heading that opens the Note is its title already: it is read once (#3371).
         const title = titled ? "" : mind.title || mind.autoTitle;
-        return renderMarkdown(title, blocks, exportLabels(language), { pictures: false }).text;
+        return renderMarkdown(title, blocks, exportLabels(language), { pictures: "marked" }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
@@ -5843,6 +5847,7 @@ export function createCore(adapters: CoreAdapters): Core {
     skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),
     called: (activity) => events.emit("agents.activity", activity),
+    requested: (request) => events.emit("agents.request", request),
     reportError: (error) => console.error(error),
   });
   agentsLocalModeChanged = () => agents.localModeChanged();
@@ -5881,6 +5886,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
     minds: () => minds.list(),
+    keepRequest: (request) => agents.keepRequest(request),
     openLink: adapters.agents?.openLink ?? null,
     say: (key, params) => translate(settings.get().language, key, params),
     log: adapters.log ?? silentLogger,
@@ -8174,6 +8180,8 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteCanvas: async (canvasId) => removeCanvas(canvasId),
     canvasShowing: (host) => canvases.showing(host),
     serveCanvas: (host, path) => canvases.served(host, path),
+    listAgentRequests: async (mindId) =>
+      typeof mindId === "string" ? agents.requestsFor(mindId) : [],
     getAgentLaunch: (pairingId) => agents.launch(pairingId),
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),
