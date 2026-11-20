@@ -149,6 +149,7 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  NOTE_TAB_NODE,
   type OlderKeyJob,
   type OpenAtLogin,
   type OrganizeStart,
@@ -324,6 +325,7 @@ import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
+import { withTabSections } from "./noteTabs";
 import {
   createOrganizeReview,
   type OrganizeReviewRun,
@@ -5803,7 +5805,10 @@ export function createCore(adapters: CoreAdapters): Core {
         const { language } = settings.get();
         // Someone's changes from a Word file read as changes, as the assistant reads them (#734).
         const { blocks, titled } = content.peek(mind.id, (fragment) => {
-          const first = fragment.get(0);
+          // A Note's first tab starts at its first Block (#3414): the heading after it opens it.
+          const [start, next] = fragment.toArray();
+          const first =
+            start instanceof Y.XmlElement && start.nodeName === NOTE_TAB_NODE ? next : start;
           return {
             blocks: readBlocks(fragment, {
               includeQuestions: true,
@@ -5818,7 +5823,11 @@ export function createCore(adapters: CoreAdapters): Core {
         });
         // A heading that opens the Note is its title already: it is read once (#3371).
         const title = titled ? "" : mind.title || mind.autoTitle;
-        return renderMarkdown(title, blocks, exportLabels(language), { pictures: false }).text;
+        // Each tab is a part of the Note under its title, as a file has it (#3414).
+        const parts = withTabSections(blocks, (n) =>
+          translate(language, "noteTabs.defaultTitle", { n }),
+        );
+        return renderMarkdown(title, parts, exportLabels(language), { pictures: false }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>

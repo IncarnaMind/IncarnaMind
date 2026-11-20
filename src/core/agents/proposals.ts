@@ -45,6 +45,8 @@ import {
   CITATION_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
+  NOTE_TAB_NODE,
+  NOTE_TAB_TITLE_ATTRIBUTE,
   type OutsideAgentRequest,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
@@ -94,6 +96,11 @@ export interface NamedWords {
   /** Before the words of a paragraph with changes waiting, and of one being written. */
   waiting: string;
   busy: string;
+  /**
+   * The line before the first paragraph of a tab of the Note (#3414), by its title, "" for a tab
+   * with none, and its number from 1. Absent: tabs aren't read.
+   */
+  tab?(title: string, number: number): string;
 }
 
 export interface NamedOptions {
@@ -246,6 +253,11 @@ export function namedNote(
   const paragraphs: NamedParagraph[] = [];
   const seen = new Set<string>();
   let titled = false;
+  const tabs = tabsOfBlocks(blocks);
+  /** Before which paragraph each tab's line goes, by the paragraph's index. */
+  const tabLines = new Map<number, string>();
+  let lastTab: number | null = null;
+  const opening = blocks.get(0) instanceof Y.XmlElement && tabs.has(blocks.get(0) as Y.XmlElement);
   for (const { element } of textBlocks(blocks)) {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (typeof blockId !== "string" || blockId === "" || seen.has(blockId)) continue;
@@ -260,8 +272,13 @@ export function namedNote(
       options.title === true &&
       paragraphs.length === 0 &&
       element.nodeName === "heading" &&
-      blocks.get(0) === element;
+      blocks.get(opening ? 1 : 0) === element;
     titled ||= title;
+    const tab = tabOfElement(element, tabs);
+    if (words.tab && tab && tab.number !== lastTab) {
+      tabLines.set(paragraphs.length, words.tab(tab.title, tab.number));
+      lastTab = tab.number;
+    }
     paragraphs.push({
       name: title ? "¶0" : paragraphName(paragraphs.length - (titled ? 1 : 0)),
       blockId,
@@ -287,7 +304,51 @@ export function namedNote(
       )
       .join("\u0001"),
   );
-  return { paragraphs, text: paragraphs.map(line).join("\n\n"), version };
+  const text = paragraphs
+    .flatMap((paragraph, at) => {
+      const tab = tabLines.get(at);
+      return tab === undefined ? [line(paragraph)] : [tab, line(paragraph)];
+    })
+    .join("\n\n");
+  return { paragraphs, text, version };
+}
+
+/**
+ * The tab each top-level Block of a Note is in (#3414), by its title and number from 1; none in a
+ * Note without tabs. A tab Block is the first of its own.
+ */
+function tabsOfBlocks(blocks: Y.XmlFragment): Map<Y.XmlElement, { title: string; number: number }> {
+  const all = blocks.toArray();
+  const of = new Map<Y.XmlElement, { title: string; number: number }>();
+  if (!all.some((block) => block instanceof Y.XmlElement && block.nodeName === NOTE_TAB_NODE)) {
+    return of;
+  }
+  let tab = { title: "", number: 1 };
+  let started = false;
+  for (const block of all) {
+    if (!(block instanceof Y.XmlElement)) continue;
+    if (block.nodeName === NOTE_TAB_NODE) {
+      const title = block.getAttribute(NOTE_TAB_TITLE_ATTRIBUTE);
+      tab = {
+        title: typeof title === "string" ? title.trim() : "",
+        number: started ? tab.number + 1 : 1,
+      };
+    }
+    started = true;
+    of.set(block, tab);
+  }
+  return of;
+}
+
+function tabOfElement(
+  element: Y.XmlElement,
+  tabs: ReadonlyMap<Y.XmlElement, { title: string; number: number }>,
+): { title: string; number: number } | null {
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    const tab = tabs.get(at);
+    if (tab) return tab;
+  }
+  return null;
 }
 
 /** One of the agent's changes, by the index of the named paragraph it is for. */
