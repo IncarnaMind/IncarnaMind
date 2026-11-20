@@ -166,7 +166,7 @@ describe("a Project in the list (#3507)", () => {
         { id: "disk-root", linkedFolderId: "linked", relativePath: "" },
         { id: "disk-yard", linkedFolderId: "linked", relativePath: "plans/yard" },
       ],
-      [{ id: "linked", path: "/Users/ada/Quay works" }],
+      [{ id: "linked", path: "/Users/ada/Quay works", folderId: "disk-root" }],
     );
     expect(places).toEqual(
       new Map([
@@ -178,9 +178,17 @@ describe("a Project in the list (#3507)", () => {
       projectPlaces(
         [yard],
         [{ id: "disk-yard", linkedFolderId: "linked", relativePath: "plans/yard" }],
-        [{ id: "linked", path: "C:\\Users\\ada\\Quay works" }],
+        [{ id: "linked", path: "C:\\Users\\ada\\Quay works", folderId: "disk-root" }],
       ).get("yard"),
     ).toBe("C:\\Users\\ada\\Quay works\\plans\\yard");
+    // A Linked folder's own Folder, before a scan has made its row.
+    expect(
+      projectPlaces(
+        [quay],
+        [],
+        [{ id: "linked", path: "/Users/ada/Quay works", folderId: "disk-root" }],
+      ),
+    ).toEqual(new Map([["quay", "/Users/ada/Quay works"]]));
     const rows = agentFolderRows(
       [quay, folder("legal", "Legal")],
       [],

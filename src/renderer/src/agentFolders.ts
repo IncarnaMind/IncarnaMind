@@ -34,10 +34,15 @@ export interface AgentFolderRow {
 export function projectPlaces(
   folders: readonly Pick<LibraryGroup, "id" | "boundFolderId">[],
   onDisk: readonly Pick<Folder, "id" | "linkedFolderId" | "relativePath">[],
-  linked: readonly Pick<LinkedFolder, "id" | "path">[],
+  linked: readonly Pick<LinkedFolder, "id" | "path" | "folderId">[],
 ): Map<string, string> {
   const places = new Map<string, string>();
   for (const folder of folders) {
+    const own = linked.find((each) => each.folderId === folder.boundFolderId);
+    if (own) {
+      places.set(folder.id, own.path);
+      continue;
+    }
     const bound = onDisk.find((each) => each.id === folder.boundFolderId);
     const root = bound && linked.find((each) => each.id === bound.linkedFolderId);
     if (!bound || !root) continue;
