@@ -23,6 +23,7 @@ const TEXTS = {
     query: "repairs deposit",
     question: "What does the lease say about repairs and the deposit?",
     says: "The Landlord, not the Tenant, must repair the roof and external walls.",
+    beyond: "The lease returns the deposit within 14 days after it ends.",
   },
   zh: {
     name: "青禾路商铺租赁合同.md",
@@ -34,16 +35,19 @@ const TEXTS = {
     query: "修复 押金",
     question: "合同关于维修和押金怎么规定？",
     says: "修复屋顶和外墙的是出租人，不是承租人。",
+    beyond: "合同写的是租赁期满后14日内退还押金。",
   },
 } as const;
 
 type Language = keyof typeof TEXTS;
+type Verdict = "supported" | "overstated" | "partly supported" | "not found" | "own view";
 
 /**
- * The batch's verdicts: the wrong sentence contradicted, the backed one supported by the deposit
- * clause's words, the framing an opinion; a cited sentence supported, as its quote says.
+ * The batch's verdicts: the wrong sentence contradicted, the backed one `backed` (supported by
+ * default) with the deposit clause's words, the framing an opinion; a cited sentence supported,
+ * as its quote says.
  */
-function judging(language: Language) {
+function judging(language: Language, backed: Verdict = "supported") {
   const text = TEXTS[language];
   return (call: GenerateCall) => {
     if (call.question !== "sentence-batch") return judgesNothing(call);
@@ -61,8 +65,8 @@ function judging(language: Language) {
         return {
           ...base,
           kind: "fact",
-          verdict: "supported",
-          says: null,
+          verdict: backed,
+          says: backed === "supported" ? null : text.beyond,
           passage: 1,
           quote: text.deposit,
         };
@@ -74,7 +78,7 @@ function judging(language: Language) {
 }
 
 /** A model that searches once, then writes `answer` and cites nothing. */
-function writingModel(language: Language, answer: string) {
+function writingModel(language: Language, answer: string, backed?: Verdict) {
   const text = TEXTS[language];
   return scriptedModel(
     (call) => {
@@ -84,7 +88,7 @@ function writingModel(language: Language, answer: string) {
       }
       return { text: answer };
     },
-    { generate: judging(language) },
+    { generate: judging(language, backed) },
   );
 }
 
@@ -142,6 +146,38 @@ describe.each(Object.keys(TEXTS) as Language[])(
       expect(answer.text).toContain(text.wrong);
       expect(answer.text).not.toContain(`${text.wrong.slice(0, -1)}[^`);
     });
+
+    // protects=the batch judges an uncited sentence by the Citation check's own verdicts (#3410): one it finds overstated, partly supported or not found is marked Unsupported with what the Documents say, and gets no Citation though the batch names a quote; one it finds the writer's own view is neither marked nor cited; fails_when=a verdict word of the check's rules is dropped, read as supported, or cited by its quote; no_claim=how a real model chooses among them (eval/uncited).
+    test.each(["overstated", "partly supported", "not found", "own view"] as const)(
+      "one the batch finds %s gets no Citation",
+      { timeout: 30_000 },
+      async (verdict) => {
+        const { core } = await setUpWithDocuments(
+          writingModel(language, answerOf(language), verdict),
+          [document],
+        );
+        const asked = await askAssistant(core, { text: text.question });
+        const answer = await judgedUncited(core, asked.conversationId, asked.id);
+
+        const wrong = {
+          sentence: text.wrong,
+          check: "contradicted",
+          verdict: text.says,
+          judgedAt: expect.any(String),
+        };
+        const beyond = {
+          sentence: text.backed,
+          check: "unsupported",
+          verdict: text.beyond,
+          judgedAt: expect.any(String),
+        };
+        expect(answer.steps?.uncitedChecks).toEqual(
+          verdict === "own view" ? [wrong] : [wrong, beyond],
+        );
+        expect(answer.citations).toEqual([]);
+        expect(answer.text).toBe(answerOf(language));
+      },
+    );
 
     // protects=asked in a Note, the same uncited sentences get no Citation and no verdict when the Answer ends: the Note's own check reads them; fails_when=code cites one there by its words, or the Answer's judgement runs in a Note; no_claim=Check this Note itself (eval/uncited).
     test("in a Note, nothing is added to them", { timeout: 30_000 }, async () => {

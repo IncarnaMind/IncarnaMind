@@ -6334,6 +6334,10 @@
   .uncited-check-card {
     position: fixed;
     z-index: 60;
+    /* It takes the focus so a screen reader reads it, and holds no control to ring. */
+    &:focus-visible {
+      outline: none;
+    }
   }
   .uncited-check-heading {
     font-weight: 600;

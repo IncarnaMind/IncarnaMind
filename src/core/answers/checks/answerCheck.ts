@@ -284,13 +284,17 @@ const WORSE: Record<SupportResult["check"], number> = {
   contradicted: 2,
 };
 
+/** How a sentence the Passages don't back shows: contradicted, or one of the ways they leave it unbacked as Unsupported. */
+const unbackedAs = (verdict: BatchVerdict): "unsupported" | "contradicted" =>
+  verdict.verdict === "contradicted" ? "contradicted" : "unsupported";
+
 /** A sentence a batch judged, as its Citations show it: its model's verdict; null when it isn't judged. */
 function supportOf(verdict: BatchVerdict | undefined): SupportResult | null {
   // A sentence sorted as all opinion is left unjudged, never supported: the sort is a model's, and
   // a fact sorted as opinion must not show the green check.
-  if (!verdict || verdict.kind === "opinion") return null;
+  if (!verdict || verdict.kind === "opinion" || verdict.verdict === "own view") return null;
   if (verdict.verdict === "supported") return { check: "found", verdict: null };
-  return { check: verdict.verdict, verdict: verdict.says };
+  return { check: unbackedAs(verdict), verdict: verdict.says };
 }
 
 /** The limit a failed batch met, if it was one. */
@@ -705,9 +709,9 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
       verdict: BatchVerdict | undefined,
       batch: readonly Judged[],
     ) => {
-      if (verdict?.kind !== "fact") return;
+      if (verdict?.kind !== "fact" || verdict.verdict === "own view") return;
       if (verdict.verdict !== "supported") {
-        input.onUncited?.(place, { check: verdict.verdict, verdict: verdict.says });
+        input.onUncited?.(place, { check: unbackedAs(verdict), verdict: verdict.says });
         return;
       }
       if (!verdict.cites || verdict.quoted !== "states") return;

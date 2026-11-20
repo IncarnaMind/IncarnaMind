@@ -133,6 +133,12 @@ const ASKS_FOR_A_FIGURE = /\bstate the figure\b|写出数字/i;
 /** The sentence such an Answer writes, which says more than its quote: the scripted check finds it unsupported. */
 export const SAYS_MORE = /\bit is already done\b|这件事已经完成/u;
 
+/** A Question whose Answer adds a claim it cites nothing for (#3410). */
+const LEAVES_A_CLAIM_UNCITED = /\bone uncited claim\b|一句未引用的说法/i;
+
+/** The claim such an Answer adds, which no Passage it read backs: the scripted batch finds it not found. */
+export const UNCITED_CLAIM = /^The tides here rise six metres\.$|^这里的潮水会涨六米。$/u;
+
 /**
  * A Question about a résumé's "main projects" (主要项目): its Answer lists three of them in one
  * sentence that cites one line (#2809). Asked about "the wallet" (钱包) too, it lists one more,
@@ -901,6 +907,13 @@ function answerFrom(
       text: /\p{Script=Han}/u.test(question)
         ? "文档说这件事已经完成[^1]。"
         : "Your Documents say it is already done [^1].",
+    };
+  }
+  if (LEAVES_A_CLAIM_UNCITED.test(question)) {
+    return {
+      text: /\p{Script=Han}/u.test(question)
+        ? "文档回答了这个问题[^1]。这里的潮水会涨六米。"
+        : "Your Documents answer this [^1]. The tides here rise six metres.",
     };
   }
   const firstPassage = passagesIn(searches.at(-1) ?? "")[0];

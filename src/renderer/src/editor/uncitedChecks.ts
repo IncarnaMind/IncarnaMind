@@ -81,7 +81,10 @@ function markFor(check: UncitedCheck): HTMLElement {
   button.className = "citation-marker uncited-check-mark";
   button.dataset.testid = "uncited-check-mark";
   button.dataset.check = check.check;
-  const label = `${headingOf(check.check)}. ${translateNow("uncitedCheck.why")}`;
+  const label = translateNow("uncitedCheck.label", {
+    heading: headingOf(check.check),
+    why: translateNow("uncitedCheck.why"),
+  });
   button.setAttribute("aria-label", label);
   button.setAttribute("aria-haspopup", "dialog");
   button.title = label;

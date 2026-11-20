@@ -4875,6 +4875,7 @@ export const en = {
   "citation.picture.unsure.other": "Read from a picture · {count} words may be misread",
   "citation.scan.unsureWord": "May be misread: check it on the page",
   "citation.scan.picture": "The page this scan’s text was read from: {document}",
+  "uncitedCheck.label": "{heading}. {why}",
   "uncitedCheck.why":
     "This sentence has no Citation, and the passages this Answer read don’t back it.",
   "uncheckedFigure.heading": "Not checked",

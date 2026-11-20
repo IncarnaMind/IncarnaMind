@@ -9,7 +9,7 @@ import { restateInstructions } from "../../core/answers/checks/explanations";
 import { sentenceBatchInstructions } from "../../core/answers/checks/sentenceBatch";
 import { LANGUAGES } from "../../core/language";
 import { outputTokens } from "../../core/providers/outputLimits";
-import { LISTED_PROJECTS, LISTS_PROJECTS, SAYS_MORE, THOUGHT_OVER } from "./answers";
+import { LISTED_PROJECTS, LISTS_PROJECTS, SAYS_MORE, THOUGHT_OVER, UNCITED_CLAIM } from "./answers";
 import { SAYS_A_VIEW } from "./claims";
 import { passagesIn, recordFor } from "./passages";
 import {
@@ -35,10 +35,11 @@ const numbers = (text: string): string[] => text.match(/\d+(?:[.,]\d+)?/g) ?? []
 /**
  * A batch of an Answer's sentences (#2311): each supported by what it cites, as the scripted
  * Answers keep to their quotes, but one that says more than its quote (`BEYOND_ITS_QUOTE`) and one
- * that lists projects its one Citation doesn't name (`LISTS_PROJECTS`, #2809).
+ * that lists projects its one Citation doesn't name (`LISTS_PROJECTS`, #2809). Of the sentences the
+ * Answer cited nothing in (#3410), only the claim no Passage backs (`UNCITED_CLAIM`) gets an
+ * entry, not found; the others none, so none of them is marked.
  */
 export function fakeSentenceBatch(options: GenerateOptions): string | null {
-  // A sentence its Answer's model cited nothing in (#3410) gets no entry: none is marked.
   const language = LANGUAGES.find((each) =>
     [false, true].some((calls) =>
       [false, true].some(
@@ -50,30 +51,46 @@ export function fakeSentenceBatch(options: GenerateOptions): string | null {
   const chinese = language === "zh-CN";
   const prompt = lastUserText(options.prompt);
   const sentences = [...prompt.matchAll(/<sentence number="(\d+)">\n([\s\S]*?)\n<\/sentence>/g)];
+  const uncited = [
+    ...prompt.matchAll(/<sentence number="(\d+)" uncited="true">\n([\s\S]*?)\n<\/sentence>/g),
+  ].filter(([, , sentence = ""]) => UNCITED_CLAIM.test(sentence));
   return JSON.stringify({
-    sentences: sentences.map(([, number, sentence = ""]) => {
-      const beyond = SAYS_MORE.test(sentence);
-      const lists = LISTS_PROJECTS.test(sentence);
-      return {
+    sentences: [
+      ...uncited.map(([, number]) => ({
         number: Number(number),
         kind: "fact",
-        verdict: beyond || lists ? "unsupported" : "supported",
+        verdict: "not found",
         roles: "same",
-        time: beyond ? "differs" : "same",
-        quoted: "states",
-        says: lists
-          ? chinese
-            ? "引文只提到了其中一个项目。"
-            : "The quote names one of the projects, not the others."
-          : beyond
+        time: "same",
+        quoted: "other",
+        says: chinese
+          ? "文档没有写这里的潮水涨多高。"
+          : "The Documents don't say how high the tides rise here.",
+      })),
+      ...sentences.map(([, number, sentence = ""]) => {
+        const beyond = SAYS_MORE.test(sentence);
+        const lists = LISTS_PROJECTS.test(sentence);
+        return {
+          number: Number(number),
+          kind: "fact",
+          verdict: beyond || lists ? "unsupported" : "supported",
+          roles: "same",
+          time: beyond ? "differs" : "same",
+          quoted: "states",
+          says: lists
             ? chinese
-              ? "文档写的是什么时候发生，没有说已经完成。"
-              : "The Document says when it happens, not that it is already done."
-            : chinese
-              ? "文档是这样写的。"
-              : "The Document says so.",
-      };
-    }),
+              ? "引文只提到了其中一个项目。"
+              : "The quote names one of the projects, not the others."
+            : beyond
+              ? chinese
+                ? "文档写的是什么时候发生，没有说已经完成。"
+                : "The Document says when it happens, not that it is already done."
+              : chinese
+                ? "文档是这样写的。"
+                : "The Document says so.",
+        };
+      }),
+    ],
   });
 }
 
