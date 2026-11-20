@@ -37,8 +37,13 @@ export function wavSamples(bytes: Uint8Array): Int16Array {
     const id = String.fromCharCode(...bytes.subarray(at, at + 4));
     const size = view.getUint32(at + 4, true);
     if (id === "data") {
-      const body = bytes.slice(at + 8, at + 8 + size - (size % 2));
-      return new Int16Array(body.buffer);
+      const start = at + 8;
+      const dataBytes = Math.min(size, view.byteLength - start);
+      const samples = new Int16Array(Math.floor(dataBytes / 2));
+      for (let index = 0; index < samples.length; index++) {
+        samples[index] = view.getInt16(start + index * 2, true);
+      }
+      return samples;
     }
     at += 8 + size + (size % 2);
   }
