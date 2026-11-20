@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   cutAtWord,
   cutTitle,
+  cutTitleShown,
   fitName,
   mindName,
   NAME_LENGTH,
@@ -219,5 +220,27 @@ describe("a name another Mind has", () => {
     expect(numberedName("Lease summary", ["lease summary"])).toBe("Lease summary 2");
     expect(numberedName("租约总结", ["租约总结", "租约总结 2"])).toBe("租约总结 3");
     expect(numberedName("", [""])).toBeNull();
+  });
+});
+
+describe("a cut title that says it was cut (#3487)", () => {
+  test("a name that fits is the same as cutTitle's", () => {
+    expect(cutTitleShown("How much cooler are parks at night?")).toBe(
+      cutTitle("How much cooler are parks at night?"),
+    );
+    expect(cutTitleShown("公园夜间降温多少？")).toBe("公园夜间降温多少");
+    expect(cutTitleShown("")).toBe("");
+    expect(cutTitleShown("\n \n")).toBe("");
+  });
+
+  test("a cut one ends with an ellipsis after cutTitle's words", () => {
+    const question =
+      "How much cooler are large irrigated parks than the surrounding built-up streets during clear windless summer nights?";
+    expect(cutTitleShown(question)).toBe(`${cutTitle(question)}…`);
+    expect(cutTitleShown(`${question}\nsecond line`)).toBe(`${cutTitle(question)}…`);
+  });
+
+  test("only the first line counts, so a second line is not a cut", () => {
+    expect(cutTitleShown("Park cooling\nand a second line")).toBe("Park cooling");
   });
 });

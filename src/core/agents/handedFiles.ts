@@ -142,9 +142,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
   };
 
   const folderName = (folderId: string | null) =>
-    folderId === null
-      ? t("library.unsorted")
-      : (deps.folders().find((folder) => folder.id === folderId)?.name ?? "");
+    deps.folders().find((folder) => folder.id === folderId)?.name ?? "";
 
   return {
     handOverFile(input: { path?: unknown; folderId?: unknown }): Promise<AgentHandedFile> {

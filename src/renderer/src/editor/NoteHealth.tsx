@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { ANALYSIS_TABLE_ATTRIBUTE, type CitationAttributes } from "../../../core/api";
 import { liveVersions, tableShownIn } from "../../../shared/analysisTables";
@@ -142,12 +142,17 @@ export function PartMark({ part }: { part: BadgeMark }) {
   }
 }
 
-/** The Mind's health, worked out a moment after it last changed, as the word count is. */
+/**
+ * The Mind's health, worked out a moment after it last changed, as the word count is, and at once
+ * when a check starts or ends (`running`): the badge says what the run ended with, not what it
+ * began with (#3487).
+ */
 export function useHealth(
   editor: Editor,
   skipped: ReadonlySet<string>,
   unexamined: ReadonlySet<string>,
   doc: Y.Doc,
+  running: boolean,
 ): Health {
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
@@ -155,7 +160,8 @@ export function useHealth(
   const kept = useAppStore((state) => state.keptCitationTexts);
   const keptInside = useKeptInsideOf();
   const [health, setHealth] = useState<Health>(NO_HEALTH);
-  useEffect(() => {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `running` counts the health again before the paint when a check starts or ends, so the frame it ends in shows its end (#3487).
+  useLayoutEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const count = () => {
       timer = undefined;
@@ -187,7 +193,7 @@ export function useHealth(
       editor.off("transaction", later);
       doc.off("afterTransaction", later);
     };
-  }, [editor, doc, documents, kept, skipped, unexamined, keptInside]);
+  }, [editor, doc, documents, kept, skipped, unexamined, keptInside, running]);
   return health;
 }
 

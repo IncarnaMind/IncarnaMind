@@ -144,7 +144,7 @@ describe("an agent that may read Not in a Folder", () => {
     expect(listed.folders).toEqual([
       {
         id: NOT_IN_A_FOLDER_ID,
-        name: "Not in a Folder",
+        name: "",
         documents: 2,
         documentList: [
           { id: ferry.id, name: ferry.name, kind: "markdown" },

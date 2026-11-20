@@ -145,12 +145,12 @@ function MindBadge({
     () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
     [unexaminedKeys],
   );
-  const health = useHealth(editor, skipped, unexamined, doc);
+  const running = useChecks((state) => state.running[mindId]);
+  const health = useHealth(editor, skipped, unexamined, doc, running !== undefined);
   const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
-  const running = useChecks((state) => state.running[mindId]);
   // A check that finished keeps the badge's one width until the User types, as a running one
   // does; what it marked is the Note's resting state's to say (#2519).
   const justChecked = useJustChecked(editor, running ?? null, () => 0);
