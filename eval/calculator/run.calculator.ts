@@ -765,6 +765,15 @@ interface AgentCall {
   result: unknown;
 }
 
+/** Whether the agent started its check: a task given, not a `check_mind_yourself` refused. */
+const startOf = (calls: readonly AgentCall[]) => {
+  const tried = calls.filter((each) => each.name === "check_mind_yourself");
+  return {
+    started: tried.some((each) => each.refused === null),
+    startsRefused: tried.filter((each) => each.refused !== null).length,
+  };
+};
+
 interface AgentRequest {
   status: number | null;
   error: string | null;
@@ -1151,7 +1160,7 @@ async function agentPath(setup: Setup) {
             scaled: sentence.each.scaled,
             sentence: sentence.text,
             run,
-            started: calls.some((each) => each.name === "check_mind_yourself"),
+            ...startOf(calls),
             note: {
               sentences: note.sentences.length,
               seconds,
@@ -1367,7 +1376,7 @@ async function requestsPath(setup: Setup) {
           asks: request.asks,
           written: request.written,
           run,
-          started: calls.some((each) => each.name === "check_mind_yourself"),
+          ...startOf(calls),
           reported: calls.some((each) => each.name === "report_check" && each.refused === null),
           // Every mark the Note ends with, also on sentences the agent changed before its check.
           marked: [...marks.values()].filter((mark) => mark.shown !== "checking").length,

@@ -6,12 +6,14 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { readMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
 
 const TIDES = [
@@ -323,6 +325,52 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     expect(refusal(await report(agent, mindId, given.task, [{ n: 2, verdict: "not found" }]))).toBe(
       "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
     );
+  });
+
+  // protects=a result lands only on the claim the agent judged, a figure IncarnaMind worked out as it was shown included (#3432); fails_when=a report from before the figure's value changed marks the sentence as it reads now
+  it("refuses results for a sentence whose figure changed since it was given", async () => {
+    const { core, agent, mindId } = await paired();
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const growth = (value: number, shown: string) => ({
+      type: "paragraph",
+      attrs: { id: "line-growth" },
+      content: [
+        { type: "text", text: "Spring tides rose " },
+        calculatedFigureNode(
+          {
+            label: "Growth",
+            formula: "",
+            inputs: [],
+            value,
+            unit: { kind: "percent" },
+            approximate: false,
+            shown,
+            show: { language: "en", as: "percent", decimals: 1, scale: null },
+            literals: [],
+            engine: FORMULA_VERSION,
+            written: null,
+            analysis: { analysis: 1, result: "growth" },
+          },
+          "figure-growth",
+          "analysis-run",
+        ),
+        { type: "text", text: " over the year." },
+      ],
+    });
+    writeMind(client, [growth(0.25, "25.0%")]);
+    await client.settled();
+    const given = await task(agent, mindId);
+    expect(given.sentences).toEqual([{ n: 1, text: "Spring tides rose 25.0% over the year." }]);
+
+    editMind(client, () => [growth(0.3, "30.0%")]);
+    await client.settled();
+    expect(refusal(await report(agent, mindId, given.task, [{ n: 1, verdict: "not found" }]))).toBe(
+      "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
+    );
+    expect((await task(agent, mindId)).sentences).toEqual([
+      { n: 1, text: "Spring tides rose 30.0% over the year." },
+    ]);
   });
 
   // protects=an agent that reads its Note in a later chat learns that its sentences aren't checked, where it decides how to answer whether the Note is right (#3432); fails_when=read_mind says nothing of it, says it of a Note the User wrote, or still says it once every sentence holds a result
