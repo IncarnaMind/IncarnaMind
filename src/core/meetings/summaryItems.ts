@@ -35,6 +35,7 @@ export function normalizeSummaryEvidence(value: string): string {
 export function readMeetingSummaryUpdate(
   raw: string,
   input: MeetingSummaryInput,
+  lastReservedId = 0,
 ): { text: string; items: MeetingSummaryItem[]; evidence: Record<number, string> } {
   let json: unknown;
   try {
@@ -54,7 +55,7 @@ export function readMeetingSummaryUpdate(
   const evidence: Record<number, string> = {};
   const touched = new Set<number>();
   const addressed = new Set(reply.data.changes.map((change) => change.id));
-  let nextId = 1;
+  let nextId = lastReservedId + 1;
   for (const id of existing.keys()) nextId = Math.max(nextId, id + 1);
   for (const change of reply.data.changes) {
     if (change.id !== null) {

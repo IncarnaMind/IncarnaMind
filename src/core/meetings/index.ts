@@ -79,6 +79,7 @@ import {
 } from "./audioFiles";
 import type { CaptureHealthRecords } from "./health";
 import type { StoredMeetingSummary } from "./liveSummary";
+import { correctItem, itemEvidence, readCorrections, visibleSummary } from "./summaryCorrections";
 import type { Transcripts } from "./transcript";
 
 /** The longest stretch of audio read at once for playing: the player asks for the next as it goes. */
@@ -137,6 +138,7 @@ interface MeetingRow {
   audio_deleted_at: string | null;
   fill: string | null;
   summary: string | null;
+  summary_corrections: string | null;
   transcript_document_id: string | null;
   purged_at: string | null;
   created_at: string;
@@ -144,7 +146,7 @@ interface MeetingRow {
 }
 
 const COLUMNS =
-  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, transcript_document_id, purged_at, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends MeetingFill {
@@ -387,7 +389,7 @@ export function createMeetings(options: MeetingsOptions) {
       });
     }
     const current = live?.meetingId === row.id ? live : null;
-    const summary = storedSummaryOf(row)?.summary;
+    const summary = visibleSummary(storedSummaryOf(row), readCorrections(row.summary_corrections));
     return {
       id: row.id,
       mindId: row.mind_id,
@@ -893,6 +895,7 @@ export function createMeetings(options: MeetingsOptions) {
       save(id, {
         purged_at: at,
         summary: null,
+        summary_corrections: null,
         ...(audio_deleted_at === null && { audio_deleted_at: at, audio_expires_at: null }),
       });
     }
@@ -1204,6 +1207,27 @@ export function createMeetings(options: MeetingsOptions) {
       log.info("meeting.stopped", { meetingId: row.id });
       changed();
       return toMeeting(rowOf(row.id));
+    },
+
+    summaryItemEvidence(meetingId: string, itemId: number) {
+      const row = rowOf(meetingId);
+      return itemEvidence(storedSummaryOf(row), readCorrections(row.summary_corrections), itemId);
+    },
+
+    correctSummaryItem(meetingId: string, expected: unknown, replacement: unknown): Meeting {
+      const written = db.transaction(() => {
+        const row = rowOf(meetingId);
+        const stored = storedSummaryOf(row);
+        if (row.kind !== "meeting" || row.status !== "stopped" || !stored)
+          throw new InvalidInputError({ key: "error.meeting.summaryItemUnavailable" });
+        const before = readCorrections(row.summary_corrections);
+        const after = correctItem(stored, before, expected, replacement);
+        if (after === before) return false;
+        save(row.id, { summary_corrections: after.length ? JSON.stringify(after) : null });
+        return true;
+      });
+      if (written) changed();
+      return toMeeting(rowOf(meetingId));
     },
 
     storedSummary(meetingId: string): StoredMeetingSummary | null {
