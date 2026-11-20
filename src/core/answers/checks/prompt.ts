@@ -232,7 +232,7 @@ export function claimPrompt(input: {
     ...(context && context !== input.claim.trim()
       ? input.onSlide
         ? [
-            "The slide it is a line of, for what it is about and what its words refer to: every box's text with where it sits, as the file holds it. A number in a box of its own is what the boxes around it say it is, and a column's heading names each of its cells' figures in turn:",
+            "The slide it is a line of, for what it is about and what its words refer to: every box's text with where it sits, as the file holds it. A number in a box of its own is what the boxes around it say it is, and a column's heading names each of its cells' figures in turn. The slide is the file being checked, not a source: what it says neither supports nor contradicts the line, which only the Documents' Passages can:",
             tagged("slide", context, "", CHECK_TAGS),
             "",
           ]

@@ -62,6 +62,8 @@ interface Line {
   shown: string;
   word: string | null;
   planted: string | null;
+  /** What the check said the Documents hold, to read a result by. */
+  says: string | null;
 }
 
 interface DeckRun {
@@ -165,6 +167,7 @@ test("decks: stat cards, two-period columns and bullets, checked whole", async (
             text,
             shown: shown.state,
             word: check.unsupported?.word ?? null,
+            says: check.says ?? check.unsupported?.reason ?? null,
             planted: planted
               ? (deck.plants.find((each) => text.includes(each.marker))?.marker ?? null)
               : null,
