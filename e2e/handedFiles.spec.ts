@@ -83,9 +83,9 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`a deck an agent handed over twice (${language}): each version's check names the agent and its version, and opens the other`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
     try {
-      await dismissChatSetup(window);
-      await useLocalChatModel(window);
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       const tides = join(sources, "Tides.pdf");
