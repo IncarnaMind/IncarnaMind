@@ -172,11 +172,13 @@ describe("the menus", () => {
 
   test("Delete is the last item of a Mind's menu, and a tab's is its own items, then Delete", () => {
     expect(idsIn(buildMenu("mind", focusOn("mind"))).at(-1)).toBe("mind.delete");
-    // A tab's menu has no layout here to build from: Delete is the one item of its last section.
+    // A tab's menu has no layout here to build from: its last section is its Note's or its
+    // Canvas's Delete.
     const entries = menuEntries("tab");
     const last = Math.max(...entries.map((each) => each.section));
     expect(entries.filter((each) => each.section === last).map((each) => each.id)).toEqual([
       "mind.delete",
+      "canvas.delete",
     ]);
   });
 

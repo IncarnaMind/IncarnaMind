@@ -202,12 +202,13 @@ const shownKey = (state: ReturnType<typeof useAppStore.getState>): string | null
   const item = currentTabOf(state.layout)?.item;
   if (item?.kind === "mind") return refKey({ kind: "mind", id: item.mindId });
   if (item?.kind === "document") return refKey({ kind: "document", id: item.documentId });
+  if (item?.kind === "canvas") return refKey({ kind: "canvas", id: item.canvasId });
   return null;
 };
 
 /**
  * A sidebar selection of one, or of none, follows what the User is looking at
- * (#1098): the focused group's shown Mind or Document, once its row is in the
+ * (#1098): the focused group's shown Mind, Document or Canvas, once its row is in the
  * tree, which no Folder unfolds for; none while the Library or Settings shows.
  * A selection of several, made with ⌘-click or Shift-click, stays as it is.
  */

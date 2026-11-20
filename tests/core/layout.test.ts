@@ -33,7 +33,9 @@ function describeLayout(layout: WindowLayout, names: Record<string, string>): st
               : (names[
                   tab.item.kind === "mind" || tab.item.kind === "figures"
                     ? tab.item.mindId
-                    : tab.item.documentId
+                    : tab.item.kind === "canvas"
+                      ? tab.item.canvasId
+                      : tab.item.documentId
                 ] ?? "?");
         return `${tab.id === group.activeTabId ? "*" : ""}${tab.pinned ? "^" : ""}${tab.preview ? "~" : ""}${name}`;
       })
@@ -852,6 +854,51 @@ describe("Tabs and groups", () => {
 
     const again = startCore(dataDir);
     expect(describeLayout(await again.getLayout(WINDOW), names)).toEqual(["*^Beta", "*Report"]);
+  });
+
+  test("a Canvas's tab survives a restart, and a deleted Canvas leaves none behind (#3406)", async () => {
+    const { core, dataDir, mind, change, names } = await setUp();
+    const alpha = await mind("Alpha");
+    await change({ type: "open", item: alpha });
+    core.close();
+    const canvasId = "8c3f2a10-5d4e-4b6a-9f1e-2a7b3c4d5e6f";
+    names[canvasId] = "Tide report";
+    const at = "2026-11-19T09:00:00.000Z";
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    db.run(
+      `INSERT INTO canvases (id, title, folder_id, pairing_id, agent, created_at, updated_at)
+       VALUES (?, 'Tide report', NULL, 'pairing', 'Claude Code', ?, ?)`,
+      [canvasId, at, at],
+    );
+    db.run(
+      `INSERT INTO canvas_versions (id, canvas_id, number, title, html_hash, pairing_id, created_at,
+         updated_at) VALUES ('version-1', ?, 1, 'Tide report', ?, 'pairing', ?, ?)`,
+      [canvasId, "0".repeat(64), at, at],
+    );
+    db.close();
+
+    const restarted = startCore(dataDir);
+    const item = { kind: "canvas", canvasId } as const;
+    await restarted.changeLayout(WINDOW, { type: "open", item, where: { in: "group" } });
+    // Opened again where it is, it is the same tab.
+    const layout = await restarted.changeLayout(WINDOW, {
+      type: "open",
+      item,
+      where: { in: "place" },
+    });
+    expect(describeLayout(layout, names)).toEqual(["Alpha *Tide report"]);
+    restarted.close();
+
+    const again = startCore(dataDir);
+    expect(describeLayout(await again.getLayout(WINDOW), names)).toEqual(["Alpha *Tide report"]);
+    again.close();
+    const deleting = openDatabase(join(dataDir, DATABASE_FILE));
+    deleting.run("UPDATE canvases SET deleted_at = ? WHERE id = ?", [at, canvasId]);
+    deleting.close();
+
+    const last = startCore(dataDir);
+    expect(describeLayout(await last.getLayout(WINDOW), names)).toEqual(["*Alpha"]);
+    last.close();
   });
 
   test("the Minds and Library open before groups come back as the first start's tabs", async () => {

@@ -39,6 +39,7 @@ const UNTITLED: Readonly<Record<DeletedKind, string>> = {
   document: "Untitled",
   folder: "Untitled Folder",
   tag: "Untitled Tag",
+  canvas: "Canvas",
 };
 
 export interface FindInput {

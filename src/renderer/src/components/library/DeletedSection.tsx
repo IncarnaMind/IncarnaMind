@@ -32,6 +32,7 @@ function KindIcon({ item }: { item: DeletedItem }) {
   if (item.kind === "document") {
     return <DocumentLineIcon kind={item.documentKind ?? "text"} className={iconClass} />;
   }
+  if (item.kind === "canvas") return <DocumentLineIcon kind="html" className={iconClass} />;
   const Icon = {
     mind: MindLineIcon,
     conversation: ConversationLineIcon,
@@ -43,7 +44,7 @@ function KindIcon({ item }: { item: DeletedItem }) {
 
 /**
  * Recently deleted (CONTEXT.md), folded at the foot of the Library page: each
- * deleted Mind, conversation, Document, Folder and Tag of the last 30 days,
+ * deleted Mind, conversation, Document, Folder, Tag and Canvas of the last 30 days,
  * newest first, with where it was, when it was deleted and the days left.
  * Restore and Delete Permanently work on a row, on a selection (its own, as
  * Finder's Trash is a window of its own) and from a row's menu. Shown while

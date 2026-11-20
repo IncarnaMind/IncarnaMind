@@ -4021,6 +4021,66 @@ export interface SettingsPatch {
 }
 
 // ---------------------------------------------------------------------------
+// Canvases (#3406): pages an outside agent writes, which IncarnaMind shows and keeps with their
+// versions. The User can't edit one; the agent that may write where it is publishes each version.
+
+export interface Canvas {
+  id: string;
+  title: string;
+  /** Its Folder; null when it is Not in a Folder. */
+  folderId: string | null;
+  /** The agent that published it, as the User had named its pairing then. */
+  agent: string;
+  /** Its newest version: 1 at its first publish, one more at each update. */
+  version: number;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A version of a Canvas, as its versions list shows it. */
+export interface CanvasVersionInfo {
+  /** 1 for its first publish, one more for each version after. */
+  number: number;
+  title: string;
+  /** The agent that published it, as the User had named its pairing then; null: the User restored it. */
+  agent: string | null;
+  /** The version the User restored as this one; null for one an agent published. */
+  restoredFrom: number | null;
+  /** ISO 8601, UTC. */
+  createdAt: string;
+}
+
+/** Where a window draws a Canvas's version: an address that only this showing knows. */
+export interface CanvasFrame {
+  url: string;
+  version: number;
+}
+
+/** A Citation a Canvas's marker opens, as checked against its Document now (#3406). */
+export interface CanvasCitationPlace {
+  documentId: string;
+  quote: string;
+  pageFrom: number | null;
+  pageTo: number | null;
+  location: CitationLocation | null;
+  contentHash: string;
+  check: Exclude<CitationCheck, "checking">;
+  checkReason: CitationCheckReason | null;
+  /** Its number on the Canvas, as its marker shows it. */
+  number: number;
+}
+
+/** An outside agent published a Canvas, or a new version of one. */
+export interface AgentCanvasChange {
+  canvasId: string;
+  /** The agent, as the User named its pairing. */
+  agent: string;
+  kind: "published" | "updated";
+  version: number;
+}
+
+// ---------------------------------------------------------------------------
 // Tabs and groups: everything that opens is a tab, in up to three groups side
 // by side, as VS Code's editor groups. Each window keeps its own layout.
 
@@ -4033,7 +4093,8 @@ export type TabItem =
   | { kind: "figures"; mindId: string }
   | { kind: "library" }
   | { kind: "home" }
-  | { kind: "document"; documentId: string };
+  | { kind: "document"; documentId: string }
+  | { kind: "canvas"; canvasId: string };
 
 /**
  * Where a Citation's page is opened from (#2270): inside the assistant, where the User is reading,
@@ -11171,8 +11232,18 @@ export type WindowCommandResult = WindowCommandEnd | { started: true };
 /** How many days deleted things wait in Recently deleted before they are deleted permanently. */
 export const RECENTLY_DELETED_DAYS = 30;
 
-/** What deleting puts in Recently deleted. A conversation is the assistant's (ADR-0017); a Folder is an in-app one. */
-export const DELETED_KINDS = ["mind", "conversation", "document", "folder", "tag"] as const;
+/**
+ * What deleting puts in Recently deleted. A conversation is the assistant's (ADR-0017); a Folder is
+ * an in-app one; a Canvas is a page an outside agent published (#3406).
+ */
+export const DELETED_KINDS = [
+  "mind",
+  "conversation",
+  "document",
+  "folder",
+  "tag",
+  "canvas",
+] as const;
 export type DeletedKind = (typeof DELETED_KINDS)[number];
 
 export interface DeletedRef {
@@ -11226,8 +11297,9 @@ export interface DeletedItem {
   /** A Document's kind; null for the others. */
   documentKind: DocumentKind | null;
   /**
-   * The in-app Folder (`LibraryGroup`) a Mind, conversation or Document was in, or null: none, and
-   * for the others. One deleted after it still counts, until that Folder is deleted permanently.
+   * The in-app Folder (`LibraryGroup`) a Mind, conversation, Document or Canvas was in, or null:
+   * none, and for the others. One deleted after it still counts, until that Folder is deleted
+   * permanently.
    */
   groupId: string | null;
   /** A Document's Linked folder, or null: a file added on its own, and for the others. */
@@ -12494,6 +12566,9 @@ export const AGENT_TOOLS = [
   "report_check",
   "calculate",
   "run_analysis",
+  "publish_canvas",
+  "read_canvas",
+  "update_canvas",
   "read_request",
 ] as const;
 
@@ -15140,6 +15215,30 @@ export interface CoreApi {
    * IncarnaMind for that agent's `read_request` (#3419).
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
+  /** The live Canvases (#3406), newest first. */
+  listCanvases(): Promise<Canvas[]>;
+  /**
+   * Where to draw a live Canvas's version (#3406), its newest without `version`: an address minted
+   * for this showing alone. NotFoundError for one deleted or unknown.
+   */
+  showCanvas(canvasId: string, version?: number): Promise<CanvasFrame>;
+  /** A live Canvas's versions, newest first, each with who published it and when (#3406). */
+  listCanvasVersions(canvasId: string): Promise<CanvasVersionInfo[]>;
+  /**
+   * Brings an earlier version of a Canvas back as its newest (#3406), a version of its own: none is
+   * lost. The User can't change a Canvas otherwise.
+   */
+  restoreCanvasVersion(canvasId: string, version: number): Promise<Canvas>;
+  /**
+   * The Citation a marker opens in the Canvas drawn at `frameUrl` (#3406), by its token, among that
+   * version's own Citations alone, checked now; null for a token it doesn't cite.
+   */
+  canvasCitation(frameUrl: string, token: string): Promise<CanvasCitationPlace | null>;
+  /**
+   * Moves a Canvas to Recently deleted (#3406), where it waits as a Note does; its tabs close in
+   * every window. NotFoundError for one deleted or unknown.
+   */
+  deleteCanvas(canvasId: string): Promise<void>;
   /** The requests made of the User's own AI about this Note, the newest first (#3419). */
   listAgentRequests(mindId: string): Promise<AgentRequest[]>;
 }
@@ -15411,6 +15510,10 @@ export interface CoreEvents {
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
   "agents.noteChanged": AgentNoteChange;
+  /** The live Canvases changed: one was published or updated (#3406). */
+  "canvases.changed": Canvas[];
+  /** An outside agent published a Canvas, or a new version of one (#3406). */
+  "agents.canvasChanged": AgentCanvasChange;
 }
 
 export type CoreEventName = keyof CoreEvents;
@@ -15892,6 +15995,12 @@ const methods: Record<CoreApiMethod, true> = {
   copyAgentSetup: true,
   listAgentsToAsk: true,
   askAgent: true,
+  listCanvases: true,
+  showCanvas: true,
+  listCanvasVersions: true,
+  restoreCanvasVersion: true,
+  canvasCitation: true,
+  deleteCanvas: true,
   listAgentRequests: true,
 };
 

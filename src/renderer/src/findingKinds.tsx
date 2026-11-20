@@ -2,6 +2,7 @@ import type { LibrarySnapshot } from "../../core/api";
 import type { CommandId } from "../../shared/commands";
 import { displayName } from "../../shared/documentNames";
 import { mindName } from "../../shared/naming";
+import { useCanvases } from "./canvases";
 import { commands } from "./commands/registry";
 import {
   ConversationLineIcon,
@@ -66,6 +67,36 @@ findable.register({
     (state) => state.library,
   ),
   open: (ref) => openWith("mind.open", ref),
+});
+
+findable.register({
+  kind: "canvas",
+  group: { id: "canvases", title: "palette.group.canvases" },
+  objects(t) {
+    const folders = folderNames(store().library);
+    return useCanvases.getState().canvases.map(
+      (canvas): FoundObject => ({
+        ref: { kind: "canvas", id: canvas.id },
+        name: canvas.title || t("canvas.untitled"),
+        meta: withFolder(
+          t("palette.kind.canvas"),
+          canvas.folderId ? folders.get(canvas.folderId) : undefined,
+        ),
+        icon: (className) => <DocumentLineIcon kind="html" className={className} />,
+      }),
+    );
+  },
+  subscribe(changed) {
+    const stopList = useCanvases.subscribe((state, before) => {
+      if (state.canvases !== before.canvases) changed();
+    });
+    const stopFolders = onStore((state) => state.library)(changed);
+    return () => {
+      stopList();
+      stopFolders();
+    };
+  },
+  open: (ref, { inTab }) => openWith(inTab ? "canvas.openTab" : "canvas.open", ref),
 });
 
 findable.register({

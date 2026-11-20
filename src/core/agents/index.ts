@@ -117,6 +117,7 @@ export interface AgentsOptions {
     | "now"
     | "newId"
     | "reportError"
+    | "doneSince"
   >;
   /** Whether this agent has IncarnaMind's Skill installed (see ./setup). */
   skillInstalled(client: string | null): boolean;
@@ -456,11 +457,23 @@ export function createAgents(options: AgentsOptions) {
     return Number(row?.written ?? 0);
   };
 
+  /** Counted from the calls kept, as `notesWrittenSince` counts. */
+  const doneSince = (pairingId: string, tools: readonly AgentToolName[], since: string): number => {
+    const row = db.get<{ done: number | bigint }>(
+      `SELECT COUNT(*) AS done FROM agent_activity
+       WHERE pairing_id = ? AND outcome = 'done' AND created_at >= ?
+         AND tool IN (${tools.map(() => "?").join(", ")})`,
+      [pairingId, since, ...tools],
+    );
+    return Number(row?.done ?? 0);
+  };
+
   const accessDeps: AgentAccessDeps = {
     ...options.access,
     admit,
     record,
     notesWrittenSince,
+    doneSince,
     checkRuns: createCheckRuns(),
     workings: createAgentWorkings(),
     versions: new Map(),

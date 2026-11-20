@@ -45,6 +45,7 @@ const TEST_ID_PREFIX: Record<ObjectKind, string> = {
   mind: "mind",
   conversation: "conversation",
   document: "document-file",
+  canvas: "canvas",
   annotation: "annotation",
   folder: "folder",
   tag: "tag",

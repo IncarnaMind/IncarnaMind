@@ -1,4 +1,4 @@
-import type { Document, Mind } from "../../core/api";
+import type { Canvas, Document, Mind } from "../../core/api";
 import { displayName } from "../../shared/documentNames";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { mindName } from "../../shared/naming";
@@ -22,6 +22,13 @@ export const mindFields = (mind: Mind): SortFields => ({
   kind: "",
   added: mind.createdAt,
   modified: mind.updatedAt,
+});
+
+export const canvasFields = (canvas: Canvas): SortFields => ({
+  name: canvas.title,
+  kind: "",
+  added: canvas.createdAt,
+  modified: canvas.updatedAt,
 });
 
 /** A Folder, in-app or on disk, or a Linked folder's own. */
