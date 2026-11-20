@@ -21,7 +21,7 @@ import {
   openTabAt,
   renameNoteTab,
   shownEnd,
-  tabAtPos,
+  tabIndexAt,
 } from "../../src/renderer/src/editor/noteTabs";
 import { shownHeadings } from "../../src/renderer/src/editor/outline";
 import { editorExtensions } from "../helpers/editor";
@@ -144,6 +144,11 @@ const cursorIn = (editor: Editor, words: string) => {
   editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, at)));
 };
 const said = () => "Moved";
+/** The title of the tab a position is in. */
+const tabTitleAt = (editor: Editor, pos: number) => {
+  const { tabs } = noteTabsOf(editor.state);
+  return tabs[tabIndexAt(tabs, pos)]?.title;
+};
 
 /** A key pressed in the note, as the editor's keymaps take it. */
 function press(editor: Editor, key: string, mods: { mod?: boolean } = {}): void {
@@ -171,10 +176,32 @@ describe("tabs in a Note", () => {
     expect(open(editor)).toBe(0);
     expect(headings(editor)).toEqual(["Harbourline Ferries: annual report", "Highlights"]);
 
+    // The page draws the open tab alone, its first Block spaced as a Note's first Block is.
+    const drawn = () =>
+      [...editor.view.dom.children]
+        .filter((block) => !block.classList.contains("note-tab-hidden"))
+        .map(
+          (block) => `${block.classList.contains("note-tab-start") ? "^" : ""}${block.textContent}`,
+        );
+    expect(drawn()).toEqual([
+      "^Harbourline Ferries: annual report",
+      "Sailings ran on time on most days.",
+      "Highlights",
+    ]);
+
     // A jump into another tab (a heading, a check, a Citation, find) opens it.
     cursorIn(editor, "island routes");
     expect(open(editor)).toBe(2);
     expect(headings(editor)).toEqual(["Timetables"]);
+    expect(drawn()).toEqual(["^Timetables", "The island routes sail every hour."]);
+    // Typed in, it keeps that: a new first line takes the place.
+    editor.view.dispatch(
+      editor.state.tr.insert(
+        noteTabsOf(editor.state).tabs[2]?.from ?? 0,
+        editor.state.schema.nodes.paragraph?.create(null, editor.state.schema.text("Winter")) ?? [],
+      ),
+    );
+    expect(drawn()).toEqual(["^Winter", "Timetables", "The island routes sail every hour."]);
 
     // Opened from the panel, a tab gets its cursor back where it was left.
     openNoteTab(editor, 1);
@@ -209,7 +236,7 @@ describe("tabs in a Note", () => {
     expect(tabTexts(editor)).toEqual(["Crew rota / Two crews a day.", ""]);
     // The new tab's text is where the cursor is, to be written in.
     expect(editor.state.selection.$from.parent.type.name).toBe("paragraph");
-    expect(tabAtPos(editor.state, editor.state.selection.from)?.title).toBe("Tab 2");
+    expect(tabTitleAt(editor, editor.state.selection.from)).toBe("Tab 2");
 
     // A third gets the next number no tab has.
     addNoteTab(editor, (n) => `Tab ${n}`);
@@ -323,7 +350,7 @@ describe("tabs in a Note", () => {
 
     openNoteTab(editor, 1);
     const place = notePlace(editor.state.doc, null, shownEnd(editor.state));
-    expect(tabAtPos(editor.state, place.from)?.title).toBe("Fleet");
+    expect(tabTitleAt(editor, place.from)).toBe("Fleet");
   });
 
   test("the Note's check counts every tab, and its jump to the next that needs a look opens that tab", () => {
@@ -352,7 +379,7 @@ describe("tabs in a Note", () => {
     const look = checkRows(health).find((each) => each.row === "look");
     const place = look?.places[0];
     if (place === undefined) throw new Error("Nothing needs a look.");
-    expect(tabAtPos(editor.state, place)?.title).toBe("Appendix");
+    expect(tabTitleAt(editor, place)).toBe("Appendix");
 
     // As the card's jump does: the cursor goes there, and its tab opens.
     editor.view.dispatch(

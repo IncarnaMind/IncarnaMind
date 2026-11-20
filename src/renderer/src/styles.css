@@ -1413,6 +1413,10 @@
   .mind-editor div[data-type="noteTab"] {
     display: none;
   }
+  /* A tab starts where a Note's first line does: the Blocks hidden above it keep no room. */
+  .mind-editor > .note-tab-start.note-tab-start {
+    --block-gap: 0px;
+  }
   /* A tab's row: a step heavier than its headings, its ⋯ shown on hover and focus. */
   .note-tab-row {
     gap: 2px;
@@ -1424,6 +1428,10 @@
     /* Its name field clears the line that marks the open tab. */
     & > input {
       margin-left: 6px;
+    }
+    /* Open, with a heading of its own marked as the place read: darker text, the line on that heading. */
+    &.note-tab-row--open {
+      color: var(--color-ink);
     }
     &[data-dragging] {
       opacity: 0.5;

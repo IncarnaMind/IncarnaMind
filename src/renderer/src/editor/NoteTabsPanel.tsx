@@ -265,6 +265,7 @@ export function NoteTabsPanel({
                 tab={tab}
                 name={tabName(tab, index, t)}
                 isOpen={index === open}
+                reading={index === open && (entries.length === 0 || current === null)}
                 renaming={renaming(tab)}
                 tabStop={tabItem(tab) === tabStop}
                 drop={
@@ -322,6 +323,7 @@ function TabRow({
   tab,
   name,
   isOpen,
+  reading,
   renaming,
   tabStop,
   drop,
@@ -340,6 +342,8 @@ function TabRow({
   tab: NoteTab;
   name: string;
   isOpen: boolean;
+  /** It carries the line that marks where the page is read: none of its headings does. */
+  reading: boolean;
   renaming: boolean;
   tabStop: boolean;
   drop: "before" | "after" | null;
@@ -363,7 +367,7 @@ function TabRow({
         data-note-tab-row=""
         data-drop={drop ?? undefined}
         data-dragging={dragging || undefined}
-        className={`pdf-outline-row note-tab-row ${isOpen ? "pdf-outline-row--current" : ""}`}
+        className={`pdf-outline-row note-tab-row ${reading ? "pdf-outline-row--current" : isOpen ? "note-tab-row--open" : ""}`}
         {...menu.rowProps}
         onPointerDown={onPointerDown}
       >

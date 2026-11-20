@@ -294,6 +294,23 @@ test("a Note in three tabs: one shown at a time, each keeping its place; moved b
     await expect(openTab(outline)).toHaveText("Appendix");
     await expect(editor.getByText(words.timetable)).toBeVisible();
     await window.keyboard.press("Escape");
+    // A click into the match it left selected leaves a caret: ⌘K at once is ⌘K, not a link.
+    const match = await editor.getByText(words.timetable).evaluate((line, words) => {
+      const text = line.firstChild;
+      const at = text?.textContent?.indexOf(words) ?? -1;
+      if (!text || at < 0) return null;
+      const range = document.createRange();
+      range.setStart(text, at);
+      range.setEnd(text, at + words.length);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }, "outer harbour pier");
+    if (!match) throw new Error("The match isn't drawn.");
+    await window.mouse.click(match.x, match.y);
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette")).toBeVisible();
+    await expect(window.getByTestId("link-field")).toHaveCount(0);
+    await window.keyboard.press("Escape");
 
     // The Note's health, from the first tab: Next goes to the sentence that needs a look, in Fleet.
     await pointAndClick(window, tabRows(outline).first());

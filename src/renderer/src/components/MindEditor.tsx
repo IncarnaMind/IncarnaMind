@@ -132,6 +132,7 @@ import { pageBreakView, relabelBreaks } from "../editor/PageBreakView";
 import { PageMenu } from "../editor/PageMenu";
 import { PictureView } from "../editor/PictureView";
 import { ProposalBars } from "../editor/ProposalBars";
+import { PageCaret } from "../editor/pageCaret";
 import { Pictures } from "../editor/pictures";
 import { editorDoc, ProposalReview } from "../editor/proposalReview";
 import { ProposalRewrites } from "../editor/proposalRewrites";
@@ -747,6 +748,7 @@ function MindEditorView({
         FindInMind,
         HeldSelection,
         ShiftClickSelection,
+        PageCaret,
         TableKeys,
         NoteKeymap,
         QuestionCommands.configure({

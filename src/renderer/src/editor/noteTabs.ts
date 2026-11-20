@@ -98,6 +98,21 @@ const NONE: TabsState = {
   places: new Map(),
 };
 
+/** The tab's first Block, spaced from the page's top as a Note's first Block is, not from the hidden one before it. */
+function tabStart(doc: ProseMirrorNode, tab: NoteTab): Decoration[] {
+  const first = tab.from < tab.to ? doc.nodeAt(tab.from) : null;
+  return first
+    ? [
+        Decoration.node(
+          tab.from,
+          tab.from + first.nodeSize,
+          { class: "note-tab-start" },
+          { tabStart: true },
+        ),
+      ]
+    : [];
+}
+
 function hiding(doc: ProseMirrorNode, tab: NoteTab | undefined): DecorationSet {
   if (!tab) return DecorationSet.empty;
   const hidden: Decoration[] = [];
@@ -106,7 +121,14 @@ function hiding(doc: ProseMirrorNode, tab: NoteTab | undefined): DecorationSet {
     if (!shown)
       hidden.push(Decoration.node(pos, pos + node.nodeSize, { class: "note-tab-hidden" }));
   });
-  return DecorationSet.create(doc, hidden);
+  return DecorationSet.create(doc, [...hidden, ...tabStart(doc, tab)]);
+}
+
+/** What hides the other tabs, moved with the text typed in the tab shown, its first Block found again. */
+function typedIn(before: DecorationSet, tr: Transaction, doc: ProseMirrorNode, tab: NoteTab) {
+  const mapped = before.map(tr.mapping, doc);
+  const start = mapped.find(undefined, undefined, (spec) => spec.tabStart === true);
+  return mapped.remove(start).add(doc, tabStart(doc, tab));
 }
 
 const openIn = (tabs: readonly NoteTab[], selection: Selection) =>
@@ -151,8 +173,8 @@ function stateFor(
     open,
     decorations: same
       ? before.decorations
-      : typed && tr
-        ? before.decorations.map(tr.mapping, state.doc)
+      : typed && tr && now
+        ? typedIn(before.decorations, tr, state.doc, now)
         : hiding(state.doc, now),
     places,
   };
@@ -376,13 +398,6 @@ function keptScroll(view: EditorView, mindId: string) {
 export function noteTabsOf(state: EditorState): { tabs: readonly NoteTab[]; open: number } {
   const mine = KEY.getState(state);
   return { tabs: mine?.tabs ?? [], open: mine?.open ?? -1 };
-}
-
-/** The tab a position is in, when the Note has more than one: the tab a check card names. */
-export function tabAtPos(state: EditorState, pos: number): NoteTab | null {
-  const { tabs } = noteTabsOf(state);
-  if (tabs.length < 2) return null;
-  return tabs[tabIndexAt(tabs, pos)] ?? null;
 }
 
 /** The top-level stretches the page doesn't show: every tab but the open one. */

@@ -2189,7 +2189,6 @@ export const zhCN = {
   "noteTabs.more": "“{title}”的更多操作",
   "noteTabs.deleted": "已删除标签页“{title}”",
   "noteTabs.moved": "已移动标签页“{title}”",
-  "noteTabs.inTab": "在标签页“{title}”中",
   "viewer.selection.label": "所选文字",
   "viewer.selection.ask": "就此提问",
   "viewer.selection.addToNote": "添加到笔记",

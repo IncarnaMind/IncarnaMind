@@ -2289,7 +2289,6 @@ export const en = {
   "noteTabs.more": "More for {title}",
   "noteTabs.deleted": "Deleted tab “{title}”",
   "noteTabs.moved": "Moved tab “{title}”",
-  "noteTabs.inTab": "In tab “{title}”",
   "viewer.selection.label": "Selected text",
   "viewer.selection.ask": "Ask about this",
   "viewer.selection.addToNote": "Add to note",
