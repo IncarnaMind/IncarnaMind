@@ -4,6 +4,7 @@ import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { focusNow } from "./footnoteSchema";
 import { myNotesHidden, myNotesToggled } from "./myNotes";
+import { openTabAt } from "./noteTabs";
 import { keepMenuClosed } from "./selectionDismissal";
 
 /** How find matches, as the bar offers it (⌘F, ⌥⌘F): Word's Match case and Whole word. */
@@ -404,10 +405,12 @@ export function closeFind(editor: Editor): void {
   clearFind(editor, true);
 }
 
+/** Shows the current match: in its tab (#3414), which opens first, scrolled into view. */
 function scrollToCurrent(editor: Editor): void {
   const state = findStateOf(editor);
   const match = state.matches[state.current];
   if (!match) return;
+  openTabAt(editor, match.from);
   try {
     const { node } = editor.view.domAtPos(match.from);
     const element = node instanceof Element ? node : node.parentElement;

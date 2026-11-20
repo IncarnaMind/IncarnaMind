@@ -239,8 +239,8 @@ test("a Mind moves by its menu, by the keyboard and by dragging, each with Undo;
       /^Delete$/,
     ]);
     const more = await openMoreMenu(window, actions);
+    // Outline is offered only for a Note with headings (#3414); this one has none.
     await expect(more.getByRole("menuitem")).toHaveText([
-      /^Outline(⌥⌘L|Ctrl\+Alt\+L)$/,
       /^Check for contradictions$/,
       /^Use as a source$/,
       /^Make this a Skill$/,

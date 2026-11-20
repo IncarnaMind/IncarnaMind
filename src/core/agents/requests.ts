@@ -154,6 +154,13 @@ export function createAgentRequests(db: Database, now: () => string, newId: () =
         [at, at, pairingId],
       );
     },
+
+    /** Deletes for good the requests marked deleted before `before` (#3430). */
+    forgetGone(before: string): void {
+      db.run("DELETE FROM agent_requests WHERE deleted_at IS NOT NULL AND deleted_at < ?", [
+        before,
+      ]);
+    },
   };
 }
 

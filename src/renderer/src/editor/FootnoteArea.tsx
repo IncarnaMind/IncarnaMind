@@ -13,6 +13,7 @@ import { focusNow, returnToFootnote } from "./footnoteSchema";
 import { CheckMarkIcon } from "./icons";
 import { useMindId } from "./mindContext";
 import { noteMarker } from "./noteLabels";
+import { tabHiddenRanges } from "./noteTabs";
 import { StyledRuns } from "./StyledRuns";
 
 /** One footnote of the area, in the Mind's one numbering, or an endnote, in theirs (#746). */
@@ -29,7 +30,11 @@ interface Rows {
 
 /** The Mind's footnotes and endnotes in order, or none while the User has written no footnote of their own. */
 function rowsOf(editor: Editor): Rows {
-  const notes = numberedFootnotes(editor.state);
+  // The tab shown's own (#3414), numbered as in the whole Note, as its file numbers them.
+  const hidden = tabHiddenRanges(editor.state);
+  const shown = ({ pos }: { pos: number }) =>
+    !hidden.some((range) => pos >= range.from && pos < range.to);
+  const notes = numberedFootnotes(editor.state).filter(shown);
   if (notes.length === 0) return { footnotes: [], endnotes: [] };
   const rowOf = ({ number, id, endnote, kept, node }: (typeof notes)[number]): Row =>
     kept
@@ -39,7 +44,7 @@ function rowsOf(editor: Editor): Rows {
     ...notes.filter((note) => !note.endnote).map(rowOf),
     // Only the Citations the Mind's citation style makes footnotes of (#289).
     ...numberedCitations(editor.state)
-      .filter((citation) => citation.footnote)
+      .filter((citation) => citation.footnote && shown(citation))
       .map(({ number, key, attributes }): Row => ({ kind: "citation", number, key, attributes })),
   ];
   return {

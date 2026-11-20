@@ -62,6 +62,7 @@ import { meetingHelpCommands } from "./meetingHelp";
 import { meetingCommands } from "./meetings";
 import { newFolderCommands } from "./newFolder";
 import { noteBasicsCommands } from "./noteBasics";
+import { noteTabCommands } from "./noteTabs";
 import {
   answerCommands,
   citationCommands,
@@ -508,9 +509,9 @@ const appCommands: readonly Command[] = [
     label: (ctx, t) => {
       const mindId = mindShown(ctx);
       const open = mindId !== null && useNoteOutlines.getState().open.has(mindId);
-      return t(open ? "viewer.outline.hide" : "viewer.outline.show");
+      return t(open ? "noteTabs.hide" : "noteTabs.show");
     },
-    keywords: ["editor.outline.title", "editor.slash.heading1"],
+    keywords: ["editor.outline.title", "viewer.outline.label", "editor.slash.heading1"],
     shortcut: { keys: "CmdOrCtrl+Alt+L" },
     group: "main",
     // Run again, it switches back; the Note's text doesn't change.
@@ -569,6 +570,7 @@ const appCommands: readonly Command[] = [
   ...bibliographyCommands,
   ...tableCommands,
   ...chartCommands,
+  ...noteTabCommands,
   ...proposalCommands,
   ...reviewCommands,
   ...checkCommands,

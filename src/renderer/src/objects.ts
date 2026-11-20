@@ -26,6 +26,7 @@ export const OBJECT_KINDS = [
   "check",
   "block",
   "tab",
+  "noteTab",
 ] as const;
 
 export type ObjectKind = (typeof OBJECT_KINDS)[number];

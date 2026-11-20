@@ -40,6 +40,7 @@ describe("Scoring one case", () => {
     const score = scoreCase(definition(), reference, hypothesis(), { collar: 0 });
     expect(score.errors).toEqual({ errors: 0, total: 9, rate: 0 });
     expect(score.unit).toBe("word");
+    expect(score.speakerErrors).toEqual(score.errors);
     expect(score.der?.rate).toBe(0);
     expect(score.rtf).toBeCloseTo(0.25);
   });
@@ -66,7 +67,45 @@ describe("Scoring one case", () => {
     const plain = hypothesis({
       segments: hypothesis().segments.map(({ speaker: _speaker, ...rest }) => rest),
     });
-    expect(scoreCase(definition(), reference, plain).der).toBeNull();
+    const score = scoreCase(definition(), reference, plain);
+    expect(score.der).toBeNull();
+    expect(score.speakerErrors).toBeNull();
+    expect(scoreCells([score])[0]?.speakerErrors).toBeNull();
+  });
+
+  test("speaker-attributed words follow each speaker through overlap with one mapping per recording", () => {
+    const segments = [
+      { start: 0, end: 2, speaker: "A", text: "first" },
+      { start: 0.2, end: 2, speaker: "B", text: "second" },
+      { start: 4, end: 5, speaker: "A", text: "later" },
+    ];
+    const ref: Reference = { format: 1, segments: segments.map((s) => ({ ...s, track: "room" })) };
+    const heard = (changes: Partial<Hypothesis["segments"][number]>[]) =>
+      hypothesis({ segments: segments.map((s, i) => ({ ...s, ...changes[i] })).reverse() });
+    const reordered = scoreCase(
+      definition(),
+      ref,
+      heard([{ start: 0.3, speaker: "X" }, { speaker: "Y" }, { speaker: "X" }]),
+    );
+    expect(reordered.speakerErrors).toEqual({ total: 3, errors: 0, rate: 0 });
+    expect(reordered.errors.errors).toBeGreaterThan(0);
+
+    const switched = scoreCase(definition(), ref, heard([{}, {}, { speaker: "B" }]));
+    expect(switched.errors.errors).toBe(0);
+    expect(switched.speakerErrors?.errors).toBe(2);
+    const collapsed = scoreCase(definition(), ref, heard([{}, { speaker: "A" }, {}]));
+    expect(collapsed.speakerErrors?.errors).toBe(2);
+    const partial = scoreCase(
+      definition(),
+      ref,
+      heard([{ speaker: "?" }, { speaker: undefined }, { speaker: "?" }]),
+    );
+    expect(partial.speakerErrors?.errors).toBe(0);
+
+    const extra = hypothesis({
+      segments: [...segments, { ...segments[0], start: 5, end: 6, speaker: "C", text: "extra" }],
+    });
+    expect(scoreCase(definition(), ref, extra).speakerErrors?.errors).toBe(1);
   });
 
   test("Chinese counts characters, and mixed text counts Han characters and English words", () => {
@@ -79,7 +118,7 @@ describe("Scoring one case", () => {
     const said = (text: string): Hypothesis => ({
       case: "x",
       transcriber: "t",
-      segments: [{ start: 0, end: 4, text }],
+      segments: [{ start: 0, end: 4, text, speaker: "S" }],
     });
     const chinese = definition({ language: "zh", setting: "room" });
     expect(scoreCase(chinese, zh, said("我有25个wifi门铃")).errors).toEqual({
@@ -90,6 +129,7 @@ describe("Scoring one case", () => {
     const mixed = definition({ language: "mixed", setting: "conversation" });
     const score = scoreCase(mixed, zh, said("我有25个wifi门玲"));
     expect(score.unit).toBe("mixed unit");
+    expect(score.speakerErrors).toEqual({ total: 7, errors: 1, rate: 1 / 7 });
     expect(score.errors.errors).toBe(1);
   });
 
@@ -117,6 +157,7 @@ describe("Scoring a set", () => {
     expect(online).toMatchObject({ cases: 2, errors: { errors: 7, total: 14, rate: 0.5 } });
     expect(online?.minutes).toBeCloseTo(2);
     expect(online?.der).toBeNull();
+    expect(online?.speakerErrors).toEqual({ errors: 7, total: 14, rate: 0.5 });
   });
 
   test("the report states the collar, and whether each target was met", () => {
@@ -125,6 +166,7 @@ describe("Scoring a set", () => {
     expect(report).toContain("DER (collar 0.5 s)");
     expect(report).toContain("WER 0.0% (target 15.0%, met)");
     expect(report).toContain("0.0% (target 20.0%, met)");
+    expect(report).toContain("cpWER 0.0% (0/9)");
     expect(report).toContain("0.25×");
   });
 });
