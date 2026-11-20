@@ -2,9 +2,9 @@
  * What the User asked their own AI about a Note (#3419), beyond the line typed in the agent's app:
  * the line says what they want in their own words, and the rest (which Note, which sentences,
  * what the check found, what to change and what to leave alone) waits here for that agent, which
- * reads it with `read_request`. Each is read once, the newest first, so two requests made before
- * either is sent both reach the agent; read, it stays in that agent's activity list. On this
- * device only, as the pairings are.
+ * reads it with `read_request`. Each is read once, so two requests made before either is sent
+ * each reach the agent once; read, it stays in that agent's activity list. On this device only,
+ * as the pairings are.
  */
 import type { AgentRequest } from "../api";
 import { isRecord } from "../errors";

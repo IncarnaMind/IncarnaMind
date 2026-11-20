@@ -76,10 +76,14 @@ const keepRequest = (request: AgentRequest) =>
   useRequests.setState(({ byMind }) => {
     const list = byMind[request.mindId];
     if (!list) return { byMind };
+    // A request read keeps its place: the newest made comes first.
+    const known = list.some((each) => each.id === request.id);
     return {
       byMind: {
         ...byMind,
-        [request.mindId]: [request, ...list.filter((each) => each.id !== request.id)],
+        [request.mindId]: known
+          ? list.map((each) => (each.id === request.id ? request : each))
+          : [request, ...list],
       },
     };
   });
