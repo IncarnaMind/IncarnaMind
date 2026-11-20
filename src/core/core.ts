@@ -73,7 +73,8 @@ import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import type { HandedClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
-import { createAgentSetup, skillInstalled } from "./agents/setup";
+import { createAgentSetup } from "./agents/setup";
+import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -5867,6 +5868,13 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   }
 
+  const skillFiles = createSkillFiles({
+    home,
+    files: adapters.agentSkillFiles ?? NO_SKILL_FILES,
+    readValue: (key) => settings.readDeviceValue(key),
+    writeValue: (key, value) => settings.writeDeviceValue(key, value),
+    reportError: (error) => console.error(error),
+  });
   const agents = createAgents({
     offered: adapters.agents?.offered ?? true,
     log: adapters.log ?? silentLogger,
@@ -5989,7 +5997,7 @@ export function createCore(adapters: CoreAdapters): Core {
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs) => handOver.handedCheck(mindId, waitMs),
     },
-    skillInstalled: (client) => skillInstalled(home, client),
+    skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),
     called: (activity) => events.emit("agents.activity", activity),
     requested: (request) => events.emit("agents.request", request),
@@ -6000,6 +6008,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Setting IncarnaMind up in the User's agent, from Settings → Agents.
   const agentSetup = createAgentSetup({
     agents,
+    skills: skillFiles,
     home,
     applications:
       adapters.agents?.applications ??
@@ -6013,6 +6022,9 @@ export function createCore(adapters: CoreAdapters): Core {
     say: (key, params) => translate(settings.get().language, key, params),
     reportError: (error) => console.error(error),
   });
+  if (adapters.agents?.offered ?? true) {
+    agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
+  }
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
@@ -8278,9 +8290,11 @@ export function createCore(adapters: CoreAdapters): Core {
     connectAgent: (input) => agents.connect(input),
     updateAgent: async (pairingId, input) => agents.update(pairingId, input),
     disconnectAgent: async (pairingId) => {
-      await agentSetup.removeFromSettings(pairingId);
+      const left = await agentSetup.removeFromSettings(pairingId);
       await agents.disconnect(pairingId);
+      return left;
     },
+    replaceAgentSkill: (pairingId) => agentSetup.replaceSkill(pairingId),
     listAgentClients: async () => agentSetup.clients(),
     previewAgentSetup: async (client) => agentSetup.preview(client),
     setUpAgent: (input) => agentSetup.setUp(input),

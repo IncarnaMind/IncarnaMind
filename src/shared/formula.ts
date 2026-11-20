@@ -63,23 +63,6 @@ export interface WrittenScale {
   decimals: number;
 }
 
-/**
- * A power of ten in a formula that moves an amount into another scale, as
- * "rev / 10000" reads 万 as 亿 (#577). Inputs are in base units with their
- * page's scale applied already, so the figure would come out that many times
- * too small or large; the scale it is shown in is an option of showing it.
- */
-export interface ScaleChange {
-  /** The part of the formula that does it: "rev25 / 10000". */
-  text: string;
-  /** The amount it moves: "rev25". */
-  amount: string;
-  /** The power of ten the amount ends up multiplied by: −4 for "/ 10000". */
-  exponent: number;
-  /** The scale the amount's inputs were written in: 万 for 120,345.67 under "单位：万元". */
-  from: WrittenScale | null;
-}
-
 export interface FormulaResult {
   ok: true;
   version: number;
@@ -569,24 +552,10 @@ function productScales(a: Value, b: Value): WrittenScale[] {
   return [...a.scales, ...b.scales];
 }
 
-/** The powers of ten that scale words stand for: thousand, 万, million, 亿, billion, trillion. */
-const SCALE_STEPS: ReadonlySet<number> = new Set([3, 4, 6, 8, 9, 12]);
-/** The scales Chinese statements are written in: 千, 万, 百万, 亿, 万亿. */
-const CHINESE_SCALES: ReadonlySet<number> = new Set([3, 4, 6, 8, 12]);
+/** An input as the evaluator takes it: a formula's, or a plain number with no unit (`evaluateArithmetic`). */
+type Named = Omit<FormulaInput, "unit"> & { unit: Unit };
 
-/** The power of ten a number written in the formula is ("10000", "1e8", "10^4", "0.001"); null for any other. */
-function powerOfTen(value: Value): number | null {
-  if (value.unit.kind !== "number" || value.n <= 0) return null;
-  const exponent = Math.round(Math.log10(value.n));
-  return Math.abs(10 ** exponent - value.n) <= 1e-9 * value.n ? exponent : null;
-}
-
-function evaluate(
-  tree: Node,
-  formula: string,
-  inputs: ReadonlyMap<string, FormulaInput>,
-  changes?: Map<Node, ScaleChange>,
-): Value {
+function evaluate(tree: Node, formula: string, inputs: ReadonlyMap<string, Named>): Value {
   const source = (node: Node) => {
     const text = formula.slice(node.from, node.to).replace(/\s+/g, " ").trim();
     return text.length > 40 ? `${text.slice(0, 39)}…` : text;
@@ -675,47 +644,6 @@ function evaluate(
     return result(node, unit, a.n ** b.n, [a, b], a.scales);
   };
 
-  /** Amounts divided by something other than a number written in the formula: rates per so many of it. */
-  const perQuantity = new Set<Node>();
-  /** An amount times powers of ten, by the node that ends the run: what they come to, and the amount. */
-  const scaledBy = new Map<Node, { exponent: number; amount: Value }>();
-  /**
-   * Notes a power of ten that multiplies or divides an amount, adding it to
-   * those before it ("rev / 100 / 100" is "rev / 10000"). One that makes a
-   * rate per so many of something isn't a change of scale, and is left: a
-   * rate times it (beds / people * 10000), a dividend times it that is then
-   * divided by a quantity (rev * 1000 / users), or a quantity divided by it
-   * that then divides (rev / (users / 1000)). See `divided`.
-   */
-  const noteScale = (node: Node, amount: Value, literal: Value, sign: 1 | -1) => {
-    const power = powerOfTen(literal);
-    if (!changes || !power || !isAmount(amount.unit)) return;
-    if (sign === 1 && perQuantity.has(amount.node)) {
-      perQuantity.add(node);
-      return;
-    }
-    const before = scaledBy.get(amount.node);
-    const exponent = (before?.exponent ?? 0) + sign * power;
-    const base = before?.amount ?? amount;
-    scaledBy.set(node, { exponent, amount: base });
-    changes.delete(amount.node);
-    const from = base.scales[0] ?? null;
-    // Or one written Chinese scale onto another, two steps apart: "rev / 100" reads 百万 as 亿.
-    const lands =
-      from?.word != null &&
-      /[\u4e00-\u9fff]/.test(from.word) &&
-      CHINESE_SCALES.has(from.exponent - exponent);
-    if (SCALE_STEPS.has(Math.abs(exponent)) || lands)
-      changes.set(node, { text: source(node), amount: source(base.node), exponent, from });
-  };
-  /** A division by a quantity: what scaled its dividend or its divisor made a rate per so many. */
-  const divided = (node: Node, a: Value, b: Value) => {
-    if (b.unit.kind === "number") return;
-    perQuantity.add(node);
-    if (a.node.type === "binary" && a.node.op === "*") changes?.delete(a.node);
-    changes?.delete(b.node);
-  };
-
   const number = (value: Value, what: string): number => {
     if (!isCount(value.unit))
       refuse("units", `${what} (${source(value.node)}) must be a number with no unit.`);
@@ -772,14 +700,10 @@ function evaluate(
             );
           case "*": {
             const unit = product(a.unit, b.unit) ?? mismatch("multiply", a, b);
-            noteScale(node, a, b, 1);
-            noteScale(node, b, a, 1);
             return result(node, unit, a.n * b.n, [a, b], productScales(a, b));
           }
           case "/": {
             const unit = quotient(a.unit, b.unit) ?? mismatch("divide", a, b);
-            noteScale(node, a, b, -1);
-            divided(node, a, b);
             return result(node, unit, divide(a, b), [a, b], a.scales);
           }
           case "^":
@@ -868,8 +792,8 @@ function evaluate(
 }
 
 /** Names ignore case, as Excel's do. */
-function inputsByName(inputs: readonly FormulaInput[]): Map<string, FormulaInput> {
-  const byName = new Map<string, FormulaInput>();
+function inputsByName<T extends Named>(inputs: readonly T[]): Map<string, T> {
+  const byName = new Map<string, T>();
   for (const input of inputs) {
     if (!NAME_ONLY.test(input.name))
       refuse(
@@ -943,18 +867,41 @@ export function evaluateFormula(
 }
 
 /**
- * Where a formula moves an amount into another scale with a power of ten,
- * in the order it writes them (see `ScaleChange`); none for a formula that
- * can't be worked out. What it works out is unchanged: this is for the Tool
- * that takes formulas, to refuse them.
+ * Works out `formula` over plain numbers, by the same arithmetic as `evaluateFormula` with no
+ * units: every input is a number with none, so no combination is refused for what its numbers
+ * measure (#3393). What can't be worked out (a name that isn't an input, a division by zero, a
+ * syntax error) comes back as a problem in one line.
  */
-export function scaleChanges(formula: string, inputs: readonly FormulaInput[]): ScaleChange[] {
+export function evaluateArithmetic(
+  formula: string,
+  values: readonly { name: string; value: number }[],
+): { ok: true; value: number | boolean; literals: FormulaLiteral[] } | FormulaProblem {
   try {
-    const changes = new Map<Node, ScaleChange>();
-    evaluate(parse(formula), formula, inputsByName(inputs), changes);
-    return [...changes.entries()].sort(([a], [b]) => a.from - b.from).map(([, change]) => change);
+    const byName = inputsByName(
+      values.map((each) => ({
+        name: each.name,
+        value: each.value,
+        scale: 1,
+        scaleWord: null,
+        unit: NUMBER_UNIT,
+        decimals: 0,
+        approximate: false,
+      })),
+    );
+    const tree = parse(formula);
+    for (const node of nodesIn(tree, (each) => each.type === "name"))
+      if (node.type === "name" && !byName.has(node.name.toLowerCase()))
+        refuse("name", `the formula uses ${node.name}, which isn't one of its inputs.`);
+    const value = evaluate(tree, formula, byName);
+    return {
+      ok: true,
+      value: value.unit.kind === "yes-no" ? value.n === 1 : value.n,
+      literals: nodesIn(tree, (node) => node.type === "number").flatMap((node) =>
+        node.type === "number" ? [{ text: node.text, value: node.value, at: node.from }] : [],
+      ),
+    };
   } catch (error) {
-    if (error instanceof Refusal) return [];
+    if (error instanceof Refusal) return { ok: false, kind: error.kind, message: error.message };
     throw error;
   }
 }
@@ -1155,11 +1102,6 @@ const WRITING: {
 /** The scale words an amount can be shown in, in a language, smallest first: 万, 亿, 万亿. */
 export function scaleWords(language: Language): string[] {
   return WRITING[language].scales.map(([, word]) => word).reverse();
-}
-
-/** The word a language writes a power of ten's scale with: 亿 for 8 in Chinese; null when it has none. */
-export function scaleWordOf(exponent: number, language: Language): string | null {
-  return WRITING[language].scales.find(([each]) => each === exponent)?.[1] ?? null;
 }
 
 const SHOWN_AS: { readonly [K in ResultUnit["kind"]]: readonly ShowAs[] } = {

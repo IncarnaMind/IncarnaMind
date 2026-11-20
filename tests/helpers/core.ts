@@ -24,6 +24,7 @@ import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { scriptedLocalServers } from "../../src/core/providers/localServers";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
 import { migrate, migrations, openDatabase, type SqlValue } from "../../src/core/storage";
+import { createAgentSkillFiles } from "../../src/main/agentSkillFiles";
 
 /** The citation-style engine, styles and locales the app ships (ADR-0016). */
 export const CITATION_STYLES = fileURLToPath(
@@ -217,6 +218,8 @@ export function startCore(dataDir: string, overrides: TestAdapters = {}): Core {
         throw new Error(`Tests reach no host: ${host}.`);
       },
     },
+    // The agents' skills folders are in the test's own home, below.
+    agentSkillFiles: createAgentSkillFiles(),
     ...rest,
     // A home and a Documents folder of its own, so a test never reads or writes the User's.
     paths: Object.defineProperties(

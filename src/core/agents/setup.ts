@@ -15,18 +15,23 @@
  *
  * Where the agent reads Agent Skills (#378), setting it up also adds the
  * Skill (./skill) to its skills folder, which tells it when to use
- * IncarnaMind; Disconnect and Undo take it out again if it is unchanged.
+ * IncarnaMind. A copy IncarnaMind wrote is brought up to the current text
+ * when the app starts and when an agent is set up, and Disconnect and Undo
+ * take it out again, whichever release wrote it; a copy the User changed stays
+ * (./skillFiles, #3430).
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { clientTitle } from "../../shared/agentNames";
 import { AGENT_TOKEN_ENV, HIDDEN_KEY } from "../../shared/agentSocket";
+import { pathFromHome } from "../../shared/homePath";
 import { translate } from "../../shared/i18n";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type {
   AgentClient,
+  AgentDisconnected,
   AgentLaunch,
   AgentPairing,
   AgentSetupPreview,
@@ -54,6 +59,7 @@ import {
   withoutCodexTable,
 } from "./clients";
 import { SKILL_MARKDOWN } from "./skill";
+import type { SkillFiles } from "./skillFiles";
 
 /** How long a bundle waits in the temporary folder for the agent's app to install it. */
 const BUNDLE_KEPT_MS = 15 * 60_000;
@@ -72,7 +78,11 @@ export interface AgentSetupOptions {
     /** The files and folders setting this pairing's agent up created, shallowest first. */
     created(pairingId: string): string[];
     recordCreated(pairingId: string, paths: readonly string[]): void;
+    /** Tells the windows the agents' settings changed. */
+    announce(): void;
   };
+  /** The Skill's copies, as IncarnaMind wrote them (see ./skillFiles). */
+  skills: SkillFiles;
   /** The User's home folder, where agents keep their settings. */
   home: string;
   /** Where apps are installed (macOS's Applications folders), to tell which agents are here. */
@@ -193,21 +203,32 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const addSkill = async (client: ClientDefinition, made: string[]): Promise<boolean> => {
     const [path, ...others] = skillPathsFor(options.home, client.id);
     if (path === undefined) return false;
-    for (const each of [path, ...others]) if ((await readText(each)) !== null) return false;
+    if ([path, ...others].some((each) => options.skills.has(each))) return false;
     made.push(...missingFolders(dirname(path)));
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, SKILL_MARKDOWN);
+    await options.skills.write(path);
     return true;
+  };
+
+  /** The copies IncarnaMind wrote of the Skill, in every folder it wrote one to, brought up to the current text. */
+  const refreshSkills = async (also: readonly string[] = []) => {
+    const readBy = options.agents
+      .settings()
+      .pairings.flatMap((pairing) => skillPathsFor(options.home, pairing.client));
+    await options.skills.bringUpToDate(
+      new Set([...options.skills.recordedPaths(), ...readBy, ...also]),
+    );
   };
 
   /**
    * Takes the Skill out of each folder the agent reads it from, where it is
-   * still as IncarnaMind wrote it and no other connected agent reads that
-   * folder: several agents share `~/.agents/skills`.
+   * IncarnaMind's and no other connected agent reads that folder: several
+   * agents share `~/.agents/skills`. Returns the copies it left because the
+   * User changed them.
    */
-  const removeSkill = async (client: string | null, leaving: string) => {
+  const removeSkill = async (client: string | null, leaving: string): Promise<string[]> => {
     const others = options.agents.settings().pairings.filter((each) => each.id !== leaving);
     const made = leaving === "" ? [] : options.agents.created(leaving);
+    const left: string[] = [];
     for (const path of skillPathsFor(options.home, client)) {
       const reader = others.find((each) => skillPathsFor(options.home, each.client).includes(path));
       if (reader) {
@@ -216,11 +237,9 @@ export function createAgentSetup(options: AgentSetupOptions) {
         if (above.length > 0) options.agents.recordCreated(reader.id, above);
         continue;
       }
-      if ((await readText(path)) !== SKILL_MARKDOWN) continue;
-      await unlink(path);
-      // Its folder goes too, unless the User keeps something else in it.
-      await rmdir(dirname(path)).catch(() => undefined);
+      if ((await options.skills.remove(path)) === "edited") left.push(path);
     }
+    return left;
   };
 
   const copy = (
@@ -399,6 +418,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
       }
       // Before pairing, so the settings the pairing announces already show it.
       // The agent still works without it, from the server's instructions.
+      await refreshSkills(skillPathsFor(options.home, client.id));
       const skillFolders: string[] = [];
       const addedSkill = await addSkill(client, skillFolders).catch((error: unknown) => {
         options.reportError(error);
@@ -456,13 +476,18 @@ export function createAgentSetup(options: AgentSetupOptions) {
 
     /**
      * Before a pairing is disconnected: takes IncarnaMind out of the settings
-     * files it was written to, if the entry there is still its own. Also for
-     * an agent no longer listed, whose pairing IncarnaMind wrote a file for.
+     * files it was written to, if the entry there is still its own, and its
+     * Skill, if the User hasn't changed it. Also for an agent no longer
+     * listed, whose pairing IncarnaMind wrote a file for.
      */
-    async removeFromSettings(pairingId: unknown): Promise<void> {
+    async removeFromSettings(pairingId: unknown): Promise<AgentDisconnected> {
       const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
-      if (!pairing) return;
-      await removeSkill(pairing.client, pairing.id).catch(options.reportError);
+      if (!pairing) return { skillsLeft: [] };
+      const left = await removeSkill(pairing.client, pairing.id).catch((error: unknown) => {
+        options.reportError(error);
+        return [];
+      });
+      const skillsLeft = left.map((path) => ({ path, shown: pathFromHome(path, options.home) }));
       written.delete(pairing.id);
       const files = settingsFilesFor(pairing.client);
       const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";
@@ -481,18 +506,18 @@ export function createAgentSetup(options: AgentSetupOptions) {
         }
       }
       await removeCreatedFolders(created).catch(options.reportError);
+      return { skillsLeft };
+    },
+
+    /** At start-up: the Skill's copies IncarnaMind wrote, brought up to the current text. */
+    refreshSkills: () => refreshSkills(),
+
+    /** Replaces the copies of the Skill the User changed, which `settings().skillsOutOfDate` says are out of date. */
+    async replaceSkill(pairingId: unknown): Promise<void> {
+      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
+      if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
+      await options.skills.replaceEdited(pairing.client);
+      options.agents.announce();
     },
   };
-}
-
-/** Whether the Agent Skill is, as IncarnaMind wrote it, in a folder the agent reads Skills from. */
-export function skillInstalled(home: string, client: string | null): boolean {
-  return skillPathsFor(home, client).some((path) => {
-    try {
-      return readFileSync(path, "utf8") === SKILL_MARKDOWN;
-    } catch {
-      // Not there (or not readable): the row says it isn't installed, which is true.
-      return false;
-    }
-  });
 }

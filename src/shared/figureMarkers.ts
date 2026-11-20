@@ -51,17 +51,21 @@ const endsWithNumber = (before: string): boolean => {
 };
 
 /**
- * Whether what a model wrote reads as the figure: the same unit (a number
- * with none matches an amount), and the figure's value rounded to as many
- * decimals as the model wrote, in the scale it wrote.
+ * Whether what a model wrote reads as the figure: the same unit as its shown text (a number with
+ * none matches an amount), and the figure's value rounded to as many decimals as the model wrote,
+ * in the scale it wrote. A plain figure's value is in whatever scale its model worked in (#3393):
+ * where it isn't the scale its shown text reads in, the shown text's number is compared instead.
  */
 function sameFigure(written: Figure, figure: PlacedFigure): boolean {
   if (typeof figure.value !== "number" || written.ambiguous.length > 0) return false;
   const shown = readFigures(figure.shown, { language: figure.show.language })[0];
   if (!shown || !sameUnit(written.unit, shown.unit)) return false;
   const percent = written.unit.kind === "percent" || written.unit.kind === "points" ? 100 : 1;
+  const inShownScale =
+    Math.abs(figure.value - shown.value) <=
+    Math.max((shown.precision ?? 0) / 2, 1e-9 * Math.abs(shown.value)) + 1e-12;
   const wrote = (written.value / written.scale) * percent;
-  const worked = (figure.value / written.scale) * percent;
+  const worked = ((inShownScale ? figure.value : shown.value) / written.scale) * percent;
   return Math.abs(wrote - worked) <= 0.5 * 10 ** -written.decimals + 1e-9 * Math.abs(worked);
 }
 

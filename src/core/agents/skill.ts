@@ -11,6 +11,30 @@
 /** The Skill's folder name, and its `name`. */
 export const SKILL_NAME = "incarnamind";
 
+/**
+ * The SHA-256 of each text the Skill has had, the current one too, so that a copy an earlier
+ * release wrote counts as IncarnaMind's even where there is no record of it (#3430). A change to
+ * the Skill adds the new text's hash here: a test fails until it does.
+ */
+export const EARLIER_SKILL_HASHES: readonly string[] = [
+  "ed317f62891621e7d29eb26e38cb4b593a5edb84285238a5141a4d580f3e6394",
+  "0cb37477f28c0e115871c0cc91861609978994fb1d8b3aa2fcf957382e9088fd",
+  "9edb0f719c6493598487d1183a12d1695d8dab459c2ef02c4fbaa5b8a0688d3d",
+  "37b7bff10e9c5d79530c3a9cf2f804d820d2501cc6b553e46e311569c9834c32",
+  "268db75f0097a8f8edbf87aad140168bab8faa81da75633fb7a4d59b93b45eff",
+  "12520776f2960853e11c60660f659e346350141ea011df9ec34e8fb94c2e89a9",
+  "0b7e5ae1e8611995734fb23f3d726a22f005a258ca5f6ced61b9e06f7fb92ae1",
+  "7aacd1b3e81a88e2f965c19bf0590651017fbcbb0103d0256a25d8586fa52b84",
+  "a4b899f085316e587704cc2d2ad51a5e16e30517515d2959eff62f3792c7d54e",
+  "8e09d9cb45912fe7aafb8e1589eb8bfe49850956b23201e2ee8b9b1d7edb1f99",
+  "15d5c573e04f2757ef50f5ed38cd0a7e2f9dba9c47887692c4000fc879ca16ef",
+  "2d1bc143d05c5fe8b15cff7d8860fdc58a8203abe78b69d6ce1d13bd47271bd3",
+  "da9d17409bfdddb4505f497cfec1d799a650e0e0038e7db74b959e44786dea2c",
+  "312f4df56cd3427db641077d4ea16bcb32451dc07ae2fcef42d4255e2aa4346f",
+  "59e011bac664580915757c59fb28762139b0b084ebd0c7cd7db5324b1407ecf3",
+  "c9a6a4e88cec14927f52d8e1a468eace5c35de92a0cc123a76ec5cc9c601ae68",
+];
+
 export const SKILL_MARKDOWN = `---
 name: ${SKILL_NAME}
 description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". Do not answer such a question from memory.
@@ -74,7 +98,7 @@ A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_fi
 
 To change a Note, read it with \`read_mind\` and \`named\`, then \`propose_changes\`: in a Note you wrote, your changes apply at once and the User can undo them; in any other, they wait for the User. In a Note you wrote, paragraphs marked as the User's are theirs: leave them as they are unless the User asks you to change them.
 
-To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. It gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`calculate\` or \`run_analysis\` and reported on the id they give, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note, where the User sees the marks. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
+To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. It gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`run_analysis\` and reported on the id it gives; one you work out yourself from numbers Passages give is reported with its working, each number with its Citation, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note, where the User sees the marks. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
 
 \`check_mind\` is IncarnaMind's own check of that Note instead, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general. When it answers "running", call it again.
 `;

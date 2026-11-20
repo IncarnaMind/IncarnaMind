@@ -497,14 +497,14 @@ describe("a workbook's formulas in an Answer", () => {
       inputs: [
         {
           name: "e27",
-          label: "EBITDA 2027",
+          label: "EBITDA 2027 ($)",
           passage,
           quote: EBITDA_ROW,
-          number: "254.7",
-          unitQuote: "DCF ($m)",
+          value: 254_700_000,
         },
       ],
       formula: "e27 * 12",
+      shown: "$3,056.4 million",
       ...(constants && { constants }),
     });
 
@@ -526,7 +526,7 @@ describe("a workbook's formulas in an Answer", () => {
         );
         expect(answer.figures).toHaveLength(1);
         expect(answer.figures[0]).toMatchObject({ formula: "e27 * 12" });
-        expect(answer.figures[0]?.value).toBeCloseTo(3_056_130_000, 0);
+        expect(answer.figures[0]?.value).toBeCloseTo(3_056_400_000, 0);
         expect(answer.figures[0]?.workbook).toBeUndefined();
       },
     );
@@ -537,11 +537,11 @@ describe("a workbook's formulas in an Answer", () => {
           marker: 1,
           label: "EBITDA growth 2027",
           inputs: [
-            { name: "e26", label: "EBITDA 2026", passage, quote: EBITDA_ROW, number: "242.6" },
-            { name: "e27", label: "EBITDA 2027", passage, quote: EBITDA_ROW, number: "254.7" },
+            { name: "e26", label: "EBITDA 2026", passage, quote: EBITDA_ROW, value: 242.6 },
+            { name: "e27", label: "EBITDA 2027", passage, quote: EBITDA_ROW, value: 254.7 },
           ],
           formula: "e27 / e26 - 1",
-          as: "percent",
+          shown: "5.0%",
         }),
       ]);
       const { core } = await setUp(model, "dcf.xlsx", libreOfficeFixture("dcf"));
@@ -555,8 +555,9 @@ describe("a workbook's formulas in an Answer", () => {
         (passage, line) => ({
           marker: 1,
           label: "North revenue over twelve months",
-          inputs: [{ name: "n", label: "North revenue", passage, quote: line, number: "120" }],
+          inputs: [{ name: "n", label: "North revenue", passage, quote: line, value: 120 }],
           formula: "n * 12",
+          shown: "1,440",
         }),
       ]);
       const { core } = await setUp(

@@ -121,12 +121,12 @@ function workedOut(message: string): { shown: string[]; inputs: string[]; quotes
   if (!Array.isArray(figures)) return worked;
   for (const figure of figures as {
     shown?: string;
-    saved?: { inputs?: { number?: { chars?: string }; citation?: { quote?: string } }[] };
+    saved?: { inputs?: { number?: string; quote?: string }[] };
   }[]) {
     worked.shown.push(...numbers(figure.shown ?? ""));
     for (const input of figure.saved?.inputs ?? []) {
-      if (input.number?.chars) worked.inputs.push(input.number.chars);
-      if (input.citation?.quote) worked.quotes.push(input.citation.quote);
+      if (input.number) worked.inputs.push(input.number);
+      if (input.quote) worked.quotes.push(input.quote);
     }
   }
   return worked;

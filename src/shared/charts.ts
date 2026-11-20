@@ -726,6 +726,17 @@ interface TableReading {
 }
 
 /** A whole number from 1900 to 2099 and nothing else: `readFigures` leaves it out, as a year. */
+/**
+ * A calculated figure's exact value where it is in the scale its shown text reads in; null where it
+ * isn't, as a plain figure's value is in whatever scale its model worked in (#3393).
+ */
+function exactValue(worked: unknown, read: Figure | undefined): number | null {
+  if (typeof worked !== "number") return null;
+  if (!read) return worked;
+  const within = Math.max((read.precision ?? 0) / 2, 1e-9 * Math.abs(read.value)) + 1e-12;
+  return Math.abs(worked - read.value) <= within ? worked : null;
+}
+
 const BARE_YEAR = /^(?:19|20)\d{2}$/;
 
 const QUANTITY_HEADER =
@@ -977,13 +988,13 @@ export function chartFromTable(
     const read = figureIn(figuresIn(cell.text, column));
     const calculated = figureAt(cell, read?.figure);
     // A calculated figure's value, not the rounded number its shown text reads as (#2378).
-    const worked = calculated.figure?.figure.value;
+    const worked = exactValue(calculated.figure?.figure.value, read?.figure);
     // A bare year is a label in a year column, even when the Analysis gives it as a number (#1131).
     const bareYear = !read && BARE_YEAR.test(cell.text.trim());
     const readValue = bareYear ? null : (cell.number ?? read?.value ?? null);
     return {
       shown: cell.text.trim(),
-      value: typeof worked === "number" ? worked : readValue,
+      value: worked ?? readValue,
       unit: read ? read.figure.unit : null,
       scale: read ? read.figure.scale : null,
       citation: calculated.figure ? null : cell.citation,
@@ -1264,13 +1275,13 @@ export function chartFromFigures(
     const before = line.text.slice(0, figure.start).replace(LABEL_END, "").replace(LABEL_START, "");
     const after = line.text.slice(figure.end).replace(LABEL_START, "").replace(LABEL_END, "");
     const calculated = figureAt(line, figure);
-    const worked = calculated.figure?.figure.value;
+    const worked = exactValue(calculated.figure?.figure.value, figure);
     rows.push({
       label: (before || after).trim(),
       values: [
         {
           shown: figure.chars,
-          value: typeof worked === "number" ? worked : read.value,
+          value: worked ?? read.value,
           unit: figure.unit,
           scale: figure.scale,
           citation: calculated.figure ? null : line.citation,

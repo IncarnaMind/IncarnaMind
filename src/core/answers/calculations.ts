@@ -32,7 +32,7 @@
  * a sum that subtracts it is recorded all the same, with a line telling the
  * model it adds (#978).
  */
-import { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
+
 import {
   currencyOnItsFigure,
   type Figure,
@@ -55,23 +55,7 @@ import {
   statesForWholeDocument,
   unsettledScales,
 } from "../../shared/figures";
-import {
-  evaluateFormula,
-  FORMULA_VERSION,
-  type FormulaInput,
-  type FormulaLiteral,
-  type FormulaProblem,
-  type FormulaResult,
-  formulaText,
-  type ScaleChange,
-  type ShowAs,
-  sameNumber,
-  scaleChanges,
-  scaleWordOf,
-  scaleWords,
-  showResult,
-  sumOf,
-} from "../../shared/formula";
+import { type FormulaInput, sameNumber } from "../../shared/formula";
 import {
   anchorsCovered,
   citationLocation,
@@ -85,18 +69,12 @@ import { misreadDigits, numberDigits } from "../../shared/misreadWords";
 import { findQuote, type TextRange } from "../../shared/quoteMatch";
 import { type SignWord, shownAmount } from "../../shared/signWord";
 import { anchorsOf, cellNumber } from "../../shared/units";
-import type {
-  CalculatedFigure,
-  Citation,
-  FigureInput,
-  FigureShowOptions,
-  InputNumber,
-} from "../api";
+import type { CalculatedFigure, Citation, FigureInput, InputNumber } from "../api";
 import type { PageText } from "../documents/passages";
 import { mixedNumberWord, unsureSpansIn } from "../documents/scan/layout";
 import { detectLanguage } from "../documents/textLanguage";
 import type { Language } from "../language";
-import { WORKBOOK_TOOLS } from "../tools";
+
 import { columnHeadUnit, ownHeadingRow, unitsCellUnit } from "./checks/columnHeadUnit";
 import {
   type AnswerDocuments,
@@ -107,26 +85,13 @@ import {
   unsureWordsCovered,
 } from "./citations";
 import type { CiteOptions } from "./engine";
-import { setAsideRowsOf } from "./sheetRows";
-
-/** Why a formula mustn't change an amount's scale, and how to show the figure in the scale meant. */
-function scaleChangeProblem(change: ScaleChange, language: Language): string {
-  const meant = (change.from?.exponent ?? 0) - change.exponent;
-  const word = meant > 0 ? scaleWordOf(meant, language) : null;
-  const applied = change.from?.word ? ` (${change.from.word} applied)` : "";
-  const instead = `write ${change.amount} in place of ${change.text}`;
-  const how = word
-    ? `to show it in ${word}, give scale: "${word}" and ${instead}`
-    : `${instead}, and give scale (${scaleWords(language).join(", ")}) for the scale it is shown in`;
-  return `${change.text} changes the scale itself, but inputs are already in base units${applied}; ${how}.`;
-}
 
 /** The most figures one call records, and inputs one figure has. */
 export const MAX_FIGURES_PER_CALL = 20;
 export { MAX_INPUTS_PER_FIGURE } from "../../shared/calculatedFigures";
 
 /** How many times one Answer may call `calculate`; later calls are refused, so the model answers. */
-const MAX_CALLS_PER_ANSWER = 5;
+export const MAX_CALLS_PER_ANSWER = 5;
 
 export const FIX_FIGURES = "Fix these with another calculate call:";
 
@@ -198,7 +163,7 @@ export function quotedLines(quoted: QuotedText): string {
 }
 
 /** The one line a figure read from a scan's unsure word is refused with (#535). */
-const UNSURE_INPUT =
+export const UNSURE_INPUT =
   "That number was read from a scan and may be misread; it can't be an input until the User confirms it.";
 
 /** The parts of a quote around its ellipses, with where each starts in it. */
@@ -335,8 +300,6 @@ export function readOnItsLine(
   return first.unit.kind === "plain" ? { ...first, unit: figure.unit } : first;
 }
 
-const SHOW_AS: readonly ShowAs[] = ["number", "percent", "points", "currency", "times", "yes-no"];
-
 /** An input as the model gave it. */
 interface GivenInput {
   name: string;
@@ -350,19 +313,6 @@ interface GivenInput {
   unitQuote: string | null;
   reading: number | null;
   rate: string | null;
-}
-
-/** A figure as the model gave it. */
-interface GivenFigure {
-  marker: number | null;
-  label: string;
-  inputs: GivenInput[];
-  formula: string;
-  as: string | null;
-  decimals: number | null;
-  scale: string | null;
-  /** The numbers written in its formula that the model says are constants of the arithmetic, not supposed values. */
-  constants: number[];
 }
 
 const text = (value: unknown): string | null =>
@@ -421,32 +371,6 @@ function givenInput(value: unknown): GivenInput {
   };
 }
 
-function givenFigure(value: unknown): GivenFigure {
-  const figure = fields(value);
-  return {
-    marker: whole(figure.marker),
-    label: text(figure.label)?.trim() ?? "",
-    inputs: givenList(figure.inputs).map(givenInput),
-    formula: text(figure.formula)?.trim() ?? "",
-    as: text(figure.as)?.trim() || null,
-    decimals: typeof figure.decimals === "number" ? figure.decimals : whole(figure.decimals),
-    scale: text(figure.scale)?.trim() || null,
-    constants: givenConstants(figure.constants),
-  };
-}
-
-/** Numbers as written ("12", "5%", 0.05), alone or in a list. */
-function givenConstants(value: unknown): number[] {
-  const list = Array.isArray(value) || typeof value === "string" ? givenList(value) : [value];
-  const written = list.length === 0 && typeof value === "string" ? [value] : list;
-  return written.flatMap((each) => {
-    const match = /^([-+]?(?:\d+\.?\d*|\.\d+))(%?)$/.exec((text(each) ?? "").replace(/[\s,]/g, ""));
-    if (!match) return [];
-    const number = Number(match[1]);
-    return [match[2] === "%" ? number / 100 : number];
-  });
-}
-
 /** Text as numbers are compared: full-width as half-width, no spaces. */
 // A footnote's mark is no digit of the figure (#2474): "1,240.50¹" and "1,240.50" are one number, "1,240.501" isn't.
 const squeezed = (value: string) => markedFootnotes(value).normalize("NFKC").replace(/\s+/g, "");
@@ -485,34 +409,6 @@ const either = (items: readonly (string | number)[]) =>
 
 /** A number as a message to the model writes it: no float noise. */
 const plainNumber = (value: number) => String(Number(value.toPrecision(12)));
-
-const DEDUCTION_LINE =
-  /(?:^|[\s|:：(（])(?:less|deduct(?:ion|ions|ed)?|minus|减|扣除|减去)(?![A-Za-z])/i;
-
-function signNote(negatives: readonly { name: string; chars: string; value: number }[]): string {
-  const them = negatives.length > 1 ? "them" : "it";
-  const read = negatives
-    .map((each) => `${each.name} is ${each.chars}, read as ${plainNumber(each.value)}`)
-    .join("; ");
-  return ` Check the sign: ${read}, so subtracting ${them} adds ${them}. To take a deduction off, add it (price + fee); if adding ${them} is what you meant, the figure stands.`;
-}
-
-/**
- * The inputs read from rows the file strikes through or hides (#1979), said after the figure: a
- * total over an earlier version's rows read as the sheet's current one. "" when none is.
- */
-function setAsideNote(reads: readonly Pick<ReadInput, "given" | "quoted" | "cell">[]): string {
-  const said = reads.flatMap((read) => {
-    const row = Number(/\d+$/.exec(read.cell?.ref ?? "")?.[0]);
-    const how =
-      read.cell && Number.isInteger(row)
-        ? setAsideRowsOf(read.quoted.units)(read.cell.sheet, row)
-        : null;
-    return how ? [`${read.given.name} is in row ${row}, which the file ${how}`] : [];
-  });
-  if (said.length === 0) return "";
-  return ` ${said.join("; ")}: the file has set ${said.length === 1 ? "that row" : "those rows"} aside, so a figure from ${said.length === 1 ? "it" : "them"} is never the sheet's current one. Where you give this figure, say so.`;
-}
 
 /** One of the reader's readings, as the model is offered it. */
 function readingText(reading: Reading): string {
@@ -872,16 +768,6 @@ function unreadCurrencyScales(
 const notedOut = (statement: StatedUnit, label: string): boolean =>
   statement.except === "noted" && PER_SHARE.test(label);
 
-/**
- * Whether `statement`'s scale may not reach a number named `name`, read as a row's label is (a
- * unit statement and exception words of its own left out): its exception leaves it out, or one
- * "where noted" may.
- */
-export function mayLeaveOut(statement: StatedUnit, name: string): boolean {
-  const { label } = withoutStatement(name);
-  return exceptedBy(statement, label) || notedOut(statement, label);
-}
-
 /** A head row's statements that give a number different units or scales: "Revenue (£000)	EPS (£)". */
 function conflicting(statements: readonly StatedUnit[]): boolean {
   // "币种：人民币" names the currency of every column, beside "单位：万元".
@@ -1032,19 +918,6 @@ interface ReadInput {
   where: string;
 }
 
-/** A figure recorded for its marker, with the quotes to check when the Answer ends. */
-interface Recorded {
-  figure: CalculatedFigure;
-  /** What the model is told beside its result, if anything: how it is shown when not as asked. */
-  note: string;
-  /** The model was told to check a sign (#978): its next figure for the marker is the fix, not a marker given twice. */
-  signAsked: boolean;
-  /** Each input's quote, and its unit statement's, in order; `source`: its cite record's marker, or the quote it gave. */
-  quotes: { input: Quoted; unit: Quoted | null; source: number | QuoteInput }[];
-  /** Quotes a figure recorded whole is cited to: a workbook figure's cell (#2347). */
-  cited?: readonly QuoteInput[];
-}
-
 /** A quoted number whose sign a word for a loss in another sentence leaves open (#3228). */
 interface SignOpen {
   problem: string;
@@ -1091,22 +964,12 @@ export interface CalculationSessionOptions {
   partOfFormulas?(citation: Citation, sheet: string, ref: string): boolean;
 }
 
-/** What the model is told a recorded figure came to: "[=1] = 20.4% (Revenue growth: $1,482.6 million ÷ $1,231.0 million − 1)". */
-export function toldFigure(marker: number, figure: CalculatedFigure): string {
-  const byName = new Map(figure.inputs.map((input) => [input.name.toLowerCase(), input]));
-  const worked = formulaText(
-    figure.formula,
-    (name) => byName.get(name.toLowerCase())?.number.chars ?? null,
-  );
-  return `Recorded [=${marker}] = ${figure.shown} (${figure.label ? `${figure.label}: ` : ""}${worked}).`;
-}
-
-/** One Answer's calculated figures: what `calculate` takes, and the figures by marker. */
+/**
+ * A number in a quote as an Analysis (#447) and a figure schedule read one, with its scale, currency
+ * and sign; the plain calculator an Answer's model calls reads none of these (#3393).
+ */
 export function createCalculationSession(options: CalculationSessionOptions) {
-  const { documents, quotes, language } = options;
-  const recorded = new Map<number, Recorded>();
-  const failed = new Map<number, FigureProblem>();
-  let calls = 0;
+  const { documents, quotes } = options;
   const contexts = new Map<string, FigureContext>();
   const scales = new Map<string, { scale: string | null; stale: boolean }>();
   const unitScales = new Map<string, ElsewhereScale[]>();
@@ -2787,257 +2650,7 @@ export function createCalculationSession(options: CalculationSessionOptions) {
     };
   }
 
-  const sameValue = (a: FormulaResult["value"], b: FormulaResult["value"]) =>
-    typeof a === "number" && typeof b === "number"
-      ? Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b))
-      : a === b;
-
-  /** Works out one figure: what to record, or the lines that say why it can't be. */
-  function work(
-    given: GivenFigure,
-    marker: number,
-    options: CiteOptions,
-  ): { recorded: Recorded } | { problems: string[] } {
-    const lead = `[=${marker}]`;
-    if (given.inputs.length === 0)
-      return {
-        problems: [
-          `${lead}: give its inputs, each a number in a quote, and a formula over their names.`,
-        ],
-      };
-    if (given.inputs.length > MAX_INPUTS_PER_FIGURE)
-      return { problems: [`${lead}: at most ${MAX_INPUTS_PER_FIGURE} inputs in one figure.`] };
-    if (!given.formula)
-      return { problems: [`${lead}: give a formula over the inputs' names, such as (b - a) / a.`] };
-    if (given.as !== null && !SHOW_AS.some((each) => each === given.as))
-      return { problems: [`${lead}: as must be one of ${SHOW_AS.join(", ")}.`] };
-
-    const reads: ReadInput[] = [];
-    const problems: string[] = [];
-    for (const input of given.inputs) {
-      const read = readInput(input, options);
-      if (typeof read === "string") problems.push(`${lead} ${input.name || "input"}: ${read}`);
-      else if ("signWord" in read)
-        problems.push(`${lead} ${input.name || "input"}: ${read.problem}`);
-      else reads.push(read);
-    }
-    if (problems.length > 0) return { problems };
-
-    const numbers = (scaled: boolean) =>
-      reads.map((read) =>
-        numberOf(read, read.unit?.stated ?? (scaled ? (read.candidate?.reading ?? null) : null)),
-      );
-    const affected = reads.filter((read) => read.candidate !== null);
-    if (affected.length > 0) {
-      const plain = evaluateFormula(given.formula, numbers(false));
-      const scaled = evaluateFormula(given.formula, numbers(true));
-      const depends =
-        plain.ok && scaled.ok ? !sameValue(plain.value, scaled.value) : plain.ok !== scaled.ok;
-      if (depends)
-        return {
-          problems: affected.flatMap((read) =>
-            read.candidate
-              ? [
-                  `${lead} ${read.given.name}: ${candidateProblem(read.figure.chars, read.where, read.candidate)}`,
-                ]
-              : [],
-          ),
-        };
-    }
-
-    const inputs = numbers(false);
-    const result: FormulaResult | FormulaProblem = evaluateFormula(given.formula, inputs);
-    if (!result.ok) return { problems: [`${lead}: ${result.message}`] };
-    const changes = scaleChanges(given.formula, inputs);
-    if (changes.length > 0)
-      return {
-        problems: changes.map((change) => `${lead}: ${scaleChangeProblem(change, language)}`),
-      };
-    const supposed = options.structured ? null : whatIfProblem(lead, given, reads, result.literals);
-    if (supposed) return { problems: [supposed] };
-    const sum = sumOf(given.formula);
-    const nameIs = (name: string, other?: string) => name.toLowerCase() === other?.toLowerCase();
-    const totalValue = inputs.find((input) => nameIs(input.name, sum?.total))?.value ?? -1;
-    const negatives = reads.flatMap((read, index) => {
-      const number = inputs[index];
-      const deducted = sum?.taken.some((name) => nameIs(name, read.given.name));
-      const line = lineBefore(read.quoted, read.figure);
-      return totalValue >= 0 && deducted && number && number.value < 0 && DEDUCTION_LINE.test(line)
-        ? [{ name: number.name, chars: read.figure.chars, value: number.value }]
-        : [];
-    });
-    let show: FigureShowOptions = {
-      language,
-      as: SHOW_AS.find((each) => each === given.as) ?? null,
-      decimals: given.decimals,
-      scale: given.scale,
-    };
-    let shown = showResult(result, show);
-    let note = (negatives.length > 0 ? signNote(negatives) : "") + setAsideNote(reads);
-    // A result that can't be shown as asked (a difference of percents "as a percent") is shown in
-    // its own unit, which is the right one, rather than refused.
-    if (!shown.ok && show.as !== null) {
-      const own = showResult(result, { ...show, as: null });
-      if (own.ok) note += ` It is shown in its own unit: ${shown.message}`;
-      show = { ...show, as: null };
-      shown = own;
-    }
-    if (!shown.ok) return { problems: [`${lead}: ${shown.message}`] };
-
-    const figure: CalculatedFigure = {
-      label: given.label,
-      formula: given.formula,
-      inputs: reads.map((read, index) =>
-        inputRecord(read, inputs[index] as FormulaInput & { reading: Reading }),
-      ),
-      value: result.value,
-      unit: result.unit,
-      approximate: result.approximate,
-      shown: shown.shown,
-      show,
-      literals: result.literals,
-      engine: FORMULA_VERSION,
-      written: null,
-    };
-    return {
-      recorded: {
-        figure,
-        note,
-        signAsked: negatives.length > 0,
-        quotes: reads.map((read) => ({
-          input: read.quoted,
-          unit: read.unit?.quoted ?? null,
-          source: read.source,
-        })),
-      },
-    };
-  }
-
-  /**
-   * A number written into a formula beside a workbook's own figures or inputs may be a value the
-   * Question supposes for one of its inputs (#2372): worked out here, that what-if would leave out
-   * every formula between the input and the figure. 0 and 1 are the arithmetic's own; any other
-   * number passes once the model names it a constant.
-   */
-  function whatIfProblem(
-    lead: string,
-    given: GivenFigure,
-    reads: readonly ReadInput[],
-    literals: readonly FormulaLiteral[],
-  ): string | null {
-    const { partOfFormulas } = options;
-    if (!partOfFormulas) return null;
-    const written = literals.filter(
-      (literal) =>
-        literal.value !== 0 &&
-        literal.value !== 1 &&
-        !given.constants.some((constant) => sameValue(constant, literal.value)),
-    );
-    if (written.length === 0) return null;
-    const cells = reads.flatMap((read) => {
-      const sheet = read.cell?.sheet;
-      return read.cell && sheet && partOfFormulas(read.quoted.citation, sheet, read.cell.ref)
-        ? [
-            {
-              name: read.given.name,
-              at: `${sheet}!${read.cell.ref}`,
-              book: read.quoted.citation.documentName,
-            },
-          ]
-        : [];
-    });
-    const [first] = cells;
-    if (!first) return null;
-    const texts = [...new Set(written.map((literal) => literal.text))];
-    const numbers =
-      texts.length < 2 ? texts.join("") : `${texts.slice(0, -1).join(", ")} and ${texts.at(-1)}`;
-    const beside = cells.map((cell) => `${cell.name} (${cell.at})`).join(", ");
-    const one = texts.length === 1;
-    return `${lead}: ${numbers} ${one ? "is" : "are"} written into its formula beside ${beside} of ${first.book}, cells that workbook's own formulas work out or read. If ${one ? "it" : "one of them"} is a value the Question supposes for one of the workbook's inputs, this figure is a what-if, and calculate would leave out every formula between that input and the figure: call ${WORKBOOK_TOOLS.whatIf} with the figure's cell, and each input the Question supposes with its new value, instead. Only if ${one ? "it" : "each"} is a constant of the arithmetic itself (12 months in a year, say), give ${one ? "it" : "them"} as "constants" on this figure and call calculate again.`;
-  }
-
-  /** Takes figures; returns what to tell the model about them. */
-  function calculate(list: readonly unknown[], { structured = false }: CiteOptions = {}): string {
-    if (!structured && ++calls > MAX_CALLS_PER_ANSWER)
-      return "You have called calculate enough for this Question: write the Answer now with the figures recorded, and say which numbers couldn't be calculated rather than working them out.";
-    if (list.length === 0)
-      return `Nothing was recorded. ${FIX_FIGURES}\n- give each figure with its marker, inputs and formula.`;
-    if (list.length > MAX_FIGURES_PER_CALL)
-      return `Nothing was recorded. ${FIX_FIGURES}\n- At most ${MAX_FIGURES_PER_CALL} figures in one call, and ${MAX_INPUTS_PER_FIGURE} inputs in one figure.`;
-    const lines: string[] = [];
-    const problems: string[] = [];
-    for (const raw of list) {
-      const given = givenFigure(raw);
-      const { marker } = given;
-      if (marker === null || marker < 1) {
-        problems.push("A figure needs a marker number (1, 2, …) that is in the Answer as [=n].");
-        continue;
-      }
-      const earlierFigure = recorded.get(marker)?.figure;
-      if (earlierFigure?.analysis !== undefined || earlierFigure?.workbook !== undefined) {
-        problems.push(
-          `[=${marker}] belongs to ${earlierFigure.analysis ? "an Analysis" : "a workbook's formulas"}. Keep that marker for its result; choose a new marker for this calculation.`,
-        );
-        continue;
-      }
-      const outcome = work(given, marker, { structured });
-      if ("problems" in outcome) {
-        problems.push(...outcome.problems);
-        if (structured)
-          failed.set(marker, {
-            marker,
-            given: JSON.stringify(raw),
-            problems: outcome.problems,
-            passages: [
-              ...new Set(
-                given.inputs.map((input) =>
-                  input.citation !== null
-                    ? (quotes.recorded(input.citation)?.passage ?? "")
-                    : (input.record?.passage ?? ""),
-                ),
-              ),
-            ].flatMap((id) => {
-              const passage = quotes.passageText(id);
-              return passage ? [{ id, text: passage }] : [];
-            }),
-          });
-        continue;
-      }
-      const earlier = recorded.get(marker);
-      recorded.set(marker, outcome.recorded);
-      failed.delete(marker);
-      options.onRecord?.(marker, outcome.recorded.figure);
-      lines.push(
-        toldFigure(marker, outcome.recorded.figure) +
-          outcome.recorded.note +
-          (earlier &&
-          !earlier.signAsked &&
-          earlier.figure.formula !== outcome.recorded.figure.formula
-            ? ` It replaces the earlier [=${marker}] = ${earlier.figure.shown}: give each figure a marker of its own.`
-            : ""),
-      );
-    }
-    const done = lines.length > 0 ? lines.join("\n") : "Nothing was recorded.";
-    const next =
-      problems.length > 0
-        ? `\n${FIX_FIGURES}\n- ${problems.join("\n- ")}`
-        : "\nWrite each marker in its number's place, in the text or a table's cell, as in \"grew [=1] in 2025\": it shows the number with its unit, so write neither beside it.";
-    return `${done}${next}`;
-  }
-
   return {
-    calculate,
-
-    /**
-     * The reply is made anew from the same request (#2925): the figures it worked out, and the
-     * calls it made, are forgotten, so none of the new reply's figure markers is the first reply's.
-     */
-    anew(): void {
-      recorded.clear();
-      failed.clear();
-      calls = 0;
-    },
-
     /**
      * A number in a quote, read as an input of `calculate` is, for an
      * Analysis (#447): checked now, as the Analysis runs on it now. A number
@@ -3096,57 +2709,5 @@ export function createCalculationSession(options: CalculationSessionOptions) {
         };
       return { input: current };
     },
-
-    /**
-     * Records a figure an Analysis or a workbook's formulas gave (#447, #2347) under the next
-     * marker no figure has, and above `above`: that marker. `cited`: the quotes the Answer cites
-     * it to.
-     */
-    record(figure: CalculatedFigure, cited: readonly QuoteInput[] = [], above = 0): number {
-      const marker = Math.max(above, ...recorded.keys()) + 1;
-      recorded.set(marker, { figure, note: "", signAsked: false, quotes: [], cited });
-      options.onRecord?.(marker, figure);
-      return marker;
-    },
-
-    /** The figures given in structured output that couldn't be worked out, by marker. */
-    problems(): FigureProblem[] {
-      return [...failed.values()].sort((a, b) => a.marker - b.marker);
-    },
-
-    /** Where a marker's figure's inputs quote from: a cite record's marker, or a quote given directly. */
-    inputSources(marker: number): (number | QuoteInput)[] {
-      const entry = recorded.get(marker);
-      return [...(entry?.quotes ?? []).map((each) => each.source), ...(entry?.cited ?? [])];
-    },
-
-    /** A marker's figure: "checking" until `check`, then with each input's check; null when none was recorded. */
-    figure(marker: number): CalculatedFigure | null {
-      return recorded.get(marker)?.figure ?? null;
-    },
-
-    /** Checks each figure's quotes, once, when the Answer finishes: the result is stored with each Citation. */
-    check(): void {
-      for (const entry of recorded.values()) {
-        entry.figure = {
-          ...entry.figure,
-          inputs: entry.figure.inputs.map((input, index) => {
-            const quotes = entry.quotes[index];
-            if (!quotes) return input;
-            const unit = input.unitStatement;
-            return {
-              ...input,
-              citation: { ...input.citation, ...quotes.input.check() },
-              unitStatement:
-                unit && quotes.unit
-                  ? { ...unit, citation: { ...unit.citation, ...quotes.unit.check() } }
-                  : unit,
-            };
-          }),
-        };
-      }
-    },
   };
 }
-
-export type CalculationSession = ReturnType<typeof createCalculationSession>;

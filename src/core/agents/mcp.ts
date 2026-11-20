@@ -22,7 +22,6 @@ import { StdioServerTransport, serveStdio } from "@modelcontextprotocol/server/s
 import { z } from "zod";
 import { AGENT_HANDSHAKE_MAX_BYTES, parseHandshake } from "../../shared/agentSocket";
 import { DOCUMENT_KINDS } from "../../shared/libraryFacts";
-import { MAX_FIGURES_PER_CALL } from "../answers/calculations";
 import type { AgentToolName } from "../api";
 import {
   type AgentAccess,
@@ -49,7 +48,7 @@ export const SERVER_INSTRUCTIONS = [
   "In a Note you wrote, the paragraphs `read_mind` marks as the User's are theirs: leave them as they are unless the User asks.",
   "To hand the User a new document, `create_mind` writes it as a Note; a page to look at, `publish_canvas`; a file you made, `hand_over_file`.",
   "To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with `check_mind_yourself`, not with `check_mind` or a search of your own: it gives the Note's sentences and how to judge them. Judge each from the Documents and hand your results back with `report_check`, which marks the Note for the User. Tell them what needs a look.",
-  "A figure no Passage states: work it out with `calculate` or `run_analysis`, and report it on its id.",
+  "A figure no Passage states: `run_analysis` for rows or lists (report its id), else your own working.",
   "`check_mind` is IncarnaMind's own check, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general.",
 ].join("\n");
 
@@ -506,10 +505,31 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
             n: z.number().int(),
             verdict: z.enum(OWN_VERDICT_WORDS),
             cites: z.array(z.string()).optional().describe("The [cite:…] it rests on."),
-            run: z
-              .string()
+            run: z.string().optional().describe("Or the id of a run_analysis result it rests on."),
+            working: z
+              .object({
+                inputs: z
+                  .array(
+                    z.object({
+                      name: z.string(),
+                      value: z.number().describe("The number used, as a plain number."),
+                      cite: z.string().describe("The [cite:…] whose quote holds it."),
+                    }),
+                  )
+                  .min(1),
+                expression: z
+                  .string()
+                  .describe("Excel syntax over the inputs' names: north + south, b / a - 1."),
+                figure: z
+                  .string()
+                  .describe(
+                    'What it gives, with its unit, even where the note says otherwise: "£2,100,000".',
+                  ),
+              })
               .optional()
-              .describe("Or the id of a calculate or run_analysis result it rests on."),
+              .describe(
+                "Or, for a figure you worked out yourself from numbers Passages give, its working: IncarnaMind confirms each number in its quote and that the expression gives the figure.",
+              ),
             explanation: z.string().optional(),
           }),
         ),
@@ -533,49 +553,6 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       },
     },
     (input) => answer(() => access.reportCheck(input)),
-  );
-
-  server.registerTool(
-    tool("calculate"),
-    {
-      title: "Work out a figure",
-      description:
-        "Work out a figure no Passage states from numbers Passages do, by IncarnaMind's arithmetic, not in your head. Each input is a number as its quote writes it: a [cite:…] whose quote holds it, or a passageId and quote. Returns each figure's id, to name in report_check.",
-      inputSchema: z.object({
-        figures: z
-          .array(
-            z.object({
-              label: z.string(),
-              inputs: z
-                .array(
-                  z.object({
-                    name: z.string(),
-                    cite: z.string().optional(),
-                    passageId: z.string().optional(),
-                    quote: z.string().optional(),
-                    number: z.string(),
-                    reading: z.number().int().optional(),
-                    unitQuote: z.string().optional(),
-                  }),
-                )
-                .min(1),
-              formula: z
-                .string()
-                .describe("Excel syntax over the inputs' names: a + b, b / a - 1."),
-            }),
-          )
-          .min(1)
-          .max(MAX_FIGURES_PER_CALL),
-      }),
-      outputSchema: z.object({
-        figures: z.array(
-          z.object({ id: z.string(), label: z.string(), result: z.string(), working: z.string() }),
-        ),
-        problems: z.string().nullable(),
-      }),
-      annotations: READ_ONLY,
-    },
-    (input) => answer(() => access.calculate(input)),
   );
 
   server.registerTool(
