@@ -112,6 +112,7 @@ import {
 } from "./proposals";
 import { AgentRefusedError, text, whole } from "./refusals";
 import type { AgentRequests } from "./requests";
+import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
 import {
@@ -521,6 +522,8 @@ export interface AgentAccess {
   checkCitations(input: AgentCheckInput): Promise<AgentCheckResult>;
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
+  listSorting(after?: string): Promise<SortingBatch>;
+  proposeSorting(proposals: SortingProposal[]): Promise<{ waiting: number }>;
   listMinds(): Promise<AgentMindList>;
   readMind(input: AgentReadMindInput): Promise<AgentMindText>;
   ask(input: AgentAskInput, signal?: AbortSignal): Promise<AgentAnswer>;
@@ -606,6 +609,7 @@ const READY_QUOTE_CHARS = 300;
 
 /** A pairing allowed to call now. */
 export interface AdmittedPairing {
+  shareTagNames?: boolean;
   id: string;
   name: string;
   folderIds: string[];
@@ -616,6 +620,7 @@ export interface AdmittedPairing {
 }
 
 export interface AgentAccessDeps {
+  sorting: AgentSorting;
   /** The pairing, if it may call now; otherwise throws `AgentRefusedError`. */
   admit(pairingId: string): AdmittedPairing;
   /** The live Folders. */
@@ -1195,6 +1200,19 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       t,
       location?.kind === "time" && documentId ? deps.liveDocuments() : null,
     );
+
+  function sortingScope(pairing: AdmittedPairing) {
+    const reached = reachedFolders(deps, pairing);
+    if (!reached.size) throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
+    return {
+      documents: documentsForPairing(deps, pairing, [...reached], reached),
+      shareTagNames: pairing.shareTagNames === true,
+      folders: deps
+        .folders()
+        .filter((f) => reached.has(f.id))
+        .map(({ id, name }) => ({ id, name })),
+    };
+  }
 
   /** Runs a call: admits the pairing, then records what came of it. */
   async function call<T>(
@@ -1937,6 +1955,33 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           documentIds: [kept.documentId],
         };
       });
+    },
+
+    listSorting(after) {
+      return call("list_sorting", "", [READ_DOCUMENTS], (pairing) => {
+        const result = deps.sorting.list(sortingScope(pairing), after);
+        return {
+          result,
+          count: result.documents.length,
+          documentIds: result.documents.map((doc) => doc.id),
+        };
+      });
+    },
+
+    proposeSorting(proposals) {
+      return call(
+        "propose_sorting",
+        "",
+        [{ action: "write", scope: { kind: "library" } }],
+        (pairing) => {
+          const waiting = deps.sorting.submit(sortingScope(pairing), pairing.name, proposals);
+          return {
+            result: { waiting },
+            count: waiting,
+            documentIds: proposals.map((p) => p.documentId),
+          };
+        },
+      );
     },
 
     listMinds() {

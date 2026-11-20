@@ -330,6 +330,7 @@ function OrganizeReviewRow({
   card: ReviewCard;
   context: CardContext;
 }) {
+  const t = useT();
   const doc = context.documents.get(item.documentId);
   const name = doc?.name ?? "";
   // In a Review of Tags only a row goes nowhere: it has neither ⋯ nor a drag.
@@ -377,6 +378,11 @@ function OrganizeReviewRow({
       >
         {name}
       </button>
+      {item.agent && (
+        <span className="max-w-[35%] truncate text-xs text-ink-meta" title={item.agent}>
+          {t("organizeReview.agent", { agent: item.agent })}
+        </span>
+      )}
       <RowChips item={item} context={context} name={name} />
       {moves && <RowMenu item={item} card={card} context={context} name={name} />}
     </div>

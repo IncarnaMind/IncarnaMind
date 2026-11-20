@@ -78,6 +78,13 @@ const LABEL =
   /^\s*(?:(?:(?:[\p{Script=Latin}-]+,?\s+){0,3}(?:explanation|note|summary|document)\s*(?:\([^)]*\))?|then|说明|解释|备注)\s*[:：]|then,)\s*(?=\S)/iu;
 
 /**
+ * A Passage's id put after the words it backs, as a Citation's marker is: "… the profit [P1].",
+ * "（P1、P2）". It goes, and the sentence stays: dropped whole, an own view's card said the
+ * Documents hold nothing where the model had named their facts (#3462).
+ */
+const CITED_PASSAGES = /\s*[[(（]\s*P\d{1,4}(?:\s*[,，、;；]\s*P\d{1,4})*\s*[\])）]/gu;
+
+/**
  * The check's own workings, which no card shows: a Passage's id, a Citation's marker, one of the
  * reply's fields, a table's row as the search gives it.
  */
@@ -94,7 +101,7 @@ export function explanationIn(text: string | null, language: Language): string |
 }
 
 const shownOf = (text: string | null): string | null => {
-  const whole = text?.trim() ?? "";
+  const whole = (text ?? "").replace(CITED_PASSAGES, "").trim();
   const unlabelled = whole.replace(LABEL, "");
   const said =
     unlabelled === whole ? whole : unlabelled.replace(/^\p{Ll}/u, (first) => first.toUpperCase());

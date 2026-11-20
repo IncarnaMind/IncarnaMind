@@ -3353,7 +3353,7 @@ export const en = {
   "setupPage.sorting.local.line": "Free",
   "setupPage.sorting.local.none": "No model on this computer can sort yet.",
   "setupPage.sorting.agentAlone":
-    "Sorting runs by itself with a decision model or a model on this computer; otherwise it waits.",
+    "Automatic sorting uses a decision model, a model set up in IncarnaMind, or a model on this computer. You can also ask your connected AI to organize your Documents, then confirm its Suggestions.",
   "setupPage.sorting.provider": "Provider",
   "setupPage.meetings.title": "Meeting transcription",
   "setupPage.meetings.lead": "Turns what is said into text.",
@@ -8384,7 +8384,7 @@ export const en = {
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.data.scoped-passages":
-    "Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
+    "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
     "The shared Folders’ names, internal ids and Document counts, with each Document’s name, kind and internal id, the names, internal ids and last-change times of the notes in them and the titles, internal ids, versions and last-change times of the Canvases when the agent lists them, the part of a note it reads, with where the next part starts, a Canvas’s HTML and its files’ names, kinds and sizes when it reads one, and the numbers its code works out on this computer from those names and kinds and the Documents’ Tags, never the lists themselves",
   "consent.data.answers": "IncarnaMind’s Answers to the agent’s Questions, with their quotes",
@@ -8644,6 +8644,14 @@ export const en = {
   "agents.activity.cite": "Cited “{text}”",
   "agents.activity.check_citations": "Checked its Citations",
   "agents.activity.show_citation": "Showed you a Citation",
+  "ai.jobs.organize.agent": "Ask your connected AI to suggest Folders and Tags.",
+  "agents.sorting.tagConsent": "Share these Documents’ Tag names with the model {agent} uses?",
+  "agents.sorting.shareTags": "Allow sharing Tag names",
+  "agents.sorting.invalid":
+    "The Documents or choices have changed. List the waiting Documents again and use their current Folders and Tags.",
+  "agents.activity.list_sorting": "Read Documents waiting to be organized",
+  "agents.activity.propose_sorting": "Suggested Folders and Tags",
+  "organizeReview.agent": "Suggested by {agent}",
   "agents.activity.list_minds": "Listed your notes",
   "agents.activity.read_mind": "Read the note “{text}”",
   "agents.activity.ask": "Asked “{text}”",
@@ -8684,7 +8692,7 @@ export const en = {
   "agents.reason.no-python": "this computer can’t run code for it",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it.",
+    "It can read your chosen Folders, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it. When you ask it to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "Folders it may read",
@@ -8732,6 +8740,7 @@ export const en = {
   "agents.ask.others": "Ask another AI",
   "agents.ask.setUpModel": "Set up a model",
   "agents.ask.copied": "Copied. Paste it into {agent}.",
+  "agents.ask.opened": "Opened {agent} with your request typed. Send it there.",
   "agents.ask.fixCommand": "Ask your AI to fix this sentence",
   "agents.ask.noteCommand": "Ask your AI about this note",
   "agents.ask.fixAllCommand": "Ask your AI to fix every flagged sentence",

@@ -21,14 +21,18 @@ function launchReply(text: string, quote: string, id: number | null) {
   });
 }
 
-async function setup(run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>, grant = true) {
+async function setup(
+  run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>,
+  grant = true,
+  lines = [monday, friday],
+) {
   const dir = await createTempDataFolder();
   const clock = manualClock();
   const capture = createFakeCapture({ now: () => clock.now().getTime() });
   const { transcriber } = inProcessTranscriber(
     {},
     undefined,
-    createFakeCloud({ voices: 1, lines: [monday, friday] }),
+    createFakeCloud({ voices: 1, lines }),
   );
   const adapters = {
     now: clock.now,
@@ -111,6 +115,57 @@ test("a ready draft is returned by Stop while the last confirmed decision is sti
     expect(run).toHaveBeenCalledTimes(count);
   } finally {
     next.close();
+  }
+});
+
+test("a repeated saved action does not hide the new action beside it after Stop or restart", async () => {
+  const quoteAction = "Lee will compare moving quotes.";
+  const cartonAction = "Each department will count its cartons.";
+  const action = (text: string) => ({
+    id: null,
+    kind: "action",
+    status: "active",
+    text,
+    quote: text,
+  });
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) => {
+    const next = prompt.includes(cartonAction);
+    return JSON.stringify({
+      summary: next ? "The departments will prepare carton counts." : "Lee will compare quotes.",
+      changes: next ? [action(quoteAction), action(cartonAction)] : [action(quoteAction)],
+      ...(next && { unchanged: [1] }),
+    });
+  });
+  const { core, dir, adapters, meeting, push, summary } = await setup(run, true, [
+    quoteAction,
+    `${quoteAction} ${cartonAction}`,
+  ]);
+  const expected = [quoteAction, cartonAction].map((text, index) => ({
+    id: index + 1,
+    kind: "action",
+    status: "active",
+    text,
+  }));
+  try {
+    push(2500);
+    await vi.waitFor(async () => expect((await summary())?.items).toEqual(expected.slice(0, 1)));
+    push(2000);
+    await until(core, meeting.id, (m) => m.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toMatch(/ready|failed/));
+    expect(await summary()).toMatchObject({ state: "ready", items: expected });
+  } finally {
+    core.close();
+  }
+  const calls = run.mock.calls.length;
+  const reopened = startCore(dir, adapters);
+  try {
+    expect(
+      (await reopened.listMeetings()).find((m) => m.id === meeting.id)?.summary?.items,
+    ).toEqual(expected);
+    expect(run).toHaveBeenCalledTimes(calls);
+  } finally {
+    reopened.close();
   }
 });
 
