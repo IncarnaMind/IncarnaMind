@@ -463,14 +463,14 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
         );
       },
     ],
-    prepareStep: ({ stepNumber, steps, initialMessages, responseMessages }) => {
+    prepareStep: async ({ stepNumber, steps, initialMessages, responseMessages }) => {
       const last = steps.at(-1);
       if (last && request.modelAfter) {
         afterModel =
-          request.modelAfter({
+          (await request.modelAfter({
             text: last.text,
             calls: last.toolCalls.map((call) => ({ id: call.toolCallId, tool: call.toolName })),
-          }) ?? afterModel;
+          })) ?? afterModel;
       }
       const stepModel = afterModel && { model: afterModel };
       if (stepNumber > 0) {

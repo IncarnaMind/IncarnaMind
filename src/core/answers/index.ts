@@ -2843,14 +2843,13 @@ export function createAnswers(options: AnswersOptions) {
       // Nothing is sent before the User says: the Answer waits for them.
       if (consenting) showPhase();
       let prepared: PreparedChatModel;
-      /** The same model asked to think harder, for the steps after the Answer calls for working. */
-      let harder: PreparedChatModel | null = null;
+      /** The same model asked to think harder, prepared once the Answer first calls for working. */
+      let harder: Promise<PreparedChatModel | null> | null = null;
       // Help during a call is read within seconds: the model answers without thinking first.
       const thinking = help ? "off" : (input.thinking ?? (input.task ? "task" : "answer"));
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
       try {
         prepared = await options.prepareModel(model, thinking);
-        if (thinking === "answer") harder = await options.prepareModel(model, "careful");
         if (!finished) replyEnded = options.repliesOut?.begin(prepared.provider.id) ?? replyEnded;
         if (helpModel) {
           try {
@@ -4029,11 +4028,19 @@ export function createAnswers(options: AnswersOptions) {
         ...(input.mindsLine && { mindsLine: input.mindsLine }),
         ...(input.onScreenLine && { onScreenLine: input.onScreenLine }),
         model: prepared.model,
-        ...(harder && {
+        ...(thinking === "answer" && {
           modelAfter: (step: RunStep) => {
             if (!step.calls.some((call) => WORKING_TOOLS.has(call.tool))) return undefined;
-            careful = true;
-            return harder?.model;
+            harder ??= options.prepareModel(model, "careful").catch((error: unknown) => {
+              console.warn(
+                `The Answer's later steps couldn't be asked to think harder, so they go on as they began: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              return null;
+            });
+            return harder.then((each) => {
+              if (each) careful = true;
+              return each?.model;
+            });
           },
         }),
         ...(prepareQuick && {
