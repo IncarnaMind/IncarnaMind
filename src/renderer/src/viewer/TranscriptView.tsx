@@ -729,13 +729,13 @@ function TranscriptContent({
             lines={lines}
             playClip={
               playable
-                ? (startMs, endMs) =>
+                ? (startMs, endMs, source) =>
                     void useTranscriptPlayer
                       .getState()
                       .play(meetingId, startMs, durationMs, owner, {
                         startMs,
                         endMs,
-                        source: "system",
+                        source,
                       })
                 : null
             }

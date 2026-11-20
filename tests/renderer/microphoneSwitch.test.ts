@@ -16,8 +16,8 @@ function gate() {
 }
 
 /**
- * A microphone that opens only once its gate is released, as the capture page's does while its
- * AudioContext loads or the User is asked. It records what was done to it. `careless` opens
+ * A microphone that opens only once its gate is released, as the capture page's does while the
+ * User is asked. It records what was done to it. `careless` opens
  * whatever happens meanwhile; otherwise it leaves itself closed when it is no longer wanted by
  * the time it is granted, as the page's does.
  */

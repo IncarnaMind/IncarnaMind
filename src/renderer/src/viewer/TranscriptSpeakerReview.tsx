@@ -1,5 +1,6 @@
 import { type RefObject, useId, useLayoutEffect, useMemo, useRef } from "react";
 import type {
+  AudioSource,
   Document,
   MeetingSpeakerReviewResult,
   MeetingSpeakerSuggestion,
@@ -29,7 +30,7 @@ import {
 } from "../meetingSpeakerReview";
 import { durationLabel } from "../meetingTime";
 import { useAppStore } from "../store";
-import { suggestionLine, suggestionLines } from "./speakerSuggestion";
+import { reviewSpeakersMatch, suggestionLine, suggestionLines } from "./speakerSuggestion";
 
 export function TranscriptSpeakerReview({
   meetingId,
@@ -45,7 +46,7 @@ export function TranscriptSpeakerReview({
   document: Document;
   cues: readonly Cue[];
   lines: readonly TranscriptLine[];
-  playClip: ((startMs: number, endMs: number) => void) | null;
+  playClip: ((startMs: number, endMs: number, source: AudioSource) => void) | null;
   trigger: RefObject<HTMLButtonElement | null>;
 }) {
   const t = useT();
@@ -55,6 +56,11 @@ export function TranscriptSpeakerReview({
   const panel = useRef<HTMLElement>(null);
   const expanded = review?.owner === owner;
   const phase = expanded ? review.phase : null;
+  const reviewedSpeakers = phase?.kind === "result" ? phase.result.reviewedSpeakers : undefined;
+  const speakersMatch = useMemo(
+    () => reviewSpeakersMatch(reviewedSpeakers, document.speakers),
+    [reviewedSpeakers, document.speakers],
+  );
   const showingSuggestions = phase?.kind === "result" && phase.result.suggestions.length > 0;
   const reviewLines = useMemo(
     () => (showingSuggestions ? suggestionLines(cues, document.speakers) : new Map()),
@@ -84,7 +90,7 @@ export function TranscriptSpeakerReview({
     const store = useAppStore.getState();
     const current = store.documents.find((each) => each.id === result.documentId);
     const line =
-      current?.id === document.id
+      current?.id === document.id && reviewSpeakersMatch(result.reviewedSpeakers, current.speakers)
         ? suggestionLine(
             current,
             suggestionLines(cues, current.speakers),
@@ -125,9 +131,10 @@ export function TranscriptSpeakerReview({
 
   const quote = phase?.kind === "quote" ? phase.quote : null;
   const failure = phase?.kind === "failed" ? describeError(phase.error) : null;
-  const estimate = quote?.available
-    ? estimateText({ amount: quote.estimatedUsd, currency: "USD" }, null, t, language)
-    : null;
+  const estimate =
+    quote?.available && quote.roomDownloadBytes === undefined
+      ? estimateText({ amount: quote.estimatedUsd, currency: "USD" }, null, t, language)
+      : null;
   const running = review?.phase.kind === "running" || review?.phase.kind === "cancelling";
   return (
     <div className="max-h-[75%] shrink-0 overflow-auto border-b border-rule bg-sheet px-4 py-1.5 text-[13px] leading-5">
@@ -169,17 +176,41 @@ export function TranscriptSpeakerReview({
           {quote?.available && (
             <div className="space-y-1">
               <p className="text-ink-secondary">
-                {t(quote.cached ? "meetings.review.cached" : "meetings.review.disclosure")}
+                {quote.roomDownloadBytes === undefined
+                  ? t(quote.cached ? "meetings.review.cached" : "meetings.review.disclosure")
+                  : t("meetings.review.roomDisclosure")}
               </p>
               {!quote.cached && (
                 <p className="text-ink-meta">
-                  {t("meetings.review.duration", { duration: durationLabel(quote.durationMs, t) })}
+                  {t(
+                    quote.roomDownloadBytes === undefined
+                      ? "meetings.review.duration"
+                      : "meetings.review.roomDuration",
+                    { duration: durationLabel(quote.durationMs, t) },
+                  )}
                   {estimate && <> · {estimate}</>}
+                  {!!quote.roomDownloadBytes && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      {t("meetings.review.roomDownload", {
+                        mb: Math.ceil(quote.roomDownloadBytes / 1_000_000),
+                      })}
+                    </>
+                  )}
                 </p>
               )}
               <LineAction
                 action={{
-                  label: t(quote.cached ? "meetings.review.viewCached" : "meetings.review.confirm"),
+                  label: t(
+                    quote.roomDownloadBytes !== undefined
+                      ? quote.roomDownloadBytes > 0
+                        ? "meetings.review.roomInstall"
+                        : "meetings.review.roomCheck"
+                      : quote.cached
+                        ? "meetings.review.viewCached"
+                        : "meetings.review.confirm",
+                  ),
                   onClick: () => {
                     panel.current?.focus();
                     void runSpeakerReview(meetingId);
@@ -234,7 +265,11 @@ export function TranscriptSpeakerReview({
           {phase.kind === "result" &&
             (phase.result.suggestions.length === 0 ? (
               <p role="status" className="text-ink-meta">
-                {t("meetings.review.empty")}
+                {t(
+                  phase.result.uncertainSpeakers
+                    ? "meetings.review.uncertain"
+                    : "meetings.review.empty",
+                )}
               </p>
             ) : (
               <>
@@ -246,6 +281,7 @@ export function TranscriptSpeakerReview({
                     const decision = phase.decisions[index];
                     const current =
                       phase.result.documentId === document.id &&
+                      speakersMatch &&
                       suggestionLine(document, reviewLines, phase.result.contentHash, suggestion);
                     const accepted =
                       decision === "accepted" &&
@@ -278,8 +314,18 @@ export function TranscriptSpeakerReview({
                             <LineAction
                               action={{
                                 label: t("meetings.review.listen"),
-                                ariaLabel: t("meetings.review.listenAt", { time }),
-                                onClick: () => playClip(suggestion.startMs, suggestion.endMs),
+                                ariaLabel: t(
+                                  phase.result.source === "microphone"
+                                    ? "meetings.review.roomListenAt"
+                                    : "meetings.review.listenAt",
+                                  { time },
+                                ),
+                                onClick: () =>
+                                  playClip(
+                                    suggestion.startMs,
+                                    suggestion.endMs,
+                                    phase.result.source ?? "system",
+                                  ),
                               }}
                             />
                           )}
