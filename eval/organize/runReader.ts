@@ -82,10 +82,56 @@ export function readerLedger(file: string) {
     CREATE TABLE IF NOT EXISTS calls (key TEXT PRIMARY KEY, amount INTEGER NOT NULL, reply TEXT) STRICT;`);
   const total = () =>
     Number(db.prepare("SELECT COALESCE(sum(amount), 0) AS used FROM calls").get()?.used);
+  const pending = new Map<string, Promise<unknown>>();
+  const send = async (
+    model: ChatLanguageModel,
+    request: ReaderRequest<unknown>,
+    content: string,
+    identity: string,
+  ) => {
+    const reserve = (Buffer.byteLength(content) + 2048) * INPUT + READER_OUTPUT_TOKENS * OUTPUT;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const saved = db.prepare("SELECT reply FROM calls WHERE key = ?").get(identity);
+      if (saved) {
+        if (typeof saved.reply !== "string")
+          throw Error("This request is unsettled. Reconcile its charge before resuming.");
+        const parsed: unknown = JSON.parse(saved.reply);
+        db.exec("COMMIT");
+        return parsed;
+      }
+      if (total() + reserve > CAP) throw Error("The $11 reader budget cannot cover this request.");
+      db.prepare("INSERT INTO calls VALUES (?, ?, NULL)").run(identity, reserve);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    const answer = await ask(model, request, {
+      providerOptions: {
+        anthropic: {
+          effort: READER.effort,
+          thinking: { type: "adaptive" },
+          structuredOutputMode: "outputFormat",
+          serviceTier: "standard_only",
+        },
+      },
+      signal: AbortSignal.timeout(120_000),
+    });
+    const cost = answer.inputTokens * INPUT + answer.outputTokens * OUTPUT;
+    if (!(answer.inputTokens > 0 && answer.outputTokens > 0 && cost <= reserve))
+      throw Error("Unexpected token usage. Reconcile this request before resuming.");
+    db.prepare("UPDATE calls SET amount = ?, reply = ? WHERE key = ?").run(
+      cost,
+      JSON.stringify(answer.value),
+      identity,
+    );
+    return answer.value;
+  };
   return {
     total,
     close: () => db.close(),
-    async read(model: ChatLanguageModel, request: ReaderRequest<unknown>, key: string) {
+    read(model: ChatLanguageModel, request: ReaderRequest<unknown>) {
       const content = JSON.stringify([
         READER,
         request.name,
@@ -93,46 +139,14 @@ export function readerLedger(file: string) {
         request.prompt,
         request.schema,
       ]);
-      const identity = createHash("sha256").update(key).update(content).digest("hex");
-      const reserve = (Buffer.byteLength(content) + 2048) * INPUT + READER_OUTPUT_TOKENS * OUTPUT;
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const saved = db.prepare("SELECT reply FROM calls WHERE key = ?").get(identity);
-        if (saved) {
-          if (typeof saved.reply !== "string")
-            throw Error("This request is unsettled. Reconcile its charge before resuming.");
-          const parsed: unknown = JSON.parse(saved.reply);
-          db.exec("COMMIT");
-          return parsed;
-        }
-        if (total() + reserve > CAP)
-          throw Error("The $11 reader budget cannot cover this request.");
-        db.prepare("INSERT INTO calls VALUES (?, ?, NULL)").run(identity, reserve);
-        db.exec("COMMIT");
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-      const answer = await ask(model, request, {
-        providerOptions: {
-          anthropic: {
-            effort: READER.effort,
-            thinking: { type: "adaptive" },
-            structuredOutputMode: "outputFormat",
-            serviceTier: "standard_only",
-          },
-        },
-        signal: AbortSignal.timeout(120_000),
-      });
-      const cost = answer.inputTokens * INPUT + answer.outputTokens * OUTPUT;
-      if (!(answer.inputTokens > 0 && answer.outputTokens > 0 && cost <= reserve))
-        throw Error("Unexpected token usage. Reconcile this request before resuming.");
-      db.prepare("UPDATE calls SET amount = ?, reply = ? WHERE key = ?").run(
-        cost,
-        JSON.stringify(answer.value),
-        identity,
+      const identity = createHash("sha256").update(content).digest("hex");
+      const started = pending.get(identity);
+      if (started) return started;
+      const result = send(model, request, content, identity).finally(() =>
+        pending.delete(identity),
       );
-      return answer.value;
+      pending.set(identity, result);
+      return result;
     },
   };
 }
@@ -176,9 +190,9 @@ async function main(args: string[]) {
         const job = jobs[cursor++];
         if (!job) return;
         const reads = [];
-        for (const [index, request] of job.requests.entries()) {
+        for (const request of job.requests) {
           if (stopped) return;
-          reads.push(await ledger.read(model, request, JSON.stringify([mode, job.id, index])));
+          reads.push(await ledger.read(model, request));
         }
         entries.set(job.id, mode === "folders" ? { reads } : reads[0]);
       }

@@ -27,8 +27,11 @@ test("a blind half yields three ordered requests per Folder and discloses only t
 
 test("restart reuses a paid reply, preserves an uncertain charge and refuses the next unaffordable read", async () => {
   const path = join(await createTempDataFolder(), "reader.sqlite");
-  const request = readerJobs("folders", { items }, "1")[0]?.requests[0];
-  if (!request) throw Error("Missing test Folder");
+  const requests = readerJobs("folders", { items }, "1")[0]?.requests;
+  const request = requests?.[0];
+  const secondOrder = requests?.[1];
+  const thirdOrder = requests?.[2];
+  if (!request || !secondOrder || !thirdOrder) throw Error("Missing test Folder");
   const reply = { areas: byArea(() => "no"), arrangedBy: "" };
   let fail = false;
   let calls = 0;
@@ -53,18 +56,21 @@ test("restart reuses a paid reply, preserves an uncertain charge and refuses the
   });
   const first = readerLedger(path);
   try {
-    expect(await first.read(model, request, "one")).toEqual(reply);
+    expect(await Promise.all([first.read(model, request), first.read(model, request)])).toEqual([
+      reply,
+      reply,
+    ]);
     expect(first.total()).toBe(4000);
   } finally {
     first.close();
   }
   const second = readerLedger(path);
   try {
-    expect(await second.read(model, request, "one")).toEqual(reply);
+    expect(await second.read(model, request)).toEqual(reply);
     fail = true;
-    await expect(second.read(model, request, "two")).rejects.toThrow("Interrupted response");
+    await expect(second.read(model, secondOrder)).rejects.toThrow("Interrupted response");
     expect(second.total()).toBeGreaterThan(4000);
-    await expect(second.read(model, request, "two")).rejects.toThrow("unsettled");
+    await expect(second.read(model, secondOrder)).rejects.toThrow("unsettled");
     const db = new DatabaseSync(path);
     try {
       db.prepare("INSERT INTO calls VALUES ('other-stage', ?, NULL)").run(
@@ -73,7 +79,7 @@ test("restart reuses a paid reply, preserves an uncertain charge and refuses the
     } finally {
       db.close();
     }
-    await expect(second.read(model, request, "three")).rejects.toThrow("budget");
+    await expect(second.read(model, thirdOrder)).rejects.toThrow("budget");
     expect(calls).toBe(2);
   } finally {
     second.close();
