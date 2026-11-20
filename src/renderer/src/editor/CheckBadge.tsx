@@ -27,6 +27,7 @@ import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
 import type { EstimateLine } from "../cost";
 import { useEdits } from "../editWithAi";
+import { fixableClaims, fixSentences } from "../fixSentence";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import {
@@ -268,6 +269,10 @@ export function CheckActions({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
   });
+  const fixable = useEditorState({
+    editor,
+    selector: ({ editor: current }) => fixableClaims(current).length,
+  });
   // Every sentence that needs a look, in one request to the User's own AI (#3419).
   const [agent] = useAgentsToAsk(mindId);
   const noModel = useNoModel();
@@ -277,6 +282,8 @@ export function CheckActions({
       agent && current.isEditable ? askedSentences(current).length : 0,
   });
   const askAll = agent && toAsk >= 2 ? agent : null;
+  // A model fixes the sentences; with none, Change to corrects them, or the User's own AI does (#3383).
+  const fixes = noModel ? correctable : fixable;
   const askLeads = askAll !== null && noModel && correctable === 0;
   if (askingMind) return <MindCheckAsk mindId={mindId} />;
   if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
@@ -291,7 +298,7 @@ export function CheckActions({
         </div>
       )}
       <div className="check-card-actions">
-        {correctable > 0 && (
+        {noModel && fixes > 0 && (
           <button
             type="button"
             data-testid="badge-correct-contradictions"
@@ -308,6 +315,20 @@ export function CheckActions({
             {t("claim.correction.badge", {
               count: new Intl.NumberFormat(language).format(correctable),
             })}
+          </button>
+        )}
+        {!noModel && fixes > 0 && (
+          <button
+            type="button"
+            data-testid="badge-fix-sentences"
+            disabled={running || editing}
+            className={buttonStyle("primary", "sm")}
+            onClick={() => {
+              setCheckCardOpen(place, false);
+              void fixSentences(editor, mindId, doc);
+            }}
+          >
+            {t("claim.fix.badge", { count: new Intl.NumberFormat(language).format(fixable) })}
           </button>
         )}
         {askAll && (
@@ -338,7 +359,7 @@ export function CheckActions({
             aria-hidden={running || undefined}
             disabled={running}
             title={planned === null ? undefined : checkTitle(t, planned)}
-            className={buttonStyle(correctable > 0 || askLeads ? "secondary" : "primary", "sm")}
+            className={buttonStyle(fixes > 0 || askLeads ? "secondary" : "primary", "sm")}
             onClick={() =>
               void (checkPressOf(estimateState) === "ask"
                 ? startCheckUnpriced(mindId)

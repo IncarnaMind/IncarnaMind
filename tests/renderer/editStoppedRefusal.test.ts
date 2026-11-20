@@ -1,7 +1,8 @@
 /**
  * An Edit with AI refused after the User pressed Stop still says why (#2424): the core takes
  * back every part it merged, so a silent composer would leave a paragraph the User watched
- * being rewritten gone with nothing said. A plain Stop stays silent, as before.
+ * being rewritten gone with nothing said. A plain Stop stays silent, as before. A failed one's
+ * Try again runs the whole flow of the caller that asked it (#3383).
  */
 import { Editor } from "@tiptap/core";
 import { DOMParser } from "linkedom";
@@ -100,5 +101,32 @@ describe("An Edit with AI the User stopped", () => {
 
   test("says nothing when the Stop simply stopped it", async () => {
     expect(await stopped({ kind: "cancelled" })).toBeUndefined();
+  });
+});
+
+describe("A failed Edit with AI's Try again", () => {
+  /** Asks an edit that fails, then presses its Try again. */
+  async function triedAgain(again?: () => Promise<unknown>) {
+    useEdits.setState({ pending: {}, problems: {} });
+    editWithAi.mockReset();
+    editWithAi.mockRejectedValue(new Error("The connection dropped."));
+    const mindId = "mind-1";
+    const doc = new Y.Doc();
+    await requestEdit(editing(), mindId, doc, "improve", undefined, RANGE, undefined, again);
+    const problem = useEdits.getState().problems[mindId];
+    if (problem?.kind !== "failed") throw new Error("The edit didn't fail.");
+    problem.retry();
+  }
+
+  test("runs the flow of the caller that asked, which goes on after the change (#3383)", async () => {
+    const again = vi.fn(() => Promise.resolve());
+    await triedAgain(again);
+    await vi.waitFor(() => expect(again).toHaveBeenCalledTimes(1));
+    expect(editWithAi).toHaveBeenCalledTimes(1);
+  });
+
+  test("asks the same edit again for a caller with nothing after it", async () => {
+    await triedAgain();
+    await vi.waitFor(() => expect(editWithAi).toHaveBeenCalledTimes(2));
   });
 });

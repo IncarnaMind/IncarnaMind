@@ -7362,7 +7362,8 @@ export interface TextPlace {
  * shorten it, translate it, explain it in a new paragraph under it, what the
  * User asked for in their own words, or take out the part of a cited sentence
  * its Citations don't support (#1111), or make the sentence agree with the words its Citations
- * now quote in a new version of their Document (#99).
+ * now quote in a new version of their Document (#99), or rewrite a sentence its check found the
+ * Documents say otherwise to what the quote it found says (#3383).
  */
 export const editActions = [
   "improve",
@@ -7372,6 +7373,7 @@ export const editActions = [
   "instruction",
   "cut-unsupported",
   "follow-citation",
+  "fix-sentence",
 ] as const;
 export type EditAction = (typeof editActions)[number];
 
@@ -7393,7 +7395,8 @@ export interface EditWithAiInput {
    * For "translate", the language to translate into, as the User would name
    * it ("English", "简体中文"); for "instruction", what the User asked for;
    * for "cut-unsupported", the part the check found unsupported
-   * (`UnsupportedReason.uncovered`).
+   * (`UnsupportedReason.uncovered`); for "fix-sentence", the quote the check found and what it
+   * said of the sentence.
    */
   instruction?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
@@ -12775,6 +12778,8 @@ export interface AskedSentence {
   verdict: AskVerdict;
   /** The check's result (`ClaimCheckAttributes.id`): the card says the request waits while it stands. */
   checkId?: string;
+  /** The quote the check found that the Documents say otherwise in, which a fix rests on (#3383). */
+  quote?: string;
 }
 
 /** The most sentences one request to the User's own AI names (#3419). */

@@ -59,6 +59,10 @@ vi.mock("../../src/renderer/src/correctionFixes", () => ({
   correctContradictions: vi.fn(),
 }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({ useEdits: () => undefined }));
+vi.mock("../../src/renderer/src/fixSentence", () => ({
+  fixableClaims: () => [],
+  fixSentences: vi.fn(),
+}));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useLanguage: () => "en",
   useT: () => (key: string) => key,

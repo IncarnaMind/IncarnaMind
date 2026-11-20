@@ -65,6 +65,7 @@ import { reasonText, sentenceReasonText } from "../cost";
 import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
 import { useFindSources } from "../findSources";
+import { fixSentence, offersFixSentence } from "../fixSentence";
 import { translateNow, useLanguage, useT } from "../i18n";
 import { groupsMerged } from "../layoutSlice";
 import { useModelNames } from "../modelNames";
@@ -292,11 +293,13 @@ export function ClaimMark({
   const added = useAddedDocuments((store) => store.byMind[mindId]?.[claim.check.id]?.length ?? 0);
   const heading = t(checkStateKey(editor, claim));
   const editing = useEdits((store) => store.pending[mindId] !== undefined);
-  // A check or an Edit with AI under way would write over the words a correction changes.
-  const corrections = running || editing ? [] : correctionsFor(editor, claim);
+  const noModel = useNoModel();
+  const fixable = !noModel && offersFixSentence(editor, claim);
+  // A check or an Edit with AI under way would write over the words a correction changes. With a
+  // model, the model writes them, as Fix the sentence: pasted in by code they broke 33 of 48 (#3383).
+  const corrections = running || editing || fixable ? [] : correctionsFor(editor, claim);
   const label = ownNoteOnly ? t("claim.ownNote") : t("claim.mark.label", { state: heading });
   const agents = useAgentsToAsk(mindId);
-  const noModel = useNoModel();
   const requests = useAgentRequests(mindId);
   const asked = askedAbout(
     requests,
@@ -625,7 +628,14 @@ export function ClaimMark({
                 if (opinion) checkOpinion(editor, mindId, doc, opinion, place);
               }}
               onOpen={done}
+              fixable={fixable}
               onFix={() => {
+                if (fixable) {
+                  void fixSentence(editor, mindId, doc, claim);
+                  done(true);
+                  return;
+                }
+                // No model to rewrite it: the sentence is selected for the User's own words.
                 editor
                   .chain()
                   .focus()
@@ -849,6 +859,7 @@ export function ClaimCard({
   onCheckPart,
   onUseWording,
   onOpen,
+  fixable,
   onFix,
   onFindSources,
   onSearchWeb,
@@ -892,6 +903,8 @@ export function ClaimCard({
   onCheckPart(span: ClaimPartSpan): void;
   onUseWording(part: ClaimCheckPart): void;
   onOpen(): void;
+  /** Whether Fix the sentence can have the model rewrite it to what its check's quote says (#3383). */
+  fixable: boolean;
   onFix(): void;
   onFindSources(): void;
   onSearchWeb(): void;
@@ -1331,10 +1344,12 @@ export function ClaimCard({
           onOpen();
         },
       },
-      differs && {
+      (fixable || differs) && {
         key: "fix",
         testId: "claim-fix",
         label: t("claim.fixSentence"),
+        primary: fixable,
+        disabled: fixable && noteRunning,
         onClick: onFix,
       },
       searchesAll && {
