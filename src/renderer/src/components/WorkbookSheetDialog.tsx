@@ -26,7 +26,7 @@ const hasContent = (sheet: WorkbookSheetChoice) => sheet.typed + sheet.formulas 
 
 /**
  * "Check someone else's file…" on a workbook (#3278): which sheet to check, and, if the User
- * wants, a range of it. Each sheet says what it holds, so a sheet of assumptions and one of
+ * wants, a range of it, or every sheet at once (#3412). Each sheet says what it holds, so a sheet of assumptions and one of
  * formulas read differently; the first with anything in it is chosen. A sheet or range the core
  * can't take says why here, and the User chooses again.
  */
@@ -37,13 +37,16 @@ export function WorkbookSheetDialog() {
   const dialog = useModal(choosing !== null);
   const id = useId();
   const [sheet, setSheet] = useState("");
+  const [all, setAll] = useState(false);
   const [range, setRange] = useState("");
   const path = choosing?.path ?? null;
   const sheets = choosing?.sheets;
+  const withContent = (sheets ?? []).filter(hasContent);
 
   useEffect(() => {
     if (path === null) return;
     setRange("");
+    setAll(false);
     setSheet((sheets?.find(hasContent) ?? sheets?.[0])?.name ?? "");
   }, [path, sheets]);
 
@@ -70,7 +73,14 @@ export function WorkbookSheetDialog() {
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
-    if (sheet !== "") void checkWorkbook(sheet, range);
+    if (all) void checkWorkbook("", "", true);
+    else if (sheet !== "") void checkWorkbook(sheet, range);
+  };
+  const whole: WorkbookSheetChoice = {
+    name: "",
+    rows: 0,
+    typed: withContent.reduce((total, each) => total + each.typed, 0),
+    formulas: withContent.reduce((total, each) => total + each.formulas, 0),
   };
   const reading = choosing?.reading === true;
 
@@ -97,6 +107,23 @@ export function WorkbookSheetDialog() {
         <fieldset disabled={reading}>
           <legend className={`mb-1.5 ${fieldLabelClass}`}>{t("verify.workbook.sheet")}</legend>
           <div className={choiceListClass}>
+            {withContent.length > 1 && (
+              <label className={choiceRowClass}>
+                <input
+                  type="radio"
+                  name={`${id}-sheet`}
+                  value=""
+                  data-testid="workbook-all-sheets"
+                  checked={all}
+                  onChange={() => setAll(true)}
+                  className={choiceRadioClass}
+                />
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className={choiceTitleClass}>{t("verify.workbook.allSheets")}</span>
+                  <span className={choiceTextClass}>{detail(whole)}</span>
+                </span>
+              </label>
+            )}
             {(sheets ?? []).map((each) => (
               <label key={each.name} className={choiceRowClass}>
                 <input
@@ -105,9 +132,12 @@ export function WorkbookSheetDialog() {
                   value={each.name}
                   data-testid="workbook-sheet"
                   data-sheet={each.name}
-                  checked={sheet === each.name}
+                  checked={!all && sheet === each.name}
                   disabled={!hasContent(each)}
-                  onChange={() => setSheet(each.name)}
+                  onChange={() => {
+                    setAll(false);
+                    setSheet(each.name);
+                  }}
                   className={choiceRadioClass}
                 />
                 <span className="flex min-w-0 flex-col gap-0.5">
@@ -126,7 +156,7 @@ export function WorkbookSheetDialog() {
             id={`${id}-range`}
             data-testid="workbook-range"
             value={range}
-            disabled={reading}
+            disabled={reading || all}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -146,7 +176,7 @@ export function WorkbookSheetDialog() {
           <button
             type="submit"
             data-testid="workbook-check"
-            disabled={sheet === "" || reading}
+            disabled={(!all && sheet === "") || reading}
             className={primaryButtonClass}
           >
             {t("verify.workbook.confirm")}

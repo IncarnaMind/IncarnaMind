@@ -36,13 +36,21 @@ export interface FormulaDifference {
 
 /** What a checked workbook's sheet held, beside the claims its typed-in numbers make (#3278). */
 export interface WorkbookCheck {
+  /** The sheet checked; "" for every sheet of the workbook (#3412). */
   sheet: string;
   /** The range checked, "B2:M40"; null for the whole sheet. */
   range: string | null;
-  /** The paragraphs of the cells that hold a formula: their numbers are worked out, not claims. */
+  /** The paragraphs of the cells that hold a formula: their numbers are worked out by the workbook. */
   formulaBlocks: readonly string[];
+  /**
+   * The paragraphs of the cells that hold a typed-in number (#3412): a row with none of them is
+   * the formulas' alone, never a claim. Absent in a Note checked before.
+   */
+  typedBlocks?: readonly string[];
   /** Formulas worked out again and compared. */
   checked: number;
+  /** Formulas worked out here whose result the file didn't save, so nothing to compare (#3412). */
+  unsaved?: number;
   /** Formulas the engine can't work out, left as they are. */
   unchecked: number;
   differs: readonly FormulaDifference[];
@@ -64,6 +72,8 @@ export interface Verification {
   sortedText?: string;
   /** A workbook's sheet, its formulas as worked out again; none for a PDF or a Word file. */
   workbook?: WorkbookCheck;
+  /** A deck's pictures, which the check doesn't read (#3412). */
+  pictures?: number;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -120,7 +130,9 @@ function readWorkbook(value: unknown): WorkbookCheck | undefined {
     sheet: value.sheet,
     range: typeof value.range === "string" ? value.range : null,
     formulaBlocks: strings(value.formulaBlocks),
+    ...(Array.isArray(value.typedBlocks) && { typedBlocks: strings(value.typedBlocks) }),
     checked: count(value.checked),
+    ...(value.unsaved !== undefined && { unsaved: count(value.unsaved) }),
     unchecked: count(value.unchecked),
     differs,
   };
@@ -141,6 +153,7 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     comments: value.comments === true,
     ...(typeof value.sortedText === "string" && { sortedText: value.sortedText }),
     ...(workbook && { workbook }),
+    ...(count(value.pictures) > 0 && { pictures: count(value.pictures) }),
   };
 }
 
@@ -168,9 +181,13 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
       workbook: {
         ...verification.workbook,
         formulaBlocks: [...verification.workbook.formulaBlocks],
+        ...(verification.workbook.typedBlocks && {
+          typedBlocks: [...verification.workbook.typedBlocks],
+        }),
         differs: verification.workbook.differs.map((each) => ({ ...each })),
       },
     }),
+    ...(verification.pictures !== undefined && { pictures: verification.pictures }),
   });
 }
 

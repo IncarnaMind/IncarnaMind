@@ -284,10 +284,11 @@ export async function readWorkbook(
       columnWidths: [],
       formulas: new Map(),
       saved: new Map(),
+      formats: new Map(),
       struckRows: new Set(),
       hiddenRows: new Set(),
     };
-    const formulas = new SheetFormulas(sheet);
+    const formulas = new SheetFormulas(sheet, formats);
     const look = looks ? emptyLayout() : undefined;
     if (look) sheet.layout = look;
     sheets.push(sheet);
@@ -664,7 +665,10 @@ class SheetFormulas {
     formula: string;
   }[] = [];
 
-  constructor(private readonly sheet: Sheet) {}
+  constructor(
+    private readonly sheet: Sheet,
+    private readonly formats: readonly (string | undefined)[],
+  ) {}
 
   read(c: XmlElement, cell: ReadCell | null, row: number, column: number): void {
     const ref = cellName(row, column);
@@ -695,7 +699,12 @@ class SheetFormulas {
         this.sheet.saved?.set(ref, cell.value);
       return;
     }
-    if (savedNoResult(c)) return;
+    if (savedNoResult(c)) {
+      // What the formula works out to shows as the file would show it (#3412).
+      const format = this.formats[Number(c.attrs.s ?? 0)];
+      if (format && !/^general$/i.test(format.trim())) this.sheet.formats?.set(ref, format);
+      return;
+    }
     const v = child(c, "v");
     if (!v) return;
     const raw = textOf(v);

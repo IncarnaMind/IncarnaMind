@@ -8571,10 +8571,18 @@ export interface VerifyDocumentInput {
   path: string;
   /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
-  /** A workbook's sheet to check, by its name (#3278); without it the sheets are listed (`choose-sheet`). */
+  /**
+   * A workbook's sheet to check, by its name (#3278); without it, or `allSheets`, the sheets are
+   * listed (`choose-sheet`).
+   */
   sheet?: string;
   /** A range of that sheet, "B2:M40"; the whole sheet when left out. */
   range?: string;
+  /**
+   * Every sheet of a workbook in one Note (#3412), in place of `sheet` and `range`. The most
+   * typed-in numbers one check reads counts every sheet's together (`too-many`).
+   */
+  allSheets?: boolean;
 }
 
 /** What a workbook's sheet holds, for choosing what to check (#3278). */

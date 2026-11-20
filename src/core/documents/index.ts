@@ -276,10 +276,16 @@ function parseJson<T>(json: string | null): T | null {
   }
 }
 
-/** A Unit's label as the viewer gets it: a workbook's formulas and saved values stay in the core, which alone reads them (#2347). */
+/** A Unit's label as the viewer gets it: a workbook's formulas, saved values and their formats stay in the core, which alone reads them (#2347). */
 function viewedLabel(label: UnitLabel | null | undefined): UnitLabel | null {
   if (!label) return null;
-  const { formulas: _formulas, saved: _saved, workbook: _workbook, ...viewed } = label;
+  const {
+    formulas: _formulas,
+    saved: _saved,
+    formats: _formats,
+    workbook: _workbook,
+    ...viewed
+  } = label;
   return viewed;
 }
 

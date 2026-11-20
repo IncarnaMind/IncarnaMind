@@ -122,24 +122,47 @@ export function tableNode({ headings, rows, numeric }: TableGrid): NodeJSON {
   };
 }
 
-/** The paragraph ids of the cells in a row whose numbers are a workbook's own working (#3278). */
-export type FormulaBlocks = ReadonlySet<string>;
+/** A workbook's cells in its Note's table, by their paragraphs' ids (#3278). */
+export interface WorkbookCells {
+  /** The cells whose numbers are the workbook's own working. */
+  formulas: ReadonlySet<string>;
+  /**
+   * The cells holding a typed-in number (#3412). Null in a Note checked before, whose rows were
+   * judged on their words with their formulas' results left out.
+   */
+  typed: ReadonlySet<string> | null;
+}
 
 const paragraphOf = (cell: unknown): Y.XmlElement | null => {
   const paragraph = cell instanceof Y.XmlElement ? cell.toArray()[0] : null;
   return paragraph instanceof Y.XmlElement ? paragraph : null;
 };
 
-const isFormula = (cell: unknown, formulas: FormulaBlocks | undefined): boolean => {
-  const id = formulas && paragraphOf(cell)?.getAttribute(BLOCK_ID_ATTRIBUTE);
-  return typeof id === "string" && formulas?.has(id) === true;
+const isIn = (cell: unknown, ids: ReadonlySet<string> | null | undefined): boolean => {
+  const id = ids && paragraphOf(cell)?.getAttribute(BLOCK_ID_ATTRIBUTE);
+  return typeof id === "string" && ids?.has(id) === true;
 };
 
-const cellsOf = (row: Y.XmlElement, formulas?: FormulaBlocks) =>
+/** A row's cells as its claim reads them: each as the Note shows it, but in a Note checked before #3412, a formula's result left out. */
+const cellsOf = (row: Y.XmlElement, workbook?: WorkbookCells) =>
   row.toArray().map((each) => {
-    const paragraph = isFormula(each, formulas) ? null : paragraphOf(each);
+    const left = workbook?.typed === null && isIn(each, workbook.formulas);
+    const paragraph = left ? null : paragraphOf(each);
     return paragraph ? wordsOf(paragraph).trim() : "";
   });
+
+/**
+ * A workbook row whose numbers are all formulas' results: the formulas are worked out again, and
+ * no Document is asked about the row, so no mark sits beside a figure the model never read (#3412).
+ */
+const onlyWorkedOut = (row: Y.XmlElement, workbook: WorkbookCells | undefined): boolean => {
+  if (!workbook?.typed) return false;
+  const cells = row.toArray();
+  return (
+    cells.some((each) => isIn(each, workbook.formulas)) &&
+    !cells.some((each) => isIn(each, workbook.typed))
+  );
+};
 
 const isSection = (texts: readonly string[]) =>
   /[:：]$/.test(texts[0] ?? "") && texts.slice(1).every((text) => text === "");
@@ -151,14 +174,15 @@ const isSection = (texts: readonly string[]) =>
  */
 export function tableClaim(
   sentence: SelectedSentence,
-  formulas?: FormulaBlocks,
+  workbook?: WorkbookCells,
 ): { claim: string; context: string } | "not-a-claim" | null {
   const cell = sentence.element.parent;
   const row = cell instanceof Y.XmlElement ? cell.parent : null;
   const table = row instanceof Y.XmlElement ? row.parent : null;
   if (!(cell instanceof Y.XmlElement && row instanceof Y.XmlElement)) return null;
   if (!(table instanceof Y.XmlElement && table.nodeName === "table")) return null;
-  const texts = cellsOf(row, formulas);
+  if (onlyWorkedOut(row, workbook)) return "not-a-claim";
+  const texts = cellsOf(row, workbook);
   const anchor = texts.findIndex((text) => text !== "");
   if (cell.nodeName === "tableHeader" || row.toArray().indexOf(cell) !== anchor) {
     return "not-a-claim";
@@ -181,7 +205,7 @@ export function tableClaim(
   const section = rows
     .slice(0, rows.indexOf(row))
     .reverse()
-    .map((each) => cellsOf(each, formulas))
+    .map((each) => cellsOf(each, workbook))
     .find(isSection)?.[0];
   const before = table.prevSibling;
   const caption =

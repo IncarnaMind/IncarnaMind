@@ -21,7 +21,9 @@ const sameSentence = (
 export function recordOpinions(blocks: Y.XmlFragment, sorted: readonly SortedSentence[]): void {
   const doc = blocks.doc;
   if (!doc) return;
-  const current = everySentence(blocks);
+  // In someone else's file a heading is read as a line, as its check reads it (#3412).
+  const verifying = readVerification(doc.getMap<unknown>(MIND_SETTINGS_FIELD)) !== null;
+  const current = everySentence(blocks, { headings: verifying });
   for (const sentence of sorted) {
     if (sentence.parts.some((part) => part.kind === "fact")) continue;
     const now = current.find((each) => sameSentence(each, sentence));
