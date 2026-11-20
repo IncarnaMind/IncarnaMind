@@ -723,76 +723,83 @@ export function createVerify(options: VerifyOptions) {
   ): Promise<VerifyDocumentResult> {
     if (WORD_FILE.test(path)) return verifyWordFile(path, folderId, addFile);
     if (WORKBOOK_FILE.test(path)) return verifyWorkbookFile(path, folderId, chosen, addFile);
-    {
-      const document = await addFile(path, folderId);
-      if (!document) return { ok: false, reason: "unreadable" };
-      if (!(await textRead(document.id))) {
-        const now = options.document(document.id);
-        if (now.status === "no-text") return { ok: false, reason: "no-text" };
-        const locked = now.failure?.reason === "password-protected";
-        return { ok: false, reason: locked ? "password-protected" : "unreadable" };
-      }
-      const text = options.readText(document.id);
-      const { name, kind } = options.document(document.id);
-      // A Markdown file keeps its own shape: its headings are headings, not "#" in a paragraph (#2771).
-      const markdown = kind === "markdown";
-      const slides = markdown ? null : await options.readSlides(document.id);
-      const found = markdown
-        ? []
-        : slides
-          ? slideBlocks(slides)
-          : documentBlocks(
-              text.pages,
-              await options.readTables(document.id),
-              options.readScanned(document.id).pages,
-            );
-      if (markdown) {
-        if (!text.pages.some((each) => each.text.trim() !== ""))
-          return { ok: false, reason: "no-text" };
-      } else if (found.length === 0) return { ok: false, reason: "no-text" };
+    return verifyPagesFile(path, folderId, addFile);
+  }
 
-      const mind = options.createMind(name, folderId);
-      content.edit(mind.id, (blocks) => {
-        const doc = blocks.doc;
-        if (!doc) return;
-        const nodes = markdown
-          ? markdownToBlocks(text.pages.map((each) => each.text).join("\n\n"))
-          : found.map(({ node }) => node);
-        const elements = nodes.map((node) => createElement(node));
-        blocks.insert(0, elements);
-        const pages: Record<string, number> = {};
-        const record = (element: Y.XmlElement, page: number | undefined) => {
-          if (page === undefined) return;
-          for (const each of [element, ...element.createTreeWalker(() => true)]) {
-            const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
-            if (typeof id === "string") pages[id] = page;
-          }
-        };
-        elements.forEach((element, index) => {
-          if (markdown) {
-            record(element, text.pages[0]?.page ?? 1);
-            return;
-          }
-          const shown = found[index]?.pages ?? [];
-          record(element, shown[0]);
-          // A table over two pages: each row's cells have the page the row is on.
-          element.toArray().forEach((row, at) => {
-            if (row instanceof Y.XmlElement) record(row, shown[at]);
-          });
-        });
-        setTextOrigin(doc, Object.keys(pages), "checked-document");
-        const pictures = slides?.reduce((total, slide) => total + slide.images.length, 0) ?? 0;
-        writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
-          documentId: document.id,
-          documentName: name,
-          pages,
-          claims: null,
-          comments: false,
-          ...(pictures > 0 && { pictures }),
+  /** A file read as pages or slides, each block of its Mind recording the page it is on. */
+  async function verifyPagesFile(
+    path: string,
+    folderId: string | null,
+    addFile: AddFile,
+  ): Promise<VerifyDocumentResult> {
+    const document = await addFile(path, folderId);
+    if (!document) return { ok: false, reason: "unreadable" };
+    if (!(await textRead(document.id))) {
+      const now = options.document(document.id);
+      if (now.status === "no-text") return { ok: false, reason: "no-text" };
+      const locked = now.failure?.reason === "password-protected";
+      return { ok: false, reason: locked ? "password-protected" : "unreadable" };
+    }
+    const text = options.readText(document.id);
+    const { name, kind } = options.document(document.id);
+    // A Markdown file keeps its own shape: its headings are headings, not "#" in a paragraph (#2771).
+    const markdown = kind === "markdown";
+    const slides = markdown ? null : await options.readSlides(document.id);
+    const found = markdown
+      ? []
+      : slides
+        ? slideBlocks(slides)
+        : documentBlocks(
+            text.pages,
+            await options.readTables(document.id),
+            options.readScanned(document.id).pages,
+          );
+    if (markdown) {
+      if (!text.pages.some((each) => each.text.trim() !== ""))
+        return { ok: false, reason: "no-text" };
+    } else if (found.length === 0) return { ok: false, reason: "no-text" };
+
+    const mind = options.createMind(name, folderId);
+    content.edit(mind.id, (blocks) => {
+      const doc = blocks.doc;
+      if (!doc) return;
+      const nodes = markdown
+        ? markdownToBlocks(text.pages.map((each) => each.text).join("\n\n"))
+        : found.map(({ node }) => node);
+      const elements = nodes.map((node) => createElement(node));
+      blocks.insert(0, elements);
+      const pages: Record<string, number> = {};
+      const record = (element: Y.XmlElement, page: number | undefined) => {
+        if (page === undefined) return;
+        for (const each of [element, ...element.createTreeWalker(() => true)]) {
+          const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
+          if (typeof id === "string") pages[id] = page;
+        }
+      };
+      elements.forEach((element, index) => {
+        if (markdown) {
+          record(element, text.pages[0]?.page ?? 1);
+          return;
+        }
+        const shown = found[index]?.pages ?? [];
+        record(element, shown[0]);
+        // A table over two pages: each row's cells have the page the row is on.
+        element.toArray().forEach((row, at) => {
+          if (row instanceof Y.XmlElement) record(row, shown[at]);
         });
       });
-      return { ok: true, mind, documentId: document.id };
-    }
+      setTextOrigin(doc, Object.keys(pages), "checked-document");
+      const pictures = slides?.reduce((total, slide) => total + slide.images.length, 0) ?? 0;
+      writeVerification(doc.getMap(MIND_SETTINGS_FIELD), {
+        documentId: document.id,
+        documentName: name,
+        pages,
+        claims: null,
+        comments: false,
+        ...(pictures > 0 && { pictures }),
+      });
+    });
+    return { ok: true, mind, documentId: document.id };
   }
 
   const chosenOf = (input: Record<string, unknown>) => ({
