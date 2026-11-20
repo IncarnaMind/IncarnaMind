@@ -66,6 +66,7 @@ const SURVEY = [
 const NORTH = "The north quay holds 42 boats.";
 const SOUTH = "The south quay holds 17 boats.";
 const OFFICE = "The harbour office is open every day of the year.";
+const NEVER_CLOSES = "The harbour office never closes, night or day.";
 
 const PLANS: Record<string, Plan> = {
   [NORTH]: {
@@ -83,6 +84,11 @@ const PLANS: Record<string, Plan> = {
     quote: "The harbour office is open every day of the year.",
     says: "Harbour survey says the office is open every day.",
   },
+  [NEVER_CLOSES]: {
+    verdict: "overstated",
+    quote: "The harbour office is open every day of the year.",
+    says: "Harbour survey says the office is open every day, not at night.",
+  },
   "Rent — 2026: 14000": {
     verdict: "supported",
     quote: "Rent for 2026 is 14000.",
@@ -99,7 +105,7 @@ const PLANS: Record<string, Plan> = {
 const DECK = plainDeck([
   { title: "Harbour review" },
   { lines: [NORTH, SOUTH] },
-  { lines: [OFFICE] },
+  { lines: [OFFICE, NEVER_CLOSES] },
 ]);
 
 /** "Claude Code" may write in Coast; the Coast has the harbour survey. */
@@ -154,13 +160,19 @@ describe("files an outside agent hands over", () => {
       status: "checked",
       why: null,
       supported: 2,
-      needLook: 1,
+      needLook: 2,
       claims: [
         {
           where: "slide 2",
           text: SOUTH,
           result: "contradicted",
           says: "Harbour survey says the south quay holds 19 boats, not 17.",
+        },
+        {
+          where: "slide 3",
+          text: NEVER_CLOSES,
+          result: "overstated",
+          says: "Harbour survey says the office is open every day, not at night.",
         },
       ],
       formulas: null,

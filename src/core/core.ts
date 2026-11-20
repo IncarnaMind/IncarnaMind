@@ -5848,7 +5848,7 @@ export function createCore(adapters: CoreAdapters): Core {
                   .join(" | ")
               : sentence,
           result,
-          says: check.says ?? null,
+          says: check.says ?? check.unsupported?.reason ?? null,
           checkId: check.id,
         });
       }
