@@ -3,6 +3,7 @@
  * model gave, with the Tool calls it made, kept beside the outcome so a control that fails can be
  * read; and why a sentence came back Not checked.
  */
+import type { HandedPassage } from "../../repeats/passagesHanded";
 import type { WatchedRequest } from "../../repeats/requests";
 
 export interface JudgeCall {
@@ -17,14 +18,22 @@ export interface JudgeRequest {
   kind: string;
   reply: string;
   calls: JudgeCall[];
+  /** The Passages the searches before this request handed the model, in order, new since the request before. */
+  handed: HandedPassage[];
 }
 
 export function judgeRecord(requests: readonly WatchedRequest[]): JudgeRequest[] {
-  return requests.map(({ kind, reply, calls }) => ({
-    kind,
-    reply,
-    calls: calls.map(({ tool, input, result }) => ({ tool, input, result })),
-  }));
+  let seen = 0;
+  return requests.map(({ kind, reply, calls, handed }) => {
+    const fresh = handed.slice(seen);
+    seen = Math.max(seen, handed.length);
+    return {
+      kind,
+      reply,
+      calls: calls.map(({ tool, input, result }) => ({ tool, input, result })),
+      handed: fresh,
+    };
+  });
 }
 
 export const NOT_CHECKED_CAUSES = ["quote-not-found", "malformed", "other"] as const;
