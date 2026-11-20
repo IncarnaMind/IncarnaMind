@@ -554,13 +554,17 @@ export function createAgents(options: AgentsOptions) {
   };
 
   /**
-   * Deletes for good the calls marked deleted `RECENTLY_DELETED_DAYS` ago, by Disconnect or the
-   * activity list's limit, once a later sync has had that long to see them (#3430).
+   * Deletes for good the calls and requests marked deleted `RECENTLY_DELETED_DAYS` ago, by
+   * Disconnect or a list's limit, once a later sync has had that long to see them (#3430).
    */
   const forgetGone = () => {
-    db.run("DELETE FROM agent_activity WHERE deleted_at IS NOT NULL AND deleted_at < ?", [
-      earliestRestorable(options.now()),
-    ]);
+    const before = earliestRestorable(options.now());
+    db.transaction(() => {
+      db.run("DELETE FROM agent_activity WHERE deleted_at IS NOT NULL AND deleted_at < ?", [
+        before,
+      ]);
+      requests.forgetGone(before);
+    });
   };
 
   const stopListening = async () => {

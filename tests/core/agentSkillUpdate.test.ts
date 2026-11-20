@@ -10,7 +10,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
-import { SKILL_MARKDOWN } from "../../src/core/agents/skill";
+import { EARLIER_SKILL_HASHES, SKILL_MARKDOWN } from "../../src/core/agents/skill";
 import { RECENTLY_DELETED_DAYS } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { agentsAdapter, buildAgentShim, connectLegacyAgent } from "../helpers/agents";
@@ -21,6 +21,8 @@ import {
   queryDatabase,
   startCore,
 } from "../helpers/core";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -236,6 +238,12 @@ describe("the Skill when a release changes its text", () => {
     await vi.waitFor(async () => expect(await readFile(claudeFile(at.home), "utf8")).toBe(next));
   });
 
+  it("lists each earlier text once, as a SHA-256", () => {
+    expect(EARLIER_SKILL_HASHES.every((hash) => /^[0-9a-f]{64}$/.test(hash))).toBe(true);
+    expect(new Set(EARLIER_SKILL_HASHES).size).toBe(EARLIER_SKILL_HASHES.length);
+    expect(EARLIER_SKILL_HASHES).not.toContain(sha256(SKILL_MARKDOWN));
+  });
+
   it("never writes outside the skills folders, whatever its record holds", async () => {
     const at = await place();
     const earlier = open(await release(OLDER), at);
@@ -301,6 +309,7 @@ describe("Disconnect and the Skill", () => {
 
 describe("a disconnected agent's rows", () => {
   const DAY = 24 * 60 * 60 * 1000;
+  const OVERSTATED = "Fuel cost doubled over the year.";
 
   beforeAll(async () => {
     await buildAgentShim();
@@ -313,53 +322,67 @@ describe("a disconnected agent's rows", () => {
     let core = startCore(dataDir, adapters);
     await core.setAgentsEnabled(true);
     const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
-    const called = async (name: string) => {
+    const mind = await core.createMind({ title: "Ferry report", folderId: coast.id });
+    writeMind(await connectToMind(core, mind.id), [note(OVERSTATED)]);
+    // What an agent read (its call) and what the User asked it (a request, whose text holds a sentence).
+    const used = async (name: string) => {
       const { launch, pairing } = await core.connectAgent({ name, folderIds: [coast.id] });
       const agent = await connectLegacyAgent(launch);
       await agent.callTool({ name: "search", arguments: { query: "spring tides" } });
       await agent.close();
+      await core.askAgent({
+        pairingId: pairing.id,
+        mindId: mind.id,
+        ask: {
+          kind: "fix",
+          sentences: [{ sentence: OVERSTATED, verdict: "overstated", checkId: "check-1" }],
+        },
+      });
       return pairing.id;
     };
-    const owners = () =>
-      queryDatabase<{ pairing_id: string }>(
-        dataDir,
-        "SELECT DISTINCT pairing_id FROM agent_activity",
-      )
+    const owners = (table: "agent_activity" | "agent_requests") =>
+      queryDatabase<{ pairing_id: string }>(dataDir, `SELECT DISTINCT pairing_id FROM ${table}`)
         .map((row) => row.pairing_id)
         .toSorted();
+    const bothOwnedBy = (...ids: string[]) => {
+      expect(owners("agent_activity")).toEqual(ids.toSorted());
+      expect(owners("agent_requests")).toEqual(ids.toSorted());
+    };
     const restart = () => {
       core.close();
       core = startCore(dataDir, adapters);
     };
 
-    const stays = await called("Stays");
-    const first = await called("First");
+    const stays = await used("Stays");
+    const first = await used("First");
     await core.disconnectAgent(first);
     clock.advance(20 * DAY);
-    const second = await called("Second");
+    const second = await used("Second");
     await core.disconnectAgent(second);
-    expect(owners()).toEqual([stays, first, second].toSorted());
+    bothOwnedBy(stays, first, second);
 
     // The first one's rows are 29 days old: still there, marked deleted, and not in its list.
     clock.advance(9 * DAY);
     restart();
-    expect(owners()).toEqual([stays, first, second].toSorted());
-    expect(
-      queryDatabase(
-        dataDir,
-        "SELECT 1 FROM agent_activity WHERE pairing_id = ? AND deleted_at IS NULL",
-        [first],
-      ),
-    ).toEqual([]);
+    bothOwnedBy(stays, first, second);
+    for (const table of ["agent_activity", "agent_requests"]) {
+      expect(
+        queryDatabase(
+          dataDir,
+          `SELECT 1 FROM ${table} WHERE pairing_id = ? AND deleted_at IS NULL`,
+          [first],
+        ),
+      ).toEqual([]);
+    }
 
     // 31 days old: gone. The second one's, 11 days old, stay.
     clock.advance(2 * DAY);
     restart();
-    expect(owners()).toEqual([stays, second].toSorted());
+    bothOwnedBy(stays, second);
 
     clock.advance(20 * DAY);
     restart();
-    expect(owners()).toEqual([stays]);
+    bothOwnedBy(stays);
     expect(await core.listAgentActivity(stays)).toHaveLength(1);
   });
 });
