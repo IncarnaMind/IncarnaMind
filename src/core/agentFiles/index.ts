@@ -53,12 +53,12 @@ const LIVE = `f.id, f.title, f.kind, f.path, f.folder_id, f.pairing_id, f.agent,
     AS version
   FROM agent_files f WHERE f.deleted_at IS NULL`;
 
-const KINDS = new Set<HandedFile["kind"]>(["pptx", "xlsx", "docx", "pdf"]);
+const KINDS: readonly HandedFile["kind"][] = ["pptx", "xlsx", "docx", "pdf"];
 
 const toFile = (row: FileRow): StoredHandedFile => ({
   id: row.id,
   title: row.title,
-  kind: KINDS.has(row.kind as HandedFile["kind"]) ? (row.kind as HandedFile["kind"]) : "pdf",
+  kind: KINDS.find((kind) => kind === row.kind) ?? "pdf",
   folderId: row.folder_id,
   agent: row.agent,
   documentId: row.document_id,

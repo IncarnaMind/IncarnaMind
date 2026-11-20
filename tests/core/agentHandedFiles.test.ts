@@ -208,6 +208,35 @@ describe("files an outside agent hands over", () => {
     expect(documents[0]?.contentHash).toBe(handed?.versions[1]?.contentHash);
   });
 
+  // protects=a file handed over while no AI model is set up says so, and is checked once the User sets one up and the agent hands the same file over again (#3412); fails_when=the agent is told nothing it can act on, or the same bytes never get their check
+  it("says a file wasn't checked while no model is set up, and checks it when the same file is handed over again after", async () => {
+    const { core, coast, writer, files } = await started();
+    for (const provider of await core.listChatProviders()) {
+      await core.deleteChatProvider(provider.id);
+    }
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, DECK);
+
+    const unchecked = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    expect(unchecked).toMatchObject({
+      version: 1,
+      status: "not-checked",
+      why: "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. The User can check it from its note.",
+      claims: [],
+    });
+
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const checked = structured<Handed>(await handOver(agent, { path }));
+    expect(checked).toMatchObject({
+      version: 1,
+      mindId: unchecked.mindId,
+      status: "checked",
+      why: null,
+      needLook: 2,
+    });
+  });
+
   // protects=a workbook an agent made is checked whole in one hand-over: each sheet's typed-in numbers traced and every formula worked out, though the file saved no results (#3412); fails_when=only a sheet is read, or formulas with no saved result are left unchecked
   it("checks a workbook it made whole: each sheet's rows, and every formula worked out", async () => {
     const { coast, writer, files } = await started();

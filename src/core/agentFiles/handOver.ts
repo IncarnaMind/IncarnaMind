@@ -273,6 +273,15 @@ export function createHandOver(deps: HandOverDeps) {
 
     /** How the check of the Note stands, waiting up to `waitMs` for a run still going to end. */
     async handedCheck(mindId: string, waitMs: number): Promise<HandedCheck> {
+      const before = runs.get(mindId);
+      const unmarked = () => {
+        const { supported, needLook } = deps.marks(mindId);
+        return supported + needLook.length === 0;
+      };
+      // A check that couldn't run, or that a quit stopped before it marked anything, runs when asked again.
+      if ((before === undefined || before.outcome?.kind === "not-asked") && unmarked()) {
+        startCheck(mindId);
+      }
       const run = runs.get(mindId);
       if (run && run.outcome === null) {
         await Promise.race([run.done, deps.sleep(waitMs)]);
