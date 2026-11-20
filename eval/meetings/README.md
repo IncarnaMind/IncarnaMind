@@ -87,10 +87,11 @@ For each case, and added up for each language and setting (errors over the refer
 
 - **WER** for English: edits (substitutions, deletions, insertions) over the words in the reference.
 - **CER** for Chinese: the same over characters. **MER** for the mixed cases: the same, each Han character and each run of Latin letters or digits one unit.
+- **Speaker-attributed words (cpWER, cpCER, cpMER).** Concatenate each speaker’s text in time order, normalise it, then match speakers one to one across the recording to minimise edits. Divide all edits by the reference units in those streams. A missing speaker costs deletions and an extra speaker costs insertions. This lets simultaneous speakers appear in either order. In a partly labelled transcript, unlabelled segments form one anonymous stream. A transcript with words and no labels has no attributed score. An empty transcript misses every reference unit. A language and setting gets a pooled rate only when every case in it has a score.
 - **Real-time factor:** processing time over the length of the recording, when the transcriber says its time.
 - **DER:** the time of speech missed, of non-speech given to a speaker, and of speech given to the wrong speaker, over the time the reference has speech (`der.ts`). Like NIST's md-eval: overlapped speech is scored, two speakers in the reference where two talk; **no time within a collar of 0.25 s of a reference turn's start or end is scored** (`--collar` changes it; the report always states it); speakers are matched one to one for the whole recording so that the most time agrees (the Hungarian method), so a transcriber's names for speakers mean nothing; time is in 10 ms frames. For an online call the microphone and the system audio are one timeline, so labelling every microphone line "Me" and every system line "Them" is a valid answer that scores the confusion among the others.
 
-Everything said is compared in time order, whatever the track or the speaker (a transcript is its segments sorted by start). Where people talk at once, the order two transcripts put them in can differ: it costs both of them alike.
+For the ordinary WER, CER and MER, everything said is compared in time order, whatever the track or the speaker (a transcript is its segments sorted by start). Where people talk at once, the order two transcripts put them in can differ: it costs both of them alike.
 
 ### Normalisation
 

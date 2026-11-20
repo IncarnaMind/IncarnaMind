@@ -5,6 +5,7 @@
  * corner, which opens the list.
  */
 import type { Editor } from "@tiptap/core";
+import { useEditorState } from "@tiptap/react";
 import {
   type KeyboardEvent,
   useCallback,
@@ -37,6 +38,7 @@ import { TypingTextarea } from "../components/TypingTextarea";
 import { requestEdit } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { COMMENTS_REDRAWN, commentRuns } from "./commentSchema";
+import { noteTabsOf, tabHiddenRanges } from "./noteTabs";
 import { Popover } from "./Popover";
 
 /**
@@ -115,10 +117,12 @@ export function useLiveComments(editor: Editor, doc: Y.Doc): MindComment[] {
   return comments;
 }
 
-/** The mark's ids on the text now, and where each starts and ends. */
+/** The mark's ids on the text the page shows now, the open tab's (#3414), and where each starts and ends. */
 function placesOf(editor: Editor): Map<string, CommentPlace> {
   const places = new Map<string, CommentPlace>();
+  const hidden = tabHiddenRanges(editor.state);
   for (const run of commentRuns(editor.state.doc)) {
+    if (hidden.some((range) => run.from >= range.from && run.from < range.to)) continue;
     const place = places.get(run.id);
     if (place) place.to = run.to;
     else places.set(run.id, { from: run.from, to: run.to });
@@ -140,6 +144,8 @@ export function CommentLayer({
   readOnly?: boolean;
 }) {
   const comments = useLiveComments(editor, doc);
+  // Drawn again as another tab opens: its comments are the ones beside the page.
+  useEditorState({ editor, selector: ({ editor: now }) => noteTabsOf(now.state).open });
   const draft = useCommentsUi((state) => (state.draft?.mindId === mindId ? state.draft : null));
   const layer = useRef<HTMLDivElement>(null);
   const [placed, setPlaced] = useState<{ id: string; top: number }[]>([]);

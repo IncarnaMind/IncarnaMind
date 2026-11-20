@@ -25,6 +25,7 @@ import {
   type Marks,
   tableLayout,
 } from "../mindText";
+import { tabHeading } from "../noteTabs";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
 import type { ExportLabels } from "./labels";
 import { latexToMathMl } from "./math";
@@ -352,6 +353,8 @@ class PrintWriter {
         return this.chart(block);
       case "toc":
         return tocHtml(this.headings, this.labels);
+      case "tab":
+        return this.block(tabHeading(block.title));
       case "bibliography": {
         const entries = block.items
           .map((item) => {

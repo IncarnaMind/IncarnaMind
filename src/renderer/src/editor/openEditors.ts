@@ -26,6 +26,12 @@ export function registerMindEditor(mindId: string, editor: Editor): () => void {
   };
 }
 
+/** The Mind an editor open in this window shows. */
+export function mindIdOf(editor: Editor): string | null {
+  for (const [mindId, editors] of open) if (editors.includes(editor)) return mindId;
+  return null;
+}
+
 export const mindEditor = (mindId: string): Editor | null =>
   open.get(mindId)?.find((each) => !each.isDestroyed) ?? null;
 

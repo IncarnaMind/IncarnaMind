@@ -14,6 +14,10 @@ _Avoid_: Mind, session, chat
 One unit of content in a Note, positioned where the User placed it.
 _Avoid_: message
 
+**Tab in a Note** (标签页):
+A named part of a Note, such as a report and its appendix: the Blocks from the tab Block that holds its title up to the next. The page shows one tab at a time, the panel beside it lists them; what reads the Note whole (its check, search, an agent, an export, where each tab is a section under its title) reads every tab. A Note without one is one tab. Not a Tab of the window.
+_Avoid_: page, section, sheet
+
 **Your text**:
 A Block the User writes, as opposed to one the assistant wrote.
 _Avoid_: Note, text block
@@ -223,7 +227,7 @@ A script that comes with a Skill, which an Answer can run on the User's computer
 _Avoid_: tool script, code execution
 
 **Outside agent**:
-An AI agent the User runs themselves, such as Claude Code or Codex, connected to IncarnaMind so it can search and read the Folders the User shares with it, with the Folders inside them up to a work wall (a walled Folder is shared only on its own) (or the Documents in no Folder at the time of each call) and cite them with Citations IncarnaMind checks. If the User allows it, it can also write new Notes there and propose changes to the Notes in those Folders, which wait for them as Proposals; in a Note it wrote itself, and not a copy of one, its changes apply at once, each a step the User can undo (#3371). Given the Documents in no Folder, it writes its Notes there too, and reaches the Notes in no Folder that it wrote itself, never another (the owner's decision of 2026-11-19, #3364). The User connects each one in Settings, with its own Folders (none until chosen; with no Document yet, the Documents in no Folder added next), its own consent and a list of every call it made; disconnecting it stops it at once, and Local mode pauses it. Where the agent reads Skills, connecting it also installs a Skill in the agent's own skills folder that tells it when to use IncarnaMind, and disconnecting removes it if the User hasn't changed it.
+An AI agent the User runs themselves, such as Claude Code or Codex, connected to IncarnaMind so it can search and read the Folders the User shares with it, with the Folders inside them up to a work wall (a walled Folder is shared only on its own) (or the Documents in no Folder at the time of each call) and cite them with Citations IncarnaMind checks. If the User allows it, it can also write new Notes there and propose changes to the Notes in those Folders, which wait for them as Proposals; in a Note it wrote itself, and not a copy of one, its changes apply at once, each a step the User can undo (#3371). Given the Documents in no Folder, it writes its Notes there too, and reaches the Notes in no Folder that it wrote itself, never another (the owner's decision of 2026-11-19, #3364). The User connects each one in Settings, with its own Folders (none until chosen; with no Document yet, the Documents in no Folder added next), its own consent and a list of every call it made; disconnecting it stops it at once, and Local mode pauses it. Where the agent reads Skills, connecting it also installs a Skill in the agent's own skills folder that tells it when to use IncarnaMind; IncarnaMind keeps it up to date and disconnecting removes it, as long as the User hasn't changed it.
 _Avoid_: harness, plugin, client, bot
 
 **Canvas** (页面):

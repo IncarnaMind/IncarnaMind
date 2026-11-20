@@ -35,6 +35,7 @@ import {
   type TableCell,
   tableLayout,
 } from "../mindText";
+import { tabHeading } from "../noteTabs";
 import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../pageDefaults";
 import { changeKey } from "./citations";
 import type { ExportLabels } from "./labels";
@@ -675,6 +676,8 @@ export class DocxWriter {
         return this.chart(block, context);
       case "toc":
         return this.contents();
+      case "tab":
+        return this.block(tabHeading(block.title), context);
       case "bibliography":
         return this.bibliography(block);
     }

@@ -107,6 +107,7 @@ describe("outside agents", () => {
       paused: null,
       pairings: [],
       skills: [],
+      skillsOutOfDate: [],
     });
     const { launch, pairing } = await core.connectAgent({ name: "Codex", client: "codex" });
     expect(pairing).toMatchObject({ name: "Codex", client: "codex", folderIds: [] });

@@ -106,6 +106,8 @@ import {
   FOOTNOTE_NODE,
   GENERATED_MARK,
   MISSING_NUMBER_NODE,
+  NOTE_TAB_NODE,
+  NOTE_TAB_TITLE_ATTRIBUTE,
   PAGE_BREAK_NODE,
   PARAGRAPH_FORMAT_ATTRIBUTE,
   type ParagraphFormat,
@@ -405,6 +407,8 @@ export type Block = (
   | { kind: "question"; content: Inline[] }
   /** A table of contents (#1935): built from the Note's headings by whatever draws it. */
   | { kind: "toc" }
+  /** Where a tab of the Note starts (#3414), with its title: "" for none. */
+  | { kind: "tab"; title: string }
   /** The Bibliography a citation style adds at the end of an export (./exports/citations). */
   | { kind: "bibliography"; heading: string; items: BibliographyItem[]; hangingIndent: boolean }
 ) &
@@ -905,6 +909,8 @@ function readBlockElement(element: Y.XmlElement, options: ReadOptions): Block[] 
       return [{ kind: "rule" }];
     case TABLE_OF_CONTENTS_NODE:
       return [{ kind: "toc" }];
+    case NOTE_TAB_NODE:
+      return [{ kind: "tab", title: stringAttribute(element, NOTE_TAB_TITLE_ATTRIBUTE).trim() }];
     case "table":
       return [{ kind: "table", rows: readTable(element, options) }];
     case COMPARISON_TABLE_NODE: {
