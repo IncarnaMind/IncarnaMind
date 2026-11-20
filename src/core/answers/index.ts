@@ -420,7 +420,6 @@ import {
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
 import { readKinds } from "./readKinds";
 import { nameScope, type ScopeSource, SEARCH_SCOPE_RULE, scopeLines } from "./scopeLine";
-import { withoutSearchTalk } from "./searchTalk";
 import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
 import type { TurnCheck } from "./turnChecks";
@@ -647,12 +646,7 @@ function lastAnswerOf(
   // does one of something in the app that wasn't done (#2407).
   const said = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
   const blocks = [
-    ...withAnswerChecks(
-      pageBlocks(answer, question?.text ?? ""),
-      answer,
-      question?.text ?? "",
-      question?.scope ?? null,
-    ),
+    ...withAnswerChecks(pageBlocks(answer), answer, question?.scope ?? null),
     ...unrunToolNotes(said, answer.steps),
     ...unbackedCommandNotes(said, answer.steps),
   ];
@@ -3271,11 +3265,9 @@ export function createAnswers(options: AnswersOptions) {
                 let notFound = 0;
                 let unrecorded = 0;
                 let firstUnrecorded = -1;
-                const written = withoutSearchTalk(
-                  session.citeWrittenIds(
-                    withoutFootnoteDefinitions(setAsideMarksInWords(text, setAsideWords)),
-                    notKept,
-                  ),
+                const written = session.citeWrittenIds(
+                  withoutFootnoteDefinitions(setAsideMarksInWords(text, setAsideWords)),
+                  notKept,
                 );
                 // A marker is the Analysis's own table, not text typed again. This Answer's
                 // Analyses name their markers first; the last Answer's stand for the rest, as
@@ -3293,9 +3285,7 @@ export function createAnswers(options: AnswersOptions) {
                   })),
                 ];
                 const markdown = withAnalysisResults(
-                  calculating
-                    ? withPrintedFigures(citeFigures(written.markdown))
-                    : written.markdown,
+                  calculating ? withPrintedFigures(citeFigures(written)) : written,
                   markerAnalyses,
                   answerLanguage(context.question),
                 );
@@ -3360,9 +3350,8 @@ export function createAnswers(options: AnswersOptions) {
                   extraCells: tables.extraCells,
                   figuresLeftOut:
                     unwritten.size > 0 ? figuresLeftOut(unwritten.size, analyses) : undefined,
-                  searchTalk: written.left,
                   analysisTables: analysisTablesOf(markerRuns),
-                  chartsPlaced: chartsPlacedIn(written.markdown, markerAnalyses),
+                  chartsPlaced: chartsPlacedIn(written, markerAnalyses),
                 };
               },
               changed: (toolCallId, change) => {

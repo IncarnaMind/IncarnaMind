@@ -452,7 +452,6 @@ describe("call help's ✓ comes only from a quote the app found (#2847)", { time
     });
     const after = await (await pressed(core, meeting, "answer")).judged();
 
-    const question = "Answer their question";
     const states: unknown[] = [];
     const collect = (nodes: readonly NodeJSON[]) => {
       for (const node of nodes) {
@@ -462,7 +461,7 @@ describe("call help's ✓ comes only from a quote the app found (#2847)", { time
         collect(node.content ?? []);
       }
     };
-    collect(withAnswerChecks(pageBlocks(after, question), after, question, null));
+    collect(withAnswerChecks(pageBlocks(after), after, null));
 
     expect(after.citations.map((citation) => citation.check)).toEqual(["found", "not-found"]);
     expect([...new Set(states)].sort()).toEqual([]);
@@ -939,7 +938,7 @@ describe("a reply is kept, checked and read again as the panel shows it (#2925)"
     expect(batches[0]?.prompt).toContain("I'll confirm the Team plan price in writing today");
     expect(batches[0]?.prompt).not.toContain("\"I'll confirm");
     expect(after.citations.map((citation) => citation.passedAt)).toEqual([[0], [1]]);
-    const note = textIn(pageBlocks(after, "Answer their question"));
+    const note = textIn(pageBlocks(after));
     expect(note).toContain("I'll confirm the Team plan price in writing today");
     expect(note).not.toMatch(/["“”]/);
   });
