@@ -90,6 +90,8 @@ interface Restated {
     check: string;
     checkReason?: string | null;
     verdict?: string | null;
+    /** The Answer's judgement found it for a sentence its model left uncited (#3410). */
+    foundByCheck?: boolean;
   }[];
 }
 
@@ -214,6 +216,7 @@ async function inAssistant(
                   check: citation.check,
                   checkReason: citation.checkReason,
                   verdict: citation.verdict ?? null,
+                  foundByCheck: citation.foundByCheck === true,
                 },
               ]
             : [];
