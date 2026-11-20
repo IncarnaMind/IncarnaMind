@@ -36,6 +36,7 @@ import {
 } from "../api";
 import type { Consent } from "../consent";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
+import { earliestRestorable } from "../recentlyDeleted";
 import type { Secrets } from "../secrets";
 import type { Database } from "../storage";
 import {
@@ -116,8 +117,8 @@ export interface AgentsOptions {
     | "reportError"
     | "doneSince"
   >;
-  /** Whether this agent has IncarnaMind's Skill installed (see ./setup). */
-  skillInstalled(client: string | null): boolean;
+  /** Whether this agent's Skill is IncarnaMind's current text, or out of date because the User changed it (see ./skillFiles). */
+  skillState(client: string | null): { installed: boolean; outOfDate: boolean };
   changed(settings: AgentSettings): void;
   called(activity: AgentActivity): void;
   reportError(error: unknown): void;
@@ -240,11 +241,13 @@ export function createAgents(options: AgentsOptions) {
 
   const settings = (): AgentSettings => {
     const pairings = livePairings();
+    const skills = pairings.map((each) => ({ id: each.id, ...options.skillState(each.client) }));
     return {
       enabled: enabled(),
       paused: options.localOnly() ? "local-mode" : null,
       pairings,
-      skills: pairings.filter((each) => options.skillInstalled(each.client)).map((each) => each.id),
+      skills: skills.filter((each) => each.installed).map((each) => each.id),
+      skillsOutOfDate: skills.filter((each) => each.outOfDate).map((each) => each.id),
     };
   };
 
@@ -522,6 +525,16 @@ export function createAgents(options: AgentsOptions) {
     return listening;
   };
 
+  /**
+   * Deletes for good the calls marked deleted `RECENTLY_DELETED_DAYS` ago, by Disconnect or the
+   * activity list's limit, once a later sync has had that long to see them (#3430).
+   */
+  const forgetGone = () => {
+    db.run("DELETE FROM agent_activity WHERE deleted_at IS NOT NULL AND deleted_at < ?", [
+      earliestRestorable(options.now()),
+    ]);
+  };
+
   const stopListening = async () => {
     const stopping = listener;
     listener = null;
@@ -674,8 +687,16 @@ export function createAgents(options: AgentsOptions) {
     /** Local mode was turned on or off: pairings are paused or go on. */
     localModeChanged: changed,
 
+    /** Tells the windows the settings changed, e.g. after a Skill was written. */
+    announce: changed,
+
     /** Starts listening, if connecting agents was left on. */
     start: () => {
+      try {
+        forgetGone();
+      } catch (error) {
+        options.reportError(error);
+      }
       if (!options.offered && (turnedOn() || livePairings().length > 0)) {
         options.log.info("agents.notOffered", {
           turnedOn: turnedOn(),

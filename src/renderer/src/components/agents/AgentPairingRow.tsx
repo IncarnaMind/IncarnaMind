@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   type AgentActivity,
   type AgentClientId,
+  type AgentDisconnected,
   type AgentPairing,
   type AgentSetupResult,
   type LibraryGroup,
@@ -38,21 +39,29 @@ export interface JustSetUp {
  * may read and whether it may propose changes to their notes (#352), both
  * changed in place, when it was last used, its activity (every
  * call, newest first), the details a technical User needs to set it up again,
- * and Disconnect, which stops it at once, as deleting a Connector does.
+ * and Disconnect, which stops it at once, as deleting a Connector does. A
+ * Skill the User changed, after IncarnaMind's text changed, says so, with a
+ * way to replace it that asks first (#3430).
  */
 export function AgentPairingRow({
   pairing,
   skillInstalled,
+  skillOutOfDate,
   folders,
   justSetUp,
   onUndone,
+  onDisconnected,
 }: {
   pairing: AgentPairing;
-  /** IncarnaMind's Skill is in the agent's skills folder. */
+  /** IncarnaMind's current Skill is in the agent's skills folder. */
   skillInstalled: boolean;
+  /** The agent's Skill is one the User changed, and IncarnaMind's text has changed since. */
+  skillOutOfDate: boolean;
   folders: readonly LibraryGroup[];
   justSetUp: JustSetUp | null;
   onUndone(): void;
+  /** The agent is disconnected; `agent` is how a sentence names it. */
+  onDisconnected(agent: string, left: AgentDisconnected): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -61,6 +70,25 @@ export function AgentPairingRow({
   const [activity, setActivity] = useState<AgentActivity[] | null>(null);
   const [copied, setCopied] = useState<"settings" | "skill" | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const replaceButton = useRef<HTMLButtonElement>(null);
+  const keepButton = useRef<HTMLButtonElement>(null);
+  const asked = useRef(false);
+
+  // The question takes the focus, on the safe answer, and gives it back when it is closed.
+  useEffect(() => {
+    if (replacing) keepButton.current?.focus();
+    else if (asked.current) replaceButton.current?.focus();
+    asked.current = replacing;
+  }, [replacing]);
+
+  const closeOnEscape = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "Escape") return;
+    // Esc closes the question, not Settings.
+    event.preventDefault();
+    event.stopPropagation();
+    setReplacing(false);
+  };
 
   // The activity list follows each call while it is open.
   useEffect(() => {
@@ -170,6 +198,54 @@ export function AgentPairingRow({
               {t("agents.pairing.skill", { agent: pairingInSentence(pairing, t) })}
             </span>
           )}
+          {skillOutOfDate && (
+            <span data-testid="agent-pairing-skill-old" className="block">
+              {replacing ? (
+                <>
+                  {t("agents.pairing.skillOld.ask")}
+                  <span aria-hidden="true"> · </span>
+                  <button
+                    type="button"
+                    data-testid="agent-skill-replace-confirm"
+                    onKeyDown={closeOnEscape}
+                    onClick={() =>
+                      core
+                        .replaceAgentSkill(pairing.id)
+                        .then(() => setReplacing(false), reportError)
+                    }
+                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                  >
+                    {t("agents.pairing.skillOld.confirm")}
+                  </button>
+                  <span aria-hidden="true"> · </span>
+                  <button
+                    ref={keepButton}
+                    type="button"
+                    data-testid="agent-skill-replace-cancel"
+                    onKeyDown={closeOnEscape}
+                    onClick={() => setReplacing(false)}
+                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                  >
+                    {t("agents.pairing.skillOld.cancel")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {t("agents.pairing.skillOld")}
+                  <span aria-hidden="true"> · </span>
+                  <button
+                    ref={replaceButton}
+                    type="button"
+                    data-testid="agent-skill-replace"
+                    onClick={() => setReplacing(true)}
+                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                  >
+                    {t("agents.pairing.skillOld.replace")}
+                  </button>
+                </>
+              )}
+            </span>
+          )}
           {done && (
             <p data-testid="agent-setup-done" role="status" className="mt-1">
               {doneWords(done, pairing, t)}
@@ -226,7 +302,11 @@ export function AgentPairingRow({
           <button
             type="button"
             data-testid="agent-disconnect"
-            onClick={() => core.disconnectAgent(pairing.id).catch(reportError)}
+            onClick={() =>
+              core
+                .disconnectAgent(pairing.id)
+                .then((left) => onDisconnected(pairingInSentence(pairing, t), left), reportError)
+            }
             className={buttonStyle("ghost", "sm")}
           >
             {t("agents.pairing.disconnect")}

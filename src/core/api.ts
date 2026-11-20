@@ -12514,8 +12514,19 @@ export interface AgentSettings {
    */
   paused: "local-mode" | null;
   pairings: AgentPairing[];
-  /** The pairings whose agent has IncarnaMind's Skill installed, as IncarnaMind wrote it. */
+  /** The pairings whose agent has IncarnaMind's current Skill installed. */
   skills: string[];
+  /**
+   * The pairings whose agent reads a Skill IncarnaMind wrote and the User changed, after the
+   * Skill's text changed: it was left as it is, and `replaceAgentSkill` replaces it (#3430).
+   */
+  skillsOutOfDate: string[];
+}
+
+/** What Disconnect left behind (#3430). */
+export interface AgentDisconnected {
+  /** The Skill files it left in place, with full paths, because the User changed them. */
+  skillsLeft: string[];
 }
 
 export interface ConnectAgentInput {
@@ -15151,8 +15162,17 @@ export interface CoreApi {
   connectAgent(input: ConnectAgentInput): Promise<ConnectedAgent>;
   /** Renames a pairing, or changes the Folders it may read; calls already made keep their activity. */
   updateAgent(pairingId: string, input: UpdateAgentInput): Promise<AgentPairing>;
-  /** Unpairs an agent: its token stops working at once, its connections close and its consent goes. */
-  disconnectAgent(pairingId: string): Promise<void>;
+  /**
+   * Unpairs an agent: its token stops working at once, its connections close and its consent goes.
+   * Its Skill goes too, whichever release wrote it, unless the User changed it (#3430). Its Activity
+   * and requests are marked deleted and removed `RECENTLY_DELETED_DAYS` after, at start-up.
+   */
+  disconnectAgent(pairingId: string): Promise<AgentDisconnected>;
+  /**
+   * Replaces the Skill file of this agent that the User changed, with the current text: the Skill
+   * is out of date (`AgentSettings.skillsOutOfDate`) and the User confirmed their changes go (#3430).
+   */
+  replaceAgentSkill(pairingId: string): Promise<void>;
   /** How a paired agent starts IncarnaMind's server, again: e.g. to set it up in that agent once more. */
   getAgentLaunch(pairingId: string): Promise<AgentLaunch>;
   /** The calls a paired agent made, newest first: the most recent 500. */
@@ -15946,6 +15966,7 @@ const methods: Record<CoreApiMethod, true> = {
   connectAgent: true,
   updateAgent: true,
   disconnectAgent: true,
+  replaceAgentSkill: true,
   getAgentLaunch: true,
   listAgentActivity: true,
   listAgentClients: true,

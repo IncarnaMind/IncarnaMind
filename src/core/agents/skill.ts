@@ -11,6 +11,23 @@
 /** The Skill's folder name, and its `name`. */
 export const SKILL_NAME = "incarnamind";
 
+/**
+ * The SHA-256 of each text the Skill had before IncarnaMind recorded what it writes (#3430), so a
+ * copy an earlier release wrote still counts as its own. Closed: a text written from now on is
+ * recognised by the record, so a change to the Skill adds nothing here.
+ */
+export const EARLIER_SKILL_HASHES: readonly string[] = [
+  "0cb37477f28c0e115871c0cc91861609978994fb1d8b3aa2fcf957382e9088fd",
+  "0b7e5ae1e8611995734fb23f3d726a22f005a258ca5f6ced61b9e06f7fb92ae1",
+  "7aacd1b3e81a88e2f965c19bf0590651017fbcbb0103d0256a25d8586fa52b84",
+  "a4b899f085316e587704cc2d2ad51a5e16e30517515d2959eff62f3792c7d54e",
+  "8e09d9cb45912fe7aafb8e1589eb8bfe49850956b23201e2ee8b9b1d7edb1f99",
+  "15d5c573e04f2757ef50f5ed38cd0a7e2f9dba9c47887692c4000fc879ca16ef",
+  "2d1bc143d05c5fe8b15cff7d8860fdc58a8203abe78b69d6ce1d13bd47271bd3",
+  "da9d17409bfdddb4505f497cfec1d799a650e0e0038e7db74b959e44786dea2c",
+  "312f4df56cd3427db641077d4ea16bcb32451dc07ae2fcef42d4255e2aa4346f",
+];
+
 export const SKILL_MARKDOWN = `---
 name: ${SKILL_NAME}
 description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". Do not answer such a question from memory.

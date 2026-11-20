@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AgentClient, AgentSettings } from "../../../../core/api";
+import { unitsOf } from "../../../../shared/i18n/join";
 import { core } from "../../core";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import {
   SettingsGroup,
@@ -30,6 +31,7 @@ import { type AgentChoice, useAgentConnection } from "./ConnectAgentFields";
  */
 export function AgentsSettings() {
   const t = useT();
+  const language = useLanguage();
   const reportError = useAppStore((state) => state.reportError);
   const openSettings = useAppStore((state) => state.openSettings);
   const folders = useAppStore((state) => state.library?.groups ?? []);
@@ -38,6 +40,8 @@ export function AgentsSettings() {
   const [connecting, setConnecting] = useState<AgentClient | null>(null);
   const connection = useAgentConnection();
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
+  // The Skill a Disconnect left because the User changed it, said until the page goes.
+  const [skillLeft, setSkillLeft] = useState<{ agent: string; paths: string[] } | null>(null);
 
   useEffect(() => {
     core.getAgents().then(setSettings, reportError);
@@ -53,6 +57,7 @@ export function AgentsSettings() {
     const done = await connection.connect(client, choice);
     if (!done) return;
     setJustSetUp(done);
+    setSkillLeft(null);
     setConnecting(null);
   };
 
@@ -117,6 +122,15 @@ export function AgentsSettings() {
         </p>
       )}
 
+      {skillLeft && (
+        <p data-testid="agent-skill-left" role="status" className={`${noticeClass} break-words`}>
+          {t("agents.settings.skillLeft", {
+            agent: skillLeft.agent,
+            path: unitsOf(skillLeft.paths, language),
+          })}
+        </p>
+      )}
+
       {settings.enabled && settings.pairings.length > 0 && (
         <SettingsSection testId="agents-connected" title={t("agents.settings.connected")}>
           <SettingsGroup>
@@ -125,9 +139,15 @@ export function AgentsSettings() {
                 key={pairing.id}
                 pairing={pairing}
                 skillInstalled={settings.skills.includes(pairing.id)}
+                skillOutOfDate={settings.skillsOutOfDate.includes(pairing.id)}
                 folders={folders}
                 justSetUp={justSetUp}
                 onUndone={() => setJustSetUp(null)}
+                onDisconnected={(agent, left) =>
+                  setSkillLeft(
+                    left.skillsLeft.length > 0 ? { agent, paths: left.skillsLeft } : null,
+                  )
+                }
               />
             ))}
           </SettingsGroup>
