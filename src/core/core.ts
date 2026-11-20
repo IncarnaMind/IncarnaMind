@@ -5855,7 +5855,7 @@ export function createCore(adapters: CoreAdapters): Core {
           parts.splice(1, 0, { kind: "heading", level: 1, content: [text] });
         }
         return renderMarkdown(inTab ? "" : title, parts, exportLabels(language), {
-          pictures: "marked",
+          agent: true,
         }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),

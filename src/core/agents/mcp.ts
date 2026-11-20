@@ -76,6 +76,43 @@ const heldCall = z.object({
   transcript: z.string().describe("Its Transcript's documentId."),
 });
 
+/** A Note's results, counted as its page counts them. */
+const checkedNote = z.object({
+  models: z.array(z.string()),
+  supported: z.number(),
+  needLook: z.number(),
+  notChecked: z.number(),
+  canBeCited: z.number(),
+  ownViews: z.number(),
+  claims: z.array(
+    z.object({
+      sentence: z.string(),
+      group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
+      result: z.enum([
+        "supported",
+        "citation-not-found",
+        "unsupported",
+        "contradicted",
+        "not-found",
+        "not-checked",
+        "needs-recheck",
+        "changed",
+      ]),
+      reason: z
+        .string()
+        .nullable()
+        .describe(
+          "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
+        ),
+      says: z.string().nullable(),
+      document: z.string().nullable(),
+      location,
+      quote: z.string().nullable(),
+      cite: z.string().nullable(),
+    }),
+  ),
+});
+
 /** A picture or chart it wrote that isn't in the Note, and why (#3413). */
 const leftOut = z.array(z.object({ item: z.string(), reason: z.string() }));
 
@@ -345,7 +382,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Read a Note",
       description:
-        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
+        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. A picture comes without its data: the User sees it. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
       inputSchema: z.object({
         mindId: z.string(),
         offset: z.number().int().min(0).optional(),
@@ -477,39 +514,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
         title: z.string(),
         status: z.enum(["checked", "running", "stopped"]),
         stopped: z.string().nullable(),
-        models: z.array(z.string()),
-        supported: z.number(),
-        needLook: z.number(),
-        notChecked: z.number(),
-        canBeCited: z.number(),
-        ownViews: z.number(),
-        claims: z.array(
-          z.object({
-            sentence: z.string(),
-            group: z.enum(["needLook", "notChecked", "canBeCited"]).describe("The count it is in."),
-            result: z.enum([
-              "supported",
-              "citation-not-found",
-              "unsupported",
-              "contradicted",
-              "not-found",
-              "not-checked",
-              "needs-recheck",
-              "changed",
-            ]),
-            reason: z
-              .string()
-              .nullable()
-              .describe(
-                "Why a not-checked claim has no verdict, e.g. rate-limit, cost-cap; beyond-reach: checked against Documents you can't read.",
-              ),
-            says: z.string().nullable(),
-            document: z.string().nullable(),
-            location,
-            quote: z.string().nullable(),
-            cite: z.string().nullable(),
-          }),
-        ),
+        ...checkedNote.shape,
       }),
       // It marks the Note's claims and changes none of its words; its sentences go to the User's AI model.
       annotations: {
@@ -542,6 +547,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
             column: z.string().optional().describe("A table cell's column heading."),
           }),
         ),
+        checked: checkedNote.optional().describe("With no sentence left, the Note's results."),
       }),
       annotations: READ_ONLY,
     },

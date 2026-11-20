@@ -8461,6 +8461,8 @@ export const en = {
   "agents.check.taskChanged":
     "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
   "agents.check.results": "Give results: one result for each sentence, {max} at most.",
+  "agents.check.nothingLeft":
+    "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those; there is nothing to hand to report_check.",
   "agents.check.reportAgain":
     "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, a run_analysis result of this check, or a working whose numbers stand in their quotes and whose expression gives its figure, that IncarnaMind can confirm, and none from the User’s own working file.",
   // An outside agent writes a new note (#3306).
