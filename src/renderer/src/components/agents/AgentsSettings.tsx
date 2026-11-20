@@ -151,7 +151,9 @@ export function AgentsSettings() {
                 onUndone={() => setJustSetUp(null)}
                 onDisconnected={(agent, left) =>
                   setSkillLeft(
-                    left.skillsLeft.length > 0 ? { agent, paths: left.skillsLeft } : null,
+                    left.skillsLeft.length > 0
+                      ? { agent, paths: left.skillsLeft.map((each) => each.shown) }
+                      : null,
                   )
                 }
               />

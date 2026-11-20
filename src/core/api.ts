@@ -12541,8 +12541,11 @@ export interface AgentSettings {
 
 /** What Disconnect left behind (#3430). */
 export interface AgentDisconnected {
-  /** The Skill files it left in place, with full paths, because the User changed them. */
-  skillsLeft: string[];
+  /**
+   * The Skill files it left in place because the User changed them: each one's full path, and
+   * the same with the home folder written as "~", as a line for the User names it.
+   */
+  skillsLeft: { path: string; shown: string }[];
 }
 
 export interface ConnectAgentInput {

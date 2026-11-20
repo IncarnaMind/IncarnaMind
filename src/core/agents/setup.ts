@@ -26,6 +26,7 @@ import { dirname, join, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { clientTitle } from "../../shared/agentNames";
 import { AGENT_TOKEN_ENV, HIDDEN_KEY } from "../../shared/agentSocket";
+import { pathFromHome } from "../../shared/homePath";
 import { translate } from "../../shared/i18n";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type {
@@ -482,10 +483,11 @@ export function createAgentSetup(options: AgentSetupOptions) {
     async removeFromSettings(pairingId: unknown): Promise<AgentDisconnected> {
       const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
       if (!pairing) return { skillsLeft: [] };
-      const skillsLeft = await removeSkill(pairing.client, pairing.id).catch((error: unknown) => {
+      const left = await removeSkill(pairing.client, pairing.id).catch((error: unknown) => {
         options.reportError(error);
         return [];
       });
+      const skillsLeft = left.map((path) => ({ path, shown: pathFromHome(path, options.home) }));
       written.delete(pairing.id);
       const files = settingsFilesFor(pairing.client);
       const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";

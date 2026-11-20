@@ -314,7 +314,12 @@ describe("Disconnect and the Skill", () => {
     await expect(stat(join(at.home, ".claude", "skills", "incarnamind"))).rejects.toThrow(/ENOENT/);
 
     expect(await core.disconnectAgent(codex?.id ?? "")).toEqual({
-      skillsLeft: [sharedFile(at.home)],
+      skillsLeft: [
+        {
+          path: sharedFile(at.home),
+          shown: join("~", ".agents", "skills", "incarnamind", "SKILL.md"),
+        },
+      ],
     });
     expect(await readFile(sharedFile(at.home), "utf8")).toBe(`${OLDER}${BRIEF}`);
   });
