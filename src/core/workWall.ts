@@ -126,6 +126,19 @@ export function createWorkWall(options: WorkWallOptions) {
   /** The wall a Document is behind; null for none. */
   const walledDocument = (documentId: string): string | null =>
     wallOfDocument(documentId)?.id ?? null;
+  /** All walls around each Document, including a Note's output indexed again in another Folder. */
+  const documentWalls = () => {
+    const byDocument = new Map<string, string[]>();
+    for (const folder of library().folders()) {
+      if (!folder.keepInside) continue;
+      for (const id of new Set(behindWall(folder.id))) {
+        const walls = byDocument.get(id) ?? [];
+        walls.push(folder.id);
+        byDocument.set(id, walls);
+      }
+    }
+    return byDocument;
+  };
   /** The Documents behind any wall. */
   const walledDocuments = (): string[] =>
     library()
@@ -305,6 +318,7 @@ export function createWorkWall(options: WorkWallOptions) {
     walledFolderId,
     walledDocument,
     walledDocuments,
+    documentWalls,
     deletedWall,
     walledFolderName,
     turnWall,

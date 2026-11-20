@@ -552,3 +552,16 @@ All five are reported, struck and not used.
 - Runs 24 to 50 each took the key alone for their length. Twenty-six waited 0 s; one, both in Chinese, waited 732 s while another evaluation held the key.
 
 **Spend.** The stage cost $0.168 on the second key, against the plan's estimate of about $0.16 for 50 runs and its stop at $6. The struck attempts on the first key cost $0.003.
+
+## 2026-11-20 · Blind Folder reader (#2737)
+
+Claude Opus 5.5 at low effort read each of the 164 Folder names and descriptions from 50 saved runs three times, in fixed area orders. The human reading was committed before the model ran. Agreement requires all six area judgments and the presence or absence of a separate filing axis to match. Each half required 74 agreements.
+
+| Seeded half | Question digest | Agreement with human reading | Folders whose three reads disagreed | Cost |
+| --- | --- | --- | --- | --- |
+| First, original question | `a4dbe3fc7933` | 60/82 (73.2%) | 24/82 | $1.381648 |
+| Second, revised question | `2f92a4d43138` | 61/82 (74.4%) | 14/82 | $1.518232 |
+
+A different reviewer examined the first half's 22 discrepancies with the columns identified. The single revision clarified when the Folder name supports an area, what narrows it to part of an area, and when the name identifies a different way of filing. The original human answers remained frozen. All 492 requests produced a parsed reply. The $2.899880 total includes the nine-request pilot.
+
+The revised reader fell below the validation bar. Its judgments cannot score Organize. The per-Document questions and fresh product gate were left unused. [Decision and full counts](https://github.com/IncarnaMind/IncarnaMind/issues/2737#issuecomment-7042858157).
