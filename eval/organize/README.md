@@ -156,6 +156,8 @@ Scans are counted apart: how many, and how many the plan filed.
 
 The last three wait while a Document waits in either reading, since waiting is neither agreement nor disagreement. The join then says how many wait in each reading, and ends as a refusal when it was given answers.
 
+**Recorded outcome.** The revised reader matched 61 of 82 Folders on the second blind half, below the required 74. The run stopped before the per-Document questions. [Results](RESULTS.md#2026-11-20--blind-folder-reader-2737).
+
 **The order.** Each step runs only after the one before it:
 
 | Step | Command (each `node --import ./scripts/tsResolve.mjs …`) |
