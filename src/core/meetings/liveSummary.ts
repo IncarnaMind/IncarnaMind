@@ -2,13 +2,20 @@ import type { Meeting, MeetingSummary } from "../api";
 import { hashBytes } from "../documents/files";
 import type { Cue } from "../documents/formats/vtt";
 import { InvalidInputError, TranslatableError } from "../errors";
-import { normalizeSummaryEvidence, readMeetingSummaryUpdate } from "./summaryItems";
+import {
+  type StoredSummaryQuote,
+  sameSummaryQuote,
+  storeSummaryQuote,
+  summaryEvidenceCue,
+  summaryQuoteSurvives,
+} from "./summaryEvidence";
+import { readMeetingSummaryUpdate } from "./summaryItems";
 import type { MeetingSummaryInput } from "./summaryModel";
 
 export interface StoredMeetingSummary {
   route: string;
   documentId?: string;
-  evidence?: Record<number, string[]>;
+  evidence?: Record<number, StoredSummaryQuote[]>;
   count: number;
   digest: string;
   summary: MeetingSummary;
@@ -173,10 +180,10 @@ export function createLiveSummaries(options: Options) {
     const evidence = { ...prior?.evidence };
     if (!samePrefix && items?.length) {
       // Final speech can arrive out of order or be relabelled. Keep entries whose spoken evidence survives.
-      const speech = cues.map((cue) => normalizeSummaryEvidence(cue.text));
+      const speech = cues.map(summaryEvidenceCue);
       items = items.filter((item) => {
         const quotes = evidence[item.id];
-        if (quotes?.length && quotes.every((quote) => speech.some((line) => line.includes(quote))))
+        if (quotes?.length && quotes.every((quote) => summaryQuoteSurvives(quote, speech)))
           return true;
         delete evidence[item.id];
         return false;
@@ -208,10 +215,13 @@ export function createLiveSummaries(options: Options) {
           0,
         );
         const value = readMeetingSummaryUpdate(reply, input, lastCorrectedId);
+        const speech = slice.map(summaryEvidenceCue);
         for (const [id, words] of Object.entries(value.evidence)) {
-          const quote = normalizeSummaryEvidence(words);
+          const quote = storeSummaryQuote(words, speech);
           const quotes = evidence[Number(id)] ?? [];
-          if (!quotes.includes(quote)) evidence[Number(id)] = [...quotes, quote];
+          if (!quotes.some((old) => sameSummaryQuote(old, quote))) {
+            evidence[Number(id)] = [...quotes, quote];
+          }
         }
         failedAt.delete(m.id);
         const ready = !live(now) && now.transcript?.state === "saved" && currentCues.length === to;
