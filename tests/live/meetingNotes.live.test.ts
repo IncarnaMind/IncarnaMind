@@ -10,8 +10,11 @@
 import { appendFile } from "node:fs/promises";
 import { type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
-import { judgeNotes } from "../../eval/speed/meetingNotesJudge";
-import { replaySummaryRetention, summaryRetention } from "../../eval/speed/meetingSummaryCases";
+import {
+  replaySummaryRetention,
+  summaryRetentionItemProblems,
+  summaryRetentionOverviewProblems,
+} from "../../eval/speed/meetingSummaryCases";
 import type { Core, Meeting } from "../../src/core";
 import { type ChatModelFactory, createAiSdkChatModel } from "../../src/core/providers/models";
 import { createTempDataFolder } from "../helpers/core";
@@ -241,21 +244,14 @@ test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "1")(
   { timeout: 1_800_000 },
   async () => {
     const apiKey = KEY ?? "";
-    const judge = wrapLanguageModel({
-      model: counted({ kind: "anthropic", apiKey, modelId: MODEL, baseUrl: null, thinking: "off" }),
-      middleware: {
-        specificationVersion: "v4",
-        transformParams: async ({ params }) => ({ ...params, maxOutputTokens: 800 }),
-      },
+    const judge = counted({
+      kind: "anthropic",
+      apiKey,
+      modelId: MODEL,
+      baseUrl: null,
+      thinking: "off",
     });
-    const grade = async (expected: string, notes: string) =>
-      (await judgeNotes(judge, { expected, notes, citations: [], turns: [] })).grade;
-    const results: {
-      warmOverview: string;
-      warmItems: string;
-      finalOverview: string;
-      finalItems: string;
-    }[] = [];
+    const failures: string[] = [];
     for (let run = 1; run <= RUNS; run++) {
       const { checkpoints, warm, final } = await replaySummaryRetention({
         apiKey,
@@ -283,19 +279,17 @@ test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "1")(
             },
           }),
       });
-      const verdict = {
-        warmOverview: await grade(summaryRetention.expectedWarmOverview, warm.text),
-        warmItems: await grade(
-          summaryRetention.expectedWarmItems,
-          JSON.stringify(warm.items ?? []),
-        ),
-        finalOverview: await grade(summaryRetention.expectedFinalOverview, final.text),
-        finalItems: await grade(
-          summaryRetention.expectedFinalItems,
-          JSON.stringify(final.items ?? []),
-        ),
+      const reviews = {
+        warmOverview: await summaryRetentionOverviewProblems(judge, "warm", warm.text),
+        warmItems: summaryRetentionItemProblems("warm", warm.items ?? []),
+        finalOverview: await summaryRetentionOverviewProblems(judge, "final", final.text),
+        finalItems: summaryRetentionItemProblems("final", final.items ?? []),
       };
-      results.push(verdict);
+      const problems = Object.entries(reviews).flatMap(([area, issues]) =>
+        issues.map((issue) => `${area}: ${issue}`),
+      );
+      failures.push(...problems.map((problem) => `Run ${run}: ${problem}`));
+      const grade = (issues: readonly string[]) => (issues.length ? "wrong" : "right");
       if (REPORT) {
         const snapshots = [...checkpoints, final].map(
           ({ text, throughMs, items }) =>
@@ -303,17 +297,10 @@ test.skipIf(!KEY || process.env.INCARNAMIND_LIVE_SUMMARY_RETENTION !== "1")(
         );
         await appendFile(
           REPORT,
-          `## Quick AI summary retention, ${MODEL}, run ${run}\n\nBefore Stop: overview ${verdict.warmOverview}, list ${verdict.warmItems}. After Stop: overview ${verdict.finalOverview}, list ${verdict.finalItems}.\n\n${snapshots.join("\n\n")}\n\n`,
+          `## Quick AI summary retention, ${MODEL}, run ${run}\n\nBefore Stop: overview ${grade(reviews.warmOverview)}, list ${grade(reviews.warmItems)}. After Stop: overview ${grade(reviews.finalOverview)}, list ${grade(reviews.finalItems)}.\n\n${problems.map((problem) => `- ${problem}\n`).join("")}\n${snapshots.join("\n\n")}\n\n`,
         );
       }
     }
-    expect(results).toEqual(
-      Array.from({ length: RUNS }, () => ({
-        warmOverview: "right",
-        warmItems: "right",
-        finalOverview: "right",
-        finalItems: "right",
-      })),
-    );
+    expect(failures).toEqual([]);
   },
 );

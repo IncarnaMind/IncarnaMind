@@ -112,6 +112,24 @@ test("repeating an identical item needs no new evidence and cannot authorize a c
   expect(() => readMeetingSummaryUpdate(reply([{ ...repeated, status: "done" }]), draft)).toThrow();
 });
 
+test("the closing update accounts for every prior active item exactly once", () => {
+  const input = { ...draft, closing: true };
+  const close = (unchanged: unknown) =>
+    JSON.stringify({
+      summary: "Only the cone order was cancelled.",
+      changes: [cancelled],
+      unchanged,
+    });
+  expect(readMeetingSummaryUpdate(close([7]), input).items.map((item) => item.status)).toEqual([
+    "cancelled",
+    "active",
+  ]);
+  for (const ids of [undefined, [], [7, 7], [7, 2], [9, 7]]) {
+    expect(() => readMeetingSummaryUpdate(close(ids), input)).toThrow();
+  }
+  expect(() => readMeetingSummaryUpdate(close([7]), draft)).toThrow();
+});
+
 test("previous visible prose can seed historical commitments once; empty structured records disable that path", () => {
   const input = { previous: "周六之前由小林订场地。", utterances: [{ text: "先休息一下。" }] };
   const raw = reply([

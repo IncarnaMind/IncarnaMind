@@ -163,8 +163,8 @@ const SUMMARY_FIXTURES = [
 }[];
 
 function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
-  if (!systemOf(prompt).startsWith("Write a concise, standalone summary of the meeting"))
-    return null;
+  const instructions = systemOf(prompt);
+  if (!instructions.startsWith("Write a concise, standalone summary of the meeting")) return null;
   const {
     previous,
     items = [],
@@ -178,33 +178,39 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
   const fixture = SUMMARY_FIXTURES.find((sample) =>
     sample.rows.some(({ text }) => said(text) || items.some((item) => item.text === text)),
   );
-  if (!fixture) {
-    return JSON.stringify({
-      summary: previous ?? "The meeting opened with a discussion of the launch date.",
-      changes: [],
-    });
-  }
-  const changes = fixture.rows.flatMap(
-    ({
-      kind,
-      text,
-      revision,
-    }): (Omit<MeetingSummaryItem, "id"> & {
-      id: number | null;
-      quote: string;
-    })[] => {
-      const prior = items.find((item) => item.text === text || item.text === revision?.text);
-      if (revision && prior?.text === text && said(revision.text))
-        return [{ id: prior.id, kind, ...revision, quote: revision.text }];
-      if (prior || !said(text)) return [];
-      return [{ id: null, kind, status: "active", text, quote: text }];
-    },
-  );
+  const closing = instructions.includes("the final confirmed segment");
+  const changes =
+    fixture?.rows.flatMap(
+      ({
+        kind,
+        text,
+        revision,
+      }): (Omit<MeetingSummaryItem, "id"> & {
+        id: number | null;
+        quote: string;
+      })[] => {
+        const prior = items.find((item) => item.text === text || item.text === revision?.text);
+        if (revision && prior?.text === text && said(revision.text))
+          return [{ id: prior.id, kind, ...revision, quote: revision.text }];
+        if (prior || !said(text)) return [];
+        return [{ id: null, kind, status: "active", text, quote: text }];
+      },
+    ) ?? [];
   return JSON.stringify({
-    summary: changes.some((change) => change.id !== null)
-      ? fixture.updated
-      : (previous ?? fixture.opening),
+    summary:
+      fixture && changes.some((change) => change.id !== null)
+        ? fixture.updated
+        : (previous ??
+          fixture?.opening ??
+          "The meeting opened with a discussion of the launch date."),
     changes,
+    ...(closing && {
+      unchanged: items
+        .filter(
+          (item) => item.status === "active" && !changes.some((change) => change.id === item.id),
+        )
+        .map((item) => item.id),
+    }),
   });
 }
 

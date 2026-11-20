@@ -6,6 +6,7 @@ import type { MeetingSummaryInput } from "./summaryModel";
 const text = z.string().trim().min(1);
 const update = z.strictObject({
   summary: text,
+  unchanged: z.array(z.int().positive()).optional(),
   changes: z.array(
     z.strictObject({
       id: z.int().positive().nullable(),
@@ -75,6 +76,18 @@ export function readMeetingSummaryUpdate(
     if (!heard && (change.status !== "active" || !historical.includes(quote))) return invalid();
     updated.set(id, { id, kind: change.kind, status: change.status, text: change.text });
     evidence[id] = change.quote;
+  }
+  if (input.closing) {
+    if (!reply.data.unchanged) return invalid();
+    for (const id of reply.data.unchanged) {
+      if (existing.get(id)?.status !== "active" || touched.has(id)) return invalid();
+      touched.add(id);
+    }
+    if (input.items?.some((item) => item.status === "active" && !touched.has(item.id))) {
+      return invalid();
+    }
+  } else if (reply.data.unchanged !== undefined) {
+    return invalid();
   }
   const descriptions = new Set<string>();
   for (const item of updated.values()) {

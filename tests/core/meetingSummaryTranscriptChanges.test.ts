@@ -111,7 +111,13 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
         ],
       }),
     )
-    .mockResolvedValueOnce(JSON.stringify({ summary: finished, changes: [] }));
+    .mockImplementationOnce(async (_meeting, _route, input) =>
+      JSON.stringify({
+        summary: finished,
+        changes: [],
+        ...(input.closing && { unchanged: fixture.keep.map((item) => item.id) }),
+      }),
+    );
   const failed = vi.fn();
   const scheduler = createLiveSummaries({
     selected: () => "model",
@@ -145,6 +151,7 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
     expect(generate).toHaveBeenCalledTimes(2);
     expect(generate.mock.lastCall?.[2]).toEqual({
       previous: null,
+      closing: fixture.keep.length > 0,
       ...(fixture.sameTranscript !== false && { items: fixture.keep }),
       utterances: cues.map(({ text, speaker }) => ({ text, speaker })),
     });

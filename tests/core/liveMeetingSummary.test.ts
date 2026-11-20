@@ -17,6 +17,7 @@ function launchReply(text: string, quote: string, id: number | null) {
   return JSON.stringify({
     summary: text,
     changes: [{ id, kind: "decision", status: "active", text, quote }],
+    ...(id !== null && { unchanged: [] }),
   });
 }
 
