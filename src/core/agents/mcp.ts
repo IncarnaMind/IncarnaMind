@@ -294,7 +294,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Read a Note",
       description:
-        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these in place to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` as `offset`.",
+        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
       inputSchema: z.object({
         mindId: z.string(),
         offset: z.number().int().min(0).optional(),
@@ -340,7 +340,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Change a Note",
       description:
-        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no paragraphs, start with ¶0+. Write Markdown as in create_mind, with [cite:…] tokens. Changes apply in Notes you wrote, else await review.",
+        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no named paragraphs, start with ¶0+. Write Markdown with [cite:…] tokens, pictures, charts and tabs as in create_mind. Changes apply in Notes you wrote and wait for review elsewhere.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
@@ -385,14 +385,14 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     {
       title: "Write a new Note",
       description:
-        'Write a new Note: a report, summary or draft. It is there at once, marked as yours. Write Markdown; cite each claim from the User\'s Documents with its [cite:…] token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. A chart: a table of its figures, each cell a figure with its token, then a ```chart block right under it, {"kind": "bar", "title": "…"}. Tabs only if asked: a ```tab block of its title opens each. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
+        'Write a new Note: a report, a summary, a draft. It is there at once, marked as yours. Write Markdown; cite each claim from the User\'s Documents with its [cite:…] token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. A chart: a table of its figures, each cell a figure with its token, then a ```chart block right under it, {"kind": "bar", "title": "…"}. Tabs only if asked: a ```tab block of its title opens each. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),
         folderId: z
           .string()
           .optional()
-          .describe("An id from list_minds; optional if only one is shared."),
+          .describe("An id from list_minds; may be left out when only one is shared."),
       }),
       outputSchema: z.object({
         mindId: z.string(),
