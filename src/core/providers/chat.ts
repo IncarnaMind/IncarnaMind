@@ -976,6 +976,13 @@ export function createChat(options: {
       );
     },
 
+    canPrepareMeetingSummary(choice: ChatModelChoice, localRequired: boolean): boolean {
+      const row = rowById(choice.providerId);
+      if (!row || !isKnownRow(row)) return false;
+      const service = knownService(row, choice.modelId);
+      return !service || (!localRequired && gateAllows("chat", service));
+    },
+
     /**
      * Whether background work in a Note whose own pick is `own` waits for the User (#2853): the
      * pick's provider was removed, its model ran on this computer, and the default the Note falls
@@ -1470,14 +1477,19 @@ export function createChat(options: {
      * the chat flow's other requests ask for a summary of the model's
      * reasoning, at the effort the catalog gives their kind of call (an
      * Answer, a careful one, a Task's). `sends`: the kinds of the flow's data this work sends,
-     * when that is less than all, so consent to those alone is enough.
+     * when that is less than all, so consent to those alone is enough. `background` never asks
+     * for consent, even on a flow that can ask for it when the User makes a request.
      * Throws `ChatNotReadyError` or `ConsentDeclinedError`; nothing is sent then.
      */
     async prepareModel(
       choice?: ChatModelChoice,
       flow: DataFlowId = "chat",
       thinking?: Exclude<ChatModelSpec["thinking"], undefined>,
-      { permit, sends }: { permit?: CloudReadPermit; sends?: readonly DataKind[] } = {},
+      {
+        permit,
+        sends,
+        background = false,
+      }: { permit?: CloudReadPermit; sends?: readonly DataKind[]; background?: boolean } = {},
     ): Promise<PreparedChatModel> {
       const readiness = await readinessFor(choice ?? settings.get().user.chatModel, flow);
       const permitted = (service: ExternalService | null | undefined) =>
@@ -1498,7 +1510,7 @@ export function createChat(options: {
       }
       if (provider.service && !permitted(provider.service)) {
         try {
-          await consent.ensure(flow, provider.service, sends);
+          await consent.ensure(flow, provider.service, sends, { background });
         } catch (error) {
           // Its prompt closed as Local mode came on: a Question says so as it does when asked in Local mode.
           if (error instanceof LocalModeError && flow === "chat") {

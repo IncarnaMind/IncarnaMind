@@ -18,7 +18,9 @@ import {
   type FigureInput,
   FOOTNOTE_NODE,
   PROPOSAL_ATTRIBUTE,
+  PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
+  type ProposalRef,
 } from "../core/api";
 import type { AnalysisTableMatch } from "./analysisTables";
 import type { NodeJSON } from "./blockJson";
@@ -26,7 +28,7 @@ import { readCalculatedFigureAttributes } from "./calculatedFigures";
 import { type Figure, type FigureUnit, figureContextOf, readFigures } from "./figures";
 import type { MessageKey, MessageParams } from "./i18n";
 import { holdsPeriods, isPeriod } from "./periods";
-import { readProposalAttribute } from "./proposals";
+import { readProposalAttribute, readProposalRef } from "./proposals";
 
 export const CHART_KINDS = ["bar", "line", "pie", "scatter"] as const;
 export type ChartKind = (typeof CHART_KINDS)[number];
@@ -1099,23 +1101,33 @@ const BLOCK_TYPES = new Set([
   "codeBlock",
 ]);
 
-// Text still waiting to be accepted isn't the User's yet.
-const proposed = (node: NodeJSON) =>
-  readProposalAttribute(node.attrs?.[PROPOSAL_ATTRIBUTE])?.kind === "insert" ||
-  (node.marks ?? []).some((mark) => mark.type === PROPOSAL_INSERT_MARK);
+/**
+ * Text still waiting to be accepted isn't the User's yet, but read as the change `drawnWith`
+ * leaves it: a chart that change adds is drawn from it (#3429).
+ */
+function waits(node: NodeJSON, drawnWith: string | null): boolean {
+  const mine = (ref: ProposalRef | null) => drawnWith !== null && ref?.request === drawnWith;
+  const whole = readProposalAttribute(node.attrs?.[PROPOSAL_ATTRIBUTE]);
+  if (whole && (whole.kind === "insert" ? !mine(whole) : mine(whole))) return true;
+  return (node.marks ?? []).some((mark) =>
+    mark.type === PROPOSAL_INSERT_MARK
+      ? !mine(readProposalRef(mark.attrs))
+      : mark.type === PROPOSAL_DELETE_MARK && mine(readProposalRef(mark.attrs)),
+  );
+}
 
 /**
  * A line of text as a chart reads it, from a node as ProseMirror writes it in JSON (`toJSON()`,
- * or the core's Blocks): its words, without Citations, footnotes or text still waiting, and its
- * first Citation.
+ * or the core's Blocks): its words, without Citations, footnotes or text still waiting (`waits`),
+ * and its first Citation.
  */
-export function sourceLineOf(node: NodeJSON): SourceLine {
+export function sourceLineOf(node: NodeJSON, drawnWith: string | null = null): SourceLine {
   let text = "";
   let citation: CitationAttributes | null = null;
   const citations: CitationAttributes[] = [];
   const figures: FigureSpan[] = [];
   const visit = (child: NodeJSON) => {
-    if (proposed(child)) return;
+    if (waits(child, drawnWith)) return;
     if (child.type === CITATION_NODE) {
       const copy: Record<string, unknown> = {};
       for (const key of CITATION_KEYS) {
@@ -1178,8 +1190,11 @@ function squeezeSpaces(text: string): { text: string; at(offset: number): number
 const span = (value: unknown) =>
   typeof value === "number" && Number.isInteger(value) && value > 1 ? value : 1;
 
-/** A table in JSON on its grid, a cell that spans in each slot it covers (`SourceGrid`). */
-export function gridOfTable(table: NodeJSON): SourceGrid {
+/**
+ * A table in JSON on its grid, a cell that spans in each slot it covers (`SourceGrid`), read as
+ * the change `drawnWith` leaves it (`waits`).
+ */
+export function gridOfTable(table: NodeJSON, drawnWith: string | null = null): SourceGrid {
   const grid: (SourceCell | null)[][] = [];
   const rowAt = (at: number) => {
     const slots = grid[at] ?? [];
@@ -1192,7 +1207,7 @@ export function gridOfTable(table: NodeJSON): SourceGrid {
     for (const cell of row.content ?? []) {
       while (slots[column] !== undefined) column++;
       const read: SourceCell = {
-        ...sourceLineOf(cell),
+        ...sourceLineOf(cell, drawnWith),
         header: cell.type === "tableHeader",
         continued: false,
       };

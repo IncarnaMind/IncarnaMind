@@ -1468,6 +1468,10 @@ export const en = {
     "Quote found in your copy of the opinion ({document}, {location}). Not checked whether it was overruled or changed. Check it in your legal research service before you rely on it.",
   "claim.unsupported.ownWorkings": "Only your own working file says this.",
   "claim.fixSentence": "Fix the sentence",
+  "claim.fixSentence.command": "Fix the sentence from the Documents",
+  "claim.fix.needsLook": "The new sentence still needs a look",
+  "claim.fix.doneMany": "Fixed {fixed} · Needs a look: {needsLook}",
+  "claim.fix.badge": "Fix {count} from the Documents",
   "claim.findSources": "Find sources",
   "claim.findSourcesFor": "Find sources for this sentence",
   "claim.findSources.menu": "Find sources…",
@@ -1820,6 +1824,7 @@ export const en = {
   "verify.workbook.note":
     "Choose the sheet to check. Each typed-in number is looked for in your Documents, and each formula is worked out again.",
   "verify.workbook.sheet": "Sheet",
+  "verify.workbook.allSheets": "All sheets",
   "verify.workbook.typed.one": "1 typed-in number",
   "verify.workbook.typed": "{count} typed-in numbers",
   "verify.workbook.formulas.one": "1 formula",
@@ -1836,6 +1841,8 @@ export const en = {
   "verify.formulas.noneDiffer": "none differ",
   "verify.formulas.differ.one": "1 saved result differs",
   "verify.formulas.differ": "{count} saved results differ",
+  "verify.formulas.unsaved.one": "1 with no saved result to compare",
+  "verify.formulas.unsaved": "{count} with no saved result to compare",
   "verify.formulas.unchecked.one": "1 can’t be worked out here",
   "verify.formulas.unchecked": "{count} can’t be worked out here",
   "verify.formulas.cell": "{cell}: saved {saved}, worked out {worked}",
@@ -1866,6 +1873,8 @@ export const en = {
   "verify.row.supported": "{count} supported",
   "verify.checkedOf.one": "Checked {checked} of 1 claim",
   "verify.checkedOf": "Checked {checked} of {count} claims",
+  "verify.pictures.one": "1 picture not read",
+  "verify.pictures": "{count} pictures not read",
   "verify.needLook.one": "1 needs a look",
   "verify.needLook": "{count} need a look",
   "verify.notChecked": "{count} not checked",
@@ -1933,6 +1942,7 @@ export const en = {
   "edit.pending.instruction": "Making the changes…",
   "edit.pending.cut-unsupported": "Cutting the unsupported part…",
   "edit.pending.follow-citation": "Updating the sentence…",
+  "edit.pending.fix-sentence": "Fixing the sentence…",
   "edit.pending.part": "Writing part {at} of {of}…",
   "edit.ask.parts": "This edit is long: it is made in {count} parts",
   "edit.ask.start": "Edit it",
@@ -2074,6 +2084,7 @@ export const en = {
   "proposal.madeBy": "{author}, {date}",
   // An outside agent's change waiting in a Note (#352), named after its pairing.
   "proposal.proposedBy": "Proposed by {agent}",
+  "proposal.removedBlock": "Removed",
   "proposal.uncited.one": "1 sentence with no Citation",
   "proposal.uncited": "{count} sentences with no Citation",
   "proposal.uncited.next": "Select the next sentence with no Citation",
@@ -8547,6 +8558,7 @@ export const en = {
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.visualAdded":
     "{name} is rewritten in words alone: a picture, a chart or a tab goes in a paragraph of its own. Add it with {name}+.",
+  "agents.propose.visualKept": "{name} is kept as it is. {line}",
   "agents.propose.emptyTab":
     "In {name}, a tab holds nothing: write what it holds after its ```tab block, so the User sees it to decide on.",
   "agents.propose.unplaced":
@@ -8745,6 +8757,24 @@ export const en = {
     "To use {agent}, move this meeting note to a folder shared with it.",
   "meetings.notesAgent.unavailable": "Reconnect your AI or resume its access in Settings.",
   "meetings.notesAgent.settings": "Agent settings",
+  "meetings.summary.setting": "Automatic meeting summary",
+  "meetings.summary.disclosure":
+    "The selected AI receives new transcript lines and the previous summary about once a minute and after you stop. Cloud requests count toward your AI’s usage.",
+  "meetings.summary.off": "Off",
+  "meetings.summary.builtin": "{model} via {provider}",
+  "meetings.summary.setup":
+    "Set up IncarnaMind AI or choose Codex or Claude Code for meeting notes.",
+  "meetings.summary.agentUnavailable": "Selected AI unavailable",
+  "meetings.summary.title": "Quick AI summary",
+  "meetings.summary.preparing": "Preparing a summary…",
+  "meetings.summary.updating": "Finishing the summary…",
+  "meetings.summary.coverage": "Covers the transcript through {time}",
+  "meetings.summary.empty": "No summary was generated.",
+  "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
+  "error.meeting.summaryUnavailable":
+    "Check the selected summary AI and its access to this meeting in Settings.",
+  "meetings.summary.failed": "Couldn’t prepare a summary.",
+  "meetings.summary.updateFailed": "Couldn’t finish the summary.",
   // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
   "agents.ask.line.fix": "Fix the sentence IncarnaMind flagged in {title}.",
   "agents.ask.line.fixAll": "Fix the {count} sentences IncarnaMind flagged in {title}.",
@@ -8754,10 +8784,12 @@ export const en = {
   "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
-    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
+    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}{quote}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
   "agents.ask.request.fixAll":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says these {count} sentences need a look:\n\n{sentences}\n\nFix each of them from my Documents, and change nothing else in the note. Then check the note again yourself.",
-  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}",
+  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}{quote}",
+  "agents.ask.request.quote":
+    "\n\nMy Documents say: {quote}\nRewrite it to say what that quote says and no more: add no figure, name or claim it doesn’t give.",
   "agents.ask.request.note":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.verdict.unsupported": "has no support in my Documents",

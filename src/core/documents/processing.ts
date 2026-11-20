@@ -87,8 +87,10 @@ import type { PictureProblem } from "./web/pictures";
  * span, and a sheet's rows keep their blank cells at the end up to its last
  * column, so a table's rows line up with its heading row). 29: #3289 (a PDF
  * page larger than A4 with its own text is no longer read from its picture).
+ * 30: #3412 (a workbook's formula that saved no result keeps its cell's number
+ * format).
  */
-export const PROCESSING_VERSION = 29;
+export const PROCESSING_VERSION = 30;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -141,7 +143,10 @@ export const PROCESSING_VERSION = 29;
  * cells; a Word file's come out as they were, its reader having kept them
  * since version 23 (#2426). Version 29 only PDFs' pages larger than A4 that
  * were read from their pictures although they had their own text, which
- * `SCAN_CURRENT_SINCE` reads again (#3289).
+ * `SCAN_CURRENT_SINCE` reads again (#3289). Version 30 only workbooks', whose
+ * formulas that saved no result keep their cells' number formats; a workbook
+ * read before keeps showing them plainly until it is next read, so none is
+ * read again for it (#3412).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 27,

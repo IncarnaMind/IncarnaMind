@@ -293,6 +293,7 @@ import {
 import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
+import { createLiveSummaries } from "./meetings/liveSummary";
 import { type MemoCue, memoTitle } from "./meetings/memo";
 import { createMeetingOffers, offerAllowed } from "./meetings/offers";
 import {
@@ -306,6 +307,7 @@ import {
 } from "./meetings/oneItem";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createMeetingSpeakerReview } from "./meetings/speakerReview";
+import { meetingSummaryRoute } from "./meetings/summaryRoute";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
@@ -5889,6 +5891,43 @@ export function createCore(adapters: CoreAdapters): Core {
   if (adapters.agents?.offered ?? true) {
     agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
   }
+  const liveSummaries = createLiveSummaries({
+    ...meetingSummaryRoute({
+      settings: () => settings.get().device,
+      model: (mindId) => ownModelIn(mindId) ?? settings.get().user.chatModel,
+      chat,
+      get: (id) => meetings.get(id),
+      documentPresent: (id) => !!liveDocument(id),
+      insideWall: (mindId, documentId) =>
+        walledFolder(mindId) !== null || walledDocument(documentId) !== null,
+      client: (mindId, documentId, route) =>
+        agents.askable(mindId, documentId).find((pair) => pair.id === route)?.client ?? null,
+      agent: adapters.summarizeWithMeetingAgent,
+    }),
+    cues: (id) => transcripts?.confirmedCues(id) ?? [],
+    saved: (id) => meetings.storedSummary(id),
+    save: (id, value) => meetings.setSummary(id, value),
+    failed(meetingId, error) {
+      (adapters.log ?? silentLogger).warn("meeting.summaryFailed", {
+        meetingId,
+        kind: error instanceof Error ? error.name : "unknown",
+      });
+    },
+  });
+  events.on("meetings.changed", (list) => liveSummaries.changed(list));
+  const summaryAccessChanged = () => liveSummaries.changed(meetings.list(), true);
+  for (const event of [
+    "settings.changed",
+    "privacy.changed",
+    "dataFlows.changed",
+    "agents.changed",
+    "minds.changed",
+    "library.assignments",
+    "library.changed",
+    "documents.removed",
+  ] as const)
+    events.on(event, summaryAccessChanged);
+  liveSummaries.changed(meetings.list());
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
@@ -8003,6 +8042,11 @@ export function createCore(adapters: CoreAdapters): Core {
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
+    retryMeetingSummary: async (meetingId) => {
+      const meeting = meetings.get(meetingId);
+      liveSummaries.retry(meeting);
+      return meetings.get(meeting.id);
+    },
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
     followMeetingFillUndo: async (input) => {
@@ -8238,6 +8282,7 @@ export function createCore(adapters: CoreAdapters): Core {
       lifetime.abort();
       // What a Meeting has captured is saved before anything else stops, a line left unsent too.
       for (const meetingId of [...quickNoteDrafts.keys()]) keepUnsentLine(meetingId);
+      liveSummaries.close();
       meetingOffers.close();
       meetings.close();
       calendars.close();

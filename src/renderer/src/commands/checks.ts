@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { verificationOf } from "../../../shared/verification";
 import { documentsAdded, useAddedDocuments } from "../addedDocuments";
+import { noModel } from "../askYourAi";
 import {
   checkSentences,
   fixesFree,
@@ -15,6 +16,7 @@ import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
+import { fixableAt, fixSentence } from "../fixSentence";
 import { startMindCheck } from "../mindCheck";
 import { readableNow } from "../readableDocuments";
 import {
@@ -99,7 +101,9 @@ function withClaim(find: (editor: Editor) => ShownClaim | null) {
 const withUnsupported = () => withClaim(unsupportedAt);
 const withNotFound = () => withClaim(notFoundAt);
 const withContradicted = () => withClaim(contradictedAt);
-const withCorrection = () => withClaim(correctionAt);
+// With a model, Fix the sentence has the model write what Change to pastes in by code (#3383).
+const withCorrection = () => (noModel() ? withClaim(correctionAt) : null);
+const withFixable = () => (noModel() ? null : withClaim(fixableAt));
 const withNothingBacking = () => withUnsupported() ?? withNotFound();
 const withKeepable = () => withNothingBacking() ?? withContradicted();
 
@@ -300,6 +304,18 @@ export const checkCommands: readonly Command[] = [
     run() {
       const at = withCuttable();
       if (at) cutSentence(at.editor, at.claim);
+    },
+  },
+  {
+    id: "check.fixSentence",
+    label: "claim.fixSentence.command",
+    group: "main",
+    // Applied as one step of the Mind's Undo, as the card's Fix the sentence is.
+    reversible: true,
+    when: () => withFixable() !== null,
+    run() {
+      const at = withFixable();
+      if (at) void fixSentence(at.editor, at.mindId, at.doc, at.claim);
     },
   },
   {

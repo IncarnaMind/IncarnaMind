@@ -3742,6 +3742,8 @@ export interface DeviceSettings {
   meetingSystemAudio: boolean;
   /** The connected agent chosen for notes after Stop on this device. */
   meetingNotesAgentId: string | null;
+  /** The pairing or chat model allowed to prepare a summary during Meetings on this device. */
+  meetingSummaryRoute: string | null;
   /**
    * "Keep a meeting's audio" (#687): a Meeting that starts recording while it is on keeps its
    * audio until the User deletes it, instead of for a day. Off by default; turning it on or off
@@ -7360,7 +7362,8 @@ export interface TextPlace {
  * shorten it, translate it, explain it in a new paragraph under it, what the
  * User asked for in their own words, or take out the part of a cited sentence
  * its Citations don't support (#1111), or make the sentence agree with the words its Citations
- * now quote in a new version of their Document (#99).
+ * now quote in a new version of their Document (#99), or rewrite a sentence its check found the
+ * Documents say otherwise to what the quote it found says (#3383).
  */
 export const editActions = [
   "improve",
@@ -7370,6 +7373,7 @@ export const editActions = [
   "instruction",
   "cut-unsupported",
   "follow-citation",
+  "fix-sentence",
 ] as const;
 export type EditAction = (typeof editActions)[number];
 
@@ -7391,7 +7395,8 @@ export interface EditWithAiInput {
    * For "translate", the language to translate into, as the User would name
    * it ("English", "简体中文"); for "instruction", what the User asked for;
    * for "cut-unsupported", the part the check found unsupported
-   * (`UnsupportedReason.uncovered`).
+   * (`UnsupportedReason.uncovered`); for "fix-sentence", the quote the check found and what it
+   * said of the sentence.
    */
   instruction?: string;
   /** The model to use: the Mind's own; none, or null, the default chat model. */
@@ -8571,10 +8576,18 @@ export interface VerifyDocumentInput {
   path: string;
   /** The Folder the Mind goes in, and the file too if it is new to the Library; none, or null, for none. */
   folderId?: string | null;
-  /** A workbook's sheet to check, by its name (#3278); without it the sheets are listed (`choose-sheet`). */
+  /**
+   * A workbook's sheet to check, by its name (#3278); without it, or `allSheets`, the sheets are
+   * listed (`choose-sheet`).
+   */
   sheet?: string;
   /** A range of that sheet, "B2:M40"; the whole sheet when left out. */
   range?: string;
+  /**
+   * Every sheet of a workbook in one Note (#3412), in place of `sheet` and `range`. The most
+   * typed-in numbers one check reads counts every sheet's together (`too-many`).
+   */
+  allSheets?: boolean;
 }
 
 /** What a workbook's sheet holds, for choosing what to check (#3278). */
@@ -11984,11 +11997,18 @@ export interface MeetingGap {
   reason: "interrupted" | "sleep";
 }
 
+export interface MeetingSummary {
+  text: string;
+  throughMs: number;
+  state: "preparing" | "updating" | "ready" | "failed";
+}
+
 export interface Meeting {
   id: string;
   /** The Mind it belongs to, where its notes are written. */
   mindId: string;
   kind: MeetingKind;
+  summary?: MeetingSummary;
   status: MeetingStatus;
   /** Why it is paused: the User did, or IncarnaMind closed while it was recording. Null unless paused. */
   pausedBy: "user" | "interrupted" | null;
@@ -12758,6 +12778,8 @@ export interface AskedSentence {
   verdict: AskVerdict;
   /** The check's result (`ClaimCheckAttributes.id`): the card says the request waits while it stands. */
   checkId?: string;
+  /** The quote the check found that the Documents say otherwise in, which a fix rests on (#3383). */
+  quote?: string;
 }
 
 /** The most sentences one request to the User's own AI names (#3419). */
@@ -15171,6 +15193,7 @@ export interface CoreApi {
    * on Try again. The model is the Answers one the User chose; nothing asks first.
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
+  retryMeetingSummary(meetingId: string): Promise<Meeting>;
   /** Takes back what filling in added, leaving the notes as the User left them (#142). */
   undoMeetingFill(meetingId: string): Promise<Meeting>;
   /**
@@ -16042,6 +16065,7 @@ const methods: Record<CoreApiMethod, true> = {
   getTranscriptionModel: true,
   retryTranscript: true,
   fillMeetingNotes: true,
+  retryMeetingSummary: true,
   undoMeetingFill: true,
   followMeetingFillUndo: true,
   openAudioSettings: true,

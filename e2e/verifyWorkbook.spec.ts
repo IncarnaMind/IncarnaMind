@@ -190,3 +190,68 @@ test("Verify a workbook: a range checks only its cells, and a sheet with nothing
     "核对 3 条说法",
   );
 });
+
+/** The plan sheet and a sheet of inputs, as a program that writes formulas saves them: no saved results. */
+function planAndInputs(): Buffer {
+  const book = new WorkbookBuilder();
+  book
+    .sheet("Plan")
+    .text("A1", "Item")
+    .text("B1", "2026")
+    .text("C1", "2027")
+    .text("A2", "Rent")
+    .number("B2", 14000)
+    .number("C2", 14000)
+    .text("A3", "Insurance")
+    .number("B3", 2200)
+    .number("C3", 2300)
+    .text("A4", "Total")
+    .formula("B4", "SUM(B2:B3)", 16200)
+    .formula("C4", "SUM(C2:C3)", 16300);
+  book.sheet("Inputs").text("A1", "Travel for 2026").number("B1", 6000);
+  return book.xlsx({ withoutResults: true });
+}
+
+test("Verify a workbook: every sheet at once, its formulas with no saved result worked out and shown", async () => {
+  await writeFile(join(sources, "Finance notes.md"), FINANCE);
+  await writeFile(join(sources, "Plan and inputs.xlsx"), planAndInputs());
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await addDocuments(window, [join(sources, "Finance notes.md")]);
+  await interceptOpenDialog(app, join(sources, "Plan and inputs.xlsx"));
+  await setWindowSize(app, window, 1440, 900);
+
+  await pointAndClick(window, window.getByTestId("plus-menu"));
+  await pointAndClick(window, window.getByTestId("plus-more"));
+  await pointAndClick(window, window.getByTestId("plus-verify-document"));
+  const dialog = window.getByTestId("workbook-sheet-dialog");
+  const all = dialog.getByTestId("workbook-all-sheets");
+  await expect(all).not.toBeChecked();
+  await expect(dialog.locator("label").filter({ hasText: "All sheets" })).toContainText(
+    "5 typed-in numbers · 2 formulas",
+  );
+  await pointAndClick(window, all);
+  await expect(dialog.getByTestId("workbook-range")).toBeDisabled();
+  await screenshot(window, "verify-workbook-all-sheets-en");
+  await pointAndClick(window, dialog.getByTestId("workbook-check"));
+
+  await expect(dialog).toBeHidden();
+  await expect(frontMindName(window)).toHaveText("Checking: Plan and inputs");
+  const editor = window.getByTestId("mind-editor");
+  await expect(editor.locator("h2")).toHaveText(["Plan", "Inputs"]);
+  await expect(editor.locator("td").filter({ hasText: /^16200$/ })).toHaveCount(1);
+  const card = await checkCard(window);
+  await expect(card.getByTestId("verify-formulas")).toContainText(
+    "2 formulas worked out again · 2 with no saved result to compare",
+  );
+  await expect(card.getByTestId("verify-ask").getByTestId("verify-check")).toHaveText(
+    "Check 3 claims",
+  );
+
+  await setLanguage(window, "zh-CN");
+  await expect(card.getByTestId("verify-formulas")).toContainText(
+    "已重新计算 2 个公式 · 2 个没有保存的结果可比对",
+  );
+  await setLanguage(window, "en");
+});

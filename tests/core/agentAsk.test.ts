@@ -164,6 +164,30 @@ describe("asking the User's own AI", () => {
     });
   });
 
+  // protects=a sentence its check found a quote against takes that quote to the User's AI, to rewrite it to and no more (#3383); fails_when=the quote is left out, or a sentence with none gets the line
+  it("takes the quote a check found with the sentence it is about", async () => {
+    const { core, mind, connect } = await started({ openLink: false });
+    const pairing = await connect("VS Code", "vscode");
+    const QUOTE = "Sailings ran on time on most days.";
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: mind.id,
+      ask: {
+        kind: "fix",
+        sentences: [
+          { sentence: OVERSTATED, verdict: "overstated", quote: QUOTE },
+          { sentence: OTHER, verdict: "not-found" },
+        ],
+      },
+    });
+    const agent = await connectLegacyAgent(pairing.launch);
+    expect(await requestRead(agent)).toMatchObject({
+      request: expect.stringContaining(
+        `1. This sentence is overstated: “${OVERSTATED}”\n\nMy Documents say: “${QUOTE}”\nRewrite it to say what that quote says and no more: add no figure, name or claim it doesn’t give.\n2. This sentence isn’t found in my Documents: “${OTHER}”\n\n`,
+      ),
+    });
+  });
+
   // protects=each agent with a documented prefill link gets the line in it, every other one is copied; fails_when=an agent opens a link its documentation doesn't give, or one with a link is copied
   it.each([
     ["claude-desktop", "claude://claude.ai/new", "q"],

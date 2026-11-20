@@ -4,12 +4,12 @@ The machinery behind [`testing.md`](testing.md). Read the section you need when 
 
 ## What CI runs on a pull request
 
-`.github/workflows/ci.yml` runs on every pull request that changes more than documents (`docs/privacy.md` counts as code: a unit test reads it). A draft runs nothing until it is marked ready, and a push to `main` runs nothing. There is no merge queue: the sign-off check is the only required check, and the others report.
+`.github/workflows/ci.yml` runs on every pull request, except one that changes only ADRs (`docs/adr/`) or pictures (`docs/images/`). Every other document counts as code: unit tests read the READMEs, `CONTEXT.md` and the guides in `docs/` as text. A draft runs nothing until it is marked ready, and a push to `main` runs nothing. There is no merge queue: the sign-off check is the only required check, and the others report.
 
 | Check | What it runs |
 |---|---|
 | Typecheck and lint | `npm run typecheck` and `npm run lint` |
-| Unit tests (N/8) | Only the tests that import, directly or through other modules, a file the pull request changes: a renderer change runs few or none, a `src/core` or `src/shared` change about half. A change to `package.json`, the lockfile, `vitest.config.ts`, `tests/setup/` or `ci.yml` runs them all, and the tests that read files as text run by name (`ci.yml` lists them) |
+| Unit tests (N/8) | Only the tests that import, directly or through other modules, a file the pull request changes: a renderer change runs few or none, a `src/core` or `src/shared` change about half. A change to `package.json`, the lockfile, `vitest.config.ts`, `tests/setup/`, `ci.yml` or a Markdown file runs them all: a test reads a document as text and never imports it, so nothing else would pick that test. The tests that read source files as text run by name (`ci.yml` lists them) |
 | Smoke specs to run, then Smoke tests (N/M, Linux) | Only the specs the pull request adds or changes. A change to app code, to what every spec runs on (`e2e/app.ts`, `playwright.config.ts`) or to the dependencies runs no other spec; every spec runs nightly. To check the specs such a change reaches, use [Run named specs](#run-named-specs). A failed shard uploads its traces as `smoke-results-N` |
 | Every commit is signed off (DCO) | Its own workflow, `dco.yml`, on every pull request: a `Signed-off-by:` line on each commit (`git commit -s`). No author, committer or sign-off at anthropic.com, and no `Co-Authored-By:` trailer naming Claude or an anthropic.com address: a commit carries its contributor's own name |
 

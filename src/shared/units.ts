@@ -103,6 +103,11 @@ export interface UnitLabel {
    * as a number or TRUE, a formula's result that shows as nothing.
    */
   saved?: Record<string, number | string | boolean>;
+  /**
+   * rows of a workbook (#3412): the number format of a formula's cell that saved no result, by
+   * cell ("B4": "£#,##0.00"), so what the formula works out to shows as the file would show it.
+   */
+  formats?: Record<string, string>;
   /** rows: the first Unit of a workbook's, what the whole workbook's formulas need (#2347). */
   workbook?: WorkbookFacts;
   /**

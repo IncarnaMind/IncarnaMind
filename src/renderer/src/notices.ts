@@ -44,11 +44,12 @@ export interface NoticeAction {
   run(): Promise<void> | void;
 }
 
-/** Something that worked, said once. */
+/** Something that worked, said once; `look` when what it says still needs a look, which no tick marks. */
 export interface Confirmation {
   id: number;
   message: MessageKey;
   params?: MessageParams;
+  look?: true;
 }
 
 interface NoticesState {
@@ -59,7 +60,7 @@ interface NoticesState {
   showError(error: unknown, action?: NoticeAction): void;
   dismissError(id: number): void;
   /** Shows what worked for a few seconds; the next one takes its place. */
-  confirm(message: MessageKey, params?: MessageParams): void;
+  confirm(message: MessageKey, params?: MessageParams, options?: { look?: boolean }): void;
   dismissConfirmation(): void;
 }
 
@@ -100,10 +101,17 @@ export function createNotices(clock: Clock = systemClock) {
     dismissError(id) {
       set((state) => ({ errors: state.errors.filter((each) => each.id !== id) }));
     },
-    confirm(message, params) {
+    confirm(message, params, options) {
       clock.clearTimeout(timer);
       const id = ++ids;
-      set({ confirmation: { id, message, ...(params && { params }) } });
+      set({
+        confirmation: {
+          id,
+          message,
+          ...(params && { params }),
+          ...(options?.look && { look: true as const }),
+        },
+      });
       timer = clock.setTimeout(() => {
         if (get().confirmation?.id === id) set({ confirmation: null });
       }, CONFIRMATION_SHOWN_MS);
