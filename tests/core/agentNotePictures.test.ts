@@ -388,7 +388,7 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
       }),
     );
     expect(rewrite).toBe(
-      "¶1 is rewritten in words alone: a picture or a chart goes in a paragraph of its own. Add it with ¶1+.",
+      "¶1 is rewritten in words alone: a picture, a chart or a tab goes in a paragraph of its own. Add it with ¶1+.",
     );
     const changed = structured<Written & { status: string; markdown: string }>(
       await agent.callTool({
