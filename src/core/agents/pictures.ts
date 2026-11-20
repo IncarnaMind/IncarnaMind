@@ -4,9 +4,10 @@
  * agent names (as a Canvas's are, #3406) only when named in that call, or inline as a `data:` URL
  * for an agent whose files are elsewhere. A picture is kept in the Note as a `data:` URL, as a
  * pasted one is, its type told by its bytes whatever its name says. One that can't be kept stays
- * a line that says why.
+ * a line that says why. An SVG is kept as a PNG drawn from it, by the drawer that draws a chart for
+ * Word: a picture saved out of the Note and opened in a browser runs nothing it held.
  */
-import type { NamedFile } from "../adapters";
+import type { NamedFile, Pictures } from "../adapters";
 import { canvasFileType } from "../canvases/fileTypes";
 import { dataUrlOf } from "../documents/formats/images";
 
@@ -22,7 +23,6 @@ const PICTURE_TYPES: ReadonlySet<string> = new Set([
   "image/jpeg",
   "image/gif",
   "image/webp",
-  "image/svg+xml",
 ]);
 
 /** A picture as the agent wrote it: `raw` is `![alt](source)`. */
@@ -39,9 +39,13 @@ export type PictureRefusal =
   | "network"
   | "where"
   | "too-many"
-  | "own-line";
+  | "own-line"
+  | "svg";
 
-export type ReadPicture = { src: string } | { refused: PictureRefusal };
+/** A picture as the Note keeps it: a `data:` URL, with its size in pixels where it was drawn. */
+export type ReadPicture =
+  | { src: string; width?: number; height?: number }
+  | { refused: PictureRefusal };
 
 /** Where a picture stood while its Markdown is read: characters no reading makes or takes. */
 export const HELD_PICTURE = /(\d{1,4})/g;
@@ -136,12 +140,34 @@ function inlineBytes(source: string): Uint8Array | null | "too-large" {
   }
 }
 
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** An SVG drawn as a PNG, at its own size; refused where there is no drawer or it can't be drawn. */
+async function drawn(svg: Uint8Array, draw: Pictures | undefined): Promise<ReadPicture> {
+  if (!draw) return { refused: "svg" };
+  try {
+    const png = await draw.png(new TextDecoder().decode(svg));
+    const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    if (png.byteLength < 24 || !PNG_SIGNATURE.every((byte, at) => png[at] === byte)) {
+      return { refused: "svg" };
+    }
+    return {
+      src: dataUrlOf(png, "image/png"),
+      width: view.getUint32(16),
+      height: view.getUint32(20),
+    };
+  } catch {
+    return { refused: "svg" };
+  }
+}
+
 const isFullPath = (source: string) =>
   source.startsWith("/") || /^[A-Za-z]:[\\/]/.test(source) || source.startsWith("\\\\");
 
 async function readOne(
   source: string,
   read: ((path: string, maxBytes: number) => Promise<NamedFile>) | undefined,
+  draw: Pictures | undefined,
 ): Promise<ReadPicture> {
   let bytes: Uint8Array;
   if (source.startsWith("data:")) {
@@ -160,16 +186,19 @@ async function readOne(
     bytes = named.bytes;
   }
   const type = canvasFileType("", bytes);
+  if (type === "image/svg+xml") return drawn(bytes, draw);
   return type && PICTURE_TYPES.has(type) ? { src: dataUrlOf(bytes, type) } : { refused: "type" };
 }
 
 /**
  * Each picture's source read once, in order: a path with `read`, the host's reader of the files an
- * agent names, which is all that reads a file; past the call's limit, none is read.
+ * agent names, which is all that reads a file, and an SVG drawn with `draw`; past the call's limit,
+ * none is read.
  */
 export async function readPictures(
   pictures: readonly NamedPicture[],
   read: ((path: string, maxBytes: number) => Promise<NamedFile>) | undefined,
+  draw: Pictures | undefined,
 ): Promise<Map<string, ReadPicture>> {
   const found = new Map<string, ReadPicture>();
   for (const { source } of pictures) {
@@ -177,7 +206,7 @@ export async function readPictures(
     found.set(
       source,
       found.size < NOTE_PICTURE_LIMITS.pictures
-        ? await readOne(source, read)
+        ? await readOne(source, read, draw)
         : { refused: "too-many" },
     );
   }

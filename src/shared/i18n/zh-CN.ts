@@ -7976,6 +7976,7 @@ export const zhCN = {
   "agents.picture.refused.where": "请给出它在这台电脑上的完整路径，或使用 data: URL",
   "agents.picture.refused.too-many": "一次调用最多添加 {max} 张图片",
   "agents.picture.refused.own-line": "图片要单独占一行",
+  "agents.picture.refused.svg": "无法把这个 SVG 绘制成图片",
   "agents.chart.notDrawn": "未绘制图表：{reason}。",
   "agents.chart.refused.noTable": "```chart 代码块要紧接在它所绘制的数据表格下方",
   "agents.chart.refused.json": "```chart 代码块不是写明 kind 和 title 的 JSON",

@@ -989,21 +989,7 @@ function reviewOf(
   };
 }
 
-/** An SVG picture's text; null for any other picture. */
-function svgOf(src: string): string | null {
-  const match = /^data:image\/svg\+xml;base64,([\s\S]*)$/i.exec(src);
-  if (!match?.[1]) return null;
-  try {
-    return new TextDecoder().decode(Uint8Array.from(atob(match[1]), (char) => char.charCodeAt(0)));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * A picture that can't be drawn leaves the chart's table, and the log says why. An SVG picture, as
- * an agent may give one (#3413), is drawn as a PNG too: Word holds none.
- */
+/** A picture that can't be drawn leaves the chart's table, and the log says why. */
 async function withPictures(
   blocks: readonly Block[],
   language: Language,
@@ -1042,20 +1028,6 @@ async function withPictures(
       return block;
     }
   };
-  const drawSvg = async (block: Extract<Block, { kind: "image" }>): Promise<Block> => {
-    const svg = svgOf(block.image.src);
-    if (svg === null) return block;
-    try {
-      const png = await pictures.png(svg);
-      const src = `data:image/png;base64,${Buffer.from(png).toString("base64")}`;
-      return { ...block, image: { ...block.image, src } };
-    } catch (error) {
-      deps.log.warn("export.svgPicture", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return block;
-    }
-  };
   // One at a time: each picture opens a window of its own.
   const inOrder = async <T, U>(items: readonly T[], each: (item: T) => Promise<U>) => {
     const done: U[] = [];
@@ -1066,8 +1038,6 @@ async function withPictures(
     switch (block.kind) {
       case "chart":
         return draw(block);
-      case "image":
-        return drawSvg(block);
       case "list":
         return { ...block, items: await inOrder(block.items, (item) => inOrder(item, visit)) };
       case "quote":

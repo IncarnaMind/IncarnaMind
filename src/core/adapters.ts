@@ -977,8 +977,9 @@ export interface SpeakerSeparator {
 
 /**
  * Draws an SVG document as a PNG, for a picture in an export (a chart in a
- * Word file, #436). The desktop app draws it in a hidden window that loads
- * nothing from the network (src/main/pictures.ts); tests pass a fake.
+ * Word file, #436) and for an SVG picture an outside agent puts in a Note
+ * (#3413). The desktop app draws it in a hidden window that loads nothing
+ * from the network (src/main/pictures.ts); tests pass a fake.
  */
 export interface Pictures {
   /** The SVG drawn at its own size in pixels (its `width` and `height`), as PNG bytes. */

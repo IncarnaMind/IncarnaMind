@@ -66,10 +66,25 @@ const HARVEST = [
   "Pears came to 610 tonnes in 2026.",
 ].join("\n");
 
-/** A core whose agent may write in "Orchard", which holds Harvest; `files` holds a chart.png. */
+/** The app's drawer of SVG pictures as a fake: the SVGs it was given, each drawn as `PNG`. */
+function drawer(): Pictures & { drawn: string[] } {
+  const drawn: string[] = [];
+  return {
+    drawn,
+    async png(svg) {
+      drawn.push(svg);
+      return PNG;
+    },
+  };
+}
+
+/**
+ * A core whose agent may write in "Orchard", which holds Harvest; `files` holds a chart.png.
+ * `pictures`: the drawer of SVGs, none with null.
+ */
 async function paired({
   language = "en" as "en" | "zh-CN",
-  pictures = null as Pictures | null,
+  pictures = drawer() as Pictures | null,
 } = {}) {
   const kept = await createTempDataFolder();
   const started = await startAgentsCore(replyingModel(), {
@@ -187,8 +202,10 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     expect(pictures.map((each) => [each.attrs.src, each.attrs.alt])).toEqual([
       [`data:image/png;base64,${base64(PNG)}`, "Orchard map"],
       [`data:image/png;base64,${base64(PNG)}`, "Rows"],
-      [`data:image/svg+xml;base64,${base64(SVG)}`, "Drawn"],
+      [`data:image/png;base64,${base64(PNG)}`, "Drawn"],
     ]);
+    // A drawn SVG keeps the size it was drawn at; a file's picture is drawn at its own.
+    expect(pictures.at(-1)?.attrs).toMatchObject({ width: 1, height: 1 });
 
     const tableBlock = blocks.find((block) => block.kind === "table");
     const chart = readChart(blocks.find((block) => block.kind === CHART_NODE)?.attrs ?? {});
@@ -216,7 +233,7 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
       await agent.callTool({ name: "read_mind", arguments: { mindId: written.mindId } }),
     );
     expect(markdown).toContain("![Orchard map](data:image/png;base64,…)");
-    expect(markdown).toContain("![Drawn](data:image/svg+xml;base64,…)");
+    expect(markdown).toContain("![Drawn](data:image/png;base64,…)");
     expect(markdown).toContain("Tonnes picked, 2026");
 
     // The Note's check of its own gives the chart to judge as it gives a sentence.
@@ -472,14 +489,44 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     ]);
   });
 
-  it("exports to Word with its picture, an SVG drawn as a PNG, and its chart", async () => {
-    const drawn: string[] = [];
-    const pictures: Pictures = {
-      async png(svg) {
-        drawn.push(svg);
-        return PNG;
-      },
-    };
+  it("keeps an SVG that holds a script as a PNG drawn from it, and with nothing to draw it, says so", async () => {
+    const svg = [
+      '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" onload="fetch(\'https://example.com/\')">',
+      "<script>document.title = 'ran';</script>",
+      '<foreignObject width="40" height="20"><iframe src="https://example.com/"></iframe></foreignObject>',
+      '<rect width="40" height="20" fill="teal"/></svg>',
+    ].join("");
+    const markdown = `![Drawn](data:image/svg+xml;base64,${base64(svg)})`;
+    const pictures = drawer();
+    const { core, agent } = await paired({ pictures });
+    const written = structured<Written>(await create(agent, markdown));
+    expect(written.refused).toEqual([]);
+    expect(pictures.drawn).toEqual([svg]);
+    const blocks = await blocksOf(core, written.mindId);
+    expect(blocks.find((block) => block.kind === PICTURE_NODE)?.attrs.src).toBe(
+      `data:image/png;base64,${base64(PNG)}`,
+    );
+    // Nothing of the SVG is in the Note: not its script, its handler or its markup, as text or data.
+    const kept = JSON.stringify(blocks);
+    for (const word of ["svg", "script", "onload", "foreignObject", base64(svg).slice(0, 40)]) {
+      expect(kept).not.toContain(word);
+    }
+
+    const none = await paired({ pictures: null });
+    const refused = structured<Written>(await create(none.agent, markdown));
+    expect(refused.refused.map((each) => each.reason)).toEqual([
+      "its SVG couldn’t be drawn as a picture",
+    ]);
+    const lines = await blocksOf(none.core, refused.mindId);
+    expect(lines.some((block) => block.kind === PICTURE_NODE)).toBe(false);
+    expect(lines.map((block) => block.text)).toContain(
+      "Picture “Drawn” not added: its SVG couldn’t be drawn as a picture.",
+    );
+  });
+
+  it("exports to Word with its pictures, the SVG one kept as a PNG, and its chart", async () => {
+    const pictures = drawer();
+    const { drawn } = pictures;
     const { core, agent, files } = await paired({ pictures });
     const { apples, pears } = await tokens(agent);
     const written = structured<Written>(
@@ -500,7 +547,7 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
     );
     const word = unzip((await core.exportMind(written.mindId, { format: "docx" })).data);
     const media = [...word.keys()].filter((name) => name.startsWith("word/media/"));
-    // The file's picture, the SVG drawn as a PNG, and the chart's picture.
+    // The file's picture, the SVG's PNG, and the chart drawn for Word.
     expect(media).toHaveLength(3);
     expect(drawn[0]).toBe(SVG);
     expect(drawn[1]).toMatch(/^<svg /);

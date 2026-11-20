@@ -8459,6 +8459,7 @@ export const en = {
   "agents.picture.refused.where": "give it by its full path on this computer, or as a data: URL",
   "agents.picture.refused.too-many": "one call adds at most {max} pictures",
   "agents.picture.refused.own-line": "a picture goes on a line of its own",
+  "agents.picture.refused.svg": "its SVG couldn’t be drawn as a picture",
   "agents.chart.notDrawn": "Chart not drawn: {reason}.",
   "agents.chart.refused.noTable":
     "a ```chart block goes right under the table of the figures it draws",

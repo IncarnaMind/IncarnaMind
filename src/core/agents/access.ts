@@ -40,7 +40,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { setTextOrigin } from "../../shared/textOrigins";
-import type { AnalysisRuntime, NamedFile } from "../adapters";
+import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
 import type {
   CheckTask,
@@ -618,6 +618,8 @@ export interface AgentAccessDeps {
    * name (`CanvasFiles.readNamed`); absent where the host has none.
    */
   readNamed?(path: string, maxBytes: number): Promise<NamedFile>;
+  /** Draws an agent's SVG picture as a PNG, as a chart is drawn for Word; absent where the host can't. */
+  pictures?: Pictures;
   /** The interface language, which a chart reads its figures in. */
   language(): Language;
   /** The Library's lists of these Documents, Folders and notes alone, as `source` names them. */
@@ -1114,6 +1116,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     pictures: await readPictures(
       texts.flatMap((each) => holdPictures(each).pictures),
       deps.readNamed,
+      deps.pictures,
     ),
     language: deps.language(),
     notFound: t("agents.answer.notFound"),

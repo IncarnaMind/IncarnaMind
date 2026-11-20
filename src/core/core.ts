@@ -5780,6 +5780,7 @@ export function createCore(adapters: CoreAdapters): Core {
         documents.passagesCovering(documentId, from, to, overlapping),
       ...(adapters.analysisRuntime && { analysisRuntime: adapters.analysisRuntime }),
       ...(adapters.canvasFiles && { readNamed: adapters.canvasFiles.readNamed }),
+      ...(adapters.pictures && { pictures: adapters.pictures }),
       language: () => settings.get().language,
       libraryLists: agentLibraryLists,
       libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),

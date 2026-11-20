@@ -143,7 +143,14 @@ export function placeVisuals(
         name: pictureName(named),
       });
     }
-    return { type: PICTURE_NODE, attrs: { src: read.src, alt: named.alt || null } };
+    return {
+      type: PICTURE_NODE,
+      attrs: {
+        src: read.src,
+        alt: named.alt || null,
+        ...(read.width && read.height && { width: read.width, height: read.height }),
+      },
+    };
   };
   // A picture in code is code; in words, its alt text stays and the agent is told.
   const inWords = (node: NodeJSON, code: boolean): NodeJSON => {
