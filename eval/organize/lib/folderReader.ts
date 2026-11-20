@@ -248,6 +248,8 @@ export function documentAreasRequest(
   };
 }
 
+export const READER_OUTPUT_TOKENS = 1536;
+
 export interface Answer<T> {
   value: T;
   inputTokens: number;
@@ -265,6 +267,8 @@ export async function ask<T>(
 ): Promise<Answer<T>> {
   const result = await generateText({
     model,
+    maxRetries: 0,
+    maxOutputTokens: READER_OUTPUT_TOKENS,
     instructions: request.instructions,
     prompt: request.prompt,
     output: Output.object({ name: request.name, schema: jsonSchema(request.schema) }),
