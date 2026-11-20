@@ -1505,7 +1505,9 @@ describe.each(["en", "zh-CN"] as const)(
       expect(about.length).toBeGreaterThan(0);
       for (const batch of about) {
         expect(batch.prompt).toMatch(MARKED);
-        expect(batch.system).toBe(sentenceBatchInstructions(language, true));
+        // A batch holding the Answer's uncited sentences says how to read them (#3410).
+        const uncited = batch.prompt.includes('uncited="true"');
+        expect(batch.system).toBe(sentenceBatchInstructions(language, true, uncited));
       }
     });
 
@@ -1517,7 +1519,8 @@ describe.each(["en", "zh-CN"] as const)(
       expect(about.length).toBeGreaterThan(0);
       for (const batch of about) {
         expect(batch.prompt).not.toMatch(/call="/);
-        expect(batch.system).toBe(sentenceBatchInstructions(language));
+        const uncited = batch.prompt.includes('uncited="true"');
+        expect(batch.system).toBe(sentenceBatchInstructions(language, false, uncited));
       }
     });
 

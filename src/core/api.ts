@@ -8742,6 +8742,20 @@ export interface AnswerReasoning extends AnswerPlace {
  * How an Answer in a conversation was reached, beside its Tool calls and
  * Citations (#391). Times are ISO 8601, UTC.
  */
+/**
+ * A sentence of an Answer in the assistant that its model didn't cite, which the Answer's own
+ * judgement found the Passages it read don't back (#3410): it is marked where it stands.
+ */
+export interface UncitedCheck {
+  /** The sentence's words, without its Markdown. */
+  sentence: string;
+  check: "unsupported" | "contradicted";
+  /** What the Passages say about it, in one plain sentence. */
+  verdict: string | null;
+  /** When it was judged (ISO 8601). */
+  judgedAt: string;
+}
+
 export interface AnswerSteps {
   /** When its Question went to the model; null when none did (its Search scope had no Documents). */
   sentAt: string | null;
@@ -8762,10 +8776,20 @@ export interface AnswerSteps {
    */
   readShare?: number;
   /**
-   * How many of its Citations were added after it was written, for sentences
-   * it wrote without markers that match the Passages it read (#760).
+   * How many of its Citations were added after it was written, by the one request for those its
+   * model left out (#760).
    */
   citedAfterChecking?: number;
+  /**
+   * The Passages it read, by id (#3410): what its judgement reads a sentence its model left
+   * uncited against. Absent: it read none, or it was written before this was kept.
+   */
+  readPassages?: string[];
+  /**
+   * Its sentences with no Citation that its judgement found the Passages it read don't back
+   * (#3410), once that judgement has ended: empty when it marked none. Absent: none was judged.
+   */
+  uncitedChecks?: UncitedCheck[];
   /**
    * The model was asked once for the Citations its reply left out, and none came of it that
    * could be checked (#1415). Absent: it wasn't asked, or Citations came of it.

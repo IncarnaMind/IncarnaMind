@@ -16,6 +16,7 @@ import { misreadDigits, numberDigits } from "../../../shared/misreadWords";
 import { INLINE_NODE, sentenceSpans } from "../../../shared/sentences";
 import { translateNow } from "../i18n";
 import { openCited } from "../openCited";
+import { hideMarkCard, showMarkCard } from "./markCards";
 
 interface FigureSource {
   word: string;
@@ -85,22 +86,12 @@ function textOf(node: ProseMirrorNode): {
   return { text, citations };
 }
 
-let shownCard: { element: HTMLDivElement; dismiss: (event: Event) => void } | null = null;
-
-function hideCard(): void {
-  if (!shownCard) return;
-  document.removeEventListener("pointerdown", shownCard.dismiss, true);
-  document.removeEventListener("keydown", shownCard.dismiss, true);
-  shownCard.element.remove();
-  shownCard = null;
-}
-
 /**
  * The card a figure's "?" opens: where the figure came from, in the word the scan may have
  * misread, and the page to look at.
  */
 function showCard(anchor: HTMLElement | null, source: FigureSource): void {
-  hideCard();
+  hideMarkCard();
   if (!anchor) return;
   const card = document.createElement("div");
   card.className = "citation-card citation-card--cant-check unchecked-figure-card";
@@ -123,7 +114,7 @@ function showCard(anchor: HTMLElement | null, source: FigureSource): void {
     open.dataset.testid = "unchecked-figure-open";
     open.textContent = translateNow("citation.open.page");
     open.addEventListener("click", () => {
-      hideCard();
+      hideMarkCard();
       openCited(
         { ...source.citation, documentId },
         {
@@ -136,19 +127,7 @@ function showCard(anchor: HTMLElement | null, source: FigureSource): void {
     actions.append(open);
   }
   card.append(head, why, actions);
-  document.body.append(card);
-  const box = anchor.getBoundingClientRect();
-  card.style.left = `${Math.max(8, Math.min(window.innerWidth - card.offsetWidth - 8, box.left))}px`;
-  card.style.top = `${Math.min(window.innerHeight - card.offsetHeight - 8, box.bottom + 6)}px`;
-  const dismiss = (event: Event) => {
-    if (event instanceof KeyboardEvent) {
-      if (event.key !== "Escape") return;
-    } else if (event.target instanceof Node && card.contains(event.target)) return;
-    hideCard();
-  };
-  document.addEventListener("pointerdown", dismiss, true);
-  document.addEventListener("keydown", dismiss, true);
-  shownCard = { element: card, dismiss };
+  showMarkCard(anchor, card);
   // The keyboard reaches what it opened: Tab from the "?" lands on the card's action.
   actions.querySelector("button")?.focus();
 }
@@ -279,7 +258,7 @@ export const UncheckedFigures = Extension.create({
   name: "uncheckedFigures",
 
   onDestroy() {
-    hideCard();
+    hideMarkCard();
   },
 
   addProseMirrorPlugins() {

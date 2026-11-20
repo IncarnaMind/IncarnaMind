@@ -283,7 +283,7 @@ The result of a Citation check when the Citation's quote, or words its sentence 
 _Avoid_: broken, invalid, failed
 
 **Unsupported**:
-The result for a sentence when Check against Documents, Verify or note health finds nothing in the Documents that backs it up. It is not a finding that the sentence is wrong. Its card is headed Unsupported when the check found a Passage about the sentence that doesn't back it: one that says something different, states only part of it, or names another party, period or duty. When nothing in the scope is about the sentence, the card is headed Not found instead. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
+The result for a sentence when Check against Documents, Verify or note health finds nothing in the Documents that backs it up, or, for a sentence of an Answer in the assistant that cites nothing, when the Answer's own judgement finds the Passages it read don't back it (#3410). It is not a finding that the sentence is wrong. Its card is headed Unsupported when the check found a Passage about the sentence that doesn't back it: one that says something different, states only part of it, or names another party, period or duty. When nothing in the scope is about the sentence, the card is headed Not found instead. A sentence that cites a court decision none of the Documents holds is unsupported too, and its card says the case can't be checked here.
 _Avoid_: unverified, false
 
 **Not found**:

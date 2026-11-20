@@ -100,6 +100,7 @@ import {
   type ScopeKind,
   searchScopeOf,
 } from "../../shared/searchScope";
+import { comparableSentence } from "../../shared/sentences";
 import { normaliseText } from "../../shared/text";
 import { setTextOrigin } from "../../shared/textOrigins";
 import { unbackedCommandNotes, unrunToolNotes } from "../../shared/unrunTools";
@@ -168,6 +169,7 @@ import {
   type ThirdPartySource,
   type ToolCallApproval,
   type UncalculatedFigure,
+  type UncitedCheck,
   type UnreadFile,
   type UserAnswer,
   type UserQuestion,
@@ -278,6 +280,9 @@ import {
   type JudgementStop,
   judgedMarkers,
   type SupportResult,
+  type UncitedResult,
+  type UncitedSentence,
+  uncitedSentences,
 } from "./checks/answerCheck";
 import { waitLine } from "./checks/waitLine";
 import {
@@ -517,6 +522,8 @@ export interface AnswerConversations {
     citations: readonly MarkedCitation[],
     /** `text` with the markers of Citations the judgement added. */
     marked?: string,
+    /** The sentences with no Citation the judgement marked (#3410). */
+    uncited?: readonly UncitedCheck[],
   ): boolean;
   /**
    * Adds a Question, and its conversation with its first one, and its Answer, being
@@ -1342,6 +1349,43 @@ export function createAnswers(options: AnswersOptions) {
     const settled = new Set<number>();
     /** The Passages a look in the Answer's scope found for sentences it passed (#3020). */
     const found: FoundForSentence[] = [];
+    /** Its sentences with no Citation, judged against the Passages it read (#3410)… */
+    const uncited = uncitedSentences(answer.text);
+    const read = answer.steps?.readPassages ?? [];
+    const judgesUncited = uncited.length > 0 && read.length > 0;
+    /**
+     * …and what this judgement found of each, by its words as the assistant shows them: the same
+     * words twice are one sentence. Null: judged, with nothing to mark.
+     */
+    const uncitedNow = new Map<string, UncitedCheck | null>();
+    const onUncited = (sentence: UncitedSentence, result: UncitedResult) => {
+      const key = comparableSentence(sentence.sentence);
+      if (result.check === "found") found.push({ at: sentence.at, passages: [result.citation] });
+      if (result.check === "unsupported" || result.check === "contradicted") {
+        uncitedNow.set(key, {
+          sentence: sentence.sentence,
+          check: result.check,
+          verdict: result.verdict,
+          judgedAt: new Date().toISOString(),
+        });
+      } else if (!uncitedNow.get(key)) uncitedNow.set(key, null);
+    };
+    /**
+     * The marks to keep: this judgement's, and an earlier one's for a sentence it gave no verdict
+     * (stopped, failed or cut short before it). Undefined while no judgement has given one.
+     */
+    const uncitedChecks = (): UncitedCheck[] | undefined => {
+      const stored = answer.steps?.uncitedChecks;
+      if (!judgesUncited || (uncitedNow.size === 0 && stored === undefined)) return undefined;
+      const order = uncited.map((each) => comparableSentence(each.sentence));
+      const kept = (stored ?? []).filter((each) => {
+        const key = comparableSentence(each.sentence);
+        return order.includes(key) && !uncitedNow.has(key);
+      });
+      const marks = [...uncitedNow.values()].filter((each) => each !== null);
+      const at = (check: UncitedCheck) => order.indexOf(comparableSentence(check.sentence));
+      return [...kept, ...marks].sort((a, b) => at(a) - at(b));
+    };
     const passed = (sentence: CitedSentence, result: SupportResult | null, read: boolean) => {
       if (read) for (const at of sentence.at) settled.add(at);
       if (result?.check !== "found") return;
@@ -1433,6 +1477,9 @@ export function createAnswers(options: AnswersOptions) {
             onJudged: judged,
             onSentence: passed,
             onStop: (stop) => judged(null, null, stop),
+            uncited,
+            read,
+            onUncited,
             onWait: waitLine(clock.now, (until) => {
               limitShown = until !== null;
               options.waiting?.(answer.id, until);
@@ -1447,8 +1494,15 @@ export function createAnswers(options: AnswersOptions) {
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);
       giveBack();
       const cited = withFoundCitations(answer.text, citations, found, new Date().toISOString());
-      if (cited && judgements.get(answer.id)?.controller === controller) {
-        options.conversations.writeCitations(answer.id, answer.text, cited.citations, cited.text);
+      const marks = uncitedChecks();
+      if ((cited || marks) && judgements.get(answer.id)?.controller === controller) {
+        options.conversations.writeCitations(
+          answer.id,
+          answer.text,
+          cited?.citations ?? citations,
+          cited?.text,
+          marks,
+        );
       }
       if (judgements.get(answer.id)?.controller === controller) judgements.delete(answer.id);
     }
@@ -1804,7 +1858,13 @@ export function createAnswers(options: AnswersOptions) {
           },
         }),
         ...(pressed && { pressed }),
+        ...(finishedAt !== null && inAssistant && readPassages()),
       };
+    };
+    /** What the Answer's judgement reads a sentence its model left uncited against (#3410). */
+    const readPassages = (): Pick<AnswerSteps, "readPassages"> => {
+      const ids = [...new Set(session.shownPassages().map((each) => each.passageId))];
+      return ids.length > 0 ? { readPassages: ids } : {};
     };
     let skills: SkillSession | null = null;
     const searched = inScope(options.documents, documentIds);
@@ -2268,8 +2328,13 @@ export function createAnswers(options: AnswersOptions) {
           usage,
         });
       }
-      if (judging && written && waitingAs === "checking" && waiting.size > 0) {
-        const stored = options.conversations.answer(answerId);
+      const stored = judging && written ? options.conversations.answer(answerId) : null;
+      // A sentence its model left uncited is judged too, against the Passages the Answer read (#3410).
+      const uncited =
+        stored !== null &&
+        (stored.steps?.readPassages?.length ?? 0) > 0 &&
+        uncitedSentences(stored.text).length > 0;
+      if (waitingAs === "checking" && (waiting.size > 0 || uncited)) {
         if (stored) {
           void judgeAnswer(
             stored,

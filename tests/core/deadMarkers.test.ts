@@ -124,13 +124,14 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
     expect(markersWithoutCitation(answer)).toEqual([]);
   });
 
-  // protects=a marker with no record beside one that has it, on a sentence that matches a Document's line by itself, takes that line's Citation with no request, the first staying as it was, in English (a sentence close to its line) and Chinese (its line word for word); its marker's digits aren't read as the sentence's number (#3059); fails_when=the model is asked, or either Citation is lost or changes; no_claim=none beyond protects.
+  // protects=a marker with no record beside one that has it gets no Citation by its sentence's words, though they repeat a Document's line (#3410): the model is asked once, and with none given that marker goes while the first stays as it was, in English (a sentence close to its line) and Chinese (its line word for word); fails_when=code cites it by its words, the model isn't asked, or the first Citation is lost or changes; no_claim=none beyond protects.
   test.each([
     {
       language: "English",
       document: TEA,
       question: ENGLISH.question,
       lines: [FIRST, SECOND],
+      query: "tea",
       answer: `Tea was first drunk in southwest China [^1]. ${CLOSE_TO_SECOND}`,
     },
     {
@@ -138,11 +139,12 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
       document: TEA_ZH,
       question: CHINESE.question,
       lines: [ZH_FIRST, ZH_SECOND],
+      query: "茶",
       answer: "茶最早在中国西南地区被当作药饮[^1]。商人沿着茶马古道把茶叶运到了西藏[^2]。",
     },
   ])(
-    "$language: a marker with no record on a sentence that matches its line takes it with no request",
-    async ({ document, question, lines, answer: written }) => {
+    "$language: a marker with no record on a sentence like its line is asked about, never cited by its words",
+    async ({ document, question, lines, query, answer: written }) => {
       let requests = 0;
       const model = scriptedModel(
         (call) => {
@@ -151,7 +153,7 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
             return { text: JSON.stringify({ citations: [] }) };
           }
           const search = call.results.find((result) => result.tool === "search_documents");
-          if (!search) return { calls: [{ tool: "search_documents", input: { query: "tea" } }] };
+          if (!search) return { calls: [{ tool: "search_documents", input: { query } }] };
           if (!call.results.some((result) => result.tool === "cite")) {
             const [passage] = shownPassages(search.text);
             const record = { marker: 1, passage: passage?.id, quote: lines[0] };
@@ -165,18 +167,17 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
 
       const answer = await askAssistant(core, { text: question });
 
-      expect(requests).toBe(0);
-      expect(answer.text).toBe(written);
+      expect(requests).toBe(1);
+      expect(answer.text).not.toContain("[^2]");
       expect(answer.citations.map(({ marker, quote, check }) => [marker, quote, check])).toEqual([
         [1, lines[0], "found"],
-        [2, lines[1], "found"],
       ]);
       expect(markersWithoutCitation(answer)).toEqual([]);
     },
   );
 
-  // protects=a sentence the Answer quotes is cited without a request, and another sentence still holding a marker with no record gets the one request, the Citation taking its marker and the first kept as it was; fails_when=the stray marker is left, the model isn't asked, or a second Citation lands on the quoted sentence; no_claim=none beyond protects.
-  test("a marker left over after the quoted sentence is cited is asked about once", async () => {
+  // protects=a sentence quoting a Document, and another, each holding a marker with no record, get the one request, each Citation taking its sentence's marker; code cites neither by its words (#3410); fails_when=a marker is left, the model isn't asked, or a Citation lands on the other sentence; no_claim=none beyond protects.
+  test("two markers with no record, one on a quotation, are asked about once", async () => {
     const quote = SECOND.replace(/\.$/, "");
     const quoted = `As the notes put it, "${quote}" [^1]. People first used it as a medicine in the south-west [^2].`;
     let requests = 0;
@@ -203,7 +204,7 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
     expect(requests).toBe(1);
     expect(answer.text).toBe(quoted);
     expect(answer.citations.map(({ marker, quote }) => [marker, quote])).toEqual([
-      [1, quote],
+      [1, SECOND],
       [2, FIRST],
     ]);
     expect(markersWithoutCitation(answer)).toEqual([]);
@@ -279,45 +280,6 @@ describe("A Citation marker never shows without a Citation behind it", { timeout
     expect(shown).not.toContain("[^");
     expect(shown).toContain(each.phrase);
   });
-
-  // protects=when the model, asked, gives none, a sentence whose marker matched a Document's line by itself keeps that Citation and the sentence that matched nothing loses its marker, after one request, in English (a sentence close to its line) and Chinese (its line word for word) (#3059); fails_when=the matched Citation goes, the other marker stays, or the model is asked again; no_claim=whether the line matched is the one the model would have given.
-  test.each([
-    {
-      language: "English",
-      document: TEA,
-      question: ENGLISH.question,
-      line: SECOND,
-      answer: `Tea was first drunk in southwest China [^1]. ${CLOSE_TO_SECOND}`,
-      text: `Tea was first drunk in southwest China. ${CLOSE_TO_SECOND}`,
-    },
-    {
-      language: "Chinese",
-      document: TEA_ZH,
-      question: CHINESE.question,
-      line: ZH_SECOND,
-      answer: "茶最早是一种药[^1]。商人沿着茶马古道把茶叶运到了西藏[^2]。",
-      text: "茶最早是一种药。商人沿着茶马古道把茶叶运到了西藏[^2]。",
-    },
-  ])(
-    "$language: with none given, a sentence that matched its line keeps its Citation and the other loses its marker",
-    async ({ document, question, line, answer: written, text }) => {
-      let requests = 0;
-      const model = markingModel(written, () => {
-        requests++;
-        return { text: JSON.stringify({ citations: [] }) };
-      });
-      const { core } = await setUpWithDocuments(model, [document]);
-
-      const answer = await askAssistant(core, { text: question });
-
-      expect(requests).toBe(1);
-      expect(answer.text).toBe(text);
-      expect(answer.citations.map(({ marker, quote, check }) => [marker, quote, check])).toEqual([
-        [2, line, "found"],
-      ]);
-      expect(markersWithoutCitation(answer)).toEqual([]);
-    },
-  );
 
   // protects=a provider that refuses the one request leaves the Answer finished, as written, with no marker shown and no second request; fails_when=the Answer fails, a marker shows, or the model is asked again; no_claim=how the provider's refusal is worded.
   test("a refused request leaves the Answer finished, without its markers", async () => {

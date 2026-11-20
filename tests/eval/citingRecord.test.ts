@@ -63,18 +63,18 @@ type Way =
 /**
  * A model that searches once, then answers one way:
  * - "app": its Document's first line with a marker it gives no record for, then the second line
- *   with none, both of which the app matches by itself;
+ *   with none: the app cites neither by itself, and asks once, which gives nothing (#3410);
  * - "asked-given", "asked-none", "asked-refused": a sentence the app can't match, with a marker and
  *   no record, so the one request for Citations goes out: it gives the first line, or nothing, or
  *   the provider refuses it;
  * - "model": the first line, with its own record for its marker;
- * - "app-and-asked", "app-and-asked-part": the first line with marker 1, which the app matches,
- *   then a sentence it can't match with marker 2, so the request goes out; its reply cites both, as
- *   a model shown the whole Answer does: the first line (or a part of it) and the second line;
- * - "shared-quote": the second line, which the app matches with no marker, then a sentence it can't
- *   match with marker 1; the request backs that sentence with the second line too;
- * - "shared-quote-middle": as "shared-quote" with a sentence between, no marker, that the app can't
- *   match; the request backs it with the second line, and the last sentence with the first.
+ * - "app-and-asked", "app-and-asked-part": the first line with marker 1, then another sentence
+ *   with marker 2, neither recorded, so the request goes out; its reply cites both: the first line
+ *   (or a part of it) and the second line;
+ * - "shared-quote": the second line with no marker, then another sentence with marker 1; the
+ *   request backs that sentence with the second line;
+ * - "shared-quote-middle": as "shared-quote" with a sentence between, no marker; the request backs
+ *   it with the second line, and the last sentence with the first.
  */
 function answering(way: Way, language: Language) {
   const terms = TERMS[language];
@@ -170,8 +170,8 @@ const LANGUAGES: Language[] = ["en", "zh-CN"];
 describe.each(LANGUAGES)("%s: the citing record of an Answer", (language) => {
   const terms = TERMS[language];
 
-  // protects=an Answer whose marker has no record and whose sentences match their lines keeps them as the app's own, by kind, with no request; fails_when=the record loses the model's text, the Passages, which marker had no record, or calls them the model's or the request's; no_claim=how well the app matches beyond these lines.
-  test("matched by the app: the marked sentence and the unmarked one, no request", {
+  // protects=an Answer whose marker has no record, beside a sentence with none, gets no Citation the model didn't give: the app asks once, and a reply with nothing leaves both uncited (#3410); fails_when=the record loses the model's text, the Passages or which marker had no record, or a Citation comes of the sentences' words; no_claim=what a real model gives when asked.
+  test("a marker with no record beside an uncited sentence: asked once, nothing by the app", {
     timeout: 60_000,
   }, async () => {
     const record = await recorded("app", language);
@@ -181,13 +181,8 @@ describe.each(LANGUAGES)("%s: the citing record of an Answer", (language) => {
     expect(record.passages.map((passage) => passage.text).join("\n")).toContain(terms.first);
     expect(record.records).toEqual([]);
     expect(record.unrecorded).toEqual([1]);
-    expect(record.asked).toBeNull();
-    expect(
-      record.citations.map(({ from, quote, check, judged }) => ({ from, quote, check, judged })),
-    ).toEqual([
-      { from: "app-marked", quote: terms.first, check: "found", judged: true },
-      { from: "app-unmarked", quote: terms.second, check: "found", judged: true },
-    ]);
+    expect(record.asked).toMatchObject({ given: [], failed: false });
+    expect(record.citations).toEqual([]);
   });
 
   test("asked once more, and a Citation came of it", { timeout: 60_000 }, async () => {
@@ -223,43 +218,22 @@ describe.each(LANGUAGES)("%s: the citing record of an Answer", (language) => {
     expect(record.citations).toEqual([]);
   });
 
-  // protects=a sentence the app matched before it asked stays the app's though the request's reply cites it too, whole or in part; fails_when=it is counted as the request's; no_claim=a reply citing a sentence the app didn't match with another line.
+  // protects=what the one request gives is the request's, a marker and a sentence with none alike, whole quote or part of one; fails_when=a Citation is counted as the app's own, or one is lost; no_claim=a reply that cites a sentence with another line.
   test.each(["app-and-asked", "app-and-asked-part"] as const)(
-    "the app's own match stays its own when the request cites it too (%s)",
-    {
-      timeout: 60_000,
-    },
+    "both markers take the Citations the request gives (%s)",
+    { timeout: 60_000 },
     async (way) => {
       const record = await recorded(way, language);
       expect(record.unrecorded).toEqual([1, 2]);
       expect(record.asked?.given).toHaveLength(2);
-      expect(record.citations.map(({ marker, from, quote }) => ({ marker, from, quote }))).toEqual([
-        { marker: 1, from: "app-marked", quote: terms.first },
-        { marker: 2, from: "request", quote: terms.second },
+      expect(record.citations.map(({ marker, from }) => ({ marker, from }))).toEqual([
+        { marker: 1, from: "request" },
+        { marker: 2, from: "request" },
       ]);
     },
   );
 
-  // protects=a Citation the request gave is the request's though its quote is the one an unmarked match of the app's took, told by the sentence its marker is in; fails_when=it is counted as the app's; no_claim=a sentence the later steps reword.
-  test("a request's Citation sharing its quote with the app's own match stays the request's", {
-    timeout: 60_000,
-  }, async () => {
-    const record = await recorded("shared-quote", language);
-    expect(record.unrecorded).toEqual([1]);
-    expect(
-      record.citations
-        .map(({ marker, from, quote }) => ({ marker, from, quote }))
-        .sort((a, b) => a.marker - b.marker),
-    ).toEqual([
-      { marker: 1, from: "request", quote: terms.second },
-      { marker: 2, from: "app-unmarked", quote: terms.second },
-    ]);
-    expect(
-      countCiting([{ model: "ollama/local-model", language, citing: record }])[0],
-    ).toMatchObject({ unrecorded: 1, asked: 1, askedGiven: 1, askedNone: 0 });
-  });
-
-  test("a sentence the app couldn't match, backed by the line the app matched, is the request's", {
+  test("a sentence with no marker the request backs gets its own Citation, the request's", {
     timeout: 60_000,
   }, async () => {
     const record = await recorded("shared-quote-middle", language);
@@ -269,9 +243,15 @@ describe.each(LANGUAGES)("%s: the citing record of an Answer", (language) => {
         .sort((a, b) => a.marker - b.marker),
     ).toEqual([
       { marker: 1, from: "request", quote: terms.first },
-      { marker: 2, from: "app-unmarked", quote: terms.second },
-      { marker: 3, from: "request", quote: terms.second },
+      { marker: 2, from: "request", quote: terms.second },
     ]);
+    const shared = await recorded("shared-quote", language);
+    expect(shared.citations.map(({ marker, from, quote }) => ({ marker, from, quote }))).toEqual([
+      { marker: 1, from: "request", quote: terms.second },
+    ]);
+    expect(
+      countCiting([{ model: "ollama/local-model", language, citing: shared }])[0],
+    ).toMatchObject({ unrecorded: 1, asked: 1, askedGiven: 1, askedNone: 0 });
   });
 
   test("the model's own record", { timeout: 60_000 }, async () => {
@@ -322,25 +302,17 @@ describe("The count over run files", () => {
     const each = {
       answers: 4,
       unrecorded: 3,
-      asked: 2,
+      asked: 3,
       askedGiven: 1,
-      askedNone: 1,
+      askedNone: 2,
       askedFailed: 0,
-      matchedByApp: 1,
       neither: 0,
       askedWithoutMarker: 0,
       origins: {
         model: { citations: 1, judged: 1, passed: 1 },
         request: { citations: 1, judged: 1, passed: 1 },
-        "app-marked": { citations: 1, judged: 1, passed: 1 },
-        "app-unmarked": { citations: 1, judged: 1, passed: 1 },
+        check: { citations: 0, judged: 0, passed: 0 },
         figure: { citations: 0, judged: 0, passed: 0 },
-      },
-      listNumbers: {
-        differing: { citations: 0, judged: 0, passed: 0 },
-        oneSided: { citations: 0, judged: 0, passed: 0 },
-        sharesLine: { citations: 0, judged: 0, passed: 0 },
-        unplaced: 0,
       },
     };
     expect(counts).toEqual([
@@ -349,8 +321,8 @@ describe("The count over run files", () => {
     ]);
   });
 
-  // protects=Answers with a marker that has no record add up to asked, matched by the app and neither: a marker that just went, with no request, is neither; fails_when=it counts as matched by the app; no_claim=why no request went out.
-  test("an Answer whose marker just went, with no request, is neither asked nor matched", () => {
+  // protects=Answers with a marker that has no record add up to asked and not asked: a marker that just went, with no request, is not asked, whatever else is cited; fails_when=it counts as asked; no_claim=why no request went out.
+  test("an Answer whose marker just went, with no request, isn't counted as asked", () => {
     const citing = (
       asked: CitingRecord["asked"],
       from: CitingRecord["citations"][number]["from"] | null,
@@ -376,7 +348,7 @@ describe("The count over run files", () => {
     });
     const answers = [
       citing(null, null),
-      citing(null, "app-marked"),
+      citing(null, "check"),
       citing({ answer: "Hosting stays in Europe [^1].", given: [], failed: true }, null),
     ].map((each) => ({ model: "anthropic/claude-haiku-5-5", language: "en", citing: each }));
     expect(countCiting(answers)).toEqual([
@@ -386,8 +358,7 @@ describe("The count over run files", () => {
         askedFailed: 1,
         askedGiven: 0,
         askedNone: 0,
-        matchedByApp: 1,
-        neither: 1,
+        neither: 2,
       }),
     ]);
   });

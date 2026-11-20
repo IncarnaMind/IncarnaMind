@@ -4673,6 +4673,8 @@ export const zhCN = {
   "citation.picture.unsure.other": "从图片中识别 · {count} 处可能识别有误",
   "citation.scan.unsureWord": "可能识别有误，请对照原页核对",
   "citation.scan.picture": "“{document}”中这段引文所在的扫描页",
+  "uncitedCheck.label": "{heading}。{why}",
+  "uncitedCheck.why": "这句话没有引用，这条回答读过的段落中也没有依据。",
   "uncheckedFigure.heading": "未核对",
   "uncheckedFigure.mark": "未核对：扫描件中可能识别有误的字词",
   "uncheckedFigure.why": "它来自“{word}”，该处文字是从扫描件识别的，可能识别有误。请对照原页核对。",

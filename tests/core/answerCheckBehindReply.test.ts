@@ -69,6 +69,8 @@ test("a Question asked while an Answer's sentences are checked holds the check's
           return { text: '{"asks_change":"no","request":"none"}' };
         }
         if (call.question !== "sentence-batch") return unscripted(call.question, call.system);
+        // The second reply's own uncited sentence is judged too (#3410): not one of the first's batches.
+        if (call.prompt.includes('uncited="true"')) return { text: '{"sentences":[]}' };
         batches.push(call);
         const count = [...call.prompt.matchAll(/<sentence number="\d+">/g)].length;
         const sentences = Array.from({ length: count }, (_, index) => ({
