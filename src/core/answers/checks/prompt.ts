@@ -15,6 +15,7 @@ import { asData, type PromptTag, tagged } from "../../promptData";
 import type { CiteReply } from "../engine";
 import { declines, parseJson, withoutThinking } from "../judge";
 import { setAsideRowsMeaning } from "../prompt";
+import { slideHeading } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
 export const CHECK_TAGS: readonly PromptTag[] = [
@@ -219,7 +220,8 @@ const ID_KEYS: ReadonlySet<string> = new Set(["passageId", "documentId", "conten
 export function claimPrompt(input: {
   claim: string;
   context?: string;
-  onSlide?: true;
+  /** `context` is the deck's slide by this number that the line is on (#3455). */
+  onSlide?: number;
   cited?: readonly { documentName: string; quote: string }[];
   /** The Passages those Citations quote, as the search Tool shows Passages. */
   citedShown?: string | null;
@@ -232,10 +234,10 @@ export function claimPrompt(input: {
   const worked = (input.figures ?? []).flatMap(workedOut);
   return [
     ...(context && context !== input.claim.trim()
-      ? input.onSlide
+      ? input.onSlide !== undefined
         ? [
             "The slide it is a line of, for what it is about and what its words refer to: every box's text with where it sits, as the file holds it. A number in a box of its own is what the boxes around it say it is, and a column's heading names each of its cells' figures in turn. The slide is the file being checked, not a source: what it says neither supports nor contradicts the line, which only the Documents' Passages can:",
-            tagged("slide", context, "", CHECK_TAGS),
+            tagged("slide", `${slideHeading(input.onSlide)}\n${context}`, "", CHECK_TAGS),
             "",
           ]
         : [

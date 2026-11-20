@@ -155,6 +155,10 @@ export interface SortedText {
   slide?: number;
 }
 
+/** The line a slide's text (`slideText`) is shown under, which names the slide for the model. */
+export const slideHeading = (slide: number): string =>
+  `Slide ${slide}, as the file holds it: each box in the file's order, with where it sits as a share of the slide.`;
+
 /**
  * The sentences of one batch, each after its number, with each slide they are lines of as the file
  * holds it (#3455).
@@ -168,7 +172,7 @@ export const findClaimsPrompt = (
       ...new Set(sentences.flatMap((each) => (each.slide === undefined ? [] : [each.slide]))),
     ].flatMap((slide) => {
       const held = slides[String(slide)];
-      return held === undefined ? [] : [[String(slide), held]];
+      return held === undefined ? [] : [[String(slide), `${slideHeading(slide)}\n${held}`]];
     }),
   );
   return JSON.stringify(

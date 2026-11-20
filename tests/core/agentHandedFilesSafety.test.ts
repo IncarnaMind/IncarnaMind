@@ -358,6 +358,37 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     expect(sentAfter(calls, before)).toEqual(new Set([NORTH]));
   });
 
+  // protects=a slide's number is no part of what its lines are judged with: a slide put in before a checked one leaves every line after it standing, and a changed box on a slide checks that slide's lines again (#3455 review); fails_when=inserting a slide checks every later slide's lines again, or a box's change keeps its slide's results
+  it("keeps the results of a slide's lines when a slide is put in before it, and checks them again when a box on it changes", async () => {
+    const calls: ModelCall[] = [];
+    const { coast, writer, files } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    const quays = { title: "Quays", lines: [NORTH] };
+    await writeFile(path, plainDeck([quays, { title: "Office", lines: [OFFICE] }]));
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const inserted = calls.length;
+
+    await writeFile(
+      path,
+      plainDeck([{ title: "South", lines: [SOUTH] }, quays, { title: "Office", lines: [OFFICE] }]),
+    );
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, inserted)).toEqual(new Set([SOUTH]));
+    const changed = calls.length;
+
+    await writeFile(
+      path,
+      plainDeck([
+        { title: "South", lines: [SOUTH] },
+        quays,
+        { title: "Office", lines: [OFFICE, NEVER_CLOSES] },
+      ]),
+    );
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, changed)).toEqual(new Set([OFFICE, NEVER_CLOSES]));
+  });
+
   // protects=the Note's page reads each result by the one reading the core and the agents use: a row whose column heading the User changed in the window since its check shows Needs re-check on the page, from what the core says the row is judged with now, and the agent's hand-over checks it again (#3455); fails_when=the page keeps showing a result that exports and the agent are told needs a re-check, or the window's editor drops what a result was judged with
   it("shows on the Note's page a row whose heading changed since its check as needing a re-check, as the agent is told", async () => {
     const calls: ModelCall[] = [];

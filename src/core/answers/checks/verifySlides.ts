@@ -59,11 +59,11 @@ const placed = (box: SlideBox) =>
 /**
  * A slide as the file holds it (#3455), for the models that read its lines: every box's text in
  * the file's order, each with where it sits on the slide, and the speaker notes. Which box says
- * what a number in another is, is theirs to read; nothing here pairs boxes.
+ * what a number in another is, is theirs to read; nothing here pairs boxes. Its number is not in
+ * it, so a slide put in before it leaves its lines' results standing (`slideHeading` names it).
  */
 export function slideText(slide: SlideOutline): string {
   return [
-    `Slide ${slide.number}, as the file holds it: each box in the file's order, with where it sits as a share of the slide.`,
     ...slide.boxes.map((box) => `[${placed(box)}] ${box.lines.join("\n  ")}`),
     ...(slide.notes.length > 0 ? ["[speaker notes]", ...slide.notes] : []),
   ].join("\n");

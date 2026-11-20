@@ -50,20 +50,31 @@ export function slideOf(
 }
 
 /**
- * A line as a file's check reads it: a table row whole with its headings, else the sentence. A
- * deck's line is read with its slide as the file holds it, which says what a number in a box of its
- * own is, in place of the lines above it in the Note (#3455).
+ * What a deck's line is checked with, by the file's check and the Note's own alike (#3455): its
+ * claim, a table row whole with its headings, read with its slide as the file holds it, which
+ * says what a number in a box of its own is, in place of the lines above it in the Note; undefined
+ * for a line of no slide.
  */
+export function deckSaidOf(
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): (ReturnType<typeof checkText> & { onSlide: number }) | undefined {
+  const slide = slideOf(sentence, verification);
+  const held = slide === null ? undefined : verification?.slides?.[String(slide)];
+  if (slide === null || held === undefined) return undefined;
+  const row = tableClaim(sentence, workbookCellsOf(verification));
+  const said = row === null || row === "not-a-claim" ? checkText(sentence) : row;
+  return { ...said, context: held, onSlide: slide };
+}
+
+/** A line as a file's check reads it: a table row whole with its headings, else the sentence. */
 export function claimOf(
   sentence: SelectedSentence,
   verification: Verification | null,
-): (ReturnType<typeof checkText> & { onSlide?: true }) | undefined {
+): (ReturnType<typeof checkText> & { onSlide?: number }) | undefined {
   const row = tableClaim(sentence, workbookCellsOf(verification));
   if (row === "not-a-claim") return undefined;
-  const said = row ?? checkText(sentence);
-  const slide = slideOf(sentence, verification);
-  const held = slide === null ? undefined : verification?.slides?.[String(slide)];
-  return held === undefined ? said : { ...said, context: held, onSlide: true };
+  return deckSaidOf(sentence, verification) ?? row ?? checkText(sentence);
 }
 
 /** What a line's check is given: its claim, and what stands above it. */
