@@ -2608,7 +2608,7 @@ export function mindTools(options: MindToolsOptions): {
   const contentProperty = {
     type: "string",
     description:
-      'The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text ("[Tides, p. 3]" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. It is read without this conversation: your searching goes in your reply. Write it after the other fields.',
+      "The text, in Markdown, cited as an Answer is: a marker like [^1] for each Citation you recorded with cite first, right after the words it backs, in table cells too. Never write a source as text (\"[Tides, p. 3]\" is how IncarnaMind shows a Citation): content with one is refused. A section starts with its heading; a table has a heading row, a row of ---, then a row per line. Write what the Documents say, and what they don't hold where the User asked; what you searched, read, tried or couldn't find along the way goes in your reply. Write it after the other fields.",
   };
 
   // Offered only when there is one: a model may otherwise reach for it with none.
@@ -2847,7 +2847,7 @@ export function mindTools(options: MindToolsOptions): {
   const edit: Tool = {
     name: MIND_TOOLS.edit,
     description:
-      "Change text that is already in a Note, as the User asks: shorten, lengthen, rewrite, restructure, correct, translate or reword it, or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and the text is rewritten for you, its Citations kept. To change one paragraph and leave the others as they are, name its first words in part. The rewrite reads only that text: it can't search the Documents or cite anything new, so new facts from the Documents, a table of them too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, still waiting or as you wrote it, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which.",
+      "Change text already in a Note as the User asks: shorten, lengthen, rewrite, restructure, correct, translate, reword or remove part of it. For a small fix, give old_text and new_text, and only those words change; otherwise say what to change in instruction, and it is rewritten for you, Citations kept. To change one paragraph alone, name its first words in part. The rewrite reads only that text and can't search or cite anything new: new facts from the Documents, tables too, go in with add_to_mind, cited. Text you proposed that still waits ([waiting change, adds: …]) is revised in place. For your own text, waiting or as written, give its whole new text as content instead, cited as add_to_mind's. Say in times_as_long how long the User asked for it to be: off that length it is refused twice at most. It applies at once, with Undo, unless it takes out most of the User's own text, or with removes_only does more than that, which then waits for them: the result says which.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2855,7 +2855,7 @@ export function mindTools(options: MindToolsOptions): {
         part: {
           type: "string",
           description:
-            'The heading of the section to change as written in the Note, or the first three or more words of the one paragraph to change. When the User names a section, give its name here alone, even when the Note has the heading more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
+            'The heading of the section to change as written in the Note, or the first three or more words of the paragraph to change. When the User names a section, give its name here alone, even if the Note has it more than once: you are then told how to ask which. Only when the User names the heading it is under, put that first: "Part 2 > Summary". Leave it out to change what the User selected, or else the whole Note.',
         },
         instruction: {
           type: "string",
@@ -3151,7 +3151,7 @@ export function mindTools(options: MindToolsOptions): {
   const add: Tool = {
     name: MIND_TOOLS.add,
     description:
-      "Add new text to a Note: a section, a paragraph, a list or a table you write from the Documents or this conversation, or the piece of writing the User asked for, into the empty Note in front. Cite it as an Answer: call cite first, then put its markers in content, in each table cell as in a paragraph. It applies in the Note at once, with Undo. To change text already there, your own included, use edit_mind: never add a longer version of it beside it.",
+      "Add new text to a Note: a section, paragraph, list or table you write from the Documents or this conversation, or the writing the User asked for, into the empty Note in front. Cite it as an Answer: call cite first, then put its markers in content, in table cells too. It applies at once, with Undo. To change text already there, your own included, use edit_mind: never add a longer version beside it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -3159,7 +3159,7 @@ export function mindTools(options: MindToolsOptions): {
         after: {
           type: "string",
           description:
-            'The heading of the section to add it at the end of, or the first words of the paragraph to add it after, as written in the Note. Whenever the User names a place, give its name here alone, also when the Note has it more than once: you are then told how to ask the User which. Only when the User names the heading it is under ("the Summary under Part 2"), put that first: "Part 2 > Summary". Leave it out to add it at the Note\'s end.',
+            'The heading of the section to add it at the end of, or the first words of the paragraph to add it after, as written in the Note. When the User names a place, give its name here alone, even if the Note has it more than once: you are then told how to ask which. Only when the User names the heading it is under ("the Summary under Part 2"), put that first: "Part 2 > Summary". Leave it out to add it at the end.',
         },
         ...chartProperty,
         content: contentProperty,
@@ -3354,7 +3354,7 @@ export function mindTools(options: MindToolsOptions): {
   const create: Tool = {
     name: MIND_TOOLS.create,
     description:
-      "Make a new Note for a piece of writing the User asked for (a summary, report, memo, notes, plan or letter) when no empty Note is in front, or when they explicitly ask for a new note, page or document. Never use it merely to write a piece when an empty Note is in front: use add_to_mind there instead. Write its content as you would an Answer: call cite first, then put its markers in content. Leave content out for an empty Note. It opens beside the User's Note, its text applied at once, with Undo.",
+      "Make a new Note for writing the User asked for (a summary, report, memo, notes, plan or letter) when no empty Note is in front, or when they explicitly ask for a new note, page or document; otherwise, with an empty Note in front, use add_to_mind. Write its content as an Answer: call cite first, then put its markers in content. Leave content out for an empty Note. It opens beside the User's Note, its text applied at once, with Undo.",
     inputSchema: {
       type: "object",
       properties: {

@@ -13,7 +13,7 @@ import {
 /*
  * What the model writes into a Note goes in as written (#3462): no rule reads its sentences for
  * talk about its own searching or for pointers to an earlier Answer. The model is told, where it
- * writes the Note's text, that the Note is read on its own; what it then writes is the Note's.
+ * writes the Note's text, what goes in the Note and what in its reply; what it writes is the Note's.
  */
 
 const INFERENCE = "Read together, the Passages suggest the warranty covers parts but not labour.";
@@ -59,15 +59,15 @@ describe("What the model writes into a Note (#3462)", () => {
     ]);
   });
 
-  // protects=the model is told where it writes a Note's text that the Note is read without this conversation, and that its own searching goes in its reply; fails_when=the principle is missing from the field's description; no_claim=how a real model follows it.
-  test("is asked for, where the model writes it, as text read on its own", async () => {
+  // protects=the model is told where it writes a Note's text that what the Documents say, and what they don't hold where asked, go in the Note, and what it searched, read, tried or couldn't find goes in its reply; fails_when=the principle is missing from the field's description; no_claim=how a real model follows it.
+  test("is asked for, where the model writes it, as what the Documents say, its own searching left to the reply", async () => {
     const { model } = await written();
 
     const create = model.doStreamCalls[0]?.tools?.find((each) => each.name === "create_mind");
     if (create?.type !== "function") throw new Error("create_mind is not a function tool.");
     const schema = JSON.stringify(create.inputSchema);
     expect(schema).toContain(
-      "It is read without this conversation: your searching goes in your reply.",
+      "Write what the Documents say, and what they don't hold where the User asked; what you searched, read, tried or couldn't find along the way goes in your reply.",
     );
   });
 });
