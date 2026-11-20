@@ -1122,9 +1122,8 @@ export const quoteRetryPrompt = (records: readonly QuoteToRetry[]): string =>
   judgePrompt(quoteRetryParts(records), RETRY_TAGS);
 
 /**
- * Once an Answer is written with no Citation though it read Passages, and no
- * sentence of it matches one: the one request for its Citations (see
- * ./unmarkedQuotes).
+ * Once an Answer is written with no Citation though it read Passages: the one
+ * request for its Citations (see ./unmarkedQuotes).
  */
 const CITE_RETRY_ITEM =
   "give the sentence as the Answer has it, the Passage's id, and a quote from the Passage that supports it: one unbroken stretch, copied character for character, no longer than a sentence. Don't reword, translate, join sentences, change characters or leave words out.";

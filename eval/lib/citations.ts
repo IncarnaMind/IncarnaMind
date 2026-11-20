@@ -535,14 +535,26 @@ export function evalOllamaModels(
 }
 
 /** Writes a Question into the Mind, as the editor would store it, through the public interface. */
-async function writeQuestion(core: Core, mindId: string, id: string, text: string): Promise<void> {
+async function writeQuestion(
+  core: Core,
+  mindId: string,
+  id: string,
+  text: string,
+  paragraphs: readonly string[],
+): Promise<void> {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, (await core.openMind(mindId)).state);
   const before = Y.encodeStateVector(doc);
+  const above = paragraphs.map((words) => {
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.setAttribute(BLOCK_ID_ATTRIBUTE, randomUUID());
+    paragraph.insert(0, [new Y.XmlText(words)]);
+    return paragraph;
+  });
   const question = new Y.XmlElement(QUESTION_BLOCK);
   question.setAttribute(BLOCK_ID_ATTRIBUTE, id);
   question.insert(0, [new Y.XmlText(text)]);
-  doc.getXmlFragment(MIND_CONTENT_FIELD).push([question]);
+  doc.getXmlFragment(MIND_CONTENT_FIELD).push([...above, question]);
   await core.applyMindUpdate(mindId, Y.encodeStateAsUpdate(doc, before));
   doc.destroy();
 }
@@ -571,18 +583,19 @@ async function readAnswer(
 
 type Ending = { finished: AnswerFinished } | { failed: ProviderError };
 
-/** Asks one Question in a new Mind and reads its Answer back. */
+/** Asks one Question in a new Mind, under the User's `paragraphs`, and reads its Answer back. */
 export async function askOne(
   library: Library,
   question: EvalQuestion,
   round: number,
   timeoutMs: number,
+  paragraphs: readonly string[] = [],
 ): Promise<AnswerRecord> {
   const { core } = library;
   const started = Date.now();
   const mind = await core.createMind({ title: `Evaluation ${question.id}, round ${round}` });
   const questionId = randomUUID();
-  await writeQuestion(core, mind.id, questionId, question.question);
+  await writeQuestion(core, mind.id, questionId, question.question, paragraphs);
 
   const searches: string[] = [];
   const ended = new Promise<Ending>((resolve) => {

@@ -1985,6 +1985,7 @@ export const zhCN = {
   "proposal.unknownAuthor": "未知作者",
   "proposal.madeBy": "{author}，{date}",
   "proposal.proposedBy": "{agent} 建议",
+  "proposal.removedBlock": "已删除",
   "proposal.uncited.one": "1 句没有引用",
   "proposal.uncited": "{count} 句没有引用",
   "proposal.uncited.next": "选中下一句没有引用的句子",
@@ -4678,6 +4679,8 @@ export const zhCN = {
   "citation.picture.unsure.other": "从图片中识别 · {count} 处可能识别有误",
   "citation.scan.unsureWord": "可能识别有误，请对照原页核对",
   "citation.scan.picture": "“{document}”中这段引文所在的扫描页",
+  "uncitedCheck.label": "{heading}。{why}",
+  "uncitedCheck.why": "这句话没有引用，这条回答读过的段落中也没有依据。",
   "uncheckedFigure.heading": "未核对",
   "uncheckedFigure.mark": "未核对：扫描件中可能识别有误的字词",
   "uncheckedFigure.why": "它来自“{word}”，该处文字是从扫描件识别的，可能识别有误。请对照原页核对。",
@@ -7227,6 +7230,10 @@ export const zhCN = {
     "使用 NVIDIA Sortformer 在本机区分最多四位说话人。录音保存在这台电脑上。你可以逐条试听，再决定采用哪些修改。",
   "meetings.review.roomDownload": "需下载约 {mb} MB",
   "meetings.review.roomInstall": "下载并检查说话人",
+  "meetings.review.namedLabel": "{name}（{label}）",
+  "meetings.review.selfLabel": "你对应哪位发言人？",
+  "meetings.review.chooseSelfLabel": "选择自己的另一个标签",
+  "meetings.review.selfHelp": "此选择仅用于本次复核。如果你是第五位发言人，这次会议无法复核。",
   "meetings.review.roomCheck": "在本机检查说话人",
   "meetings.review.unavailable.platform": "这台电脑暂不支持在本机复核会议室里的说话人。",
   "meetings.review.unavailable.people": "本机最多可复核四位说话人。",
@@ -8051,6 +8058,7 @@ export const zhCN = {
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.visualAdded":
     "{name} 的改写只能是文字：图片、图表或标签页要单独成段。请用 {name}+ 添加。",
+  "agents.propose.visualKept": "{name} 保持原样。{line}",
   "agents.propose.emptyTab":
     "{name} 中有一个空的标签页：请在它的 ```tab 块之后写上其中的内容，让用户能看到并决定是否接受。",
   "agents.propose.unplaced":
@@ -8064,6 +8072,10 @@ export const zhCN = {
     "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
   "agents.propose.unchecked":
     "笔记中有 {count} 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这些句子。",
+  "agents.read.unchecked.one":
+    "这篇笔记中有 1 句还没有核对结果：要告诉用户它对不对，先用 check_mind_yourself 核对，它会给出这一句。",
+  "agents.read.unchecked":
+    "这篇笔记中有 {count} 句还没有核对结果：要告诉用户这些句子对不对，先用 check_mind_yourself 核对，它会给出这些句子。",
   "agents.mind.namedChoice": "named 必须是 true 或 false。",
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",

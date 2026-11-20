@@ -647,7 +647,7 @@ describe("Citations the app adds as a reply ends land with its end (#2847)", {
     expect(quoteRows(end)).toEqual([[{ markers: [1], state: "found" }], []]);
   });
 
-  // protects=the join comes first: a Citation the app adds as the reply ends, quoting the same words of the same place as one already drawn under that line, adds no line: its number joins that quote line, landing with the end, in English and Chinese; fails_when=the added Citation draws a line of its own, its number goes on another line, or it shows before the end; no_claim=which elements the panel keeps, which the renderer test pins.
+  // protects=the join comes first: a Citation the one request adds as the reply ends, quoting the same words of the same place as one already drawn under that line, adds no line: its number joins that quote line, landing with the end, in English and Chinese; fails_when=the added Citation draws a line of its own, its number goes on another line, or it shows before the end; no_claim=which elements the panel keeps, which the renderer test pins.
   test.each([
     ["English", QUOTED_AGAIN.en],
     ["Chinese", QUOTED_AGAIN.zh],
@@ -663,9 +663,15 @@ describe("Citations the app adds as a reply ends land with its end (#2847)", {
     const { core, meeting } = await setUp({
       reply,
       pause: { after: (text) => text.length, until, reached },
+      // The quotation's Citation comes of the one request, which a typed Question's lines are
+      // asked about by: code cites no sentence by its words (#3410).
+      asked: { until: Promise.resolve(), reached: () => {} },
     });
     const writes = writesOf(core);
-    const asked = await core.askMeetingHelp({ meetingId: meeting.id, kind: "answer" });
+    const asked = await core.askMeetingQuestion({
+      meetingId: meeting.id,
+      text: "What does Enterprise cost?",
+    });
     if (!asked.asked) throw new Error("Not asked.");
     await there;
     const shown = await vi.waitFor(

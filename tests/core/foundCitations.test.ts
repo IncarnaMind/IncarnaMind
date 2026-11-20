@@ -72,6 +72,26 @@ test("a found Passage is cited after its sentence's last marker, and later ✓ p
   ]);
 });
 
+// protects=a Passage the judgement found for a sentence with no marker (#3410) is cited where that sentence's marker goes, takes the next free number, and the ✓ places of the markers after it move by one while those before it stay; fails_when=the marker lands after another sentence's, reuses a number, or a ✓ place points at the wrong Citation; no_claim=where in a sentence its marker goes, which the Answer's judgement reads from the sentence.
+test("a found Passage for an uncited sentence is cited where its marker goes", () => {
+  const text = "First[^1]. Second. Third[^2].";
+  const citations = [cited(1, "a", "A", [0]), cited(2, "b", "B", [1])];
+
+  const added = withFoundCitations(
+    text,
+    citations,
+    [{ at: text.indexOf(". Third"), passages: [passage("c", "C")] }],
+    AT,
+  );
+
+  expect(added?.text).toBe("First[^1]. Second[^3]. Third[^2].");
+  expect(shown(added?.citations ?? [])).toEqual([
+    { marker: 1, quote: "A", foundByCheck: null, passedAt: [0], judgedAt: null },
+    { marker: 2, quote: "B", foundByCheck: null, passedAt: [2], judgedAt: null },
+    { marker: 3, quote: "C", foundByCheck: true, passedAt: [1], judgedAt: AT },
+  ]);
+});
+
 // protects=several Passages found for one sentence, and for two sentences, are each cited once in order, the numbers running on, and every added marker's ✓ stands where the marker is; fails_when=two found Passages share a number, come out of order, or a ✓ place points at another marker; no_claim=more than a handful of found Passages a sentence.
 test("several found Passages, in two sentences, each get their own number and place", () => {
   const text = "One[^1]. Two[^2].";

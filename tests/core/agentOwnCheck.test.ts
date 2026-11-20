@@ -6,12 +6,14 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { readMind } from "../helpers/minds";
+import { editMind, readMind, writeMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
 
 const TIDES = [
@@ -285,18 +287,122 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     expect((await task(agent, mindId)).sentences).toEqual([]);
   });
 
-  // protects=a result is never laid on words the agent didn't judge; fails_when=results for an earlier state of the Note mark it as it is now
-  it("refuses results for a Note that changed since its sentences were given", async () => {
-    const { agent, mindId } = await paired();
+  // protects=an agent that hands back its results in parts, or again, has each part marked on the sentences it was given (#3432); fails_when=its own first report counts as the Note changing, and the rest is refused
+  it("takes a report on the same sentences after the first one landed, by the numbers it gave", async () => {
+    const { core, agent, mindId, coast } = await paired();
     const given = await task(agent, mindId);
     const twice = await cited(agent, "Spring tides happen twice a month");
     structured<Reported>(
       await report(agent, mindId, given.task, [{ n: 1, verdict: "supported", cites: [twice] }]),
     );
 
+    const rest = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 3, verdict: "not found", explanation: "Tides says nothing of penguins." },
+      ]),
+    );
+    expect(rest).toMatchObject({ marked: 1, unconfirmed: [], unreported: [2, 4] });
+    expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
+      [SPRING, "supported"],
+      [PENGUINS, "unsupported"],
+    ]);
+  });
+
+  // protects=a result is never laid on words the agent didn't judge; fails_when=results for an earlier state of the Note mark it as it is now
+  it("refuses results for a Note whose words changed since its sentences were given", async () => {
+    const { agent, mindId } = await paired();
+    const given = await task(agent, mindId);
+    const { version } = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    structured(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: { mindId, version, changes: [{ paragraph: "¶2", text: SPRING_RANGE }] },
+      }),
+    );
+
+    expect(refusal(await report(agent, mindId, given.task, [{ n: 2, verdict: "not found" }]))).toBe(
+      "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
+    );
+  });
+
+  // protects=a result lands only on the claim the agent judged, a figure IncarnaMind worked out as it was shown included (#3432); fails_when=a report from before the figure's value changed marks the sentence as it reads now
+  it("refuses results for a sentence whose figure changed since it was given", async () => {
+    const { core, agent, mindId } = await paired();
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const growth = (value: number, shown: string) => ({
+      type: "paragraph",
+      attrs: { id: "line-growth" },
+      content: [
+        { type: "text", text: "Spring tides rose " },
+        calculatedFigureNode(
+          {
+            label: "Growth",
+            formula: "",
+            inputs: [],
+            value,
+            unit: { kind: "percent" },
+            approximate: false,
+            shown,
+            show: { language: "en", as: "percent", decimals: 1, scale: null },
+            literals: [],
+            engine: FORMULA_VERSION,
+            written: null,
+            analysis: { analysis: 1, result: "growth" },
+          },
+          "figure-growth",
+          "analysis-run",
+        ),
+        { type: "text", text: " over the year." },
+      ],
+    });
+    writeMind(client, [growth(0.25, "25.0%")]);
+    await client.settled();
+    const given = await task(agent, mindId);
+    expect(given.sentences).toEqual([{ n: 1, text: "Spring tides rose 25.0% over the year." }]);
+
+    editMind(client, () => [growth(0.3, "30.0%")]);
+    await client.settled();
     expect(refusal(await report(agent, mindId, given.task, [{ n: 1, verdict: "not found" }]))).toBe(
       "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
     );
+    expect((await task(agent, mindId)).sentences).toEqual([
+      { n: 1, text: "Spring tides rose 30.0% over the year." },
+    ]);
+  });
+
+  // protects=an agent that reads its Note in a later chat learns that its sentences aren't checked, where it decides how to answer whether the Note is right (#3432); fails_when=read_mind says nothing of it, says it of a Note the User wrote, or still says it once every sentence holds a result
+  it("read_mind says how many sentences of a Note the agent wrote hold no check result yet", async () => {
+    const { core, agent, mindId, coast } = await paired();
+    const read = async (id: string, named?: boolean) =>
+      structured<{ next: string | null }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: id, named } }),
+      ).next;
+    const unchecked =
+      "4 sentences of this note hold no check result yet: to tell the User whether they are right, check them with check_mind_yourself, which gives them.";
+    expect(await read(mindId)).toBe(unchecked);
+    expect(await read(mindId, true)).toBe(unchecked);
+
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice] },
+        { n: 2, verdict: "contradicted", cites: [largest] },
+        { n: 4, verdict: "nothing to check" },
+      ]),
+    );
+    expect(await read(mindId)).toBe(
+      "1 sentence of this note holds no check result yet: to tell the User whether it is right, check it with check_mind_yourself, which gives it.",
+    );
+    structured<Reported>(await report(agent, mindId, given.task, [{ n: 3, verdict: "not found" }]));
+    expect(await read(mindId)).toBeNull();
+
+    const theirs = await core.createMind({ title: "My own", folderId: coast.id });
+    expect(await read(theirs.id)).toBeNull();
   });
 
   // protects=an agent marks only the Notes it wrote; fails_when=it can lay results on a Note of the User's

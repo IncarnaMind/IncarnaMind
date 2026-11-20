@@ -256,6 +256,46 @@ describe("Verify a workbook", () => {
     });
   });
 
+  // protects=a cell with no saved result after a formula that can't be worked out shows nothing though a cell between them has a saved result (#3412); fails_when=the saved value in between stands in, and the last cell shows a figure and counts as worked out though its chain couldn't be
+  test("a cell after a formula that can't be worked out shows nothing, though a cell between them saved a result", async () => {
+    const { core, sources } = await setUp();
+    const book = new WorkbookBuilder();
+    book
+      .sheet("Model")
+      .text("A1", "Item")
+      .text("B1", "Value")
+      .text("A2", "Tonnes")
+      .number("B2", 3450)
+      .text("A3", "Looked up")
+      .formula("B3", "NOSUCHFUNCTION(B2)", null)
+      .text("A4", "Plus one")
+      .formula("B4", "B3+1", 10)
+      .text("A5", "Plus two")
+      .formula("B5", "B4+1", null);
+    const path = await writeSourceFile(sources, "Chain.xlsx", book.xlsx());
+
+    const result = await core.verifyDocument({ path, sheet: "Model" });
+    if (!result.ok) throw new Error(`Not verified: ${result.reason}`);
+    const { client, blocks } = await tableOf(core, result.mind.id);
+
+    const rows = blocks[1]?.content ?? [];
+    expect(
+      rows.map((row) => row.content?.map((cell) => cell.content?.[0]?.content?.[0]?.text ?? "")),
+    ).toEqual([
+      ["Item", "Value"],
+      ["Tonnes", "3450"],
+      ["Looked up", ""],
+      ["Plus one", "10"],
+      ["Plus two", ""],
+    ]);
+    expect(verificationOf(client.doc)?.workbook).toMatchObject({
+      checked: 0,
+      unsaved: 0,
+      unchecked: 3,
+      differs: [],
+    });
+  });
+
   // protects=a cell after a formula whose saved result is wrong is compared on its own formula (#3412); fails_when=it is worked from the wrong saved value, and a right cell is flagged as differing
   test("a cell after a formula whose saved result differs is worked from the value worked out, and only the wrong one is flagged", async () => {
     const { core, sources } = await setUp();

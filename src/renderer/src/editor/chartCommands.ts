@@ -3,7 +3,12 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { type EditorState, NodeSelection } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
-import { ANALYSIS_TABLE_ATTRIBUTE, BLOCK_ID_ATTRIBUTE, CHART_NODE } from "../../../core/api";
+import {
+  ANALYSIS_TABLE_ATTRIBUTE,
+  BLOCK_ID_ATTRIBUTE,
+  CHART_NODE,
+  PROPOSAL_ATTRIBUTE,
+} from "../../../core/api";
 import {
   type AnalysisTableMatch,
   boundTableFor,
@@ -27,6 +32,7 @@ import {
   withAnalysisValues,
 } from "../../../shared/charts";
 import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
+import { readProposalAttribute } from "../../../shared/proposals";
 import { asOwnUndoStep } from "./selectionCommands";
 
 const readText = (node: ProseMirrorNode): SourceLine => sourceLineOf(node.toJSON());
@@ -187,6 +193,18 @@ export function chartTable(
   return found;
 }
 
+/**
+ * A chart's table on its grid, as the chart reads it: for a chart a change adds, as that change
+ * leaves the table, which it was drawn from (#3429).
+ */
+function gridForChart(
+  table: ProseMirrorNode,
+  attributes: Readonly<Record<string, unknown>>,
+): SourceGrid {
+  const adding = readProposalAttribute(attributes[PROPOSAL_ATTRIBUTE]);
+  return gridOfTable(table.toJSON(), adding?.kind === "insert" ? adding.request : null);
+}
+
 /** Null when the table is gone, unchanged, or no longer has a column of numbers. */
 export function tableUpdate(
   doc: ProseMirrorNode,
@@ -195,7 +213,7 @@ export function tableUpdate(
 ): ChartData | null {
   const chart = readChart(attributes);
   const table = chartTable(doc, chart);
-  return table ? redrawnData(tableGrid(table), chart, language) : null;
+  return table ? redrawnData(gridForChart(table, attributes), chart, language) : null;
 }
 
 /**
@@ -216,7 +234,7 @@ export function switchedChartIn(
   const fresh =
     table &&
     chart.source.kind === "table" &&
-    chartFromTable(tableGrid(table), {
+    chartFromTable(gridForChart(table, attributes), {
       blockId: chart.source.blockId,
       title: chart.title,
       language,

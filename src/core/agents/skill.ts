@@ -32,7 +32,8 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "da9d17409bfdddb4505f497cfec1d799a650e0e0038e7db74b959e44786dea2c",
   "312f4df56cd3427db641077d4ea16bcb32451dc07ae2fcef42d4255e2aa4346f",
   "59e011bac664580915757c59fb28762139b0b084ebd0c7cd7db5324b1407ecf3",
-  "c9a6a4e88cec14927f52d8e1a468eace5c35de92a0cc123a76ec5cc9c601ae68",
+  "0f4438c1f35bf5137aab3873687384c1469af65a27f0e8d3a36d7f41f22ba906",
+  "a82f784adfffb20086e657a24e58aabb2105d5de4919f83ea8ddfcb0c7b3c98e",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -98,7 +99,7 @@ A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_fi
 
 To change a Note, read it with \`read_mind\` and \`named\`, then \`propose_changes\`: in a Note you wrote, your changes apply at once and the User can undo them; in any other, they wait for the User. In a Note you wrote, paragraphs marked as the User's are theirs: leave them as they are unless the User asks you to change them.
 
-To check a Note you wrote against the User's Documents, when they ask or right after you write it, start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. It gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`run_analysis\` and reported on the id it gives; one you work out yourself from numbers Passages give is reported with its working, each number with its Citation, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note, where the User sees the marks. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
+Whenever the User wants to know whether a Note you wrote is right, however they ask, and right after you write one, check it: start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. A Note you wrote is one \`list_minds\` marks \`yours\`, from this chat or an earlier one. \`check_mind_yourself\` gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`run_analysis\` and reported on the id it gives; one you work out yourself from numbers Passages give is reported with its working, each number with its Citation, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note: those marks are the answer the User sees, and a verdict only in your reply leaves the Note unchecked. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
 
 \`check_mind\` is IncarnaMind's own check of that Note instead, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general. When it answers "running", call it again.
 `;

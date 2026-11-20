@@ -26,22 +26,15 @@ import type {
 import { parseRecords } from "../../src/core/answers/engine";
 import { questionOf } from "../../src/core/answers/judge";
 import { takeToolText } from "../../src/core/answers/toolText";
-import { matchUnmarked, parseAsked } from "../../src/core/answers/unmarkedQuotes";
+import { parseAsked } from "../../src/core/answers/unmarkedQuotes";
 import { markersIn } from "../../src/shared/answerBlocks";
-import { answerSentences, withoutMarkerRuns } from "../../src/shared/answerSentences";
 import { shownPassages } from "../../tests/helpers/citations";
 
 /**
- * Where a finished Citation came from:
- * - "model": the model's own record for its marker;
- * - "request": the one request for Citations gave it;
- * - "app-marked": the app's own match, on a sentence that carried a marker the model gave no
- *   record for;
- * - "app-unmarked": the app's own match, on a sentence with no marker;
- * - "figure": an input of a calculated figure, recorded with the figure and never shown as a
- *   marker in the text.
+ * Where a Citation came from: the model's own records, the one request for those it left out, the
+ * Answer's own judgement of a sentence its model left uncited (#3410), or a figure's inputs.
  */
-export type CitationOrigin = "model" | "request" | "app-marked" | "app-unmarked" | "figure";
+export type CitationOrigin = "model" | "request" | "check" | "figure";
 
 export interface CitingRecord {
   /**
@@ -231,8 +224,6 @@ const recordsOf = (value: unknown): CitingRecord["records"] =>
     quote: quote ?? "",
   }));
 
-const comparable = (text: string) => text.replace(/\s+/g, " ").trim();
-
 /** The record of one Answer's citing step, from what the watcher heard and the Answer once its sentences are judged. */
 export function citingRecord(watched: Watched, answer: ConversationAnswer): CitingRecord {
   const written: string[] = [];
@@ -291,39 +282,10 @@ export function citingRecord(watched: Watched, answer: ConversationAnswer): Citi
   );
   const shown = new Set(markersIn(answer.text));
   const passageList = [...passages.values()];
-  // The request's reply is taken only for sentences the app hadn't matched first, and it is given
-  // the whole Answer, so it often cites those too: which sentences the app matched is told by
-  // matching again, as the citing step did, the text it read with the Passages it was shown.
-  const appMatched = asked
-    ? matchUnmarked(
-        asked.answer,
-        passageList,
-        (id, quote) =>
-          comparable(passages.get(id)?.text ?? "").includes(comparable(quote)) && quote !== "",
-        (marker) => recordedMarkers.has(marker),
-      )
-    : null;
-  // A quote can't tell the app's Citation from the request's (both may quote one line); the
-  // sentence its marker sits in can: the app's when the replay matched that sentence.
-  const finished = answerSentences(answer.text);
-  const plain = (text: string) => comparable(withoutMarkerRuns(text));
-  const sentencesOf = (marker: number) =>
-    finished.flatMap((sentence, at) => {
-      if (!sentence.markers.includes(marker)) return [];
-      // A marker alone after its sentence's stop belongs to the sentence before it.
-      const words = plain(sentence.text);
-      return [words !== "" ? words : plain(finished[at - 1]?.text ?? "")];
-    });
   const fromOf = (citation: ConversationAnswer["citations"][number]): CitationOrigin => {
     if (recordedMarkers.has(citation.marker)) return "model";
     if (!shown.has(citation.marker)) return "figure";
-    if (appMatched === null) {
-      return unrecorded.includes(citation.marker) ? "app-marked" : "app-unmarked";
-    }
-    const its = sentencesOf(citation.marker);
-    const own = appMatched.find((match) => its.includes(plain(match.sentence)));
-    if (!own) return "request";
-    return own.marker === undefined ? "app-unmarked" : "app-marked";
+    return citation.foundByCheck ? "check" : "request";
   };
   return {
     written,
