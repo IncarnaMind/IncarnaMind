@@ -60,8 +60,9 @@ export const ComposerDockContext = createContext<HTMLElement | null>(null);
  * import's progress; `menu`, the page's top right, for its ⋯ button; `count`
  * and `badge`, the page's bottom left and right, over the text, for the count
  * while writing and the check badge; `review`, beside the page or over its
- * right edge, for the reviewing pane (#697), and where it shows now. Each is
- * null until it is there.
+ * right edge, for the reviewing pane (#697), and where it shows now;
+ * `outlineButton`, the tab's top left, and `outline`, at the left of the page,
+ * for the outline (#3414). Each is null until it is there.
  */
 export const PageSlotsContext = createContext<{
   top: HTMLElement | null;
@@ -70,7 +71,18 @@ export const PageSlotsContext = createContext<{
   badge: HTMLElement | null;
   review: HTMLElement | null;
   reviewShown: ReviewShown;
-}>({ top: null, menu: null, count: null, badge: null, review: null, reviewShown: "closed" });
+  outlineButton: HTMLElement | null;
+  outline: HTMLElement | null;
+}>({
+  top: null,
+  menu: null,
+  count: null,
+  badge: null,
+  review: null,
+  reviewShown: "closed",
+  outlineButton: null,
+  outline: null,
+});
 
 /** Where a Mind's reviewing pane is: beside the page, over its right edge, folded to its button, or closed. */
 export type ReviewShown = "beside" | "over" | "folded" | "closed";

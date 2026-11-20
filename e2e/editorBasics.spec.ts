@@ -1,6 +1,6 @@
 import { realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
 import {
@@ -14,14 +14,11 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
-  openMoreMenu,
   pointAndClick,
-  pressTextStart,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   slideSelect,
-  tabMenu,
   urlsOpened,
   useLocalChatModel,
   wordsBox,
@@ -29,7 +26,7 @@ import {
 
 /*
  * The editor's basics (#115): lists, a checklist, a quote and a divider from
- * "/", links, the outline, find in the Mind, "@" for a Document, each by
+ * "/", links, find in the Mind, "@" for a Document, each by
  * keyboard and by mouse. Set INCARNAMIND_SCREENSHOTS to a folder to also
  * save screenshots.
  */
@@ -455,86 +452,6 @@ test("the link field opens once beside the link each time Edit is pressed, thoug
   await window.keyboard.press("Escape");
   await expect(field).toHaveCount(0);
   expect(await opens()).toBe(2);
-});
-
-/** Types a Mind of headings with a page of text under each, then puts the cursor at its start. */
-async function writeSections(window: Page, titles: readonly string[]) {
-  for (const [index, title] of titles.entries()) {
-    await window.keyboard.type(`${index === 1 ? "## " : "# "}${title}`);
-    await window.keyboard.press("Enter");
-    for (let line = 0; line < 14; line++) {
-      await window.keyboard.type(`Line ${line} under ${index}`);
-      await window.keyboard.press("Enter");
-    }
-  }
-  await pressTextStart(window);
-}
-
-/** Whether the heading shows in the window. */
-const inView = (heading: Locator) =>
-  heading.evaluate((element) => {
-    const box = element.getBoundingClientRect();
-    return box.top >= 0 && box.bottom <= window.innerHeight;
-  });
-
-for (const [language, titles] of [
-  ["en", ["Tides", "Spring tides", "Moons"]],
-  ["zh-CN", ["潮汐", "大潮", "月亮"]],
-] as const) {
-  test(`the Mind's outline lists its headings and jumps to each, from the menu or the keyboard (${language})`, async () => {
-    const { window, editor } = await startMind(language);
-    await writeSections(window, titles);
-    const items = window.getByTestId("outline-item");
-    const last = editor.locator("h1", { hasText: titles[2] });
-    expect(await inView(last)).toBe(false);
-
-    // From the ⋯ menu, by mouse: a heading per line, indented by level.
-    const more = await openMoreMenu(window, await tabMenu(window));
-    await more.getByTestId("mind.outline").hover();
-    await more.getByTestId("mind.outline").click();
-    await expect(items).toHaveText([...titles]);
-    const levels = await items.evaluateAll((all) =>
-      all.map((each) => Number(each.getAttribute("data-level"))),
-    );
-    expect(levels).toEqual([1, 2, 1]);
-    const indents = await items.evaluateAll((all) =>
-      all.map((each) => Number.parseFloat(getComputedStyle(each).paddingLeft)),
-    );
-    expect(indents[1]).toBeGreaterThan(indents[0] ?? 0);
-    await items.nth(2).hover();
-    await items.nth(2).click();
-    await expect(window.getByTestId("mind-outline")).toHaveCount(0);
-    await expect.poll(() => inView(last)).toBe(true);
-    // The cursor is at the start of the heading: typing goes there.
-    await expect(editor).toBeFocused();
-    await window.keyboard.type("!");
-    await expect(last).toHaveText(`!${titles[2]}`);
-
-    // From the keyboard: arrows and Enter; Esc closes it and gives the cursor back.
-    await window.keyboard.press("ControlOrMeta+Alt+L");
-    await expect(items.first()).toBeFocused();
-    await window.keyboard.press("Escape");
-    await expect(items).toHaveCount(0);
-    await expect(editor).toBeFocused();
-    await window.keyboard.press("ControlOrMeta+Alt+L");
-    await expect(items.first()).toBeFocused();
-    await window.keyboard.press("ArrowDown");
-    await expect(items.nth(1)).toBeFocused();
-    await window.keyboard.press("Enter");
-    await expect.poll(() => inView(editor.locator("h2"))).toBe(true);
-    await expect(editor).toBeFocused();
-    await window.keyboard.type("?");
-    await expect(editor.locator("h2")).toHaveText(`?${titles[1]}`);
-  });
-}
-
-test("the outline of a Mind with no headings says how to add one", async () => {
-  const { window } = await startMind();
-  await window.keyboard.type("Just a line");
-  await window.keyboard.press("ControlOrMeta+Alt+L");
-  await expect(window.getByTestId("mind-outline-empty")).toBeVisible();
-  await window.keyboard.press("Escape");
-  await expect(window.getByTestId("mind-outline")).toHaveCount(0);
 });
 
 test("find in the Mind: a count, next and previous by keyboard and mouse, Chinese text, and Esc leaves the cursor on the match", async () => {

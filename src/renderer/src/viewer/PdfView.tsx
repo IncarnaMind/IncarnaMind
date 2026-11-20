@@ -988,11 +988,7 @@ function OutlineEntry({
   const { page } = item;
   return (
     <li>
-      <div
-        className={`pdf-outline-row ${depth > 0 ? "pdf-outline-row--nested" : ""} ${
-          isCurrent ? "pdf-outline-row--current" : ""
-        }`}
-      >
+      <div className={`pdf-outline-row ${isCurrent ? "pdf-outline-row--current" : ""}`}>
         <button
           type="button"
           data-testid="pdf-outline-item"

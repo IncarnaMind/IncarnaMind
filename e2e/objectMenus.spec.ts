@@ -270,9 +270,9 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   const mindActions = mind.getByTestId("mind-actions");
   await menuCommands(mindActions);
   await screenshot(window, "menu-mind");
-  // More ›: the rest, in its own order. Tidy Chinese text is there only for Chinese text.
+  // More ›: the rest, in its own order. Tidy Chinese text is there only for Chinese text, and the
+  // outline only for a Note shown with two headings or more.
   expect(await menuCommands(await openMoreMenu(window, mindActions))).toEqual([
-    "mind.outline",
     "mind.checkContradictions",
     "mind.useAsSource",
     "skill.fromMind",
@@ -562,7 +562,6 @@ test("each item shows its shortcut as the system writes it, and the labels are i
   // More ›, in Chinese: the rest, inside the window, each item on one line.
   const more = await openMoreMenu(window, menu);
   await expect(more.getByRole("menuitem")).toHaveText([
-    /^大纲(⌥⌘L|Ctrl\+Alt\+L)$/,
     "核对矛盾",
     "作为来源使用",
     "做成技能",
