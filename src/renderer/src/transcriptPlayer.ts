@@ -1,10 +1,11 @@
 import { create } from "zustand";
+import type { AudioSource } from "../../core/api";
 import { core } from "./core";
 
 /**
  * Playing a stopped Meeting's audio from a word of its Transcript (#138): stretches of it read
  * from the core as they are needed, played one after the other through Web Audio. The speaker
- * review listens to just the computer sound for the line. One plays at a time, in one window.
+ * review listens to the reviewed track for the line. One plays at a time, in one window.
  */
 
 /** How much is read from the core at a time. */
@@ -17,7 +18,7 @@ const TICK_MS = 100;
 interface TranscriptClip {
   startMs: number;
   endMs: number;
-  source: "system";
+  source: AudioSource;
 }
 
 export interface TranscriptPlayback {

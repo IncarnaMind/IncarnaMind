@@ -83,7 +83,11 @@ const CHINA_ORDER: readonly ModelSourceId[] = ["modelscope", "hf-mirror", "huggi
 /** The redirect rule for a download made with no sources (`ModelSources.redirectAllowed`): Hugging Face's. */
 export const redirectAllowedByDefault = (asked: URL, from: URL, to: URL) =>
   (from.protocol !== "https:" || to.protocol === "https:") &&
-  (to.host === asked.host || within(to.hostname, HUGGING_FACE_HOSTS));
+  (to.host === asked.host ||
+    within(to.hostname, HUGGING_FACE_HOSTS) ||
+    (asked.origin === "https://github.com" &&
+      asked.pathname.startsWith("/NVIDIA/NeMo-Speech.cpp/releases/download/") &&
+      to.origin === "https://release-assets.githubusercontent.com"));
 
 export interface ModelSourcesOptions {
   fetch: typeof fetch;

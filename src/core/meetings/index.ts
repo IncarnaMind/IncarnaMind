@@ -1241,7 +1241,7 @@ export function createMeetings(options: MeetingsOptions) {
         !Number.isFinite(fromMs) ||
         !Number.isFinite(toMs) ||
         !(toMs > fromMs) ||
-        (source !== undefined && source !== "system")
+        (source !== undefined && source !== "system" && source !== "microphone")
       ) {
         throw new InvalidInputError({ key: "error.meeting.audioStretch" });
       }

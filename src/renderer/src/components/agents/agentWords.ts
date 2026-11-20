@@ -123,7 +123,10 @@ export function activityWords(activity: AgentActivity, t: Translate): string {
   const applied =
     activity.tool === "propose_changes" && activity.outcome === "done" && activity.count === null;
   if (applied) return t("agents.activity.changed", { text });
-  const what = t(`agents.activity.${activity.tool}`, { text });
+  const what =
+    activity.tool === "read_request" && text === ""
+      ? t("agents.activity.read_request.none")
+      : t(`agents.activity.${activity.tool}`, { text });
   if (activity.outcome !== "done") {
     const reason = t(`agents.reason.${activity.problem ?? "failed"}`);
     return `${what} · ${t(
@@ -134,7 +137,8 @@ export function activityWords(activity: AgentActivity, t: Translate): string {
   if (
     activity.count === null ||
     activity.tool === "show_citation" ||
-    activity.tool === "create_mind"
+    activity.tool === "create_mind" ||
+    activity.tool === "read_request"
   ) {
     return what;
   }

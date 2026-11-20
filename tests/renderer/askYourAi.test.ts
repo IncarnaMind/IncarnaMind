@@ -83,7 +83,7 @@ const { useNotices } = await import("../../src/renderer/src/notices");
 const { useAnswers } = await import("../../src/renderer/src/answers");
 const { useModelSetup } = await import("../../src/renderer/src/modelSetup");
 const { askInAssistant } = await import("../../src/renderer/src/conversations");
-const { askAgent } = await import("../../src/renderer/src/askYourAi");
+const { askAgent, askedAbout } = await import("../../src/renderer/src/askYourAi");
 const { composerKey } = await import("../../src/renderer/src/composer");
 const { useFoldForOwnAi, useOwnAiPill } = await import("../../src/renderer/src/ownAiPanel");
 const { useQuietAssistant } = await import("../../src/renderer/src/quietAssistant");
@@ -271,6 +271,36 @@ describe("asking an agent", () => {
       message: "agents.ask.copied",
       params: { agent: "VS Code" },
     });
+  });
+});
+
+describe("a sentence the User asked their AI to fix (#3419)", () => {
+  const request = (readAt: string | null, checkId = "check-1") => ({
+    id: "request-1",
+    pairingId: "pairing-Claude Code",
+    mindId: MIND,
+    sentences: [{ sentence: "Gross margin held at 40.3% in Q3.", checkId }],
+    createdAt: "2026-11-19T10:00:00.000Z",
+    readAt,
+  });
+  const agents = [pairing("Claude Code", "claude-code")];
+  const sentence = "Gross margin held at 40.3% in Q3.";
+
+  // protects=the card says the request waits for that agent until it reads it, and stops saying so once the sentence is edited or checked again or the agent can't read the Note; fails_when=a line names another agent, outlives an edit or a new check, or says read before it was
+  test("waits for the agent, says when it read it, and goes with an edit or a new check", () => {
+    expect(askedAbout([request(null)], agents, "check-1", sentence)).toEqual({
+      agent: "Claude Code",
+      read: false,
+    });
+    expect(askedAbout([request("2026-11-19T10:01:00.000Z")], agents, "check-1", sentence)).toEqual({
+      agent: "Claude Code",
+      read: true,
+    });
+    expect(askedAbout([request(null)], agents, "check-2", sentence)).toBeNull();
+    expect(
+      askedAbout([request(null)], agents, "check-1", "Gross margin was 38.1% in Q3."),
+    ).toBeNull();
+    expect(askedAbout([request(null)], [], "check-1", sentence)).toBeNull();
   });
 });
 

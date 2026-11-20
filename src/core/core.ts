@@ -287,7 +287,7 @@ import {
   meetingRecord,
   otherCallTranscripts,
 } from "./meetings";
-import { listParts, meetingFolder, systemRecording } from "./meetings/audioFiles";
+import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { type MemoCue, memoTitle } from "./meetings/memo";
@@ -5221,7 +5221,8 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const speakerReview = createMeetingSpeakerReview({
     parts: (id) => listParts(meetingFolder(dataDir, id)),
-    recording: systemRecording,
+    recording: sourceRecording,
+    roomReviewer: adapters.roomSpeakerReviewer,
     now,
     settings,
     cloud: cloudTranscription,
@@ -5839,6 +5840,7 @@ export function createCore(adapters: CoreAdapters): Core {
     skillInstalled: (client) => skillInstalled(home, client),
     changed: (value) => events.emit("agents.changed", value),
     called: (activity) => events.emit("agents.activity", activity),
+    requested: (request) => events.emit("agents.request", request),
     reportError: (error) => console.error(error),
   });
   agentsLocalModeChanged = () => agents.localModeChanged();
@@ -5875,6 +5877,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
     minds: () => minds.list(),
+    keepRequest: (request) => agents.keepRequest(request),
     openLink: adapters.agents?.openLink ?? null,
     say: (key, params) => translate(settings.get().language, key, params),
     log: adapters.log ?? silentLogger,
@@ -8166,6 +8169,8 @@ export function createCore(adapters: CoreAdapters): Core {
     deleteCanvas: async (canvasId) => removeCanvas(canvasId),
     canvasShowing: (host) => canvases.showing(host),
     serveCanvas: (host, path) => canvases.served(host, path),
+    listAgentRequests: async (mindId) =>
+      typeof mindId === "string" ? agents.requestsFor(mindId) : [],
     getAgentLaunch: (pairingId) => agents.launch(pairingId),
     listAgentActivity: async (pairingId) => agents.activity(pairingId),
     reconcileDocuments: () => documents.linkedFolders.sync(),
