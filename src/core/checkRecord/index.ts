@@ -55,6 +55,8 @@ export interface CheckRecordDependencies {
   figures(mindId: string): readonly FigureScheduleRow[];
   /** The User, whose own check marks are theirs (#1933); null before they make one. */
   personId(): string | null;
+  /** The walled Folder that keeps a Document inside it, seen from the Mind; null when it may read it. */
+  keptInside?(mindId: string, documentId: string): string | null;
 }
 
 const GONE: Record<ScopeKind, MessageKey> = {
@@ -80,6 +82,8 @@ export interface CheckRecord {
   /** The live Documents, so a figure's Citation of a Transcript names its Speaker as now (#138). */
   documents: readonly LiveDocument[];
   language: Language;
+  /** How many unmarked claims and Analysis table columns not recalculated the page counts as not checked (#3460). */
+  notChecked: number;
 }
 
 export interface CheckRecordFile {
@@ -102,27 +106,33 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
     const language = deps.language();
     const providers = await deps.providers();
     const t = translatorFor(language);
-    const { sentences, citations, recordCites, unread } = deps.read(mind.id, (fragment) => {
-      const record = readRecord({
-        fragment,
-        language,
-        documents: deps.documents(),
-        kept: deps.keptCitationTexts(),
-        folderId: mind.folderId,
-        t,
-        model: (providerId, modelId) => describeModel(providers, providerId, modelId),
-        readQuote: (attributes) =>
-          attributes.quote
-            ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
+    const { sentences, citations, recordCites, unread, notChecked } = deps.read(
+      mind.id,
+      (fragment) => {
+        const record = readRecord({
+          fragment,
+          language,
+          documents: deps.documents(),
+          kept: deps.keptCitationTexts(),
+          folderId: mind.folderId,
+          t,
+          model: (providerId, modelId) => describeModel(providers, providerId, modelId),
+          readQuote: (attributes) =>
+            attributes.quote
+              ? (deps.readableQuote(attributes) ?? readableQuoteText(attributes.quote))
+              : null,
+          personId: deps.personId(),
+          reach,
+          keptInside: deps.keptInside
+            ? (documentId) => deps.keptInside?.(mind.id, documentId) ?? null
             : null,
-        personId: deps.personId(),
-        reach,
-      });
-      return {
-        ...record,
-        unread: fragment.doc ? checkUnreadOf(fragment.doc, record.requests) : [],
-      };
-    });
+        });
+        return {
+          ...record,
+          unread: fragment.doc ? checkUnreadOf(fragment.doc, record.requests) : [],
+        };
+      },
+    );
 
     const searched = new Set<string>();
     const models = new Map<string, number>();
@@ -163,6 +173,7 @@ export function createCheckRecord(deps: CheckRecordDependencies) {
       figures: deps.figures(mind.id),
       documents: deps.documents(),
       language,
+      notChecked,
     };
   }
 
