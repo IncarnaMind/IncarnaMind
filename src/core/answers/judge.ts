@@ -141,6 +141,8 @@ export interface NotJudged {
   reason: JudgeFailure;
   /** For cut-short and failed: what the provider said. */
   error?: ProviderError;
+  /** For unreadable and refused: how the reply began, for a log that says what the model gave (#3506). */
+  reply?: string;
   usage: TokenUsage | null;
 }
 
@@ -582,6 +584,7 @@ export async function judge<T>(ask: JudgeAsk<T>): Promise<Judged<T>> {
     return {
       ok: false,
       reason: declines(replyText(replied.text)) ? "refused" : "unreadable",
+      reply: replied.text.trim().slice(0, 300),
       usage,
     };
   }

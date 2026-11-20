@@ -185,6 +185,11 @@ export interface VerifyOptions extends CheckRuns {
    */
   discardWordMind(mindId: string): Promise<void>;
   defaultModel(): ChatModelChoice | null;
+  /**
+   * Whether the Mind is the check of a file an outside agent handed over (#3412): the User's agent
+   * wrote it for them, so its lines are sorted as the User's own draft's are (#3506).
+   */
+  handedOver?(mindId: string): boolean;
   prepare(choice: ChatModelChoice | null): Promise<Prepared>;
   /**
    * The model, when it can be used without asking the User anything (#3412: a check an outside
@@ -357,10 +362,12 @@ export function createVerify(options: VerifyOptions) {
     if (signal.aborted) return { kind: "cancelled" };
 
     const { sentences, snapshot } = sortingInput(mindId, verification);
+    // What an agent hands over is its writer's own text, whose words about itself (its sources, its
+    // method, its assumptions) say nothing for the Documents to confirm (#3506).
     const found = await claimsAmong(
       ready.prepared,
       sentences.map((each) => ({ text: each.said })),
-      "someone-else",
+      options.handedOver?.(mindId) ? "own" : "someone-else",
       signal,
     );
     if (found.kind !== "found") return found;
@@ -385,6 +392,7 @@ export function createVerify(options: VerifyOptions) {
           text: sentence.text,
           occurrence: sentence.occurrence,
           ...(parts && { parts }),
+          ...(found.unsorted.has(index) && { unsorted: true as const }),
         },
       ];
     });
@@ -455,7 +463,11 @@ export function createVerify(options: VerifyOptions) {
   ): Promise<VerifyClaimsResult> {
     const { mindId, requestId } = input;
     let verification = verificationOf(mindId);
-    if (verification.sortedText !== sortingInput(mindId, verification).snapshot) {
+    // Lines whose sort couldn't be read are sorted again, with the rest.
+    if (
+      verification.sortedText !== sortingInput(mindId, verification).snapshot ||
+      verification.claims?.some((claim) => claim.unsorted)
+    ) {
       const found = await findClaims(mindId, input.model, signal, prepare);
       if (found.kind !== "found") return found;
       verification = verificationOf(mindId);
@@ -541,6 +553,28 @@ export function createVerify(options: VerifyOptions) {
           checkedAt: startedAt,
           judgedWith: judgedWithOf(sentence, verification),
         };
+        // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
+        if (claim.unsorted) {
+          markSentence(
+            sentence.element,
+            sentence.from,
+            sentence.to,
+            options.withResult(
+              marked,
+              {
+                verdict: "not-checked",
+                reason: "malformed",
+                detail: null,
+                versions: [],
+                excluded: [],
+              },
+              startedAt,
+              blocks,
+              mindId,
+            ),
+          );
+          return [];
+        }
         const said = saidOf(sentence, verification);
         const contextualRow = said.claim !== sentence.text;
         const row =
