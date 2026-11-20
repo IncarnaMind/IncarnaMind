@@ -122,7 +122,7 @@ export interface Figure extends Reading {
 }
 
 /** How a Document writes its numbers: "1,234.5" has decimal "." and group ",". */
-export interface Separators {
+interface Separators {
   decimal: "." | ",";
   group: "," | "." | " " | "'";
 }
@@ -241,12 +241,6 @@ const ENDS_FIGURE = /[\p{Nd})）%％]$/u;
 export const isFootnoteAfterFigure = (text: string, start: number, end: number): boolean =>
   MARK_AFTER_FIGURE.test(text.slice(start, end)) &&
   ENDS_FIGURE.test(text.slice(Math.max(0, start - 1), start));
-
-/** `text` with each footnote's mark read as `FOOTNOTE_MARK_CHAR`, which NFKC keeps apart from the figure ("1,240.50¹"). */
-export const markedFootnotes = (text: string): string =>
-  text.replace(/./gu, (char, at: number) =>
-    isFootnoteAfterFigure(text, at, at + char.length) ? FOOTNOTE_MARK_CHAR : char,
-  );
 
 interface Prepared {
   /** The normalised text (./text, ADR-0009), one character per character read. */
@@ -493,7 +487,7 @@ function languageSeparators(language: string): Separators | null {
  * period. A year, an account number or a clause number grouped ("2,026")
  * would stop reading as one (#2102).
  */
-export const RAW_COLUMN_HEADERS: readonly string[] = [
+const RAW_COLUMN_HEADERS: readonly string[] = [
   "ID",
   "code",
   "No.",
@@ -896,21 +890,6 @@ function pageCut(before: string): boolean {
 /** The dashes the text read writes as "-" (./text), so the Document's text around it is read alike. */
 const DASHES = /[\u2010-\u2015\u2212]/g;
 
-/**
- * The decimal mark a text read with `context` takes: its numbers' own, else its language's; null
- * when neither tells, or they disagree.
- */
-export const decimalMarkOf = (context: FigureContext): "." | "," | null => settle(context).decimal;
-
-/**
- * The reading of a "separator" ambiguity a decimal mark gives: its first reading is the one "."
- * gives, as English and Chinese write numbers (`readNumber`); a figure with one reading keeps it.
- */
-export function separatorReadingFor(ambiguity: Ambiguity, decimal: "." | ","): Reading | undefined {
-  const [point, comma] = ambiguity.readings;
-  return decimal === "," && comma ? comma : point;
-}
-
 function settle(context: FigureContext): Settled {
   const byLanguage = context.language ? languageSeparators(context.language) : null;
   const byText = context.separators ?? null;
@@ -1085,11 +1064,6 @@ const NAMED_CODES = new Map(
     .filter(([word]) => /^[a-z]/.test(word) || /^[A-Za-z.]+(?: [A-Za-z]+)+$/.test(word))
     .map(([word, code]) => [word.toLowerCase(), code]),
 );
-
-/** The currency a word after an amount names: "pounds" is GBP, "欧元" EUR; null for any other word. */
-export function currencyNamed(word: string): string | null {
-  return CURRENCY_CODES[word] ?? NAMED_CODES.get(word.toLowerCase()) ?? null;
-}
 
 const CN_CURRENCY_AFTER =
   /(?:新加坡元|瑞士法郎|新台币|澳门元|澳门币|人民币|美元|港元|港币|欧元|日元|英镑|澳元|加元|韩元|卢布|元|圆|円)(?:人民币)?/y;
@@ -1475,7 +1449,7 @@ export interface HeaderRead {
   readonly periodColumns: boolean;
 }
 
-export type HeaderStatement = Statement;
+type HeaderStatement = Statement;
 
 /**
  * What a header (`FigureContext.header`) states, read with `context` once: the stated units its
@@ -1905,205 +1879,6 @@ export function readStatedUnits(
   return statedUnitsOf(prepared, text, statements);
 }
 
-// A line states a scale for the whole Document only when its whole text is an opening, an
-// optional scope from a closed list, an optional verb, one unit and an optional conventional
-// exception. Any other word between the opening and the unit names a part, so the line is not the
-// Document's (#2365).
-const EN_WHOLE_SUBJECT =
-  "(?:(?:throughout|across)\\s+(?:this|the)\\s+(?:document|report)\\s+)?" +
-  "(?:all\\s+(?:of\\s+the\\s+)?(?:amounts?|figures?|sums?|values?|numbers?)" +
-  "|every\\s+(?:amount|figure|sum|value|number)" +
-  "|(?:amounts?|figures?|sums?|values?|numbers?)\\s+(?:throughout|across)\\s+(?:this|the)\\s+(?:document|report|(?:consolidated\\s+)?financial\\s+statements?))";
-const EN_WHOLE_SCOPE = [
-  "(?:this|these|the)\\s+(?:consolidated\\s+)?financial\\s+statements?",
-  "(?:this|the)\\s+(?:document|(?:annual\\s+)?report|annual\\s+report\\s+and\\s+accounts)",
-  "(?:the\\s+)?group(?:['’]s\\s+(?:consolidated\\s+)?financial\\s+statements)?",
-  "(?:the\\s+)?(?:financial\\s+|fiscal\\s+)?(?:year|period)\\s+ended\\s+(?:\\d{1,2}\\s+\\p{L}+\\s+\\d{4}|\\p{L}+\\s+\\d{4}|\\d{1,2}[/.]\\d{1,2}[/.]\\d{4}|\\d{4}年\\d{1,2}月\\d{1,2}日|\\d{4}年|\\d{4})",
-  "(?:US\\s+|U\\.S\\.\\s+|Hong\\s+Kong\\s+|HK\\s+|Australian\\s+|Canadian\\s+|Singapore\\s+)?dollars?",
-  "pounds?(?:\\s+sterling)?|euros?|yuan|[Rr]enminbi|sterling|yen",
-  "(?:USD|GBP|EUR|HKD|CNY|RMB|JPY|AUD|CAD|SGD|TWD|CHF|INR)",
-  "(?:US|HK|A|C|S|NT)?\\$|€|£|¥|₹",
-  "['’]?0{3}s?|thousands?|millions?|billions?|trillions?|lakhs?|crores?",
-  "%",
-].join("|");
-const EN_WHOLE_BEFORE = new RegExp(
-  "^\\s*" +
-    EN_WHOLE_SUBJECT +
-    "(?:\\s+(?:in|for|of|on|throughout)\\s+(?:" +
-    EN_WHOLE_SCOPE +
-    ")(?![A-Za-z0-9]))*" +
-    "(?:\\s+(?:are|is|were|was|will|shall|should|must|may|can)\\b(?:\\s+(?:stated|shown|expressed|presented|given|set|quoted|reported|disclosed|prepared))?)?" +
-    "(?:\\s+(?:in|of|for|at))?" +
-    "(?:\\s*[(（])?\\s*$",
-  "iu",
-);
-const EN_WHOLE_AFTER =
-  /^\s*[.;,]?\s*(?:unless\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|except\s+(?:where|as|if|unless)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown|disclosed)(?:\s+in\s+the\s+(?:notes?|financial\s+statements?))?|except\s+per[-\s]share\s+(?:data|amounts?))?[.;]?\s*$/i;
-// A line may open with one of the conventional exceptions only; never any other clause.
-const WHOLE_OPENING =
-  /^\s*(?:unless\s+(?:otherwise\s+)?(?:stated|noted|indicated)|except\s+(?:where|as)\s+(?:otherwise\s+)?(?:stated|noted|indicated|shown)|除(?:另有|特别)(?:说明|注明)外)\s*[,，;；]?\s*/i;
-const ZH_WHOLE_BEFORE =
-  /^\s*(?:本文件|本报告|本報告|本招股(?:说明书|說明書)?|全文|(?:合并|合併)?财务报表|財務報表)?(?:中|内|內)?(?:所有|全部|一切)?(?:金额|金額|货币|貨幣)?(?:单位|單位)?(?:均|一律|都)?(?:以|为|為)?\s*(?:[(（])?\s*$/;
-const ZH_WHOLE_SUBJECT = /所有|全部|一切|本文件|本报告|本報告|本招股|全文|财务报表|財務報表/;
-const ZH_WHOLE_AFTER =
-  /^\s*[)）]?\s*(?:列示|表示)?\s*(?:[。.]|(?:[，,;；]\s*(?:但|惟)?(?:附注|註釋|注释|财务报表)?(?:另有)?(?:说明|注明|指明|列明)者?除外))?\s*$/;
-
-function wholeDocumentLine(line: string): boolean {
-  const hadOpening = WHOLE_OPENING.test(line);
-  const main = hadOpening ? line.replace(WHOLE_OPENING, "") : line;
-  const statement = readStatedUnits(main).at(-1);
-  if (!statement) return false;
-  const before = main.slice(0, statement.start);
-  const after = main.slice(statement.end);
-  if (EN_WHOLE_BEFORE.test(before) && EN_WHOLE_AFTER.test(after)) return true;
-  return (
-    (hadOpening || ZH_WHOLE_SUBJECT.test(before)) &&
-    ZH_WHOLE_BEFORE.test(before) &&
-    ZH_WHOLE_AFTER.test(after)
-  );
-}
-
-/**
- * Whether a scale line says, in its own words, that it holds for the whole Document ("All amounts
- * in £'000", "Figures throughout this document are in millions", "所有金额单位：千元",
- * "除另有说明外…"), rather than naming a note, section or table whose scale it is. Only such a
- * line may state the scale of a figure outside its own section (#2365).
- */
-export function statesForWholeDocument(text: string): boolean {
-  const line = text
-    .normalize("NFKC")
-    .replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
-  return wholeDocumentLine(line);
-}
-
-// What may stand before a bare scale in its own clause: nothing, a framing word ("All amounts",
-// "Figures are expressed"), a currency's name ("Dollars in thousands") or "Unit:".
-const AMOUNT_FRAME_BEFORE = new RegExp(
-  `^\\s*(?:(?:all|the)\\s+)*(?:(?:amounts?|figures?|sums?|values?|numbers?|totals?|${WORD_CURRENCIES})\\s+)?(?:(?:are|is|were|was)\\s+)?(?:(?:expressed|stated|shown|presented|reported|given)\\s+)?(?:units?\\s?[:：]\\s*)?$|^\\s*(?:所有|全部|一切)?(?:金额|金額|货币|貨幣)?(?:均|一律|都)?(?:以|为|為)?\\s*$`,
-  "iu",
-);
-
-// The clauses a line that states amounts' scale may hold beside it: a declaration of their
-// currency, a note on their audit, presentation, exceptions or rounding, or a period (#2365).
-const CURRENCY_CLAUSE = `(?:(?:币种|幣種|货币|貨幣|货币单位|貨幣單位|报告货币|记账本位币|currency|reporting\\s+currency)\\s*[:：]?\\s*)?(?:in\\s+)?(?:${STATED_CURRENCY}|${WORD_CURRENCIES}|${HAN_CURRENCIES}|元)`;
-const NOTE_CLAUSE =
-  "(?:un)?audited|(?:as\\s+)?(?:restated|re-?presented|reclassified)|(?:un)?reviewed|未经审计|未經審計|经审计|經審計|已审计|未经审阅|(?:经|已)?重述|审计类型\\s*[:：]\\s*(?:未经审计|经审计|已审计|审计)|(?:except|excluding|other\\s+than|save)\\b.*|除.{0,16}外|.{0,16}除外|unless\\s+otherwise\\s+(?:stated|noted|indicated|specified|disclosed)|.*\\bround(?:ed|ing)\\b.*|四舍五入";
-const CN_PERIOD_CLAUSE = "\\d{4}年(?:\\d{1,2}(?:[—\\-~至]\\d{1,2})?月(?:\\d{1,2}日)?)?(?:度|末)?";
-const BESIDE_AMOUNT_SCALE = new RegExp(
-  `^(?:${CURRENCY_CLAUSE}|${NOTE_CLAUSE}|${CN_PERIOD_CLAUSE}|[\\d.,%\\s-]+)$`,
-  "iu",
-);
-// A PDF joins the next line to a CJK one: a clause it starts ("币种：人民币营业收入…") ends there.
-const BESIDE_AMOUNT_SCALE_JOINED = new RegExp(
-  `^(?:${CURRENCY_CLAUSE}|${NOTE_CLAUSE}|${CN_PERIOD_CLAUSE})(?=\\p{Script=Han})`,
-  "iu",
-);
-const PERIOD_WORDS =
-  /(?:(?:19|20)\d{2}|\b\d{1,2}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|q[1-4]|h[12]|fy|three|six|nine|twelve|months?|weeks?|years?|quarters?|periods?|half|ended|ending|as|at|of|for|the|fiscal|financial)\b\.?|[\s,–-])/giu;
-const CLAUSE_SEPARATOR =
-  /[,，;；、()（）[\]【】]|\s{2,}|(?<=[\p{Script=Han}：:）)])\s|\s(?=[\p{Script=Han}（(])/u;
-
-/** Where the bracket open around `at` on its line starts, or null when none is. */
-function openBracketBefore(text: string, from: number, at: number): number | null {
-  let depth = 0;
-  for (let index = at - 1; index >= from; index--) {
-    const char = text[index];
-    if (char === ")" || char === "）") depth++;
-    else if (char === "(" || char === "（") {
-      if (depth === 0) return index;
-      depth--;
-    }
-  }
-  return null;
-}
-
-/**
- * Whether `statement`, read from `text`, states the scale of amounts of money. Its line is read
- * as clauses, within its cell, and within its bracket when it is in one: the scale's own clause
- * holds the scale with its currency ("US$ thousands", "单位：万元"), or a bare scale with only a
- * framing word ("(in thousands)", "单位：千", "All amounts in thousands"); every other clause
- * declares the currency ("币种：人民币"), notes the figures' audit, presentation, exceptions or
- * rounding ("unaudited", "as restated", "除每股数据外"), names a period, or is another statement of
- * amounts' scale. Any other clause, whatever its words (a measure in any spelling, a rate, one the
- * reader doesn't read, or the next line a PDF joins to a CJK one), means the line states no scale
- * of amounts (#2365).
- */
-export function statesAmountScale(text: string, statement: StatedUnit): boolean {
-  return amountScaleIn(text, statement, true);
-}
-
-function amountScaleIn(text: string, statement: StatedUnit, withOthers: boolean): boolean {
-  const { unit, chars } = statement;
-  if (unit.kind !== "plain" && unit.kind !== "currency") return false;
-  const simplified = chars.replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
-  if (/^数量单位/.test(simplified)) return false;
-  if (/^[(（]/.test(chars) && /[)）]$/.test(chars)) return true;
-  const lineFrom = text.lastIndexOf("\n", statement.start - 1) + 1;
-  const lineBreak = text.indexOf("\n", statement.end);
-  const lineTo = lineBreak < 0 ? text.length : lineBreak;
-  const cellFrom = Math.max(
-    lineFrom,
-    text.lastIndexOf("\t", statement.start - 1) + 1,
-    text.lastIndexOf("|", statement.start - 1) + 1,
-  );
-  const cellBreak = text.slice(statement.end, lineTo).search(/[\t|]/);
-  const cellTo = cellBreak < 0 ? lineTo : statement.end + cellBreak;
-  const open = openBracketBefore(text, cellFrom, statement.start);
-  const closeAt = open === null ? -1 : text.slice(statement.end, cellTo).search(/[)）]/);
-  const scopeFrom = open === null ? cellFrom : open + 1;
-  const scopeTo = closeAt < 0 ? cellTo : statement.end + closeAt;
-  const after = text.slice(statement.end, scopeTo);
-  // What follows a Han currency word with no space is the next line, which a PDF joined to it.
-  if (
-    unit.kind === "currency" &&
-    open === null &&
-    /\p{Script=Han}$/u.test(chars) &&
-    /^\p{Script=Han}/u.test(after) &&
-    !after.startsWith("每")
-  )
-    return true;
-  // Another statement of amounts' scale is read from the clause alone, so a page a PDF joined
-  // into one line isn't read again for each of its statements.
-  const isOther = (clause: string, at: number): boolean =>
-    readStatedUnits(clause).some((found) => {
-      const other = { ...found, start: found.start + at, end: found.end + at };
-      if (other.start === statement.start && other.end === statement.end) return false;
-      // Judged one level deep: the other statement's own neighbours include this one.
-      return withOthers
-        ? amountScaleIn(text, other, false)
-        : other.unit.kind === "plain" || other.unit.kind === "currency";
-    });
-  const besideOk = (part: string, at: number): boolean => {
-    const separators = part.matchAll(new RegExp(CLAUSE_SEPARATOR.source, "gu"));
-    let from = 0;
-    for (;;) {
-      const match = separators.next().value ?? null;
-      const to = match ? match.index : part.length;
-      const raw = part.slice(from, to);
-      const start = at + from + (raw.length - raw.trimStart().length);
-      const clause = raw.trim();
-      if (clause !== "" && !BESIDE_AMOUNT_SCALE.test(clause) && !isPeriod(clause)) {
-        if (BESIDE_AMOUNT_SCALE_JOINED.test(clause)) return true;
-        if (!isOther(clause, start)) return false;
-      }
-      if (!match) return true;
-      from = match.index + match[0].length;
-    }
-  };
-  if (!besideOk(after, statement.end)) return false;
-  if (/^(?:金额|货币)?单位|^以/.test(simplified)) return true;
-  const before = text.slice(scopeFrom, statement.start);
-  const parts = before.split(new RegExp(CLAUSE_SEPARATOR.source, "gu"));
-  const own = parts.at(-1) ?? "";
-  if (unit.kind === "plain" && !AMOUNT_FRAME_BEFORE.test(own)) return false;
-  return besideOk(before.slice(0, before.length - own.length), scopeFrom);
-}
-
-/** Whether `clause` names a period: "Three months ended March 31", "2024 2023", "Q3 2024". */
-function isPeriod(clause: string): boolean {
-  if (!/(?:19|20)\d{2}|\b(?:ended|ending)\b/i.test(clause)) return false;
-  return clause.replace(PERIOD_WORDS, "") === "";
-}
 function statedUnitsOf(prepared: Prepared, text: string, statements: Statement[]): StatedUnit[] {
   return statements.map((statement) => {
     const start = prepared.from[statement.from] as number;
@@ -2148,26 +1923,6 @@ export interface StatedCurrency {
   code: string;
   /** Where the figure starts in the line. */
   at: number;
-}
-
-/**
- * The currency a line writes on its own first figure ("Sale price £385,000.00"), as written and
- * as a code, when no other figure on the line writes another; null when none does, when the
- * reader leaves it two ways ("¥" outside a Chinese Document), or when the line writes two.
- * A first figure of 0 is a scale written with a currency ("All figures in £000"), not an amount.
- */
-export function currencyOnItsFigure(
-  text: string,
-  context: FigureContext = {},
-): StatedCurrency | null {
-  const figures = readFigures(text, { ...context, header: null });
-  const [first] = figures;
-  if (first?.unit.kind !== "currency" || first.currency === null) return null;
-  if (first.value === 0) return null;
-  const codes = new Set(figures.flatMap(currenciesOf));
-  return codes.size === 1
-    ? { chars: first.currency, code: first.unit.code, at: first.start }
-    : null;
 }
 
 // A currency a scale is written with: a sign, an ISO code or a Han currency word.
@@ -4077,15 +3832,6 @@ export const readingsOf = (figure: Figure): Reading[] => [
   ...figure.ambiguous.flatMap((each) => each.readings),
 ];
 
-/** The currencies a figure may be in: its own, or each that its "¥" may be. */
-export function currenciesOf(figure: Figure): string[] {
-  return [
-    ...new Set(
-      readingsOf(figure).flatMap(({ unit }) => (unit.kind === "currency" ? [unit.code] : [])),
-    ),
-  ];
-}
-
 // A Document that says its amounts are in Canadian dollars writes them "$54,000".
 const ANY_DOLLAR = ["USD", ...new Set(Object.values(DOLLARS))];
 const SIGN_CURRENCIES: Readonly<Record<string, readonly string[]>> = {
@@ -4096,52 +3842,6 @@ const SIGN_CURRENCIES: Readonly<Record<string, readonly string[]>> = {
   圆: ["CNY", ...Object.values(YUAN)],
   "¥": ["CNY", "JPY"],
 };
-
-// "￥" and "＄" are what Chinese input methods type for "¥" and "$" (#2226).
-const signOf = (figure: Figure) => figure.currency?.normalize("NFKC").trim() ?? null;
-
-/** Every currency a figure's own sign stands for in some Document: "$" or "dollars" for any dollar, "元" for yuan, or Hong Kong, Taiwan or Macau dollars. */
-export const currenciesOfSign = (figure: Figure): readonly string[] => {
-  const sign = signOf(figure);
-  // "$54,000 AUD" is in the dollar it names, not in any dollar.
-  if (sign !== null && BARE_DOLLAR.test(sign) && !bareDollar(figure)) return [];
-  return (sign !== null && (SIGN_CURRENCIES[sign] ?? SIGN_CURRENCIES[sign.toLowerCase()])) || [];
-};
-
-const longestFirst = (words: readonly string[]) => [...words].sort((a, b) => b.length - a.length);
-const CURRENCY_NAMES = new RegExp(
-  `(?<![A-Za-z])(?:${longestFirst([...NAMED_CODES.keys(), "dollars"])
-    .map((word) => word.replaceAll(".", "\\."))
-    .join("|")})(?![A-Za-z])`,
-  "gi",
-);
-const CURRENCY_WORDS = new RegExp(
-  `(?<![A-Za-z])(?:${CURRENCY_ISO_CODES})(?![A-Za-z])|${longestFirst(
-    Object.keys(CURRENCY_CODES).filter((word) => /^\p{Script=Han}{2,}$/u.test(word)),
-  ).join("|")}`,
-  "gu",
-);
-const CURRENCY_HEADING = new RegExp(`[(（](${CURRENCY_TOKEN.source})[)）]`, "g");
-const CURRENCY_IN = new RegExp(`(?<![A-Za-z])in (${CURRENCY_TOKEN.source})(?! ?\\d)`, "g");
-const NUMBER_CHAR = new RegExp(`[\\d\uff10-\uff19${CN_NUMERAL_CHARS}百千万亿]`);
-
-// Reading a 2 MB Document's stated units takes over a second; only these lines can state a currency.
-const UNIT_LINE =
-  /单位|币种|[(（][^)）\n]{0,12}[元币镑][)）]|[亿万千百]元|\bin (?:thousands|millions|billions)\b|'000|\b000s\b|(?:[$€£¥]|\b[A-Z]{3}) ?(?:in )?(?:m|bn|mn|k|thousands?|millions?|billions?)\b/i;
-const unitLinesOf = (text: string) =>
-  text
-    .split("\n")
-    .filter((line) => UNIT_LINE.test(line))
-    .join("\n");
-
-function besideNumber(text: string, from: number, to: number): boolean {
-  const before = text
-    .slice(Math.max(0, from - 2), from)
-    .replace(/[ \u00a0]$/, "")
-    .at(-1);
-  const after = text.slice(to, to + 2).replace(/^[ \u00a0]/, "")[0];
-  return [before, after].some((char) => char !== undefined && NUMBER_CHAR.test(char));
-}
 
 /**
  * What standard units measure, as Documents write them in English and Chinese. A count ("employees",
@@ -4193,113 +3893,6 @@ const measureIn = (measures: typeof MEASURES, unit: FigureUnit) =>
 export function measureOf(unit: FigureUnit): string | null {
   if (unit.kind === "percent" || unit.kind === "points") return unit.kind;
   return measureIn(MEASURES, unit) ?? measureIn(BARE_WATTS, unit) ?? null;
-}
-
-// A bare "$" or "dollars" says a dollar, not which one, in every language (#2226).
-const BARE_DOLLAR = /^(?:\$|dollars?)$/i;
-const NAMES_A_DOLLAR = new RegExp(
-  `${longestFirst(
-    Object.entries(CURRENCY_CODES)
-      .filter(([, code]) => ANY_DOLLAR.includes(code))
-      .map(([word]) => word),
-  )
-    .map((word) => word.replace(/[$.]/g, "\\$&"))
-    .join("|")}|(?<![A-Za-z])(?:${ANY_DOLLAR.join("|")})(?![A-Za-z])`,
-  "i",
-);
-
-/** Whether a figure's dollar is only its bare "$" or "dollars": "$54,000", not "$54,000 AUD". */
-export const bareDollar = (figure: Figure): boolean =>
-  BARE_DOLLAR.test(signOf(figure) ?? "") && !NAMES_A_DOLLAR.test(figure.chars.normalize("NFKC"));
-
-/** Whether `statement` gives a dollar by a bare "$" or "dollars": "Amount ($)", "($m)", "金额（$）". */
-export function bareDollarStatement(statement: StatedUnit): boolean {
-  if (statement.unit.kind !== "currency" || !ANY_DOLLAR.includes(statement.unit.code)) return false;
-  const chars = statement.chars.normalize("NFKC");
-  return (
-    /(?<![A-Za-z])\$|(?<![A-Za-z])dollars?(?![A-Za-z])/i.test(chars) && !NAMES_A_DOLLAR.test(chars)
-  );
-}
-
-/**
- * The currencies `text` names, by ISO 4217 code: in words ("paid in Pounds Sterling", "币种：人民币"),
- * in a unit it states ("单位：元", "Salary (£)", "in £'000", "All figures are in £") and on
- * `figures`, its figures as read. With no figures given (null), the currency on its figures counts
- * only when they all carry the same one: a Document that mixes "HK$" and "$" says nothing of a
- * plain "54,000". With `which`, only a currency it names by which counts: a bare "$" or "dollars"
- * names none, "Australian dollars", "AUD" and "A$" do.
- */
-export function namedCurrencies(
-  written: string,
-  context: FigureContext,
-  figures: readonly Figure[] | null,
-  which = false,
-): Set<string> {
-  const text = normaliseCurrencies(written);
-  const settled = settle(context);
-  const named = new Set<string>();
-  const add = (codes: readonly string[]) => {
-    for (const code of codes) named.add(code);
-  };
-  for (const { code } of currencyMentions(text, context, settled, which, figures === null))
-    add([code]);
-  // Another figure's "HK$10m" says nothing of which dollar a bare "$54m" is.
-  if (which) return named;
-  if (figures) {
-    for (const figure of figures) add(currenciesOf(figure));
-    return named;
-  }
-  const onFigures = new Map<string, string[]>();
-  for (const match of text.matchAll(CURRENCY_ANYWHERE)) {
-    if (!besideNumber(text, match.index, match.index + match[0].length)) continue;
-    const codes = currencyCodesOf(match[0], settled, which);
-    if (codes.length > 0) onFigures.set(codes.join(), codes);
-  }
-  const [only] = onFigures.values();
-  if (onFigures.size === 1 && only) add(only);
-  return named;
-}
-
-// "以港幣支付" names the Hong Kong dollar as "以港币支付" does, and "（＄）" as "($)".
-const normaliseCurrencies = (written: string) =>
-  written.normalize("NFKC").replace(/\p{Script=Han}/gu, (char) => SIMPLIFIED.get(char) ?? char);
-
-const currencyCodesOf = (word: string, settled: Settled, which: boolean) =>
-  which && BARE_DOLLAR.test(word.trim()) ? [] : currencyCodes(word, settled);
-
-interface CurrencyMention {
-  code: string;
-  /** Where in the normalised text it stands; -1 for one a unit line states. */
-  at: number;
-}
-
-/** Every place `text` names a currency: its words or code in body text, a heading, "in …", or a unit line. */
-function currencyMentions(
-  text: string,
-  context: FigureContext,
-  settled: Settled,
-  which: boolean,
-  unitLinesOnly: boolean,
-): CurrencyMention[] {
-  const found: CurrencyMention[] = [];
-  const add = (codes: readonly string[], at: number) => {
-    for (const code of codes) found.push({ code, at });
-  };
-  for (const pattern of [CURRENCY_NAMES, CURRENCY_WORDS]) {
-    for (const match of text.matchAll(pattern)) {
-      if (!besideNumber(text, match.index, match.index + match[0].length))
-        add(currencyCodesOf(match[0], settled, which), match.index);
-    }
-  }
-  for (const pattern of [CURRENCY_HEADING, CURRENCY_IN]) {
-    for (const match of text.matchAll(pattern))
-      add(currencyCodesOf(match[1] ?? "", settled, which), match.index);
-  }
-  for (const stated of readStatedUnits(unitLinesOnly ? unitLinesOf(text) : text, context)) {
-    if (stated.unit.kind === "currency" && !(which && bareDollarStatement(stated)))
-      add([stated.unit.code], -1);
-  }
-  return found;
 }
 
 /** The end of a run of digits and separators that isn't a number, so none of it is read. */

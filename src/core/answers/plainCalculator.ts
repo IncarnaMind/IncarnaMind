@@ -12,6 +12,7 @@ import { anchorsCovered, quoteInUnits } from "../../shared/locations";
 import {
   digitsOf,
   locate,
+  notInQuote,
   type PlainInput,
   workPlain,
   writtenNumbers,
@@ -22,7 +23,6 @@ import type { CalculatedFigure, FigureInput } from "../api";
 import { WORKBOOK_TOOLS } from "../tools";
 import {
   type CalculationSessionOptions,
-  createCalculationSession,
   FIX_FIGURES,
   type FigureProblem,
   givenList,
@@ -160,6 +160,35 @@ interface Recorded {
   cited?: readonly QuoteInput[];
 }
 
+/** An input as a figure keeps it: the value the model gave, where its digits stand in the quote. */
+function plainFigureInput(
+  input: GivenInput,
+  value: number,
+  quoted: Quoted,
+  place: { chars: string; start: number },
+  cell: FigureInput["cell"],
+): FigureInput {
+  const written = writtenValue(place.chars) || 1;
+  return {
+    name: input.name,
+    label: input.label,
+    citation: quoted.citation,
+    number: {
+      chars: place.chars,
+      at: place.start,
+      value,
+      scale: Math.abs(value / written) || 1,
+      scaleWord: null,
+      unit: { kind: "plain" },
+      decimals: 0,
+      approximate: false,
+      reading: null,
+    },
+    cell,
+    unitStatement: null,
+  };
+}
+
 /** What the model is told a recorded figure came to: "Recorded [=1] = £66,560 (Saving: 512,000 × (1.42 − 1.29) = £66,560)." */
 const told = (marker: number, figure: CalculatedFigure, working: string) =>
   `Recorded [=${marker}] = ${figure.shown} (${figure.label ? `${figure.label}: ` : ""}${working}).`;
@@ -167,8 +196,6 @@ const told = (marker: number, figure: CalculatedFigure, working: string) =>
 /** One Answer's or check's figures: what `calculate` takes, and the figures by marker. */
 export function createPlainCalculator(options: CalculationSessionOptions) {
   const { quotes, language } = options;
-  // A quoted number an Analysis takes as an input is read as it was: run_analysis is unchanged.
-  const analysisNumbers = createCalculationSession(options);
   const recorded = new Map<number, Recorded>();
   const failed = new Map<number, FigureProblem>();
   let calls = 0;
@@ -267,28 +294,15 @@ export function createPlainCalculator(options: CalculationSessionOptions) {
       worked.literals,
     );
     if (whatIf) return { problems: [whatIf] };
-    const inputs = placed.map(({ input, value, quoted }, at): FigureInput => {
-      const place = worked.located[at] ?? { chars: quoted.citation.quote, start: 0 };
-      const written = writtenValue(place.chars) || 1;
-      return {
-        name: input.name,
-        label: input.label,
-        citation: quoted.citation,
-        number: {
-          chars: place.chars,
-          at: place.start,
-          value,
-          scale: Math.abs(value / written) || 1,
-          scaleWord: null,
-          unit: { kind: "plain" },
-          decimals: 0,
-          approximate: false,
-          reading: null,
-        },
-        cell: cells[at] ?? null,
-        unitStatement: null,
-      };
-    });
+    const inputs = placed.map(({ input, value, quoted }, at) =>
+      plainFigureInput(
+        input,
+        value,
+        quoted,
+        worked.located[at] ?? { chars: quoted.citation.quote, start: 0 },
+        cells[at] ?? null,
+      ),
+    );
     const figure: CalculatedFigure = {
       label: given.label,
       formula: given.formula,
@@ -428,11 +442,33 @@ export function createPlainCalculator(options: CalculationSessionOptions) {
       recorded.clear();
       failed.clear();
       calls = 0;
-      analysisNumbers.anew();
     },
 
-    /** A number in a quote as an Analysis takes it (#447), read as it always was. */
-    number: analysisNumbers.number,
+    /**
+     * A number a Passage gives, as an Analysis takes it (#447): the value the model says the code
+     * reads, confirmed by its digits in its quote, as an input of `calculate` is.
+     */
+    number(raw: unknown): { input: FigureInput } | { problem: string } {
+      const given = givenInput(raw);
+      if (given.value === null)
+        return { problem: "give value, the number the code reads, as a plain number." };
+      const place = quoteOf(given, {});
+      if (typeof place === "string") return { problem: place };
+      const { quote } = place.quoted.citation;
+      const found = locate(given.value, quote, given.written);
+      if (!found) return { problem: notInQuote(given.value, quote) };
+      if (place.unsure.some((word) => word.includes(found.chars) || found.chars.includes(word)))
+        return { problem: UNSURE_INPUT };
+      const input = plainFigureInput(
+        given,
+        given.value,
+        place.quoted,
+        found,
+        cellOf(place.quoted, given.value),
+      );
+      // Checked now, as the Analysis runs on it now.
+      return { input: { ...input, citation: { ...input.citation, ...place.quoted.check() } } };
+    },
 
     /** Records a figure an Analysis or a workbook's formulas gave (#447, #2347) under the next free marker above `above`. */
     record(figure: CalculatedFigure, cited: readonly QuoteInput[] = [], above = 0): number {

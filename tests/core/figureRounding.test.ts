@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { agreesAtShownPrecision } from "../../src/core/answers/checks/calculated";
+import { agreesAtShownPrecision } from "../../src/core/answers/printedNumbers";
 import { figureFooting } from "../../src/shared/figureFooting";
 import type { Figure } from "../../src/shared/figures";
 import { readFigures } from "../../src/shared/figures";
@@ -34,9 +34,7 @@ test.each([
   "%s compares with source %s at its own shown precision: %s",
   (shown, value, expected) => {
     const stated = reading(shown);
-    expect(
-      agreesAtShownPrecision(stated, { value, unit: stated.unit, inputs: [], formula: "" }),
-    ).toBe(expected);
+    expect(agreesAtShownPrecision(stated, { value, unit: stated.unit })).toBe(expected);
   },
 );
 
@@ -48,21 +46,15 @@ test("an exact fraction equals a worked-out value as a formula's = compares them
     agreesAtShownPrecision(stated, {
       value: 0.1 + 0.2,
       unit: stated.unit,
-      inputs: [],
-      formula: "",
     }),
   ).toBe(true);
-  expect(
-    agreesAtShownPrecision(stated, { value: 0.31, unit: stated.unit, inputs: [], formula: "" }),
-  ).toBe(false);
+  expect(agreesAtShownPrecision(stated, { value: 0.31, unit: stated.unit })).toBe(false);
 });
 
 test("an old reading without its precision cannot establish rounding", () => {
   const stated = reading("1.2");
   delete stated.precision;
-  expect(
-    agreesAtShownPrecision(stated, { value: 1.24, unit: stated.unit, inputs: [], formula: "" }),
-  ).toBeNull();
+  expect(agreesAtShownPrecision(stated, { value: 1.24, unit: stated.unit })).toBeNull();
 });
 
 test("a currency mismatch is not settled by equal values", () => {
@@ -70,18 +62,8 @@ test("a currency mismatch is not settled by equal values", () => {
     agreesAtShownPrecision(reading("£12"), {
       value: 12,
       unit: { kind: "currency", code: "USD" },
-      inputs: [],
-      formula: "",
     }),
   ).toBeNull();
-});
-
-test("a covenant limit never rounds an excess down or treats negative leverage as compliance", () => {
-  const stated = reading("3.25x");
-  const source = (value: number) => ({ value, unit: stated.unit, inputs: [], formula: "" });
-  expect(agreesAtShownPrecision(stated, source(3.25), { relation: "at most" })).toBe(true);
-  expect(agreesAtShownPrecision(stated, source(3.250001), { relation: "at most" })).toBe(false);
-  expect(agreesAtShownPrecision(stated, source(-1), { relation: "at most" })).toBeNull();
 });
 
 test("source agreement and footing use the same decimal rounding at a half place", () => {

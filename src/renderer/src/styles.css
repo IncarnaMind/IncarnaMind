@@ -1433,6 +1433,13 @@
     &.note-tab-row--open {
       color: var(--color-ink);
     }
+    /* A tab an agent proposes, still waiting: marked as a whole Block a change adds is on the page. */
+    &.note-tab-row--proposed > .pdf-outline-title {
+      color: var(--color-ink-answer);
+      text-decoration: underline 1px var(--color-accent);
+      text-decoration-skip-ink: none;
+      text-underline-offset: 5px;
+    }
     &[data-dragging] {
       opacity: 0.5;
     }

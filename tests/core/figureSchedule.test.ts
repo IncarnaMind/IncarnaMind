@@ -1,7 +1,6 @@
 import { expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
-import { createCalculationSession } from "../../src/core/answers/calculations";
 import { figuresInMind } from "../../src/core/answers/checks/figureOccurrences";
 import {
   everySentence,
@@ -18,6 +17,7 @@ import type {
   FigureCheckAttributes,
   FigureCheckResult,
   FigureFinding,
+  FigureInput,
 } from "../../src/core/api";
 import { MIND_CONTENT_FIELD } from "../../src/core/api";
 import { figureScheduleBook } from "../../src/core/exports/figureScheduleBook";
@@ -249,7 +249,8 @@ test("an unavailable nonblank numeric cell is unknown while a blank row contribu
   ]);
 });
 
-function sourceTable(lines: string[]) {
+/** A sheet's rows as a source Passage; `stored` gives a cell's number where it isn't the one shown. */
+function sourceTable(lines: string[], stored: Readonly<Record<string, number>> = {}) {
   const text = lines.join("\n");
   const documents: AnswerDocuments = {
     searchableCount: () => 1,
@@ -283,6 +284,7 @@ function sourceTable(lines: string[]) {
           to: lines.length,
           rows: lines.map((_, index) => index + 1),
           column: 0,
+          values: stored,
         },
       },
     ],
@@ -292,22 +294,42 @@ function sourceTable(lines: string[]) {
   const passage = documents.citationSource("passage");
   if (!passage) throw new Error("Missing source Passage");
   citations.show([{ ...passage, seq: 0, position: 0, windowFrom: 0, windowTo: 0 }]);
-  const calculations = createCalculationSession({
-    documents,
-    quotes: citations.quotes,
-    language: "en",
-  });
-  const input = (row: number, position = 1) => {
-    const found = calculations.number({
-      name: "source",
-      label: lines[row - 1]?.split("\t")[0] ?? "",
+  // A source input as a check recorded one before #3081: the cell's number with its Citation.
+  const input = (row: number, position = 1): FigureInput => {
+    const quote = lines[row - 1] ?? "";
+    const cells = quote.split("\t");
+    const numbered = cells.flatMap((cell, column) => (/^\d/.test(cell) ? [column] : []));
+    const column = numbered[position - 1];
+    const chars = column === undefined ? undefined : cells[column];
+    if (column === undefined || chars === undefined)
+      throw new Error(`No number ${position} in row ${row}`);
+    const quoted = citations.quotes.quote({
       passage: "passage",
       location: `Accounts, row ${row}`,
-      quote: lines[row - 1],
-      position,
+      quote,
+      pageFrom: null,
+      pageTo: null,
     });
-    if (!("input" in found)) throw new Error(found.problem);
-    return found.input;
+    if ("problem" in quoted) throw new Error(quoted.problem);
+    const ref = `${String.fromCharCode(65 + column)}${row}`;
+    return {
+      name: "source",
+      label: cells[0] ?? "",
+      citation: { ...quoted.citation, ...quoted.check() },
+      number: {
+        chars,
+        at: cells.slice(0, column).join("\t").length + 1,
+        value: stored[ref] ?? Number(chars),
+        scale: 1,
+        scaleWord: null,
+        unit: { kind: "plain" },
+        decimals: 0,
+        approximate: false,
+        reading: null,
+      },
+      cell: { sheet: "Accounts", ref, stored: stored[ref] ?? null },
+      unitStatement: null,
+    };
   };
   return { documents, input };
 }
@@ -374,6 +396,52 @@ test("a matching source total names an omitted source row only from a checked ex
   expect(owned.parts?.[0]?.figures?.at(-1)?.footing).toEqual(total?.footing);
   expect(owned.parts?.[0]?.figures?.at(-1)?.sourceFooting).toEqual(total?.sourceFooting);
   expect(resultFromParts(owned.parts ?? [])).toEqual(owned);
+});
+
+test("a source row whose cell stores more than it shows still foots the source total", () => {
+  const blocks = note(
+    table(
+      row(cell("h0", "Item", true), cell("h1", "Amount", true)),
+      row(cell("l1", "A"), cell("a1", "10")),
+      row(cell("l2", "B"), cell("a2", "20")),
+      row(cell("lt", "Total"), cell("at", "35")),
+    ),
+  );
+  const source = sourceTable(["Item\tAmount", "A\t10", "B\t20", "C\t5", "Total\t35"], {
+    B2: 10.4,
+    B4: 4.6,
+  });
+  const results = figuresInMind(blocks).map((occurrence, index): FigureCheckResult => {
+    const input = source.input(index === 2 ? 5 : index + 2);
+    return {
+      ...finding(occurrence),
+      sourceInput: input,
+      result: {
+        verdict: "supported",
+        evidence: input.citation,
+        says: null,
+        unsupported: null,
+        calculation: null,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        versions: [{ documentId: "accounts", contentHash: "v1" }],
+        excluded: [],
+      },
+    };
+  });
+  const result = augmentFigureFooting(
+    blocks,
+    { ...aggregateFigureResults(results, null), figures: results, remainder: null },
+    source.documents,
+  );
+  expect(result.figures?.at(-1)?.sourceFooting).toMatchObject([
+    {
+      axis: "row",
+      sum: 35,
+      agrees: true,
+      inputs: [{ label: "C", number: { value: 4.6 }, cell: { ref: "B4", stored: 4.6 } }],
+    },
+  ]);
 });
 
 test("the writer's own view beside its figures leaves the sentence its figures' result, a total that doesn't add up included", () => {

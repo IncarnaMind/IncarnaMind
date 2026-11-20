@@ -127,6 +127,12 @@ export interface PlainInput {
   written?: string | null;
 }
 
+/** What the model is told of an input value whose digits its quote doesn't write. */
+export function notInQuote(value: number, quote: string): string {
+  const has = writtenNumbers(quote).map((each) => each.chars);
+  return `${plainNumber(value)} isn't in its quote${has.length > 0 ? `, which has ${has.join(", ")}` : ""}: give the number the quote writes, as a plain number, moved by a power of ten only where you mean another scale or unit`;
+}
+
 export interface PlainWorked {
   value: number | boolean;
   /** Where each input's number stands in its quote, in order. */
@@ -150,10 +156,7 @@ export function workPlain(figure: {
   const located = figure.inputs.flatMap((input) => {
     const found = locate(input.value, input.quote, input.written);
     if (found) return [found];
-    const has = writtenNumbers(input.quote).map((each) => each.chars);
-    problems.push(
-      `${input.name}: ${plainNumber(input.value)} isn't in its quote${has.length > 0 ? `, which has ${has.join(", ")}` : ""}: give the number the quote writes, as a plain number, moved by a power of ten only where you mean another scale or unit`,
-    );
+    problems.push(`${input.name}: ${notInQuote(input.value, input.quote)}`);
     return [];
   });
   if (problems.length > 0) return { problems };
@@ -192,4 +195,75 @@ export function workPlain(figure: {
     literals: result.literals,
     working: `${used} = ${figure.shown}${moved.length > 0 ? ` · ${moved.join(", ")}` : ""}`,
   };
+}
+
+type WorkingToken =
+  | { kind: "number"; chars: string; value: number }
+  | { kind: "sign"; text: string };
+
+// A number as `writtenNumbers` reads one, or a sign of arithmetic as a line of working writes it.
+const WORKING_TOKEN = /([0-9０-９]+(?:[.,'’\u00a0\u202f][0-9０-９]+)*)|([-+*/×÷−–()（）])/g;
+const SIGNS: Readonly<Record<string, string>> = {
+  "×": "*",
+  "÷": "/",
+  "−": "-",
+  "–": "-",
+  "（": "(",
+  "）": ")",
+};
+const YEAR = /^(?:19|20)\d{2}$/;
+
+/** The numbers and signs a line of working writes before its "=", a year beside a number left out. */
+function workingTokens(text: string): WorkingToken[] {
+  const read: WorkingToken[] = [...text.matchAll(WORKING_TOKEN)].map((found) =>
+    found[1] !== undefined
+      ? { kind: "number", chars: found[1], value: writtenValue(found[1]) }
+      : { kind: "sign", text: SIGNS[found[2] ?? ""] ?? found[2] ?? "" },
+  );
+  // "2025 revenue 48,250 − 2024 revenue 44,100": a year names a figure, it isn't one.
+  return read.filter((token, at) => {
+    if (token.kind !== "number" || !YEAR.test(token.chars)) return true;
+    return read[at + 1]?.kind !== "number" && read[at - 1]?.kind !== "number";
+  });
+}
+
+const powerOfTen = (value: number) =>
+  value > 0 && Math.abs(10 ** Math.round(Math.log10(value)) - value) <= 1e-9 * value;
+
+/**
+ * Whether a line of working adds up (#3393): the arithmetic it writes before its "=" over numbers
+ * that each stand in one of `quotes` by their digits (or are a power of ten, a change of scale),
+ * and the number right after the "=" carrying its result. Null for a line that writes no
+ * arithmetic, such as a step of plain logic.
+ */
+export function workingAddsUp(line: string, quotes: readonly string[]): boolean | null {
+  const equals = line.search(/[=＝]/);
+  if (equals < 0) return null;
+  const tokens = workingTokens(line.slice(0, equals));
+  const sign = (token: WorkingToken | undefined) =>
+    token?.kind === "sign" && /^[-+*/]$/.test(token.text);
+  if (!tokens.some((token, at) => sign(token) && tokens[at + 1] !== undefined)) return null;
+  const [result] = writtenNumbers(line.slice(equals + 1));
+  if (!result) return false;
+  // The arithmetic is the longest end of what comes before "=" that reads as a formula.
+  for (let from = 0; from < tokens.length; from++) {
+    const part = tokens.slice(from);
+    const numbers = part.filter((token) => token.kind === "number");
+    let at = 0;
+    const formula = part
+      .map((token) => (token.kind === "number" ? `n${at++}` : token.text))
+      .join(" ");
+    const worked = evaluateArithmetic(
+      formula,
+      numbers.map((token, index) => ({ name: `n${index}`, value: token.value })),
+    );
+    if (!worked.ok || typeof worked.value !== "number" || !part.some(sign)) continue;
+    const quoted = numbers.every(
+      (token) =>
+        powerOfTen(token.value) ||
+        quotes.some((quote) => locate(token.value, quote)?.inCharacters === false),
+    );
+    return quoted && shownCarries(result.chars, worked.value);
+  }
+  return false;
 }

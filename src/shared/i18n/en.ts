@@ -8514,7 +8514,6 @@ export const en = {
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
   "agents.mind.busy": "(being written)",
-  "agents.mind.tab": "Tab: {title}",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",
   "agents.mind.usersChanged": "(the User changed this)",
@@ -8542,7 +8541,9 @@ export const en = {
   "agents.propose.lost":
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.visualAdded":
-    "{name} is rewritten in words alone: a picture or a chart goes in a paragraph of its own. Add it with {name}+.",
+    "{name} is rewritten in words alone: a picture, a chart or a tab goes in a paragraph of its own. Add it with {name}+.",
+  "agents.propose.emptyTab":
+    "In {name}, a tab holds nothing: write what it holds after its ```tab block, so the User sees it to decide on.",
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
   "agents.propose.missingNumber":
