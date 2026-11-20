@@ -8448,7 +8448,7 @@ export const en = {
     "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
   "agents.check.results": "Give results: one result for each sentence, {max} at most.",
   "agents.check.reportAgain":
-    "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, or a calculate or run_analysis result of this check, that IncarnaMind can confirm, and none from the User’s own working file.",
+    "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, a run_analysis result of this check, or a working whose numbers stand in their quotes and whose expression gives its figure, that IncarnaMind can confirm, and none from the User’s own working file.",
   // An outside agent writes a new note (#3306).
   "agents.note.writtenBy": "Written by {name}, {when}",
   // A note an outside agent wrote or changed, said where the Library's work shows (#3371).
@@ -8516,7 +8516,6 @@ export const en = {
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
   "agents.mind.busy": "(being written)",
-  "agents.mind.tab": "Tab: {title}",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",
   "agents.mind.usersChanged": "(the User changed this)",
@@ -8544,7 +8543,9 @@ export const en = {
   "agents.propose.lost":
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.visualAdded":
-    "{name} is rewritten in words alone: a picture or a chart goes in a paragraph of its own. Add it with {name}+.",
+    "{name} is rewritten in words alone: a picture, a chart or a tab goes in a paragraph of its own. Add it with {name}+.",
+  "agents.propose.emptyTab":
+    "In {name}, a tab holds nothing: write what it holds after its ```tab block, so the User sees it to decide on.",
   "agents.propose.unplaced":
     "These changes would add a Citation, footnote or figure IncarnaMind didn’t place, so nothing was written. Cite only with [cite:…] tokens.",
   "agents.propose.missingNumber":
@@ -8577,6 +8578,7 @@ export const en = {
   "agents.find.none": "No agent matches “{query}”. Choose Other agent to connect it.",
   "agents.settings.connectButton": "Connect",
   "agents.settings.help": "Step-by-step help",
+  "agents.settings.skillLeft": "Disconnected {agent}. Its Skill stays at {path}: you changed it.",
   "agents.setup.bundle": "One click: Claude opens to install it",
   "agents.setup.link": "One click: {agent} opens to install it",
   "agents.setup.file": "IncarnaMind adds itself to the settings of {agent}",
@@ -8604,6 +8606,11 @@ export const en = {
   "agents.pairing.disconnect": "Disconnect",
   "agents.pairing.details": "Details for technical users",
   "agents.pairing.skill": "Skill installed: {agent} knows when to use IncarnaMind",
+  "agents.pairing.skillOld": "Skill out of date: you changed it",
+  "agents.pairing.skillOld.replace": "Replace…",
+  "agents.pairing.skillOld.ask": "Replacing discards your changes to the Skill file.",
+  "agents.pairing.skillOld.confirm": "Replace Skill",
+  "agents.pairing.skillOld.cancel": "Keep mine",
   "agents.pairing.copySettings": "Copy settings",
   "agents.pairing.copySkill": "Copy Skill",
   "agents.pairing.copySkill.hint": "Save as incarnamind/SKILL.md in your agent’s skills folder.",

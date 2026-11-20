@@ -29,7 +29,12 @@ const sameTabs = (a: ShownTabs, b: ShownTabs | null) =>
   a.open === b.open &&
   a.editable === b.editable &&
   a.tabs.length === b.tabs.length &&
-  a.tabs.every((tab, index) => tab.id === b.tabs[index]?.id && tab.title === b.tabs[index]?.title);
+  a.tabs.every(
+    (tab, index) =>
+      tab.id === b.tabs[index]?.id &&
+      tab.title === b.tabs[index]?.title &&
+      tab.proposal?.id === b.tabs[index]?.proposal?.id,
+  );
 
 /** Whether the panel has something to offer: tabs, headings to go to, or a tab to add. */
 const offers = (shown: ShownTabs, headings: number) =>

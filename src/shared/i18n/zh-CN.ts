@@ -7973,7 +7973,7 @@ export const zhCN = {
     "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
   "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
   "agents.check.reportAgain":
-    "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用，或这次核对中 calculate、run_analysis 的结果，且不能来自用户自己的工作文件。",
+    "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用、这次核对中 run_analysis 的结果，或一份计算过程（其中每个数都出自所引原文，算式能得出所给结果），且不能来自用户自己的工作文件。",
   "agents.note.writtenBy": "{name} 写入，{when}",
   "agents.note.wrote": "{name} 新建了笔记“{mind}”",
   "agents.note.changed.one": "{name} 修改了“{mind}”中的 1 个段落",
@@ -8028,7 +8028,6 @@ export const zhCN = {
   "agents.chart.refused.needsTwo": "散点图需要两列数字",
   "agents.mind.waiting": "（修订待处理）",
   "agents.mind.busy": "（正在写入）",
-  "agents.mind.tab": "标签页：{title}",
   "agents.mind.usersWrote": "（用户写的）",
   "agents.mind.usersChanged": "（用户改过）",
   "agents.propose.list": "列出 1 到 {max} 处修改。",
@@ -8051,7 +8050,9 @@ export const zhCN = {
   "agents.propose.lost":
     "{name} 中有引用放在了公式或链接地址这类无法保留引用的地方：把它写在所引用的文字之后。",
   "agents.propose.visualAdded":
-    "{name} 的改写只能是文字：图片或图表要单独成段。请用 {name}+ 添加。",
+    "{name} 的改写只能是文字：图片、图表或标签页要单独成段。请用 {name}+ 添加。",
+  "agents.propose.emptyTab":
+    "{name} 中有一个空的标签页：请在它的 ```tab 块之后写上其中的内容，让用户能看到并决定是否接受。",
   "agents.propose.unplaced":
     "无法写入这些修改：其中有 IncarnaMind 没有添加的引用、脚注或计算结果。引用时只用 IncarnaMind 给出的 [cite:…]。",
   "agents.propose.missingNumber":
@@ -8081,6 +8082,7 @@ export const zhCN = {
   "agents.find.none": "没有与“{query}”匹配的智能体。选择“其他智能体”来连接它。",
   "agents.settings.connectButton": "连接",
   "agents.settings.help": "分步说明",
+  "agents.settings.skillLeft": "已断开{agent}。因为你改过技能文件，它仍保留在 {path}。",
   "agents.setup.bundle": "一键连接：打开 Claude 进行安装",
   "agents.setup.link": "一键连接：打开{agent}进行安装",
   "agents.setup.file": "IncarnaMind 会把自己添加到{agent}的设置中",
@@ -8108,6 +8110,11 @@ export const zhCN = {
   "agents.pairing.disconnect": "断开连接",
   "agents.pairing.details": "技术细节",
   "agents.pairing.skill": "已安装技能：{agent}知道何时使用 IncarnaMind",
+  "agents.pairing.skillOld": "技能已过期：你改过这个文件",
+  "agents.pairing.skillOld.replace": "替换…",
+  "agents.pairing.skillOld.ask": "替换会丢弃你对技能文件的修改。",
+  "agents.pairing.skillOld.confirm": "替换技能",
+  "agents.pairing.skillOld.cancel": "保留我的",
   "agents.pairing.copySettings": "复制设置",
   "agents.pairing.copySkill": "复制技能",
   "agents.pairing.copySkill.hint": "保存为智能体技能文件夹中的 incarnamind/SKILL.md。",

@@ -69,7 +69,9 @@ import type { CoreAdapters } from "./adapters";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import { createOwnChanges } from "./agents/ownChanges";
-import { createAgentSetup, skillInstalled } from "./agents/setup";
+import { createAgentSetup } from "./agents/setup";
+import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
+import { withTabFences } from "./agents/tabs";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -319,13 +321,12 @@ import {
   parseMindId,
   parseMindModel,
 } from "./minds";
-import { firstLineOf, readBlocks, textStart, theirChangesReading } from "./mindText";
+import { firstLineOf, NO_MARKS, readBlocks, textStart, theirChangesReading } from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
 import { createNoteAdding, insertBlocks } from "./noteAdding";
 import { createNoteConversations } from "./noteConversations";
-import { withTabSections } from "./noteTabs";
 import {
   createOrganizeReview,
   type OrganizeReviewRun,
@@ -5727,6 +5728,13 @@ export function createCore(adapters: CoreAdapters): Core {
   // socket and gets Citations IncarnaMind minted and checked. Off until the User turns it on.
   const { home } = adapters.paths;
   const agentChanges = createOwnChanges(content, () => crypto.randomUUID());
+  const skillFiles = createSkillFiles({
+    home,
+    files: adapters.agentSkillFiles ?? NO_SKILL_FILES,
+    readValue: (key) => settings.readDeviceValue(key),
+    writeValue: (key, value) => settings.writeDeviceValue(key, value),
+    reportError: (error) => console.error(error),
+  });
   const agents = createAgents({
     offered: adapters.agents?.offered ?? true,
     log: adapters.log ?? silentLogger,
@@ -5827,11 +5835,18 @@ export function createCore(adapters: CoreAdapters): Core {
         });
         // A heading that opens the Note is its title already: it is read once (#3371).
         const title = titled ? "" : mind.title || mind.autoTitle;
-        // Each tab is a part of the Note under its title, as a file has it (#3414).
-        const parts = withTabSections(blocks, (n) =>
+        // Each tab starts as the agent writes one (#3414), and the title is in the first tab.
+        const parts = withTabFences(blocks, (n) =>
           translate(language, "noteTabs.defaultTitle", { n }),
         );
-        return renderMarkdown(title, parts, exportLabels(language), { pictures: "marked" }).text;
+        const inTab = title !== "" && blocks[0]?.kind === "tab";
+        if (inTab) {
+          const text = { kind: "text", text: title, marks: NO_MARKS } as const;
+          parts.splice(1, 0, { kind: "heading", level: 1, content: [text] });
+        }
+        return renderMarkdown(inTab ? "" : title, parts, exportLabels(language), {
+          pictures: "marked",
+        }).text;
       },
       createMind: (title, folderId) => makeMind(parseCreateMindInput({ title, folderId })),
       answer: (question, documentIds, signal) =>
@@ -5846,7 +5861,7 @@ export function createCore(adapters: CoreAdapters): Core {
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
     },
-    skillInstalled: (client) => skillInstalled(home, client),
+    skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),
     called: (activity) => events.emit("agents.activity", activity),
     requested: (request) => events.emit("agents.request", request),
@@ -5857,6 +5872,7 @@ export function createCore(adapters: CoreAdapters): Core {
   // Setting IncarnaMind up in the User's agent, from Settings → Agents.
   const agentSetup = createAgentSetup({
     agents,
+    skills: skillFiles,
     home,
     applications:
       adapters.agents?.applications ??
@@ -5870,6 +5886,9 @@ export function createCore(adapters: CoreAdapters): Core {
     say: (key, params) => translate(settings.get().language, key, params),
     reportError: (error) => console.error(error),
   });
+  if (adapters.agents?.offered ?? true) {
+    agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
+  }
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
@@ -8122,9 +8141,11 @@ export function createCore(adapters: CoreAdapters): Core {
     connectAgent: (input) => agents.connect(input),
     updateAgent: async (pairingId, input) => agents.update(pairingId, input),
     disconnectAgent: async (pairingId) => {
-      await agentSetup.removeFromSettings(pairingId);
+      const left = await agentSetup.removeFromSettings(pairingId);
       await agents.disconnect(pairingId);
+      return left;
     },
+    replaceAgentSkill: (pairingId) => agentSetup.replaceSkill(pairingId),
     listAgentClients: async () => agentSetup.clients(),
     previewAgentSetup: async (client) => agentSetup.preview(client),
     setUpAgent: (input) => agentSetup.setUp(input),

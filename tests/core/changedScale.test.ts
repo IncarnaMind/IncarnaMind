@@ -6,8 +6,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { type QuotedText, readOnItsLine } from "../../src/core/answers/calculations";
-import { changedScale } from "../../src/core/answers/changedScale";
+import { changedScale, type QuotedText, readOnItsLine } from "../../src/core/answers/changedScale";
 import { extractXlsx } from "../../src/core/documents/formats/xlsx";
 import { readFigures } from "../../src/shared/figures";
 import type { UnitText } from "../../src/shared/units";

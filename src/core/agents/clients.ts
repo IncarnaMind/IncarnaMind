@@ -386,6 +386,11 @@ export function skillPathsFor(home: string, client: string | null): string[] {
   );
 }
 
+/** The Skill's file in every folder any agent reads Skills from: the only places IncarnaMind writes one. */
+export function everySkillPath(home: string): string[] {
+  return [...new Set(AGENT_CLIENT_DEFINITIONS.flatMap((each) => skillPathsFor(home, each.id)))];
+}
+
 export function clientDefinition(id: unknown): ClientDefinition | null {
   return AGENT_CLIENT_DEFINITIONS.find((each) => each.id === id) ?? null;
 }

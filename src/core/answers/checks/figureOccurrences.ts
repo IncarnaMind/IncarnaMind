@@ -13,6 +13,7 @@ import {
 } from "../../../shared/charts";
 import { figureRunsFor, keptBinding } from "../../../shared/figureRuns";
 import {
+  CURRENCY_ISO_CODES,
   countFigureSteps,
   type FigureContext,
   type FigureFacts,
@@ -21,8 +22,10 @@ import {
   type HeaderRead,
   readFigures,
   readHeader,
+  readStatedUnits,
+  unsettledScales,
 } from "../../../shared/figures";
-import { perBlock } from "../../../shared/memo";
+import { memoized, perBlock } from "../../../shared/memo";
 import { targetHash } from "../../../shared/proposals";
 import { citedNameStretches, isNameNumber } from "../../../shared/sourceNames";
 import {
@@ -41,7 +44,6 @@ import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
-import { statesAFrame } from "./analysisNaming";
 import {
   isTableCaption,
   type SelectedSentence,
@@ -50,6 +52,84 @@ import {
   wordsOf,
   wordsReader,
 } from "./sentences";
+
+/** A scale word said of the text: "in thousands", "as millions of litres", "thousands of USD", "(bn)"; never "thousands of customers". */
+const SCALE_WORDS = new RegExp(
+  `(?<!\\p{L})(?:(?<=(?:\\bin|\\bas|[(（])\\s*)(?:thousands?|millions?|billions?|trillions?|hundreds?|lakhs?|crores?)|(?:thousands?|millions?|billions?|trillions?|lakhs?|crores?)(?!\\s+of\\b(?!\\s+(?:${CURRENCY_ISO_CODES}|dollars?|euros?|pounds?|yuan|yen|rupees?|francs?)\\b))|bn|mn|['’]000s?|000s)(?!\\p{L})`,
+  "giu",
+);
+// 千, 万 and 亿 are a scale before a unit or the end of their words after a bracket, a colon, 以, 为
+// or 单位, and before a currency or 为单位 / 计 anywhere; a count's units (人, 户, 家, 笔…) only where
+// a line states a unit ("单位为千人", "以万户计"). Never inside a name (万和路, 千户街, 万家路店), as a
+// unit's own prefix (千克, 千米, 千瓦时), or in a rough count (数以万计, 上千人, 千家万户).
+const HAN_CURRENCY_UNIT = "元|美元|欧元|英镑|日元|港元|港币|人民币|美金|台币";
+const HAN_COUNT_UNIT =
+  "人次|人|位|名|户|家|笔|单|件|次|个|台|条|项|张|份|辆|间|座|套|箱|批|吨|包|小时";
+const HAN_SCALE = "(?:十亿|千万|百万|亿|万|千)";
+const NOT_ROUGH = "(?<![上数近逾几成])(?!(?<=数以)(?:十亿|千万|百万|亿|万|千)计)";
+const HAN_SCALES = new RegExp(
+  [
+    `${NOT_ROUGH}(?<=(?:[（(：:为以]|单位)\\s*)${HAN_SCALE}(?=${HAN_CURRENCY_UNIT}|(?:${HAN_COUNT_UNIT})?(?:为单位|计|[）)\\s，。；：、,.;:]|$))`,
+    `${NOT_ROUGH}${HAN_SCALE}(?=${HAN_CURRENCY_UNIT}|(?:${HAN_COUNT_UNIT})?(?:为单位|计))`,
+  ].join("|"),
+  "gu",
+);
+/** A scale written as its number: "in units of 1,000", "×1,000", "单位：10,000元", "以 1,000 元为单位". */
+const NUMBER_SCALES =
+  /(?:(?<!\p{L})in units? of|(?<!\p{L})[x×✕]|单位[:：为是]?)\s*(1(?:[,，]?000)+|10[,，]?000|100)(?!\d)|以\s*(1(?:[,，]?000)+|10[,，]?000|100)\s*(?:元|美元)?\s*(?:为单位|计)/giu;
+const CURRENCY_SIGNS = /(?:US|HK|NZ|NT|A|C|S)?[$＄]|[€£¥￥₹₩₽₺฿₫₱]/gu;
+/**
+ * A currency's code said of the text: "in USD", "(GBP)", "Currency: EUR", "Totals, EUR", "USD
+ * figures follow."; "a PHP storefront" names none, though a line that starts with one does.
+ */
+const CURRENCY_CODES = new RegExp(
+  `(?<=(?:\\bin|\\bof|[(（:：,，]|单位[:：]?|以|^)\\s*)(?:${CURRENCY_ISO_CODES})(?![A-Za-z])|(?<![A-Za-z])(?:${CURRENCY_ISO_CODES})(?=\\s*(?:[)）.。]|thousands?|millions?|billions?|bn\\b|mn\\b|m\\b|k\\b|['’]?000|$))`,
+  "gmu",
+);
+const HAN_CURRENCIES =
+  /新加坡元|瑞士法郎|新台币|人民币|美元|美金|港币|港元|欧元|日元|日币|英镑|澳元|加元|韩元|韩币|卢布|台币|(?<=(?:[十百千万亿以：:（(]|单位[为是]?)\s*)元|元(?=为单位|计|[）)])/gu;
+const CURRENCY_NAMES =
+  /(?<![A-Za-z])((?:US |U\.S\. |Hong Kong |Australian |Canadian |Singapore )?dollars?|euros?|(?:Swiss )?francs?|sterling|yen|yuan|renminbi|rupees?|(?<=\b(?:in|of)\s+)pounds?(?: sterling)?)(?![A-Za-z])/giu;
+/** A currency's smaller unit said of the text, "in cents", "以分计": never what an Analysis's figure is in. */
+const SUBUNITS =
+  /(?<=(?:\bin|[(（])\s*)(?:cents?|pence)(?![A-Za-z])|(?<=(?:以|单位[为是:：]?)\s*)分(?=计|[）)\s，。；：]|$)/gu;
+const PERCENT_WORDS =
+  /[%％‰٪﹪]|(?<!\p{L})(?:percentage points?|basis points?|bps|(?:in|as|are) (?:a )?(?:percent(?:ages?)?|per ?cent))(?!\p{L})|百分比|百分点/giu;
+
+function saysAFrame(text: string): boolean {
+  let apart = text;
+  for (const figure of readFigures(text))
+    apart = `${apart.slice(0, figure.start)}${" ".repeat(figure.end - figure.start)}${apart.slice(figure.end)}`;
+  // A currency's name capitalised before another capitalised word is a name's: "Dollar Lane".
+  const namesACurrency = [...apart.matchAll(CURRENCY_NAMES)].some(
+    (match) =>
+      !/^\p{Lu}/u.test(match[0]) || !/^\s+\p{Lu}/u.test(apart.slice(match.index + match[0].length)),
+  );
+  return (
+    readStatedUnits(text).some(
+      ({ scale, unit }) =>
+        scale !== 1 ||
+        unit.kind === "currency" ||
+        unit.kind === "percent" ||
+        unit.kind === "points",
+    ) ||
+    namesACurrency ||
+    [SCALE_WORDS, HAN_SCALES, CURRENCY_SIGNS, CURRENCY_CODES, HAN_CURRENCIES, PERCENT_WORDS].some(
+      (pattern) => apart.search(pattern) >= 0,
+    ) ||
+    // "Prices end in 99 cents." gives a price; "Fares are in cents." gives the text's unit.
+    [NUMBER_SCALES, SUBUNITS].some((pattern) => text.search(pattern) >= 0) ||
+    unsettledScales(text).length > 0
+  );
+}
+
+/**
+ * Whether `text` says a scale, a currency or a percent apart from its numbers, as the lines above
+ * a sentence that are kept with its check do: "All amounts below are in thousands", "以下金额单位为万元",
+ * "(GBP)", "in euros". A number's own ("£8,700", "1.2 million") is the number's, never the text's.
+ * A paragraph is read once for all its figures and sentences, not once for each (#2512).
+ */
+const statesAFrame = memoized(64, (text: string) => text, saysAFrame);
 
 interface Around {
   span: { from: number; to: number };

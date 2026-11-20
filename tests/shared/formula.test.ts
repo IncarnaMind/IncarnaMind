@@ -14,7 +14,6 @@ import {
   type FormulaProblemKind,
   type FormulaResult,
   type ShowOptions,
-  scaleChanges,
   showResult,
   sumOf,
 } from "../../src/shared/formula";
@@ -452,10 +451,10 @@ describe("units", () => {
     expect(shown("MAX(rev_us - rev_us * 2, 0)", [usd])).toBe("$0");
   });
 
-  test("a number with no unit can't be added to an amount until its unit is given", () => {
+  test("a number with no unit can't be added to an amount", () => {
     const plain = input("y2025", "152,340.56", ZH);
     expect(problem("y2025 + rev_cn", [plain, cny]).message).toBe(
-      "can't add an amount in CNY (rev_cn) to a number with no unit (y2025); give the unit of y2025 with unitQuote.",
+      "can't add an amount in CNY (rev_cn) to a number with no unit (y2025).",
     );
   });
 
@@ -1074,82 +1073,6 @@ describe("properties", () => {
       expect(outcome.kind, formula).toBe(kind);
       expect(isOneLine(outcome), outcome.message).toBe(true);
     }
-  });
-});
-
-describe("a power of ten that changes an amount's scale (#577)", () => {
-  const rev = underHeader("rev", "120,345.67", "单位：万元");
-  const usd = input("usd", "$1,482.6 million");
-  const users = input("users", "3,120,000");
-  const beds = input("beds", "5,230");
-  const people = input("people", "1,234,567");
-  const margin = input("margin", "41.2%");
-  const changes = (formula: string, inputs: FormulaInput[]) =>
-    scaleChanges(formula, inputs).map(({ text, amount, exponent, from }) => ({
-      text,
-      amount,
-      exponent,
-      from: from?.word ?? null,
-    }));
-
-  // protects=a formula that converts 万 to 亿 or millions to billions itself is found, however the power of ten is written or split ("/ 100 / 100"), while its value is worked out as before; fails_when=one of these forms slips through, or the evaluator's result changes; no_claim=the Tool's message, tested through the core.
-  test("dividing or multiplying an amount by 1000, 10000 or the like, however written or split, is one", () => {
-    expect(changes("rev / 10000", [rev])).toEqual([
-      { text: "rev / 10000", amount: "rev", exponent: -4, from: "万" },
-    ]);
-    for (const formula of ["rev / 1e4", "rev / 10^4", "rev * 0.0001", "rev / (100 * 100)"])
-      expect(
-        changes(formula, [rev]).map((each) => each.exponent),
-        formula,
-      ).toEqual([-4]);
-    for (const formula of ["rev / 100 / 100", "rev / 10 / 1000"])
-      expect(changes(formula, [rev]), formula).toEqual([
-        { text: formula, amount: "rev", exponent: -4, from: "万" },
-      ]);
-    expect(changes("10000 * rev", [rev])).toEqual([
-      { text: "10000 * rev", amount: "rev", exponent: 4, from: "万" },
-    ]);
-    expect(changes("usd / 1000", [usd])).toEqual([
-      { text: "usd / 1000", amount: "usd", exponent: -3, from: "million" },
-    ]);
-    expect(changes("ROUND((usd - usd) / 1e9, 2)", [usd]).map((each) => each.amount)).toEqual([
-      "(usd - usd)",
-    ]);
-    expect(worked("rev / 10000", [rev]).value).toBeCloseTo(120_345.67, 6);
-  });
-
-  // protects=a Chinese statement's 百万元 converted to 亿元 by "/ 100", and 千元 to 万元 by "/ 10", are found as scale changes; fails_when=the formula records a figure a hundred times too small; no_claim=English scales, whose steps are a thousand.
-  test("one written Chinese scale moved onto another, 百万 onto 亿, is one", () => {
-    const millions = underHeader("nd", "5,704", "单位：人民币百万元");
-    expect(changes("nd / 100", [millions])).toEqual([
-      { text: "nd / 100", amount: "nd", exponent: -2, from: "百万" },
-    ]);
-    const thousands = underHeader("c", "31,000", "单位：千元");
-    expect(changes("c / 10", [thousands]).map((each) => each.exponent)).toEqual([-1]);
-    expect(changes("nd / 10", [millions])).toEqual([]);
-  });
-
-  // protects=a power of ten that makes a rate per so many of something, a percent's 100 and other numbers stay allowed; fails_when=a per-10,000 or per-1,000 rate, a share times 10000, or a division by 4 is taken for a change of scale; no_claim=every way a rate could be written.
-  test("a rate per so many, a share, and other numbers aren't", () => {
-    for (const formula of [
-      "usd / users * 1000",
-      "usd / users * 10 * 1000",
-      "usd * 1000 / users",
-      "usd * 100 * 10 / users",
-      "usd / (users / 10000)",
-      "beds / people * 10000",
-      "margin * 10000",
-      "usd / 4",
-      "usd / 100",
-      "usd",
-    ]) {
-      const inputs = [usd, users, beds, people, margin];
-      expect(evaluateFormula(formula, inputs).ok, formula).toBe(true);
-      expect(changes(formula, inputs), formula).toEqual([]);
-    }
-    expect(changes("usd / users / 1000", [usd, users]).map((each) => each.text)).toEqual([
-      "usd / users / 1000",
-    ]);
   });
 });
 

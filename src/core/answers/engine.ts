@@ -117,7 +117,7 @@ import {
   WORKBOOK_TOOLS,
 } from "../tools";
 import { asksForFigureFixes, type FigureProblem, givenList } from "./calculations";
-import { calculationsSchema, checkCalculationsSchema } from "./calculationsSchema";
+import { calculationsSchema } from "./calculationsSchema";
 import { asksForFixes, WRITE_NOW } from "./citations";
 import { type AskedPicture, earlierContext, type RequestMind, withLineBefore } from "./context";
 import { retryFigures } from "./figureRetry";
@@ -1928,14 +1928,14 @@ export function documentTools(
     calculate: documents.calculate
       ? {
           ...own(DOCUMENT_TOOLS.calculate),
-          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, as}. Each input is {name, label, citation, number}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; number is the number as it is written there. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025", "inputs": [{"name": "r24", "label": "Revenue 2024", "citation": 1, "number": "$1,231.0 million"}, {"name": "r25", "label": "Revenue 2025", "citation": 1, "number": "$1,482.6 million"}], "formula": "r25 / r24 - 1", "as": "percent"}]}. IncarnaMind reads each number from its quote, checks the quote and does the arithmetic. Inputs are read in base units with their page's scale ("单位：万元", "in millions") applied, so give scale ("亿", "billion") for the scale a figure is shown in, never multiply or divide by 1000 or 10000 in the formula. An input keeps its sign as the Passage writes it: an amount in brackets, "(12,500)", is negative, so take a deduction off by adding it, never by subtracting it. ${
+          description: `Work out a number from numbers in the Passages instead of in your head, and get its result back. Give figures, each {marker, label, inputs, formula, shown}. Each input is {name, value, citation}: citation is the marker of a cite record whose quote has the number (1 for [^1]), or give passage, location and quote instead; value is the number you use, as a plain number: the quote's own digits, moved by a power of ten only where you mean another scale or unit. Revision worksheets need every item row and its revision, no bare values. The formula is in Excel's syntax over the inputs' names. label says what the figure is, with its unit, and shown is the figure as it is written in the number's place, with its unit and scale. For example: {"figures": [{"marker": 1, "label": "Revenue growth 2025 (%)", "inputs": [{"name": "r24", "citation": 1, "value": 1231000000}, {"name": "r25", "citation": 1, "value": 1482600000}], "formula": "r25 / r24 - 1", "shown": "20.4%"}]}. IncarnaMind checks that each value's digits are in its quote and that shown writes the result's digits, and does the arithmetic; what a number measures is yours to say. ${
             checking
-              ? 'Give stated, the number as the sentence to check writes it: IncarnaMind compares the result with it. When that number is a limit the sentence says the figure stays within or above ("leverage inside the 3.25x covenant"), give relation "at most" or "at least".'
+              ? "What the result means for the sentence is yours to say."
               : "Write the figure's marker, such as [=1], in the number's place; never write the number yourself."
           }`,
           inputSchema: {
             type: "object",
-            properties: { figures: checking ? checkCalculationsSchema : calculationsSchema },
+            properties: { figures: calculationsSchema },
             required: ["figures"],
           },
           effects: () => [],

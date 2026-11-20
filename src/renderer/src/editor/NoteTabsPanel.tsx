@@ -24,6 +24,7 @@ import {
   useNoteTabRename,
 } from "../noteTabs";
 import { type NoteTab, openNoteTab, renameNoteTab } from "./noteTabs";
+import { outsideAgentOf } from "./proposalReview";
 
 /** The outline's indent per level, and a top-level entry's padding, in CSS pixels (as a PDF's). */
 const INDENT = 16;
@@ -121,6 +122,10 @@ export function NoteTabsPanel({
   });
 
   const renaming = (tab: NoteTab) => asked !== null && (asked.id ?? "") === (tab.id ?? "");
+  const proposerOf = (tab: NoteTab) => {
+    const agent = tab.proposal ? outsideAgentOf(editor, tab.proposal) : null;
+    return agent === null ? null : t("proposal.proposedBy", { agent });
+  };
 
   const finishRename = () => {
     const named = asked;
@@ -264,6 +269,7 @@ export function NoteTabsPanel({
                 mindId={mindId}
                 tab={tab}
                 name={tabName(tab, index, t)}
+                proposedBy={proposerOf(tab)}
                 isOpen={index === open}
                 reading={index === open && (entries.length === 0 || current === null)}
                 renaming={renaming(tab)}
@@ -322,6 +328,7 @@ function TabRow({
   mindId,
   tab,
   name,
+  proposedBy,
   isOpen,
   reading,
   renaming,
@@ -341,6 +348,8 @@ function TabRow({
   mindId: string;
   tab: NoteTab;
   name: string;
+  /** Who proposed it, while the change that adds it waits: "Proposed by …"; null when no one said. */
+  proposedBy: string | null;
   isOpen: boolean;
   /** It carries the line that marks where the page is read: none of its headings does. */
   reading: boolean;
@@ -367,7 +376,7 @@ function TabRow({
         data-note-tab-row=""
         data-drop={drop ?? undefined}
         data-dragging={dragging || undefined}
-        className={`pdf-outline-row note-tab-row ${reading ? "pdf-outline-row--current" : isOpen ? "note-tab-row--open" : ""}`}
+        className={`pdf-outline-row note-tab-row ${reading ? "pdf-outline-row--current" : isOpen ? "note-tab-row--open" : ""}${tab.proposal ? " note-tab-row--proposed" : ""}`}
         {...menu.rowProps}
         onPointerDown={onPointerDown}
       >
@@ -388,7 +397,8 @@ function TabRow({
             data-item={tabItem(tab)}
             tabIndex={tabStop ? 0 : -1}
             aria-current={isOpen ? "page" : undefined}
-            title={name}
+            aria-description={proposedBy ?? undefined}
+            title={proposedBy ? `${name}\n${proposedBy}` : name}
             onFocus={onFocus}
             onClick={onOpen}
             onDoubleClick={() => {

@@ -110,6 +110,19 @@ describe("a Note with tabs, exported", () => {
     expect(chinese.startsWith("# 标签页 1\n\n")).toBe(true);
   });
 
+  test("an untitled tab after the title is named by its number in the panel", async () => {
+    const { core, mind } = await setUp([
+      heading(1, "Harbourline Ferries"),
+      tab(""),
+      note("Two ferries were refitted."),
+    ]);
+    const markdown = decode((await core.exportMind(mind.id, { format: "markdown" })).data);
+    // The title held all of tab 1: the untitled tab after it is the panel's "Tab 2".
+    expect(markdown).toBe(
+      ["# Harbourline Ferries", "# Tab 2", "Two ferries were refitted."].join("\n\n") + "\n",
+    );
+  });
+
   test("a Note without tabs is exported as it always was", async () => {
     const { core, mind } = await setUp([heading(1, "Harbourline Ferries"), note("On time.")]);
     const markdown = decode((await core.exportMind(mind.id, { format: "markdown" })).data);

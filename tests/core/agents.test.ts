@@ -107,6 +107,7 @@ describe("outside agents", () => {
       paused: null,
       pairings: [],
       skills: [],
+      skillsOutOfDate: [],
     });
     const { launch, pairing } = await core.connectAgent({ name: "Codex", client: "codex" });
     expect(pairing).toMatchObject({ name: "Codex", client: "codex", folderIds: [] });
@@ -599,7 +600,6 @@ describe("outside agents", () => {
       const tools = await agent.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         "ask",
-        "calculate",
         "check_citations",
         "check_mind",
         "check_mind_yourself",
@@ -633,8 +633,9 @@ describe("outside agents", () => {
       tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     );
     // 1,850 before calculate and run_analysis (#3363); 2,419 before the Canvases' three (#3406);
-    // 2,748 before read_request (#3419) and pictures and charts in a Note (#3413).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(2_922);
+    // 2,748 before read_request (#3419) and pictures and charts in a Note (#3413); 2,922 before
+    // calculate went and report_check took a working instead (#3393); 2,858 before tabs (#3414).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(2_874);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

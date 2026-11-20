@@ -7,13 +7,23 @@
 import { ANALYSIS_LIMITS } from "../../shared/analysis";
 import { FENCE, paragraphsOf } from "../../shared/answerSentences";
 import { type PlacedFigure, withFigureText } from "../../shared/figureMarkers";
-import { type Figure, figureContextOf, readFigures, readingsOf } from "../../shared/figures";
-import { FORMULA_VERSION, sameNumber } from "../../shared/formula";
+import {
+  type Figure,
+  type FigureUnit,
+  figureContextOf,
+  readFigures,
+  readingsOf,
+} from "../../shared/figures";
+import {
+  evaluateFormula,
+  FORMULA_VERSION,
+  type FormulaInput,
+  sameNumber,
+} from "../../shared/formula";
 import { tableCellRanges, tableStart } from "../../shared/markdownTables";
 import { type PrintedValue, printedValues } from "../../shared/printedFigures";
 import type { AnswerAnalysis, CalculatedFigure } from "../api";
 import type { Language } from "../language";
-import { agreesAtShownPrecision } from "./checks/calculated";
 
 /** A heading names what follows: its numbers are no figures of the Answer's own. */
 const HEADING = /^\s*#{1,6}\s/;
@@ -42,12 +52,87 @@ interface Span {
   end: number;
 }
 
-const asCalculated = (reading: Pick<Figure, "value" | "unit">) => ({
-  value: reading.value,
-  unit: reading.unit,
-  inputs: [],
-  formula: "",
-});
+/** Whether a sentence's number and a printed value measure the same kind of thing, so they can be compared. */
+function comparable(stated: FigureUnit, printed: FigureUnit): boolean {
+  switch (stated.kind) {
+    case "percent":
+    case "points":
+      return printed.kind === stated.kind;
+    case "times":
+      return printed.kind === "times" || printed.kind === "plain";
+    case "currency":
+      return (
+        (printed.kind === "currency" && printed.code === stated.code) || printed.kind === "plain"
+      );
+    case "other":
+      return (printed.kind === "other" && printed.word === stated.word) || printed.kind === "plain";
+    // A bare number isn't a ratio's: "42" could be 0.42 or 42%, so it is compared only with an amount.
+    case "plain":
+      return printed.kind === "plain" || printed.kind === "currency" || printed.kind === "other";
+  }
+}
+
+/**
+ * How far a number may be from the value it was rounded from: half its last
+ * place as written ("1.1x", 0.05; "25%", half a percent; "£131.9m", £50,000).
+ * One written as approximate is looser: "about £130m" was rounded to its last
+ * digit that isn't a zero, and "about 1.3x" is a place either way more.
+ */
+function tolerance(stated: Figure): number {
+  const place =
+    (stated.unit.kind === "percent" || stated.unit.kind === "points" ? 0.01 : 1) * stated.scale;
+  let step = place * 10 ** -stated.decimals;
+  let more = 0;
+  if (stated.approximate && stated.decimals > 0) more = step;
+  else if (stated.approximate) {
+    let written = Math.round(Math.abs(stated.value) / place);
+    while (written >= 10 && written % 10 === 0) {
+      written /= 10;
+      step *= 10;
+    }
+  }
+  return step / 2 + more + 1e-9 * Math.max(1, Math.abs(stated.value));
+}
+
+/**
+ * Whether `stated` gives `value` at the precision it is shown to, or holds it when it is a range;
+ * "about £130m" only to its last digit that isn't a zero. Null where they measure different things
+ * or `stated` has no precision to round to.
+ */
+export function agreesAtShownPrecision(
+  stated: Figure,
+  { value, unit }: Pick<Figure, "value" | "unit">,
+): boolean | null {
+  if (!comparable(stated.unit, unit)) return null;
+  const low = Math.min(stated.value, stated.rangeTo ?? stated.value);
+  const high = Math.max(stated.value, stated.rangeTo ?? stated.value);
+  if (stated.approximate) {
+    const within = tolerance(stated);
+    return value >= low - within && value <= high + within;
+  }
+  if (!Number.isFinite(value)) return null;
+  if (stated.rangeTo !== null) return value >= low && value <= high;
+  if (stated.precision === null) return sameNumber(value, stated.value);
+  if (stated.precision === undefined || !Number.isFinite(stated.precision) || stated.precision <= 0)
+    return null;
+  const places = -Math.round(Math.log10(stated.precision));
+  if (10 ** -places !== stated.precision) return null;
+  const input = (name: string, value: number): FormulaInput => ({
+    name,
+    value,
+    scale: 1,
+    scaleWord: null,
+    unit: { kind: "plain" },
+    decimals: 0,
+    approximate: false,
+  });
+  const result = evaluateFormula("ROUND(source, places) = ROUND(stated, places)", [
+    input("source", value),
+    input("stated", stated.value),
+    input("places", places),
+  ]);
+  return result.ok && typeof result.value === "boolean" ? result.value : null;
+}
 
 /**
  * The figures the Answer writes as its own, by offset in `text`. A table's headings and each
@@ -111,7 +196,7 @@ const wholeAsWritten = (stated: Figure) =>
 
 function agrees(stated: Figure, reading: Pick<Figure, "value" | "unit">): boolean {
   if (wholeAsWritten(stated) && !sameNumber(reading.value, stated.value)) return false;
-  return agreesAtShownPrecision(stated, asCalculated(reading)) === true;
+  return agreesAtShownPrecision(stated, reading) === true;
 }
 
 /** Only a number this near can round to `stated`; the check itself works each out with a formula. */
@@ -258,7 +343,7 @@ export function createPrintedNumbers(options: PrintedNumbersOptions) {
       // At the reply's own rounding even for a whole number: a mismatch is never shown as a figure.
       // In the stated number's own unit: a figure()'s unit is the code's word for it ("%", "percent").
       const refuses = (value: number) =>
-        agreesAtShownPrecision(stated, asCalculated({ value, unit: stated.unit }));
+        agreesAtShownPrecision(stated, { value, unit: stated.unit });
       if (refused.some(refuses)) continue;
       const group = matched(stated, groups);
       const from = marked.lastIndexOf("\n", stated.start - 1) + 1;
