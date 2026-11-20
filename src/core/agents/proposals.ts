@@ -28,13 +28,15 @@ import * as Y from "yjs";
 import { asGenerated, INLINE_CODE_MARK } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
 import { REFUSAL_WORDS } from "../../shared/changeRefusals";
-import { readChart } from "../../shared/charts";
+import { gridOfTable, readChart, redrawnData } from "../../shared/charts";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
   readProposalAttribute,
   readProposalRef,
+  resolveProposals,
   targetHash,
+  targetText,
   waitingChanges,
 } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
@@ -45,6 +47,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
   CITATION_NODE,
+  CLAIM_CHECK_MARK,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
   NOTE_TAB_NODE,
@@ -65,7 +68,9 @@ import {
   proposeRewrite,
   readSelection,
   type Selection,
+  setProposal,
   textBlocks,
+  textBlocksOf,
 } from "../proposals/write";
 import { CITATION_TOKEN } from "./citations";
 import { HOLDING_PICTURES, holdPictures } from "./pictures";
@@ -85,6 +90,8 @@ export interface NamedParagraph {
   held: "waiting" | "busy" | null;
   /** Words the User wrote in it: all of them, some, or none that can be told (`NamedOptions.users`). */
   users: "wrote" | "changed" | null;
+  /** A picture or a chart (#3429): its rewrite replaces it whole. */
+  visual?: true;
 }
 
 export interface NamedNote {
@@ -265,11 +272,24 @@ export function namedNote(
   let titled = false;
   const first = blocks.get(0);
   const opening = first instanceof Y.XmlElement && first.nodeName === NOTE_TAB_NODE;
-  for (const { element } of textBlocks(blocks)) {
+  for (const { element, visual } of namedBlocks(blocks)) {
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (typeof blockId !== "string" || blockId === "" || seen.has(blockId)) continue;
     seen.add(blockId);
     if (addedByProposal(element)) continue;
+    if (visual !== null) {
+      const waits = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE)) !== null;
+      paragraphs.push({
+        name: paragraphName(paragraphs.length - (titled ? 1 : 0)),
+        blockId,
+        text: visual,
+        held: waits ? "waiting" : null,
+        users: null,
+        visual: true,
+      });
+      places.push(topOf(element, tops));
+      continue;
+    }
     const { from, to } = wholeOf(element, blockId);
     const read = readSelection(blocks, from, to);
     const held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
@@ -311,11 +331,6 @@ export function namedNote(
     at: places[index] ?? 0,
     text: line(paragraph),
   }));
-  for (const [block, at] of tops) {
-    const visual =
-      block instanceof Y.XmlElement && !addedByProposal(block) ? visualLine(block) : null;
-    if (visual !== null) shown.push({ at, text: visual });
-  }
   if (words.untitledTab) shown.push(...tabLines(blocks, words.untitledTab));
   const text = shown
     .sort((a, b) => a.at - b.at)
@@ -360,6 +375,18 @@ function topOf(element: Y.XmlElement, tops: ReadonlyMap<unknown, number>): numbe
   let top: Y.XmlElement = element;
   while (top.parent instanceof Y.XmlElement) top = top.parent;
   return tops.get(top) ?? 0;
+}
+
+/**
+ * What the Note is named by, in order: its paragraphs and headings at any depth, as `textBlocks`
+ * lists them, and each picture and chart (#3429), with the line the agent reads for it.
+ */
+function namedBlocks(blocks: Y.XmlFragment): { element: Y.XmlElement; visual: string | null }[] {
+  return blocks.toArray().flatMap((top): { element: Y.XmlElement; visual: string | null }[] => {
+    const visual = top instanceof Y.XmlElement ? visualLine(top) : null;
+    if (top instanceof Y.XmlElement && visual !== null) return [{ element: top, visual }];
+    return textBlocksOf(top).map(({ element }) => ({ element, visual: null }));
+  });
 }
 
 /**
@@ -420,8 +447,11 @@ export class ChangeRefused extends Error {
       | "agents.propose.lost"
       | "agents.propose.visualAdded"
       | "agents.propose.emptyTab"
+      | "agents.propose.visualKept"
       | (typeof REFUSAL_WORDS)[keyof typeof REFUSAL_WORDS]["agent"],
     readonly paragraph: string,
+    /** The picture or chart a replacement couldn't put in, which kept the old one (#3429). */
+    readonly left: VisualRefused | null = null,
   ) {
     super(`${paragraph}: ${key}`);
     this.name = "ChangeRefused";
@@ -635,6 +665,15 @@ export function newBlocks(
   return { nodes: placeTabs(nodes), cited, refused };
 }
 
+/** A Block as it reads once `request`'s changes in it are accepted. */
+function acceptedNode(element: Y.XmlElement, request: string): NodeJSON {
+  const scratch = new Y.Doc().getXmlFragment(MIND_CONTENT_FIELD);
+  scratch.insert(0, [element.clone()]);
+  resolveProposals(scratch, (ref) => ref.request === request, "accept");
+  const [copy] = scratch.toArray();
+  return nodeOf(copy instanceof Y.XmlElement ? copy : element);
+}
+
 /** A whole new Block, or list item, as a Proposal of `request` that adds it. */
 function proposedElement(node: NodeJSON, options: ProposeOptions): Y.XmlElement {
   const proposal = blockProposal({ id: options.newId(), request: options.request }, "insert", "");
@@ -787,7 +826,7 @@ function writeNamed(
   options: ProposeOptions,
 ): Wrote<Written> {
   const elements = new Map<string, Y.XmlElement>();
-  for (const { element } of textBlocks(blocks)) {
+  for (const { element } of namedBlocks(blocks)) {
     const id = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (typeof id === "string" && !elements.has(id)) elements.set(id, element);
   }
@@ -806,25 +845,26 @@ function writeNamed(
     fresh: Map<number, Attributes>;
     kept: string[];
   }[] = [];
-  const adds = new Map<number | null, NodeJSON[]>();
+  const adds = new Map<number | null, string[]>();
+  const replaces: { element: Y.XmlElement; name: string; text: string }[] = [];
   const citedAnew: Attributes[] = [];
   const leftOut: VisualRefused[] = [];
   for (const change of changes) {
     if (change.kind === "add") {
-      const anchor = change.after === null ? "¶0" : elementAt(change.after).paragraph.name;
-      // What is added first after a table's paragraph follows the table: a chart there draws it.
-      const table =
-        change.after === null || adds.has(change.after)
-          ? null
-          : tableOf(elementAt(change.after).element);
-      const added = newBlocks(change.text, `${anchor}+`, options, table && nodeOf(table));
-      adds.set(change.after, [...(adds.get(change.after) ?? []), ...added.nodes]);
-      citedAnew.push(...added.cited);
-      leftOut.push(...added.refused);
+      if (change.after !== null) elementAt(change.after);
+      adds.set(change.after, [...(adds.get(change.after) ?? []), change.text]);
       continue;
     }
     const { paragraph, element } = elementAt(change.at);
     if (paragraph.held) throw new HeldParagraph(paragraph, paragraph.held);
+    if (paragraph.visual) {
+      replaces.push({
+        element,
+        name: paragraph.name,
+        text: change.kind === "remove" ? "" : change.text,
+      });
+      continue;
+    }
     // A paragraph's rewrite is its words: a picture, a chart or a tab is a Block of its own, added.
     if (
       change.kind === "rewrite" &&
@@ -841,14 +881,6 @@ function writeNamed(
         : rewriteText(change.text, read.selection, paragraph.name, options);
     rewrites.push({ element, selection: read.selection, name: paragraph.name, ...written });
   }
-  const additions = [...adds.entries()].map(([after, nodes]) => {
-    const element = after === null ? null : elementAt(after);
-    // A tab is decided with the first Block it holds: an empty one would wait unseen.
-    if (!options.checkpoint && emptyTab(nodes)) {
-      throw new ChangeRefused("agents.propose.emptyTab", `${element?.paragraph.name ?? "¶0"}+`);
-    }
-    return { element: element?.element ?? null, nodes };
-  });
 
   const placed = tallyCiting(new Map(), blocks, options.request);
   for (const { element, selection, fresh, kept } of rewrites) {
@@ -863,7 +895,6 @@ function writeNamed(
     }
     for (const attributes of fresh.values()) tally(placed, citationKey(attributes), 1);
   }
-  for (const attributes of citedAnew) tally(placed, citationKey(attributes), 1);
 
   const refused = (report: WriteReport) => ({
     changed: false,
@@ -874,6 +905,90 @@ function writeNamed(
     const written = proposeRewrite(selection, text, options.request, options.newId, fresh);
     if (refusalOf(written)) return refused({ ...written, at: name });
   }
+
+  // Drawn once the rewrites are written: a chart is drawn from its table as these changes leave it.
+  const tableAbove = (element: Y.XmlElement | null) => {
+    const table = element && tableOf(element);
+    return table && acceptedNode(table, options.request);
+  };
+  // Taken out and put in its place, a Block is one change for the User to decide.
+  const replaceWhole = (element: Y.XmlElement, nodes: readonly NodeJSON[]) => {
+    const proposal = { id: options.newId(), request: options.request };
+    setProposal(element, blockProposal(proposal, "delete", targetText(element)));
+    blocks.insert(
+      blocks.toArray().indexOf(element) + 1,
+      nodes.map((node) =>
+        createElement({
+          ...node,
+          attrs: { ...node.attrs, [PROPOSAL_ATTRIBUTE]: blockProposal(proposal, "insert", "") },
+        }),
+      ),
+    );
+  };
+  for (const { element, name, text } of replaces) {
+    const above = blocks.get(blocks.toArray().indexOf(element) - 1);
+    const made = newBlocks(
+      text,
+      name,
+      options,
+      tableAbove(above instanceof Y.XmlElement ? above : null),
+    );
+    const [left] = made.refused;
+    if (left) throw new ChangeRefused("agents.propose.visualKept", name, left);
+    citedAnew.push(...made.cited);
+    replaceWhole(element, made.nodes);
+  }
+  // A chart drawn from a table these changes correct is drawn again from it, as Update draws it.
+  const corrected = new Map<unknown, Y.XmlElement>();
+  for (const { element } of rewrites) {
+    const table = tableOf(element);
+    if (table) corrected.set(table.getAttribute(BLOCK_ID_ATTRIBUTE), table);
+  }
+  const replaced = new Set(replaces.map(({ element }) => element));
+  for (const chart of blocks.toArray()) {
+    if (!(chart instanceof Y.XmlElement) || chart.nodeName !== CHART_NODE || !options.visuals) {
+      continue;
+    }
+    if (replaced.has(chart) || chart.getAttribute(PROPOSAL_ATTRIBUTE)) continue;
+    const drawn = readChart(chart.getAttributes());
+    const table = drawn.source.kind === "table" ? corrected.get(drawn.source.blockId) : undefined;
+    if (!table) continue;
+    const grid = gridOfTable(acceptedNode(table, options.request));
+    const data = redrawnData(grid, drawn, options.visuals.language);
+    if (!data) continue;
+    const same = JSON.stringify(data.series) === JSON.stringify(drawn.data.series);
+    const kept = Object.entries(chart.getAttributes()).filter(
+      ([key]) => key !== BLOCK_ID_ATTRIBUTE && key !== CLAIM_CHECK_MARK,
+    );
+    replaceWhole(chart, [
+      {
+        type: CHART_NODE,
+        attrs: { ...Object.fromEntries(kept), data, ...(same ? {} : { drawn: null }) },
+      },
+    ]);
+  }
+  const additions = [...adds.entries()].map(([after, texts]) => {
+    const anchor = after === null ? null : elementAt(after);
+    const name = `${anchor?.paragraph.name ?? "¶0"}+`;
+    // What is added first after a table's paragraph follows the table: a chart there draws it.
+    const nodes = texts.flatMap((text, index) => {
+      const made = newBlocks(
+        text,
+        name,
+        options,
+        index === 0 ? tableAbove(anchor?.element ?? null) : null,
+      );
+      citedAnew.push(...made.cited);
+      leftOut.push(...made.refused);
+      return made.nodes;
+    });
+    // A tab is decided with the first Block it holds: an empty one would wait unseen.
+    if (!options.checkpoint && emptyTab(nodes)) {
+      throw new ChangeRefused("agents.propose.emptyTab", name);
+    }
+    return { element: anchor?.element ?? null, nodes };
+  });
+  for (const attributes of citedAnew) tally(placed, citationKey(attributes), 1);
   for (const { element, nodes } of additions) {
     if (nodes.length === 0) continue;
     if (element) addAfter(blocks, element, nodes, options);

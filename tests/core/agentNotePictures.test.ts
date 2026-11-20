@@ -9,15 +9,16 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Pictures } from "../../src/core/adapters";
-import { CHART_NODE, CITATION_NODE, PICTURE_NODE } from "../../src/core/api";
+import { CHART_NODE, CITATION_NODE, PICTURE_NODE, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
-import { readChart } from "../../src/shared/charts";
+import { chartPoints, readChart } from "../../src/shared/charts";
+import { decideProposals, waitingChanges } from "../../src/shared/proposals";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { unzip } from "../helpers/docx";
 import { connectToMind } from "../helpers/mindClient";
-import { readMind } from "../helpers/minds";
+import { heading, note, readMind, writeMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
@@ -109,7 +110,7 @@ async function paired({
   const agent = await connectLegacyAgent(launch);
   const files = await createSourceFolder();
   await writeFile(join(files, "chart.png"), PNG);
-  return { ...started, core, agent, files, harvest };
+  return { ...started, core, agent, files, harvest, orchard };
 }
 
 /** A ready token for each of Harvest's two figures. */
@@ -414,11 +415,13 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
       }),
     );
     expect(changed).toMatchObject({ status: "applied", refused: [] });
-    // Read by name, the picture and the chart stand in their place, with no name to change.
+    // Read by name, the picture and the chart stand in their place, each named as a paragraph is.
     const { markdown } = changed;
-    expect(markdown).toContain("\n\n![Map](data:image/png;base64,…)\n\n¶2 Fruit\n\n");
-    expect(markdown).toContain("¶7 610 [cite:");
-    expect(markdown).toMatch(/\n\n```chart\n\{"kind":"pie","title":"Share of the harvest"\}\n```$/);
+    expect(markdown).toContain("\n\n¶2 ![Map](data:image/png;base64,…)\n\n¶3 Fruit\n\n");
+    expect(markdown).toContain("¶8 610 [cite:");
+    expect(markdown).toMatch(
+      /\n\n¶9 ```chart\n\{"kind":"pie","title":"Share of the harvest"\}\n```$/,
+    );
     const blocks = await blocksOf(core, made.mindId);
     expect(blocks.map((block) => block.kind)).toEqual([
       "heading",
@@ -560,5 +563,232 @@ describe("pictures and charts in a Note an outside agent writes (#3413)", () => 
       if (node.type.name === CITATION_NODE) cited++;
     });
     expect(cited).toBe(2);
+  });
+});
+
+/** Each chart's values as shown, by row. */
+const chartShown = (blocks: Awaited<ReturnType<typeof blocksOf>>) =>
+  blocks
+    .filter((block) => block.kind === CHART_NODE)
+    .map((block) => chartPoints(readChart(block.attrs)).map(({ value }) => value.shown));
+
+describe("an agent replaces or removes a picture or chart by its name (#3429)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  it("names each picture and chart, and redraws a chart from its table as the same call corrects it", async () => {
+    const { core, agent, files } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const wrong = [
+      "| Fruit | 2026 (tonnes) |",
+      "|---|---|",
+      `| Apples | 1,840 ${apples} |`,
+      `| Pears | 710 ${pears} |`,
+    ];
+    const made = structured<Written>(
+      await create(
+        agent,
+        [
+          `Apples led ${apples}.`,
+          "",
+          `![Map](${join(files, "chart.png")})`,
+          "",
+          ...wrong,
+          "",
+          "```chart",
+          '{"kind": "bar", "title": "Tonnes"}',
+          "```",
+        ].join("\n"),
+      ),
+    );
+    expect(chartShown(await blocksOf(core, made.mindId))).toEqual([["1,840", "710"]]);
+    const read = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
+    );
+    expect(read.markdown).toContain("\n\n¶2 ![Map](data:image/png;base64,…)\n\n");
+    const cell = /(¶\d+) 710 (\[cite:[^\]]+\])/.exec(read.markdown);
+    const chart = /(¶\d+) ```chart\n/.exec(read.markdown)?.[1];
+    expect(chart).toBe("¶9");
+    const changed = structured<{ status: string; markdown: string }>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: made.mindId,
+          version: read.version,
+          changes: [
+            { paragraph: cell?.[1], text: `610 ${cell?.[2]}` },
+            { paragraph: chart, text: '```chart\n{"kind": "bar", "title": "Tonnes"}\n```' },
+          ],
+        },
+      }),
+    );
+    expect(changed.status).toBe("applied");
+    const blocks = await blocksOf(core, made.mindId);
+    expect(blocks.map((block) => block.kind)).toEqual([
+      "heading",
+      "paragraph",
+      PICTURE_NODE,
+      "table",
+      CHART_NODE,
+    ]);
+    // The one chart there is drawn anew from the corrected table, its table kept by id.
+    expect(chartShown(blocks)).toEqual([["1,840", "610"]]);
+    expect(readChart(blocks[4]?.attrs ?? {}).source).toEqual({
+      kind: "table",
+      blockId: blocks[3]?.attrs.id,
+    });
+    expect(changed.markdown).toMatch(/¶9 ```chart\n\{"kind":"bar","title":"Tonnes"\}\n```$/);
+  });
+
+  it("in the User's Note, a picture swapped for another file waits as one change, and so does one taken out", async () => {
+    const { core, agent, files, orchard } = await paired();
+    const mind = await core.createMind({ title: "Field notes", folderId: orchard.id });
+    const client = await connectToMind(core, mind.id);
+    const inline = `data:image/svg+xml;base64,${base64(SVG)}`;
+    writeMind(client, [
+      heading(1, "Field notes"),
+      note("The old map of the orchard."),
+      {
+        type: PICTURE_NODE,
+        attrs: { id: "old-map", src: `data:image/png;base64,${base64(PNG)}`, alt: "Old map" },
+      },
+      note("The packhouse."),
+      { type: PICTURE_NODE, attrs: { id: "packhouse", src: inline, alt: "Packhouse" } },
+    ]);
+    await client.settled();
+    const read = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    expect(read.markdown.split("\n\n")).toEqual([
+      "¶0 # Field notes",
+      "¶1 The old map of the orchard.",
+      "¶2 ![Old map](data:image/png;base64,…)",
+      "¶3 The packhouse.",
+      "¶4 ![Packhouse](data:image/svg+xml;base64,…)",
+    ]);
+    const proposed = structured<{ status: string; waiting: number; markdown: string }>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: read.version,
+          changes: [
+            { paragraph: "¶2", text: `![New map](${join(files, "chart.png")})` },
+            { paragraph: "¶4", remove: true },
+          ],
+        },
+      }),
+    );
+    expect(proposed).toMatchObject({ status: "waiting", waiting: 2 });
+    // Waiting, the Note reads as it is, each picture marked as waiting.
+    expect(proposed.markdown).toContain("¶2");
+    expect(proposed.markdown).not.toContain("New map");
+
+    const pictures = () =>
+      client.blocks
+        .toArray()
+        .filter((block) => block.toString().startsWith("<picture"))
+        .map((block) => {
+          const element = block as unknown as {
+            getAttribute(name: string): unknown;
+          };
+          return {
+            alt: element.getAttribute("alt"),
+            proposal:
+              (element.getAttribute(PROPOSAL_ATTRIBUTE) as
+                | { id: string; kind: string }
+                | undefined) ?? null,
+          };
+        });
+    await client.settled();
+    const [old, fresh, packhouse] = pictures();
+    expect([old?.alt, fresh?.alt, packhouse?.alt]).toEqual(["Old map", "New map", "Packhouse"]);
+    expect([old?.proposal?.kind, fresh?.proposal?.kind]).toEqual(["delete", "insert"]);
+    expect(old?.proposal?.id).toBe(fresh?.proposal?.id);
+    expect(packhouse?.proposal?.kind).toBe("delete");
+
+    const swap = old?.proposal?.id;
+    client.doc.transact(() => {
+      decideProposals(client.blocks, (each) => each.id === swap, "accept");
+    }, "user");
+    await client.settled();
+    expect(pictures().map((each) => each.alt)).toEqual(["New map", "Packhouse"]);
+    client.doc.transact(() => {
+      decideProposals(client.blocks, () => true, "reject");
+    }, "user");
+    await client.settled();
+    expect(waitingChanges(client.blocks)).toBe(0);
+    expect(pictures().map((each) => [each.alt, each.proposal])).toEqual([
+      ["New map", null],
+      ["Packhouse", null],
+    ]);
+  });
+
+  it("draws a chart again from its table when the agent corrects only the table", async () => {
+    const { core, agent } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const wrong = [
+      "| Fruit | 2026 (tonnes) |",
+      "|---|---|",
+      `| Apples | 1,840 ${apples} |`,
+      `| Pears | 710 ${pears} |`,
+    ];
+    const made = structured<Written>(
+      await create(
+        agent,
+        [...wrong, "", "```chart", '{"kind": "pie", "title": "Tonnes"}', "```"].join("\n"),
+      ),
+    );
+    const read = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
+    );
+    const cell = /(¶\d+) 710 (\[cite:[^\]]+\])/.exec(read.markdown);
+    structured(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: made.mindId,
+          version: read.version,
+          changes: [{ paragraph: cell?.[1], text: `610 ${cell?.[2]}` }],
+        },
+      }),
+    );
+    const blocks = await blocksOf(core, made.mindId);
+    expect(blocks.map((block) => block.kind)).toEqual(["heading", "table", CHART_NODE]);
+    expect(chartShown(blocks)).toEqual([["1,840", "610"]]);
+    // As Update draws it: its kind and title stay.
+    expect(readChart(blocks[2]?.attrs ?? {})).toMatchObject({ kind: "pie", title: "Tonnes" });
+  });
+
+  it("keeps a chart it can't draw anew as it was, and says why", async () => {
+    const { core, agent } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const made = structured<Written>(
+      await create(
+        agent,
+        [...table(apples, pears), "", "```chart", '{"title": "Tonnes"}', "```"].join("\n"),
+      ),
+    );
+    const read = structured<{ version: string; markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId, named: true } }),
+    );
+    const chart = /(¶\d+) ```chart\n/.exec(read.markdown)?.[1] ?? "";
+    const refused = refusal(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: made.mindId,
+          version: read.version,
+          changes: [
+            { paragraph: chart, text: '```chart\n{"kind": "radar", "title": "Tonnes"}\n```' },
+          ],
+        },
+      }),
+    );
+    expect(refused).toBe(
+      `${chart} is kept as it is. Chart not drawn: its kind is bar, line, pie or scatter.`,
+    );
+    expect(chartShown(await blocksOf(core, made.mindId))).toEqual([["1,840", "610"]]);
   });
 });

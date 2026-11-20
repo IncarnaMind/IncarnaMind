@@ -497,7 +497,7 @@ describe("an agent and a Note with tabs", () => {
     expect(changed.markdown.split("\n\n").slice(3)).toEqual([
       fence("Fleet"),
       "¶2 Two ferries were refitted.",
-      "![Refit](data:image/png;base64,…)",
+      "¶3 ![Refit](data:image/png;base64,…)",
     ]);
     expect(await shapeOf(core, made.mindId)).toEqual([
       "tab Summary",

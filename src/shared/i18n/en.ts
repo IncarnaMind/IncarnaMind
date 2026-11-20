@@ -8539,6 +8539,7 @@ export const en = {
     "In {name}, a Citation sits where it can’t stay one, such as in a formula or a link’s address: write it after the words it cites.",
   "agents.propose.visualAdded":
     "{name} is rewritten in words alone: a picture, a chart or a tab goes in a paragraph of its own. Add it with {name}+.",
+  "agents.propose.visualKept": "{name} is kept as it is. {line}",
   "agents.propose.emptyTab":
     "In {name}, a tab holds nothing: write what it holds after its ```tab block, so the User sees it to decide on.",
   "agents.propose.unplaced":

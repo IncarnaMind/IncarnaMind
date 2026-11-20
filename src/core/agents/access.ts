@@ -2169,7 +2169,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         }
         const asked = parseChanges(input?.changes, t);
         const visuals = await visualsFor(
-          asked.flatMap((change) => (change.kind === "add" ? [change.text] : [])),
+          asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
         );
         const inScope = new Set(scopeOf(pairing, undefined));
         const live = deps.liveDocuments();
@@ -2227,7 +2227,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           else written = deps.editMind(mind.id, write);
         } catch (error) {
           if (error instanceof ChangeRefused) {
-            throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
+            const line = error.left ? visuals.line(error.left) : "";
+            throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph, line }));
           }
           if (!(error instanceof HeldParagraph)) throw error;
           throw new AgentRefusedError(
