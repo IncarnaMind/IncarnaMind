@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { CoreBridge, MindCheckPlan, RunEstimate } from "../../src/core/api";
+import type { ChatReadiness, CoreBridge, MindCheckPlan, RunEstimate } from "../../src/core/api";
 
 const bridge = vi.hoisted(() => ({
   planMindCheck: vi.fn<CoreBridge["planMindCheck"]>(),
@@ -15,7 +15,10 @@ const bridge = vi.hoisted(() => ({
 const running = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({ noteBusy: vi.fn() }));
 vi.mock("../../src/renderer/src/core", () => ({ core: bridge }));
-const store = vi.hoisted(() => ({ language: "en" as "en" | "zh-CN" }));
+const store = vi.hoisted(() => ({
+  language: "en" as "en" | "zh-CN",
+  chatReadiness: null as ChatReadiness | null,
+}));
 
 /** A question's estimate in the words its card shows, in the language the test runs in. */
 async function estimateWords(estimate: RunEstimate | null | undefined): Promise<string[] | null> {
@@ -30,7 +33,11 @@ async function estimateWords(estimate: RunEstimate | null | undefined): Promise<
 }
 vi.mock("../../src/renderer/src/store", () => ({
   useAppStore: {
-    getState: () => ({ openMind: async () => {}, settings: { language: store.language } }),
+    getState: () => ({
+      openMind: async () => {},
+      settings: { language: store.language },
+      chatReadiness: store.chatReadiness,
+    }),
   },
 }));
 vi.mock("../../src/renderer/src/checks", () => ({
@@ -828,6 +835,20 @@ describe("A Check another window runs or plans", () => {
       unestimated: true,
     });
     expect(bridge.checkMind).not.toHaveBeenCalled();
+  });
+
+  // protects=#3419: a User with no AI model set up (their own AI does the work) opens the card with no price asked for, and its press asks as when an estimate fails; fails_when=the core is asked to price a run with no model, or the press runs at once
+  test("the card asks for no price when no model is set up", async () => {
+    store.chatReadiness = { ready: false, reason: "no-provider" };
+    const { checkEstimate, planCheckThisMind } = await import("../../src/renderer/src/mindCheck");
+    try {
+      expect(await checkEstimate("mind", await planCheckThisMind("mind"))).toEqual({
+        kind: "unknown",
+      });
+      expect(bridge.estimateRun).not.toHaveBeenCalled();
+    } finally {
+      store.chatReadiness = null;
+    }
   });
 
   // protects=#2313: the card's press asks while its estimate is still pending, rather than spending unpriced; fails_when=it waits for the price instead of asking, or runs; no_claim=the estimate.

@@ -8358,6 +8358,12 @@ export const en = {
   "agents.problem.chat-consent":
     "IncarnaMind’s AI model isn’t allowed yet. Ask a Question in IncarnaMind to allow it.",
   "agents.problem.answer-failed": "IncarnaMind couldn’t answer: {message}",
+  "agents.problem.noRequest":
+    "No request from the User is waiting in IncarnaMind: each is read once. Go by what they wrote, or ask them to send it again from IncarnaMind.",
+  "agents.problem.requestNoteDeleted":
+    "The note this request is about was deleted in IncarnaMind, so there is nothing to change. Tell the User; if they restore it, they can ask again.",
+  "agents.problem.requestOutOfReach":
+    "This request is about a note this agent can’t read now. Tell the User to share its Folder with you in Settings → Agents, then ask again.",
   "agents.problem.invalid": "IncarnaMind couldn’t read that request.",
   "agents.problem.failed": "Something went wrong in IncarnaMind. Try again.",
   "agents.answer.notFound": "[quote not found]",
@@ -8561,6 +8567,9 @@ export const en = {
   "agents.activity.publish_canvas": "Published the Canvas “{text}”",
   "agents.activity.read_canvas": "Read the Canvas “{text}”",
   "agents.activity.update_canvas": "Changed the Canvas “{text}”",
+  "agents.activity.read_request": "Read your request about “{text}”",
+  "agents.activity.read_request.none": "Looked for a request from you",
+  "agents.activity.request": "Show the request",
   "agents.activity.count.one": "1 result",
   "agents.activity.count.other": "{count} results",
   "agents.activity.changes.one": "1 change waiting for you",
@@ -8634,6 +8643,10 @@ export const en = {
   "agents.ask.copied": "Copied. Paste it into {agent}.",
   "agents.ask.fixCommand": "Ask your AI to fix this sentence",
   "agents.ask.noteCommand": "Ask your AI about this note",
+  "agents.ask.fixAllCommand": "Ask your AI to fix every flagged sentence",
+  "agents.ask.fixAll": "Ask {agent} to fix {count}",
+  "agents.ask.waiting": "Waiting for {agent} to read your request.",
+  "agents.ask.read": "{agent} read your request.",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",
@@ -8653,12 +8666,21 @@ export const en = {
     "To use {agent}, move this meeting note to a folder shared with it.",
   "meetings.notesAgent.unavailable": "Reconnect your AI or resume its access in Settings.",
   "meetings.notesAgent.settings": "Agent settings",
+  // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
+  "agents.ask.line.fix": "Fix the sentence IncarnaMind flagged in {title}.",
+  "agents.ask.line.fixAll": "Fix the {count} sentences IncarnaMind flagged in {title}.",
+  "agents.ask.line.note": "About my note {title} in IncarnaMind:",
+  "agents.ask.line.question": "About my note {title} in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionAlone": "From my Documents in IncarnaMind:\n\n{question}",
+  "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
+  // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",
-  "agents.ask.request.question":
-    "In IncarnaMind, about my note {title} (mindId: {mindId}):\n\n{question}",
-  "agents.ask.request.questionAlone": "From my Documents in IncarnaMind:\n\n{question}",
-  "agents.ask.request.note": "In IncarnaMind, about my note {title} (mindId: {mindId}):",
+  "agents.ask.request.fixAll":
+    "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says these {count} sentences need a look:\n\n{sentences}\n\nFix each of them from my Documents, and change nothing else in the note. Then check the note again yourself.",
+  "agents.ask.request.fixAll.item": "{n}. This sentence {verdict}: {sentence}",
+  "agents.ask.request.note":
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
   "agents.ask.verdict.contradicted": "is contradicted by my Documents",
   "agents.ask.verdict.not-found": "isn’t found in my Documents",

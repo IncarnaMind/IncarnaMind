@@ -1,14 +1,14 @@
-import { comparableSentence } from "../../../shared/sentences";
 import { agentsToAsk, askAgent, noModel } from "../askYourAi";
 import { fixesFree } from "../checks";
-import { askableAt, askVerdictOf, sentenceOf } from "../unsupportedFixes";
+import { askableAt, askedSentenceOf, askedSentences } from "../unsupportedFixes";
 import { noteHandle } from "./handles";
 import type { Command } from "./registry";
 
 /*
- * Ask your AI (#3373) from ⌘K: the card's Ask {agent} on the sentence at the caret, and, with no
- * model set up, a request that names the Note, for the agent connected or used last. Each hands the
- * User's own AI a request to send; neither changes the Note, and the assistant runs neither.
+ * Ask your AI (#3373) from ⌘K: the card's Ask {agent} on the sentence at the caret, one request to
+ * fix every sentence of the Note that needs a look (#3419), and, with no model set up, a request
+ * that names the Note, for the agent connected or used last. Each hands the User's own AI a request
+ * to send; none changes the Note, and the assistant runs none.
  */
 
 function withAskableSentence() {
@@ -17,6 +17,15 @@ function withAskableSentence() {
   const claim = askableAt(note.editor);
   const [agent] = agentsToAsk(note.mindId);
   return claim && agent ? { ...note, claim, agent } : null;
+}
+
+/** The Note in front with two or more sentences that need a look, and the agent to ask. */
+function withSentencesToAsk() {
+  const note = noteHandle.current;
+  if (!note || note.editor.isDestroyed || !fixesFree(note.mindId)) return null;
+  const [agent] = agentsToAsk(note.mindId);
+  const sentences = agent ? askedSentences(note.editor) : [];
+  return agent && sentences.length >= 2 ? { mindId: note.mindId, agent, sentences } : null;
 }
 
 function withNoteToAsk() {
@@ -35,12 +44,21 @@ export const askYourAiCommands: readonly Command[] = [
     when: () => withAskableSentence() !== null,
     run() {
       const at = withAskableSentence();
-      if (!at) return;
-      const verdict = askVerdictOf(at.editor, at.claim);
-      const sentence = comparableSentence(sentenceOf(at.editor, at.claim));
-      if (verdict && sentence) {
-        void askAgent(at.agent, at.mindId, { kind: "fix", sentence, verdict });
-      }
+      const sentence = at && askedSentenceOf(at.editor, at.claim);
+      if (at && sentence)
+        void askAgent(at.agent, at.mindId, { kind: "fix", sentences: [sentence] });
+    },
+  },
+  {
+    id: "check.askAgentAll",
+    label: "agents.ask.fixAllCommand",
+    group: "main",
+    reversible: true,
+    assistant: false,
+    when: () => withSentencesToAsk() !== null,
+    run() {
+      const at = withSentencesToAsk();
+      if (at) void askAgent(at.agent, at.mindId, { kind: "fix", sentences: at.sentences });
     },
   },
   {

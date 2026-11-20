@@ -99,6 +99,7 @@ import {
   proposeNamed,
 } from "./proposals";
 import { AgentRefusedError, text, whole } from "./refusals";
+import type { AgentRequests } from "./requests";
 import {
   type AgentAnalysed,
   type AgentCalculated,
@@ -450,6 +451,18 @@ export interface AgentAskInput {
   folderIds?: string[];
 }
 
+/** Which of the pairing's waiting requests `read_request` reads: the one about this Note, by name. */
+export interface AgentReadRequestInput {
+  note?: string;
+}
+
+export interface AgentReadRequest {
+  mindId: string;
+  title: string;
+  /** What the User asked, beyond the line they sent: which Note, which sentences, what to do. */
+  request: string;
+}
+
 export interface AgentAnswer {
   status: "done" | "stopped";
   /** IncarnaMind's Answer in Markdown, each Citation as its token. */
@@ -496,6 +509,8 @@ export interface AgentAccess {
   updateCanvas(
     input: CanvasesInput & { canvasId?: unknown; version?: unknown },
   ): Promise<AgentCanvasPublished>;
+  /** What the User asked this agent from IncarnaMind beyond the line they sent, read once (#3419). */
+  readRequest(input: AgentReadRequestInput): Promise<AgentReadRequest>;
 }
 
 export { AgentRefusedError } from "./refusals";
@@ -675,8 +690,10 @@ export interface AgentAccessDeps {
   /** `CHECK_WAIT_MS`, unless a test waits less. */
   checkWaitMs?: number;
   citations: AgentCitations;
-  /** Keeps a call for the pairing's activity list. */
-  record(activity: Omit<AgentActivity, "id" | "at">): void;
+  /** The requests the User made of their own AI, kept for each agent to read once (./requests). */
+  requests: Pick<AgentRequests, "ofPairing" | "markRead">;
+  /** Keeps a call for the pairing's activity list, with the request it read. */
+  record(activity: Omit<AgentActivity, "id" | "at" | "request">, requestId?: string): void;
   /** A message in the interface language. */
   say(key: MessageKey, params?: MessageParams): string;
   /** Milliseconds, for how long a call took. */
@@ -971,6 +988,8 @@ interface Done<T> {
   count: number | null;
   documentIds: string[];
   effects?: Effect[];
+  /** The request the call read (`read_request`). */
+  requestId?: string;
 }
 
 type ReachDeps = Pick<
@@ -1078,20 +1097,27 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     run: (pairing: AdmittedPairing) => Promise<Done<T>> | Done<T>,
   ): Promise<T> {
     const started = deps.clock();
-    const record = (outcome: AgentActivity["outcome"], rest: Partial<AgentActivity>) => {
+    const record = (
+      outcome: AgentActivity["outcome"],
+      rest: Partial<AgentActivity>,
+      requestId?: string,
+    ) => {
       try {
-        deps.record({
-          pairingId,
-          tool,
-          summary: clip(summary, SUMMARY_CHARS),
-          outcome,
-          problem: null,
-          count: null,
-          documentIds: [],
-          effects,
-          durationMs: Math.max(0, Math.round(deps.clock() - started)),
-          ...rest,
-        });
+        deps.record(
+          {
+            pairingId,
+            tool,
+            summary: clip(summary, SUMMARY_CHARS),
+            outcome,
+            problem: null,
+            count: null,
+            documentIds: [],
+            effects,
+            durationMs: Math.max(0, Math.round(deps.clock() - started)),
+            ...rest,
+          },
+          requestId,
+        );
       } catch (error) {
         deps.reportError(error);
       }
@@ -1108,11 +1134,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     }
     try {
       const done = await run(pairing);
-      record("done", {
-        count: done.count,
-        documentIds: [...new Set(done.documentIds)],
-        effects: done.effects ?? effects,
-      });
+      record(
+        "done",
+        {
+          count: done.count,
+          documentIds: [...new Set(done.documentIds)],
+          effects: done.effects ?? effects,
+        },
+        done.requestId,
+      );
       return done.result;
     } catch (error) {
       if (error instanceof AgentRefusedError) {
@@ -2496,8 +2526,67 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     publishCanvas: canvasTools.publishCanvas,
     readCanvas: canvasTools.readCanvas,
     updateCanvas: canvasTools.updateCanvas,
+    readRequest(input) {
+      const named = typeof input?.note === "string" ? comparableName(input.note) : "";
+      const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
+      const titleOf = (mindId: string) => {
+        const mind = minds.get(mindId);
+        return mind ? mindName(mind) || t("mind.untitled") : "";
+      };
+      // The Note the User's line names, when the agent passes it on: by the name the line gave it,
+      // else by its name now. A request about it that was read already is never made up for by
+      // another Note's, which waits for its own line.
+      const kept = deps.requests.ofPairing(pairingId);
+      const given = kept.filter((each) => comparableName(each.title) === named);
+      const about =
+        given.length > 0
+          ? given
+          : kept.filter((each) => comparableName(titleOf(each.mindId)) === named);
+      const chosen = (named !== "" && about.length > 0 ? about : kept).find(
+        (each) => each.readAt === null,
+      );
+      const effects: Effect[] = chosen
+        ? [{ action: "read", scope: { kind: "mind", mindId: chosen.mindId } }]
+        : [];
+      const summary = chosen ? titleOf(chosen.mindId) : (input?.note ?? "");
+      return call(
+        "read_request",
+        typeof summary === "string" ? summary : "",
+        effects,
+        (pairing) => {
+          if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+          const mind = minds.get(chosen.mindId);
+          if (!mind) {
+            // Sharing a Folder can't bring it back, so the request goes rather than wait in front of
+            // the User's next one.
+            deps.requests.markRead(chosen.id);
+            throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+          }
+          if (!reaches(pairing, mind)) {
+            throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+          }
+          const read = deps.requests.markRead(chosen.id);
+          if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+          return {
+            result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
+            count: 1,
+            documentIds: [],
+            requestId: read.id,
+          };
+        },
+      );
+    },
   };
 }
+
+/** A Note's name as the User's line may give it: without its quotation marks or case. */
+const comparableName = (name: string) =>
+  name
+    .normalize("NFC")
+    .trim()
+    .replace(/^["“”'‘’「」『』]+|["“”'‘’「」『』]+$/gu, "")
+    .trim()
+    .toLocaleLowerCase();
 
 /** The labels of the figures `calculate` was given, for its activity row. */
 function givenFigureLabels(figures: unknown): string {

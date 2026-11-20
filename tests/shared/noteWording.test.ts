@@ -114,6 +114,9 @@ const NOTE_FOR_MIND: readonly MessageKey[] = [
 
 /** Already says 笔记 for the Note, with an English word that never said note. */
 const CHINESE_ONLY: readonly MessageKey[] = [
+  // The line the User sends their own AI names the Note by its title in English (#3419).
+  "agents.ask.line.fix",
+  "agents.ask.line.fixAll",
   "history.reason.enhance",
   // The English says meeting, the Chinese names the meeting's Note and Transcript (#2528).
   "meetings.leftApart.one",
