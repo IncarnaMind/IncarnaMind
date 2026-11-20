@@ -1521,6 +1521,18 @@ export function createLibrary(options: LibraryOptions) {
      * `wait`: then it resolves after the pass that reads them, for a caller
      * that reads what it just wrote (a Meeting's finished Transcript, #763).
      */
+    /**
+     * The live Linked folder `path` is inside, unless it is paused, and the live Document at
+     * `path`; null for each there isn't.
+     */
+    placeOf(path: string): { linkedFolderId: string | null; documentId: string | null } {
+      const owner = ownerOf(path);
+      return {
+        linkedFolderId: owner && !owner.paused ? owner.id : null,
+        documentId: documentAt(path)?.id ?? null,
+      };
+    },
+
     async check(paths: readonly string[], wait = false): Promise<void> {
       if (passRunning) {
         request({ paths });

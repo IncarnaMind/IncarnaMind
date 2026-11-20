@@ -12,6 +12,7 @@ import {
   mkdir,
   open,
   readFile,
+  realpath,
   rename,
   rm,
   writeFile,
@@ -63,7 +64,8 @@ export function createCanvasFiles(
           if (bytesRead === 0) break;
           read += bytesRead;
         }
-        return read === opened.size ? { kind: "read", bytes: bytes.subarray(0, read) } : UNREADABLE;
+        if (read !== opened.size) return UNREADABLE;
+        return { kind: "read", bytes: bytes.subarray(0, read), path: await realpath(path) };
       } catch {
         return UNREADABLE;
       } finally {

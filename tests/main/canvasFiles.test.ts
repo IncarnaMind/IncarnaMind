@@ -4,7 +4,7 @@
  * all read as "unreadable" so nothing more of the path is told. What it keeps goes under its hash.
  */
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hashBytes } from "../../src/core/documents/files";
@@ -23,9 +23,11 @@ describe("A file an agent names for a Canvas", () => {
   it("is read when it is a regular file within the limit", async () => {
     const { files, named } = await setUp();
     await writeFile(join(named, "chart.png"), "picture");
+    // Where it is, as a Linked folder names it: links in the folders above it followed (#3499).
     expect(await files.readNamed(join(named, "chart.png"), LIMIT)).toEqual({
       kind: "read",
       bytes: new TextEncoder().encode("picture"),
+      path: join(await realpath(named), "chart.png"),
     });
     await writeFile(join(named, "big.png"), new Uint8Array(LIMIT + 1));
     expect(await files.readNamed(join(named, "big.png"), LIMIT)).toEqual({ kind: "too-large" });

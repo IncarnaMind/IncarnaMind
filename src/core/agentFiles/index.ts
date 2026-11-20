@@ -126,6 +126,16 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
       return row ? toFile(row) : null;
     },
 
+    /** The item this pairing handed over whose Document is `documentId`, wherever its file is. */
+    ofDocument: (pairingId: string, documentId: string): StoredHandedFile | null => {
+      const row = db.get<FileRow>(
+        `SELECT ${LIVE} AND f.pairing_id = ? AND f.document_id = ?
+         ORDER BY f.created_at DESC LIMIT 1`,
+        [pairingId, documentId],
+      );
+      return row ? toFile(row) : null;
+    },
+
     versions,
 
     /** Every version's check Note, each item's in order of its versions. */

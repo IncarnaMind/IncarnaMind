@@ -221,7 +221,8 @@ export interface AgentSkillFiles {
 }
 
 export type NamedFile =
-  | { kind: "read"; bytes: Uint8Array }
+  /** `path`: where the file is, links in the folders above it followed, as a Linked folder names it. */
+  | { kind: "read"; bytes: Uint8Array; path: string }
   | { kind: "unreadable" }
   | { kind: "too-large" };
 

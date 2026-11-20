@@ -5780,6 +5780,7 @@ export function createCore(adapters: CoreAdapters): Core {
     newId: () => crypto.randomUUID(),
     addHanded: (id, name, file, kind) => documents.addHanded(id, name, file, kind),
     readAgain: (path) => documents.checkNow(path),
+    placeOf: (path) => documents.placeOf(path),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),

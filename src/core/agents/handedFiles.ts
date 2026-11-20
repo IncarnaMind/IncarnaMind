@@ -197,6 +197,8 @@ export function createHandedFileTool(context: HandedFileToolContext) {
           pairingId: pairing.id,
           agent: pairing.name,
           path,
+          place: read.path,
+          connectedAt: pairing.createdAt,
           title,
           kind,
           bytes: read.bytes,

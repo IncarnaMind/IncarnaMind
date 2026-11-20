@@ -43,8 +43,13 @@ export interface HandOverDeps {
   now(): string;
   newId(): string;
   addHanded(id: string, name: string, file: WrittenFile, kind: HandedFile["kind"]): Document;
-  /** Reads the Document's file again, a new version when its bytes changed. */
+  /**
+   * Reads the Document's file again, a new version when its bytes changed; in a Linked folder, a
+   * file the folder's scan hasn't found yet too.
+   */
   readAgain(path: string): Promise<unknown>;
+  /** The live Linked folder a path is inside and the live Document at it; null for each there isn't. */
+  placeOf(path: string): { linkedFolderId: string | null; documentId: string | null };
   document(documentId: string): Document;
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
@@ -92,6 +97,10 @@ export interface HandOverInput {
   pairingId: string;
   agent: string;
   path: string;
+  /** Where the file is, links in its folders followed: what a Linked folder knows it by. */
+  place: string;
+  /** When this agent was first connected (its pairing made). ISO 8601, UTC. */
+  connectedAt: string;
   title: string;
   kind: HandedFile["kind"];
   bytes: Uint8Array;
@@ -103,6 +112,21 @@ export interface HandOverInput {
   allowed(): void;
   /** The Documents the agent reaches now, the only evidence its check may have. */
   reach(): ReadonlySet<string>;
+}
+
+/**
+ * Whether the Document a hand-over finds in a Linked folder is the agent's file, Not cited until
+ * the User cites it (#3499). Handing it over is the agent saying it made it; its word stands unless
+ * what IncarnaMind recorded says otherwise: the Library held the file before that agent was first
+ * connected, or the file was last modified before then. Then it is the User's, and stays a source.
+ */
+export function agentMadeIt(
+  document: Pick<Document, "createdAt" | "modifiedAt">,
+  connectedAt: string,
+): boolean {
+  const connected = Date.parse(connectedAt);
+  if (Date.parse(document.createdAt) < connected) return false;
+  return document.modifiedAt === null || Date.parse(document.modifiedAt) >= connected;
 }
 
 /** Whether the Document's read failed, and since `was`, as it stood before the new version. */
@@ -221,6 +245,26 @@ export function createHandOver(deps: HandOverDeps) {
     file?.documentId && deps.liveDocument(file.documentId) ? file.documentId : null;
 
   /**
+   * The file's own Document in the Linked folder it is in (#3499), read now if the folder's scan
+   * hasn't found it yet: the handed file is that one Document, never a copy beside it. Null when
+   * the folder doesn't take it (paused, or a file it leaves out).
+   */
+  async function linkedDocument(
+    file: StoredHandedFile,
+    input: HandOverInput,
+  ): Promise<string | null> {
+    let { documentId } = deps.placeOf(input.place);
+    if (documentId === null) {
+      await deps.readAgain(input.place);
+      documentId = deps.placeOf(input.place).documentId;
+    }
+    if (documentId === null) return null;
+    if (agentMadeIt(deps.document(documentId), input.connectedAt)) deps.setNotCited(documentId);
+    store.setDocument(file.id, documentId);
+    return documentId;
+  }
+
+  /**
    * Makes a kept version the item's Document's newest, and the Note of its check, from wherever
    * an earlier try stopped: a failure leaves the version kept, and the same bytes handed over again
    * go on from there.
@@ -233,6 +277,9 @@ export function createHandOver(deps: HandOverDeps) {
     reach: ReadonlySet<string>,
   ): Promise<HandOverDone> {
     let documentId = liveDocumentOf(file);
+    if (documentId === null && deps.placeOf(input.place).linkedFolderId !== null) {
+      documentId = await linkedDocument(file, input);
+    }
     if (documentId === null) {
       // The first version, or one after the User deleted the item's Document: a Document of its
       // own, at a path the deleted one doesn't hold.
@@ -250,9 +297,12 @@ export function createHandOver(deps: HandOverDeps) {
       store.setDocument(file.id, documentId);
     } else if (deps.document(documentId).contentHash !== contentHash) {
       const was = deps.document(documentId);
-      await writeWholeFile(was.path, input.bytes, deps.now());
+      // A Linked folder's Document is the agent's file itself: it is read again, never written.
+      const own = was.linkedFolderId === null;
+      if (own) await writeWholeFile(was.path, input.bytes, deps.now());
       await deps.readAgain(was.path);
-      if (deps.document(documentId).name !== input.title) deps.rename(documentId, input.title);
+      if (own && deps.document(documentId).name !== input.title)
+        deps.rename(documentId, input.title);
       const read = await versionRead(documentId, contentHash, was);
       if (read !== true) {
         store.setUnread(version.id, read);
@@ -297,14 +347,18 @@ export function createHandOver(deps: HandOverDeps) {
     input.allowed();
     const reach = input.reach();
     const contentHash = hashBytes(input.bytes);
-    const known = store.atPath(input.pairingId, input.path);
+    const place = deps.placeOf(input.place);
+    // A file in a Linked folder is known by its Document there too, which follows it when renamed.
+    const known =
+      store.atPath(input.pairingId, input.path) ??
+      (place.documentId === null ? null : store.ofDocument(input.pairingId, place.documentId));
     const newest = known ? store.versions(known.id).at(-1) : undefined;
     if (known && newest && newest.contentHash === contentHash) {
       if (newest.mindId !== null || newest.unread !== null) return doneOf(known, newest);
       return complete(known, newest, input, contentHash, reach);
     }
-    // Two Documents never hold the same file (ADR-0003).
-    if (deps.contentHashInUse(contentHash, liveDocumentOf(known))) {
+    // Two Documents never hold the same file (ADR-0003); in a Linked folder its Document is this.
+    if (deps.contentHashInUse(contentHash, place.documentId ?? liveDocumentOf(known))) {
       throw new AgentRefusedError("invalid", deps.say("agents.handOver.inLibrary"));
     }
     const file =

@@ -3361,6 +3361,9 @@ export function createDocuments(options: DocumentsOptions) {
     /** As `check`, and resolves only once the file has been read: for a file just written. */
     checkNow: (path: string) => library.check([path], true),
 
+    /** The live Linked folder a path is inside, and the live Document at it (see `library.placeOf`). */
+    placeOf: (path: string) => library.placeOf(path),
+
     /** Tells the windows a Document changed besides its processing, such as a web page's look. */
     announce,
 
