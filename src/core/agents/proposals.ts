@@ -59,6 +59,7 @@ import {
   PROPOSAL_INSERT_MARK,
 } from "../api";
 import { escapeNames, paragraphName, readName, readRemovals, unescapeNames } from "../edits/prompt";
+import { PICTURE_IN_NOTE } from "../exports/markdown";
 import type { MindContent } from "../mindContent";
 import { createChanges, refusalOf, type WriteReport, type Wrote } from "../proposals/apply";
 import { citationKey, citingKey, holdsOnlyPlaced, tally, tallyCiting } from "../proposals/placed";
@@ -416,9 +417,9 @@ function visualLine(block: Y.XmlElement): string | null {
   if (block.nodeName === PICTURE_NODE) {
     const src = block.getAttribute("src");
     const alt = block.getAttribute("alt");
-    const kept =
-      typeof src === "string" && src.startsWith("data:") ? src.slice(0, src.indexOf(",") + 1) : "";
-    return `![${escapeNames(typeof alt === "string" ? alt : "")}](${kept}…)`;
+    const at =
+      typeof src === "string" && src !== "" && !src.startsWith("data:") ? src : PICTURE_IN_NOTE;
+    return `![${escapeNames(typeof alt === "string" ? alt : "")}](${at})`;
   }
   if (block.nodeName !== CHART_NODE) return null;
   const { kind, title } = readChart(block.getAttributes());

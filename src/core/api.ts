@@ -4218,6 +4218,8 @@ export interface DocumentPlace {
    * part ("w:p#12", "w:tbl#3"), as a Mind imported from it records (`WordSource.n`, #736).
    */
   wordPlace?: string;
+  /** The original Transcript cue, including when the speaker has since been split. */
+  transcriptCue?: { startMs: number; endMs: number };
 }
 
 export interface LayoutTab {
@@ -12055,6 +12057,7 @@ export interface MeetingSummaryItem {
   kind: "decision" | "action";
   status: "active" | "done" | "cancelled";
   text: string;
+  corrected?: true;
 }
 
 export interface MeetingSummary {
@@ -15262,6 +15265,18 @@ export interface CoreApi {
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
+  getMeetingSummaryItemSources(
+    meetingId: string,
+    itemId: number,
+  ): Promise<{
+    documentId: string;
+    sources: { startMs: number; endMs: number; text: string }[];
+  } | null>;
+  correctMeetingSummaryItem(
+    meetingId: string,
+    expected: MeetingSummaryItem,
+    replacement: Pick<MeetingSummaryItem, "kind" | "status" | "text"> & { restoreGenerated?: true },
+  ): Promise<Meeting>;
   /** Takes back what filling in added, leaving the notes as the User left them (#142). */
   undoMeetingFill(meetingId: string): Promise<Meeting>;
   /**
@@ -16139,6 +16154,8 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   retryMeetingSummary: true,
+  getMeetingSummaryItemSources: true,
+  correctMeetingSummaryItem: true,
   undoMeetingFill: true,
   followMeetingFillUndo: true,
   openAudioSettings: true,

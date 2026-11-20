@@ -8,21 +8,28 @@
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
+import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { targetHash } from "../../../shared/proposals";
-import type {
-  CheckedVersion,
-  CheckWorking,
-  Citation,
-  ClaimCheckAttributes,
-  ClaimCheckFailure,
-  ClaimCheckResult,
-  UnsupportedReason,
+import {
+  CHART_NODE,
+  type CheckedVersion,
+  type CheckWorking,
+  type Citation,
+  type ClaimCheckAttributes,
+  type ClaimCheckFailure,
+  type ClaimCheckResult,
+  type UnsupportedReason,
 } from "../../api";
 import type { EvidenceScope } from "../../documents/evidence";
 import type { MindContent } from "../../mindContent";
-import { cellHeadings, type TableLayout } from "./figureOccurrences";
+import {
+  cellHeadings,
+  type FigureOccurrence,
+  inValueCell,
+  type TableLayout,
+} from "./figureOccurrences";
 import {
   checkText,
   everySentence,
@@ -149,8 +156,9 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
   const { content } = options;
 
   /**
-   * The sentences with no result that stands for the agent now, in the Note's order: none for
-   * their words as they are, or one that no longer stands for `reader` (`readingOf`).
+   * The sentences with no result that stands for the agent now, in the Note's order: those the
+   * Note counts as not checked yet, as the Note's own Check reads them, and those whose result no
+   * longer stands for `reader` (`readingOf`).
    */
   const pending = (
     blocks: Y.XmlFragment,
@@ -161,7 +169,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
     const reading = readingOf(blocks, reader);
     return everySentence(blocks).filter(
       (sentence) =>
-        !skipped.has(sentenceKey(sentence.text)) &&
+        !(skipped.has(sentenceKey(sentence.text)) && !inValueCell(sentence.figures)) &&
         !marks.some(
           ({ element, from, to, check }) =>
             element === sentence.element &&
@@ -300,15 +308,21 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             continue;
           }
           if (each.verdict === "nothing-to-check") {
-            skipped.add(sentenceKey(sentence.text));
+            // A value cell's figure is checked whatever a check calls it, as the Note counts it (#2447).
+            if (inValueCell(sentence.figures)) unconfirmed.push(each.n);
+            else skipped.add(sentenceKey(sentence.text));
             continue;
           }
           const evidence = each.evidence.filter((citation) =>
             scope.documentIds.has(citation.documentId),
           );
-          const result = worked
+          const judgedResult = worked
             ? workedResult(each, worked, evidence, checkText(sentence).claim.length)
             : resultOf(each, evidence);
+          const result =
+            sentence.element.nodeName === CHART_NODE
+              ? onEachValue(judgedResult, sentence.figures ?? [])
+              : judgedResult;
           if (result.verdict === "not-checked") unconfirmed.push(each.n);
           const mark: ClaimCheckAttributes = {
             id: randomUUID(),
@@ -425,6 +439,23 @@ function workedResult(
 }
 
 /** The result a sentence's mark holds: the agent's verdict, on the Citations IncarnaMind found. */
+/**
+ * A chart's result as the Note's own Check marks a chart, on each of its values, which is how the
+ * Note shows one checked (#3465): the agent's verdict on the chart is its verdict on each value.
+ */
+function onEachValue(
+  result: ClaimCheckResult,
+  values: readonly FigureOccurrence[],
+): ClaimCheckResult {
+  if (result.verdict === "not-checked" || values.length === 0) return result;
+  const { figures: _figures, remainder: _remainder, currencyClause: _clause, ...judgment } = result;
+  return {
+    ...result,
+    figures: values.map((value) => ({ ...emptyFigureFinding(value), result: judgment })),
+    remainder: null,
+  };
+}
+
 function resultOf(
   { verdict, explanation }: JudgedSentence,
   evidence: readonly Citation[],
