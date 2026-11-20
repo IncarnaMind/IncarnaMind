@@ -47,8 +47,8 @@ async function askAndEnd(core: Core, text: string): Promise<string> {
 }
 
 describe("The wait of an Answer, as the core keeps it", () => {
-  // protects=an Answer keeps how long it waited for its first words, and a model's usual wait comes from its earlier Answers of the same kind; fails_when=an Answer to a Question that calculates counts toward the usual wait of Questions that don't, or a first Answer has one; no_claim=the scripted model answers at once, so the waits are about a second at most.
-  test("a model's usual wait comes from its earlier Answers to the same kind of Question", async () => {
+  // protects=an Answer keeps how long it waited for its first words, and a model's usual wait comes from its earlier Answers, whatever their Questions asked (#3462); fails_when=a Question that calculates gets no usual wait from the model's earlier Answers, or a first Answer has one; no_claim=the scripted model answers at once, so the waits are about a second at most.
+  test("a model's usual wait comes from its earlier Answers", async () => {
     const core = await setUp();
     const first = await askAndEnd(core, "When are spring tides?");
     expect(await core.usualAnswerWait(first)).toBeNull();
@@ -58,12 +58,12 @@ describe("The wait of an Answer, as the core keeps it", () => {
     expect(await core.usualAnswerWait(fourth)).toBe(1);
 
     const calculating = await askAndEnd(core, "Calculate the ratio of spring to neap range");
-    expect(await core.usualAnswerWait(calculating)).toBeNull();
+    expect(await core.usualAnswerWait(calculating)).toBe(1);
   });
 });
 
 describe("An Answer's steps in the database", () => {
-  test("keep how long it waited for its words in milliseconds, and whether its Question asked to calculate", async () => {
+  test("keep how long it waited for its words in milliseconds, whatever its Question asked", async () => {
     const dataDir = await createTempDataFolder();
     const model = streamingModel("Spring tides come with the new and the full moon.");
     const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
@@ -79,8 +79,8 @@ describe("An Answer's steps in the database", () => {
             ?.steps ?? "{}",
         ) as { firstWordMs?: unknown; careful?: unknown };
       expect(typeof stepsOf(plain).firstWordMs).toBe("number");
-      expect(stepsOf(plain).careful).toBeUndefined();
-      expect(stepsOf(calculating).careful).toBe(true);
+      expect(typeof stepsOf(calculating).firstWordMs).toBe("number");
+      expect(stepsOf(calculating).careful).toBeUndefined();
     } finally {
       db.close();
     }

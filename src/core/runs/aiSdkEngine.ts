@@ -29,6 +29,7 @@ import {
 } from "ai";
 import Ajv, { type ValidateFunction } from "ajv";
 import { escapedInStrings } from "../../shared/jsonText";
+import type { ChatLanguageModel } from "../providers/models";
 import {
   cacheProviderOptions,
   stablePrefixOf,
@@ -423,6 +424,8 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
   let canCallAgain = maxSteps > 2;
   /** The step now drawn is one that must write: a call in it is refused. */
   let writing = false;
+  /** The model the calls after a step are made with, once `request.modelAfter` names one. */
+  let afterModel: ChatLanguageModel | undefined;
   const tools = toToolSet(
     request.tools.map((each) => gated(each, request)),
     signal,
@@ -460,7 +463,16 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
         );
       },
     ],
-    prepareStep: ({ stepNumber, initialMessages, responseMessages }) => {
+    prepareStep: ({ stepNumber, steps, initialMessages, responseMessages }) => {
+      const last = steps.at(-1);
+      if (last && request.modelAfter) {
+        afterModel =
+          request.modelAfter({
+            text: last.text,
+            calls: last.toolCalls.map((call) => ({ id: call.toolCallId, tool: call.toolName })),
+          }) ?? afterModel;
+      }
+      const stepModel = afterModel && { model: afterModel };
       if (stepNumber > 0) {
         for (const message of request.steering?.() ?? []) {
           for (const each of toModelMessages([message])) {
@@ -481,6 +493,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
       canCallAgain = stepNumber + 1 < maxSteps - 1;
       if (!write)
         return {
+          ...stepModel,
           ...(messages && { messages }),
           maxOutputTokens: request.outputTokens.step,
           // A provider that thinks first refuses a forced Tool, as it does a changed tool list.
@@ -492,6 +505,7 @@ async function* run(request: RunRequest): AsyncGenerator<RunEvent> {
             }),
         };
       return {
+        ...stepModel,
         messages: [
           ...(messages ?? [...initialMessages, ...splice(responseMessages, inserted)]),
           { role: "user" as const, content: LAST_STEP_NOTE },
