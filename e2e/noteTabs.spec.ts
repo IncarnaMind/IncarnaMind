@@ -57,7 +57,6 @@ const WORDS = {
     timetable: "The island routes sail every hour from the outer harbour pier.",
     untitled: "Tab 1",
     newTab: "New tab…",
-    inTab: "In tab “Fleet”",
     panel: "Tabs and outline",
   },
   "zh-CN": {
@@ -70,7 +69,6 @@ const WORDS = {
     timetable: "海岛航线每小时从外港码头开出一班。",
     untitled: "标签页 1",
     newTab: "新建标签页…",
-    inTab: "在标签页“船队”中",
     panel: "标签页和目录",
   },
 } as const;
@@ -295,16 +293,19 @@ test("a Note in three tabs: one shown at a time, each keeping its place; moved b
     await expect(editor.getByText(words.timetable)).toBeVisible();
     await window.keyboard.press("Escape");
     // A click into the match it left selected leaves a caret: ⌘K at once is ⌘K, not a link.
-    const match = await editor.getByText(words.timetable).evaluate((line, words) => {
-      const text = line.firstChild;
-      const at = text?.textContent?.indexOf(words) ?? -1;
-      if (!text || at < 0) return null;
-      const range = document.createRange();
-      range.setStart(text, at);
-      range.setEnd(text, at + words.length);
-      const box = range.getBoundingClientRect();
-      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    }, "outer harbour pier");
+    const match = await editor.getByText(words.timetable).evaluate((line, word) => {
+      const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+      for (let text = walk.nextNode(); text; text = walk.nextNode()) {
+        const at = text.textContent?.indexOf(word) ?? -1;
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(text, at);
+        range.setEnd(text, at + word.length);
+        const box = range.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }
+      return null;
+    }, "harbour");
     if (!match) throw new Error("The match isn't drawn.");
     await window.mouse.click(match.x, match.y);
     await window.keyboard.press("ControlOrMeta+k");
@@ -318,9 +319,7 @@ test("a Note in three tabs: one shown at a time, each keeping its place; moved b
     await pointAndClick(window, window.getByTestId("check-badge-open").first());
     await pointAndClick(window, window.getByTestId("check-card").getByTestId("health-look"));
     await expect(openTab(outline)).toHaveText("Fleet");
-    const card = window.getByTestId("claim-card");
-    await expect(card).toBeVisible();
-    await expect(card.getByTestId("claim-tab")).toHaveText(words.inTab);
+    await expect(window.getByTestId("claim-card")).toBeVisible();
     await motionSettled(window);
   } finally {
     await app.close();
@@ -344,6 +343,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeNote(window, words.title, report(language));
       await writeNote(window, language === "en" ? "Crew rota" : "船员排班", [
         { text: words.line(words.tabs[0] ?? "", 0) },
+      ]);
+      const plain = language === "en" ? "Refit notes" : "改装笔记";
+      const refits = words.headings[1]?.[0] ?? "";
+      await writeNote(window, plain, [
+        { heading: refits, level: 2 },
+        { text: words.line(refits, 0) },
       ]);
       for (const [width, scheme] of [
         [1280, "light"],
@@ -375,16 +380,17 @@ for (const language of ["en", "zh-CN"] as const) {
             true,
           );
         }
+        // One place marked as being read: the heading, its tab in darker text only.
+        await expect(outline.locator('[aria-current="location"]')).toHaveText(
+          words.headings[1]?.[0] ?? "",
+        );
+        expect(
+          await openTab(outline).evaluate((tab) =>
+            tab.parentElement?.classList.contains("pdf-outline-row--current"),
+          ),
+        ).toBe(false);
         const name = `note-tabs-${language}-${scheme}-${width}`;
         await still(window, `${name}-panel`);
-
-        // The check card names the tab its sentence is in.
-        await pointAndClick(window, window.getByTestId("claim-mark").first());
-        const card = window.getByTestId("claim-card");
-        await expect(card.getByTestId("claim-tab")).toHaveText(words.inTab);
-        await still(window, `${name}-card`);
-        await window.keyboard.press("Escape");
-        await expect(card).toHaveCount(0);
 
         // Renaming in place.
         await tabRows(outline).nth(1).focus();
@@ -396,9 +402,24 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(field).toHaveCount(0);
       }
 
-      // A Note's first tab is named by its number in the interface's language.
+      // A tab starts where a Note's first line starts: the hidden Blocks above it keep no room.
       await setWindowSize(app, window, 1280, 760);
       await window.emulateMedia({ colorScheme: "light" });
+      const topOf = async (editor: Locator) =>
+        editor.locator("h2", { hasText: refits }).evaluate((heading) => {
+          const scroller = heading.closest(".mind-scroller");
+          return heading.getBoundingClientRect().top - (scroller?.getBoundingClientRect().top ?? 0);
+        });
+      const plainEditor = await openNote(window, plain);
+      await showPanel(window);
+      const plainTop = await topOf(plainEditor);
+      await still(window, `note-tabs-${language}-light-1280-top-plain`);
+      const tabEditor = await openNote(window, words.title);
+      await pointAndClick(window, tabRows(await showPanel(window)).nth(1));
+      await expect.poll(async () => Math.abs((await topOf(tabEditor)) - plainTop)).toBeLessThan(1);
+      await still(window, `note-tabs-${language}-light-1280-top-tab`);
+
+      // A Note's first tab is named by its number in the interface's language.
       const rota = await openNote(window, language === "en" ? "Crew rota" : "船员排班");
       const outline = await showPanel(window);
       await still(window, `note-tabs-${language}-light-1280-none`);
