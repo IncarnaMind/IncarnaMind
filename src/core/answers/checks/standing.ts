@@ -11,7 +11,7 @@ import {
   claimCheckShown,
   type NoteFooting,
 } from "../../../shared/claimChecks";
-import { readVerification, type Verification } from "../../../shared/verification";
+import { isVerifiedBlock, readVerification, type Verification } from "../../../shared/verification";
 import { type ClaimCheckAttributes, MIND_SETTINGS_FIELD, type SearchScope } from "../../api";
 import type { RecordCitePlace } from "../../recordCites/referents";
 import {
@@ -52,6 +52,27 @@ export function claimOf(
 /** What a line's check is given: its claim, and what stands above it. */
 export const saidOf = (sentence: SelectedSentence, verification: Verification | null) =>
   claimOf(sentence, verification) ?? { claim: sentence.text, context: sentence.context };
+
+/** A letter or digit: a line with none states nothing to sort. */
+const WORDS = /[\p{L}\p{N}]/u;
+
+/**
+ * The lines a file's check sorts into claims, in the Note's order, each with the claim it is judged
+ * as: a table row whole with its headings, anchored to its first cell, else the sentence.
+ */
+export function fileCheckLines(
+  blocks: Y.XmlFragment,
+  verification: Verification,
+): (SelectedSentence & { said: string })[] {
+  const doc = blocks.doc;
+  if (!doc) return [];
+  return everySentence(blocks, { headings: true }).flatMap((sentence) => {
+    if (!isVerifiedBlock(doc, verification, sentence.blockId)) return [];
+    const said = claimOf(sentence, verification)?.claim;
+    // The model decides which lines state a claim, a short one with a figure too (#3412).
+    return said !== undefined && WORDS.test(said) ? [{ ...sentence, said }] : [];
+  });
+}
 
 /** The fingerprint of all a line is judged with (`ClaimCheckBasis.judgedWith`). */
 export function judgedWithOf(

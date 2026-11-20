@@ -138,7 +138,14 @@ describe("files an outside agent hands over", () => {
         arguments: { mindId: unchecked.mindId },
       }),
     );
-    expect(task.sentences.map((each) => each.text)).toEqual([NORTH, SOUTH, OFFICE, NEVER_CLOSES]);
+    // As the file's check sorts it: its title too, which the agent finds nothing to check in.
+    expect(task.sentences.map((each) => each.text)).toEqual([
+      "Harbour review",
+      NORTH,
+      SOUTH,
+      OFFICE,
+      NEVER_CLOSES,
+    ]);
 
     await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
     const checked = structured<Handed>(await handOver(agent, { path }));
@@ -226,6 +233,85 @@ describe("files an outside agent hands over", () => {
       ],
       formulas: { workedOut: 1, notWorkedOut: 0, differ: [] },
     });
+  });
+
+  // protects=with no model set up, the agent checks a workbook it handed over as IncarnaMind's check reads one: each row whole with its headings, its verdict landing on the row, and the next version's rows with their new figures (#3412); fails_when=the agent is given each cell alone, a verdict on a row leaves its cells to check, or the next version gives a row with the figure it had before
+  it("gives the agent a workbook's rows whole to check itself with no model, each verdict landing on its row", async () => {
+    const { core, coast, writer, files } = await started();
+    for (const provider of await core.listChatProviders()) {
+      await core.deleteChatProvider(provider.id);
+    }
+    const agent = await connectLegacyAgent(writer.launch);
+    const budget = (moorings: number) => {
+      const book = new WorkbookBuilder();
+      book
+        .sheet("Inputs")
+        .text("A1", "Item")
+        .text("B1", "2026")
+        .text("A2", "Rent")
+        .number("B2", 14000)
+        .text("A3", "Moorings")
+        .number("B3", moorings);
+      return book.xlsx();
+    };
+    const path = join(files, "Harbour budget.xlsx");
+    await writeFile(path, budget(2500));
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    expect(first.status).toBe("not-checked");
+    const ownCheck = async (mindId: string | null) =>
+      structured<{ task: string; sentences: { n: number; text: string }[] }>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+      );
+    const given = await ownCheck(first.mindId);
+    expect(given.sentences.map((each) => each.text)).toEqual([
+      "Inputs",
+      "Rent — 2026: 14000",
+      "Moorings — 2026: 2500",
+    ]);
+
+    const { passages } = structured<{ passages: { passageId: string; document: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "rent moorings 2026" } }),
+    );
+    const notes = passages.filter((each) => each.document === "Harbour budget notes");
+    const cite = async (quote: string) => {
+      const { citations } = structured<{ citations: { cite: string | null }[] }>(
+        await agent.callTool({
+          name: "cite",
+          arguments: { citations: notes.map(({ passageId }) => ({ passageId, quote })) },
+        }),
+      );
+      return citations.find((each) => each.cite !== null)?.cite;
+    };
+    const reported = structured<{ marked: number; unreported: number[] }>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId: first.mindId,
+          task: given.task,
+          results: [
+            { n: 1, verdict: "nothing to check" },
+            { n: 2, verdict: "supported", cites: [await cite("Rent for 2026 is 14000.")] },
+            {
+              n: 3,
+              verdict: "contradicted",
+              cites: [await cite("Moorings for 2026 cost 2200.")],
+              explanation: "The budget notes give moorings for 2026 as 2200.",
+            },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ marked: 2, unreported: [] });
+    expect((await ownCheck(first.mindId)).sentences).toEqual([]);
+
+    await writeFile(path, budget(2200));
+    const second = structured<Handed>(await handOver(agent, { path }));
+    expect(second).toMatchObject({ version: 2, status: "not-checked" });
+    expect((await ownCheck(second.mindId)).sentences.map((each) => each.text)).toEqual([
+      "Inputs",
+      "Rent — 2026: 14000",
+      "Moorings — 2026: 2200",
+    ]);
   });
 
   // protects=IncarnaMind reads only the file the agent named, a regular file of a kind it checks, and only for an agent the User let write (#3412); fails_when=a folder, a link, another kind of file or a read-only agent's call is taken

@@ -12,6 +12,7 @@ import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindScopeIn } from "../../../shared/mindScope";
 import { targetHash } from "../../../shared/proposals";
+import { type Verification, verificationOf } from "../../../shared/verification";
 import {
   CHART_NODE,
   type CheckedVersion,
@@ -37,7 +38,7 @@ import {
   markSentence,
   type SelectedSentence,
 } from "./sentences";
-import { type Reader, readingOf } from "./standing";
+import { fileCheckLines, judgedWithOf, type Reader, readingOf } from "./standing";
 import type { MindCheckScope } from "./verify";
 
 export type JudgedVerdict =
@@ -150,6 +151,49 @@ interface GivenSentence {
   blockId: string;
   occurrence: number;
   text: string;
+  said: string;
+}
+
+/** A line a check of the Note judges, with the claim it is judged as. */
+interface Line extends SelectedSentence {
+  said: string;
+  /** Its key in the Note's list of lines a check found nothing to check in. */
+  key: string;
+  /** Checked whatever a check calls it. */
+  always: boolean;
+}
+
+/**
+ * The lines a check of the Note judges: a file's as its check reads them (`fileCheckLines`), each
+ * table row whole with its headings; a Note's own every sentence, as the Note counts them.
+ */
+function linesOf(blocks: Y.XmlFragment): { verification: Verification | null; lines: Line[] } {
+  const verification = blocks.doc ? verificationOf(blocks.doc) : null;
+  if (verification) {
+    const { claims } = verification;
+    const lines = fileCheckLines(blocks, verification)
+      // Once the check has sorted the file, a line it found no claim in is no check's.
+      .filter(
+        (line) =>
+          claims === null ||
+          claims.some(
+            (claim) =>
+              claim.blockId === line.blockId &&
+              claim.text === line.text &&
+              (claim.occurrence ?? 0) === line.occurrence,
+          ),
+      )
+      .map((line) => ({ ...line, key: sentenceKey(line.said), always: false }));
+    return { verification, lines };
+  }
+  const lines = everySentence(blocks).map((sentence) => ({
+    ...sentence,
+    said: checkText(sentence).claim,
+    key: sentenceKey(sentence.text),
+    // A value cell's figure is checked whatever a check calls it, as the Note counts it (#2447).
+    always: inValueCell(sentence.figures),
+  }));
+  return { verification: null, lines };
 }
 
 export function createJudgedOutside(options: JudgedOutsideOptions) {
@@ -162,14 +206,15 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
    */
   const pending = (
     blocks: Y.XmlFragment,
+    lines: readonly Line[],
     skipped: ReadonlySet<string>,
     reader: Reader,
-  ): SelectedSentence[] => {
+  ): Line[] => {
     const marks = markedSentences(blocks);
     const reading = readingOf(blocks, reader);
-    return everySentence(blocks).filter(
+    return lines.filter(
       (sentence) =>
-        !(skipped.has(sentenceKey(sentence.text)) && !inValueCell(sentence.figures)) &&
+        !(skipped.has(sentence.key) && !sentence.always) &&
         !marks.some(
           ({ element, from, to, check }) =>
             element === sentence.element &&
@@ -182,17 +227,24 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
     );
   };
 
-  const nameOf = (sentences: readonly SelectedSentence[]) =>
-    targetHash(sentences.map((each) => `${each.blockId}\u0000${each.text}`).join("\u0001"));
+  const nameOf = (sentences: readonly Line[]) =>
+    targetHash(
+      sentences.map((each) => `${each.blockId}\u0000${each.text}\u0000${each.said}`).join("\u0001"),
+    );
 
   // A report lands on the sentences its task gave, not on those still without a result: the
   // agent's own earlier report on the task changes which those are, never the task (#3432).
   const given = new Map<string, { mindId: string; sentences: readonly GivenSentence[] }>();
-  const keep = (task: string, mindId: string, sentences: readonly SelectedSentence[]) => {
+  const keep = (task: string, mindId: string, sentences: readonly Line[]) => {
     given.delete(task);
     given.set(task, {
       mindId,
-      sentences: sentences.map(({ blockId, occurrence, text }) => ({ blockId, occurrence, text })),
+      sentences: sentences.map(({ blockId, occurrence, text, said }) => ({
+        blockId,
+        occurrence,
+        text,
+        said,
+      })),
     });
     for (const oldest of given.keys()) {
       if (given.size <= TASKS_KEPT) break;
@@ -204,20 +256,20 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
   const sentencesOf = (
     task: string,
     mindId: string,
-    blocks: Y.XmlFragment,
-    open: readonly SelectedSentence[],
-  ): readonly SelectedSentence[] | null => {
+    lines: readonly Line[],
+    open: readonly Line[],
+  ): readonly Line[] | null => {
     const kept = given.get(task);
     // A task from before the app last started: its sentences are those still without a result.
     if (kept?.mindId !== mindId) return nameOf(open) === task ? open : null;
-    const now = everySentence(blocks);
-    const found: SelectedSentence[] = [];
+    const found: Line[] = [];
     for (const each of kept.sentences) {
-      const sentence = now.find(
+      const sentence = lines.find(
         (candidate) =>
           candidate.blockId === each.blockId &&
           candidate.occurrence === each.occurrence &&
-          candidate.text === each.text,
+          candidate.text === each.text &&
+          candidate.said === each.said,
       );
       if (!sentence) return null;
       found.push(sentence);
@@ -254,7 +306,8 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       if (!scope.ok) return scope;
       const skipped = skippedOf(mindId);
       return content.read(mindId, (blocks) => {
-        const sentences = pending(blocks, skipped, scope.reader);
+        const { verification, lines } = linesOf(blocks);
+        const sentences = pending(blocks, lines, skipped, scope.reader);
         const grids = new Map<Y.XmlElement, TableLayout>();
         const task = nameOf(sentences);
         keep(task, mindId, sentences);
@@ -264,8 +317,9 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             task,
             sentences: sentences.map((sentence, index) => ({
               n: index + 1,
-              text: checkText(sentence).claim,
-              ...cellHeadings(sentence.element, grids),
+              text: sentence.said,
+              // A file's row is given whole with its headings.
+              ...(verification === null && cellHeadings(sentence.element, grids)),
             })),
           },
         };
@@ -287,10 +341,11 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       const at = options.now().toISOString();
       const request = randomUUID();
       const landed = content.edit(mindId, (blocks): Judged<LandedCheck> => {
-        const open = pending(blocks, skipped, scope.reader);
-        const sentences = sentencesOf(task, mindId, blocks, open);
+        const { verification, lines } = linesOf(blocks);
+        const open = pending(blocks, lines, skipped, scope.reader);
+        const sentences = sentencesOf(task, mindId, lines, open);
         if (!sentences) return { ok: false, reason: "changed" };
-        const stillOpen = (sentence: SelectedSentence) =>
+        const stillOpen = (sentence: Line) =>
           open.some((each) => each.element === sentence.element && each.from === sentence.from);
         const unconfirmed: number[] = [];
         const reported = new Set<number>();
@@ -308,16 +363,15 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             continue;
           }
           if (each.verdict === "nothing-to-check") {
-            // A value cell's figure is checked whatever a check calls it, as the Note counts it (#2447).
-            if (inValueCell(sentence.figures)) unconfirmed.push(each.n);
-            else skipped.add(sentenceKey(sentence.text));
+            if (sentence.always) unconfirmed.push(each.n);
+            else skipped.add(sentence.key);
             continue;
           }
           const evidence = each.evidence.filter((citation) =>
             scope.documentIds.has(citation.documentId),
           );
           const judgedResult = worked
-            ? workedResult(each, worked, evidence, checkText(sentence).claim.length)
+            ? workedResult(each, worked, evidence, sentence.said.length)
             : resultOf(each, evidence);
           const result =
             sentence.element.nodeName === CHART_NODE
@@ -344,12 +398,14 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             versions: [],
             excluded: [],
             checkedAt: at,
+            // As a file's check records it: a row's verdict stands only while the row reads the same.
+            ...(verification && { judgedWith: judgedWithOf(sentence, verification) }),
           };
           markSentence(
             sentence.element,
             sentence.from,
             sentence.to,
-            options.withResult(mark, result, at, blocks, mindId, checkText(sentence).claim),
+            options.withResult(mark, result, at, blocks, mindId, sentence.said),
           );
           marked++;
         }
@@ -367,7 +423,10 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       if (!landed.ok) return landed;
       options.retainEvidence(mindId);
       const { keys, sentences } = content.read(mindId, (blocks) => ({
-        keys: new Set(everySentence(blocks).map((each) => sentenceKey(each.text))),
+        keys: new Set([
+          ...everySentence(blocks).map((each) => sentenceKey(each.text)),
+          ...linesOf(blocks).lines.map((each) => each.key),
+        ]),
         sentences: markedSentences(blocks).length,
       }));
       content.editSettings(mindId, (settings) =>
