@@ -82,7 +82,7 @@ import {
   type SelectedSentence,
 } from "./sentences";
 import { askBrief } from "./verifyBrief";
-import { slideBlocks } from "./verifySlides";
+import { slideBlocks, slideText } from "./verifySlides";
 import { documentBlocks, tableClaim, type WorkbookCells } from "./verifyTables";
 import {
   cellBlockId,
@@ -255,13 +255,26 @@ function parseRequest(input: unknown) {
   };
 }
 
+/** The slide a deck's line is on, as the file holds it (#3455); null for a line of no slide. */
+function slideOf(sentence: SelectedSentence, verification: Verification): number | null {
+  const page = verification.pages[sentence.blockId];
+  return page !== undefined && verification.slides?.[String(page)] !== undefined ? page : null;
+}
+
+/**
+ * A line as its check reads it. A deck's line is read with its slide as the file holds it, which
+ * says what a number in a box of its own is, in place of the lines above it in the Note.
+ */
 function claimOf(
   sentence: SelectedSentence,
   verification: Verification,
-): ReturnType<typeof checkText> | undefined {
+): (ReturnType<typeof checkText> & { onSlide?: true }) | undefined {
   const row = tableClaim(sentence, workbookCellsOf(verification));
   if (row === "not-a-claim") return undefined;
-  return row ?? checkText(sentence);
+  const said = row ?? checkText(sentence);
+  const slide = slideOf(sentence, verification);
+  const held = slide === null ? undefined : verification.slides?.[String(slide)];
+  return held === undefined ? said : { ...said, context: held, onSlide: true };
 }
 
 export function createVerify(options: VerifyOptions) {
@@ -322,7 +335,9 @@ export function createVerify(options: VerifyOptions) {
         if (!blocks.doc || !isVerifiedBlock(blocks.doc, verification, sentence.blockId)) return [];
         const said = claimOf(sentence, verification)?.claim;
         // The model decides which lines state a claim, a short one with a figure too (#3412).
-        return said !== undefined && WORDS.test(said) ? [{ ...sentence, said }] : [];
+        if (said === undefined || !WORDS.test(said)) return [];
+        const slide = slideOf(sentence, verification);
+        return [{ ...sentence, said, ...(slide !== null && { slide }) }];
       }),
     );
     return {
@@ -353,9 +368,13 @@ export function createVerify(options: VerifyOptions) {
     const { sentences, snapshot } = sortingInput(mindId, verification);
     const found = await claimsAmong(
       ready.prepared,
-      sentences.map((each) => ({ text: each.said })),
+      sentences.map((each) => ({
+        text: each.said,
+        ...(each.slide !== undefined && { slide: each.slide }),
+      })),
       "someone-else",
       signal,
+      { ...(verification.slides && { slides: verification.slides }) },
     );
     if (found.kind !== "found") return found;
     const sorted = (sentence: (typeof sentences)[number], index: number) => {
@@ -852,6 +871,11 @@ export function createVerify(options: VerifyOptions) {
         claims: null,
         comments: false,
         ...(pictures > 0 && { pictures }),
+        ...(slides && {
+          slides: Object.fromEntries(
+            slides.map((slide) => [String(slide.number), slideText(slide)]),
+          ),
+        }),
       });
     });
     return { ok: true, mind, documentId: document.id };
