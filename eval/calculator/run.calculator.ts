@@ -2,14 +2,17 @@
  * The calculator set (./cases.ts, #3393) on a real model, on the three paths a calculated figure
  * takes: an Answer that works it out (`answer`), the Note's check of a right and a wrong sentence
  * (`check`), and a connected agent checking a Note it wrote with IncarnaMind's instructions
- * (`agent`). Each path opens a core of its own on a temporary data folder, set up as the app's:
- * the Python runtime, the built-in reranker, the chat model the User chose. One JSON line a case's
- * figure or sentence goes to CALC_OUT, with every Tool call and result it made.
+ * (`agent`); and the everyday check requests (./checkRequests.ts, #3432), a connected agent asked
+ * in the User's own words whether its Note is right (`requests`). Each path opens a core of its
+ * own on a temporary data folder, set up as the app's: the Python runtime, the built-in reranker,
+ * the chat model the User chose. One JSON line a case's figure or sentence, or a request, goes to
+ * CALC_OUT, with every Tool call and result it made.
  *
  * vitest run --config eval/calculator/vitest.config.ts, with INCARNAMIND_EVAL_CHAT_KIND=anthropic,
  * INCARNAMIND_EVAL_CHAT_MODEL and INCARNAMIND_EVAL_CHAT_KEY (eval/README.md), and CALC_OUT,
- * CALC_ARM, CALC_ROUND, CALC_PATHS (answer,check,agent), CALC_CASES (ids or their starts),
- * CALC_CAP_USD (a path stops past it). CALC_DRY=1 checks the set only, with no model.
+ * CALC_ARM, CALC_ROUND, CALC_PATHS (answer,check,agent,requests), CALC_CASES (ids or their
+ * starts, of either set), CALC_CAP_USD (a path stops past it). CALC_DRY=1 checks the sets only,
+ * with no model.
  */
 import { appendFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -22,6 +25,7 @@ import {
   generateText,
   jsonSchema,
   type LanguageModelUsage,
+  type ModelMessage,
   type StopCondition,
   stepCountIs,
   type ToolSet,
@@ -50,6 +54,7 @@ import { openLibrary } from "../lib/library";
 import { createLog, type Log } from "../lib/log";
 import { createWorkerCrossEncoder } from "../lib/rerank";
 import { CALCULATOR_CASES, type CalculatorCase } from "./cases";
+import { CHECK_REQUESTS, type CheckRequest } from "./checkRequests";
 import {
   figureIn,
   matches,
@@ -79,9 +84,36 @@ const AGENTS_AT_ONCE = 3;
 const ANSWER_TIMEOUT_MS = 300_000;
 const AGENT_REQUEST_TIMEOUT_MS = 180_000;
 
-const cases = CALCULATOR_CASES.filter(
-  (each) => !CHOSEN || CHOSEN.some((start) => each.id.startsWith(start)),
-);
+const chosen = <T extends { id: string }>(list: readonly T[]): T[] =>
+  list.filter((each) => !CHOSEN || CHOSEN.some((start) => each.id.startsWith(start)));
+const cases = chosen(CALCULATOR_CASES);
+const requests = chosen(CHECK_REQUESTS);
+
+/** The everyday requests' own consistency, before any request. */
+function requestProblems(): string[] {
+  const problems: string[] = [];
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  for (const each of CHECK_REQUESTS) {
+    if (ids.has(each.id)) problems.push(`${each.id}: its id is another's`);
+    ids.add(each.id);
+    for (const document of each.documents) {
+      if (names.has(document.name)) problems.push(`${each.id}: "${document.name}" is another's`);
+      names.add(document.name);
+    }
+    if (each.wrong.some((at) => at < 0 || at >= each.note.sentences.length))
+      problems.push(`${each.id}: a wrong sentence it names isn't in its Note`);
+    if (each.asks === "question" && each.wrong.length > 0)
+      problems.push(`${each.id}: a question with a wrong sentence`);
+    if (
+      each.asks === "check" &&
+      each.written === "earlier" &&
+      !each.request.includes(each.note.title)
+    )
+      problems.push(`${each.id}: a request from a later chat that doesn't name its Note`);
+  }
+  return problems;
+}
 
 /** The set's own consistency, before any request: a case that fails it is the set's fault. */
 function setProblems(): string[] {
@@ -281,16 +313,25 @@ async function spentUsd(core: Core): Promise<number> {
     .reduce((sum, each) => sum + each.amount, 0);
 }
 
-async function documentsFolder(): Promise<{
+/** A Document to add, by the key a path finds it with. */
+interface Written {
+  key: string;
+  name: string;
+  text: string;
+}
+
+const caseDocuments = (): Written[] => cases.map((each) => ({ key: each.id, ...each.document }));
+
+async function documentsFolder(documents: readonly Written[]): Promise<{
   folder: string;
   paths: { key: string; path: string }[];
 }> {
   const folder = await mkdtemp(join(tmpdir(), "calculator-documents-"));
   const paths: { key: string; path: string }[] = [];
-  for (const each of cases) {
-    const path = join(folder, `${each.document.name}.md`);
-    await writeFile(path, each.document.text);
-    paths.push({ key: each.id, path });
+  for (const each of documents) {
+    const path = join(folder, `${each.name}.md`);
+    await writeFile(path, each.text);
+    paths.push({ key: each.key, path });
   }
   return { folder, paths };
 }
@@ -308,8 +349,9 @@ async function libraryFor(
   setup: Setup,
   keyOf: (prompt: string) => string | null,
   extra: Partial<Parameters<typeof openLibrary>[0]> = {},
+  documents: readonly Written[] = caseDocuments(),
 ) {
-  const { folder, paths } = await documentsFolder();
+  const { folder, paths } = await documentsFolder(documents);
   const recorded = recorder(join(OUT, `${ARM}-r${ROUND}-${path}-first-requests.jsonl`), keyOf);
   const library = await openLibrary({
     name: `calculator-${path}`,
@@ -336,9 +378,9 @@ async function libraryFor(
     apiKey: setup.chat.apiKey ?? "",
   });
   if (saved.service) await core.allowDataFlow("chat", saved.service.id);
-  const idOf = (each: CalculatorCase) => {
-    const document = library.documents.get(each.id);
-    if (!document) throw new Error(`${each.id}'s Document wasn't added.`);
+  const idOf = (key: string) => {
+    const document = library.documents.get(key);
+    if (!document) throw new Error(`${key}'s Document wasn't added.`);
     return document.id;
   };
   return {
@@ -399,7 +441,7 @@ async function answerPath(setup: Setup) {
       const started = Date.now();
       const asked = await core.askInConversation({
         text: each.question,
-        scope: { folderIds: [], tagIds: [], documentIds: [idOf(each)] },
+        scope: { folderIds: [], tagIds: [], documentIds: [idOf(each.id)] },
       });
       if (!asked.asked) throw new Error(`${each.id} wasn't asked: ${JSON.stringify(asked)}`);
       const ended = await new Promise<boolean>((resolve) => {
@@ -596,7 +638,7 @@ async function checkPath(setup: Setup) {
     const folders = new Map<string, string>();
     for (const each of cases) {
       const folder = await core.createLibraryGroup({ name: each.document.name, description: "" });
-      await core.moveToFolder({ documentIds: [idOf(each)], folderId: folder.id });
+      await core.moveToFolder({ documentIds: [idOf(each.id)], folderId: folder.id });
       folders.set(each.id, folder.id);
     }
     let stopped = false;
@@ -714,10 +756,17 @@ interface AgentCall {
   result: unknown;
 }
 
-async function agentPath(setup: Setup) {
+interface AgentRequest {
+  status: number | null;
+  error: string | null;
+  ms: number;
+}
+
+/** What a connected agent's requests cost, in US dollars, at the chat model's price. */
+function agentUsd(setup: Setup): (usage: LanguageModelUsage) => number {
   const price = catalogModel(modelsProviderOfKind(setup.chat.kind), setup.chat.modelId)?.price;
   if (!price) throw new Error(`No price for ${setup.chat.modelId}.`);
-  const usd = (usage: LanguageModelUsage) =>
+  return (usage) =>
     inCurrency(
       costOf(
         {
@@ -733,21 +782,170 @@ async function agentPath(setup: Setup) {
       price.currency,
       "USD",
     );
-  const socketDir = await mkdtemp(join(tmpdir(), "im-calc-"));
-  const opened = await libraryFor("agent", setup, () => null, {
-    agents: {
-      socketPath: agentSocketPath(socketDir),
-      launcher: { command: process.execPath, args: [await buildAgentShim()] },
-      version: "0.0.0-test",
+}
+
+/** A library whose core serves connected agents, on a socket of its own. */
+async function agentLibrary(path: string, setup: Setup, documents?: readonly Written[]) {
+  // A short name: the socket's whole path must fit in 100 bytes, under any temporary folder.
+  const socketDir = await mkdtemp(join(tmpdir(), "im-"));
+  const opened = await libraryFor(
+    path,
+    setup,
+    () => null,
+    {
+      agents: {
+        socketPath: agentSocketPath(socketDir),
+        launcher: { command: process.execPath, args: [await buildAgentShim()] },
+        version: "0.0.0-test",
+      },
     },
+    documents,
+  );
+  await opened.library.core.setAgentsEnabled(true);
+  return {
+    ...opened,
+    close: async () => {
+      await opened.close();
+      await rm(socketDir, { recursive: true, force: true });
+    },
+  };
+}
+
+/**
+ * An agent connected to one Folder, on the chat model, as a terminal agent is: IncarnaMind's
+ * instructions in its system prompt and its Tools over the connection. Each Tool call is kept.
+ */
+async function agentSession(
+  core: Core,
+  setup: Setup,
+  usd: (usage: LanguageModelUsage) => number,
+  name: string,
+  folderId: string,
+  firstRequest: string | null,
+) {
+  const requests: AgentRequest[] = [];
+  let firstWritten = firstRequest === null;
+  const watchedFetch: typeof fetch = async (input, init) => {
+    if (!firstWritten && firstRequest && typeof init?.body === "string") {
+      firstWritten = true;
+      writeFileSync(firstRequest, init.body);
+    }
+    const started = Date.now();
+    const timeout = AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS);
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    try {
+      const response = await fetch(input, { ...init, signal });
+      requests.push({ status: response.status, error: null, ms: Date.now() - started });
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      requests.push({ status: null, error: message.slice(0, 200), ms: Date.now() - started });
+      throw error;
+    }
+  };
+  const model = withCacheBreakpoints(
+    createAnthropic({ apiKey: setup.chat.apiKey ?? "", fetch: watchedFetch })(setup.chat.modelId),
+  );
+  const { pairing, launch } = await core.connectAgent({
+    name,
+    folderIds: [folderId],
+    propose: true,
   });
+  const agent = await legacyAgentClient(launch);
+  const calls: AgentCall[] = [];
+  let step = 0;
+  /** The agent's turn after `messages`, until it ends or passes US$0.25. */
+  const converse = async (messages: ModelMessage[]) => {
+    const listed = await agent.listTools();
+    const tools = Object.fromEntries(
+      listed.tools.map((each) => [
+        each.name,
+        tool({
+          description: each.description ?? "",
+          inputSchema: jsonSchema(each.inputSchema as Parameters<typeof jsonSchema>[0]),
+          execute: async (args: unknown) => {
+            const result = await agent.callTool({
+              name: each.name,
+              arguments: args as Record<string, unknown>,
+            });
+            if (result.isError !== true) {
+              calls.push({
+                step,
+                name: each.name,
+                args,
+                refused: null,
+                result: result.structuredContent,
+              });
+              return result.structuredContent;
+            }
+            const why = (result.content as { text?: string }[])[0]?.text ?? "";
+            calls.push({ step, name: each.name, args, refused: why, result: null });
+            return { refused: why };
+          },
+        }),
+      ]),
+    );
+    const overCap: StopCondition<ToolSet> = ({ steps }) =>
+      steps.reduce((total, each) => total + usd(each.usage), 0) > 0.25;
+    const done = await generateText({
+      model,
+      system: [
+        "You are an assistant working for the user in a terminal. A connected app, IncarnaMind, gives you the tools below.",
+        agent.getInstructions() ?? "",
+      ].join("\n\n"),
+      messages,
+      tools,
+      stopWhen: [stepCountIs(60), overCap],
+      maxRetries: 0,
+      onStepFinish: () => {
+        step++;
+      },
+    });
+    return {
+      done,
+      tools: listed.tools,
+      cost: done.steps.reduce((total, each) => total + usd(each.usage), 0),
+    };
+  };
+  return {
+    agent,
+    calls,
+    requests,
+    converse,
+    refusals: () =>
+      calls.filter((each) => each.refused !== null).map((each) => `${each.name}: ${each.refused}`),
+    close: async () => {
+      await agent.close();
+      await core.disconnectAgent(pairing.id);
+    },
+  };
+}
+
+/** The agent's Note, written with `create_mind` as an agent writes one; its id and what it returned. */
+async function writeNote(
+  agent: Awaited<ReturnType<typeof legacyAgentClient>>,
+  title: string,
+  markdown: string,
+  folderId: string,
+) {
+  const made = await agent.callTool({
+    name: "create_mind",
+    arguments: { title, markdown, folderId },
+  });
+  const mindId = (made.structuredContent as { mindId?: string } | undefined)?.mindId;
+  if (made.isError === true || !mindId) throw new Error("create_mind was refused.");
+  return { mindId, result: made.structuredContent };
+}
+
+async function agentPath(setup: Setup) {
+  const usd = agentUsd(setup);
+  const opened = await agentLibrary("agent", setup);
   const { library, idOf } = opened;
   const { core } = library;
   let spent = 0;
   let stopped = false;
   const failed: string[] = [];
   try {
-    await core.setAgentsEnabled(true);
     const notes = agentNotes();
     const folders = new Map<number, string>();
     for (const note of notes) {
@@ -757,7 +955,7 @@ async function agentPath(setup: Setup) {
         description: "",
       });
       for (const sentence of note.sentences)
-        await core.moveToFolder({ documentIds: [idOf(sentence.each)], folderId: folder.id });
+        await core.moveToFolder({ documentIds: [idOf(sentence.each.id)], folderId: folder.id });
       folders.set(note.group, folder.id);
     }
     let index = 0;
@@ -770,113 +968,38 @@ async function agentPath(setup: Setup) {
       else firsts.set(note.group, new Promise((resolve) => (done = resolve)));
       const run = ++index;
       const folderId = folders.get(note.group) ?? "";
-      const requests: { status: number | null; error: string | null; ms: number }[] = [];
-      let firstWritten = false;
-      const watchedFetch: typeof fetch = async (input, init) => {
-        if (!firstWritten && run === 1 && typeof init?.body === "string") {
-          firstWritten = true;
-          writeFileSync(join(OUT, `${ARM}-r${ROUND}-agent-first-request.json`), init.body);
-        }
-        const started = Date.now();
-        const timeout = AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS);
-        const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-        try {
-          const response = await fetch(input, { ...init, signal });
-          requests.push({ status: response.status, error: null, ms: Date.now() - started });
-          return response;
-        } catch (error) {
-          const message =
-            error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-          requests.push({ status: null, error: message.slice(0, 200), ms: Date.now() - started });
-          throw error;
-        }
-      };
-      const model = withCacheBreakpoints(
-        createAnthropic({ apiKey: setup.chat.apiKey ?? "", fetch: watchedFetch })(
-          setup.chat.modelId,
-        ),
+      const session = await agentSession(
+        core,
+        setup,
+        usd,
+        `Agent ${ARM} ${ROUND} ${run}`,
+        folderId,
+        run === 1 ? join(OUT, `${ARM}-r${ROUND}-agent-first-request.json`) : null,
       );
-      const { pairing, launch } = await core.connectAgent({
-        name: `Agent ${ARM} ${ROUND} ${run}`,
-        folderIds: [folderId],
-        propose: true,
-      });
-      const agent = await legacyAgentClient(launch);
-      const calls: AgentCall[] = [];
-      let step = 0;
+      const { calls, requests } = session;
       let mindId: string | undefined;
       const started = Date.now();
       try {
         const markdown = note.sentences.map((sentence) => sentence.text).join("\n\n");
-        const made = await agent.callTool({
-          name: "create_mind",
-          arguments: { title: note.title, markdown, folderId },
-        });
-        mindId = (made.structuredContent as { mindId?: string } | undefined)?.mindId;
-        if (made.isError === true || !mindId) throw new Error("create_mind was refused.");
-        const listed = await agent.listTools();
-        if (run === 1)
-          writeFileSync(
-            join(OUT, `${ARM}-r${ROUND}-agent-tools.json`),
-            JSON.stringify(listed.tools, null, 2),
-          );
-        const tools = Object.fromEntries(
-          listed.tools.map((each) => [
-            each.name,
-            tool({
-              description: each.description ?? "",
-              inputSchema: jsonSchema(each.inputSchema as Parameters<typeof jsonSchema>[0]),
-              execute: async (args: unknown) => {
-                const result = await agent.callTool({
-                  name: each.name,
-                  arguments: args as Record<string, unknown>,
-                });
-                if (result.isError !== true) {
-                  calls.push({
-                    step,
-                    name: each.name,
-                    args,
-                    refused: null,
-                    result: result.structuredContent,
-                  });
-                  return result.structuredContent;
-                }
-                const why = (result.content as { text?: string }[])[0]?.text ?? "";
-                calls.push({ step, name: each.name, args, refused: why, result: null });
-                return { refused: why };
-              },
-            }),
-          ]),
-        );
-        const overCap: StopCondition<ToolSet> = ({ steps }) =>
-          steps.reduce((total, each) => total + usd(each.usage), 0) > 0.25;
+        mindId = (await writeNote(session.agent, note.title, markdown, folderId)).mindId;
         const asked =
           note.language === "en"
             ? "Before I send it on, check it against my documents."
             : "发出去之前，帮我对照我的文件核对一下。";
         const wrote = note.language === "en" ? "Write me a short note" : "帮我写一份简短的笔记";
-        const done = await generateText({
-          model,
-          system: [
-            "You are an assistant working for the user in a terminal. A connected app, IncarnaMind, gives you the tools below.",
-            agent.getInstructions() ?? "",
-          ].join("\n\n"),
-          messages: [
-            { role: "user", content: `${wrote} “${note.title}” from my documents in IncarnaMind.` },
-            {
-              role: "assistant",
-              content: `I wrote the note “${note.title}” in IncarnaMind with create_mind (mindId ${mindId}):\n\n${markdown}`,
-            },
-            { role: "user", content: asked },
-          ],
-          tools,
-          stopWhen: [stepCountIs(60), overCap],
-          maxRetries: 0,
-          onStepFinish: () => {
-            step++;
+        const { done, tools, cost } = await session.converse([
+          { role: "user", content: `${wrote} “${note.title}” from my documents in IncarnaMind.` },
+          {
+            role: "assistant",
+            content: `I wrote the note “${note.title}” in IncarnaMind with create_mind (mindId ${mindId}):\n\n${markdown}`,
           },
-        });
-        const cost = done.steps.reduce((total, each) => total + usd(each.usage), 0);
+          { role: "user", content: asked },
+        ]);
+        if (run === 1)
+          writeFileSync(
+            join(OUT, `${ARM}-r${ROUND}-agent-tools.json`),
+            JSON.stringify(tools, null, 2),
+          );
         spent += cost;
         const client = await connectToMind(core, mindId);
         const marks = await marksOf(core, client, folderId);
@@ -966,6 +1089,7 @@ async function agentPath(setup: Setup) {
             scaled: sentence.each.scaled,
             sentence: sentence.text,
             run,
+            started: calls.some((each) => each.name === "check_mind_yourself"),
             note: {
               sentences: note.sentences.length,
               seconds,
@@ -1020,8 +1144,7 @@ async function agentPath(setup: Setup) {
           calls,
         });
       } finally {
-        await agent.close();
-        await core.disconnectAgent(pairing.id);
+        await session.close();
         if (mindId) await core.deleteMind(mindId);
         done();
       }
@@ -1030,15 +1153,172 @@ async function agentPath(setup: Setup) {
     return { spent, stopped, failed };
   } finally {
     await opened.close();
-    await rm(socketDir, { recursive: true, force: true });
+  }
+}
+
+/** The chat a request ends: after the agent wrote its Note in it, or one of its own. */
+function conversation(
+  request: CheckRequest,
+  written: { folderId: string; markdown: string; result: unknown },
+): ModelMessage[] {
+  if (request.written === "earlier") return [{ role: "user", content: request.request }];
+  const en = request.language === "en";
+  const { title } = request.note;
+  const toolCallId = "toolu_note_written";
+  return [
+    {
+      role: "user",
+      content: en
+        ? `Write me a short note “${title}” from my documents in IncarnaMind.`
+        : `根据我在IncarnaMind里的文件，帮我写一份简短的笔记《${title}》。`,
+    },
+    {
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId,
+          toolName: "create_mind",
+          input: { title, markdown: written.markdown, folderId: written.folderId },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId,
+          toolName: "create_mind",
+          output: { type: "text", value: JSON.stringify(written.result) },
+        },
+      ],
+    },
+    {
+      role: "assistant",
+      content: en
+        ? `I wrote the note “${title}” in IncarnaMind.`
+        : `我已在IncarnaMind中写好笔记《${title}》。`,
+    },
+    { role: "user", content: request.request },
+  ];
+}
+
+/**
+ * Each everyday request, to an agent connected to a Folder of its own Documents that holds the
+ * Note it wrote: whether it started its check (`check_mind_yourself`), whether its results were
+ * taken (`report_check`), and the mark each of the Note's sentences ends with.
+ */
+async function requestsPath(setup: Setup) {
+  const usd = agentUsd(setup);
+  const opened = await agentLibrary(
+    "requests",
+    setup,
+    requests.flatMap((request) =>
+      request.documents.map((document, at) => ({ key: `${request.id}/${at}`, ...document })),
+    ),
+  );
+  const { library, idOf } = opened;
+  const { core } = library;
+  let spent = 0;
+  let stopped = false;
+  const failed: string[] = [];
+  try {
+    let index = 0;
+    await inTurn(requests, AGENTS_AT_ONCE, async (request) => {
+      if (stopped) return;
+      const run = ++index;
+      const folder = await core.createLibraryGroup({
+        name: request.language === "en" ? `Work files ${run}` : `工作资料 ${run}`,
+        description: "",
+      });
+      await core.moveToFolder({
+        documentIds: request.documents.map((_, at) => idOf(`${request.id}/${at}`)),
+        folderId: folder.id,
+      });
+      const session = await agentSession(
+        core,
+        setup,
+        usd,
+        `Agent ${ARM} ${ROUND} ${run}`,
+        folder.id,
+        run === 1 ? join(OUT, `${ARM}-r${ROUND}-requests-first-request.json`) : null,
+      );
+      const { calls, requests: sent } = session;
+      let mindId: string | undefined;
+      const started = Date.now();
+      try {
+        const markdown = request.note.sentences.join("\n\n");
+        const note = await writeNote(session.agent, request.note.title, markdown, folder.id);
+        mindId = note.mindId;
+        const { done, cost } = await session.converse(
+          conversation(request, { folderId: folder.id, markdown, result: note.result }),
+        );
+        spent += cost;
+        const marks = await marksOf(core, await connectToMind(core, mindId), folder.id);
+        const sentences = request.note.sentences.map((text, at) => {
+          const mark = marks.get(text);
+          return {
+            text,
+            wrong: request.wrong.includes(at),
+            shown: mark?.shown ?? null,
+            reason: mark?.reason ?? null,
+          };
+        });
+        out("requests", {
+          arm: ARM,
+          round: ROUND,
+          path: "requests",
+          id: request.id,
+          language: request.language,
+          asks: request.asks,
+          written: request.written,
+          run,
+          started: calls.some((each) => each.name === "check_mind_yourself"),
+          reported: calls.some((each) => each.name === "report_check" && each.refused === null),
+          // Every mark the Note ends with, also on sentences the agent changed before its check.
+          marked: [...marks.values()].filter((mark) => mark.shown !== "checking").length,
+          marks: [...marks.entries()].map(([sentence, mark]) => ({ sentence, shown: mark.shown })),
+          sentences,
+          seconds: (Date.now() - started) / 1000,
+          requests: sent.length,
+          failedRequests: sent.filter((each) => each.status !== 200),
+          usd: cost,
+          steps: done.steps.length,
+          finishReason: done.finishReason,
+          refusals: session.refusals(),
+          calls,
+          finalText: done.text,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failed.push(`${run}: ${message.slice(0, 300)}`);
+        out("requests", {
+          arm: ARM,
+          round: ROUND,
+          path: "requests",
+          id: request.id,
+          run,
+          failed: message.slice(0, 500),
+          failedRequests: sent,
+          calls,
+        });
+      } finally {
+        await session.close();
+        if (mindId) await core.deleteMind(mindId);
+      }
+      if (spent > CAP_USD) stopped = true;
+    });
+    return { spent, stopped, failed };
+  } finally {
+    await opened.close();
   }
 }
 
 test(
   "the calculator set",
   async () => {
-    const problems = setProblems();
-    expect(problems).toEqual([]);
+    expect([...setProblems(), ...requestProblems()]).toEqual([]);
     if (DRY) return;
     if (!OUT) throw new Error("No CALC_OUT.");
     const config = readConfig(root);
@@ -1056,10 +1336,11 @@ test(
       round: ROUND,
       model: config.chat.modelId,
       cases: cases.length,
+      requests: requests.length,
     };
     for (const path of PATHS) {
       const started = Date.now();
-      log(`${path}: ${cases.length} cases`);
+      log(`${path}: ${path === "requests" ? requests.length : cases.length} cases`);
       const result =
         path === "answer"
           ? await answerPath(setup)
@@ -1067,7 +1348,9 @@ test(
             ? await checkPath(setup)
             : path === "agent"
               ? await agentPath(setup)
-              : null;
+              : path === "requests"
+                ? await requestsPath(setup)
+                : null;
       if (!result) throw new Error(`No path "${path}".`);
       summary[path] = { ...result, seconds: (Date.now() - started) / 1000 };
       log(`${path}: done, US$${result.spent.toFixed(4)}`);
