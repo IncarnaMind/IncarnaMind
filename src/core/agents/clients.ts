@@ -9,8 +9,9 @@
  * - "command": the agent's own line that adds a server, for the User to run;
  *   IncarnaMind never runs another program's command;
  * - "file": IncarnaMind adds itself to the agent's settings file, shown first,
- *   with Undo, only where the file is plain JSON or TOML that the agent's
- *   documentation gives the User to edit, and is neither synced nor managed;
+ *   with Undo, only where the file is plain JSON or TOML that is neither synced
+ *   nor managed, and holds no comments; a file the agent also keeps its own state
+ *   in (Claude Code's) is written with a backup and only whole (`SettingsFile.backup`);
  * - "manual": the settings to paste, worded for the agent's own screen.
  *
  * Whether an agent is on this computer is a guess from its app or the folder
@@ -31,6 +32,11 @@ export interface SettingsFile {
   /** Under the home folder. */
   path: readonly string[];
   format: SettingsFormat;
+  /**
+   * The agent keeps its own state in this file and rewrites it itself, so a copy of it, as it was,
+   * is kept beside it until the pairing goes (#3487).
+   */
+  backup?: true;
   /** IncarnaMind's entry under `mcpServers`, where the agent's shape differs from `serverEntry`. */
   entry?(launch: AgentLaunch): object;
 }
@@ -41,6 +47,8 @@ export interface ClientDefinition {
   name: string;
   /** Other names the User may know it by, to find it by typing. */
   otherNames?: readonly string[];
+  /** A chat app, where the User talks to the AI; listed before the coding tools (#3487). */
+  chat?: true;
   setup: AgentSetupKind;
   /** Files or folders under the home folder whose presence says it is installed. */
   home?: readonly (readonly string[])[];
@@ -60,7 +68,11 @@ export interface ClientDefinition {
    * settings" carries the Skill for the User to add.
    */
   skills?: readonly (readonly string[])[];
-  /** "command": its own line that adds IncarnaMind, for the User to run; IncarnaMind runs no agent's command. */
+  /**
+   * Its own line that adds IncarnaMind, for the User to run; IncarnaMind runs no agent's command.
+   * The setup of a "command" agent; for a "file" agent, what the User is given when its file can't
+   * be written.
+   */
   command?(launch: AgentLaunch, platform: NodeJS.Platform): string;
   /** "link": the link its app installs IncarnaMind from. */
   link?(launch: AgentLaunch): string;
@@ -83,6 +95,7 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
   {
     id: "claude-desktop",
     name: "Claude",
+    chat: true,
     setup: "bundle",
     // https://support.claude.com/en/articles/14729294: a new chat, its prompt filled "so you can
     // review and send it"; `q` is cut at roughly 14,000 characters.
@@ -99,10 +112,22 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     ],
   },
   {
+    // https://code.claude.com/docs/en/mcp: user-scoped servers "are stored in ~/.claude.json", the
+    // file Claude Code also keeps its own state in and rewrites itself, and the page names no
+    // hand-editing of it (only of a project's .mcp.json). So it is written whole, with a copy of it
+    // kept, and the line it documents stays for a file IncarnaMind can't read (#3487).
     id: "claude-code",
     name: "Claude Code",
-    setup: "command",
+    setup: "file",
     command: claudeCodeCommand,
+    files: [
+      {
+        path: [".claude.json"],
+        format: "mcp-servers-json",
+        backup: true,
+        entry: (launch) => ({ type: "stdio", ...serverEntry(launch) }),
+      },
+    ],
     // https://code.claude.com/docs/en/deep-links: "populated but not sent until you press Enter";
     // `q` holds at most 5,000 characters.
     prompt: {
@@ -121,6 +146,7 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     id: "codex",
     name: "ChatGPT app and Codex",
     otherNames: ["ChatGPT", "Codex", "OpenAI"],
+    chat: true,
     setup: "file",
     // https://learn.chatgpt.com/docs/reference/commands: `codex://new?prompt=` "doesn't send the
     // prompt automatically". It names no limit: held to Claude Code's, the strictest documented.
@@ -355,6 +381,7 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     // gives ~/.workbuddy/mcp.json for every project.
     id: "workbuddy",
     name: "WorkBuddy",
+    chat: true,
     setup: "file",
     apps: ["WorkBuddy.app"],
     home: [[".workbuddy"]],
@@ -528,28 +555,68 @@ export function isEmptySettings(format: SettingsFormat, text: string): boolean {
   }
 }
 
+/** Where the copy of a state file, as it was before IncarnaMind's entry, is kept. */
+export const backupPathOf = (path: string) => `${path}.incarnamind-backup`;
+
 /**
  * An `mcpServers` settings file with IncarnaMind's entry set (`entry`) or
- * taken out (null). Throws when the file isn't a JSON object, so nothing of
- * the User's is lost: they are given the settings to paste instead.
+ * taken out (null). Throws when the file isn't a JSON object, or holds a whole number JSON
+ * can't write back exactly, so nothing of the User's is lost: they are given the settings to
+ * paste instead.
  */
-export function withMcpServersEntry(before: string | null, entry: object | null): string {
+export function withMcpServersEntry(
+  before: string | null,
+  entry: object | null,
+  dropEmpty = false,
+): string {
   let settings: Record<string, unknown> = {};
   if (before !== null && before.trim() !== "") {
-    const parsed: unknown = JSON.parse(before);
+    let inexact = false;
+    const parsed: unknown = JSON.parse(
+      before,
+      (_key, value: unknown, context?: { source?: string }) => {
+        if (
+          typeof value === "number" &&
+          /^-?\d+$/.test(context?.source ?? "") &&
+          !Number.isSafeInteger(value)
+        ) {
+          inexact = true;
+        }
+        return value;
+      },
+    );
+    if (inexact) throw new Error("The settings file holds a number that can't be kept exactly.");
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw new Error("The settings file isn't a JSON object.");
     }
     settings = parsed as Record<string, unknown>;
   }
   const servers = settings.mcpServers;
-  if (servers !== undefined && (typeof servers !== "object" || servers === null)) {
+  if (
+    servers !== undefined &&
+    (typeof servers !== "object" || servers === null || Array.isArray(servers))
+  ) {
     throw new Error("The settings file's mcpServers isn't an object.");
   }
   const next: Record<string, unknown> = { ...(servers as Record<string, unknown> | undefined) };
   if (entry) next[SERVER_KEY] = entry;
   else delete next[SERVER_KEY];
+  // `dropEmpty`: the file had no `mcpServers` before IncarnaMind's entry, so none is left behind.
+  if (dropEmpty && Object.keys(next).length === 0) {
+    const { mcpServers: _none, ...rest } = settings;
+    return `${JSON.stringify(rest, null, 2)}\n`;
+  }
   return `${JSON.stringify({ ...settings, mcpServers: next }, null, 2)}\n`;
+}
+
+/** Whether a JSON settings text has an `mcpServers` of its own. */
+export function holdsMcpServers(text: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null && Object.hasOwn(parsed, "mcpServers");
+  } catch {
+    return true;
+  }
 }
 
 /** A settings text with the pairing's key hidden. */

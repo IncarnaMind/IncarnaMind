@@ -41,7 +41,9 @@ describe("the agents IncarnaMind is set up in", () => {
   it("gives every agent what its kind of setup needs, and lists each id once", () => {
     expect(AGENT_CLIENT_DEFINITIONS.map((each) => each.id)).toEqual([...AGENT_CLIENT_IDS]);
     for (const client of AGENT_CLIENT_DEFINITIONS) {
-      expect(client.setup === "command", client.id).toBe(client.command !== undefined);
+      // A line is a "command" agent's setup, and what a "file" agent is given when its file can't be written.
+      if (client.setup === "command") expect(client.command, client.id).toBeDefined();
+      else if (client.command) expect(client.setup, client.id).toBe("file");
       expect(client.setup === "link", client.id).toBe(client.link !== undefined);
       expect(client.setup === "file", client.id).toBe((client.files?.length ?? 0) > 0);
     }
@@ -87,8 +89,12 @@ describe("the agents IncarnaMind is set up in", () => {
     }
   });
 
-  // protects=IncarnaMind writes only the files each agent's documentation gives the User to edit, in the shape it reads; fails_when=VS Code's entry lacks the type and tools Copilot's file takes, or a file is a synced or commented one
+  // protects=IncarnaMind writes only the files each agent's documentation gives, in the shape it reads, and Claude Code's own state file whole with a copy kept (#3487); fails_when=VS Code's entry lacks the type and tools Copilot's file takes, Claude Code's lacks the type its CLI writes or is written with no copy, or a file is a synced or commented one
   it("writes each file agent's own documented file, in its shape", () => {
+    const keepingCopy = AGENT_CLIENT_DEFINITIONS.filter((each) =>
+      each.files?.some((file) => file.backup),
+    );
+    expect(keepingCopy.map((each) => each.id)).toEqual(["claude-code"]);
     const files = Object.fromEntries(
       AGENT_CLIENT_DEFINITIONS.filter((each) => each.setup === "file").map((each) => [
         each.id,
@@ -96,6 +102,7 @@ describe("the agents IncarnaMind is set up in", () => {
       ]),
     );
     expect(files).toEqual({
+      "claude-code": [[".claude.json", { type: "stdio", ...entry }]],
       codex: [[".codex/config.toml", entry]],
       vscode: [[".copilot/mcp-config.json", { type: "stdio", ...entry, tools: ["*"] }]],
       antigravity: [[".gemini/config/mcp_config.json", entry]],

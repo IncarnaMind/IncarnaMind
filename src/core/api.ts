@@ -12768,7 +12768,7 @@ export type AgentClientId = (typeof AGENT_CLIENT_IDS)[number];
  * How an agent takes IncarnaMind: "bundle", a file its app installs when
  * opened (Claude); "link", a link its app installs from (Cursor);
  * "file", IncarnaMind adds itself to the agent's settings file; "command", one
- * line to paste into a terminal (Claude Code); "manual", settings to paste
+ * line to paste into a terminal; "manual", settings to paste
  * into the agent's own screen.
  */
 export type AgentSetupKind = "bundle" | "link" | "file" | "command" | "manual";
@@ -12779,7 +12779,9 @@ export interface AgentClient {
   name: string;
   /** Other names the User may know it by ("Windsurf", "Copilot"), to find it by typing. */
   otherNames: string[];
-  /** It looks installed on this computer: such agents are listed first. */
+  /** A chat app, not a coding tool: chat apps are listed first. */
+  chat: boolean;
+  /** It looks installed on this computer: such agents are listed first of their kind. */
   installed: boolean;
   setup: AgentSetupKind;
   /** Where setting it up puts the Skill that tells it when to use IncarnaMind; null if it reads none. */
@@ -12791,6 +12793,8 @@ export interface AgentSetupPreview {
   path: string;
   /** The lines IncarnaMind adds (or puts in place of its own earlier ones). */
   change: string;
+  /** Where a copy of the file as it is now is kept until Disconnect, for a file the agent keeps its own state in; null: none is. */
+  backup: string | null;
 }
 
 /**

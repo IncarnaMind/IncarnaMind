@@ -8,10 +8,12 @@
  *
  * Writing an agent's settings file keeps everything else in it, and is shown
  * before it is done (`preview`) and can be taken back right after (`undo`,
- * while the file is as IncarnaMind left it). A file IncarnaMind can't read is
- * left alone: the User gets the settings to paste instead. Disconnecting a
- * pairing takes IncarnaMind out of the file it was written to, if it is
- * still its own entry there.
+ * while the file is as IncarnaMind left it). The file is replaced whole, never
+ * written in place, from what it holds just before; one the agent keeps its own
+ * state in (Claude Code's) has a copy kept beside it until the pairing goes. A
+ * file IncarnaMind can't read or write back exactly is left alone: the User gets
+ * the agent's line or the settings to paste instead. Disconnecting a pairing takes
+ * IncarnaMind out of the file it was written to, if it is still its own entry there.
  *
  * Where the agent reads Agent Skills (#378), setting it up also adds the
  * Skill (./skill) to its skills folder, which tells it when to use
@@ -21,7 +23,17 @@
  * (./skillFiles, #3430).
  */
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, rmdir, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { clientTitle } from "../../shared/agentNames";
@@ -42,10 +54,12 @@ import { writeZip } from "../documents/formats/zip";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import {
   AGENT_CLIENT_DEFINITIONS,
+  backupPathOf,
   type ClientDefinition,
   clientDefinition,
   codexTable,
   hideToken,
+  holdsMcpServers,
   isEmptySettings,
   isInstalled,
   mcpServersSnippet,
@@ -103,6 +117,7 @@ export interface AgentSetupOptions {
 
 /** A settings file IncarnaMind just wrote, to take back with Undo. */
 interface Written {
+  file: SettingsFile;
   path: string;
   before: string | null;
   after: string;
@@ -113,6 +128,22 @@ async function readText(path: string): Promise<string | null> {
     return await readFile(path, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/** Replaces a file whole: written beside it, then renamed over it, with the mode it had, so nothing reads half of it. */
+async function replaceFile(path: string, text: string): Promise<void> {
+  const mode = await stat(path).then(
+    (found) => found.mode & 0o777,
+    () => 0o600,
+  );
+  const beside = `${path}.incarnamind-new`;
+  try {
+    await writeFile(beside, text, { mode });
+    await rename(beside, path);
+  } catch (error) {
+    await unlink(beside).catch(() => undefined);
     throw error;
   }
 }
@@ -167,11 +198,16 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const entryOf = (file: SettingsFile, launch: AgentLaunch) => (file.entry ?? serverEntry)(launch);
 
   /** The file with IncarnaMind's entry for `launch` set, or taken out (null). */
-  const changed = (file: SettingsFile, before: string | null, launch: AgentLaunch | null) => {
+  const changed = (
+    file: SettingsFile,
+    before: string | null,
+    launch: AgentLaunch | null,
+    dropEmpty = false,
+  ) => {
     if (file.format === "codex-toml") {
       return launch ? withCodexTable(before, codexTable(launch)) : withoutCodexTable(before ?? "");
     }
-    return withMcpServersEntry(before, launch ? entryOf(file, launch) : null);
+    return withMcpServersEntry(before, launch ? entryOf(file, launch) : null, dropEmpty);
   };
 
   /** What a setup adds to the file: Codex's table, or the entry under `mcpServers`. */
@@ -314,37 +350,92 @@ export function createAgentSetup(options: AgentSetupOptions) {
     }
   };
 
-  /** Adds IncarnaMind to the agent's settings files; the settings to paste if one can't be read. */
+  /**
+   * IncarnaMind's entry out of a settings file, if it is still its own (it holds this pairing's
+   * key): the file goes with it if IncarnaMind made it and nothing else is left in it.
+   */
+  const takeOut = async (file: SettingsFile, token: string, madeForIt: boolean) => {
+    const path = pathOf(file);
+    const before = await readText(path);
+    if (before === null || token === "" || !before.includes(token)) return;
+    const original = file.backup ? await readText(backupPathOf(path)) : null;
+    const after = changed(file, before, null, original !== null && !holdsMcpServers(original));
+    if (madeForIt && isEmptySettings(file.format, after)) await unlink(path);
+    else await replaceFile(path, after);
+  };
+
+  /** What the User is given when a settings file can't be written: the agent's own line, else its settings. */
+  const unwritten = (
+    client: ClientDefinition,
+    file: SettingsFile,
+    launch: AgentLaunch,
+  ): AgentSetupResult => {
+    const token = launch.env[AGENT_TOKEN_ENV] ?? "";
+    const path = pathOf(file);
+    return client.command
+      ? copy("command", client.command(launch, options.platform), token, path)
+      : copy("settings", changeShown(file, launch), token, path);
+  };
+
+  /**
+   * One file written whole from what it holds now: planned again if the agent changed it while
+   * this was under way, and with its copy kept first where the agent keeps its own state in it.
+   * Throws when it can't be written, with nothing of the User's lost.
+   */
+  const settle = async (planned: Written, launch: AgentLaunch): Promise<Written> => {
+    const { file, path } = planned;
+    let now = planned;
+    for (let tries = 0; tries < 3; tries++) {
+      const found = await readText(path);
+      if (found !== now.before)
+        now = { ...now, before: found, after: changed(file, found, launch) };
+      if (file.backup && now.before !== null && !existsSync(backupPathOf(path))) {
+        await writeFile(backupPathOf(path), now.before, { mode: 0o600 });
+      }
+      await mkdir(dirname(path), { recursive: true });
+      if ((await readText(path)) !== now.before) continue;
+      await replaceFile(path, now.after);
+      return now;
+    }
+    throw new Error("The settings file kept changing while IncarnaMind wrote to it.");
+  };
+
+  /** Adds IncarnaMind to the agent's settings files; its own line or the settings to paste if one can't be read or written. */
   const writeSettings = async (
     client: ClientDefinition,
     pairingId: string,
     launch: AgentLaunch,
   ): Promise<AgentSetupResult> => {
     const files = client.files ?? [];
-    const token = launch.env[AGENT_TOKEN_ENV] ?? "";
     const planned: Written[] = [];
     const created: string[] = [];
     for (const file of files) {
       const path = pathOf(file);
       const before = await readText(path);
       try {
-        planned.push({ path, before, after: changed(file, before, launch) });
+        planned.push({ file, path, before, after: changed(file, before, launch) });
         for (const folder of missingFolders(dirname(path))) {
           if (!created.includes(folder)) created.push(folder);
         }
         if (before === null) created.push(path);
       } catch {
         // Nothing is written until every file can be.
-        return copy("settings", changeShown(file, launch), token, path);
+        return unwritten(client, file, launch);
       }
     }
+    const done: Written[] = [];
     for (const each of planned) {
-      await mkdir(dirname(each.path), { recursive: true });
-      await writeFile(each.path, each.after, each.before === null ? { mode: 0o600 } : {});
+      try {
+        done.push(await settle(each, launch));
+      } catch (error) {
+        if (done.length > 0) throw error;
+        options.reportError(error);
+        return unwritten(client, each.file, launch);
+      }
     }
-    written.set(pairingId, planned);
+    written.set(pairingId, done);
     options.agents.recordCreated(pairingId, created);
-    return { kind: "wrote", path: planned[0]?.path ?? "" };
+    return { kind: "wrote", path: done[0]?.path ?? "" };
   };
 
   /** What the User is given to run or paste: the agent's own line, or its settings in its shape. */
@@ -390,6 +481,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
         id: client.id,
         name: client.name,
         otherNames: [...(client.otherNames ?? [])],
+        chat: client.chat === true,
         installed: client.id !== "other" && isInstalled(client, where, existsSync),
         setup: client.setup,
         skillPath: skillPathsFor(options.home, client.id)[0] ?? null,
@@ -406,6 +498,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
       return {
         path: pathOf(file),
         change: changeShown(file, options.agents.launchFor(HIDDEN_KEY)),
+        backup: file.backup && existsSync(pathOf(file)) ? backupPathOf(pathOf(file)) : null,
       };
     },
 
@@ -449,17 +542,26 @@ export function createAgentSetup(options: AgentSetupOptions) {
     async undo(pairingId: unknown): Promise<void> {
       if (typeof pairingId !== "string") throw new InvalidInputError("A pairing id must be text.");
       const files = written.get(pairingId) ?? [];
+      // A file the agent keeps its own state in is rewritten by it at once: only IncarnaMind's entry goes.
       for (const file of files) {
-        if ((await readText(file.path)) !== file.after) {
+        if (!file.file.backup && (await readText(file.path)) !== file.after) {
           throw new InvalidInputError({
             key: "error.agent.undoChanged",
             values: { path: file.path },
           });
         }
       }
+      const token =
+        (await options.agents.launch(pairingId).catch(() => null))?.env[AGENT_TOKEN_ENV] ?? "";
+      const made = options.agents.created(pairingId);
       for (const file of files) {
-        if (file.before === null) await unlink(file.path);
-        else await writeFile(file.path, file.before);
+        if ((await readText(file.path)) === file.after) {
+          if (file.before === null) await unlink(file.path);
+          else await replaceFile(file.path, file.before);
+        } else {
+          await takeOut(file.file, token, made.includes(file.path));
+        }
+        if (file.file.backup) await unlink(backupPathOf(file.path)).catch(() => undefined);
       }
       written.delete(pairingId);
       const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
@@ -492,18 +594,17 @@ export function createAgentSetup(options: AgentSetupOptions) {
       const files = settingsFilesFor(pairing.client);
       const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";
       const created = options.agents.created(pairing.id);
+      const stays = options.agents
+        .settings()
+        .pairings.some((each) => each.id !== pairing.id && each.client === pairing.client);
       for (const file of files) {
-        const path = pathOf(file);
-        const before = await readText(path);
-        if (before === null || token === "" || !before.includes(token)) continue;
         try {
-          const after = changed(file, before, null);
-          if (created.includes(path) && isEmptySettings(file.format, after)) await unlink(path);
-          else await writeFile(path, after);
+          await takeOut(file, token, created.includes(pathOf(file)));
         } catch (error) {
           // The User's file is theirs to tidy: the key in it no longer works anyway.
           options.reportError(error);
         }
+        if (file.backup && !stays) await unlink(backupPathOf(pathOf(file))).catch(() => undefined);
       }
       await removeCreatedFolders(created).catch(options.reportError);
       return { skillsLeft };
