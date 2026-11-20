@@ -18,6 +18,7 @@ import {
   checkText,
   everySentence,
   figuresNow,
+  markedSentences,
   noteTextOf,
   noteTextOfMarked,
   recordCiteNote,
@@ -78,6 +79,29 @@ export function judgedWithOf(
   return createHash("sha256").update(`${claim}\n\n${context}`).digest("base64url").slice(0, 22);
 }
 
+const verificationIn = (blocks: Y.XmlFragment): Verification | null =>
+  blocks.doc ? (readVerification(blocks.doc.getMap<unknown>(MIND_SETTINGS_FIELD)) ?? null) : null;
+
+/**
+ * What each result in `blocks` that keeps what it was judged with would be judged with now, by
+ * the result's id: the one source of it, for the core's readings and the window's (#3455).
+ */
+export function judgedNow(blocks: Y.XmlFragment): Map<string, string> {
+  const judged = new Map<string, string>();
+  const marks = markedSentences(blocks).filter(({ check }) => check.judgedWith !== undefined);
+  if (marks.length === 0) return judged;
+  const verification = verificationIn(blocks);
+  const sentences = everySentence(blocks, { headings: true });
+  for (const { element, from, to, check } of marks) {
+    if (judged.has(check.id)) continue;
+    const sentence = sentences.find(
+      (each) => each.element === element && each.from < to && each.to > from,
+    );
+    if (sentence) judged.set(check.id, judgedWithOf(sentence, verification));
+  }
+  return judged;
+}
+
 /** Whoever reads a Note's results, and the Note's Documents and settings as they are now. */
 export interface Reader {
   /** Each live Document's current version, by id; null while they aren't known. */
@@ -91,9 +115,6 @@ export interface Reader {
 
 /** A stored result's place, as `checkedSentences` gives one. */
 interface MarkedPlace {
-  element: Y.XmlElement;
-  from: number;
-  to: number;
   sentence: string;
   citations: SelectedSentence["citations"];
   noteText?: string;
@@ -104,17 +125,8 @@ interface MarkedPlace {
 export function readingOf(blocks: Y.XmlFragment, reader: Reader) {
   const { figureContexts } = figuresNow(blocks);
   const note = recordCiteNote(blocks);
-  const verification = blocks.doc
-    ? (readVerification(blocks.doc.getMap<unknown>(MIND_SETTINGS_FIELD)) ?? null)
-    : null;
-  let sentences: SelectedSentence[] | undefined;
-  const judgedAt = (place: Pick<MarkedPlace, "element" | "from" | "to">) => () => {
-    sentences ??= everySentence(blocks, { headings: true });
-    const sentence = sentences.find(
-      (each) => each.element === place.element && each.from < place.to && each.to > place.from,
-    );
-    return sentence ? judgedWithOf(sentence, verification) : null;
-  };
+  const verification = verificationIn(blocks);
+  let judged: Map<string, string> | undefined;
   const now = {
     footing: reader.footing ?? NO_FOOTING,
     versions: reader.versions,
@@ -142,7 +154,10 @@ export function readingOf(blocks: Y.XmlFragment, reader: Reader) {
         citations: marked.citations,
         note: note(marked.place),
         ...noteTextOfMarked(marked),
-        judgedWith: judgedAt(marked),
+        judgedWith: () => {
+          judged ??= judgedNow(blocks);
+          return judged.get(check.id) ?? null;
+        },
       }),
   };
 }
