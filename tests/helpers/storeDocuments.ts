@@ -38,6 +38,7 @@ export const documentOf = (id: string, over: Partial<Document> = {}): Document =
   notCited: false,
   found: null,
   importedAs: null,
+  handedBy: null,
   createdAt: "",
   updatedAt: "",
   ...over,

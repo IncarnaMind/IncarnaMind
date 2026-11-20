@@ -690,6 +690,13 @@ export function createDocuments(options: DocumentsOptions) {
       [documentId],
     )?.mind_id ?? null;
 
+  const handedByOf = (documentId: string): string | null =>
+    db.get<{ agent: string }>(
+      `SELECT agent FROM agent_files WHERE document_id = ? AND deleted_at IS NULL
+       ORDER BY created_at, rowid LIMIT 1`,
+      [documentId],
+    )?.agent ?? null;
+
   // A damaged `unread_parts` is said once for each Document: a list reads every Document again
   // and again, and the log would fill with the same line.
   const loggedUnreadParts = new Set<string>();
@@ -767,6 +774,7 @@ export function createDocuments(options: DocumentsOptions) {
       notCited: row.not_cited === 1,
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
+      handedBy: handedByOf(row.id),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

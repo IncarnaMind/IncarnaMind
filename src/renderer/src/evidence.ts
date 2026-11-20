@@ -39,6 +39,17 @@ const NOT_CITED: Choice = {
   many: { on: "evidence.notCited.doneMany", off: "evidence.citeAgain.doneMany" },
 };
 
+/** A file an agent handed over was never cited: citing it makes it a source for the first time (#3493). */
+const HANDED: Choice = {
+  ...NOT_CITED,
+  one: { on: "evidence.notCited.done", off: "evidence.citeHanded.done" },
+  many: { on: "evidence.notCited.doneMany", off: "evidence.citeHanded.doneMany" },
+};
+
+/** Whether every one of these Documents holds a file an agent handed over (#3412). */
+export const allHanded = (documents: readonly Pick<Document, "handedBy">[]): boolean =>
+  documents.length > 0 && documents.every((document) => document.handedBy !== null);
+
 async function choose(
   documents: readonly Pick<Document, "id" | "name" | "title">[],
   choice: Choice,
@@ -75,8 +86,8 @@ export const countAsEvidence = (
 ) => choose(documents, COUNTING, counted);
 
 export const markNotCited = (
-  documents: readonly Pick<Document, "id" | "name" | "title">[],
+  documents: readonly Pick<Document, "id" | "name" | "title" | "handedBy">[],
   notCited: boolean,
   /** The meeting's name for its Transcript, which is what the User knows it as (#2579). */
   onlyName?: string,
-) => choose(documents, NOT_CITED, notCited, onlyName);
+) => choose(documents, allHanded(documents) ? HANDED : NOT_CITED, notCited, onlyName);

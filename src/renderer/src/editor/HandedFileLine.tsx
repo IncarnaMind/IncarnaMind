@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
 import type * as Y from "yjs";
-import type { HandedFileOfMind } from "../../../core/api";
 import { MetaLine } from "../components/MetaLine";
 import { buttonStyle } from "../components/ui";
-import { core } from "../core";
+import { showVersion, useHandedFile } from "../handedFiles";
 import { useLanguage, useT } from "../i18n";
-import { useAppStore } from "../store";
 import { checkClaims } from "../verify";
 
 /**
  * The check card's line for a file an outside agent handed over (#3412): which agent, which of its
  * versions this Note checks, how many claims kept an earlier version's result, with a press to
- * check every claim again, and each other version's check to open. Read again whenever the file's
- * Document takes a new version.
+ * check every claim again, and each other version's check to open in this one's place.
  */
 export function HandedFileLine({
   mindId,
@@ -27,27 +23,7 @@ export function HandedFileLine({
 }) {
   const t = useT();
   const language = useLanguage();
-  const [handed, setHanded] = useState<HandedFileOfMind | null>(null);
-  const documentId = handed?.file.documentId ?? null;
-  const version = useAppStore((state) =>
-    documentId === null
-      ? null
-      : (state.documents.find((each) => each.id === documentId)?.contentHash ?? null),
-  );
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new version of its Document is a new version of the file
-  useEffect(() => {
-    let current = true;
-    core
-      .handedFileOf(mindId)
-      .then((found) => {
-        if (current) setHanded(found);
-      })
-      .catch((error: unknown) => console.error("The handed-over file couldn't be read.", error));
-    return () => {
-      current = false;
-    };
-  }, [mindId, version]);
+  const handed = useHandedFile(mindId, doc);
 
   if (!handed) return null;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
@@ -104,7 +80,7 @@ export function HandedFileLine({
               className={buttonStyle("secondary", "sm")}
               aria-label={t("verify.handed.openLabel", { n: format(each.number) })}
               onClick={() => {
-                if (each.mindId) useAppStore.getState().openMind(each.mindId);
+                if (each.mindId) void showVersion(mindId, each.mindId);
               }}
             >
               {t("verify.handed.open", { n: format(each.number) })}
