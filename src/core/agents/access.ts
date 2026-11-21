@@ -60,6 +60,7 @@ import {
   type AgentActivity,
   type AgentCitationShown,
   type AgentNoteChange,
+  type AgentOpened,
   type AgentToolName,
   BLOCK_ID_ATTRIBUTE,
   type Citation,
@@ -706,6 +707,8 @@ export interface AgentAccessDeps {
   }): CitationRecheck;
   /** Shows a Citation in the viewer, the app in front. */
   show(place: AgentCitationShown): void;
+  /** Opens what the agent made, in front where the User asked it from IncarnaMind (#3534). */
+  opened(opened: AgentOpened): void;
   /** The Minds there are. */
   minds(): Mind[];
   /** The Mind a Mind was duplicated from; null for one that is no copy. */
@@ -1211,6 +1214,9 @@ export function documentsForPairing(
 /** The core interface for one pairing's calls. */
 export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
+  /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
+  let askedFromIncarnaMind = false;
+  const opened = (item: AgentOpened["item"]) => deps.opened({ item, front: askedFromIncarnaMind });
   const pictureLimit = { max: NOTE_PICTURE_LIMITS.bytes / (1024 * 1024) };
   const reasonOf = (left: VisualRefused) =>
     left.kind === "picture"
@@ -1805,7 +1811,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   });
 
   const canvasTools = createCanvasTools({
-    deps,
+    deps: {
+      ...deps,
+      canvasChanged: (change) => {
+        deps.canvasChanged(change);
+        if (change.kind === "published") opened({ kind: "canvas", canvasId: change.canvasId });
+      },
+    },
     t,
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
@@ -2762,6 +2774,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           tables: 0,
           step: null,
         });
+        opened({ kind: "mind", mindId: mind.id });
         const listed = deps.minds().find((each) => each.id === mind.id);
         return {
           result: {
@@ -2978,7 +2991,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     publishCanvas: canvasTools.publishCanvas,
     readCanvas: canvasTools.readCanvas,
     updateCanvas: canvasTools.updateCanvas,
-    handOverFile: handedFileTool.handOverFile,
+    async handOverFile(input) {
+      const handed = await handedFileTool.handOverFile(input);
+      if (handed.mindId !== null) opened({ kind: "mind", mindId: handed.mindId });
+      return handed;
+    },
     readRequest(input) {
       const named = typeof input?.note === "string" ? comparableName(input.note) : "";
       const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
@@ -3043,6 +3060,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           .join("\n\n");
         const read = deps.requests.markRead(chosen.id, request);
         if (!read) return none;
+        askedFromIncarnaMind = true;
         // As the line named it: the Note, else the Document in front.
         const title =
           chosen.mindId !== null ? titleOf(chosen.mindId) : (looking?.open[0]?.name ?? "");
