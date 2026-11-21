@@ -5,7 +5,8 @@
  * so does the User's own file at the path the agent named. Moving the Document to Recently deleted
  * and back keeps every copy. Through the shim the app ships, on a temporary data folder.
  */
-import { mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { type Core, DATABASE_FILE } from "../../src/core";
@@ -92,6 +93,26 @@ async function handedTwo() {
     slip: copiesOf(other.fileId, "Slip review", 1),
   };
   return { ...set, agent, quay, slip, bytes, first, other, document, mindIds, copies };
+}
+
+/**
+ * A Linked folder inside the data folder, as one linked before the Library refused them is in the
+ * database: the core is opened again over it. `unlinked`: the User has unlinked it since.
+ */
+async function linkedBefore(
+  set: Awaited<ReturnType<typeof handedTwo>>,
+  path: string,
+  unlinked = false,
+): Promise<Core> {
+  await set.core.close();
+  const db = openDatabase(join(set.dataDir, DATABASE_FILE));
+  const at = new Date().toISOString();
+  db.run(
+    "INSERT INTO linked_folders (id, path, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?)",
+    [randomUUID(), await realpath(path), at, at, unlinked ? at : null],
+  );
+  db.close();
+  return set.restart();
 }
 
 const documentNamed = async (core: Core, name: string) => {
@@ -383,16 +404,15 @@ describe("deleting a handed-over file for good", () => {
     expect(await core.handedFileOf(second.mindId ?? "")).toBeNull();
   });
 
-  // protects=nothing inside a Linked folder is removed, though IncarnaMind's own copies are there: an item's folder the User linked keeps every file when its Document is deleted for good, and the failure is reported (#3505, ADR-0010); fails_when=a file in the Linked folder is deleted
+  // protects=nothing inside a Linked folder is removed, though IncarnaMind's own copies are there (a folder linked before the Library refused folders in the data folder): an item's folder keeps every file when its Document is deleted for good, and the failure is reported (#3505, ADR-0010); fails_when=a file in the Linked folder is deleted
   it("never removes a file in a Linked folder: the item's own folder linked", async () => {
-    const { core, dataDir, document, first, copies } = await handedTwo();
-    await core.addLinkedFolder(join(dataDir, "Handed files", first.fileId));
-    await core.reconcileDocuments();
+    const set = await handedTwo();
+    const core = await linkedBefore(set, join(set.dataDir, "Handed files", set.first.fileId));
     const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await forGood(core, document.id);
+    await forGood(core, set.document.id);
 
-    expect(await kept(dataDir)).toEqual(together(copies.quay, copies.slip));
+    expect(await kept(set.dataDir)).toEqual(together(set.copies.quay, set.copies.slip));
     expect(reported).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
     );
@@ -401,14 +421,13 @@ describe("deleting a handed-over file for good", () => {
 
   // protects=the whole of "Handed files" linked: every file there stays, the other handed file's too, and the failure is reported (#3505, ADR-0010); fails_when=a file in the Linked folder is deleted
   it("never removes a file in a Linked folder: Handed files linked as a whole", async () => {
-    const { core, dataDir, document, copies } = await handedTwo();
-    await core.addLinkedFolder(join(dataDir, "Handed files"));
-    await core.reconcileDocuments();
+    const set = await handedTwo();
+    const core = await linkedBefore(set, join(set.dataDir, "Handed files"));
     const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await forGood(core, document.id);
+    await forGood(core, set.document.id);
 
-    expect(await kept(dataDir)).toEqual(together(copies.quay, copies.slip));
+    expect(await kept(set.dataDir)).toEqual(together(set.copies.quay, set.copies.slip));
     expect(reported).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
     );
@@ -417,15 +436,14 @@ describe("deleting a handed-over file for good", () => {
 
   // protects=a Linked folder inside an item's folder: the folder around it is not removed whole, only what is outside the Linked folder goes, and the Linked folder's files stay, reported (#3505, ADR-0010); fails_when=the item's folder is removed whole and the Linked folder's files with it
   it("removes only what is outside a Linked folder inside the item's folder", async () => {
-    const { core, dataDir, document, first, copies } = await handedTwo();
-    await core.addLinkedFolder(join(dataDir, "Handed files", first.fileId, "v1"));
-    await core.reconcileDocuments();
+    const set = await handedTwo();
+    const core = await linkedBefore(set, join(set.dataDir, "Handed files", set.first.fileId, "v1"));
     const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await forGood(core, document.id);
+    await forGood(core, set.document.id);
 
-    expect(await kept(dataDir)).toEqual(
-      together([`${first.fileId}/v1/Quay review.pptx`], copies.slip),
+    expect(await kept(set.dataDir)).toEqual(
+      together([`${set.first.fileId}/v1/Quay review.pptx`], set.copies.slip),
     );
     expect(reported).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
@@ -435,15 +453,13 @@ describe("deleting a handed-over file for good", () => {
 
   // protects=a Linked folder the User unlinked can come back by Undo, so its files stay too: an item's folder that was linked and unlinked keeps every file when its Document is deleted for good, and the failure is reported (#3505, ADR-0010); fails_when=the cleanup removes a file in a folder that was a Linked folder
   it("never removes a file in a folder that was a Linked folder and was unlinked", async () => {
-    const { core, dataDir, document, first, copies } = await handedTwo();
-    const folder = await core.addLinkedFolder(join(dataDir, "Handed files", first.fileId));
-    await core.reconcileDocuments();
-    await core.removeLinkedFolder(folder.id);
+    const set = await handedTwo();
+    const core = await linkedBefore(set, join(set.dataDir, "Handed files", set.first.fileId), true);
     const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await forGood(core, document.id);
+    await forGood(core, set.document.id);
 
-    expect(await kept(dataDir)).toEqual(together(copies.quay, copies.slip));
+    expect(await kept(set.dataDir)).toEqual(together(set.copies.quay, set.copies.slip));
     expect(reported).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
     );

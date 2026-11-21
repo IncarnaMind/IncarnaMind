@@ -1490,6 +1490,10 @@ export function createLibrary(options: LibraryOptions) {
       throw new NotFoundError({ key: "error.path.noFolder" });
     }
     if (!(await isFolder(real))) throw new InvalidInputError({ key: "error.path.notFolder" });
+    // The data folder is the app's: it rewrites and removes files there, never in a Linked folder (#3505).
+    if (dataFolders.some((folder) => isInside(folder, real))) {
+      throw new InvalidInputError({ key: "error.linkedFolder.inData" });
+    }
     return real;
   }
 
