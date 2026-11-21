@@ -8457,7 +8457,7 @@ export const en = {
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
   "agents.problem.citeNotFound":
-    "Nothing was cited: there is no Passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
+    "Nothing was cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
   "agents.problem.documentChanged":
     "“{document}” changed since you began reading it. Read it again from its start.",
   // Told with a result that can read as "nothing is there" (#3544): it names nothing outside.
