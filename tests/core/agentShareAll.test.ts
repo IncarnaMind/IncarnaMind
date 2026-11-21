@@ -115,7 +115,7 @@ async function project(core: Core) {
     core,
     (await core.listDocuments()).map((each) => each.id),
   );
-  const bound = await core.createBoundFolder(linked.folderId);
+  const { folder: bound } = await core.createBoundFolder(linked.folderId);
   const plan = (await core.listDocuments()).find((each) => each.name === "Quay plan");
   if (!plan) throw new Error("The quay plan wasn't read.");
   return { project: bound, plan };

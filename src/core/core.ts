@@ -4109,12 +4109,31 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   /** The Folder a Linked folder's file is filed in as it arrives (ADR-0030); null for none. */
   const boundFolderAt = (path: string) => library.boundTo(documents.foldersAbove(path));
-  /** Files a Linked folder's Document in its bound Folder, as the User's, unless it has a filing. */
+  /**
+   * Files a Linked folder's Document in its bound Folder, as the User's, unless it has a filing.
+   * Returns the change, null for none.
+   */
   const fileInBoundFolder = (documentId: string) => {
     const [document] = documents.getMany([documentId]);
-    if (!document?.linkedFolderId || library.hasFiling(documentId)) return;
+    if (!document?.linkedFolderId || library.hasFiling(documentId)) return null;
     const groupId = boundFolderAt(document.path);
-    if (groupId !== null) library.file(documentId, groupId);
+    return groupId === null ? null : library.file(documentId, groupId);
+  };
+  /**
+   * Files each Document under these folders on disk that has no filing of its own in the Project
+   * nearest above it, as binding does (ADR-0030). Returns the changes, for Undo.
+   */
+  const fileUnder = (folderIds: readonly string[]) =>
+    documents.list({}).flatMap((document) => {
+      const above = document.linkedFolderId ? documents.foldersAbove(document.path) : [];
+      if (!above.some((id) => folderIds.includes(id))) return [];
+      const change = fileInBoundFolder(document.id);
+      return change ? [change] : [];
+    });
+  /** Whether a Document is in this folder on disk: a Linked folder's own Folder or one inside it. */
+  const inFolderOnDisk = (documentId: string, folderId: string) => {
+    const [document] = documents.getMany([documentId]);
+    return !!document?.linkedFolderId && documents.foldersAbove(document.path).includes(folderId);
   };
   const mindSources = createMindSources({
     dataDir,
@@ -4374,6 +4393,14 @@ export function createCore(adapters: CoreAdapters): Core {
       else layouts.forgetClosed(canvasIds);
     },
     forgotten: (ids) => layouts.forgetClosed(ids),
+    foldersRestored: (folderIds) => {
+      const bound = library
+        .folders()
+        .flatMap((each) =>
+          folderIds.includes(each.id) && each.boundFolderId ? [each.boundFolderId] : [],
+        );
+      if (bound.length > 0) fileUnder(bound);
+    },
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -7701,19 +7728,26 @@ export function createCore(adapters: CoreAdapters): Core {
         ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
         : folders.get(folderId);
       const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
-      if (already) return already;
+      if (already) return { folder: already, filed: [] };
       const made = library.create({
         name: folder.name.slice(0, 100),
         description: "",
         keepInside: true,
       });
       const bound = library.bind(made.id, folder.id);
-      for (const document of documents.list({ linkedFolderId: folder.linkedFolderId })) {
-        if (documents.foldersAbove(document.path).includes(folder.id)) {
-          fileInBoundFolder(document.id);
-        }
-      }
-      return bound;
+      return { folder: bound, filed: fileUnder([folder.id]) };
+    },
+    undoBoundFolder: async (groupId, filed) => {
+      const { boundFolderId } = library.folder(groupId);
+      db.transaction(() => {
+        const back =
+          boundFolderId === null
+            ? []
+            : library.unfileBound(groupId, filed, (id) => inFolderOnDisk(id, boundFolderId));
+        removeFolder(groupId);
+        // Each has no filing of its own again, so a Project still above it takes it (ADR-0030).
+        for (const id of back) fileInBoundFolder(id);
+      });
     },
     updateLibraryGroup: async (id, input) => library.update(id, input),
     moveLibraryGroups: async (moves) => library.moveGroups(moves),

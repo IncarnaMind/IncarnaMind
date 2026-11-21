@@ -544,6 +544,15 @@ export interface MovedDocument extends MovedItem {
 }
 
 /**
+ * A Folder bound to a folder on disk (ADR-0030), and each Document filed in it then with its place
+ * before and after, for `undoBoundFolder`.
+ */
+export interface BoundFolderChange {
+  folder: LibraryGroup;
+  filed: AssignmentChange[];
+}
+
+/**
  * The name of the Y.XmlFragment that holds a Mind's Blocks in its Yjs document
  * (ADR-0003). The editor binds to it, and the core reads it.
  */
@@ -13103,9 +13112,17 @@ export interface CoreApi {
    * Makes a Folder bound to a folder on disk (ADR-0030): `folderId` is a Linked folder's own
    * Folder (`LinkedFolder.folderId`) or one inside it (`listFolders`). The new Folder is named
    * after it and keeps its work inside it; the folder's Documents with no filing of their own are
-   * filed in it now, and its new ones as they arrive. One already bound to it is returned as it is.
+   * filed in it now, and its new ones as they arrive, and again when it is restored from Recently
+   * deleted. One already bound to it is returned as it is, filing nothing.
    */
-  createBoundFolder(folderId: string): Promise<LibraryGroup>;
+  createBoundFolder(folderId: string): Promise<BoundFolderChange>;
+  /**
+   * Takes back a Folder `createBoundFolder` made (ADR-0030). Each of its folder's Documents still
+   * filed in it goes back as it was: one it filed as `filed` found it, one filed since to no
+   * filing. Then it is deleted as `deleteLibraryGroup` deletes one; `restore` brings it back with
+   * its folder's Documents filed in it again.
+   */
+  undoBoundFolder(groupId: string, filed: BoundFolderChange["filed"]): Promise<void>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
   /**
    * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
@@ -16134,6 +16151,7 @@ const methods: Record<CoreApiMethod, true> = {
   getLibrary: true,
   createLibraryGroup: true,
   createBoundFolder: true,
+  undoBoundFolder: true,
   updateLibraryGroup: true,
   moveLibraryGroups: true,
   deleteLibraryGroup: true,
