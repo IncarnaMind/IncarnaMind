@@ -2794,9 +2794,9 @@ export const en = {
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
   "status.sends":
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}, with your interface language for a chat model.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}, with your interface language unless the model is just for sorting.",
   "status.sends.onThisComputer":
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language unless the model is just for sorting.",
   "status.sends.organize":
     "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}.",
   "status.sends.organize.onThisComputer":
@@ -3306,7 +3306,7 @@ export const en = {
   "setup.sorting.asks":
     "Sorting and tagging new Documents is on: IncarnaMind asks you before the first one goes to {service}.",
   "setup.sorting.sendsWhenOn":
-    "When automatic tagging is on, new Documents get Suggestions for you to review, including files from Linked folders. {service} receives the name, file type, page count and opening text (up to about 6,000 English characters or 1,500 Chinese characters), plus slide titles or sheet names where present. It also receives the Document kinds and the names and descriptions of your Tags and Folders. Chat models receive your interface language. You can request Suggestions for existing Documents yourself.",
+    "When automatic tagging is on, new Documents get Suggestions for you to review, including files from Linked folders. {service} receives the name, file type, page count and opening text (up to about 6,000 English characters or 1,500 Chinese characters), plus slide titles or sheet names where present. It also receives the Document kinds and the names and descriptions of your Tags and Folders. An AI model that isn’t just for sorting also receives your interface language. You can request Suggestions for existing Documents yourself.",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
   "command.tagging.turnOn.keywords": "tags automatic tagging sorting switch on settings",
   "setup.sorting.chat": "Tags and Folders use {model}",

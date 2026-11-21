@@ -314,9 +314,13 @@ export function createLiveSummaries(options: Options) {
           observed.delete(id);
           failedAt.delete(id);
         }
-      for (const id of armed.keys()) {
+      for (const [id, route] of armed) {
         const m = meetings.find((each) => each.id === id);
-        if (!m || !options.selected(m)) {
+        if (
+          !m ||
+          !options.selected(m) ||
+          (!live(m) && m.transcript?.documentId && !eligible(m, route))
+        ) {
           armed.delete(id);
           observed.delete(id);
         }
