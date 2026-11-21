@@ -487,7 +487,7 @@ test("with no model, Check asks the User's own AI to check the Note; with no age
   }
 });
 
-test("what their own AI makes opens in a tab, and the app comes to the front with it only after the User asked from IncarnaMind", async () => {
+test("what their own AI makes opens in a tab, in front once the User is in another app, and the app comes to the front with it only after the User asked from IncarnaMind", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   await acceptPlainTextKeys(window);
   try {
@@ -525,6 +525,20 @@ test("what their own AI makes opens in a tab, and the app comes to the front wit
       await expect(tab(alone)).toBeVisible();
       await expect(tab(alone)).toHaveAttribute("aria-selected", "false");
       expect(await fronted()).toBe(0);
+
+      // The same agent while the User is in its app, not in IncarnaMind: its Note is the tab in
+      // front when they come back, and the app still stays where it is. A page says it is in use
+      // under Playwright whatever the screen shows, so the page is told it isn't.
+      await window.evaluate(() => {
+        document.hasFocus = () => false;
+      });
+      const away = await write("Written while I was away");
+      await expect(tab(away)).toHaveAttribute("aria-selected", "true");
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", away);
+      expect(await fronted()).toBe(0);
+      await window.evaluate(() => {
+        Reflect.deleteProperty(document, "hasFocus");
+      });
 
       // Asked from IncarnaMind and read by the agent: what it writes next opens in front, and the
       // app comes forward with it.
