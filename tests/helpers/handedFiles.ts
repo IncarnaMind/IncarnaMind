@@ -113,6 +113,7 @@ export async function started(
     reading,
     folders = [],
     analysisRuntime,
+    asItLands = true,
   }: {
     plans?: Record<string, Plan>;
     /** The checking model, in place of one that checks as `plans` say. */
@@ -123,6 +124,8 @@ export async function started(
     folders?: readonly string[];
     /** Python for `run_analysis`; none by default. */
     analysisRuntime?: AnalysisRuntime;
+    /** Settings › AI's checking as it lands: on here, as these tests check what a hand-over checks (#3576). */
+    asItLands?: boolean;
   } = {},
 ) {
   const kept = await createTempDataFolder();
@@ -144,6 +147,7 @@ export async function started(
     ...(analysisRuntime && { analysisRuntime }),
   });
   const { core } = started;
+  await core.updateSettings({ user: { checkAssistantWrites: asItLands } });
   const sources = await createSourceFolder();
   const added = await addAndProcess(core, [
     await writeSourceFile(sources, "Harbour survey.md", SURVEY),
