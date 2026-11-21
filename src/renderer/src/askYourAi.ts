@@ -11,6 +11,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import type { AgentAsk, AgentPairing, AgentRequest } from "../../core/api";
 import { core } from "./core";
+import { noModelSetUp } from "./noModelSetUp";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 
@@ -135,7 +136,7 @@ export function askedAbout(
 }
 
 const noModelIn = (state: ReturnType<typeof useAppStore.getState>) =>
-  state.chatReadiness?.ready === false && state.chatReadiness.reason === "no-provider";
+  noModelSetUp(state.chatReadiness);
 
 /** No model is set up in IncarnaMind: the User's own AI is the way to ask, where one is connected. */
 export const noModel = (): boolean => noModelIn(useAppStore.getState());

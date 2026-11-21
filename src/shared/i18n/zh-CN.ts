@@ -3995,6 +3995,8 @@ export const zhCN = {
   "models.directory.noMatch": "没有与“{query}”匹配的服务。",
   "models.directory.added": "已添加",
   "ai.lede": "AI 的来源，以及每项任务使用的模型",
+  "ai.ownAi.line":
+    "在 IncarnaMind 里设置模型是可选的。设置后可使用助手、连接器、技能、自动整理和会后笔记。",
   "ai.jobs.title": "各项任务使用的模型",
   "ai.jobs.answers": "回答和写作",
   "ai.jobs.answers.line": "助手、提问、对比、编辑和核对",

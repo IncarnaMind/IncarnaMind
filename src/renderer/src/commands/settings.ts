@@ -1,5 +1,6 @@
 import { useCallHelpOffer } from "../callHelpOffer";
 import { showOutputLocationSetting } from "../outputFiles";
+import { settingsPageOfferedNow } from "../settingsOffered";
 import { offeredSettingsPages, settingsPageLabels } from "../settingsPages";
 import { useAppStore } from "../store";
 import type { Command } from "./registry";
@@ -16,6 +17,7 @@ export const settingsPageCommands: readonly Command[] = [
         keywords:
           page === "ai" ? ["settings.title", "command.settings.ai.keywords"] : ["settings.title"],
         group: "open",
+        when: () => settingsPageOfferedNow(page),
         reversible: true,
         run: () => useAppStore.getState().openSettings(page),
       }),

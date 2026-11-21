@@ -3,7 +3,8 @@ import type { LanguagePreference } from "../../../core/language";
 import type { MessageKey } from "../../../shared/i18n";
 import { core, files } from "../core";
 import { useT } from "../i18n";
-import { offeredSettingsPages, type SettingsPage, settingsPageLabels } from "../settingsPages";
+import { useSettingsPagesOffered } from "../settingsOffered";
+import { resolveSettingsPage, type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { recordUsage, useAppStore } from "../store";
 import { AppearanceRow } from "./AppearanceSettings";
 import { AuthorNameSettings } from "./AuthorNameSettings";
@@ -42,7 +43,12 @@ const REPOSITORY_URL = "https://github.com/IncarnaMind/IncarnaMind";
 export function SettingsDialog() {
   const t = useT();
   const open = useAppStore((state) => state.settingsOpen);
-  const page = useAppStore((state) => state.settingsPage);
+  const offered = useSettingsPagesOffered();
+  // A page held back since it was shown (the last model removed): its place is AI's (#3537).
+  const page = resolveSettingsPage(
+    useAppStore((state) => state.settingsPage),
+    offered,
+  );
   const showPage = useAppStore((state) => state.showSettingsPage);
   const close = useAppStore((state) => state.closeSettings);
   const dialog = useModal(open);
@@ -77,7 +83,7 @@ export function SettingsDialog() {
               {t("settings.title")}
             </h2>
           </div>
-          {offeredSettingsPages.map((each) => (
+          {offered.map((each) => (
             <button
               key={each}
               type="button"
@@ -119,16 +125,18 @@ export function SettingsDialog() {
            * a Connector unfolded, are still there after a look at another page.
            */}
           <div className="relative min-h-0 flex-1">
-            {visited.map((each) => (
-              <div
-                key={each}
-                data-testid={`settings-page-${each}`}
-                hidden={each !== page}
-                className="absolute inset-0 overflow-y-auto px-8 pt-1 pb-8"
-              >
-                <PageContent page={each} />
-              </div>
-            ))}
+            {visited
+              .filter((each) => offered.includes(each))
+              .map((each) => (
+                <div
+                  key={each}
+                  data-testid={`settings-page-${each}`}
+                  hidden={each !== page}
+                  className="absolute inset-0 overflow-y-auto px-8 pt-1 pb-8"
+                >
+                  <PageContent page={each} />
+                </div>
+              ))}
           </div>
         </section>
       </div>

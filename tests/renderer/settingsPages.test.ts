@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   isSettingsPage,
@@ -43,5 +45,50 @@ describe("Settings pages", () => {
     expect(resolveSettingsPage("search")).toBe("ai");
     expect(resolveSettingsPage("ai")).toBe("ai");
     expect(resolveSettingsPage({ type: "click" })).toBe("general");
+  });
+});
+
+describe("every place that names a page held back while no model is set up (#3537)", () => {
+  const source = join(__dirname, "../../src/renderer/src");
+  const files = (folder: string): string[] =>
+    readdirSync(folder, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory()
+        ? files(join(folder, entry.name))
+        : /\.tsx?$/.test(entry.name)
+          ? [join(folder, entry.name)]
+          : [],
+    );
+  const naming = files(source)
+    .filter((file) =>
+      /(openSettings|showSettingsPage)\(\s*["'](connectors|skills)["']/.test(
+        readFileSync(file, "utf8"),
+      ),
+    )
+    .map((file) => relative(source, file))
+    .sort();
+
+  test("are these, so a new one has to say what it does with no model", () => {
+    expect(naming).toEqual([
+      // Not offered with no model (the Library's menu, the empty note's tip).
+      "components/AddDocumentsMenu.tsx",
+      "components/GettingStarted.tsx",
+      // Land on AI: the Skill just saved, and Manage Skills… in the chat box.
+      "components/MakeSkillCard.tsx",
+      "editor/Composer.tsx",
+    ]);
+  });
+
+  test("the ones that are not offered ask whether the page is listed", () => {
+    for (const file of ["components/AddDocumentsMenu.tsx", "components/GettingStarted.tsx"]) {
+      expect(readFileSync(join(source, file), "utf8"), file).toContain(
+        'useSettingsPageOffered("connectors")',
+      );
+    }
+  });
+
+  test("⌘K's page commands ask too, each", () => {
+    expect(readFileSync(join(source, "commands/settings.ts"), "utf8")).toContain(
+      "when: () => settingsPageOfferedNow(page)",
+    );
   });
 });

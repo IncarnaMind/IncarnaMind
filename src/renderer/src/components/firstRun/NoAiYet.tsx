@@ -1,25 +1,35 @@
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { buttonStyle } from "../ui";
 
 /**
  * Settings › AI with no account or key (#3296): what is missing, in one line, with the two ways to
- * add it, under the page's lede.
+ * add it, under the page's lede. With the User's own AI connected it says which one, and that a
+ * model in IncarnaMind is optional (#3537): the same two ways, as the lesser choice.
  */
-export function NoAiYet({ onAdd }: { onAdd(): void }) {
+export function NoAiYet({ agents, onAdd }: { agents: readonly string[]; onAdd(): void }) {
   const t = useT();
+  const language = useLanguage();
   const openSetup = useAppStore((state) => state.openSetup);
+  const own = agents.length > 0;
   return (
     <section
       data-testid="ai-none"
+      data-own-ai={own || undefined}
       aria-labelledby="ai-none-title"
       className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[10px] py-3.5 pr-3.5 pl-4 shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
     >
       <div className="flex min-w-0 flex-[1_1_180px] flex-col">
         <h3 id="ai-none-title" className="text-ui font-semibold text-ink">
-          {t("setupPage.empty.title")}
+          {own
+            ? t("firstOpen.set.agent", {
+                agent: new Intl.ListFormat(language, { type: "conjunction" }).format(agents),
+              })
+            : t("setupPage.empty.title")}
         </h3>
-        <p className="text-[13px] leading-5 text-ink-secondary">{t("setupPage.empty.line")}</p>
+        <p className="text-[13px] leading-5 text-ink-secondary">
+          {t(own ? "ai.ownAi.line" : "setupPage.empty.line")}
+        </p>
       </div>
       <div data-testid="ai-none-actions" className="flex shrink-0 items-center gap-2">
         <button
@@ -34,7 +44,7 @@ export function NoAiYet({ onAdd }: { onAdd(): void }) {
           type="button"
           data-testid="ai-none-add"
           onClick={onAdd}
-          className={buttonStyle("primary", "md")}
+          className={buttonStyle(own ? "secondary" : "primary", "md")}
         >
           {t("ai.accounts.add")}
         </button>

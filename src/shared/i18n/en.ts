@@ -4196,6 +4196,8 @@ export const en = {
   "models.directory.noMatch": "No provider matches “{query}”.",
   "models.directory.added": "Added",
   "ai.lede": "Where AI comes from and which model does each job",
+  "ai.ownAi.line":
+    "A model in IncarnaMind is optional. It adds the assistant, Connectors and Skills, sorting by itself, and notes after a call.",
   "ai.jobs.title": "What each job uses",
   "ai.jobs.answers": "Answers and writing",
   "ai.jobs.answers.line": "The assistant, Ask, Compare, edits and checks",
