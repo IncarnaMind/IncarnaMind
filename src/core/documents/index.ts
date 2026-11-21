@@ -3759,6 +3759,7 @@ export function createDocuments(options: DocumentsOptions) {
         dropPurgedHanded({
           db,
           dataDir,
+          now,
           ownFiles: places.filter((path) => isKeptCopy(dataDir, path)),
           reportError,
         }),

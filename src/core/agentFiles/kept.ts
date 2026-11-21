@@ -36,6 +36,24 @@ async function removeKept(dataDir: string, target: string): Promise<void> {
 }
 
 /**
+ * Ends each handed-over item whose Document was deleted for good: its row and its versions' rows
+ * get `deleted_at`, as the tables' rules say. Run when a Document is deleted for good, and at every
+ * start for the items of Documents deleted for good before this ended them (#3505).
+ */
+export function endPurgedHanded(db: Database, at: string): void {
+  const purged = `(SELECT f.id FROM agent_files f WHERE f.deleted_at IS NULL AND EXISTS
+    (SELECT 1 FROM documents d WHERE d.id = f.document_id AND d.purged_at IS NOT NULL))`;
+  db.transaction(() => {
+    db.run(
+      `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
+       WHERE deleted_at IS NULL AND file_id IN ${purged}`,
+      [at, at],
+    );
+    db.run(`UPDATE agent_files SET deleted_at = ?, updated_at = ? WHERE id IN ${purged}`, [at, at]);
+  });
+}
+
+/**
  * Removes the folder of each item that ended with its Document (its rows deleted, as
  * `recentlyDeleted` does when the Document is deleted for good), and `ownFiles`: the files of
  * Documents deleted for good that an item which goes on with a newer Document no longer needs.
@@ -45,11 +63,13 @@ async function removeKept(dataDir: string, target: string): Promise<void> {
 export async function dropPurgedHanded(options: {
   db: Database;
   dataDir: string;
+  now(): string;
   ownFiles: readonly string[];
   reportError(error: unknown): void;
 }): Promise<void> {
   const { db, dataDir, reportError } = options;
-  // Read before anything is awaited: the core may close meanwhile, and the database with it.
+  // The database is read before anything is awaited: the core may close meanwhile.
+  endPurgedHanded(db, options.now());
   const endedIds = db
     .all<{ id: string }>("SELECT id FROM agent_files WHERE deleted_at IS NOT NULL")
     .map((row) => row.id);

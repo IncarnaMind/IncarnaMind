@@ -8,13 +8,35 @@
 import { mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { Core } from "../../src/core";
+import { type Core, DATABASE_FILE } from "../../src/core";
 import type { Mind } from "../../src/core/api";
+import { openDatabase } from "../../src/core/storage";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createTempDataFolder } from "../helpers/core";
 import { waitForProcessing } from "../helpers/documents";
 import { type Handed, handOver, started, structured } from "../helpers/handedFiles";
 import { plainDeck } from "../helpers/pptx";
+
+const during = vi.hoisted(() => ({
+  mkdir: null as ((folder: string) => Promise<void>) | null,
+  rename: null as ((to: string) => Promise<void>) | null,
+}));
+
+// What a test does as a copy's write is about to land, which it settles by the file's own path.
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...real,
+    mkdir: async (folder: string, options?: { recursive?: boolean }) => {
+      await during.mkdir?.(String(folder));
+      return real.mkdir(folder, options);
+    },
+    rename: async (from: string, to: string) => {
+      await during.rename?.(to);
+      return real.rename(from, to);
+    },
+  };
+});
 
 const EAST = "The east quay holds 31 boats.";
 const WEST = "The west quay holds 12 boats.";
@@ -134,7 +156,9 @@ describe("deleting a handed-over file for good", () => {
     for (const id of [mindIds.first, mindIds.second]) {
       expect((await core.listMinds()).find((each) => each.id === id)).toMatchObject({ id });
       expect((await core.listMinds()).find((each) => each.id === id)?.supersededBy).toBeUndefined();
-      expect(told.at(-1)?.find((each) => each.id === id)?.supersededBy).toBeUndefined();
+      const sent = told.at(-1)?.find((each) => each.id === id);
+      expect(sent, "the Notes list sent again has the Note").toMatchObject({ id });
+      expect(sent?.supersededBy).toBeUndefined();
     }
 
     await writeFile(quay, deck("Quay review", [WEST]));
@@ -202,6 +226,133 @@ describe("deleting a handed-over file for good", () => {
     await forGood(core, document.id);
     expect(await kept(dataDir)).toEqual(copies.slip);
     expect(await readdir(join(dataDir, "Handed files"))).toEqual([other.fileId]);
+  });
+
+  // protects=a handed file whose Document was deleted for good before this version of IncarnaMind (its item's rows still live, its folder on disk) is ended at the next start and its copies go, while an item whose Document is only in Recently deleted keeps its rows and its copies (#3505); fails_when=the old item's rows stay live, its copies stay, or the item that can still come back is touched
+  it("ends at start the items of Documents deleted for good before, and takes their copies", async () => {
+    const { core, dataDir, document, first, other, copies, mindIds, restart } = await handedTwo();
+    const slip = await documentNamed(core, "Slip review");
+    await core.deleteDocument(document.id);
+    await core.deleteDocument(slip.id);
+    await core.close();
+    const before = openDatabase(join(dataDir, DATABASE_FILE));
+    const at = new Date().toISOString();
+    before.run("UPDATE documents SET purged_at = ?, updated_at = ? WHERE id = ?", [
+      at,
+      at,
+      document.id,
+    ]);
+    before.close();
+
+    const later = await restart();
+    await vi.waitFor(async () => expect(await kept(dataDir)).toEqual(copies.slip));
+    expect(await later.handedFileOf(mindIds.second)).toBeNull();
+    expect(await later.handedFileOf(mindIds.other)).toMatchObject({ version: 1 });
+    await later.close();
+
+    const after = openDatabase(join(dataDir, DATABASE_FILE));
+    const marked = (table: string, column: string, id: string) =>
+      after
+        .all<{ deleted_at: string | null }>(`SELECT deleted_at FROM ${table} WHERE ${column} = ?`, [
+          id,
+        ])
+        .map((row) => row.deleted_at !== null);
+    expect([
+      marked("agent_files", "id", first.fileId),
+      marked("agent_file_versions", "file_id", first.fileId),
+      marked("agent_files", "id", other.fileId),
+      marked("agent_file_versions", "file_id", other.fileId),
+    ]).toEqual([[true], [true, true], [false], [false]]);
+    after.close();
+  });
+
+  // protects=a delete for good that lands while a hand-over is writing a version's copy: the hand-over is as if it came after the delete, a new item at version 1 (what any path handed over after a delete is), and nothing of the deleted item is left, not even the copy being written (#3505); fails_when=the copy lands in the deleted item's folder and stays, the version is recorded on the deleted item, or the agent gets an error
+  it("a delete for good during a version's write: the hand-over starts a new item and leaves no copy behind", async () => {
+    const { core, dataDir, agent, quay, document, first, copies, mindIds } = await handedTwo();
+    await core.deleteDocument(document.id);
+    during.rename = async (to) => {
+      if (!to.includes(join(first.fileId, "v3"))) return;
+      during.rename = null;
+      await core.deletePermanently([{ kind: "document", id: document.id }]);
+    };
+    await writeFile(quay, deck("Quay review", [EAST, WEST, SLIPWAY]));
+    const handed = structured<Handed>(await handOver(agent, { path: quay }));
+    during.rename = null;
+
+    expect(handed).toMatchObject({ version: 1, status: "checked" });
+    expect(handed.fileId).not.toBe(first.fileId);
+    expect(await kept(dataDir)).toEqual(
+      together(copies.slip, copiesOf(handed.fileId, "Quay review", 1)),
+    );
+    expect(await core.handedFileOf(mindIds.second)).toBeNull();
+    expect(await core.handedFileOf(handed.mindId ?? "")).toMatchObject({ version: 1 });
+    expect((await core.listDocuments()).filter((each) => each.name === "Quay review")).toHaveLength(
+      1,
+    );
+  });
+
+  // protects=a delete for good, and its cleanup, that finish before a hand-over's write has made its folder: the copy then lands in a folder the cleanup had removed, and is found and removed, the hand-over a new item at version 1 (#3505); fails_when=the copy stays in the deleted item's folder
+  it("a delete for good before the version's folder is made: the copy that lands after the cleanup is removed", async () => {
+    const { core, dataDir, agent, quay, document, first, copies } = await handedTwo();
+    await core.deleteDocument(document.id);
+    during.mkdir = async (folder) => {
+      if (!folder.endsWith(join(first.fileId, "v3"))) return;
+      during.mkdir = null;
+      await core.deletePermanently([{ kind: "document", id: document.id }]);
+    };
+    await writeFile(quay, deck("Quay review", [EAST, WEST, SLIPWAY]));
+    const handed = structured<Handed>(await handOver(agent, { path: quay }));
+    during.mkdir = null;
+
+    expect(handed).toMatchObject({ version: 1, status: "checked" });
+    expect(handed.fileId).not.toBe(first.fileId);
+    expect(await kept(dataDir)).toEqual(
+      together(copies.slip, copiesOf(handed.fileId, "Quay review", 1)),
+    );
+  });
+
+  // protects=a delete for good that lands while a hand-over is writing the file's new Document (the earlier one was deleted): no Document is made in the deleted item's folder, and the hand-over is a new item at version 1 (#3505); fails_when=a live Document is made in the folder the cleanup removes, or a copy is left after the cleanup ran
+  it("a delete for good during the new Document's write: the hand-over starts a new item", async () => {
+    const { core, dataDir, agent, quay, document, first, copies, mindIds } = await handedTwo();
+    await core.deleteDocument(document.id);
+    during.rename = async (to) => {
+      if (!to.endsWith(join(first.fileId, "file-3.pptx"))) return;
+      during.rename = null;
+      await core.deletePermanently([{ kind: "document", id: document.id }]);
+    };
+    await writeFile(quay, deck("Quay review", [EAST, WEST, SLIPWAY]));
+    const handed = structured<Handed>(await handOver(agent, { path: quay }));
+    during.rename = null;
+
+    expect(handed).toMatchObject({ version: 1, status: "checked" });
+    expect(handed.fileId).not.toBe(first.fileId);
+    expect(await kept(dataDir)).toEqual(
+      together(copies.slip, copiesOf(handed.fileId, "Quay review", 1)),
+    );
+    expect(await core.handedFileOf(mindIds.second)).toBeNull();
+    expect((await core.listDocuments()).filter((each) => each.name === "Quay review")).toHaveLength(
+      1,
+    );
+  });
+
+  // protects=a delete for good that lands while a hand-over is writing a new version into the file's own Document: the hand-over starts a new item, and the Document's file is not written again in the deleted item's folder (#3505); fails_when=the rewritten file stays in the deleted item's folder, or the version is recorded on it
+  it("a delete for good during the Document's own file's write: the hand-over starts a new item", async () => {
+    const { core, dataDir, agent, quay, document, first, copies } = await handedTwo();
+    during.rename = async (to) => {
+      if (!to.endsWith(join(first.fileId, "file-1.pptx"))) return;
+      during.rename = null;
+      await core.deleteDocument(document.id);
+      await core.deletePermanently([{ kind: "document", id: document.id }]);
+    };
+    await writeFile(quay, deck("Quay review", [EAST, WEST, SLIPWAY]));
+    const handed = structured<Handed>(await handOver(agent, { path: quay }));
+    during.rename = null;
+
+    expect(handed).toMatchObject({ version: 1, status: "checked" });
+    expect(handed.fileId).not.toBe(first.fileId);
+    expect(await kept(dataDir)).toEqual(
+      together(copies.slip, copiesOf(handed.fileId, "Quay review", 1)),
+    );
   });
 
   // protects=a file handed over before the User linked its folder, taken over by the folder's scan as the same Document, leaves only the versions' copies in the data folder, no second copy of the newest bytes beside them; deleting that Document for good removes them while the User's file in the Linked folder stays (#3505, #3499); fails_when=the retired copy's own file is still in the data folder, a version's copy outlives the Document, or the file in the Linked folder is touched

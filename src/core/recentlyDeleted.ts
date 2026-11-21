@@ -12,6 +12,7 @@
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { isTagColour } from "../shared/tagColours";
+import { endPurgedHanded } from "./agentFiles/kept";
 import type { TagAsShown } from "./api";
 import {
   DELETED_KINDS,
@@ -201,20 +202,6 @@ function purge(
     db.run(`DELETE FROM web_page_pictures WHERE document_id ${IN} AND deleted_at IS NOT NULL`, [
       list,
     ]);
-    // A file an outside agent handed over ends with its Document, its versions with it (#3505):
-    // `Documents.dropPurged` removes their copies from the data folder.
-    const handed = `(SELECT f.id FROM agent_files f WHERE f.deleted_at IS NULL AND f.document_id IN
-      (SELECT id FROM documents WHERE id ${IN} AND deleted_at IS NOT NULL AND purged_at IS NULL))`;
-    db.run(
-      `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
-       WHERE deleted_at IS NULL AND file_id IN ${handed}`,
-      [at, at, list],
-    );
-    db.run(`UPDATE agent_files SET deleted_at = ?, updated_at = ? WHERE id IN ${handed}`, [
-      at,
-      at,
-      list,
-    ]);
   }
   if (kind === "tag") db.run(`DELETE FROM document_tags WHERE tag_id ${IN}`, [list]);
   if (kind === "folder") db.run(`DELETE FROM deleted_folder_items WHERE folder_id ${IN}`, [list]);
@@ -232,6 +219,8 @@ function purge(
      WHERE id ${IN} AND deleted_at IS NOT NULL AND purged_at IS NULL`,
     [at, at, list],
   );
+  // A file an outside agent handed over ends with its Document: `Documents.dropPurged` removes its copies (#3505).
+  if (kind === "document") endPurgedHanded(db, at);
 }
 
 export function purgeExpired(db: Database, now: string, documentText: DocumentText): void {
