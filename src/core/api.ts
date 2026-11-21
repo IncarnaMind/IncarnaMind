@@ -4155,6 +4155,19 @@ export interface AgentCanvasChange {
   version: number;
 }
 
+/**
+ * What an outside agent made, for the windows to open (#3534): a Note it wrote, the Note a file it
+ * handed over lives in, or a Canvas it published.
+ */
+export interface AgentOpened {
+  item: { kind: "mind"; mindId: string } | { kind: "canvas"; canvasId: string };
+  /**
+   * The User asked this agent from IncarnaMind and it read the request in this connection: the item
+   * opens in front and the app comes to the front with it. Else it opens behind, and the app stays.
+   */
+  front: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Tabs and groups: everything that opens is a tab, in up to three groups side
 // by side, as VS Code's editor groups. Each window keeps its own layout.
@@ -15810,6 +15823,8 @@ export interface CoreEvents {
   "canvases.changed": Canvas[];
   /** An outside agent published a Canvas, or a new version of one (#3406). */
   "agents.canvasChanged": AgentCanvasChange;
+  /** An outside agent made a Note, a file's Note or a Canvas: open it (#3534). */
+  "agents.opened": AgentOpened;
 }
 
 export type CoreEventName = keyof CoreEvents;

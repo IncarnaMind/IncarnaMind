@@ -6187,6 +6187,7 @@ export function createCore(adapters: CoreAdapters): Core {
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),
       show: (place) => events.emit("agents.citationShown", place),
+      opened: (opened) => events.emit("agents.opened", opened),
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
