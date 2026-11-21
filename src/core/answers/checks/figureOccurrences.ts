@@ -601,9 +601,10 @@ export function framesAbove(node: Y.XmlElement): string[] {
   }
   let under = block.nodeName === "heading" ? headingLevel(block) : Number.POSITIVE_INFINITY;
   let inOwn = under === Number.POSITIVE_INFINITY;
-  // Its words are read only for the lines it keeps: a Note's every line is passed for each of its.
+  // Only the lines it keeps are read: a Note's every line is passed for each of its lines.
   let pending: Y.XmlElement[] = [];
-  const keep = () => frames.push(...pending.map(blockWords));
+  const keep = () =>
+    frames.push(...pending.filter((at) => saysOfText(at) && !leftOut(at)).map(blockWords));
   for (const at of blocksBefore(block)) {
     if (under <= 1) break;
     if (at.nodeName === "heading") {
@@ -617,7 +618,7 @@ export function framesAbove(node: Y.XmlElement): string[] {
       pending = [];
       continue;
     }
-    if (!inOwn && saysOfText(at) && !leftOut(at)) pending.push(at);
+    if (!inOwn) pending.push(at);
   }
   if (!inOwn) keep();
   return frames.filter(Boolean);

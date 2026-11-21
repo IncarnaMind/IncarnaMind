@@ -155,7 +155,10 @@ function retype(client: MindClient, from: string, to: string) {
   text.insert(at, to);
 }
 
-/** A memo with sections, a lead-in and its list, and a paragraph of three sentences. */
+/**
+ * A memo with sections that open with a line, a lead-in and its list, a paragraph of three
+ * sentences, and two tables, each with its caption, the first with section labels.
+ */
 const MEMO = [
   "# Harbour review",
   "",
@@ -176,7 +179,24 @@ const MEMO = [
   "",
   "The office opens at seven. It closes at six. It shuts on Sundays.",
   "",
+  "Berths by basin",
+  "",
+  "| Quay | Boats |",
+  "| --- | --- |",
+  "| Inner basin: | |",
+  "| West quay | 30 |",
+  "| Outer basin: | |",
+  "| East quay | 12 |",
+  "",
+  "Mooring fees",
+  "",
+  "| Quay | Fees |",
+  "| --- | --- |",
+  "| West quay | 310 |",
+  "",
   "## South",
+  "",
+  "The south figures are for 2024.",
   "",
   "### Quays",
   "",
@@ -190,8 +210,13 @@ const MEMO_CLAIMS = [
   "The office opens at seven.",
   "It closes at six.",
   "It shuts on Sundays.",
+  "West quay — Boats: 30",
+  "East quay — Boats: 12",
+  "West quay — Fees: 310",
   "The south quay holds 19 boats.",
 ] as const;
+
+const NORTH_CLAIMS = MEMO_CLAIMS.filter((claim) => !claim.includes("south"));
 
 describe("Verify a document", () => {
   test("its text becomes a Mind, a paragraph or numbered heading to a Block with its page; its claims are found, then checked", async () => {
@@ -472,22 +497,22 @@ describe("Verify a document", () => {
     },
   );
 
-  // protects=a result stands on the headings it is under: renaming a heading re-checks the claims under it and leaves those under another heading standing (#3412, #3455); fails_when=a claim keeps a result made under a heading that now says otherwise, or the rename re-checks every claim of the Note
-  // protects=a result stands on what the Note's structure says frames its line (#3455): one edit re-checks the lines it frames, and only those (the table in the PR says the whole rule); fails_when=an edit re-checks a line it doesn't frame, or leaves standing one it frames, so a result stands for something its check didn't judge
+  // protects=a result stands on what frames its line by the Note's structure (#3455): its table's caption and section label, the opening lines of each section it is in, its list's lead-in and what its paragraph says before it, so one edit re-checks the lines it frames and only those; fails_when=an edit leaves standing a line it frames, so a result stands for a subject, unit or period its check never judged, or re-checks a line it doesn't frame (a later line, another section, another table), hiding that line's finding
   test.each([
-    [
-      "a claim that is its own paragraph",
-      "holds 42",
-      "holds 40",
-      ["The north quay holds 42 boats."],
-    ],
-    [
-      "a section's opening line",
-      "are for 2025",
-      "are for 2024",
-      MEMO_CLAIMS.filter((claim) => !claim.includes("south")),
-    ],
+    ["a claim on its own line", "holds 42", "holds 40", ["The north quay holds 42 boats."]],
     ["the Note's opening line", "in thousands", "in millions", [...MEMO_CLAIMS]],
+    [
+      "its section's opening line",
+      "north figures are for 2025",
+      "north figures are for 2024",
+      NORTH_CLAIMS,
+    ],
+    [
+      "another section's opening line",
+      "south figures are for 2024",
+      "south figures are for 2023",
+      ["The south quay holds 19 boats."],
+    ],
     [
       "a list's lead-in",
       "north harbour has",
@@ -500,6 +525,13 @@ describe("Verify a document", () => {
       "closes at five",
       ["It closes at six.", "It shuts on Sundays."],
     ],
+    [
+      "a table's caption",
+      "Berths by basin",
+      "Berths by quay",
+      ["West quay — Boats: 30", "East quay — Boats: 12"],
+    ],
+    ["a table's section label", "Inner basin:", "Inner harbour:", ["West quay — Boats: 30"]],
   ])("editing %s re-checks the lines it frames, and no other", async (_, from, to, rechecked) => {
     const { core, sources } = await setUp(
       checkingModel(
@@ -530,7 +562,7 @@ describe("Verify a document", () => {
     );
   });
 
-  // protects=a table row's result stands on its table's caption and its section label, which say what the row is of, beside the headings above (#3455 review); fails_when=a caption or a section label changed with the same claim and headings above leaves the row's result standing for a different subject
+  // protects=a table row's result stands on its table's caption and its section label, which say what the row is of, beside the headings above (#3455, from #3554's review); fails_when=a caption or a section label changed with the same claim and headings above leaves the row's result standing for a different subject
   test.each([
     ["its table's caption", "(in thousands)", "(in millions)", ["Cash", "Fixed assets"]],
     ["its section label", "Current assets:", "Liquid assets:", ["Cash"]],
@@ -577,6 +609,7 @@ describe("Verify a document", () => {
     );
   });
 
+  // protects=a result stands on the headings it is under: renaming a heading re-checks the claims under it and leaves those under another heading standing (#3412, #3455); fails_when=a claim keeps a result made under a heading that now says otherwise, or the rename re-checks every claim of the Note
   test("a heading renamed re-checks the claims under it, not those under another heading", async () => {
     const { core, report } = await setUp();
     const { mind, client } = await verified(core, report);
@@ -591,6 +624,72 @@ describe("Verify a document", () => {
       { state: "unsupported" },
     ]);
   });
+
+  // protects=results checked before an upgrade still stand after it: a line framed by no more than its headings keeps the fingerprint the app stored before a table's caption, a section's opening lines, a list's lead-in and a paragraph's earlier sentences were added to what a result stands on (#3455), and a result the last release stored, which keeps none, reads as checked; fails_when=a change to what a result stands on, or to how it is hashed, puts results already checked behind Needs re-check after an upgrade
+  test.each([
+    [
+      "a file with no headings",
+      "Harbour notes.pdf",
+      buildPdf([
+        { lines: ["Harbour report", SUPPORTED, CONTRADICTED] },
+        { lines: [UNSUPPORTED, THANKS] },
+      ]),
+      ["A4WLRMZcgeZZ5ctC7sjr3Q", "Z21rs9XTHLZvnjpnr0r17D", "wMXZ3tQ1WJaabIR0f3ZsQz"],
+    ],
+    [
+      "a file whose lines only its headings frame",
+      "Harbour notes.md",
+      [
+        "# Harbour report",
+        "",
+        "## Tides",
+        "",
+        SUPPORTED,
+        "",
+        CONTRADICTED,
+        "",
+        "## Wildlife",
+        "",
+        UNSUPPORTED,
+        "",
+        THANKS,
+      ].join("\n"),
+      ["lva-hHdoJJha0yELmwiuLl", "Rj4LL0TUEYi07whgCKkslT", "zWUAWW07-LT3VhtYrv2bFa"],
+    ],
+  ])(
+    "results checked before an upgrade still stand after it: %s",
+    async (_, name, file, stored) => {
+      const { core, sources } = await setUp();
+      const { mind, client } = await verified(core, await writeSourceFile(sources, name, file));
+      await core.findClaims(request(mind.id));
+      await core.verifyClaims(request(mind.id));
+
+      const checks = await shownChecks(core, client);
+      expect(checks.map(({ check }) => check.judgedWith)).toEqual(stored);
+      const verdicts = [
+        { state: "supported" },
+        { state: "contradicted" },
+        { state: "unsupported" },
+      ];
+      expect(await pageShows(core, mind.id, client)).toEqual(verdicts);
+
+      const versions = new Map(
+        (await core.listDocuments()).map((each) => [each.id, each.contentHash]),
+      );
+      expect(
+        checks.map(({ sentence, check: { judgedWith: _, ...kept } }) =>
+          claimCheckShown(kept, {
+            footing: "not-yet-known",
+            text: sentence,
+            versions,
+            folderId: null,
+            scope: null,
+            judgedWith: () => "a fingerprint it never kept",
+          }),
+        ),
+      ).toEqual(verdicts);
+    },
+  );
 
   test("empty states: no claims found, and nothing to check against", async () => {
     const { core, report } = await setUp(checkingModel({}));
