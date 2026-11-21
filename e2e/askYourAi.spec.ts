@@ -15,11 +15,13 @@ import {
   expectReadyDocuments,
   frontMind,
   launchApp,
+  openDocumentAt,
   openSettings,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   urlsOpened,
+  useLocalChatModel,
 } from "./app";
 
 test.skip(
@@ -35,6 +37,10 @@ test.skip(
  * Claude Code has a link that opens it with one line typed; VS Code has none, so the line is
  * copied. The rest waits for the agent's read_request, which the card and its Activity then show.
  * The app opens nothing here: each link it would open is recorded.
+ *
+ * With no model set up (#3533): a question typed with a Document open names it in the line, its id
+ * waits for the agent, and an agent that finds no request waiting is told so, not refused; Check
+ * on a Note asks that agent, or says what a check needs, and a model set up changes neither.
  */
 
 let dataDir: string;
@@ -312,6 +318,170 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-asked")).toHaveText("等 Claude Code 读取你的请求。");
     await shot(window, "ask-card-waiting-zh-CN");
+  } finally {
+    await app.close();
+  }
+});
+
+const FERRY_NOTE = `${CROSSINGS} ${OVERSTATED}\n\n${BOOKING}`;
+
+/** A Note Claude Code wrote with none of its sentences checked, which a Check would check. */
+async function writtenUnchecked(launch: AgentLaunch): Promise<string> {
+  const agent = await claudeCode(launch);
+  try {
+    const made = await agent.callTool({
+      name: "create_mind",
+      arguments: { title: TITLE, markdown: FERRY_NOTE },
+    });
+    return (made.structuredContent as { mindId: string }).mindId;
+  } finally {
+    await agent.close();
+  }
+}
+
+test("with no model, a question typed with a Document open names it in the line, its id waits for the agent, and an agent that finds nothing waiting is not refused", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    const launch = await connected(window);
+    const documentId = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [document] = await bridge.listDocuments();
+      if (!document) throw new Error("The Document wasn't added.");
+      return document.id;
+    });
+    await openDocumentAt(window, { documentId });
+    await expect(
+      window.getByTestId("viewer-tab-strip").or(window.getByTestId("tab-group")),
+    ).toBeVisible();
+
+    // ⌘J goes to the chat box; Enter offers Claude Code for the words, and Enter again asks it.
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("Summarise this document");
+    await window.keyboard.press("Enter");
+    const offer = window.getByTestId("composer-ask-agent");
+    await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
+    await shot(window, "ask-document-offer-en");
+    await window.keyboard.press("Enter");
+    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    expect(typedIn((await urlsOpened(app))[0])).toBe(
+      "About my document “Annual summary 2025” in IncarnaMind:\n\nSummarise this document",
+    );
+
+    // The rest waits for the agent, once; a second look finds nothing waiting, and is no failed call.
+    const agent = await claudeCode(launch);
+    try {
+      const first = await agent.callTool({ name: "read_request", arguments: {} });
+      expect(first.isError ?? false).toBe(false);
+      expect(first.structuredContent).toEqual({
+        mindId: null,
+        title: "Annual summary 2025",
+        request: `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${documentId}).`,
+      });
+      const again = await agent.callTool({ name: "read_request", arguments: {} });
+      expect(again.isError ?? false).toBe(false);
+      expect(again.structuredContent).toMatchObject({ mindId: null, title: "" });
+    } finally {
+      await agent.close();
+    }
+
+    // The same, in Chinese.
+    await setLanguage(window, "zh-CN");
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("总结一下这个文档");
+    await window.keyboard.press("Enter");
+    await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
+    expect(typedIn((await urlsOpened(app))[1])).toBe(
+      "关于我在 IncarnaMind 中的文档“Annual summary 2025”：\n\n总结一下这个文档",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("with no model, Check asks the User's own AI to check the Note; with no agent it says what a check needs; with a model it checks as before", async () => {
+  const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    const launch = await connected(window);
+    const mindId = await writtenUnchecked(launch);
+    await pointAndClick(
+      window,
+      window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`),
+    );
+    await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
+    const press = async () => {
+      if (!(await window.getByTestId("check-card").isVisible())) {
+        await pointAndClick(window, window.getByTestId("check-badge-open"));
+      }
+      await pointAndClick(window, window.getByTestId("badge-check-mind"));
+    };
+
+    // An agent that can read the Note: the card's line offers to ask it, as "Ask {agent}" is worded
+    // everywhere, and says nothing about asking a model.
+    await press();
+    const line = window.getByTestId("checks-ask-agent");
+    await expect(line.getByTestId("checks-ask-agent-ask")).toHaveText("Ask Claude Code");
+    await expect(line.getByTestId("checks-ask-agent-set-up")).toHaveText("Set up a model");
+    await expect(window.getByTestId("check-card")).not.toContainText("Asking needs an AI model");
+    await shot(window, "check-no-model-agent-en");
+    await setLanguage(window, "zh-CN");
+    await expect(line.getByTestId("checks-ask-agent-ask")).toHaveText("交给 Claude Code");
+    await shot(window, "check-no-model-agent-zh-CN");
+    await setLanguage(window, "en");
+    await pointAndClick(window, line.getByTestId("checks-ask-agent-ask"));
+    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    expect(typedIn((await urlsOpened(app))[0])).toBe(
+      `Check my note “${TITLE}” in IncarnaMind against my Documents.`,
+    );
+    await expect(line).toHaveCount(0);
+
+    // What waits for Claude Code says how to check the Note with the Tools it has, once.
+    const agent = await claudeCode(launch);
+    try {
+      const read = await agent.callTool({ name: "read_request", arguments: { note: TITLE } });
+      const { request } = read.structuredContent as { request: string };
+      expect(request).toContain(`(mindId: ${mindId})`);
+      expect(request).toContain("check_mind_yourself");
+      expect(request).toContain("report_check");
+    } finally {
+      await agent.close();
+    }
+
+    // No agent either: the line is about checking, with the way to set a model up.
+    const connectedAgents = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { pairings } = await bridge.getAgents();
+      for (const each of pairings) await bridge.disconnectAgent(each.id);
+      return pairings.length;
+    });
+    expect(connectedAgents).toBe(2);
+    await press();
+    const alone = window.getByTestId("checks-problem");
+    await expect(alone).toContainText("Checking needs an AI model");
+    await expect(alone).not.toContainText("Asking");
+    await shot(window, "check-no-model-alone-en");
+    await setLanguage(window, "zh-CN");
+    await expect(alone).toContainText("核对需要 AI 模型");
+    await shot(window, "check-no-model-alone-zh-CN");
+    await setLanguage(window, "en");
+
+    // With a model set up the Check runs: neither line shows.
+    // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
+    await useLocalChatModel(window);
+    await press();
+    await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
+    await expect(window.getByTestId("check-card")).not.toContainText("Checking needs an AI model");
+    await shot(window, "check-with-model-en");
+    await setLanguage(window, "zh-CN");
+    await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
+    await shot(window, "check-with-model-zh-CN");
   } finally {
     await app.close();
   }
