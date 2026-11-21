@@ -1,7 +1,7 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
+import { ALL_SHARED_ID, type CoreBridge, NOT_IN_A_FOLDER_ID } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { translate } from "../src/shared/i18n";
 import {
@@ -23,11 +23,12 @@ test.skip(
 );
 
 /*
- * Connecting an agent when the Library has no Folders, or no Documents (#507, #3364, #3487): the
- * dialog says in words that it may read all the Documents, those added next too, when it is the only
- * choice, lists Not in a Folder after the Folders once there are any, and shows Allow and connect
- * without scrolling; a connected agent's Folders… lists Not in a Folder after the Folders. The home folder is a
- * temporary one, and what the page copies is caught, so no agent of the User's is touched.
+ * What a new agent reads (#507, #3364, #3487, #3544): all of the User's Documents and notes, those
+ * added later too, said in words while there is no Folder to choose instead, and the choice already
+ * made once there are Folders, with Choose Folders as the other, which lists Not in a Folder after
+ * them; Allow and connect shows without scrolling. A connected agent's Folders… has the same two
+ * choices, and narrows and widens back in place. The home folder is a temporary one, and what the
+ * page copies is caught, so no agent of the User's is touched.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
  */
 
@@ -62,9 +63,11 @@ const WORDS = {
     allow: "Allow and connect",
     reads: (names: string) => `Reads ${names}`,
     join: ", ",
-    readsNone: translate("en", "agents.connect.reads.none", { agent: "Claude Code" }),
     readsAll: translate("en", "agents.connect.reads.all", { agent: "Claude Code" }),
-    readsFolders: translate("en", "agents.connect.reads.folders", { agent: "Claude Code" }),
+    readsFolders: translate("en", "agents.connect.reads", { agent: "Claude Code" }),
+    readsProjects: translate("en", "agents.connect.reads.projects", { agent: "Claude Code" }),
+    shareAll: "All my Documents and notes, and what I add later",
+    pairingAll: "Reads all your Documents and notes, and what you add later",
   },
   "zh-CN": {
     settings: "设置",
@@ -76,9 +79,11 @@ const WORDS = {
     allow: "允许并连接",
     reads: (names: string) => `可读取：${names}`,
     join: "、",
-    readsNone: translate("zh-CN", "agents.connect.reads.none", { agent: "Claude Code" }),
     readsAll: translate("zh-CN", "agents.connect.reads.all", { agent: "Claude Code" }),
-    readsFolders: translate("zh-CN", "agents.connect.reads.folders", { agent: "Claude Code" }),
+    readsFolders: translate("zh-CN", "agents.connect.reads", { agent: "Claude Code" }),
+    readsProjects: translate("zh-CN", "agents.connect.reads.projects", { agent: "Claude Code" }),
+    shareAll: "我的全部文档和笔记，包括以后添加的",
+    pairingAll: "可读取你的全部文档和笔记，包括以后添加的",
   },
 } as const;
 
@@ -169,7 +174,7 @@ async function expectFits(window: Page, dialog: Locator): Promise<void> {
 for (const width of [900, 1280]) {
   for (const language of ["en", "zh-CN"] as const) {
     const words = WORDS[language];
-    test(`no Documents says it may read the ones added next, in words; with Folders Not in a Folder is listed after them, at ${width} px in ${LANGUAGE_NAME[language]}`, async () => {
+    test(`all of it is the choice made, in words with no Folder; Choose Folders lists Not in a Folder after them, and Folders… narrows and widens back, at ${width} px in ${LANGUAGE_NAME[language]}`, async () => {
       const { app, window } = await launchApp(dataDir);
       try {
         await dismissChatSetup(window);
@@ -179,12 +184,13 @@ for (const width of [900, 1280]) {
         const allow = dialog.getByTestId("connect-agent-allow");
         await expect(allow).toHaveText(words.allow);
 
-        // No Documents at all: no row to tick, only the words for what is added next, and the three
-        // lines, with Allow and connect in view and the rest under Details.
+        // No Documents at all: nothing to choose, all of it in words, those added later too, and
+        // the three lines, with Allow and connect in view and the rest under Details.
         const rows = dialog.getByTestId("agent-folder-row");
         await expect(rows).toHaveCount(0);
+        await expect(dialog.getByTestId("agent-share-all")).toHaveCount(0);
         const reads = dialog.getByTestId("connect-agent-reads");
-        await expect(reads).toHaveText(words.readsNone);
+        await expect(reads).toHaveText(words.readsAll);
         await expect(dialog.getByTestId("agent-propose")).toBeChecked({ checked: false });
         await expect(dialog.getByTestId("connect-agent-disconnect")).toHaveText(
           translate(language, "agents.connect.disconnect"),
@@ -207,7 +213,7 @@ for (const width of [900, 1280]) {
         await shot(dialog, `no-documents-details-dialog-${width}-${language}`);
         await details.locator("summary").first().click();
 
-        // Added: still in words, now for all of them.
+        // Added: still in words.
         const tides = await writeNote("Tides", "Spring tides come at new moon.");
         await window.evaluate(async (path) => {
           await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addDocuments([
@@ -224,7 +230,7 @@ for (const width of [900, 1280]) {
         await dialog.getByRole("button", { name: language === "en" ? "Cancel" : "取消" }).click();
         await expect(dialog).toBeHidden();
 
-        // With Folders, Not in a Folder is listed after them, and nothing is ticked until the User picks.
+        // With Folders, all of it is the choice already made, and Allow connects with it.
         await addFolders(window, await writeNote("Reef", "The reef shelters young coral."));
         await expectReadyDocuments(window, 2);
         await window
@@ -233,6 +239,18 @@ for (const width of [900, 1280]) {
           .getByTestId("agent-connect")
           .click();
         await expect(reads).toHaveText(words.readsFolders);
+        const shareAll = dialog.getByTestId("agent-share-all");
+        await expect(shareAll).toBeChecked();
+        await expect(dialog.locator("label", { has: shareAll })).toHaveText(words.shareAll);
+        await expect(rows).toHaveCount(0);
+        await expect(allow).toBeEnabled();
+        await expectInView(window, allow);
+        await expectFits(window, dialog);
+        await shot(window, `folders-all-${width}-${language}`);
+        await shot(dialog, `folders-all-dialog-${width}-${language}`);
+
+        // Choose Folders lists Not in a Folder after them, and nothing is ticked until the User picks.
+        await dialog.getByTestId("agent-share-folders").check();
         await expect(rows).toHaveCount(3);
         await expect(rows.nth(0)).toContainText("Coast");
         await expect(rows.nth(1)).toContainText(LONG_NAME);
@@ -274,13 +292,15 @@ for (const width of [900, 1280]) {
         await allow.click();
         await expect(dialog).toBeHidden();
 
-        // Connected, the same list is in Folders…, Not in a Folder last, and changes in place.
+        // Connected, the same choices are in Folders…, Not in a Folder last, and change in place.
         const row = window.getByTestId("agent-pairing");
         await expect(row.getByTestId("agent-pairing-reads")).toHaveText(
           words.reads(words.notInFolder),
         );
         await row.getByTestId("agent-folders").click();
-        const own = row.getByTestId("agent-pairing-folders").getByTestId("agent-folder-row");
+        const panel = row.getByTestId("agent-pairing-folders");
+        await expect(panel.getByTestId("agent-share-folders")).toBeChecked();
+        const own = panel.getByTestId("agent-folder-row");
         await expect(own).toHaveCount(3);
         await expect(own.nth(2)).toContainText(words.notInFolder);
         await expect(own.nth(2).getByTestId("agent-folder")).toBeChecked();
@@ -291,6 +311,42 @@ for (const width of [900, 1280]) {
         await own.nth(2).getByTestId("agent-folder").uncheck();
         await expect(row.getByTestId("agent-pairing-reads")).toHaveText(words.reads("Coast"));
         await shot(window, `folders-connected-${width}-${language}`);
+
+        // Widened to all, in the consent's words; narrowed again, it starts from what all reaches.
+        const pairingFolders = () =>
+          window.evaluate(async () =>
+            (
+              await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getAgents()
+            ).pairings.map((each) => each.folderIds),
+          );
+        await panel.getByTestId("agent-share-all").check();
+        await expect(row.getByTestId("agent-pairing-reads")).toHaveText(words.pairingAll);
+        await expect(own).toHaveCount(0);
+        await expect(
+          panel.locator("label", { has: panel.getByTestId("agent-share-all") }),
+        ).toHaveText(words.shareAll);
+        await expect.poll(pairingFolders).toEqual([[ALL_SHARED_ID]]);
+        await shot(window, `all-connected-${width}-${language}`);
+        await panel.getByTestId("agent-share-folders").check();
+        await expect(own).toHaveCount(3);
+        for (const index of [0, 1, 2])
+          await expect(own.nth(index).getByTestId("agent-folder")).toBeChecked();
+        await expect(row.getByTestId("agent-pairing-reads")).toHaveText(
+          words.reads(["Coast", LONG_NAME, words.notInFolder].join(words.join)),
+        );
+        const narrowed = await pairingFolders();
+        expect(narrowed.map((each) => [...each].sort())).toEqual([
+          [
+            ...(await window.evaluate(async () =>
+              (
+                await (
+                  globalThis as unknown as { incarnamind: CoreBridge }
+                ).incarnamind.getLibrary()
+              ).groups.map((each) => each.id),
+            )),
+            NOT_IN_A_FOLDER_ID,
+          ].sort(),
+        ]);
       } finally {
         await app.close();
       }
@@ -298,7 +354,7 @@ for (const width of [900, 1280]) {
   }
 }
 
-test("a Library that is only a Linked folder's files says it may read all of them, and Allow connects with Not in a Folder as its scope", async () => {
+test("a Library that is only a Linked folder's files says it may read all of it, and Allow connects with all of it, those added later too", async () => {
   await writeNote("Tides", "Spring tides come at new moon.");
   await writeNote("Reef", "The reef shelters young coral.");
   const { app, window } = await launchApp(dataDir);
@@ -317,14 +373,40 @@ test("a Library that is only a Linked folder's files says it may read all of the
     await expect(dialog.getByTestId("connect-agent-reads")).toHaveText(WORDS.en.readsAll);
     await dialog.getByTestId("connect-agent-allow").click();
     await expect(dialog).toBeHidden();
-    await expect(window.getByTestId("agent-pairing-reads")).toHaveText("Reads Not in a Folder");
+    await expect(window.getByTestId("agent-pairing-reads")).toHaveText(WORDS.en.pairingAll);
     const pairings = await window.evaluate(async () =>
       (
         await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getAgents()
       ).pairings.map((each) => each.folderIds),
     );
-    expect(pairings).toEqual([["not-in-a-folder"]]);
+    expect(pairings).toEqual([[ALL_SHARED_ID]]);
   } finally {
     await app.close();
   }
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`with a Project, the first line says a Project is shared only on its own, in ${LANGUAGE_NAME[language]}`, async () => {
+    await writeNote("Quay plan", "The quay plan adds 31 moorings.");
+    const { app, window } = await launchApp(dataDir);
+    try {
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, 1280, 720);
+      await catchCopies(window);
+      await window.evaluate(async (path) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const linked = await core.addLinkedFolder(path);
+        await core.createBoundFolder(linked.folderId);
+      }, sources);
+      await expectReadyDocuments(window, 1);
+      const dialog = await openConnectDialog(window, language);
+      await expect(dialog.getByTestId("connect-agent-reads")).toHaveText(
+        WORDS[language].readsProjects,
+      );
+      await expect(dialog.getByTestId("agent-share-all")).toBeChecked();
+      await shot(dialog, `project-dialog-1280-${language}`);
+    } finally {
+      await app.close();
+    }
+  });
+}

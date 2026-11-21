@@ -241,13 +241,14 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await expect(ai.getByTestId("setup-next")).toBeDisabled();
   await stills(window, "1-your-ai");
 
-  // Chosen: the three lines of the connect dialog, with nothing to read yet but the Documents to
-  // come, the rest under Details, and Allow and connect in view at both widths.
+  // Chosen: the three lines of the connect dialog, with all of the User's Documents and notes as
+  // what it reads, those to come too (#3544), the rest under Details, and Allow and connect in
+  // view at both widths.
   await claudeCode.locator("input").press("Space");
   const connect = ai.getByTestId("setup-agent-connect");
   await expect(connect).toContainText("Let Claude Code read your Documents?");
   await expect(connect.getByTestId("connect-agent-reads")).toHaveText(
-    translate("en", "agents.connect.reads.none", { agent: "Claude Code" }),
+    translate("en", "agents.connect.reads.all", { agent: "Claude Code" }),
   );
   await expect(connect.getByTestId("agent-folder-row")).toHaveCount(0);
   await expect(connect.getByTestId("agent-propose")).toBeChecked();
@@ -322,7 +323,9 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   const page = await showSettingsPage(window, "agents");
   await expect(page.getByTestId("agents-enabled")).toBeChecked();
   const row = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
-  await expect(row.getByTestId("agent-pairing-reads")).toHaveText("Reads Not in a Folder");
+  await expect(row.getByTestId("agent-pairing-reads")).toHaveText(
+    "Reads all your Documents and notes, and what you add later",
+  );
   await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
     "Writes notes, Canvases and files there; proposes changes to yours",
   );

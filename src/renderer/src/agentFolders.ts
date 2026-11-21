@@ -3,6 +3,7 @@
  * Agents shows it. Pure: no store, no bridge, so the tests import it.
  */
 import {
+  ALL_SHARED_ID,
   type Document,
   type DocumentGroupAssignment,
   type Folder,
@@ -78,9 +79,56 @@ export function sharedWithOf(folders: readonly Placed[]): Map<string, string[]> 
   );
 }
 
+/** Whether a Folder is behind a wall: its own, or one above it (#3544). */
+function behindWall(folder: Placed, byId: ReadonlyMap<string, Placed>): boolean {
+  const seen = new Set<string>();
+  for (let at: Placed | undefined = folder; at && !seen.has(at.id); ) {
+    if (at.keepInside) return true;
+    seen.add(at.id);
+    at = byId.get(at.parentId ?? "");
+  }
+  return false;
+}
+
+/** The Folders an agent given all reads, as the core's reach has them: every one outside a wall. */
+function outsideWalls(folders: readonly Placed[]): Placed[] {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  return folders.filter((folder) => !behindWall(folder, byId));
+}
+
 /** The Folders an agent given `chosen` reads: those, and the Folders inside them up to a wall. */
 export function foldersReached(folders: readonly Placed[], chosen: readonly string[]): string[] {
+  if (chosen.includes(ALL_SHARED_ID)) return outsideWalls(folders).map((folder) => folder.id);
   return [...chosen.filter((id) => id !== NOT_IN_A_FOLDER_ID), ...sharedInside(folders, chosen)];
+}
+
+/**
+ * The Folders ticked when the User goes from all to choosing Folders (#3544): those all reaches
+ * now, each Folder inside another shared with it, and Not in a Folder while its row is listed.
+ * Only what comes later stops being shared.
+ */
+export function choiceOfAll(
+  folders: readonly Placed[],
+  rows: readonly Pick<AgentFolderRow, "id">[],
+): string[] {
+  return [
+    ...outsideWalls(folders)
+      .filter((folder) => folder.parentId === null)
+      .map((folder) => folder.id),
+    ...rows.filter((row) => row.id === NOT_IN_A_FOLDER_ID).map((row) => row.id),
+  ];
+}
+
+/**
+ * Which Folders all leaves out, as the consent says so (#3544): none, Projects alone, or Folders
+ * that keep their work inside them, a Project whose wall is off being part of all.
+ */
+export function leftOutOfAll(
+  folders: readonly Pick<LibraryGroup, "keepInside" | "boundFolderId">[],
+): "none" | "projects" | "walled" {
+  const walled = folders.filter((folder) => folder.keepInside);
+  if (walled.length === 0) return "none";
+  return walled.every((folder) => folder.boundFolderId !== null) ? "projects" : "walled";
 }
 
 /** The Folders an agent given `chosen` reads besides those it was given: the Folders inside them. */
