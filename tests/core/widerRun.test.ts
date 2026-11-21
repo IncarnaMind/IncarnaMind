@@ -50,8 +50,8 @@ test("a key that states room for the Note is sent twelve at once, one that state
   expect(silent).toMatchObject({ refused: 0, marks: { supported: 12 } });
   expect(Math.max(...outAsEachBegan(stated))).toBe(12);
   expect(Math.max(...outAsEachBegan(silent))).toBe(6);
-  // The seventh sentence waits for the first six's second requests, which carry what was found.
-  expect(checksOut(stated)[6]?.from).toBe(REPLY_MS);
+  // The seventh sentence begins as soon as the first six's requests answer: they carry the search made for them.
+  expect(checksOut(stated)[6]?.from).toBe(0);
   expect(stated.end).toBeLessThan(silent.end);
 });
 

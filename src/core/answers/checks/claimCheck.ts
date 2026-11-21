@@ -346,6 +346,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     documents: tools,
     tools: [],
     toolSet: "check",
+    retrieveFirst: true,
     thirdParty: request.thirdParty ?? [],
     support: model.support,
     structuredOutput: givesStructuredOutput(model.capabilities),
