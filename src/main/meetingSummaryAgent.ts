@@ -90,7 +90,6 @@ async function runClaude(
       `${JSON.stringify({ type: "control_request", request_id: "settings", request: { subtype: "get_settings" } })}\n`,
     );
     let sent = false;
-    let reply: string | undefined;
     for await (const line of lines) {
       signal.throwIfAborted();
       const msg = parseLine(line, "Claude Code");
@@ -118,17 +117,20 @@ async function runClaude(
         );
       }
       if (msg.type === "result") {
-        if (!sent || msg.subtype !== "success" || msg.is_error !== false) {
+        if (
+          !sent ||
+          msg.subtype !== "success" ||
+          msg.is_error !== false ||
+          bytes > maxResponseBytes
+        ) {
           throw new Error("Claude Code could not complete the meeting summary.");
         }
-        reply = summaryText(msg.result, "Claude Code");
+        // A successful result ends this turn even when the CLI keeps its stream open.
+        return summaryText(msg.result, "Claude Code");
       }
     }
     signal.throwIfAborted();
-    if ((await closed) !== 0 || !reply || bytes > maxResponseBytes) {
-      throw new Error("Claude Code could not complete the meeting summary.");
-    }
-    return reply;
+    throw new Error("Claude Code could not complete the meeting summary.");
   } finally {
     signal.removeEventListener("abort", kill);
     lines.close();
