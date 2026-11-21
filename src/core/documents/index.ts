@@ -47,6 +47,7 @@ import {
 import { parseUnreadParts } from "../../shared/unreadFiles";
 import { silentLogger } from "../activityLog";
 import type { Logger } from "../adapters";
+import { dropPurgedHanded, isKeptCopy } from "../agentFiles/kept";
 import { cleanQuote } from "../answers/citations";
 import type { CitedUnits } from "../answers/citedVersions";
 import type {
@@ -3725,7 +3726,8 @@ export function createDocuments(options: DocumentsOptions) {
 
     /**
      * Removes the old layout's copies of Documents deleted permanently, each once no Document
-     * that can still come back is at its place. Again at each start, for a quit that cut it short.
+     * that can still come back is at its place, and the copies kept of the files outside agents
+     * handed over (#3505). Again at each start, for a quit that cut it short.
      */
     async dropPurged(): Promise<void> {
       // By place, not by path: a Document added from a data folder reached through a link has
@@ -3754,6 +3756,13 @@ export function createDocuments(options: DocumentsOptions) {
         )
         .map((row) => join(dataDir, "Notes", `${row.id}.md`));
       await Promise.all([
+        dropPurgedHanded({
+          db,
+          dataDir,
+          now,
+          ownFiles: places.filter((path) => isKeptCopy(dataDir, path)),
+          reportError,
+        }),
         ...copies.map((path) => rm(path, { force: true }).catch(reportError)),
         ...notes.map((path) => rm(path, { force: true }).catch(reportError)),
         ...[...converted]

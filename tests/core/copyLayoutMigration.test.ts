@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
@@ -17,10 +18,10 @@ import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import {
   createSourceFolder,
-  linkAndProcess,
   sha256,
   storedFile,
   waitForDocuments,
+  waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
 
@@ -394,14 +395,15 @@ describe("A copied Document in Recently deleted (#1432)", { timeout: 30_000 }, (
 
   test("a file of the User's in the data folder is never removed by the purge: a Linked folder's there, or one kept when its folder was unlinked", async () => {
     const dataDir = await copyLayoutDataFolder();
-    const core = startCore(dataDir);
+    const first = startCore(dataDir);
     const papers = await createSourceFolder();
     const original = await writeSourceFile(papers, "Tide notes.md", NOTES);
-    await core.addLinkedFolder(papers);
-    await core.reconcileDocuments();
-    await waitForDocuments(core, (documents) => {
+    await first.addLinkedFolder(papers);
+    await first.reconcileDocuments();
+    await waitForDocuments(first, (documents) => {
       expect(documents).toEqual([expect.objectContaining({ id: DOCUMENT, path: original })]);
     });
+    await first.close();
     const kept = join(dataDir, "documents", "Kept");
     const neap = await writeSourceFile(
       kept,
@@ -413,7 +415,20 @@ describe("A copied Document in Recently deleted (#1432)", { timeout: 30_000 }, (
       "King tides.md",
       "# King tides\n\nThe highest tides.\n",
     );
-    const linked = await linkAndProcess(core, kept);
+    // Linked before the Library refused folders in the data folder: a row, read when it starts.
+    const before = openDatabase(join(dataDir, DATABASE_FILE));
+    before.run(
+      "INSERT INTO linked_folders (id, path, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      [randomUUID(), await realpath(kept), AT, AT],
+    );
+    before.close();
+    const core = startCore(dataDir);
+    await core.reconcileDocuments();
+    const [inData] = (await core.listLinkedFolders()).filter((each) => each.path.endsWith("Kept"));
+    const linked = await waitForProcessing(
+      core,
+      (await core.listDocuments({ linkedFolderId: inData?.id ?? "" })).map((each) => each.id),
+    );
     const neapId = linked.find((each) => each.path.endsWith("Neap tides.md"))?.id;
     const kingId = linked.find((each) => each.path.endsWith("King tides.md"))?.id;
     if (!neapId || !kingId)

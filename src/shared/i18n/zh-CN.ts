@@ -6097,6 +6097,8 @@ export const zhCN = {
   "error.restore.folderLimit": "资料库最多可有 100 个文件夹，请先删除一个，再恢复。",
   "error.restore.notDeleted": "“{name}”尚未删除，无法彻底删除。",
   "error.history.gone": "该版本已不再保留。",
+  "error.linkedFolder.inData":
+    "这个文件夹是 IncarnaMind 自己的数据文件夹，或在其中，无法关联。请选择你自己的文件夹。",
   "error.linkedFolder.keep": "IncarnaMind 无法确定要保留哪些文档。",
   "error.linkedFolder.notThis": "这个文件夹中没有“{name}”的文件。请选择存放这些文件的文件夹。",
   "error.linkedFolder.overlaps": "这个文件夹与某个关联文件夹重叠。请选择“{name}”现在所在的文件夹。",
