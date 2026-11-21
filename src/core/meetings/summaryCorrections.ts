@@ -282,6 +282,9 @@ export function visibleSummary(
   for (const { item } of corrections) items.set(item.id, { ...item, corrected: true });
   return {
     ...summary,
+    ...(summary.state === "failed" &&
+      stored &&
+      !stored.route.startsWith("builtin:") && { retryAgentId: stored.route }),
     ...(corrections.length && { items: [...items.values()] }),
     ...(reviewed && { candidatesReviewed: true }),
     ...(candidateCount && { candidateCount }),

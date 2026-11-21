@@ -32,7 +32,12 @@
  */
 
 import * as Y from "yjs";
-import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
+import {
+  citedLocation,
+  type LiveDocument,
+  liveDocumentOf,
+  withShownName,
+} from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { isListedMind } from "../../shared/listedMinds";
@@ -60,6 +65,7 @@ import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
 import type { AnswerDocuments } from "../answers/citations";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
+import { saidBetween, withCueMarks } from "../answers/cueMarks";
 import {
   type AgentActivity,
   type AgentCitationShown,
@@ -160,6 +166,7 @@ export interface AgentPassage {
   quote: string | null;
   /** A ready Citation of `quote`, to write as it is; null with `quote`. */
   cite: string | null;
+  timedText?: string;
   /** The Passage's text, at most `PASSAGE_CHARS` characters around `quote`. */
   text: string;
 }
@@ -187,7 +194,7 @@ export interface AgentReadInput {
 export interface AgentReadResult {
   documentId: string;
   document: string;
-  passages: { passageId: string; location: string | null; text: string }[];
+  passages: { passageId: string; location: string | null; text: string; timedText?: string }[];
   /** The Passage before the first one read, to read on backwards; null at the start. */
   previous: string | null;
   /** The Passage after the last one read, to read on; null at the end. */
@@ -905,15 +912,20 @@ function makesAClaim(sentence: string): boolean {
 }
 
 /** The part of a Passage's text an agent gets: all of it, or `PASSAGE_CHARS` around `quote`. */
-function excerpt(text: string, quote: string | null): string {
-  if (text.length <= PASSAGE_CHARS) return text;
+function excerptWindow(text: string, quote: string | null) {
+  if (text.length <= PASSAGE_CHARS) return { start: 0, end: text.length };
   const at = quote ? Math.max(0, text.indexOf(quote)) : 0;
   const centre = at + (quote?.length ?? 0) / 2;
   const start = Math.max(
     0,
     Math.min(text.length - PASSAGE_CHARS, Math.round(centre - PASSAGE_CHARS / 2)),
   );
-  const end = start + PASSAGE_CHARS;
+  return { start, end: start + PASSAGE_CHARS };
+}
+
+function excerpt(text: string, quote: string | null): string {
+  const { start, end } = excerptWindow(text, quote);
+  if (start === 0 && end === text.length) return text;
   return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
 }
 
@@ -1328,9 +1340,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     pageFrom: number | null,
     pageTo: number | null,
     documentId?: string | null,
+    quote?: string,
   ) =>
     citedLocation(
-      { location, pageFrom, pageTo, documentId },
+      { location, pageFrom, pageTo, documentId, ...(quote && { quote }) },
       t,
       location?.kind === "time" && documentId ? deps.liveDocuments() : null,
     );
@@ -1494,15 +1507,38 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     return passage;
   };
 
-  /** Where a Passage is; a Transcript's as `cite` places a Citation of all of it, by who said its first line. */
-  const passageLocation = (passage: WindowedPassage) => {
-    const whole =
-      passage.documentKind === "transcript"
-        ? deps.citing.citeQuote(passage.passageId, passage.text)
-        : null;
-    return whole?.check === "found"
-      ? label(whole.location, whole.pageFrom, whole.pageTo, passage.documentId)
-      : label(deps.citing.locate(passage), passage.pageFrom, passage.pageTo, passage.documentId);
+  const passageReading = (
+    passage: WindowedPassage,
+    window = { start: 0, end: passage.text.length },
+  ) => {
+    if (passage.documentKind !== "transcript")
+      return {
+        location: label(
+          deps.citing.locate(passage),
+          passage.pageFrom,
+          passage.pageTo,
+          passage.documentId,
+        ),
+      };
+    if (passage.pageFrom === null || passage.pageTo === null) return { location: null };
+    const units = deps.pageTexts(
+      passage.documentId,
+      passage.contentHash,
+      passage.pageFrom,
+      passage.pageTo,
+    );
+    const span = saidBetween(passage.text, units);
+    const speakers = liveDocumentOf(
+      { documentId: passage.documentId },
+      deps.liveDocuments(),
+    )?.speakers;
+    const marked = withCueMarks(passage.text, units, speakers, window);
+    return {
+      location: span ? label({ kind: "time", ...span }, null, null, passage.documentId) : null,
+      ...(marked !== passage.text.slice(window.start, window.end) && {
+        timedText: `${window.start ? "…" : ""}${marked}${window.end < passage.text.length ? "…" : ""}`,
+      }),
+    };
   };
 
   /** Mints the token of a Citation the check found. */
@@ -1536,13 +1572,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         : null;
     const found = citation?.check === "found" ? citation : null;
     const minted = found ? mint(pairing, found) : null;
+    const reading = passageReading(passage, excerptWindow(passage.text, found?.quote ?? null));
     return {
       passageId: passage.passageId,
       documentId: passage.documentId,
       document: passage.documentName,
+      ...reading,
       location: found
-        ? label(found.location, found.pageFrom, found.pageTo, passage.documentId)
-        : passageLocation(passage),
+        ? label(found.location, found.pageFrom, found.pageTo, passage.documentId, found.quote)
+        : reading.location,
       quote: found ? found.quote : null,
       cite: minted ? citeTag(minted.token) : null,
       text: excerpt(passage.text, found?.quote ?? null),
@@ -1631,7 +1669,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         cite: citeTag(token),
         check,
         document: withShownName(kept, live).documentName,
-        location: label(now.location ?? kept.location, now.pageFrom, now.pageTo, kept.documentId),
+        location: label(
+          now.location ?? kept.location,
+          now.pageFrom,
+          now.pageTo,
+          kept.documentId,
+          kept.quote,
+        ),
         quote: kept.quote,
         changed,
       },
@@ -2172,8 +2216,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             document: first.documentName,
             passages: inRange.map((passage) => ({
               passageId: passage.passageId,
-              location: passageLocation(passage),
               text: passage.text,
+              ...passageReading(passage),
             })),
             previous,
             next,
@@ -2234,7 +2278,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               cite: minted ? citeTag(minted.token) : null,
               document: filed.name,
               location: found
-                ? label(found.location, found.pageFrom, found.pageTo, filed.documentId)
+                ? label(found.location, found.pageFrom, found.pageTo, filed.documentId, found.quote)
                 : null,
               // The agent has the file: IncarnaMind gives back nothing of it but where its quote is.
               text: null,
@@ -2268,6 +2312,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               citation.pageFrom,
               citation.pageTo,
               passage.documentId,
+              citation.quote,
             ),
             text: check === "found" ? null : excerpt(passage.text, null),
           });
@@ -2323,6 +2368,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               now.pageFrom,
               now.pageTo,
               kept.documentId,
+              kept.quote,
             ),
             quote: kept.quote,
             changed: now.contentHash !== null && now.contentHash !== kept.contentHash,
@@ -2357,7 +2403,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new NotReachedError(t("agents.problem.not-found"));
         }
         const location = now.location ?? kept.location;
-        const where = label(location, now.pageFrom, now.pageTo, kept.documentId);
+        const where = label(location, now.pageFrom, now.pageTo, kept.documentId, kept.quote);
         deps.show({
           documentId: kept.documentId,
           ...(now.pageFrom !== null && { pageFrom: now.pageFrom }),
@@ -2560,6 +2606,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             citation.pageFrom,
             citation.pageTo,
             citation.documentId,
+            citation.quote,
           );
           const source = where ? `${citation.documentName}, ${where}` : citation.documentName;
           if (citation.check !== "found") return { source, unverified: true };
@@ -2640,6 +2687,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
                   citation.pageFrom,
                   citation.pageTo,
                   citation.documentId,
+                  citation.quote,
                 ),
                 quote: citation.quote,
               });
