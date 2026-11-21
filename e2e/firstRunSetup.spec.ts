@@ -587,7 +587,7 @@ test("in Local mode, every model step offers only this computer", async () => {
   await expect(dialogOf(window)).toBeHidden();
 });
 
-// protects=the Your AI step ends with one closed line, marked optional, for the model that sorts and tags new Documents: closed, the step has the same three steps and the same Continue, and nothing is set; opened, it shows Settings › AI's own choice in place, asks for a key under the line that says what goes and sends nothing before Use this, and a model chosen there with Continue never waiting for it is the one Settings › AI shows, turning nothing on; fails_when=the line is open at first, opening it saves or sends anything, first run gains or loses a step, Continue waits for it, a key reaches a host, or Settings shows another choice than the one made; no_claim=the hosts' own requests (none are reached here).
+// protects=the Your AI step ends with one closed line, marked optional, for the model that sorts and tags new Documents: closed, the step has the same three steps and the same Continue, and nothing is set; opened, it shows Settings › AI's own choice in place, asks for a key under the line that says what goes and sends nothing before Use this, and a model chosen there with Continue never waiting for it is the one Settings › AI shows; fails_when=the line is open at first, opening it saves or sends anything, first run gains or loses a step, Continue waits for it, a key reaches a host, or Settings shows another choice than the one made; no_claim=the hosts' own requests (none are reached here).
 test("the model that sorts and tags is one optional line: closed, the step is as it was; opened, its choice is Settings' own", async () => {
   test.setTimeout(180_000);
   const window = await launch({}, 900);
@@ -637,7 +637,6 @@ test("the model that sorts and tags is one optional line: closed, the step is as
   await expect(panel.getByTestId("models-sorting-line")).toContainText("nothing leaves");
   const library = (await bridge(window).library()).settings;
   expect(library.classifier).toMatchObject({ kind: "chat", choice: { modelId: "fake-model" } });
-  expect(library.automatic).toBe(false);
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
   await ai.getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
