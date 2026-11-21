@@ -406,9 +406,11 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
     await expect(dialog).toBeHidden();
 
     const connected = page.getByTestId("agent-pairing").filter({ hasText: "ChatGPT 应用和 Codex" });
+    await expect(connected.getByTestId("agent-pairing-name")).toBeFocused();
+    await expect(connected.getByTestId("agent-setup-done")).toBeInViewport({ ratio: 1 });
     await shot(window, "agents-codex-name-zh-connected-900");
     await expect(connected.getByTestId("agent-setup-done")).toContainText(
-      "选择“允许本次会话”后，这次对话里再交付文件就不用逐次确认。",
+      "选“Allow for this session”（允许本次会话），这次对话里再交付文件就不用逐次确认。",
     );
     await setWindowSize(app, window, 1440, 900);
     await shot(window, "agents-codex-name-zh-connected-wide");

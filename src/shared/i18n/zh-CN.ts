@@ -8315,7 +8315,7 @@ export const zhCN = {
   "agents.done.link": "已打开{agent}：在其中点击“安装”完成连接。",
   "agents.done.wrote": "已添加到{agent}的设置中。在{agent}中开始一个新会话即可使用。",
   "agents.done.wrote.codex":
-    "在{agent}中开始新对话。Codex 询问是否把文件交给 IncarnaMind 时，选择“允许本次会话”后，这次对话里再交付文件就不用逐次确认。",
+    "在{agent}中开始新对话。Codex 询问是否把文件交给 IncarnaMind 时，选“Allow for this session”（允许本次会话），这次对话里再交付文件就不用逐次确认。",
   "agents.done.command": "已复制。粘贴到终端中运行。",
   "agents.done.settings": "已复制。在{agent}中把它添加为新的服务器，然后重新启动它。",
   "agents.done.settings.other":
