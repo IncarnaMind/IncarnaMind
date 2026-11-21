@@ -126,6 +126,19 @@ export function CheckBadge(props: {
   );
 }
 
+/** The Note's health as Home counts it, with the sentences its last check left out. */
+function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
+  const checkedAll = useMindCheckRun(doc);
+  const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
+  const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
+  const unexaminedKeys = checkedAll?.unexamined.join(" ") ?? "";
+  const unexamined = useMemo(
+    () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
+    [unexaminedKeys],
+  );
+  return useHealth(editor, skipped, unexamined, doc, running);
+}
+
 function MindBadge({
   editor,
   doc,
@@ -138,16 +151,8 @@ function MindBadge({
   quiet: boolean;
 }) {
   const t = useT();
-  const checkedAll = useMindCheckRun(doc);
-  const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
-  const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
-  const unexaminedKeys = checkedAll?.unexamined.join(" ") ?? "";
-  const unexamined = useMemo(
-    () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
-    [unexaminedKeys],
-  );
   const running = useChecks((state) => state.running[mindId]);
-  const health = useHealth(editor, skipped, unexamined, doc, running !== undefined);
+  const health = useMindHealth(editor, doc, running !== undefined);
   const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
@@ -396,6 +401,7 @@ function VerifyBadge({
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const state = useVerifyState(editor, doc, mindId, verification);
+  const health = useMindHealth(editor, doc, state.running !== null);
   const kept = useVerificationBrief(doc);
   // The brief lands once the claims are found, in a card that opened with less: it takes its height again then.
   const holdKey = kept && kept.sortedText === verification.sortedText ? "brief" : "plain";
@@ -490,6 +496,7 @@ function VerifyBadge({
         mindId={mindId}
         verification={verification}
         state={state}
+        toCheck={health.toCheck.length}
         onNotNow={() => setCheckCardOpen(place, false)}
       />
     </BadgeFrame>

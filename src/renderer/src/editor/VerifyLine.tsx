@@ -267,6 +267,7 @@ export function VerifyCard({
   mindId,
   verification,
   state,
+  toCheck,
   onNotNow,
 }: {
   editor: Editor;
@@ -274,6 +275,8 @@ export function VerifyCard({
   mindId: string;
   verification: Verification;
   state: VerifyState;
+  /** The sentences not checked yet, as Home counts them. */
+  toCheck: number;
   onNotNow(): void;
 }) {
   const t = useT();
@@ -386,10 +389,17 @@ export function VerifyCard({
         </div>
       </div>
     );
-  } else if (claims === null) {
+  } else if (claims === null && marks.marked === 0) {
+    // With no model set up the claims are never found, though the User's own AI may check it.
     body = (
       <div className="check-card-ask">
-        <p>{t("verify.notFound")}</p>
+        <p data-testid="verify-to-check">
+          {toCheck > 0
+            ? t(toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
+                count: format(toCheck),
+              })
+            : t("verify.notFound")}
+        </p>
         <div className="check-card-ask-actions">
           <button
             type="button"
@@ -402,7 +412,11 @@ export function VerifyCard({
         </div>
       </div>
     );
-  } else if ((total === 0 || outcome?.kind === "nothing") && opinions.length === 0) {
+  } else if (
+    (total === 0 || outcome?.kind === "nothing") &&
+    opinions.length === 0 &&
+    marks.marked === 0
+  ) {
     body = <p data-testid="verify-empty">{t("verify.none")}</p>;
   } else if (marks.marked === 0 && (opinions.length === 0 || total > 0)) {
     // Under a brief the question sits in the card's fixed foot, where the press is never scrolled away.
@@ -417,8 +431,9 @@ export function VerifyCard({
       (verification.workbook?.differs.length ?? 0);
     const notChecked = marks.rows.notChecked.length;
     const stopped = outcome?.kind === "checked" ? outcome.stop : null;
+    // Sentences the User's own AI checked, with no model to find claims (#3536), count by their marks.
     const summary =
-      total === 0
+      marks.marked === 0
         ? [t("verify.none")]
         : [
             notChecked > 0
