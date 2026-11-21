@@ -33,7 +33,7 @@ export function storedList<T>(value: string): T[] {
 
 type KnownKeys<T> = Readonly<Record<keyof T, true>>;
 
-const STEP_KEYS = {
+export const STEP_KEYS = {
   sentAt: true,
   finishedAt: true,
   phases: true,
@@ -236,8 +236,7 @@ export function mergeStoredSteps(raw: string | null, steps: AnswerSteps): string
   }
   if (!isRecord(existing)) return JSON.stringify(steps);
   const next: Record<string, unknown> = {
-    sentAt: steps.sentAt,
-    finishedAt: steps.finishedAt,
+    ...steps,
     phases: mergeStoredPhases(existing.phases, steps.phases),
     reasoning:
       steps.reasoning === null
@@ -246,23 +245,6 @@ export function mergeStoredSteps(raw: string | null, steps: AnswerSteps): string
             summary: steps.reasoning.summary,
             ms: steps.reasoning.ms,
           }),
-    ...(steps.readShare !== undefined && { readShare: steps.readShare }),
-    ...(steps.citedAfterChecking !== undefined && {
-      citedAfterChecking: steps.citedAfterChecking,
-    }),
-    ...(steps.notCitedAfterAsking === true && { notCitedAfterAsking: true }),
-    ...(steps.firstWordMs !== undefined && { firstWordMs: steps.firstWordMs }),
-    ...(steps.careful === true && { careful: true }),
-    ...(steps.unbackedClaims !== undefined && { unbackedClaims: steps.unbackedClaims }),
-    ...(steps.unbackedCommands !== undefined && { unbackedCommands: steps.unbackedCommands }),
-    ...(steps.unrunTools !== undefined && {
-      unrunTools: steps.unrunTools,
-      ...(steps.calculateUnavailable === true && { calculateUnavailable: true }),
-    }),
-    ...(steps.askedAgainFor !== undefined && { askedAgainFor: steps.askedAgainFor }),
-    ...(steps.example === true && { example: true }),
-    ...(steps.textBehind === true && { textBehind: true }),
-    ...(steps.readPassages !== undefined && { readPassages: steps.readPassages }),
     ...(steps.uncitedChecks !== undefined && {
       uncitedChecks: mergeStoredUncitedChecks(existing.uncitedChecks, steps.uncitedChecks),
     }),
@@ -287,10 +269,13 @@ export function mergeStoredSteps(raw: string | null, steps: AnswerSteps): string
         ...(steps.sent.transcript === true && { transcript: true }),
       }),
     }),
-    ...(steps.pressed !== undefined && { pressed: steps.pressed }),
   };
   return JSON.stringify(mergeKnownKeys(existing, STEP_KEYS, next));
 }
+
+type StoredCitationWithRawCells =
+  | MarkedCitation
+  | (Omit<MarkedCitation, "cells"> & { cells: (QuoteCell | Record<string, unknown>)[] });
 
 /**
  * Carries unknown fields on `QuoteCell` entries from `raw` (`row.citations`) when `withStoredCells`
@@ -299,14 +284,14 @@ export function mergeStoredSteps(raw: string | null, steps: AnswerSteps): string
 export function withStoredRawCells(
   raw: string,
   citations: readonly MarkedCitation[],
-): readonly MarkedCitation[] {
+): readonly StoredCitationWithRawCells[] {
   if (raw === "[]" || !citations.some((citation) => citation.cells !== undefined)) {
     return citations;
   }
   const rawList = storedList<Record<string, unknown>>(raw);
   if (rawList.length === 0) return citations;
   const usedRawIndices = new Set<number>();
-  return citations.map((citation) => {
+  return citations.map((citation): StoredCitationWithRawCells => {
     if (!citation.cells) return citation;
     const matchIndex = rawList.findIndex(
       (orig, idx) =>
@@ -322,10 +307,10 @@ export function withStoredRawCells(
     const cells = citation.cells.map((cell, idx) => {
       const rawCell = rawCells[idx];
       return isRecord(rawCell) && rawCell.name === cell.name && rawCell.value === cell.value
-        ? (mergeKnownKeys(rawCell, QUOTE_CELL_KEYS, {
+        ? mergeKnownKeys(rawCell, QUOTE_CELL_KEYS, {
             name: cell.name,
             value: cell.value,
-          }) as unknown as QuoteCell)
+          })
         : cell;
     });
     return { ...citation, cells };

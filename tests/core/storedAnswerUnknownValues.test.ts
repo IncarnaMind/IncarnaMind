@@ -15,6 +15,7 @@ import {
 import {
   mergeStoredSteps,
   PHASES,
+  STEP_KEYS,
   withStoredRawCells,
 } from "../../src/core/conversations/storedJson";
 import { isRecord } from "../../src/core/errors";
@@ -705,11 +706,51 @@ describe("Stored Answers keep values and phases this version does not know (#307
     };
     expect(withStoredRawCells(rawCitations, [sameCitDifferentCell0])[0]?.cells).toEqual([
       { name: "Tide", value: "Neap" },
-      { name: "Range", value: "4.2m", futureCellMeta: "belongs-to-range" } as unknown as {
-        name: string;
-        value: string;
-      },
+      { name: "Range", value: "4.2m", futureCellMeta: "belongs-to-range" },
     ]);
+
+    // Every key of a fully set AnswerSteps is written to storage when mergeStoredSteps saves over a stored row.
+    const everyStepField: Required<AnswerSteps> = {
+      sentAt: "2026-03-01T00:00:00.000Z",
+      finishedAt: "2026-03-01T00:00:02.000Z",
+      phases: [{ phase: "writing", at: "2026-03-01T00:00:00.500Z" }],
+      reasoning: { summary: "Thought", ms: 80 },
+      readShare: 0.75,
+      citedAfterChecking: 2,
+      notCitedAfterAsking: true,
+      firstWordMs: 300,
+      careful: true,
+      unbackedClaims: ["added"],
+      unbackedCommands: ["command"],
+      unrunTools: ["calculate"],
+      calculateUnavailable: true,
+      askedAgainFor: ["search"],
+      example: true,
+      coverage: { kind: "main", used: [{ id: "doc-1", name: "Tides" }], rest: ["doc-2"] },
+      writtenFrom: { documents: 1, total: 2 },
+      stillReading: { count: 1, name: "Harbour.pdf" },
+      sent: { documents: ["doc-1"], transcript: true },
+      textBehind: true,
+      pressed: "say",
+      readPassages: ["p-1"],
+      uncitedChecks: [
+        {
+          sentence: "The harbour opens at dawn.",
+          check: "unsupported",
+          verdict: "Not stated.",
+          judgedAt: "2026-03-01T00:00:01.500Z",
+        },
+      ],
+    };
+    const savedAll = JSON.parse(
+      mergeStoredSteps(JSON.stringify({ futureExtra: "kept" }), everyStepField),
+    ) as Record<string, unknown>;
+    expect(savedAll.futureExtra).toBe("kept");
+    expect(
+      Object.keys(savedAll)
+        .filter((key) => Object.hasOwn(STEP_KEYS, key))
+        .sort(),
+    ).toEqual(Object.keys(STEP_KEYS).sort());
   });
 
   // protects=the reverse direction: values and phases this version writes (such as pressed, careful, readPassages, uncitedChecks, and checking-claims) survive a save by code that does not name them and are read back intact by this version through the core; fails_when=storedSteps fails to read back a known field or phase after an older version's save carried it as unknown JSON; no_claim=versions built before #3072.
