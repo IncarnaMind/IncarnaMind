@@ -755,8 +755,8 @@ describe("outside agents", () => {
     // read_passages read a whole Document, or a long one in parts (#3573); 3,383 before
     // check_mind_yourself and hand_over_file said a check waits for the User unless asked (#3576);
     // 3,391 before read_passages took any before and after, answering at most three, and said a
-    // part is sized to be read in full (#3586).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_421);
+    // part is sized to be read in full (#3586); 3,421 before cite took a list of any length (#3585).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_417);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

@@ -231,6 +231,8 @@ export interface AgentCited {
 
 export interface AgentCiteResult {
   citations: AgentCited[];
+  /** When every quote's answer wouldn't fit in `READ_PART_TOKENS`: how many of the last are left. */
+  left?: string;
 }
 
 export interface AgentCheckInput {
@@ -626,8 +628,11 @@ export const MAX_AROUND = 3;
  */
 export const READ_PART_TOKENS = 8_000;
 const PART_BATCH = 64;
-/** The most quotes one `cite` call checks. */
-export const MAX_CITES = 20;
+/**
+ * The most quotes one `cite` call checks, in order while their answers fit in `READ_PART_TOKENS`:
+ * a Note's, for an agent that read its Documents whole (#3585). A quote by path reads its file.
+ */
+export const MAX_CITES = 40;
 /** The most sentences `check_citations` lists as uncited. */
 export const MAX_UNCITED = 20;
 /** The most characters of a Mind one `read_mind` returns. */
@@ -2364,17 +2369,41 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         .filter(Boolean)
         .join(" · ");
       return call("cite", summary, [READ_DOCUMENTS], async (pairing) => {
-        if (list.length === 0 || list.length > MAX_CITES) {
+        if (list.length === 0) {
           throw new AgentRefusedError(
             "invalid",
-            `citations must list 1 to ${MAX_CITES} quotes, each with its passageId or path.`,
+            "citations must list at least one quote, with its passageId or path.",
           );
         }
         const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
         let inScope = new Set(scopeOf(pairing, undefined));
         const read: string[] = [];
         const citations: AgentCited[] = [];
-        for (const entry of list) {
+        // Each answer gives back its quote, and a quote not found up to `PASSAGE_CHARS` of its
+        // Passage, so the result is bounded by its size, as a part of a Document is. A list past
+        // what one call checks is never refused: the agent is told how many to send again (#3585).
+        const leftLine = (count: number) =>
+          t(count === 1 ? "agents.cite.left.one" : "agents.cite.left.other", {
+            count,
+            total: list.length,
+          });
+        let size = estimateTokens(JSON.stringify({ citations, left: leftLine(list.length) }));
+        let left = 0;
+        const fits = (answer: AgentCited, at: number) => {
+          const cost = estimateTokens(JSON.stringify(answer)) + 1;
+          if (citations.length > 0 && size + cost > READ_PART_TOKENS) {
+            left = list.length - at;
+            return false;
+          }
+          citations.push(answer);
+          size += cost;
+          return true;
+        };
+        for (const [at, entry] of list.entries()) {
+          if (at === MAX_CITES) {
+            left = list.length - at;
+            break;
+          }
           const record = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
             string,
             unknown
@@ -2398,7 +2427,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               );
             }
             const minted = found ? mint(pairing, found) : null;
-            citations.push({
+            const answer: AgentCited = {
               passageId: found?.passageId ?? null,
               quote: found?.quote ?? quote,
               check: found ? "found" : "not-found",
@@ -2409,8 +2438,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
                 : null,
               // The agent has the file: IncarnaMind gives back nothing of it but where its quote is.
               text: null,
-            });
+            };
+            if (!fits(answer, at)) break;
             continue;
+          }
+          if (typeof record.passageId !== "string") {
+            throw new AgentRefusedError("invalid", t("agents.problem.citeWithoutPassage"));
           }
           // One quote of many names a Passage it doesn't have: the agent is told which (#3573).
           const passage = passageInScope(pairing, inScope, record.passageId, (id) =>
@@ -2431,7 +2464,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               ? citation.check
               : "not-found";
           const minted = check === "found" ? mint(pairing, citation) : null;
-          citations.push({
+          const answer: AgentCited = {
             passageId: passage.passageId,
             quote: citation.quote,
             check,
@@ -2445,12 +2478,16 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               citation.quote,
             ),
             text: check === "found" ? null : excerpt(passage.text, null),
-          });
+          };
+          if (!fits(answer, at)) break;
         }
         // Nothing read under an earlier grant goes out under one that leaves it out (#3458).
         stillReaching(read.filter((documentId) => !deps.citedOutside(documentId)));
         return {
-          result: { citations },
+          result: {
+            citations,
+            ...(left > 0 && { left: leftLine(left) }),
+          },
           count: citations.filter((each) => each.check === "found").length,
           documentIds: read,
         };
