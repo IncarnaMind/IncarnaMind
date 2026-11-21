@@ -11,7 +11,12 @@ import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
-import { type AgentClientId, ALL_SHARED_ID, type GettingStarted } from "../../src/core/api";
+import {
+  type AgentActivity,
+  type AgentClientId,
+  ALL_SHARED_ID,
+  type GettingStarted,
+} from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -23,11 +28,19 @@ const view = page.defaultView;
 let real: Core | null = null;
 const nothingWaits = async () => [];
 const stillToCome = () => Promise.resolve(undefined);
+/** What the core tells the windows of each call an agent made, as the test makes them. */
+const calls: ((activity: AgentActivity) => void)[] = [];
 const bridge = new Proxy(
   {},
   {
     get: (_each, name: string) => {
       if (name === "listApprovalRequests" || name === "listUserQuestions") return nothingWaits;
+      if (name === "on")
+        return (event: string, listener: (value: never) => void) => {
+          if (event === "agents.activity")
+            calls.push(listener as (activity: AgentActivity) => void);
+          return real ? real.on(event as never, listener) : () => undefined;
+        };
       const method: unknown = real && Reflect.get(real, name);
       return typeof method === "function" ? method.bind(real) : stillToCome;
     },
@@ -70,6 +83,7 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { useAppStore } = await import("../../src/renderer/src/store");
 const { useNotices } = await import("../../src/renderer/src/notices");
+const { useAgentAsked } = await import("../../src/renderer/src/askedAgent");
 // The commands the card names their shortcuts of.
 await import("../../src/renderer/src/commands/app");
 const stepsPath = "../../src/renderer/src/components/FirstOpenSteps.tsx";
@@ -195,6 +209,7 @@ async function card(
 beforeEach(() => {
   copied.length = 0;
   links.length = 0;
+  useAgentAsked.setState({ byKey: {} });
   useNotices.setState({ confirmation: null });
   pickDocuments.mockClear();
   openSettings.mockClear();
@@ -226,6 +241,63 @@ describe("the step that asks the User's AI for a document", () => {
       }),
     );
   });
+
+  // protects=after Ask the step says, in the words the Note's check line uses, that the AI was asked and the request is to be sent there, then that it is writing once that connection reads the Document, where before it looked the same for the 17 to 35 seconds until the Note came (#3587); fails_when=the step looks as before the press, says writing before the AI read the Document, or another AI's call moves it
+  test.each([
+    [
+      "en",
+      "Asked Claude Code: send the request there.",
+      "Claude Code is writing the note.",
+      "Ask again",
+    ],
+    ["zh-CN", "已交给 Claude Code：在那里发送请求即可。", "Claude Code 正在写笔记。", "再问一次"],
+  ] as const)(
+    "says the AI was asked, then that it is writing (%s)",
+    async (language, asked, writing, again) => {
+      const { part } = await card(
+        [
+          ["VS Code", "vscode"],
+          ["Claude Code", "claude-code"],
+        ],
+        ["Harbour report 2025"],
+        { language },
+      );
+      const { pairings } = await (real as Core).getAgents();
+      const claude = pairings.find((each) => each.name === "Claude Code");
+      const vscode = pairings.find((each) => each.name === "VS Code");
+      const [document] = await (real as Core).listDocuments();
+      await act(async () => part("first-open-agent-ask")?.click());
+      await vi.waitFor(() => expect(links).toHaveLength(1));
+      await vi.waitFor(() => expect(part("first-open-agent-asked")?.textContent).toBe(asked));
+      expect(part("first-open-agent-asked")?.dataset.state).toBe("asked");
+      expect(part("first-open-agent-ask")?.textContent).toBe(again);
+      expect(part("first-open-agent-line")).toBeNull();
+      const call = (pairingId: string, documentIds: string[]): AgentActivity => ({
+        id: `call-${pairingId}`,
+        pairingId,
+        tool: "search",
+        summary: "",
+        outcome: "done",
+        problem: null,
+        count: 1,
+        request: null,
+        documentIds,
+        effects: [],
+        durationMs: 10,
+        at: new Date(Date.now() + 1000).toISOString(),
+      });
+      await act(async () => {
+        for (const heard of calls) heard(call(vscode?.id ?? "", [document?.id ?? ""]));
+        for (const heard of calls) heard(call(claude?.id ?? "", ["another-document"]));
+      });
+      expect(part("first-open-agent-asked")?.dataset.state).toBe("asked");
+      await act(async () => {
+        for (const heard of calls) heard(call(claude?.id ?? "", [document?.id ?? ""]));
+      });
+      expect(part("first-open-agent-asked")?.textContent).toBe(writing);
+      expect(part("first-open-agent-asked")?.dataset.state).toBe("working");
+    },
+  );
 
   // protects=the card names the newest Document the User added, not the first or every one; fails_when=an older Document is named
   test("names the newest of the User's Documents", async () => {

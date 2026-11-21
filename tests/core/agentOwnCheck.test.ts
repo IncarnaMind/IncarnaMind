@@ -495,7 +495,7 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     }
   });
 
-  // protects=a mark's card shows every quote the agent's verdict rests on, in the order it gave them, never only the first, whichever place each is from (#3587); fails_when=a verdict on two or three quotes keeps only the first, a sentence takes more than one mark, or a result on one quote is stored differently from before (which would read as changed)
+  // protects=a mark's card shows every quote the agent's verdict rests on, in the order it gave them, never only the first, whichever place each is from, and an overstated one on a single quote keeps it for its card (#3587); fails_when=a verdict on two quotes keeps only the first, an overstated one loses its quote, a sentence takes more than one mark, or a Supported or Contradicted result on one quote is stored differently from before (which would read as changed)
   it("keeps every quote a verdict rests on, in the order given, on the sentence's one mark", async () => {
     const { core, agent, mindId, coast } = await paired();
     const given = await task(agent, mindId);
@@ -520,7 +520,7 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
       await report(agent, mindId, given.task, [
         { n: 1, verdict: "supported", cites: [twice] },
         { n: 2, verdict: "contradicted", cites: [largest, twice], explanation: "Not neap." },
-        { n: 3, verdict: "overstated", cites: [twice, largest], explanation: "No penguins." },
+        { n: 3, verdict: "overstated", cites: [twice], explanation: "No penguins." },
         { n: 4, verdict: "own view", cites: [largest, twice] },
       ]),
     );
@@ -530,9 +530,24 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
       // One quote is kept as it always was: no result stored before this reads as changed.
       { text: SPRING, quotes: [SPRING_QUOTE], everyQuote: [false] },
       { text: NEAP, quotes: [RANGE_QUOTE, SPRING_QUOTE], everyQuote: [true] },
-      { text: PENGUINS, quotes: [SPRING_QUOTE, RANGE_QUOTE], everyQuote: [true] },
+      { text: PENGUINS, quotes: [SPRING_QUOTE], everyQuote: [true] },
       { text: SOURCES, quotes: [RANGE_QUOTE, SPRING_QUOTE], everyQuote: [true] },
     ]);
+
+    const again = structured<Task>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId, again: true } }),
+    );
+    const penguins = again.sentences.find((each) => each.text === PENGUINS)?.n;
+    structured<Reported>(
+      await report(agent, mindId, again.task, [
+        { n: penguins, verdict: "partly supported", cites: [largest, twice] },
+      ]),
+    );
+    expect((await quoted()).find((each) => each.text === PENGUINS)).toEqual({
+      text: PENGUINS,
+      quotes: [RANGE_QUOTE, SPRING_QUOTE],
+      everyQuote: [true],
+    });
     expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
       [SPRING, "supported"],
       [NEAP, "contradicted"],

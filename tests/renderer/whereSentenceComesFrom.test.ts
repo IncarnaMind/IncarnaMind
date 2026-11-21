@@ -2,7 +2,8 @@
  * A check card says where its sentence comes from (#3322): the writer's own view is named as one,
  * with what the Documents hold on it and every quote of it, and no fault to fix; a verdict the
  * check worked out from what the Documents state says so, and shows its one line of working before
- * every quote it used.
+ * every quote it used. A verdict the User's own AI reported on several quotes shows every one of
+ * them (#3587).
  */
 import { Editor } from "@tiptap/core";
 import { DOMParser } from "linkedom";
@@ -47,6 +48,13 @@ const EXAMPLES = {
     ],
     wrong: "Next year’s tickets will stay under ten thousand.",
     wrongSays: "Worked out from the review, next year’s tickets come to 10,580.",
+    season: "Busy season runs from July to the October holiday.",
+    seasonSays: "The review gives July in one place and August in another.",
+    seasonQuotes: [
+      "Half the week is spent at the counter, half on site visits.",
+      "The busy season starts in August and runs to the October holiday.",
+      "From July the queue grows, right up to the October holiday.",
+    ],
   },
   "zh-CN": {
     view: "我的建议是增加 2 名客服，5 月到岗。",
@@ -61,6 +69,13 @@ const EXAMPLES = {
     workedQuotes: ["客服中心 2026 年共处理工单 9,200 张。", "预计 2027 年工单量增长 15%。"],
     wrong: "明年的工单量不会超过一万张。",
     wrongSays: "按文档推算，明年的工单量约为 10,580 张。",
+    season: "旺季从七月持续到国庆假期。",
+    seasonSays: "文档一处说七月，另一处说八月。",
+    seasonQuotes: [
+      "平时一半时间在柜台，一半时间上门走访。",
+      "旺季一般从八月开始，一直到国庆假期。",
+      "七月起排队的人就多了，一直到国庆。",
+    ],
   },
 } as const;
 
@@ -355,6 +370,65 @@ describe.each(["en", "zh-CN"] as const)("a verdict worked out (%s)", (language) 
       "claim-worked-out",
       "claim-quote",
     ]);
+  });
+});
+
+describe.each(["en", "zh-CN"] as const)("a verdict the User's own AI reported (%s)", (language) => {
+  const example = EXAMPLES[language];
+  const t = (key: MessageKey) => translate(language, key);
+  const reported = (verdict: "contradicted" | "supported", quotes: readonly string[]) =>
+    checkOf(
+      example.season,
+      wholePart(example.season, {
+        verdict,
+        evidence: quotes.map(passage),
+        says: example.seasonSays,
+        restsOnEveryQuote: true,
+      }),
+    );
+
+  // protects=a mark the User's own AI reported on three quotes shows all three on its card, in the order the AI gave them, each opening its Document, so where two places disagree both are there; never only the first, which in the walk was about something else (#3587); fails_when=the card shows one quote, folds the others behind a count, or reorders them; no_claim=which quote decides
+  test("Contradicted on three quotes: every one shows, in the order given", async () => {
+    await card(language, example.season, reported("contradicted", example.seasonQuotes), {
+      state: "contradicted",
+    });
+    expect(texts("claim-badge")).toEqual([t("claim.state.contradicted")]);
+    expect(texts("claim-part-reason")).toEqual([example.seasonSays]);
+    expect(texts("claim-part-citation")).toEqual(example.seasonQuotes);
+    expect(container.querySelector('[data-testid="claim-part-more"]')).toBeNull();
+  });
+
+  // protects=an overstated verdict the AI rested on one quote shows its explanation and that quote, which its card used to leave out; fails_when=the card shows the explanation alone, or says Not found; no_claim=none beyond protects.
+  test("Overstated on one quote: its explanation and its quote show", async () => {
+    const [, quote] = example.seasonQuotes;
+    const check = checkOf(
+      example.season,
+      wholePart(example.season, {
+        verdict: "unsupported",
+        evidence: [passage(quote)],
+        unsupported: {
+          word: "overstated",
+          reason: example.seasonSays,
+          covered: null,
+          uncovered: null,
+          found: true,
+          quoted: passage(quote),
+        },
+        restsOnEveryQuote: true,
+      }),
+    );
+    await card(language, example.season, check, { state: "unsupported" });
+    expect(texts("claim-part-reason")).toEqual([example.seasonSays]);
+    expect(texts("claim-part-citation")).toEqual([quote]);
+    expect(container.textContent).not.toContain(t("claim.state.notFound"));
+  });
+
+  // protects=a Supported verdict the AI rested on two quotes shows both, though a ✓ card shows one quote of the Note's own check; fails_when=the second is behind "1 more"; no_claim=none beyond protects.
+  test("Supported on two quotes: both show", async () => {
+    const two = example.seasonQuotes.slice(1);
+    await card(language, example.season, reported("supported", two), { state: "supported" });
+    expect(texts("claim-part-citation")).toEqual(two);
+    expect(container.querySelector('[data-testid="claim-part-more"]')).toBeNull();
   });
 });
 

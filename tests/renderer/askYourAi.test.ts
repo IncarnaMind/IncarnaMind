@@ -8,6 +8,7 @@ import { DOMParser } from "linkedom";
 import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
+  type AgentActivity,
   type AgentPairing,
   type AskAgentInput,
   type AssistantPlace,
@@ -27,7 +28,12 @@ const bridge = {
   asked: [] as AskAgentInput[],
   /** The agent's app took the link, as Claude Code's does. */
   opens: false,
-  on: () => () => undefined,
+  /** What the core tells the windows of each call an agent made. */
+  calls: [] as ((activity: AgentActivity) => void)[],
+  on: (event: string, listener: (activity: AgentActivity) => void) => {
+    if (event === "agents.activity") bridge.calls.push(listener);
+    return () => undefined;
+  },
   listAgentsToAsk: async () => bridge.agents,
   listConversations: async () => [],
   askAgent: async (input: AskAgentInput) => {
@@ -104,6 +110,10 @@ const {
   }>;
 } = await import(checkNotReadyPath);
 const { setCheckProblem, useChecks } = await import("../../src/renderer/src/checks");
+const { AskedCheckLine }: { AskedCheckLine: ComponentType<{ mindId: string }> } = await import(
+  checkNotReadyPath
+);
+const { QUIET_AFTER_MS, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
 
 const MIND = "mind-ferries";
 const pairing = (name: string, client: string | null): AgentPairing => ({
@@ -220,6 +230,7 @@ async function lineAbove(): Promise<HTMLElement> {
 beforeEach(() => {
   bridge.asked = [];
   bridge.opens = false;
+  useAgentAsked.setState({ byKey: {} });
   copied.length = 0;
   useNotices.setState({ confirmation: null });
   useModelSetup.setState({ waiting: null, wanted: false, ready: false });
@@ -476,5 +487,149 @@ describe("a Check that no model can run, for each kind of User (#3533)", () => {
     expect(line.querySelector('[data-testid="checks-ask-agent"]')).toBeNull();
     expect(line.textContent).not.toContain("Ask Claude Code");
     expect(line.textContent).toContain("Set up");
+  });
+});
+
+describe("a Check handed to the User's own AI says how it goes, until its marks land (#3587)", () => {
+  const codex = pairing("Codex", "codex");
+  const claude = pairing("Claude Code", "claude-code");
+  let calls = 0;
+  /** A call `agent` made, as the core tells the windows once it has recorded it. */
+  const called = async (
+    agent: AgentPairing,
+    tool: AgentActivity["tool"],
+    { mindId, documentIds = [] }: { mindId?: string; documentIds?: string[] } = {},
+  ) => {
+    calls += 1;
+    const activity: AgentActivity = {
+      id: `call-${calls}`,
+      pairingId: agent.id,
+      tool,
+      summary: "",
+      outcome: "done",
+      problem: null,
+      count: null,
+      request: null,
+      documentIds,
+      effects: mindId ? [{ action: "read", scope: { kind: "mind", mindId } }] : [],
+      durationMs: 10,
+      at: new Date(Date.now() + 1000).toISOString(),
+    };
+    await act(async () => {
+      for (const listener of bridge.calls) listener(activity);
+    });
+  };
+
+  async function askedLine() {
+    const container = page.createElement("div", {});
+    page.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(AskedCheckLine, { mindId: MIND })));
+    await act(async () => undefined);
+    unmount = async () => {
+      await act(() => root.unmount());
+      container.remove();
+    };
+    const part = (testId: string) =>
+      container.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+    return { container: container as unknown as HTMLElement, part };
+  }
+
+  // protects=from the press until the marks land the Note says in plain words that the AI was asked and the request is to be sent there, then that it is checking once that connection calls a Tool about the Note (read_request is not needed), and nothing once its report lands; a call about something else, or another AI's, changes nothing; fails_when=the line stays silent, says checking before the AI picked the Note up, or stays after the marks land
+  test.each([
+    [
+      "en",
+      [
+        "Asked Codex: send the request there.",
+        "Codex is checking this note.",
+        "Ask again",
+        "Ask another AI",
+        "Set up a model",
+      ],
+    ],
+    [
+      "zh-CN",
+      [
+        "已交给 Codex：在那里发送请求即可。",
+        "Codex 正在核对这篇笔记。",
+        "再问一次",
+        "交给其他智能体",
+        "设置 AI 模型",
+      ],
+    ],
+  ] as const)("asked, checking, then its result (%s)", async (language, words) => {
+    const [asked, checking, again, others, setUp] = words;
+    user(NO_MODEL, [claude, codex], language);
+    bridge.opens = true;
+    expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
+    const { container, part } = await askedLine();
+    expect(part("checks-asked")?.textContent).toBe(asked);
+    expect(part("checks-asked")?.dataset.state).toBe("asked");
+    expect(part("checks-asked-line-ask")?.textContent).toBe(again);
+    expect(part("checks-asked-set-up")?.textContent).toBe(setUp);
+    expect(part("checks-asked-line-others")?.getAttribute("aria-label")).toBe(others);
+
+    await called(claude, "check_mind_yourself", { mindId: MIND });
+    await called(codex, "list_minds");
+    await called(codex, "check_mind_yourself", { mindId: "another-note" });
+    expect(part("checks-asked")?.textContent).toBe(asked);
+    await called(codex, "check_mind_yourself", { mindId: MIND });
+    expect(part("checks-asked")?.textContent).toBe(checking);
+    expect(part("checks-asked")?.dataset.state).toBe("working");
+    // Once it has the Note, its searches between say it is still at work.
+    await called(codex, "search", { documentIds: ["harbour-report"] });
+    expect(part("checks-asked")?.dataset.state).toBe("working");
+
+    await called(codex, "report_check", { mindId: MIND });
+    expect(part("checks-asked")).toBeNull();
+    expect(container.textContent).toBe("");
+  });
+
+  // protects=an AI that never picks the request up leaves no line that waits for ever: after a few minutes the line says nothing came and how to ask again, and Ask again asks the same AI once more; a call that comes after all makes it checking; fails_when=the line keeps saying asked or checking with nothing heard, or Ask again asks another AI
+  test("an AI that never picks it up: the line says so, and how to ask again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      user(NO_MODEL, [codex]);
+      expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
+      const { part } = await askedLine();
+      expect(part("checks-asked")?.textContent).toBe(
+        "Copied for Codex: paste the request there and send it.",
+      );
+      await act(async () => vi.advanceTimersByTime(QUIET_AFTER_MS - 1000));
+      expect(part("checks-asked")?.dataset.state).toBe("asked");
+      await act(async () => vi.advanceTimersByTime(1000));
+      expect(part("checks-asked")?.textContent).toBe(
+        "Nothing from Codex yet. Send the request, or ask again.",
+      );
+      expect(part("checks-asked")?.dataset.state).toBe("quiet");
+
+      await called(codex, "read_request", { mindId: MIND });
+      expect(part("checks-asked")?.dataset.state).toBe("working");
+      await act(async () => vi.advanceTimersByTime(QUIET_AFTER_MS));
+      expect(part("checks-asked")?.dataset.state).toBe("quiet");
+
+      bridge.asked = [];
+      await act(async () => part("checks-asked-line-ask")?.click());
+      await act(async () => undefined);
+      expect(bridge.asked).toEqual([{ pairingId: codex.id, mindId: MIND, ask: { kind: "check" } }]);
+      expect(part("checks-asked")?.dataset.state).toBe("asked");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // protects=the Chinese words for an AI that never came; fails_when=Chinese gets English words
+  test("says it in Chinese too", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      user(NO_MODEL, [codex], "zh-CN");
+      expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
+      const { part } = await askedLine();
+      expect(part("checks-asked")?.textContent).toBe("已为 Codex 复制：粘贴到那里并发送请求。");
+      await act(async () => vi.advanceTimersByTime(QUIET_AFTER_MS));
+      expect(part("checks-asked")?.textContent).toBe("Codex 还没有动静。请发送请求，或再问一次。");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

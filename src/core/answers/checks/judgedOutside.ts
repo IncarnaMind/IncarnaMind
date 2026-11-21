@@ -513,6 +513,8 @@ function workedResult(
  * The result a sentence's mark holds: the agent's verdict, on every Citation it gave that
  * IncarnaMind found. The agent names no one of them as the deciding one, so a verdict on several
  * keeps them all on the sentence's one part, in the order given, and its card shows each (#3587).
+ * So does an overstated, partly supported or not found one on a single quote, which a card showed
+ * no quote for: what decides those is the agent's explanation, not a quote stating the sentence.
  */
 function reportedResult(
   judged: JudgedSentence,
@@ -520,9 +522,11 @@ function reportedResult(
   length: number,
 ): ClaimCheckResult {
   const result = resultOf(judged, evidence);
-  if (evidence.length < 2 || result.verdict === "not-checked") return result;
+  if (result.verdict === "not-checked" || evidence.length === 0) return result;
+  const ownView = judged.verdict === "own-view";
+  if (evidence.length === 1 && (result.verdict !== "unsupported" || ownView)) return result;
   // An own view keeps its first quote apart, as its card reads one (#3322).
-  const listed = judged.verdict === "own-view" ? evidence.slice(1) : evidence;
+  const listed = ownView ? evidence.slice(1) : evidence;
   return resultFromParts([
     {
       ...partWithResult({ kind: "fact", span: { start: 0, end: length } }, result, listed),

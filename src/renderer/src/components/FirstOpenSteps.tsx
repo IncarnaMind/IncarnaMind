@@ -187,7 +187,9 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const askStep = askStepOf(summary, askers, connected);
   // What became of the ask, until the Note it writes ticks the step (#3587).
   const namedId = named?.id ?? null;
-  const asked = useAskedAgent(namedId === null ? null : { kind: "summary", documentId: namedId });
+  const summaryAsked = useAskedAgent(
+    namedId === null ? null : { kind: "summary", documentId: namedId },
+  );
   const wrote = agentNote !== null;
   useEffect(() => {
     if (wrote && namedId !== null) forgetAsked({ kind: "summary", documentId: namedId });
@@ -364,7 +366,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
           step={askStep}
           summary={summary}
           askers={askers}
-          asked={live ? asked : null}
+          asked={live ? summaryAsked : null}
           live={live}
           onAsk={askForSummary}
           onAdd={() => void pickDocuments()}

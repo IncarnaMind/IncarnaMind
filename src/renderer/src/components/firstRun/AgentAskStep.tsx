@@ -1,7 +1,7 @@
 import type { AgentPairing } from "../../../../core/api";
-import type { AgentAsked } from "../../askedAgent";
 import { quotedName } from "../../../../shared/naming";
 import type { SummaryDocument } from "../../agentNote";
+import type { AgentAsked } from "../../askedAgent";
 import { useT } from "../../i18n";
 import { OtherAgents } from "../AskAgentLine";
 import { buttonStyle } from "../ui";

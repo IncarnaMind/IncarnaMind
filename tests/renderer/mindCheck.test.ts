@@ -11,6 +11,9 @@ const bridge = vi.hoisted(() => ({
   findMindClaims: vi.fn<CoreBridge["findMindClaims"]>(),
   holdMindCheck: vi.fn<CoreBridge["holdMindCheck"]>(),
   cancelCheck: vi.fn<CoreBridge["cancelCheck"]>(),
+  listAgentsToAsk: vi.fn<CoreBridge["listAgentsToAsk"]>(),
+  askAgent: vi.fn<CoreBridge["askAgent"]>(),
+  on: vi.fn<CoreBridge["on"]>(() => () => undefined),
 }));
 const running = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({ noteBusy: vi.fn() }));
@@ -141,6 +144,9 @@ beforeEach(async () => {
   bridge.holdMindCheck.mockResolvedValue(true);
   bridge.cancelCheck.mockResolvedValue(undefined);
   bridge.checkContradictions.mockResolvedValue({ kind: "cancelled" });
+  bridge.listAgentsToAsk.mockResolvedValue([]);
+  bridge.askAgent.mockResolvedValue({ kind: "opened" });
+  bridge.on.mockImplementation(() => () => undefined);
   watchRecord.current = { stop: null };
   running.current = {};
   store.language = "en";
@@ -890,10 +896,54 @@ describe("A Check another window runs or plans", () => {
         expect(checks.useMindCheck.getState().asking.mind).toBeUndefined();
         expect(bridge.estimateRun).not.toHaveBeenCalled();
         expect(bridge.checkMind).not.toHaveBeenCalled();
+        expect(bridge.askAgent).not.toHaveBeenCalled();
       } finally {
         store.chatReadiness = null;
       }
     });
+
+    // protects=#3587: with the User's own AI connected, one press of any way into a Note's Check asks it at once, the one the Ask pill asks (connected or used last), and opens the Note's card on how that goes, with no second button to press; fails_when=a route leaves "Ask {agent}" to press again, asks another AI or none, asks twice, or sends a check of its own
+    test.each(routes)(
+      "%s, with the User's own AI connected, asks it at once",
+      async (_route, press) => {
+        store.chatReadiness = { ready: false, reason: "no-provider" };
+        const agent = (id: string, name: string) => ({
+          id,
+          name,
+          folderIds: [],
+          client: null,
+          propose: false,
+          lastUsedAt: null,
+          createdAt: "2026-11-21T09:00:00.000Z",
+        });
+        bridge.listAgentsToAsk.mockResolvedValue([
+          agent("codex", "Codex"),
+          agent("cc", "Claude Code"),
+        ]);
+        const { setCheckCardOpen, setCheckProblem } = await import("../../src/renderer/src/checks");
+        const { useAgentAsked } = await import("../../src/renderer/src/askedAgent");
+        useAgentAsked.setState({ byKey: {} });
+        const checks = await import("../../src/renderer/src/mindCheck");
+        try {
+          await press(checks);
+          expect(bridge.listAgentsToAsk).toHaveBeenCalledWith("mind");
+          expect(bridge.askAgent.mock.calls).toEqual([
+            [{ pairingId: "codex", mindId: "mind", ask: { kind: "check" } }],
+          ]);
+          expect(setCheckProblem).not.toHaveBeenCalled();
+          expect(setCheckCardOpen).toHaveBeenLastCalledWith("tab", true);
+          expect(useAgentAsked.getState().byKey["mind:mind"]).toMatchObject({
+            agent: { id: "codex" },
+            state: "asked",
+            copied: false,
+          });
+          expect(bridge.estimateRun).not.toHaveBeenCalled();
+          expect(bridge.checkMind).not.toHaveBeenCalled();
+        } finally {
+          store.chatReadiness = null;
+        }
+      },
+    );
   });
 
   // protects=#2313: the card's press asks while its estimate is still pending, rather than spending unpriced; fails_when=it waits for the price instead of asking, or runs; no_claim=the estimate.
