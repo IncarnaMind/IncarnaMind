@@ -43,8 +43,8 @@ describe("the agent strings in a sentence", () => {
     const say = (agent: string, key: MessageKey) => translate("zh-CN", key, { agent });
     expect(say("你的智能体", "agents.connect.title")).toBe("允许你的智能体读取你的文档？");
     expect(say("Cursor", "agents.connect.title")).toBe("允许 Cursor 读取你的文档？");
-    expect(say("ChatGPT 应用或 Codex", "agents.done.wrote")).toBe(
-      "已添加到 ChatGPT 应用或 Codex 的设置中。在 ChatGPT 应用或 Codex 中开始一个新会话即可使用。",
+    expect(say("ChatGPT 应用或 Codex", "agents.done.wrote.codex")).toBe(
+      "在 ChatGPT 应用或 Codex 中开始新对话。Codex 询问是否把文件交给 IncarnaMind 时，选“Allow for this session”（允许本次会话），这次对话里再交付文件就不用逐次确认。",
     );
     expect(say("你的智能体", "agents.pairing.skill")).toBe(
       "已安装技能：你的智能体知道何时使用 IncarnaMind",
@@ -58,8 +58,8 @@ describe("the agent strings in a sentence", () => {
     expect(translate("en", "agents.connect.title", { agent: "your agent" })).toBe(
       "Let your agent read your Documents?",
     );
-    expect(translate("en", "agents.done.wrote", { agent: "the ChatGPT app or Codex" })).toBe(
-      "Added to the settings of the ChatGPT app or Codex. Start a new session in the ChatGPT app or Codex to use it.",
+    expect(translate("en", "agents.done.wrote.codex", { agent: "the ChatGPT app or Codex" })).toBe(
+      "Start a new chat in the ChatGPT app or Codex. When Codex asks to hand a file to IncarnaMind, “Allow for this session” lets it hand over more files in the same chat.",
     );
   });
 });
