@@ -3206,6 +3206,9 @@ export const zhCN = {
   "setupPage.ai.services": "选择服务",
   "setupPage.ai.agents": "用你已经在用的 AI",
   "setupPage.ai.inApp": "在 IncarnaMind 里用一个模型",
+  "setupPage.ai.sorting": "设置用来整理新文档和打标签的模型（可选）",
+  "setupPage.ai.sorting.about":
+    "自动整理你添加的文档，并为它们打标签。需要 AI 服务的密钥，或这台电脑上的模型。不设置时，IncarnaMind 会用你设置的模型，或在你点“整理”时请你的 AI 来做。",
   "setupPage.agents.failed": "未能列出这台电脑上的智能体",
   "setupPage.agent.found": "在这台电脑上",
   "setupPage.agent.connected": "已连接{agent}",
