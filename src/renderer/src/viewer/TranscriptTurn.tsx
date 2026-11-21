@@ -9,6 +9,7 @@ import { SpeakerMenu } from "../components/meetings/SpeakerMenu";
 import { useT } from "../i18n";
 import type { SpeakersStep } from "../store";
 import { useTranscriptPlayer } from "../transcriptPlayer";
+import { TranscriptLineActions } from "./TranscriptLineActions";
 import { type PartRow, type TurnRow, turnLinesOf } from "./transcriptTurnRows";
 
 /** Within this of the view's foot, the line being played is brought up. */
@@ -112,6 +113,8 @@ export function TranscriptTurn({
   onKeyDown,
   onWord,
   onAdd,
+  onAddAction,
+  focusLine,
 }: {
   turn: TurnRow;
   meetingId: string | null;
@@ -129,14 +132,16 @@ export function TranscriptTurn({
   onKeyDown(event: KeyboardEvent<HTMLElement>, row: PartRow): void;
   onWord(row: PartRow, at: number): void;
   onAdd(row: PartRow): void;
+  onAddAction?: (row: PartRow) => void;
+  focusLine(id: string): void;
 }) {
   const t = useT();
   const body = useRef<HTMLDivElement>(null);
   const rows = turn.paragraphs.flat();
   const first = rows[0] as PartRow;
-  // The line Add to note adds: the one the pointer or the focus is on, its button beside it.
   const [aim, setAim] = useState<{ id: string; top: number } | null>(null);
-  const aimed = rows.find((row) => row.id === aim?.id) ?? first;
+  const focusedRow = rows.find((row) => row.id === focused);
+  const aimed = rows.find((row) => row.id === aim?.id) ?? focusedRow ?? first;
   const aimAt = (row: PartRow, element: HTMLElement) => {
     const top = body.current?.getBoundingClientRect().top ?? 0;
     setAim({ id: row.id, top: Math.max(0, element.getBoundingClientRect().top - top) });
@@ -193,6 +198,7 @@ export function TranscriptTurn({
                   <span
                     data-testid="transcript-line"
                     data-start={row.part.startMs}
+                    data-end={row.part.endMs}
                     data-cue-start={row.cue.startMs}
                     data-cue-end={row.cue.endMs}
                     data-line={row.id}
@@ -237,7 +243,17 @@ export function TranscriptTurn({
           </p>
         ))}
       </div>
-      {meetingId && (
+      {onAddAction ? (
+        <TranscriptLineActions
+          row={aimed}
+          focusedRow={focusedRow}
+          top={aim?.top ?? 0}
+          onPointerEnter={stopAiming}
+          onAddToNote={onAdd}
+          onAddAction={onAddAction}
+          focusLine={focusLine}
+        />
+      ) : meetingId ? (
         <button
           type="button"
           tabIndex={-1}
@@ -258,7 +274,7 @@ export function TranscriptTurn({
           <PlusLineIcon className="size-3.5" />
           <span className="transcript-add-word">{t("transcript.addToNote")}</span>
         </button>
-      )}
+      ) : null}
     </li>
   );
 }

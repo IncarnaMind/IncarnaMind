@@ -497,3 +497,38 @@ test("a Transcript changed on disk during review cannot publish the old response
     core.close();
   }
 });
+
+test("manually adding a reviewed line hides its suggestion until Undo, and a promoted line cannot be added twice", async () => {
+  const { core, meeting, model } = await recordPair(async () => JSON.stringify([[question]]));
+  try {
+    const [candidate] = await core.reviewMeetingSummaryCandidates(meeting.id);
+    const cue = candidate?.sources[0];
+    const documentId = (await core.listMeetings())[0]?.transcript?.documentId;
+    if (!documentId || !candidate || !cue) throw new Error("The test needs a reviewed line.");
+    const add = () => core.addMeetingTranscriptAction(meeting.id, documentId, cue);
+    const decision = (await core.listMeetings())[0]?.summary?.items?.[0];
+    if (!decision) throw new Error("The test needs a generated item.");
+    const existingSource = (await core.getMeetingSummaryItemSources(meeting.id, decision.id))
+      ?.sources[0];
+    if (!existingSource) throw new Error("The generated item needs a source.");
+    await core.correctMeetingSummaryItem(meeting.id, decision, {
+      kind: "action",
+      text: decision.text,
+      status: "active",
+    });
+    expect(await core.addMeetingTranscriptAction(meeting.id, documentId, existingSource)).toEqual({
+      added: false,
+      itemId: decision.id,
+    });
+    const manual = await add();
+    expect(manual.added).toBe(true);
+    expect(await core.getMeetingSummaryCandidates(meeting.id)).toEqual([]);
+    await core.undoAddMeetingTranscriptAction(meeting.id, manual.itemId);
+    expect(await core.getMeetingSummaryCandidates(meeting.id)).toEqual([candidate]);
+    const promoted = await core.addMeetingSummaryCandidate(meeting.id, candidate.id);
+    expect(await add()).toEqual({ added: false, itemId: promoted.summary?.items?.at(-1)?.id });
+    expect(model).toHaveBeenCalledTimes(3);
+  } finally {
+    core.close();
+  }
+});
