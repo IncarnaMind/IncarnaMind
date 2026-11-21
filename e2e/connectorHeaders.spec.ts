@@ -7,6 +7,7 @@ import { translate } from "../src/shared/i18n";
 import { startHeaderMcp } from "../tests/helpers/headerMcp";
 import {
   acceptPlainTextKeys,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   removeDataFolder,
@@ -39,6 +40,7 @@ for (const language of ["en", "zh-CN"] as const)
       try {
         await setWindowSize(app, window, width, 900);
         await dismissChatSetup(window);
+        await connectLocalChatModel(window);
         await run.feel.step("open ⌘K", async () => {
           await window.keyboard.press("ControlOrMeta+k");
           await window.getByTestId("palette-search").fill("Connectors");

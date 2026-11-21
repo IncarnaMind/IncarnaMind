@@ -123,16 +123,10 @@ const cases: ChangeCase[] = [
   },
 ];
 
-test.each(cases)("the stopped summary uses the right items after $name", async (fixture) => {
-  const appointment = "The Project Beacon audit is scheduled for Tuesday.";
-  const assignment = "Nora will send the agenda.";
-  const cues: Cue[] = [
-    { startMs: 1_000, endMs: 1_800, speaker: "Them", text: appointment },
-    { startMs: 2_100, endMs: 2_700, speaker: "Them", text: assignment },
-    ...(fixture.ambiguousDecision
-      ? [{ startMs: 3_000, endMs: 3_800, speaker: "Them", text: appointment }]
-      : []),
-  ];
+async function meetingScheduler(
+  cues: Cue[],
+  generate: Parameters<typeof createLiveSummaries>[0]["generate"],
+) {
   const transcript: MeetingTranscript = {
     documentId: "transcript",
     state: "live",
@@ -147,6 +141,33 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
   };
   const meeting: Meeting = { ...(await newMeeting()), status: "recording", transcript };
   let stored: StoredMeetingSummary | null = null;
+  const failed = vi.fn();
+  const scheduler = createLiveSummaries({
+    selected: () => "model",
+    allowed: () => true,
+    cues: () => cues,
+    saved: () => stored,
+    save: (_id, value) => {
+      stored = value;
+      meeting.summary = value.summary;
+      scheduler.changed([meeting]);
+    },
+    generate,
+    failed,
+  });
+  return { meeting, transcript, scheduler, failed };
+}
+
+test.each(cases)("the stopped summary uses the right items after $name", async (fixture) => {
+  const appointment = "The Project Beacon audit is scheduled for Tuesday.";
+  const assignment = "Nora will send the agenda.";
+  const cues: Cue[] = [
+    { startMs: 1_000, endMs: 1_800, speaker: "Them", text: appointment },
+    { startMs: 2_100, endMs: 2_700, speaker: "Them", text: assignment },
+    ...(fixture.ambiguousDecision
+      ? [{ startMs: 3_000, endMs: 3_800, speaker: "Them", text: appointment }]
+      : []),
+  ];
   const generate = vi.fn<Parameters<typeof createLiveSummaries>[0]["generate"]>();
   generate
     .mockResolvedValueOnce(
@@ -165,20 +186,7 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
         ...(input.closing && { unchanged: fixture.keep.map((item) => item.id) }),
       }),
     );
-  const failed = vi.fn();
-  const scheduler = createLiveSummaries({
-    selected: () => "model",
-    allowed: () => true,
-    cues: () => cues,
-    saved: () => stored,
-    save: (_id, value) => {
-      stored = value;
-      meeting.summary = value.summary;
-      scheduler.changed([meeting]);
-    },
-    generate,
-    failed,
-  });
+  const { meeting, transcript, scheduler, failed } = await meetingScheduler(cues, generate);
   try {
     scheduler.changed([meeting]);
     await vi.waitFor(() => expect(meeting.summary?.items).toEqual([decision, action]));
@@ -202,6 +210,34 @@ test.each(cases)("the stopped summary uses the right items after $name", async (
       ...(fixture.sameTranscript !== false && { items: fixture.keep }),
       utterances: cues.map(({ text, speaker }) => ({ text, speaker })),
     });
+    expect(failed).not.toHaveBeenCalled();
+  } finally {
+    scheduler.close();
+  }
+});
+
+test("two live turns after the update interval reach the warm summary together", async () => {
+  const cues: Cue[] = [{ startMs: 0, endMs: 2000, speaker: "Me", text: "Introductions." }];
+  const generate = vi
+    .fn<Parameters<typeof createLiveSummaries>[0]["generate"]>()
+    .mockResolvedValue(JSON.stringify({ summary: overview, changes: [] }));
+  const { meeting, transcript, scheduler, failed } = await meetingScheduler(cues, generate);
+  try {
+    scheduler.changed([meeting]);
+    await vi.waitFor(() => expect(meeting.summary?.text).toBe(overview));
+    cues.push({ startMs: 63000, endMs: 65000, speaker: "Me", text: decision.text });
+    transcript.lines = cues.length;
+    scheduler.changed([meeting]);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    cues.push({ startMs: 65000, endMs: 67000, speaker: "Them", text: action.text });
+    transcript.lines = cues.length;
+    scheduler.changed([meeting]);
+    await vi.waitFor(() => expect(meeting.summary?.throughMs).toBe(67000));
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.lastCall?.[2].utterances.map(({ text }) => text)).toEqual([
+      decision.text,
+      action.text,
+    ]);
     expect(failed).not.toHaveBeenCalled();
   } finally {
     scheduler.close();

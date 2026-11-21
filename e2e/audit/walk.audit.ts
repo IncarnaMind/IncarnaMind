@@ -694,7 +694,13 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       );
       await window.waitForTimeout(500);
       const settings = window.getByTestId("settings");
-      for (const page of offeredSettingsPages) {
+      // Each page Settings lists: Connectors and Skills only once a model is set up (#3537).
+      const listed = await settings
+        .locator('[data-testid^="settings-nav-"]')
+        .evaluateAll((all) =>
+          all.map((each) => (each.getAttribute("data-testid") ?? "").replace("settings-nav-", "")),
+        );
+      for (const page of offeredSettingsPages.filter((each) => listed.includes(each))) {
         await click(window, settings.getByTestId(`settings-nav-${page}`));
         await window.waitForTimeout(600);
         await shot(window, `A45-zh-settings-${page}`);

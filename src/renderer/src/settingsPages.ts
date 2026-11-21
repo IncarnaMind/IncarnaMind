@@ -40,6 +40,23 @@ export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filte
   (page) => page !== "agents" || SHOW_AGENT_CONNECTION,
 );
 
+/** What decides whether the pages only the built-in assistant uses are listed (#3537). */
+export interface PageOffers {
+  noModel: boolean;
+  /** A Connector is on: its page stays, the one place that disconnects it. */
+  connectorsOn: boolean;
+}
+
+/**
+ * The pages Settings lists. With no model set up in IncarnaMind, Connectors and Skills belong to
+ * an assistant that can't run, so they step out of the list; nothing in them is removed.
+ */
+export function pagesOffered({ noModel, connectorsOn }: PageOffers): readonly SettingsPage[] {
+  return offeredSettingsPages.filter(
+    (page) => !noModel || !(page === "skills" || (page === "connectors" && !connectorsOn)),
+  );
+}
+
 /** Each page's name: in the dialog's list, as its title, and in ⌘K. */
 export const settingsPageLabels: Record<SettingsPage, MessageKey> = {
   general: "privacy.tabs.general",
@@ -59,12 +76,18 @@ const movedPages: Record<string, SettingsPage> = {
   search: "ai",
 };
 
-export const resolveSettingsPage = (page: unknown): SettingsPage =>
-  isSettingsPage(page) && offeredSettingsPages.includes(page)
+/** A page held back lands on AI, which says what a model adds. */
+export const resolveSettingsPage = (
+  page: unknown,
+  offered: readonly SettingsPage[] = offeredSettingsPages,
+): SettingsPage =>
+  isSettingsPage(page) && offered.includes(page)
     ? page
-    : typeof page === "string"
-      ? (movedPages[page] ?? "general")
-      : "general";
+    : isSettingsPage(page) && offeredSettingsPages.includes(page)
+      ? "ai"
+      : typeof page === "string"
+        ? (movedPages[page] ?? "general")
+        : "general";
 
 export const isSettingsPage = (page: unknown): page is SettingsPage =>
   settingsPages.some((each) => each === page);

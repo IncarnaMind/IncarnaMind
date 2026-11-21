@@ -186,6 +186,9 @@ function MindBadge({
       badge={badgeOf(input)}
       state={running ? null : state}
       ask={input.asking || problem}
+      // A problem lands in a card that opened with less, as a Check pressed in it leaves one: the
+      // card takes its height again then, so the line is not left below its fold (#3533).
+      holdKey={problem ? "problem" : "plain"}
       running={running && <RunningText editor={editor} mindId={mindId} />}
       onStop={() => stopCheck(mindId)}
       actions={

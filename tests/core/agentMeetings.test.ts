@@ -73,6 +73,7 @@ interface Found {
     passageId: string;
     documentId: string;
     location: string | null;
+    timedText?: string;
     cite: string | null;
   }[];
 }
@@ -230,14 +231,19 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     ).citations;
     expect(checked.map((each) => each.check)).toEqual(["found"]);
 
-    const read = structured<{ passages: { text: string; location: string | null }[] }>(
+    const read = structured<{
+      passages: { text: string; location: string | null; timedText?: string }[];
+    }>(
       await agent.callTool({
         name: "read_passages",
         arguments: { documentId: harbour.transcriptId },
       }),
     );
     expect(read.passages.map((each) => each.text).join("\n")).toContain(MEETINGS.harbour[0]);
-    // Placed as a Citation of its first line: who said it, then when.
+    const spoken = read.passages[0]?.timedText;
+    expect(spoken).toContain(`[0:00 Me] ${MEETINGS.harbour[0]}`);
+    expect(spoken).toMatch(/\[0:0\d Morwenna Pascoe\] The harbour can open the slipway earlier\./);
+    expect(said?.timedText).toBe(spoken);
     const [first] = structured<{ citations: { location: string | null }[] }>(
       await agent.callTool({
         name: "cite",
@@ -245,7 +251,8 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
       }),
     ).citations;
     expect(first?.location).toMatch(/^Me · 0:00$/);
-    expect(read.passages.map((each) => each.location)).toEqual([first?.location]);
+    expect(read.passages[0]?.location).toContain("0:00");
+    expect(read.passages[0]?.location).not.toContain("Me");
 
     // The Library's lists count the meeting once, as its Note.
     structured(await countLists(agent));

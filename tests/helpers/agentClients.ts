@@ -21,16 +21,43 @@ export function agentSocketAnswers(path: string): Promise<boolean> {
   });
 }
 
-export async function legacyAgentClient(launch: AgentLaunch): Promise<Client> {
-  const client = new Client({ name: "test-agent", version: "1.0.0" });
+/** Hears the Tool list change: the names the agent's app is given when it reads the list again. */
+type ToolsChanged = (names: string[]) => void;
+
+export async function legacyAgentClient(
+  launch: AgentLaunch,
+  toolsChanged?: ToolsChanged,
+): Promise<Client> {
+  const client = new Client(
+    { name: "test-agent", version: "1.0.0" },
+    toolsChanged && {
+      listChanged: {
+        tools: {
+          onChanged: (error, tools) => tools && !error && toolsChanged(tools.map((t) => t.name)),
+        },
+      },
+    },
+  );
   await client.connect(new StdioClientTransport({ ...launch, stderr: "pipe" }));
   return client;
 }
 
-export async function modernAgentClient(launch: AgentLaunch): Promise<ModernClient> {
+export async function modernAgentClient(
+  launch: AgentLaunch,
+  toolsChanged?: ToolsChanged,
+): Promise<ModernClient> {
   const client = new ModernClient(
     { name: "test-agent", version: "2.0.0" },
-    { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    {
+      versionNegotiation: { mode: { pin: "2026-07-28" } },
+      ...(toolsChanged && {
+        listChanged: {
+          tools: {
+            onChanged: (error, tools) => tools && !error && toolsChanged(tools.map((t) => t.name)),
+          },
+        },
+      }),
+    },
   );
   await client.connect(new ModernTransport({ ...launch, stderr: "pipe" }));
   return client;

@@ -396,10 +396,14 @@ function exposeCore(core: Core): void {
     });
   }
   core.onAnyEvent((name, payload) => {
-    // An outside agent asked to show a Citation (#351): the app comes in front to show it, in
-    // a new window once loaded if none is open.
-    if (name === "agents.citationShown" && closingForUpdate) return;
-    if (name === "agents.citationShown" && appWindows().length === 0) {
+    // An outside agent asked to show a Citation (#351), or made something for a request the User
+    // made from IncarnaMind (#3534): the app comes in front to show it, in a new window once
+    // loaded if none is open.
+    const brings =
+      name === "agents.citationShown" ||
+      (name === "agents.opened" && payload !== null && "front" in payload && payload.front);
+    if (brings && closingForUpdate) return;
+    if (brings && appWindows().length === 0) {
       const window = createWindow();
       window.webContents.once("did-finish-load", () =>
         window.webContents.send(EVENT_CHANNEL, name, payload),
@@ -409,7 +413,7 @@ function exposeCore(core: Core): void {
     for (const window of listeningWindows()) {
       if (!window.isDestroyed()) window.webContents.send(EVENT_CHANNEL, name, payload);
     }
-    if (name === "agents.citationShown") showFront();
+    if (brings) showFront();
   });
 }
 

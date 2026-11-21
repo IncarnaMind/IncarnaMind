@@ -77,6 +77,29 @@ async function setup(
   return { dir, core, pairing, adapters, meeting, push, summary };
 }
 
+test("the first summary covers both confirmed lines of a short call in one request", async () => {
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
+    launchReply("Launch on Friday.", friday, null),
+  );
+  const { core, meeting, push, summary } = await setup(run);
+  try {
+    push(4500);
+    await until(core, meeting.id, (state) => state.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await summary()).toMatchObject({
+        state: "ready",
+        text: "Launch on Friday.",
+      }),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.lastCall?.[0].prompt).toContain(monday);
+    expect(run.mock.lastCall?.[0].prompt).toContain(friday);
+  } finally {
+    core.close();
+  }
+});
+
 // protects=an authorized participant can read a warm summary at Stop and receive the last correction later
 test("a ready draft is returned by Stop while the last confirmed decision is still being summarized", async () => {
   let finish: (text: string) => void = () => {};
@@ -306,6 +329,58 @@ test("revoking folder access cancels the outstanding request and discards its la
     await until(core, meeting.id, (m) => m.state === "saved");
     expect((await summary())?.text).toBe("");
     await expect(core.retryMeetingSummary(meeting.id)).rejects.toThrow();
+    expect(run).toHaveBeenCalledTimes(1);
+  } finally {
+    core.close();
+  }
+});
+
+test("restoring access while a stopped meeting's cancelled request settles waits for Retry", async () => {
+  const cancelled = Promise.withResolvers<string>();
+  const answer = launchReply("Launch on Monday.", monday, null);
+  const run = vi
+    .fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>()
+    .mockImplementationOnce(() => cancelled.promise)
+    .mockResolvedValue(answer);
+  const { core, pairing, meeting, push, summary } = await setup(run);
+  try {
+    push(2500);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (state) => state.state === "saved");
+    await core.updateAgent(pairing.id, { folderIds: [] });
+    expect(run.mock.calls[0]?.[0].signal.aborted).toBe(true);
+    await core.updateAgent(pairing.id, { folderIds: pairing.folderIds });
+    cancelled.resolve(answer);
+    await new Promise<void>((done) => setImmediate(done));
+    expect((await summary())?.state).toBe("failed");
+    expect(run).toHaveBeenCalledTimes(1);
+    await core.retryMeetingSummary(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    cancelled.resolve(answer);
+    core.close();
+  }
+});
+
+test("sharing a stopped meeting after a refusal lets its owner choose when to retry", async () => {
+  const run = vi.fn(async () => launchReply("Launch on Monday.", monday, null));
+  const { core, pairing, meeting, push, summary } = await setup(run);
+  try {
+    await core.updateAgent(pairing.id, { folderIds: [] });
+    push(2500);
+    await until(core, meeting.id, (state) => state.lines > 0);
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (state) => state.state === "saved");
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    await core.updateAgent(pairing.id, { folderIds: pairing.folderIds });
+    expect(await core.listAgentsToAsk(meeting.mindId)).toContainEqual(
+      expect.objectContaining({ id: pairing.id }),
+    );
+    expect(run).not.toHaveBeenCalled();
+    await core.retryMeetingSummary(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
     expect(run).toHaveBeenCalledTimes(1);
   } finally {
     core.close();

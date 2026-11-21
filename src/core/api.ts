@@ -4155,6 +4155,19 @@ export interface AgentCanvasChange {
   version: number;
 }
 
+/**
+ * What an outside agent made, for the windows to open (#3534): a Note it wrote, the Note a file it
+ * handed over lives in, or a Canvas it published.
+ */
+export interface AgentOpened {
+  item: { kind: "mind"; mindId: string } | { kind: "canvas"; canvasId: string };
+  /**
+   * The User asked this agent from IncarnaMind and it read the request in this connection: the item
+   * opens in front and the app comes to the front with it. Else it opens behind, and the app stays.
+   */
+  front: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Tabs and groups: everything that opens is a tab, in up to three groups side
 // by side, as VS Code's editor groups. Each window keeps its own layout.
@@ -7133,6 +7146,14 @@ export interface OrganizeLibraryInput {
   folders?: FolderCountAim;
 }
 
+/** A Library Organize press: its loose Documents, a selection, or the Documents in one Folder. */
+export type OrganizeTarget = { ids: readonly string[] | null } | { folderId: string };
+
+export interface OrganizeAgents {
+  eligible: AgentPairing[];
+  connected: boolean;
+}
+
 /** How many new Folders a plan made again aims at, against how many the last plan proposed. */
 export type FolderCountAim = { fewerThan: number } | { moreThan: number };
 
@@ -8404,9 +8425,9 @@ export interface ClaimCheckBasis {
    */
   citedOnly?: true;
   /**
-   * A fingerprint of all the claim was judged with, its words and what stands above it (#3412):
-   * read against the line as it is now, a reading that knows it says whether the result still
-   * stands there. Absent on a check that kept none.
+   * A fingerprint of what the result stands on, its claim and what frames its line: a deck's slide,
+   * else the headings it is under (#3412): read against the line as it is now, a reading that knows
+   * it says whether the result still stands there. Absent on a check that kept none.
    */
   judgedWith?: string;
 }
@@ -12117,6 +12138,8 @@ export interface MeetingSummary {
   candidateCount?: number;
   candidatesReviewed?: true;
   problem?: "codex-input-limit";
+  /** The connected agent originally selected for a failed summary. */
+  retryAgentId?: string;
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
 }
@@ -12923,19 +12946,30 @@ export const MAX_ASKED_SENTENCES = 30;
 /**
  * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
  * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
- * named, to go on in their AI.
+ * named, to go on in their AI; or to check the Note, with no model set up in IncarnaMind to do it
+ * (#3533).
  */
 export type AgentAsk =
+  | { kind: "organize"; target: OrganizeTarget }
   | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
-  | { kind: "note" };
+  | { kind: "note" }
+  | { kind: "check" };
 
 export interface AskAgentInput {
   pairingId: string;
   /** The Note it is about, named by its title; null for a question about no Note. */
   mindId: string | null;
   ask: AgentAsk;
+  /**
+   * With a question: the Documents open on screen, by id, the focused group's first, as
+   * `AskInConversationInput.onScreen`: what "this document" means. Only those the agent can read
+   * are named or kept (#3533).
+   */
+  onScreen?: string[] | null;
+  /** With a question: the chat box's Search scope, as `AskInConversationInput.scope`; only the Folders and Documents of it that the agent can read are named or kept. */
+  scope?: SearchScope | null;
 }
 
 /**
@@ -12952,7 +12986,8 @@ export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string }
 export interface AgentRequest {
   id: string;
   pairingId: string;
-  mindId: string;
+  /** The Note it is about; null for a question about the Documents the User has open (#3533). */
+  mindId: string | null;
   /** The sentences a fix names, each with the check result it was asked on; none for any other request. */
   sentences: { sentence: string; checkId: string | null }[];
   /** ISO 8601, UTC. */
@@ -15487,6 +15522,8 @@ export interface CoreApi {
   openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
+  /** With no Organize model, the connected agents that can read the whole target the User chose. */
+  agentsForOrganize(target: OrganizeTarget): Promise<OrganizeAgents>;
   /**
    * Ask your AI (#3373): one line in the interface language, in the User's words, for them to send
    * in their own AI. Its app opens with the line typed where it documents a link for that;
@@ -15799,6 +15836,8 @@ export interface CoreEvents {
   "canvases.changed": Canvas[];
   /** An outside agent published a Canvas, or a new version of one (#3406). */
   "agents.canvasChanged": AgentCanvasChange;
+  /** An outside agent made a Note, a file's Note or a Canvas: open it (#3534). */
+  "agents.opened": AgentOpened;
 }
 
 export type CoreEventName = keyof CoreEvents;
@@ -16292,6 +16331,7 @@ const methods: Record<CoreApiMethod, true> = {
   undoAgentSetup: true,
   copyAgentSetup: true,
   openAgentInstallAgain: true,
+  agentsForOrganize: true,
   listAgentsToAsk: true,
   askAgent: true,
   handedFileOf: true,

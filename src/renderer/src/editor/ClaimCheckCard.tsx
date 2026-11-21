@@ -1318,6 +1318,9 @@ export function ClaimCard({
       onClick: () => onAsk?.(agent),
     }),
   );
+  // Its Answer's judgement read only its Citations: a check in the Note searches for the rest
+  // first, before its words are changed to what a Citation says (#2809).
+  const searchFirst = state === "unsupported" && check.citedOnly === true && fixes;
   const actions = (
     [
       ...(askFirst ? asks : []),
@@ -1380,7 +1383,7 @@ export function ClaimCard({
           key: "fix",
           testId: "claim-fix",
           label: t("claim.fixSentence"),
-          primary: fixable,
+          primary: fixable && !searchFirst,
           disabled: fixable && noteRunning,
           onClick: onFix,
         },
@@ -1429,8 +1432,7 @@ export function ClaimCard({
         },
       // Checked again, a ✓ waiting on its found Passage gets the same answer: adding it is the way (#3019).
       (state === "needs-recheck" ||
-        // Its Answer's judgement read only its Citations: a check in the Note searches for the rest (#2809).
-        (state === "unsupported" && check.citedOnly && fixes) ||
+        searchFirst ||
         (state === "not-checked" &&
           added === 0 &&
           !lineAction &&

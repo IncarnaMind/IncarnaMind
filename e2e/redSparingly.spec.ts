@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   addProviderForm,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -83,6 +84,8 @@ test("a refused key and a variable with no name read in ink after the amber mark
     await expectProblem(refused);
     await setLanguage(window, "en");
 
+    // Connectors are listed once a model is set up (#3537).
+    await connectLocalChatModel(window);
     await showSettingsPage(window, "connectors");
     const page = window.getByTestId("settings-page-connectors");
     await page.getByTestId("connector-add-custom").click();

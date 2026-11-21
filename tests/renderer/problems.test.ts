@@ -52,6 +52,13 @@ describe("a failed Answer's problem line", () => {
     }
   });
 
+  test("none sends the User to Connectors or Skills, which are not listed while no model is set up (#3537)", () => {
+    for (const kind of KINDS) {
+      const { fix } = ANSWER_PROBLEMS[kind];
+      if (fix.kind === "settings") expect(["connectors", "skills"], kind).not.toContain(fix.page);
+    }
+  });
+
   test("local mode stopping an Answer offers a local model in place, and never a company's settings", () => {
     expect(ANSWER_PROBLEMS["local-mode"].fix).toEqual({
       kind: "local-model",

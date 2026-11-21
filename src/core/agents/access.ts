@@ -28,7 +28,12 @@
  */
 
 import * as Y from "yjs";
-import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
+import {
+  citedLocation,
+  type LiveDocument,
+  liveDocumentOf,
+  withShownName,
+} from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { isListedMind } from "../../shared/listedMinds";
@@ -56,10 +61,12 @@ import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
 import type { AnswerDocuments } from "../answers/citations";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
+import { saidBetween, withCueMarks } from "../answers/cueMarks";
 import {
   type AgentActivity,
   type AgentCitationShown,
   type AgentNoteChange,
+  type AgentOpened,
   type AgentToolName,
   BLOCK_ID_ATTRIBUTE,
   type Citation,
@@ -84,6 +91,7 @@ import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
+import { type Looking, lookingText } from "./ask";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -115,7 +123,7 @@ import {
   proposeNamed,
 } from "./proposals";
 import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
-import type { AgentRequests } from "./requests";
+import type { AgentRequests, RequestNamed } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
@@ -153,6 +161,7 @@ export interface AgentPassage {
   quote: string | null;
   /** A ready Citation of `quote`, to write as it is; null with `quote`. */
   cite: string | null;
+  timedText?: string;
   /** The Passage's text, at most `PASSAGE_CHARS` characters around `quote`. */
   text: string;
 }
@@ -178,7 +187,7 @@ export interface AgentReadInput {
 export interface AgentReadResult {
   documentId: string;
   document: string;
-  passages: { passageId: string; location: string | null; text: string }[];
+  passages: { passageId: string; location: string | null; text: string; timedText?: string }[];
   /** The Passage before the first one read, to read on backwards; null at the start. */
   previous: string | null;
   /** The Passage after the last one read, to read on; null at the end. */
@@ -515,7 +524,8 @@ export interface AgentReadRequestInput {
 }
 
 export interface AgentReadRequest {
-  mindId: string;
+  /** The Note it is about; null for a request about no Note, and for the answer that none waits. */
+  mindId: string | null;
   title: string;
   /** What the User asked, beyond the line they sent: which Note, which sentences, what to do. */
   request: string;
@@ -709,6 +719,8 @@ export interface AgentAccessDeps {
   }): CitationRecheck;
   /** Shows a Citation in the viewer, the app in front. */
   show(place: AgentCitationShown): void;
+  /** Opens what the agent made, in front where the User asked it from IncarnaMind (#3534). */
+  opened(opened: AgentOpened): void;
   /** The Minds there are. */
   minds(): Mind[];
   /** The Mind a Mind was duplicated from; null for one that is no copy. */
@@ -897,15 +909,20 @@ function makesAClaim(sentence: string): boolean {
 }
 
 /** The part of a Passage's text an agent gets: all of it, or `PASSAGE_CHARS` around `quote`. */
-function excerpt(text: string, quote: string | null): string {
-  if (text.length <= PASSAGE_CHARS) return text;
+function excerptWindow(text: string, quote: string | null) {
+  if (text.length <= PASSAGE_CHARS) return { start: 0, end: text.length };
   const at = quote ? Math.max(0, text.indexOf(quote)) : 0;
   const centre = at + (quote?.length ?? 0) / 2;
   const start = Math.max(
     0,
     Math.min(text.length - PASSAGE_CHARS, Math.round(centre - PASSAGE_CHARS / 2)),
   );
-  const end = start + PASSAGE_CHARS;
+  return { start, end: start + PASSAGE_CHARS };
+}
+
+function excerpt(text: string, quote: string | null): string {
+  const { start, end } = excerptWindow(text, quote);
+  if (start === 0 && end === text.length) return text;
   return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
 }
 
@@ -1128,6 +1145,8 @@ interface Done<T> {
   effects?: Effect[];
   /** The request the call read (`read_request`). */
   requestId?: string;
+  /** What its activity line says, when only the call knows (`read_request`: the names it gave). */
+  summary?: string;
 }
 
 type ReachDeps = Pick<
@@ -1215,6 +1234,9 @@ export function documentsForPairing(
 /** The core interface for one pairing's calls. */
 export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
+  /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
+  let askedFromIncarnaMind = false;
+  const opened = (item: AgentOpened["item"]) => deps.opened({ item, front: askedFromIncarnaMind });
   const pictureLimit = { max: NOTE_PICTURE_LIMITS.bytes / (1024 * 1024) };
   const reasonOf = (left: VisualRefused) =>
     left.kind === "picture"
@@ -1247,9 +1269,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     pageFrom: number | null,
     pageTo: number | null,
     documentId?: string | null,
+    quote?: string,
   ) =>
     citedLocation(
-      { location, pageFrom, pageTo, documentId },
+      { location, pageFrom, pageTo, documentId, ...(quote && { quote }) },
       t,
       location?.kind === "time" && documentId ? deps.liveDocuments() : null,
     );
@@ -1318,6 +1341,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           count: done.count,
           documentIds: [...new Set(done.documentIds)],
           effects: done.effects ?? effects,
+          ...(done.summary !== undefined && { summary: clip(done.summary, SUMMARY_CHARS) }),
         },
         done.requestId,
       );
@@ -1396,15 +1420,38 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     return passage;
   };
 
-  /** Where a Passage is; a Transcript's as `cite` places a Citation of all of it, by who said its first line. */
-  const passageLocation = (passage: WindowedPassage) => {
-    const whole =
-      passage.documentKind === "transcript"
-        ? deps.citing.citeQuote(passage.passageId, passage.text)
-        : null;
-    return whole?.check === "found"
-      ? label(whole.location, whole.pageFrom, whole.pageTo, passage.documentId)
-      : label(deps.citing.locate(passage), passage.pageFrom, passage.pageTo, passage.documentId);
+  const passageReading = (
+    passage: WindowedPassage,
+    window = { start: 0, end: passage.text.length },
+  ) => {
+    if (passage.documentKind !== "transcript")
+      return {
+        location: label(
+          deps.citing.locate(passage),
+          passage.pageFrom,
+          passage.pageTo,
+          passage.documentId,
+        ),
+      };
+    if (passage.pageFrom === null || passage.pageTo === null) return { location: null };
+    const units = deps.pageTexts(
+      passage.documentId,
+      passage.contentHash,
+      passage.pageFrom,
+      passage.pageTo,
+    );
+    const span = saidBetween(passage.text, units);
+    const speakers = liveDocumentOf(
+      { documentId: passage.documentId },
+      deps.liveDocuments(),
+    )?.speakers;
+    const marked = withCueMarks(passage.text, units, speakers, window);
+    return {
+      location: span ? label({ kind: "time", ...span }, null, null, passage.documentId) : null,
+      ...(marked !== passage.text.slice(window.start, window.end) && {
+        timedText: `${window.start ? "…" : ""}${marked}${window.end < passage.text.length ? "…" : ""}`,
+      }),
+    };
   };
 
   /** Mints the token of a Citation the check found. */
@@ -1438,13 +1485,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         : null;
     const found = citation?.check === "found" ? citation : null;
     const minted = found ? mint(pairing, found) : null;
+    const reading = passageReading(passage, excerptWindow(passage.text, found?.quote ?? null));
     return {
       passageId: passage.passageId,
       documentId: passage.documentId,
       document: passage.documentName,
+      ...reading,
       location: found
-        ? label(found.location, found.pageFrom, found.pageTo, passage.documentId)
-        : passageLocation(passage),
+        ? label(found.location, found.pageFrom, found.pageTo, passage.documentId, found.quote)
+        : reading.location,
       quote: found ? found.quote : null,
       cite: minted ? citeTag(minted.token) : null,
       text: excerpt(passage.text, found?.quote ?? null),
@@ -1533,7 +1582,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         cite: citeTag(token),
         check,
         document: withShownName(kept, live).documentName,
-        location: label(now.location ?? kept.location, now.pageFrom, now.pageTo, kept.documentId),
+        location: label(
+          now.location ?? kept.location,
+          now.pageFrom,
+          now.pageTo,
+          kept.documentId,
+          kept.quote,
+        ),
         quote: kept.quote,
         changed,
       },
@@ -1808,7 +1863,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   });
 
   const canvasTools = createCanvasTools({
-    deps,
+    deps: {
+      ...deps,
+      canvasChanged: (change) => {
+        deps.canvasChanged(change);
+        if (change.kind === "published") opened({ kind: "canvas", canvasId: change.canvasId });
+      },
+    },
     t,
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
@@ -1824,6 +1885,72 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       });
     },
   });
+
+  /**
+   * What a request named, as it is now: each Document and Folder that was deleted since is left
+   * out, and one that exists but isn't this pairing's to read now refuses the request, as a Note
+   * out of reach does, which then waits for the User to share it again.
+   */
+  const lookingNow = (pairing: AdmittedPairing, named: RequestNamed): Looking => {
+    const reached = reachedFolders(deps, pairing);
+    const readable = new Set(documentsForPairing(deps, pairing, [...reached], reached));
+    const folders = new Map(deps.folders().map((folder) => [folder.id, folder.name]));
+    const documents = new Map(
+      deps.documentsNamed([...named.open, ...named.documents]).map((each) => [each.id, each.name]),
+    );
+    const outOfReach = () =>
+      new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+    const still = (
+      ids: readonly string[],
+      nameOf: (id: string) => string | undefined,
+      reads: (id: string) => boolean,
+    ) =>
+      ids.flatMap((id) => {
+        const name = nameOf(id);
+        if (name === undefined) return [];
+        if (!reads(id)) throw outOfReach();
+        return [{ id, name }];
+      });
+    const document = (id: string) => documents.get(id);
+    return {
+      open: still(named.open, document, (id) => readable.has(id)),
+      folders: still(
+        named.folders,
+        (id) => folders.get(id),
+        (id) => reached.has(id),
+      ),
+      documents: still(named.documents, document, (id) => readable.has(id)),
+    };
+  };
+
+  function sortingRequest(
+    pairing: AdmittedPairing,
+    target: NonNullable<RequestNamed["organize"]>,
+    looking: Looking,
+  ) {
+    let scope: string;
+    if (target === "selected") {
+      scope = t("agents.ask.organize.selected", {
+        ids: JSON.stringify(looking.documents.map((doc) => doc.id)),
+      });
+    } else {
+      const reached = reachedFolders(deps, pairing);
+      if (target === "loose") {
+        if (!reached.has(NOT_IN_A_FOLDER_ID))
+          throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+        scope = t("agents.ask.organize.loose");
+      } else {
+        const folder = looking.folders[0]?.id;
+        if (!folder)
+          throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+        const children = deps
+          .foldersInside(folder)
+          .filter((id) => id !== folder && reached.has(id));
+        scope = t("agents.ask.organize.folder", { folder, folders: JSON.stringify(children) });
+      }
+    }
+    return t("agents.ask.request.organize", { scope });
+  }
 
   /**
    * The results a Note holds, as its page counts them, and what a Document says of each sentence
@@ -1988,8 +2115,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             document: first.documentName,
             passages: inRange.map((passage) => ({
               passageId: passage.passageId,
-              location: passageLocation(passage),
               text: passage.text,
+              ...passageReading(passage),
             })),
             previous,
             next,
@@ -2050,7 +2177,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               cite: minted ? citeTag(minted.token) : null,
               document: filed.name,
               location: found
-                ? label(found.location, found.pageFrom, found.pageTo, filed.documentId)
+                ? label(found.location, found.pageFrom, found.pageTo, filed.documentId, found.quote)
                 : null,
               // The agent has the file: IncarnaMind gives back nothing of it but where its quote is.
               text: null,
@@ -2084,6 +2211,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               citation.pageFrom,
               citation.pageTo,
               passage.documentId,
+              citation.quote,
             ),
             text: check === "found" ? null : excerpt(passage.text, null),
           });
@@ -2139,6 +2267,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               now.pageFrom,
               now.pageTo,
               kept.documentId,
+              kept.quote,
             ),
             quote: kept.quote,
             changed: now.contentHash !== null && now.contentHash !== kept.contentHash,
@@ -2173,7 +2302,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
         }
         const location = now.location ?? kept.location;
-        const where = label(location, now.pageFrom, now.pageTo, kept.documentId);
+        const where = label(location, now.pageFrom, now.pageTo, kept.documentId, kept.quote);
         deps.show({
           documentId: kept.documentId,
           ...(now.pageFrom !== null && { pageFrom: now.pageFrom }),
@@ -2371,6 +2500,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             citation.pageFrom,
             citation.pageTo,
             citation.documentId,
+            citation.quote,
           );
           const source = where ? `${citation.documentName}, ${where}` : citation.documentName;
           if (citation.check !== "found") return { source, unverified: true };
@@ -2451,6 +2581,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
                   citation.pageFrom,
                   citation.pageTo,
                   citation.documentId,
+                  citation.quote,
                 ),
                 quote: citation.quote,
               });
@@ -2728,6 +2859,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           tables: 0,
           step: null,
         });
+        opened({ kind: "mind", mindId: mind.id });
         const listed = deps.minds().find((each) => each.id === mind.id);
         return {
           result: {
@@ -2944,7 +3076,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     publishCanvas: canvasTools.publishCanvas,
     readCanvas: canvasTools.readCanvas,
     updateCanvas: canvasTools.updateCanvas,
-    handOverFile: handedFileTool.handOverFile,
+    async handOverFile(input) {
+      const handed = await handedFileTool.handOverFile(input);
+      if (handed.mindId !== null) opened({ kind: "mind", mindId: handed.mindId });
+      return handed;
+    },
     readRequest(input) {
       const named = typeof input?.note === "string" ? comparableName(input.note) : "";
       const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
@@ -2960,20 +3096,28 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const about =
         given.length > 0
           ? given
-          : kept.filter((each) => comparableName(titleOf(each.mindId)) === named);
+          : kept.filter(
+              (each) => each.mindId !== null && comparableName(titleOf(each.mindId)) === named,
+            );
       const chosen = (named !== "" && about.length > 0 ? about : kept).find(
         (each) => each.readAt === null,
       );
-      const effects: Effect[] = chosen
+      const effects: Effect[] = chosen?.mindId
         ? [{ action: "read", scope: { kind: "mind", mindId: chosen.mindId } }]
         : [];
-      const summary = chosen ? titleOf(chosen.mindId) : (input?.note ?? "");
-      return call(
-        "read_request",
-        typeof summary === "string" ? summary : "",
-        effects,
-        (pairing) => {
-          if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+      // Nothing waiting is a look that found nothing, not a failure of the agent's call (#3533):
+      // its activity line says it looked, as it always did.
+      const none = {
+        result: { mindId: null, title: "", request: t("agents.request.none") },
+        count: 0,
+        documentIds: [],
+      };
+      // What a request about no Note names is not said until it is read: only then are its
+      // Documents and Folders known to be the agent's to read, and named as they are by then.
+      const summary = chosen?.mindId ? titleOf(chosen.mindId) : "";
+      return call("read_request", summary, effects, (pairing) => {
+        if (!chosen) return none;
+        if (chosen.mindId !== null) {
           const mind = minds.get(chosen.mindId);
           if (!mind) {
             // Sharing a Folder can't bring it back, so the request goes rather than wait in front of
@@ -2984,16 +3128,47 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (!reaches(pairing, mind)) {
             throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
           }
-          const read = deps.requests.markRead(chosen.id);
-          if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
-          return {
-            result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
-            count: 1,
-            documentIds: [],
-            requestId: read.id,
-          };
-        },
-      );
+        }
+        const looking = chosen.named === null ? null : lookingNow(pairing, chosen.named);
+        const [first] = [
+          ...(looking?.open ?? []),
+          ...(looking?.documents ?? []),
+          ...(looking?.folders ?? []),
+        ];
+        if (
+          looking !== null &&
+          chosen.mindId === null &&
+          !first &&
+          chosen.named?.organize !== "loose"
+        ) {
+          // Everything it named was deleted since: nothing is left to go on, as for a deleted Note.
+          deps.requests.markRead(chosen.id);
+          throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+        }
+        const request =
+          looking && chosen.named?.organize
+            ? sortingRequest(pairing, chosen.named.organize, looking)
+            : [chosen.text, looking ? lookingText(looking, t) : ""]
+                .filter((part) => part !== "")
+                .join("\n\n");
+        const read = deps.requests.markRead(chosen.id, request);
+        if (!read) return none;
+        askedFromIncarnaMind = true;
+        // As the line named it: the Note, else the Document in front.
+        const title =
+          chosen.mindId !== null
+            ? titleOf(chosen.mindId)
+            : chosen.named?.organize
+              ? chosen.title
+              : (looking?.open[0]?.name ?? "");
+        return {
+          result: { mindId: chosen.mindId, title, request },
+          count: 1,
+          documentIds: [],
+          requestId: read.id,
+          summary: title,
+        };
+      });
     },
   };
 }
