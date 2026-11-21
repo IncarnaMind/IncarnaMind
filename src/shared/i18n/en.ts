@@ -8940,7 +8940,8 @@ export const en = {
   "agents.ask.line.questionDocument": "About my document {document} in IncarnaMind:\n\n{question}",
   "agents.ask.line.questionNoteDocument":
     "About my note {title} and my document {document} in IncarnaMind:\n\n{question}",
-  "agents.ask.line.questionScope": "From the Documents in my search scope in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionScope":
+    "From the Documents in my search scope in IncarnaMind:\n\n{question}",
   "agents.ask.line.check": "Check my note {title} in IncarnaMind against my Documents.",
   "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.

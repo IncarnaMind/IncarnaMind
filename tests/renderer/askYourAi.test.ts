@@ -8,8 +8,8 @@ import { DOMParser } from "linkedom";
 import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
-  type AgentAsk,
   type AgentPairing,
+  type AskAgentInput,
   type AssistantPlace,
   type ChatReadiness,
   DEFAULT_ASSISTANT,
@@ -24,19 +24,13 @@ const view = page.defaultView;
 
 const bridge = {
   agents: [] as AgentPairing[],
-  asked: [] as {
-    pairingId: string;
-    mindId: string | null;
-    ask: AgentAsk;
-    onScreen?: string[];
-    scope?: SearchScope | null;
-  }[],
+  asked: [] as AskAgentInput[],
   /** The agent's app took the link, as Claude Code's does. */
   opens: false,
   on: () => () => undefined,
   listAgentsToAsk: async () => bridge.agents,
   listConversations: async () => [],
-  askAgent: async (input: (typeof bridge.asked)[number]) => {
+  askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
     return bridge.opens ? { kind: "opened" } : { kind: "copy", text: "The request" };
   },

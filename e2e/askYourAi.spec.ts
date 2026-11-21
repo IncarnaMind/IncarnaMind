@@ -479,6 +479,9 @@ test("with no model, Check asks the User's own AI to check the Note; with no age
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await expect(window.getByTestId("check-card")).not.toContainText("Checking needs an AI model");
     await shot(window, "check-with-model-en");
+    await setLanguage(window, "zh-CN");
+    await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
+    await shot(window, "check-with-model-zh-CN");
   } finally {
     await app.close();
   }

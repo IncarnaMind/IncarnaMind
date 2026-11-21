@@ -23,7 +23,6 @@ import {
   type AgentPairing,
   type AgentRequest,
   ASK_VERDICTS,
-  type AskAgentInput,
   type AskAgentResult,
   type AskedSentence,
   MAX_ASKED_SENTENCES,
@@ -358,9 +357,16 @@ function parseSentence(value: unknown): AskedSentence {
   };
 }
 
-function parseInput(
-  input: unknown,
-): Omit<AskAgentInput, "onScreen" | "scope"> & { onScreen: string[]; scope: SearchScope | null } {
+/** The ask as the core reads it: what the User looks at is none, never absent. */
+interface ParsedInput {
+  pairingId: string;
+  mindId: string | null;
+  ask: AgentAsk;
+  onScreen: string[];
+  scope: SearchScope | null;
+}
+
+function parseInput(input: unknown): ParsedInput {
   if (!isRecord(input)) throw new InvalidInputError({ key: "error.agent.askRequest" });
   const mindId = input.mindId === null ? null : words(input.mindId);
   return {
