@@ -280,6 +280,7 @@ beforeEach(() => {
   for (const [name, value] of Object.entries({
     document,
     window,
+    CSS: { escape: (text: string) => text },
     HTMLElement: window.HTMLElement,
     Element: window.Element,
     Node: window.Node,
@@ -362,7 +363,12 @@ describe("the Meeting's Note-local views", () => {
     expect(container.querySelector('[data-testid="document-menu"]')).toBeNull();
     expect(requests).toHaveLength(1);
     expect(requests[0]).toContain("transcript");
-    await click("transcript-add");
+    await click("transcript-line-actions");
+    const addToNote = Array.from(
+      find("transcript-line-menu").querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent === "Add to note");
+    if (!addToNote) throw new Error("Missing Add to note in the saved line’s menu");
+    await act(async () => addToNote.click());
     expect(actions.addLine).toHaveBeenCalledWith(
       expect.objectContaining({
         meetingId: "meeting",
