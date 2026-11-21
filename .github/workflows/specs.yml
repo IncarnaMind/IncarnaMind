@@ -109,7 +109,7 @@ jobs:
         run: |
           mkdir -p meeting-ux "$RUNNER_TEMP/meeting-qa-axe"
           npm pack axe-core@4.14.1 --ignore-scripts --silent --pack-destination "$RUNNER_TEMP/meeting-qa-axe"
-          tar -xzf "$RUNNER_TEMP/meeting-qa-axe/axe-core-4.14.1.tgz" -C "$RUNNER_TEMP/meeting-qa-axe"
+          (cd "$RUNNER_TEMP/meeting-qa-axe" && tar -xzf axe-core-4.14.1.tgz)
       - name: Run the specs
         shell: bash
         run: |
