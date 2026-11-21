@@ -4,7 +4,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { core, files } from "../core";
 import { useT } from "../i18n";
 import { useSettingsPagesOffered } from "../settingsOffered";
-import { resolveSettingsPage, type SettingsPage, settingsPageLabels } from "../settingsPages";
+import { offeredSettingsPages, type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { recordUsage, useAppStore } from "../store";
 import { AppearanceRow } from "./AppearanceSettings";
 import { AuthorNameSettings } from "./AuthorNameSettings";
@@ -43,12 +43,11 @@ const REPOSITORY_URL = "https://github.com/IncarnaMind/IncarnaMind";
 export function SettingsDialog() {
   const t = useT();
   const open = useAppStore((state) => state.settingsOpen);
+  const page = useAppStore((state) => state.settingsPage);
+  // The page the User is on stays in the list until they leave it, whatever turned it off: the
+  // last Connector switched off on its own page, or the last model removed (#3537).
   const offered = useSettingsPagesOffered();
-  // A page held back since it was shown (the last model removed): its place is AI's (#3537).
-  const page = resolveSettingsPage(
-    useAppStore((state) => state.settingsPage),
-    offered,
-  );
+  const listed = offeredSettingsPages.filter((each) => offered.includes(each) || each === page);
   const showPage = useAppStore((state) => state.showSettingsPage);
   const close = useAppStore((state) => state.closeSettings);
   const dialog = useModal(open);
@@ -83,13 +82,15 @@ export function SettingsDialog() {
               {t("settings.title")}
             </h2>
           </div>
-          {offered.map((each) => (
+          {listed.map((each) => (
             <button
               key={each}
               type="button"
               data-testid={`settings-nav-${each}`}
               aria-current={page === each ? "page" : undefined}
-              onClick={() => showPage(each)}
+              onClick={() => {
+                if (each !== page) showPage(each);
+              }}
               className={navRowClass(page === each)}
             >
               {t(settingsPageLabels[each])}
@@ -126,7 +127,7 @@ export function SettingsDialog() {
            */}
           <div className="relative min-h-0 flex-1">
             {visited
-              .filter((each) => offered.includes(each))
+              .filter((each) => listed.includes(each))
               .map((each) => (
                 <div
                   key={each}

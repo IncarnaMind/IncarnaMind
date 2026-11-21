@@ -103,10 +103,13 @@ export function AiStep({ place }: { place: StepPlace }) {
   }, [modelReady]);
 
   const main = () => setView({ kind: "main" });
-  const useKeyInstead = () => {
+  const openInApp = () => {
     setInAppAsked(true);
-    main();
     requestAnimationFrame(() => keyField.current?.focus());
+  };
+  const useKeyInstead = () => {
+    main();
+    openInApp();
   };
   const toggle = (way: Way) => setOpen(open === way ? null : way);
   // The step opens whole, its first choice focused: in the setup they were read on its first step.
@@ -298,8 +301,7 @@ export function AiStep({ place }: { place: StepPlace }) {
         <button
           type="button"
           data-testid="setup-in-app-open"
-          aria-expanded={false}
-          onClick={() => setInAppAsked(true)}
+          onClick={openInApp}
           className="-mt-1 flex w-fit items-center gap-1 rounded-sm text-[13px] leading-5 font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
         >
           {t("setupPage.ai.inApp")}

@@ -48,9 +48,7 @@ const { useAppStore } = await import("../../src/renderer/src/store");
 const { commands, offered } = await import("../../src/renderer/src/commands/registry");
 await import("../../src/renderer/src/commands/app");
 const { noModelSetUp } = await import("../../src/renderer/src/noModelSetUp");
-const { pagesOffered, resolveSettingsPage, settingsPages } = await import(
-  "../../src/renderer/src/settingsPages"
-);
+const { pagesOffered, settingsPages } = await import("../../src/renderer/src/settingsPages");
 const { useSettingsPagesOffered } = await import("../../src/renderer/src/settingsOffered");
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
 const settingsPath = "../../src/renderer/src/components/SettingsDialog.tsx";
@@ -206,13 +204,32 @@ describe("every route to a page that is held back", () => {
     expect(useAppStore.getState().settingsPage).toBe("ai");
   });
 
-  test("a page shown when the last model is removed gives way to AI, in the dialog's own reading", () => {
-    expect(
-      resolveSettingsPage("skills", pagesOffered({ noModel: true, connectorsOn: false })),
-    ).toBe("ai");
-    expect(
-      resolveSettingsPage("skills", pagesOffered({ noModel: false, connectorsOn: false })),
-    ).toBe("skills");
+  test("the page the User is on stays in the dialog's list until they leave it", async () => {
+    user(MODEL);
+    // Not opened: a dialog shown as a modal needs a browser.
+    useAppStore.setState({ settingsPage: "skills" });
+    const container = await shown(createElement(SettingsDialog));
+    expect(nav(container)).toEqual(ALL);
+    // The last model is removed on Skills: Skills is where they are, so it stays for now.
+    await act(async () => user(NO_MODEL));
+    expect(nav(container)).toEqual(["general", "ai", "meetings", "skills", "agents", "privacy"]);
+    // They go to AI: it is gone from the list.
+    await act(async () => useAppStore.getState().showSettingsPage("ai"));
+    expect(nav(container)).toEqual(["general", "ai", "meetings", "agents", "privacy"]);
+    // Nothing brings them back to a page that is held back.
+    await act(async () => useAppStore.getState().showSettingsPage("skills"));
+    expect(useAppStore.getState().settingsPage).toBe("ai");
+  });
+
+  test("the last Connector switched off on its own page leaves it listed until they go", async () => {
+    user(NO_MODEL, true);
+    useAppStore.setState({ settingsPage: "connectors" });
+    const container = await shown(createElement(SettingsDialog));
+    expect(nav(container)).toContain("connectors");
+    await act(async () => user(NO_MODEL, false));
+    expect(nav(container)).toContain("connectors");
+    await act(async () => useAppStore.getState().showSettingsPage("privacy"));
+    expect(nav(container)).not.toContain("connectors");
   });
 
   test("⌘K offers each page only while it is listed", () => {
@@ -255,7 +272,6 @@ describe("Settings › AI says whose AI is connected", () => {
     const section = container.querySelector('[data-testid="ai-none"]');
     return {
       text: section?.textContent ?? "",
-      own: section?.getAttribute("data-own-ai") === "true",
       addIsPrimary: (
         container.querySelector('[data-testid="ai-none-add"]')?.className ?? ""
       ).includes("bg-ink"),
@@ -264,7 +280,6 @@ describe("Settings › AI says whose AI is connected", () => {
 
   test("with one AI connected: its name first, a model as optional, and no primary button for it", async () => {
     const own = await card(["Claude Code"]);
-    expect(own.own).toBe(true);
     expect(own.text).toContain("Your AI: Claude Code");
     expect(own.text).toContain("A model in IncarnaMind is optional.");
     expect(own.text).not.toContain("No AI yet");
@@ -284,7 +299,6 @@ describe("Settings › AI says whose AI is connected", () => {
 
   test("with none connected it is as it was: No AI yet, and adding a key is the primary button", async () => {
     const none = await card([]);
-    expect(none.own).toBe(false);
     expect(none.text).toContain("No AI yet");
     expect(none.text).toContain("Add a key, sign in to a plan, or use a model on this computer.");
     expect(none.text).not.toContain("optional");

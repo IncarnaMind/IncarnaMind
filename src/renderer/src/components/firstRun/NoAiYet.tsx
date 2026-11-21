@@ -15,7 +15,6 @@ export function NoAiYet({ agents, onAdd }: { agents: readonly string[]; onAdd():
   return (
     <section
       data-testid="ai-none"
-      data-own-ai={own || undefined}
       aria-labelledby="ai-none-title"
       className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[10px] py-3.5 pr-3.5 pl-4 shadow-[inset_0_0_0_1px_var(--color-rule-strong)]"
     >

@@ -112,7 +112,6 @@ describe("the setup's Your AI step", () => {
     expect(headings).toEqual(["Use the AI you already have"]);
     const line = container.querySelector('[data-testid="setup-in-app-open"]');
     expect(line?.textContent).toBe("Use a model in IncarnaMind");
-    expect(line?.getAttribute("aria-expanded")).toBe("false");
     for (const behind of ["setup-key", "setup-way-chatgpt", "setup-way-more", "setup-way-local"]) {
       expect(has(container, behind), behind).toBe(false);
     }
