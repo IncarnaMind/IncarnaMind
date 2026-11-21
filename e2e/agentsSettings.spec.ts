@@ -402,7 +402,7 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
     await expect(dialog).toContainText("允许 ChatGPT 应用或 Codex 读取你的文档？");
     await acceptPlainTextKeys(window, dialog);
     await dialog.getByTestId("agent-folder").check();
-    await dialog.getByTestId("connect-agent-allow").click();
+    await dialog.getByTestId("connect-agent-allow").press("Enter");
     await expect(dialog).toBeHidden();
 
     const connected = page.getByTestId("agent-pairing").filter({ hasText: "ChatGPT 应用和 Codex" });
