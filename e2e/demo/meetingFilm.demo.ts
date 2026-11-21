@@ -197,12 +197,20 @@ test(`records a take of the film's meeting part in ${language}`, async () => {
     // The window as the film has it: the User's notes for the call open, the assistant put away.
     await openMind(window, words.prep);
     const editor = window.getByTestId("mind-editor");
+    await expect(editor).toContainText(words.prep);
+    // The app places the caret itself a moment after the Note opens; typed before that, the
+    // questions land in front of the title. A take never starts on a Note that came out wrong.
+    await sleep(1500);
     await editor.click();
-    await window.keyboard.press("ControlOrMeta+End");
+    await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
     for (const question of words.questions) {
       await window.keyboard.press("Enter");
       await window.keyboard.type(question);
     }
+    await expect(editor.locator("h1")).toHaveText([words.prep]);
+    await expect(editor.locator(":scope > p").filter({ hasText: /\S/ })).toHaveText(
+      words.questions,
+    );
     const assistant = window.getByTestId("assistant");
     if ((await assistant.count()) > 0 && (await assistant.getAttribute("data-folded")) !== "true")
       await window
