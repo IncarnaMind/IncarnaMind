@@ -8919,13 +8919,13 @@ export const en = {
     "Choosing Claude Code or Codex lets it receive your question and relevant confirmed speech from the last ten minutes of this transcript when you ask. Share the meeting folder with it first.",
   "meetings.help.agent.builtin": "Use the app’s answer model",
   "meetings.help.agent.missing": "Selected AI unavailable",
-  "meetings.help.agent.denied":
+  "error.meeting.callHelpAgentDenied":
     "Share the meeting folder with your selected AI or choose another in Meetings settings.",
-  "meetings.help.agent.questionTooLong": "Shorten the question and ask again.",
-  "meetings.help.agent.failed": "The selected AI could not answer. Try again from Call Help.",
+  "error.meeting.callHelpQuestionTooLong": "Shorten the question and ask again.",
+  "error.meeting.callHelpAgentFailed": "The selected AI could not answer. Try again from Call Help.",
   "meetings.help.agent.insufficient":
     "The meeting transcript so far does not contain enough information to answer.",
-  "meetings.help.agent.retry": "Ask again from Call Help while the meeting is open.",
+  "error.meeting.callHelpAgentRetry": "Ask again from Call Help while the meeting is open.",
   "meetings.help.agent.sourceMissing":
     "These original words are no longer available in the meeting transcript.",
   "meetings.help.agent.openTranscript": "Open in transcript",

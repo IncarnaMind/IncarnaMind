@@ -5583,7 +5583,7 @@ export function createCore(adapters: CoreAdapters): Core {
       (adapters.log ?? silentLogger).warn("meeting.callHelpAgentFailed", {
         kind: error instanceof Error ? error.name : "unknown",
       });
-      throw new InvalidInputError({ key: "meetings.help.agent.failed" });
+      throw new InvalidInputError({ key: "error.meeting.callHelpAgentFailed" });
     }
   }
 
@@ -6847,7 +6847,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     regenerateConversationAnswer: async (input) => {
       if (conversations.answer(conversations.questionOf(input).answerId)?.steps?.meetingHelpAgent)
-        throw new InvalidInputError({ key: "meetings.help.agent.retry" });
+        throw new InvalidInputError({ key: "error.meeting.callHelpAgentRetry" });
       return answers.regenerateInConversation(input);
     },
     countScopeDocuments: async (scope) => {

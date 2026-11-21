@@ -55,7 +55,7 @@ export function prepareCallHelp(cues: readonly Cue[], question: string, kind: Ca
       speech: rows.map(({ cue }, i) => ({ source: i + 1, speaker: cue.speaker, text: cue.text })),
     });
   if (bytes(pack([])) > 3400)
-    throw new InvalidInputError({ key: "meetings.help.agent.questionTooLong" });
+    throw new InvalidInputError({ key: "error.meeting.callHelpQuestionTooLong" });
   // Older Codex clients accept at most 4,000 UTF-8 bytes per tool-free sample.
   let left = 3960 - bytes(pack([]));
   for (const row of ordered) {
@@ -82,10 +82,10 @@ function parse(raw: string): { text: string; source: number }[] {
   try {
     value = JSON.parse(raw.trim().replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/gi, ""));
   } catch {
-    throw new InvalidInputError({ key: "meetings.help.agent.failed" });
+    throw new InvalidInputError({ key: "error.meeting.callHelpAgentFailed" });
   }
   if (!isRecord(value) || !Array.isArray(value.lines))
-    throw new InvalidInputError({ key: "meetings.help.agent.failed" });
+    throw new InvalidInputError({ key: "error.meeting.callHelpAgentFailed" });
   return value.lines
     .filter(
       (line): line is { text: string; source: number } =>
@@ -151,7 +151,8 @@ export async function answerWithMeetingAgent(options: {
   return lines.length ? { text: lines.join("\n\n"), citations, sent: true } : empty;
 }
 
-export const deniedCallHelp = () => new InvalidInputError({ key: "meetings.help.agent.denied" });
+export const deniedCallHelp = () =>
+  new InvalidInputError({ key: "error.meeting.callHelpAgentDenied" });
 
 export function watchCallHelpAccess(
   events: Pick<ReturnType<typeof createEventHub>, "on">,
