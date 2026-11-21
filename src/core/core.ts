@@ -1221,7 +1221,12 @@ export function createCore(adapters: CoreAdapters): Core {
         timeIndexing(document);
         events.emit("document.status", document);
         // A Document as it was (back from Recently deleted, or embedded again) isn't filed again (#1433, #2023).
-        if (!unchanged) libraryDocumentChanged(document.id);
+        if (!unchanged) {
+          libraryDocumentChanged(document.id);
+          if (document.ownFile !== null || document.meetingMindId !== null) {
+            events.emit("library.changed", null);
+          }
+        }
         batches.changed([document.id]);
         rebuildMayHaveProgressed();
       },
@@ -3428,6 +3433,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const recordOwnFile = (data: Uint8Array, kind: OwnFileKind, folderId: string | null) => {
     const marked = ownFiles.record(data, kind, folderId);
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
+    if (marked.length > 0) events.emit("library.changed", null);
   };
   const quoteAsRead = ({
     documentId,
@@ -4024,6 +4030,7 @@ export function createCore(adapters: CoreAdapters): Core {
       events.emit("library.assignments", assignments);
       batches.changed(assignments.map((each) => each.documentId));
     },
+    documentWalls: () => wall.walledByDocument(),
     providerExists: (id) => chat.exists(id),
     rateLimit,
     readsPages: (classifier) => {
@@ -7792,7 +7799,13 @@ export function createCore(adapters: CoreAdapters): Core {
       organizeReview.filedByHand(documentIds, folderId);
       // Said once it is saved, so a move that rolled back says nothing.
       const joined = move.minds.filter((item) => item.from !== folderId);
-      if (joined.length > 0) mindsChanged();
+      if (joined.length > 0) {
+        mindsChanged();
+        const movedMindIds = new Set(joined.map((item) => item.id));
+        if (documents.rows().some((each) => movedMindIds.has(each.meetingMindId ?? ""))) {
+          events.emit("library.changed", null);
+        }
+      }
       if (folderId !== null) {
         // A Note or a Document that joined a Folder changes what its other Notes are checked
         // against; a Document leaving one cannot add a contradiction, so it starts nothing.

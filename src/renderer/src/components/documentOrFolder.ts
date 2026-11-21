@@ -1,7 +1,7 @@
 import type { Document, Mind, SearchScope } from "../../../core/api";
 import { NO_SCOPE } from "../../../shared/searchScope";
 import { folderWallOf } from "../folders";
-import { type ScopeChoice, type ScopeLibrary, scopeChoices, wallLibraryOf } from "../scope";
+import { type ScopeChoice, type ScopeLibrary, scopeChoices } from "../scope";
 import { documentWalls } from "../walls";
 
 export type DocumentOrFolderChoice = Omit<ScopeChoice, "kind"> & {
@@ -19,9 +19,10 @@ export function documentOrFolderChoices(
   );
 }
 
-/** What `keptFrom` reads of the Library: its Folders, where Documents are filed, and whose meeting each is. */
-export interface FilingLibrary extends Pick<ScopeLibrary, "groups" | "assignments"> {
-  documents: readonly Pick<Document, "id" | "meetingMindId">[];
+/** What `keptFrom` reads of the Library: its Folders and the wall each Document is behind (#3131). */
+export interface FilingLibrary
+  extends Pick<ScopeLibrary, "groups" | "assignments" | "documentWalls"> {
+  documents?: readonly Pick<Document, "id" | "meetingMindId">[];
   minds?: readonly Pick<Mind, "id" | "folderId">[];
 }
 
@@ -59,8 +60,7 @@ export function keptFrom(
   wall: string | null,
 ): { inside: string } | "outside" | null {
   const groups = library.groups ?? [];
-  const filed =
-    choice.kind === "document" ? documentWalls(wallLibraryOf(library)).get(choice.id) : undefined;
+  const filed = choice.kind === "document" ? documentWalls(library).get(choice.id) : undefined;
   const behind =
     choice.kind === "folder" ? folderWallOf(groups, choice.id) : (filed?.wallId ?? null);
   if (wall === null) {

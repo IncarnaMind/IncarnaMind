@@ -4,62 +4,35 @@
  */
 import {
   CITATION_NODE,
-  type Document,
-  type DocumentGroupAssignment,
+  type DocumentWall,
   type LibraryGroup,
-  type LibrarySnapshot,
-  type Mind,
   type SearchScope,
 } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
 import { folderWallOf } from "./folders";
-import { withTranscriptsFiled } from "./meetingTranscript";
 import type { Translate } from "./objects";
 
-/**
- * What of the Library the walls are read from. The Documents and the Notes are part of it: a
- * meeting's Transcript is behind its Note's wall (#2528).
- */
+/** What of the Library the walls are read from (#3131). */
 export interface WallLibrary {
   groups: readonly Pick<LibraryGroup, "id" | "name" | "parentId" | "keepInside">[];
-  assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId" | "source">[];
-  documents: readonly Pick<Document, "id" | "meetingMindId">[];
-  minds: readonly Pick<Mind, "id" | "folderId">[];
+  documentWalls?: Readonly<Record<string, DocumentWall>>;
 }
 type Walls = WallLibrary | null;
 
-/** The walls as the store holds them, with its Documents and Notes. */
-export const wallsOf = (state: {
-  library: LibrarySnapshot | null;
-  documents: readonly Document[];
-  minds: readonly Mind[];
-}): Walls => state.library && { ...state.library, documents: state.documents, minds: state.minds };
+/** The walls as the store holds them. */
+export const wallsOf = (state: { library: Walls }): Walls => state.library;
 
 /**
- * The wall each Document is behind, as the window can tell: the nearest Folder keeping its work
- * inside it around the Folder the Document is filed in (#246), a meeting's Transcript being where
- * its Note is (#2528). `byUser`: the User filed it there, so a Note behind that wall searches it.
- * A Document behind no wall is absent. Every picker, chip and Citation takes this one reading.
+ * The wall each Document is behind, as the core's search reads it (#3131): the nearest Folder
+ * keeping its work inside it around where the Document is filed (#246), where its Meeting's Note
+ * is (#2528), or where the Note IncarnaMind wrote its file from was (#1934). `byUser`: the User
+ * filed it there, so a Note behind that wall searches it. A Document behind no wall is absent.
+ * Every picker, chip and Citation takes this one reading.
  */
 export function documentWalls(
-  library: WallLibrary,
-): Map<string, { wallId: string; byUser: boolean }> {
-  const wallOfFolder = new Map<string, string | null>();
-  const found = new Map<string, { wallId: string; byUser: boolean }>();
-  for (const filing of withTranscriptsFiled(
-    library.assignments,
-    library.documents,
-    library.minds,
-  )) {
-    if (filing.groupId === null || found.has(filing.documentId)) continue;
-    let wallId = wallOfFolder.get(filing.groupId);
-    if (wallId === undefined) {
-      wallId = folderWallOf(library.groups, filing.groupId);
-      wallOfFolder.set(filing.groupId, wallId);
-    }
-    if (wallId !== null) found.set(filing.documentId, { wallId, byUser: filing.source === "user" });
-  }
-  return found;
+  library: Pick<WallLibrary, "documentWalls">,
+): Map<string, DocumentWall> {
+  return new Map(Object.entries(library.documentWalls ?? {}));
 }
 
 /**

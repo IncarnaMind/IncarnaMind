@@ -231,6 +231,12 @@ export interface DocumentBatch {
   suggested: { groupId: string; count: number }[];
 }
 
+/** Which wall a walled Document is behind, and whether a Note behind that wall searches it (#3131). */
+export interface DocumentWall {
+  wallId: string;
+  byUser: boolean;
+}
+
 export interface LibrarySnapshot {
   groups: LibraryGroup[];
   /**
@@ -239,6 +245,12 @@ export interface LibrarySnapshot {
    */
   deletedGroups: LibraryGroup[];
   assignments: DocumentGroupAssignment[];
+  /**
+   * Each walled Document's wall, as the core's search reads it (#3131): the nearest Folder keeping
+   * its work inside it around where the Document is filed (#246), where its Meeting's Note is
+   * (#2528), or where the Note IncarnaMind wrote its file from was (#1934).
+   */
+  documentWalls?: Record<string, DocumentWall>;
   settings: LibrarySettings;
   /**
    * The cloud services the switch for sorting and tagging new Documents asks the User about before

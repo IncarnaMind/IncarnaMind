@@ -44,6 +44,7 @@ const library: ReadableLibrary = {
   groups: [folder("wall", "Client A", true), folder("general", "General")],
   documents: [document("lease"), document("notice"), document("scan", "no-text")],
   assignments: [filed("lease", "wall"), filed("notice", "general")],
+  documentWalls: { lease: { wallId: "wall", byUser: true } },
 };
 
 describe("A Document a sentence's actions may take", () => {
@@ -83,6 +84,7 @@ describe("A Document a Note's sentence may take now", () => {
         groups: [folder("wall", "Client A", true)],
         deletedGroups: [],
         assignments: [],
+        documentWalls: { transcript: { wallId: "wall", byUser: true } },
         settings: {
           classifier: { kind: "automatic" },
           automatic: false,
