@@ -104,6 +104,7 @@ export function withCueMarks(
   units: readonly PageText[],
   speakers: TranscriptSpeakers | null = null,
   window = { start: 0, end: text.length },
+  speakerAt = speakerMark,
 ): string {
   const cues = cuesOf(units);
   const found = cueRun(text, cues);
@@ -114,7 +115,7 @@ export function withCueMarks(
     if (!cue) break;
     const { label } = cue;
     const mark = (ms: number) => {
-      const speaker = label ? markWords(speakerMark(speakers, ms, label)) : undefined;
+      const speaker = label ? markWords(speakerAt(speakers, ms, label)) : undefined;
       return `[${clockTime(ms)}${speaker ? ` ${speaker}` : ""}] `;
     };
     const marks = [{ offset: at, ms: cue.startMs }];
