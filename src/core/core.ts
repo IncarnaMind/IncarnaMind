@@ -5295,6 +5295,7 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   });
   const speakerReview = createMeetingSpeakerReview({
+    heardCallAudio: (id) => transcripts?.heardCallAudio(id) ?? true,
     parts: (id) => listParts(meetingFolder(dataDir, id)),
     recording: sourceRecording,
     roomReviewer: adapters.roomSpeakerReviewer,
