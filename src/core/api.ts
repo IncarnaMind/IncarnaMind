@@ -12138,6 +12138,8 @@ export interface MeetingSummary {
   candidateCount?: number;
   candidatesReviewed?: true;
   problem?: "codex-input-limit";
+  /** The connected agent originally selected for a failed summary. */
+  retryAgentId?: string;
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
 }

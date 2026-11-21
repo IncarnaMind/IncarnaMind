@@ -8951,6 +8951,10 @@ export const en = {
     "This update exceeds your installed Codex client’s 4,000-byte limit. Retry with a Codex version that supports longer meeting updates.",
   "error.meeting.summaryUnavailable":
     "Check the selected summary AI and its access to this meeting in Settings.",
+  "meetings.summary.needsTranscript": "A saved transcript is needed to prepare the summary.",
+  "meetings.summary.retryTranscript": "Retry transcription",
+  "meetings.summary.share":
+    "Your AI needs access to the meeting note and transcript to prepare a summary.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",
   "meetings.summary.updateFailed": "Couldn’t finish the summary.",
   // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
@@ -8965,7 +8969,8 @@ export const en = {
   "agents.ask.line.questionScope":
     "From the Documents in my search scope in IncarnaMind:\n\n{question}",
   "agents.ask.line.check": "Check my note {title} in IncarnaMind against my Documents.",
-  "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
+  "agents.ask.line.meeting":
+    "First read the request I left in IncarnaMind for {title}, then prepare the meeting notes as requested.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}{quote}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",

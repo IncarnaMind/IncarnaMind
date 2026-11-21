@@ -61,6 +61,13 @@ const folderIds = z
 
 const location = z.string().nullable();
 
+const timedText = z
+  .string()
+  .optional()
+  .describe(
+    "Transcript words with the time and speaker of each identified turn. Use these labels for attribution and quote the original words.",
+  );
+
 const passageOut = z.object({
   passageId: z.string(),
   documentId: z.string(),
@@ -69,6 +76,7 @@ const passageOut = z.object({
   quote: z.string().nullable(),
   cite: z.string().nullable(),
   text: z.string(),
+  timedText,
 });
 
 const heldCall = z.object({
@@ -213,7 +221,9 @@ export function createAgentServer(
       outputSchema: z.object({
         documentId: z.string(),
         document: z.string(),
-        passages: z.array(z.object({ passageId: z.string(), location, text: z.string() })),
+        passages: z.array(
+          z.object({ passageId: z.string(), location, text: z.string(), timedText }),
+        ),
         previous: z.string().nullable(),
         next: z.string().nullable(),
       }),
