@@ -58,6 +58,24 @@ test("review returns full original speech at its indexed time and keeps the most
   ).toEqual([exact.slice(0, 1)]);
 });
 
+test("a named list of excerpts keeps only grounded, adjacent candidate speech", () => {
+  const review = (proposed: unknown[], established: string[] = []) =>
+    readMeetingCandidateReview(JSON.stringify(proposed), { ...input, established });
+  const malformed = [
+    { excerpts: [] },
+    { excerpts: "check the weight" },
+    { excerpts: ["check the weight", 2] },
+    { excerpts: ["sketch the label", "check the weight"] },
+    { excerpts: ["check the weight"], assignee: "Jo" },
+  ];
+  expect(() => review(malformed)).toThrow();
+  expect(review([...malformed, { excerpts: pair }, { excerpts: ["check the weight"] }])).toEqual([
+    exact.slice(0, 2),
+    exact.slice(2),
+  ]);
+  expect(review([{ excerpts: pair }], ["sketch the label"])).toEqual([]);
+});
+
 test("a returned transcript utterance must match its speaker and offers only the original timed line", () => {
   const spoken = [
     { ...cue("先问过地址，还得再问收件电话。", 0), speaker: "甲" },
