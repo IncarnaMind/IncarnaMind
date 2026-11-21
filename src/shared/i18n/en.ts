@@ -8922,7 +8922,8 @@ export const en = {
   "error.meeting.callHelpAgentDenied":
     "Share the meeting folder with your selected AI or choose another in Meetings settings.",
   "error.meeting.callHelpQuestionTooLong": "Shorten the question and ask again.",
-  "error.meeting.callHelpAgentFailed": "The selected AI could not answer. Try again from Call Help.",
+  "error.meeting.callHelpAgentFailed":
+    "The selected AI could not answer. Try again from Call Help.",
   "meetings.help.agent.insufficient":
     "The meeting transcript so far does not contain enough information to answer.",
   "error.meeting.callHelpAgentRetry": "Ask again from Call Help while the meeting is open.",

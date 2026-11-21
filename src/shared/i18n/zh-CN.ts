@@ -8403,7 +8403,8 @@ export const zhCN = {
     "选择 Claude Code 或 Codex 后，提问时会把问题和本场转写最近十分钟内的相关原话发给它。请先向它共享会议所在的文件夹。",
   "meetings.help.agent.builtin": "使用应用的回答模型",
   "meetings.help.agent.missing": "所选 AI 暂不可用",
-  "error.meeting.callHelpAgentDenied": "请将会议所在的文件夹共享给所选 AI，或在会议设置中选择其他 AI。",
+  "error.meeting.callHelpAgentDenied":
+    "请将会议所在的文件夹共享给所选 AI，或在会议设置中选择其他 AI。",
   "error.meeting.callHelpQuestionTooLong": "请缩短问题后再提问。",
   "error.meeting.callHelpAgentFailed": "所选 AI 未能回答。请在通话助手中重试。",
   "meetings.help.agent.insufficient": "目前的会议转写还不足以回答这个问题。",
