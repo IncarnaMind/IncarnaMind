@@ -5,12 +5,13 @@
  */
 import { useEffect, useState } from "react";
 import * as Y from "yjs";
-import type { AgentClient, AgentPairing } from "../../core/api";
+import type { AgentClient, AgentPairing, Document } from "../../core/api";
 import { isListedMind } from "../../shared/listedMinds";
 import { noteWriterOf } from "../../shared/noteWriter";
+import { askableDocuments } from "../../shared/readyQuestion";
 import { core } from "./core";
 import { homeReading, type NoteState } from "./noteState";
-import { useAppStore } from "./store";
+import { allExamples, isOwnDocument, useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
 
 /** A Note an agent wrote, and how its check stands; null `state` before anything was checked. */
@@ -55,6 +56,23 @@ export function useAgentAlone(): boolean {
   const pairings = useAgentPairings();
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
   return (pairings?.length ?? 0) > 0 && !modelReady;
+}
+
+/**
+ * The newest Document of the User's own that a Question can be about: the one the card names
+ * when it asks their AI for a summary (#3572). Null until they have one.
+ */
+export function useNewestDocument(): Document | null {
+  const documents = useAppStore((state) => state.documents);
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
+  const own = documents.filter((each) =>
+    isOwnDocument(each, allExamples({ examples, otherExamples })),
+  );
+  return askableDocuments(own).reduce<Document | null>(
+    (newest, each) => (newest === null || each.createdAt > newest.createdAt ? each : newest),
+    null,
+  );
 }
 
 /** At most this many of the newest Notes are read for the one an agent wrote. */

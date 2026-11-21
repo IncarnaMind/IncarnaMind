@@ -1,0 +1,335 @@
+/**
+ * Get started's steps for a User whose own AI is connected (#3572). "Ask your AI for a document":
+ * one press hands the AI a line that names their newest Document, as every other ask does. Its app
+ * opens with the line typed where it has a link for that, and the line is copied only where it has
+ * none. The core is the real one, so the line an app is opened with is the one the core builds;
+ * the link it would open is recorded, and nothing of this computer opens. "See what needs a look"
+ * is the User's own Check on the Note their AI wrote.
+ */
+import { DOMParser } from "linkedom";
+import type { ComponentType } from "react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { Core } from "../../src/core";
+import { agentSocketPath } from "../../src/core/agents";
+import { type AgentClientId, ALL_SHARED_ID, type GettingStarted } from "../../src/core/api";
+import { translate } from "../../src/shared/i18n";
+import { createTempDataFolder, startCore } from "../helpers/core";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+
+const page = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
+Object.defineProperty(page, "styleSheets", { value: [] });
+const view = page.defaultView;
+
+let real: Core | null = null;
+const nothingWaits = async () => [];
+const stillToCome = () => Promise.resolve(undefined);
+const bridge = new Proxy(
+  {},
+  {
+    get: (_each, name: string) => {
+      if (name === "listApprovalRequests" || name === "listUserQuestions") return nothingWaits;
+      const method: unknown = real && Reflect.get(real, name);
+      return typeof method === "function" ? method.bind(real) : stillToCome;
+    },
+  },
+);
+Object.assign(view, { incarnamind: bridge, incarnamindFiles: bridge });
+
+const copied: string[] = [];
+const globals: Record<string, unknown> = {
+  document: page,
+  window: view,
+  HTMLElement: view.HTMLElement,
+  Element: view.Element,
+  Event: view.Event,
+  Node: view.Node,
+  MutationObserver: view.MutationObserver,
+  requestAnimationFrame: () => 0,
+  cancelAnimationFrame: () => undefined,
+  ResizeObserver: class {
+    observe() {}
+    disconnect() {}
+  },
+  IntersectionObserver: class {
+    observe() {}
+    disconnect() {}
+  },
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+for (const [name, value] of Object.entries(globals)) vi.stubGlobal(name, value);
+vi.stubGlobal("navigator", {
+  userAgent: "node",
+  clipboard: {
+    writeText: async (text: string) => {
+      copied.push(text);
+    },
+  },
+});
+
+const { act, createElement } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { useAppStore } = await import("../../src/renderer/src/store");
+const { useNotices } = await import("../../src/renderer/src/notices");
+// The commands the card names their shortcuts of.
+await import("../../src/renderer/src/commands/app");
+const stepsPath = "../../src/renderer/src/components/FirstOpenSteps.tsx";
+interface LookProps {
+  note: { mindId: string; state: unknown } | null;
+  testId: string | undefined;
+  onCheck(): void;
+  onOpen(): void;
+}
+const {
+  FirstOpenSteps,
+  AgentLook,
+}: {
+  FirstOpenSteps: ComponentType<{ mindId: string }>;
+  AgentLook: ComponentType<LookProps>;
+} = await import(stepsPath);
+
+const LINE = (document: string) =>
+  `Write a short summary of “${document}” as a new note in IncarnaMind.`;
+const LINE_ZH = (document: string) => `在 IncarnaMind 里把文档“${document}”简要总结成一篇新笔记。`;
+
+/** The Documents added and read, the second step the one that waits for the User's AI. */
+const PROGRESS: GettingStarted = {
+  started: true,
+  citationChecked: false,
+  mistakeSeen: false,
+  indexed: true,
+  askedOwn: false,
+  askedReady: false,
+  exported: false,
+  hidden: false,
+  seen: true,
+  recorded: false,
+  notesWritten: false,
+  agentNoteSeen: false,
+};
+
+const links: string[] = [];
+const typedIn = (link: string | undefined) =>
+  new URL(link ?? "about:blank").searchParams.get("q") ?? "";
+
+let unmount: (() => Promise<void>) | null = null;
+
+/**
+ * The card of a User with these AIs connected, the one connected last first, and these Documents
+ * added in this order, as the window shows it.
+ */
+async function card(
+  clients: [string, AgentClientId][],
+  documents: string[] = ["Harbour report 2025"],
+  language: "en" | "zh-CN" = "en",
+) {
+  const dataDir = await createTempDataFolder();
+  real = startCore(dataDir, {
+    agents: {
+      socketPath: agentSocketPath(dataDir),
+      launcher: { command: process.execPath, args: ["not-started"] },
+      version: "0.0.0-test",
+      openLink: async (url: string) => {
+        links.push(url);
+      },
+    },
+  });
+  if (language !== "en") await real.updateSettings({ user: { language } });
+  await real.setAgentsEnabled(true);
+  for (const [name, client] of clients) {
+    await real.connectAgent({ name, client, folderIds: [ALL_SHARED_ID] });
+  }
+  const sources = await createSourceFolder();
+  for (const name of documents) {
+    await addAndProcess(real, [
+      await writeSourceFile(
+        sources,
+        `${name}.md`,
+        `# ${name}\n\nThe port handled 1.8 million tonnes.`,
+      ),
+    ]);
+  }
+  useAppStore.setState({
+    chatReadiness: { ready: false, reason: "no-provider" },
+    minds: [],
+    documents: await real.listDocuments(),
+    settings: { language, user: {}, device: { gettingStarted: PROGRESS, work: [] } },
+  } as never);
+  const container = page.createElement("div", {});
+  page.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(createElement(FirstOpenSteps, { mindId: "mind-1" })));
+  unmount = async () => {
+    await act(() => root.unmount());
+    container.remove();
+  };
+  const part = (testId: string) =>
+    container.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+  await vi.waitFor(async () => {
+    await act(async () => undefined);
+    expect(part("first-open-agent-ask")).not.toBeNull();
+  });
+  return { container, part };
+}
+
+beforeEach(() => {
+  copied.length = 0;
+  links.length = 0;
+  useNotices.setState({ confirmation: null });
+});
+afterEach(async () => {
+  await unmount?.();
+  unmount = null;
+});
+
+describe("the step that asks the User's AI for a document", () => {
+  // protects=one press opens an AI whose app has a link with exactly the card's line, naming the newest Document and asking for no check, copies nothing and says where to send it; fails_when=the press copies, opens another line, names another Document or the step still tells the User to paste
+  test("opens the AI's app with the card's line, and copies nothing", async () => {
+    const { container, part } = await card([["Claude Code", "claude-code"]]);
+    expect(part("first-open-agent-ask")?.textContent).toBe("Ask Claude Code");
+    expect(part("first-open-agent-line")?.textContent).toBe(LINE("Harbour report 2025"));
+    expect(container.textContent).not.toContain("Paste this into");
+    expect(part("first-open-agent-others")).toBeNull();
+    await act(async () => part("first-open-agent-ask")?.click());
+    await vi.waitFor(() => expect(links).toHaveLength(1));
+    expect(links[0]?.startsWith("claude-cli://open?q=")).toBe(true);
+    expect(typedIn(links[0])).toBe(LINE("Harbour report 2025"));
+    expect(typedIn(links[0])).not.toMatch(/check/i);
+    expect(copied).toEqual([]);
+    await vi.waitFor(() =>
+      expect(useNotices.getState().confirmation).toMatchObject({
+        message: "agents.ask.opened",
+        params: { agent: "Claude Code" },
+      }),
+    );
+  });
+
+  // protects=the card names the newest Document the User added, not the first or every one; fails_when=an older Document is named
+  test("names the newest of the User's Documents", async () => {
+    const { part } = await card([["Claude Code", "claude-code"]], ["Older plan", "Newer plan"]);
+    expect(part("first-open-agent-line")?.textContent).toBe(LINE("Newer plan"));
+    await act(async () => part("first-open-agent-ask")?.click());
+    await vi.waitFor(() => expect(links).toHaveLength(1));
+    expect(typedIn(links[0])).toBe(LINE("Newer plan"));
+  });
+
+  // protects=an AI with no link is handed the line to copy, and the notice says where to paste it; fails_when=nothing is copied, a link is opened or the notice says it opened
+  test("copies the line for an AI whose app has no way to open with one", async () => {
+    const { part } = await card([["VS Code", "vscode"]]);
+    expect(part("first-open-agent-ask")?.textContent).toBe("Ask VS Code");
+    await act(async () => part("first-open-agent-ask")?.click());
+    await vi.waitFor(() => expect(copied).toEqual([LINE("Harbour report 2025")]));
+    expect(links).toEqual([]);
+    await vi.waitFor(() =>
+      expect(useNotices.getState().confirmation).toMatchObject({
+        message: "agents.ask.copied",
+        params: { agent: "VS Code" },
+      }),
+    );
+  });
+
+  // protects=with several AIs connected the one connected last is asked and the others are one step away, as the Ask pill offers them; fails_when=the first AI isn't the one connected last, or the others have no way to be chosen
+  test("with several AIs connected, asks the one connected last and offers the others", async () => {
+    const { part } = await card([
+      ["Claude Code", "claude-code"],
+      ["VS Code", "vscode"],
+    ]);
+    expect(part("first-open-agent-ask")?.textContent).toBe("Ask VS Code");
+    expect(part("first-open-agent-others")?.getAttribute("aria-label")).toBe("Ask another AI");
+    await act(async () => part("first-open-agent-ask")?.click());
+    await vi.waitFor(() => expect(copied).toEqual([LINE("Harbour report 2025")]));
+    expect(links).toEqual([]);
+  });
+
+  // protects=the step's title press asks the same AI as its button, and the line is the card's in Chinese; fails_when=the title press does nothing, or Chinese gets the English line
+  test("in Chinese, the title and the button ask with the Chinese line", async () => {
+    const { container, part } = await card(
+      [["Claude Code", "claude-code"]],
+      ["Harbour report 2025"],
+      "zh-CN",
+    );
+    expect(part("first-open-agent-ask")?.textContent).toBe(
+      translate("zh-CN", "agents.ask.action", { agent: "Claude Code" }),
+    );
+    expect(part("first-open-agent-line")?.textContent).toBe(LINE_ZH("Harbour report 2025"));
+    const title = container.querySelector(
+      '[data-testid="first-open-step"][data-step="agentAsk"] [data-testid="first-open-step-do"]',
+    ) as HTMLElement | null;
+    expect(title).not.toBeNull();
+    await act(async () => title?.click());
+    await vi.waitFor(() => expect(links).toHaveLength(1));
+    expect(typedIn(links[0])).toBe(LINE_ZH("Harbour report 2025"));
+    expect(copied).toEqual([]);
+  });
+});
+
+describe("the step that checks the Note the User's AI wrote", () => {
+  const note = (kind: string, look: number) => ({ mindId: "note-1", state: { kind, look } });
+
+  async function look(props: LookProps, language: "en" | "zh-CN" = "en") {
+    useAppStore.setState({ settings: { language, user: {}, device: {} } } as never);
+    const container = page.createElement("div", {});
+    page.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(createElement(AgentLook, props)));
+    unmount = async () => {
+      await act(() => root.unmount());
+      container.remove();
+    };
+    return container as unknown as HTMLElement;
+  }
+
+  // protects=before a check the step offers Check on the Note, and says what shows once it is checked; pressing it runs the Note's own Check; fails_when=the step waits for the AI's marks with no way to start a check, or offers the Note instead of Check
+  test("offers Check on the Note before it is checked", async () => {
+    const checks: string[] = [];
+    const container = await look({
+      note: note("not-checked", 0),
+      testId: "look",
+      onCheck: () => checks.push("check"),
+      onOpen: () => checks.push("open"),
+    });
+    expect(container.querySelector('[data-testid="look"]')?.textContent).toBe(
+      "What needs a look shows here once the note is checked.",
+    );
+    expect(container.querySelector('[data-testid="look-open"]')).toBeNull();
+    const check = container.querySelector('[data-testid="look-check"]') as HTMLElement;
+    expect(check.textContent).toBe("Check");
+    await act(async () => check.click());
+    expect(checks).toEqual(["check"]);
+  });
+
+  // protects=the same step in Chinese; fails_when=Chinese gets English words
+  test("reads in Chinese too", async () => {
+    const container = await look(
+      {
+        note: note("not-checked", 0),
+        testId: "look",
+        onCheck: () => undefined,
+        onOpen: () => undefined,
+      },
+      "zh-CN",
+    );
+    expect(container.querySelector('[data-testid="look"]')?.textContent).toBe(
+      "笔记核对完后，需要留意的地方会显示在这里。",
+    );
+    expect(container.querySelector('[data-testid="look-check"]')?.textContent).toBe("核对");
+  });
+
+  // protects=once the Note is checked the step shows what the check found and offers the Note at its first mark, as before; fails_when=the result is lost or Check is offered again
+  test("shows what the check found, and opens the Note", async () => {
+    const opened: string[] = [];
+    const container = await look({
+      note: note("needs-look", 1),
+      testId: "look",
+      onCheck: () => opened.push("check"),
+      onOpen: () => opened.push("open"),
+    });
+    expect(container.querySelector('[data-testid="look"]')?.textContent).toBe(
+      "1 sentence needs a look.",
+    );
+    expect(container.querySelector('[data-testid="look-check"]')).toBeNull();
+    await act(async () =>
+      (container.querySelector('[data-testid="look-open"]') as HTMLElement).click(),
+    );
+    expect(opened).toEqual(["open"]);
+  });
+});

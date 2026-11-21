@@ -524,6 +524,121 @@ describe("asking a connected AI to organize", () => {
   });
 });
 
+describe("asking the User's own AI for a summary of a Document, from Get started (#3572)", () => {
+  /** A Document the agent reads in the ferries' Folder, and another it doesn't. */
+  async function withTwoDocuments() {
+    const base = await started();
+    const { core, ferries } = base;
+    const secret = await core.createLibraryGroup({ name: "Private", description: "" });
+    const sources = await createSourceFolder();
+    const [report, diary] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Annual summary 2025.md",
+        "# Summary\n\nIn 2025 the company ran 2,816 crossings.",
+      ),
+      await writeSourceFile(sources, "Diary.md", "# Diary\n\nThe captain's private notes."),
+    ]);
+    if (!report || !diary) throw new Error("The Documents weren't added.");
+    await core.assignDocumentGroup(report.id, ferries.id);
+    await core.assignDocumentGroup(diary.id, secret.id);
+    return { ...base, report, diary };
+  }
+
+  // protects=the line typed in an app that opens with one names the Document by its name, in quotes, says nothing of a check, and nothing is kept for the agent to read; fails_when=the press copies instead of opening, the line asks for a check or names no Document, or a request is kept
+  it("opens Claude Code with a line that names the Document, and keeps nothing", async () => {
+    const { core, links, report, connect } = await withTwoDocuments();
+    const pairing = await connect("Claude Code", "claude-code");
+    const ask: AgentAsk = { kind: "summary", documentId: report.id };
+    expect(await core.askAgent({ pairingId: pairing.id, mindId: null, ask })).toEqual({
+      kind: "opened",
+    });
+    expect(links).toHaveLength(1);
+    expect(links[0]?.startsWith("claude-cli://open?q=")).toBe(true);
+    expect(promptOf(links[0], "q")).toBe(
+      `Write a short summary of “${report.name}” as a new note in IncarnaMind.`,
+    );
+    expect(promptOf(links[0], "q")).toBe(
+      translate("en", "firstOpen.agent.line", { document: `“${report.name}”` }),
+    );
+    expect(await requestRead(await connectLegacyAgent(pairing.launch))).toEqual(NONE);
+  });
+
+  // protects=an agent with no link is handed the same line to copy, and nothing opens; fails_when=the line is lost, changed or a link is opened
+  it("returns the line to copy for an agent that has no link", async () => {
+    const { core, links, report, connect } = await withTwoDocuments();
+    const pairing = await connect("VS Code", "vscode");
+    expect(
+      await core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "summary", documentId: report.id },
+      }),
+    ).toEqual({
+      kind: "copy",
+      text: `Write a short summary of “${report.name}” as a new note in IncarnaMind.`,
+    });
+    expect(links).toEqual([]);
+  });
+
+  // protects=the line is in the interface language for the app that opens and the one that copies; fails_when=Chinese gets the English line
+  it("asks in Chinese when the interface is", async () => {
+    const { core, links, report, connect } = await withTwoDocuments();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const codeApp = await connect("Claude Code", "claude-code");
+    const editor = await connect("VS Code", "vscode");
+    const ask: AgentAsk = { kind: "summary", documentId: report.id };
+    const line = `在 IncarnaMind 里把文档“${report.name}”简要总结成一篇新笔记。`;
+    expect(await core.askAgent({ pairingId: editor.id, mindId: null, ask })).toEqual({
+      kind: "copy",
+      text: line,
+    });
+    expect(await core.askAgent({ pairingId: codeApp.id, mindId: null, ask })).toEqual({
+      kind: "opened",
+    });
+    expect(promptOf(links[0], "q")).toBe(line);
+  });
+
+  // protects=an agent that can't read the Document, or can't be asked now, is refused and nothing opens, as for every other ask; a request naming a Note is no request; fails_when=a Document the agent can't read is named to it, or the ask goes through
+  it("refuses a Document the agent can't read, an agent that can't be asked, and an ask that names a Note", async () => {
+    const { core, links, report, diary, mind, connect } = await withTwoDocuments();
+    const pairing = await connect("Claude Code", "claude-code");
+    const unreadable = "That agent can’t read this Document now.";
+    await expect(
+      core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "summary", documentId: diary.id },
+      }),
+    ).rejects.toThrow(unreadable);
+    await expect(
+      core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "summary", documentId: "gone" },
+      }),
+    ).rejects.toThrow(unreadable);
+    const notARequest = "That isn’t a request IncarnaMind can hand to your AI.";
+    await expect(
+      core.askAgent({
+        pairingId: pairing.id,
+        mindId: mind.id,
+        ask: { kind: "summary", documentId: report.id },
+      }),
+    ).rejects.toThrow(notARequest);
+    await core.setLocalOnly(true);
+    expect(await core.listAgentsToAsk(null, report.id)).toEqual([]);
+    await expect(
+      core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "summary", documentId: report.id },
+      }),
+    ).rejects.toThrow(unreadable);
+    expect(links).toEqual([]);
+  });
+});
+
 const SUMMARISE = "Summarise this document";
 
 describe("asking the User's own AI about what they are looking at (#3533)", () => {

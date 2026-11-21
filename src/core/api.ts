@@ -12955,10 +12955,11 @@ export const MAX_ASKED_SENTENCES = 30;
  * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
  * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
  * named, to go on in their AI; or to check the Note, with no model set up in IncarnaMind to do it
- * (#3533).
+ * (#3533); or, from Get started, to write a short summary of one Document as a new Note (#3572).
  */
 export type AgentAsk =
   | { kind: "organize"; target: OrganizeTarget }
+  | { kind: "summary"; documentId: string }
   | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }

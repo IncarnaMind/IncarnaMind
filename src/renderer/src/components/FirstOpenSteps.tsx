@@ -6,11 +6,18 @@ import {
   useRef,
   useState,
 } from "react";
-import type { WorkKind } from "../../../core/api";
+import type { AgentPairing, WorkKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
-import { fitName } from "../../../shared/naming";
-import { type AgentNote, openAtFirstLook, useAgentNote, useAgentPairings } from "../agentNote";
+import { fitName, quotedName } from "../../../shared/naming";
+import {
+  type AgentNote,
+  openAtFirstLook,
+  useAgentNote,
+  useAgentPairings,
+  useNewestDocument,
+} from "../agentNote";
 import { type AskBlock, useAnswers } from "../answers";
+import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
 import { commands } from "../commands/registry";
@@ -22,12 +29,14 @@ import { goToMistake } from "../editor/mistakeMark";
 import { focusQuietly } from "../editor/quietFocus";
 import { useLanguage, useT } from "../i18n";
 import { useMeetings } from "../meetings";
+import { startCheckAsking } from "../mindCheck";
 import { openModelSetup } from "../modelSetup";
 import { stepsShownOf } from "../nudges";
 import { revealAssistant } from "../quietAssistant";
 import { readyRowOf } from "../readyRow";
 import { useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
+import { OtherAgents } from "./AskAgentLine";
 import { CardTail } from "./firstRun/CardTail";
 import { type CardStep, cardStepsOf, type StepWords, stepWords } from "./firstRun/cardWords";
 import { ExampleBanner } from "./GettingStarted";
@@ -35,7 +44,6 @@ import {
   ChatLineIcon,
   CheckLineIcon,
   CloseLineIcon,
-  CopyLineIcon,
   MicLineIcon,
   NoteLineIcon,
   PlusLineIcon,
@@ -75,7 +83,7 @@ const DO_ICONS: Record<StepKey, typeof PlusLineIcon> = {
   files: PlusLineIcon,
   record: MicLineIcon,
   notes: NoteLineIcon,
-  agentAsk: CopyLineIcon,
+  agentAsk: ChatLineIcon,
   agentLook: CheckLineIcon,
 };
 
@@ -169,7 +177,9 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const pairings = useAgentPairings();
   const agent = pairings?.at(-1)?.name ?? null;
   const agentNote = useAgentNote(pairings ?? []);
-  const [copied, setCopied] = useState(false);
+  const named = useNewestDocument();
+  useReadAgentsToAsk(null, named?.id);
+  const [asker, ...others] = useAgentsToAskRead(null, named?.id) ?? [];
   const lead = work[0];
   const steps = cardStepsOf(lead, agent !== null);
   const addFiles = useRef<HTMLButtonElement>(null);
@@ -229,17 +239,18 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
     if (newest) useAppStore.getState().openMind(newest.mindId);
     else startRecording();
   };
-  const copyAgentLine = () => {
-    navigator.clipboard.writeText(t("firstOpen.agent.line")).then(
-      () => setCopied(true),
-      (error: unknown) => useAppStore.getState().reportError(error),
-    );
+  const askForSummary = (pairing: AgentPairing) => {
+    if (named) void askAgent(pairing, null, { kind: "summary", documentId: named.id });
   };
   // Seen only once its check has landed: before that there is nothing yet to look at.
   const openAgentNote = () => {
     if (!agentNote) return;
     openAtFirstLook(agentNote.mindId, focusQuietly);
     if (agentChecked(agentNote)) updateGettingStarted({ agentNoteSeen: true });
+  };
+  // The Note's own Check: with no model set up in IncarnaMind its card asks their AI (#3543).
+  const checkAgentNote = () => {
+    if (agentNote) startCheckAsking(agentNote.mindId).catch(useAppStore.getState().reportError);
   };
 
   const layer = (stateOf: (key: StepKey) => StepState, hasModel: boolean, live: boolean) => {
@@ -336,33 +347,41 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
       ),
       notes: body("notes"),
       agentAsk: (
-        <>
-          <p className="text-[13px] leading-5 text-ink-secondary">
-            {t("firstOpen.agent.paste", { agent: agent ?? "" })}
+        <div className="flex items-start gap-2 rounded-md bg-chip py-1.5 pr-1.5 pl-2.5">
+          <p
+            data-testid={only("first-open-agent-line")}
+            className="min-w-0 flex-1 py-1 text-[13px] leading-5 text-ink select-text"
+          >
+            {named && t("firstOpen.agent.line", { document: quotedName(named.name) })}
           </p>
-          <div className="flex items-start gap-2 rounded-md bg-chip py-1.5 pr-1.5 pl-2.5">
-            <p
-              data-testid={only("first-open-agent-line")}
-              className="min-w-0 flex-1 py-1 text-[13px] leading-5 text-ink select-text"
-            >
-              {t("firstOpen.agent.line")}
-            </p>
-            <button
-              type="button"
-              data-testid={only("first-open-agent-copy")}
-              onClick={copyAgentLine}
-              className={`${buttonStyle("secondary", "sm")} shrink-0`}
-            >
-              {t(live && copied ? "agents.pairing.copied" : "agents.pairing.copy")}
-            </button>
-          </div>
-        </>
+          {asker && (
+            <span className="inline-flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                data-testid={only("first-open-agent-ask")}
+                onClick={() => askForSummary(asker)}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("agents.ask.action", { agent: asker.name })}
+              </button>
+              {others.length > 0 && (
+                <OtherAgents
+                  agents={others}
+                  label={(name) => t("agents.ask.action", { agent: name })}
+                  onAsk={askForSummary}
+                  testId={live ? "first-open-agent" : "first-open-agent-unseen"}
+                  className="h-7 text-ink-meta hover:bg-hover hover:text-ink"
+                />
+              )}
+            </span>
+          )}
+        </div>
       ),
       agentLook: (
         <AgentLook
           note={agentNote}
-          agent={agent ?? ""}
           testId={only("first-open-agent-look")}
+          onCheck={checkAgentNote}
           onOpen={openAgentNote}
         />
       ),
@@ -373,8 +392,10 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
       citation: () => goToCitation(),
       record: startRecording,
       notes: openNotes,
-      agentAsk: copyAgentLine,
-      agentLook: openAgentNote,
+      agentAsk: () => {
+        if (asker) askForSummary(asker);
+      },
+      agentLook: agentNote && agentChecked(agentNote) ? openAgentNote : checkAgentNote,
     };
     return (
       <>
@@ -458,29 +479,29 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
 const agentChecked = (note: AgentNote): boolean =>
   note.state !== null && note.state.kind !== "not-checked";
 
-/** The agent card's last step: what the check found, or that it is still to come. */
-function AgentLook({
+/** The agent card's last step: Check on the Note, then what the check found (#3572). */
+export function AgentLook({
   note,
-  agent,
   testId,
+  onCheck,
   onOpen,
 }: {
   note: AgentNote | null;
-  agent: string;
   testId: string | undefined;
+  onCheck(): void;
   onOpen(): void;
 }) {
   const t = useT();
   const language = useLanguage();
   const look = note?.state?.look ?? 0;
-  const words =
-    !note || !agentChecked(note)
-      ? t("firstOpen.step.agentLook.waiting", { agent })
-      : look > 0
-        ? t(look === 1 ? "firstOpen.step.agentLook.look.one" : "firstOpen.step.agentLook.look", {
-            count: new Intl.NumberFormat(language).format(look),
-          })
-        : t("firstOpen.step.agentLook.all");
+  const checked = note !== null && agentChecked(note);
+  const words = !checked
+    ? t("firstOpen.step.agentLook.waiting")
+    : look > 0
+      ? t(look === 1 ? "firstOpen.step.agentLook.look.one" : "firstOpen.step.agentLook.look", {
+          count: new Intl.NumberFormat(language).format(look),
+        })
+      : t("firstOpen.step.agentLook.all");
   // The line and its button, one under the other, as tall as the open step before it: the card keeps
   // the height of its tallest state, so a shorter one would leave a band under it (#3362).
   return (
@@ -491,11 +512,11 @@ function AgentLook({
       {note && (
         <button
           type="button"
-          data-testid={testId === undefined ? undefined : `${testId}-open`}
-          onClick={onOpen}
+          data-testid={testId === undefined ? undefined : `${testId}-${checked ? "open" : "check"}`}
+          onClick={checked ? onOpen : onCheck}
           className={buttonStyle("primary", "sm")}
         >
-          {t("firstOpen.step.agentLook.open")}
+          {t(checked ? "firstOpen.step.agentLook.open" : "mindCheck.check")}
         </button>
       )}
     </div>
