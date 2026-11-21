@@ -78,16 +78,7 @@ import type { Database, SqlValue } from "../storage";
 import { type CommandWindow, parseCommandWindow } from "../tools/commands/offered";
 import { excerptOf, findTerms, searchTerms, termQuery } from "../wordSearch";
 import { indexText, plainText } from "./search";
-import {
-  mergeStoredAnalyses,
-  mergeStoredCitations,
-  mergeStoredFigures,
-  mergeStoredSteps,
-  mergeStoredToolCalls,
-  PHASES,
-  storedList,
-  timeOrNull,
-} from "./storedJson";
+import { mergeStoredSteps, PHASES, storedList, timeOrNull, withStoredRawCells } from "./storedJson";
 
 /** A Question to add, read from `askInConversation`'s input (see `parseQuestion`). */
 export interface QuestionInput {
@@ -897,8 +888,8 @@ export function createConversations(db: Database, now: () => string) {
    * judge it. One of an Answer left being written never had its quote checked: it stays as it was.
    */
   db.transaction(() => {
-    for (const row of db.all<{ id: string; citations: string; steps: string | null }>(
-      `SELECT id, citations, steps FROM conversation_messages
+    for (const row of db.all<{ id: string; citations: string }>(
+      `SELECT id, citations FROM conversation_messages
        WHERE kind = 'answer' AND status <> 'streaming' AND citations LIKE '%"check":"checking"%'`,
     )) {
       const citations = storedList<MarkedCitation>(row.citations).map(
@@ -907,39 +898,21 @@ export function createConversations(db: Database, now: () => string) {
             ? { ...citation, check: "not-checked", checkReason: null }
             : citation,
       );
-      const steps = storedSteps(row.steps);
-      db.run(
-        "UPDATE conversation_messages SET citations = ?, steps = ?, updated_at = ? WHERE id = ?",
-        [
-          mergeStoredCitations(row.citations, citations),
-          steps ? mergeStoredSteps(row.steps, steps, storedSteps) : row.steps,
-          now(),
-          row.id,
-        ],
-      );
+      db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(citations),
+        now(),
+        row.id,
+      ]);
     }
   });
 
   /** Answers left being written by an earlier run of the app: nothing writes them any more. */
   db.transaction(() => {
-    for (const row of db.all<{
-      id: string;
-      seq: number;
-      text: string;
-      figures: string;
-      steps: string | null;
-    }>(
+    for (const row of db.all<{ seq: number; text: string; figures: string }>(
       `UPDATE conversation_messages SET status = 'stopped', updated_at = ?
-       WHERE kind = 'answer' AND status = 'streaming' RETURNING id, seq, text, figures, steps`,
+       WHERE kind = 'answer' AND status = 'streaming' RETURNING seq, text, figures`,
       [now()],
     )) {
-      const steps = storedSteps(row.steps);
-      if (steps) {
-        db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [
-          mergeStoredSteps(row.steps, steps, storedSteps),
-          row.id,
-        ]);
-      }
       indexMessage(row.seq, row.text, storedList<MarkedFigure>(row.figures));
     }
   });
@@ -950,21 +923,16 @@ export function createConversations(db: Database, now: () => string) {
    * says what it hadn't checked.
    */
   db.transaction(() => {
-    for (const row of db.all<{ id: string; tool_calls: string; steps: string | null }>(
-      `SELECT id, tool_calls, steps FROM conversation_messages
+    for (const row of db.all<{ id: string; tool_calls: string }>(
+      `SELECT id, tool_calls FROM conversation_messages
        WHERE kind = 'answer' AND tool_calls LIKE '%"running":true%'`,
     )) {
       const calls = storedList<AnswerToolCall>(row.tool_calls).map(unfinished);
-      const steps = storedSteps(row.steps);
-      db.run(
-        "UPDATE conversation_messages SET tool_calls = ?, steps = ?, updated_at = ? WHERE id = ?",
-        [
-          mergeStoredToolCalls(row.tool_calls, calls),
-          steps ? mergeStoredSteps(row.steps, steps, storedSteps) : row.steps,
-          now(),
-          row.id,
-        ],
-      );
+      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(calls),
+        now(),
+        row.id,
+      ]);
     }
   });
 
@@ -1440,14 +1408,14 @@ export function createConversations(db: Database, now: () => string) {
            WHERE id = ?`,
           [
             write.text,
-            mergeStoredCitations(row.citations, write.citations),
-            mergeStoredFigures(row.figures, write.figures),
-            mergeStoredAnalyses(row.analyses, write.analyses),
-            mergeStoredToolCalls(row.tool_calls, write.toolCalls),
+            JSON.stringify(withStoredRawCells(row.citations, write.citations)),
+            JSON.stringify(write.figures),
+            JSON.stringify(write.analyses),
+            JSON.stringify(write.toolCalls),
             write.support,
             write.textOrigin,
             ...readColumns(write.read),
-            mergeStoredSteps(row.steps, write.steps, storedSteps),
+            mergeStoredSteps(row.steps, write.steps),
             outcome?.status ?? "streaming",
             outcome?.error?.kind ?? null,
             outcome?.error?.message ?? null,
@@ -1472,7 +1440,7 @@ export function createConversations(db: Database, now: () => string) {
       const row = liveMessage(answerId);
       if (row?.kind !== "answer") return null;
       db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
-        mergeStoredToolCalls(row.tool_calls, toolCalls),
+        JSON.stringify(toolCalls),
         now(),
         answerId,
       ]);
@@ -1502,19 +1470,24 @@ export function createConversations(db: Database, now: () => string) {
       const row = liveMessage(answerId);
       if (row?.kind !== "answer" || row.text !== text) return null;
       const at = now();
-      const steps = storedSteps(row.steps);
-      const nextSteps =
-        steps === null
-          ? row.steps
-          : mergeStoredSteps(
-              row.steps,
-              uncited === undefined ? steps : { ...steps, uncitedChecks: [...uncited] },
-              storedSteps,
-            );
       db.run(
-        "UPDATE conversation_messages SET text = ?, citations = ?, steps = ?, updated_at = ? WHERE id = ?",
-        [marked ?? text, mergeStoredCitations(row.citations, citations), nextSteps, at, answerId],
+        "UPDATE conversation_messages SET text = ?, citations = ?, updated_at = ? WHERE id = ?",
+        [
+          marked ?? text,
+          JSON.stringify(withStoredRawCells(row.citations, citations)),
+          at,
+          answerId,
+        ],
       );
+      if (uncited !== undefined) {
+        const steps = storedSteps(row.steps);
+        if (steps) {
+          db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [
+            mergeStoredSteps(row.steps, { ...steps, uncitedChecks: [...uncited] }),
+            answerId,
+          ]);
+        }
+      }
       return toAnswer(storedMessage(answerId));
     },
 

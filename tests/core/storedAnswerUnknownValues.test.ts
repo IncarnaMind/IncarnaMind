@@ -2,9 +2,7 @@ import { join } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
 import {
-  type AnswerAnalysis,
   type AnswerSteps,
-  type AnswerToolCall,
   type AskInConversationInput,
   type ConversationAnswer,
   type ConversationAskResult,
@@ -12,18 +10,15 @@ import {
   type Core,
   type CoreAdapters,
   DATABASE_FILE,
-  type MarkedFigure,
+  type MarkedCitation,
 } from "../../src/core";
 import {
-  mergeStoredAnalyses,
-  mergeStoredCitations,
-  mergeStoredFigures,
   mergeStoredSteps,
-  mergeStoredToolCalls,
   PHASES,
+  withStoredRawCells,
 } from "../../src/core/conversations/storedJson";
+import { isRecord } from "../../src/core/errors";
 import { openDatabase } from "../../src/core/storage";
-import { noAnalysisOutput } from "../../src/shared/analysis";
 import { answerJudged, citingModel } from "../helpers/citations";
 import {
   createTempDataFolder,
@@ -164,7 +159,7 @@ function injectUnknownSteps(
   const nextSteps: Record<string, unknown> = {
     ...current,
     ...UNKNOWN_TOP_LEVEL,
-    // A known value in a shape this version cannot read: dropped on read and when saved.
+    // A known value in a shape this version cannot read: dropped on read and when steps are saved.
     readShare: "unreadable-shape",
     phases: [
       UNKNOWN_PHASE_BEFORE,
@@ -221,9 +216,17 @@ function assertUnknownStepsCarried(
   dataDir: string,
   answerId: string,
   inMemory: ConversationAnswer,
-  options: { expectTrailingUnknownPhase?: boolean; expectUncitedPreserved?: boolean } = {},
+  options: {
+    expectTrailingUnknownPhase?: boolean;
+    expectUncitedPreserved?: boolean;
+    stepsWritten?: boolean;
+  } = {},
 ) {
-  const { expectTrailingUnknownPhase = true, expectUncitedPreserved = true } = options;
+  const {
+    expectTrailingUnknownPhase = true,
+    expectUncitedPreserved = true,
+    stepsWritten = true,
+  } = options;
   expect(() => structuredClone(inMemory)).not.toThrow();
   const inMemoryRecord = (inMemory.steps ?? {}) as unknown as Record<string, unknown>;
   expect(inMemoryRecord.callHelpForm).toBeUndefined();
@@ -245,7 +248,9 @@ function assertUnknownStepsCarried(
   expect(stored.callHelpForm).toEqual(UNKNOWN_TOP_LEVEL.callHelpForm);
   expect(stored.closingLine).toEqual(UNKNOWN_TOP_LEVEL.closingLine);
   expect(stored.futureConfig).toEqual(UNKNOWN_TOP_LEVEL.futureConfig);
-  expect(stored).not.toHaveProperty("readShare");
+  if (stepsWritten) {
+    expect(stored).not.toHaveProperty("readShare");
+  }
 
   const phases = stored.phases as Record<string, unknown>[];
   expect(phases[0]).toEqual(UNKNOWN_PHASE_BEFORE);
@@ -303,7 +308,7 @@ function assertUnknownStepsCarried(
 describe("Stored Answers keep values and phases this version does not know (#3072)", {
   timeout: 60_000,
 }, () => {
-  // protects=an Answer whose stored steps hold unknown top-level values, unknown sub-object fields, unknown phases in their place, and a malformed known value keeps all unknown parts to the byte and drops the malformed known value across a restart, Check again, and Check the rest, while never exposing unknown values in memory or sending them to a model; fails_when=any save path drops an unknown value or phase, changes an unknown phase's position relative to the known phases before it, keeps a malformed known value, or leaks an unknown value into getConversation or a follow-up prompt; no_claim=behaviour of versions built before #3072.
+  // protects=an Answer whose stored steps hold unknown top-level values, unknown sub-object fields, unknown phases in their place, and a malformed known value keeps all unknown parts to the byte and drops the malformed known value across a restart, Check again, and Check the rest, while never exposing unknown values in memory or sending them to a model; fails_when=any save path drops an unknown value or phase, changes an unknown phase's position relative to the known phases before it, keeps a malformed known value when saving steps, or leaks an unknown value into getConversation or a follow-up prompt; no_claim=behaviour of versions built before #3072.
   test("holds across a restart, Check again, and Check the rest, without exposing unknown values in memory or prompts", async () => {
     const model = citingModel({
       query: "spring tides",
@@ -311,7 +316,8 @@ describe("Stored Answers keep values and phases this version does not know (#307
         { marker: 1, passage: passages[0]?.id, pageFrom: 1, pageTo: 1, quote: SPRING },
         { marker: 2, passage: passages[0]?.id, pageFrom: 1, pageTo: 1, quote: NEAP },
       ],
-      answer: "Spring tides come at new and full moon [^1]. Neap tides come at quarter moon [^2].",
+      answer:
+        "Spring tides come at new and full moon [^1]. Neap tides come at quarter moon [^2]. The harbour opens at dawn.",
     });
     const { core, dataDir, ended, adapters } = await setUp(model);
     const sources = await createSourceFolder();
@@ -351,7 +357,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
       answerId,
     );
     expect(afterRestart.status).toBe("stopped");
-    assertUnknownStepsCarried(dataDir, answerId, afterRestart);
+    assertUnknownStepsCarried(dataDir, answerId, afterRestart, { stepsWritten: false });
 
     // Also test the checking-Citation startup recovery when status is already stopped.
     afterRestartCore.close();
@@ -375,7 +381,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
     const reopened = startCore(dataDir, adapters);
     const afterCitRecovery = answerOf(await reopened.getConversation(conversation.id), answerId);
     expect(afterCitRecovery.citations.map((c) => c.check)).toEqual(["not-checked", "not-checked"]);
-    assertUnknownStepsCarried(dataDir, answerId, afterCitRecovery);
+    assertUnknownStepsCarried(dataDir, answerId, afterCitRecovery, { stepsWritten: false });
     // In memory, QuoteCell has only { name, value } without futureCellField.
     expect(afterCitRecovery.citations[0]?.cells).toEqual([
       { name: "Tide", value: "Spring" },
@@ -395,9 +401,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
     });
     const afterCheckRest = answerOf(await reopened.getConversation(conversation.id), answerId);
     expect(afterCheckRest.citations.map((c) => c.check)).toEqual(["found", "found"]);
-    assertUnknownStepsCarried(dataDir, answerId, afterCheckRest, {
-      expectUncitedPreserved: false,
-    });
+    assertUnknownStepsCarried(dataDir, answerId, afterCheckRest);
 
     // 3. Check again (re-injecting not-checked on citation 1 and uncitedChecks with an unknown field).
     reopened.close();
@@ -424,9 +428,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
       answerId,
     );
     expect(afterCheckAgain.citations.map((c) => c.check)).toEqual(["found", "found"]);
-    assertUnknownStepsCarried(dataDir, answerId, afterCheckAgain, {
-      expectUncitedPreserved: false,
-    });
+    assertUnknownStepsCarried(dataDir, answerId, afterCheckAgain);
 
     // Verify unknown Citation and QuoteCell fields survived Check the rest and Check again in storage.
     const storedCitations = JSON.parse(readRawRow(dataDir, answerId).citations) as Record<
@@ -454,8 +456,8 @@ describe("Stored Answers keep values and phases this version does not know (#307
     forCheckAgain.close();
   });
 
-  // protects=an Answer whose stored steps gain unknown values and unknown phases while streaming keeps them in their exact place relative to the known phases before them when the Answer settles at the end or settles at Stop; fails_when=writeAnswer overwrites stored steps with only in-memory AnswerSteps on settle at end or settle at Stop, or misorders an unknown phase relative to newly appended known phases; no_claim=none beyond protects.
-  test("holds across a settle at the end and a settle at Stop, keeping unknown phases in their place before newly appended phases", async () => {
+  // protects=an Answer whose stored steps gain unknown values and unknown phases while streaming keeps them in their exact place relative to the known phases before them when the Answer settles at the end or settles at Stop, and Try again (regenerateConversationAnswer) replaces the row plainly without carrying old unknown values into the new Answer; fails_when=writeAnswer overwrites stored steps with only in-memory AnswerSteps on settle at end or settle at Stop, misorders an unknown phase relative to newly appended known phases, or carries a previous Answer's unknown values across regenerateConversationAnswer; no_claim=none beyond protects.
+  test("holds across a settle at the end and a settle at Stop, and is cleared when the Answer is regenerated", async () => {
     // 1. Settle at the end.
     const endControl = controlledModel();
     const endSetup = await setUp(endControl.model);
@@ -485,7 +487,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
     });
     endSetup.core.close();
 
-    // 2. Settle at Stop.
+    // 2. Settle at Stop, then Try again (regenerateConversationAnswer) replaces the row plainly.
     const stopControl = controlledModel();
     const stopSetup = await setUp(stopControl.model);
     const stopAsked = await stopSetup.core.askInConversation({ text: "Explain neap tides." });
@@ -516,17 +518,207 @@ describe("Stored Answers keep values and phases this version does not know (#307
     assertUnknownStepsCarried(stopSetup.dataDir, stopAsked.answerId, settledAtStop, {
       expectTrailingUnknownPhase: false,
     });
+
+    // Regenerating the Answer replaces the row plainly: old unknown values do not carry into the new Answer.
+    const regenPromise = stopSetup.core.regenerateConversationAnswer({
+      conversationId: stopAsked.conversation.id,
+      answerId: stopAsked.answerId,
+    });
+    await vi.waitFor(() => expect(stopControl.model.doStreamCalls).toHaveLength(2));
+    stopControl.push("Neap tides have the smallest range.");
+    stopControl.finish();
+    await regenPromise;
+    await vi.waitFor(async () =>
+      expect(
+        answerOf(
+          await stopSetup.core.getConversation(stopAsked.conversation.id),
+          stopAsked.answerId,
+        ).status,
+      ).toBe("done"),
+    );
+    const rawAfterRegen = JSON.parse(
+      readRawRow(stopSetup.dataDir, stopAsked.answerId).steps ?? "{}",
+    ) as Record<string, unknown>;
+    expect(rawAfterRegen).not.toHaveProperty("callHelpForm");
+    expect(rawAfterRegen).not.toHaveProperty("closingLine");
+    expect(rawAfterRegen).not.toHaveProperty("futureConfig");
     stopSetup.core.close();
   });
 
-  // protects=the reverse direction: values and phases this version writes (such as pressed, careful, readPassages, uncitedChecks, and checking-claims) survive a save by code that does not name them and are read back intact by this version through the core; fails_when=an older reader/writer using mergeStoredSteps drops a newer known step key or phase that isn't in its known set; no_claim=versions built before #3072.
+  // protects=unknown values are carried only on an exact identity match (phase + at; coverage.used id; uncitedChecks sentence; Citation marker + documentId + quote and QuoteCell name + value), and any known optional key cleared by this version is removed from storage; fails_when=a positional or marker-only fallback attaches an unknown value to a different record, or a cleared known optional key comes back from the stored row; no_claim=none beyond protects.
+  test("never attaches an unknown value to a different record at the same position or marker, and removes cleared known optional keys", () => {
+    const rawSteps = JSON.stringify({
+      sentAt: "2026-03-01T00:00:00.000Z",
+      finishedAt: "2026-03-01T00:00:02.000Z",
+      phases: [
+        {
+          phase: "loading",
+          at: "2026-03-01T00:00:00.100Z",
+          futurePhaseMeta: "belongs-to-t1-loading",
+        },
+      ],
+      reasoning: { summary: "First thought", ms: 100, futureReasoningMeta: "kept" },
+      readShare: 0.5,
+      careful: true,
+      textBehind: true,
+      pressed: "say",
+      stillReading: {
+        count: 2,
+        name: "Old.pdf",
+        futureStillReadingMeta: "kept-on-still-reading",
+      },
+      sent: {
+        documents: ["doc-1"],
+        transcript: true,
+        futureSentMeta: "kept-on-sent",
+      },
+      coverage: {
+        kind: "main",
+        used: [{ id: "doc-1", name: "Tides", futureUsedMeta: "belongs-to-doc-1" }],
+        rest: [],
+        futureCoverageMeta: "kept-on-coverage",
+      },
+      uncitedChecks: [
+        {
+          sentence: "First sentence.",
+          check: "unsupported",
+          verdict: "Not stated.",
+          judgedAt: "2026-03-01T00:00:01.000Z",
+          futureUncitedMeta: "belongs-to-first-sentence",
+        },
+      ],
+      futureTopLevel: "kept",
+    });
+
+    // Save with:
+    // - a different timestamp on the loading phase at index 0,
+    // - a different document id in coverage.used at index 0,
+    // - a different sentence in uncitedChecks at index 0,
+    // - known optional keys cleared (readShare, careful, textBehind, pressed, stillReading.name, sent.transcript).
+    const nextSteps: AnswerSteps = {
+      sentAt: "2026-03-01T00:00:00.000Z",
+      finishedAt: "2026-03-01T00:00:02.000Z",
+      phases: [{ phase: "loading", at: "2026-03-01T00:00:00.999Z" }],
+      reasoning: null,
+      stillReading: { count: 2 },
+      sent: { documents: ["doc-1"] },
+      coverage: {
+        kind: "main",
+        used: [{ id: "doc-2", name: "Other" }],
+        rest: [],
+      },
+      uncitedChecks: [
+        {
+          sentence: "Different sentence at index 0.",
+          check: "contradicted",
+          verdict: "Contradicted.",
+          judgedAt: "2026-03-01T00:00:02.000Z",
+        },
+      ],
+    };
+
+    const merged = JSON.parse(mergeStoredSteps(rawSteps, nextSteps)) as Record<string, unknown>;
+    expect(merged.futureTopLevel).toBe("kept");
+    // Cleared top-level known optional keys are gone.
+    expect(merged).not.toHaveProperty("readShare");
+    expect(merged).not.toHaveProperty("careful");
+    expect(merged).not.toHaveProperty("textBehind");
+    expect(merged).not.toHaveProperty("pressed");
+    expect(merged.reasoning).toBeNull();
+    // Cleared nested known optional keys (stillReading.name, sent.transcript) are gone while unknown sibling keys stay.
+    expect(merged.stillReading).toEqual({
+      count: 2,
+      futureStillReadingMeta: "kept-on-still-reading",
+    });
+    expect(merged.sent).toEqual({
+      documents: ["doc-1"],
+      futureSentMeta: "kept-on-sent",
+    });
+    // Non-matching items at the same index take nothing from the old items.
+    expect((merged.phases as Record<string, unknown>[])[0]).toEqual({
+      phase: "loading",
+      at: "2026-03-01T00:00:00.999Z",
+    });
+    expect(
+      ((merged.coverage as Record<string, unknown>).used as Record<string, unknown>[])[0],
+    ).toEqual({
+      id: "doc-2",
+      name: "Other",
+    });
+    expect((merged.uncitedChecks as Record<string, unknown>[])[0]).toEqual({
+      sentence: "Different sentence at index 0.",
+      check: "contradicted",
+      verdict: "Contradicted.",
+      judgedAt: "2026-03-01T00:00:02.000Z",
+    });
+
+    // Citations: a different citation at marker 1 or a different cell at index 0 takes nothing.
+    const rawCitations = JSON.stringify([
+      {
+        marker: 1,
+        passageId: "p-1",
+        documentId: "doc-1",
+        documentName: "Tides",
+        contentHash: "h-1",
+        pageFrom: 1,
+        pageTo: 1,
+        location: null,
+        quote: "Original quote",
+        check: "found",
+        checkReason: null,
+        cells: [
+          { name: "Tide", value: "Spring", futureCellMeta: "belongs-to-spring" },
+          { name: "Range", value: "4.2m", futureCellMeta: "belongs-to-range" },
+        ],
+      },
+    ]);
+    const baseCitation: MarkedCitation = {
+      marker: 1,
+      passageId: "p-1",
+      documentId: "doc-1",
+      documentName: "Tides",
+      contentHash: "h-1",
+      pageFrom: 1,
+      pageTo: 1,
+      location: null,
+      quote: "Different quote on the same marker",
+      check: "found",
+      checkReason: null,
+      cells: [
+        { name: "Tide", value: "Spring" },
+        { name: "Range", value: "4.2m" },
+      ],
+    };
+    // Different quote at marker 1 -> cell takes nothing.
+    expect(withStoredRawCells(rawCitations, [baseCitation])[0]?.cells).toEqual([
+      { name: "Tide", value: "Spring" },
+      { name: "Range", value: "4.2m" },
+    ]);
+    // Same citation identity, but cell 0 has a different value -> cell 0 takes nothing while cell 1 keeps its unknown field.
+    const sameCitDifferentCell0: MarkedCitation = {
+      ...baseCitation,
+      quote: "Original quote",
+      cells: [
+        { name: "Tide", value: "Neap" },
+        { name: "Range", value: "4.2m" },
+      ],
+    };
+    expect(withStoredRawCells(rawCitations, [sameCitDifferentCell0])[0]?.cells).toEqual([
+      { name: "Tide", value: "Neap" },
+      { name: "Range", value: "4.2m", futureCellMeta: "belongs-to-range" } as unknown as {
+        name: string;
+        value: string;
+      },
+    ]);
+  });
+
+  // protects=the reverse direction: values and phases this version writes (such as pressed, careful, readPassages, uncitedChecks, and checking-claims) survive a save by code that does not name them and are read back intact by this version through the core; fails_when=storedSteps fails to read back a known field or phase after an older version's save carried it as unknown JSON; no_claim=versions built before #3072.
   test("the other direction: values and phases this version writes are read back intact after a save by code that does not name them", async () => {
     const { core, dataDir, ended } = await setUp(streamingModel("Spring tides rise highest."));
     const { conversation, answerId } = await ask(core, ended, {
       text: "Which tides rise highest?",
     });
 
-    // This version writes values and phases it knows.
     const fullSteps: AnswerSteps = {
       sentAt: "2026-03-01T00:00:00.000Z",
       finishedAt: "2026-03-01T00:00:02.000Z",
@@ -556,40 +748,42 @@ describe("Stored Answers keep values and phases this version does not know (#307
       answerId,
     ]);
 
-    // Simulate a save by an older version that only knew basic step keys and basic phases
-    // (before pressed, careful, readPassages, uncitedChecks, and checking-claims existed).
+    // Simulate an earlier version that only knew { sentAt, finishedAt, phases (loading/searching/writing), reasoning, firstWordMs }
+    // saving the row while carrying keys and phases it doesn't know.
     const olderKnownKeys = new Set(["sentAt", "finishedAt", "phases", "reasoning", "firstWordMs"]);
-    const olderKnownPhases: Record<string, true> = {
-      loading: true,
-      searching: true,
-      writing: true,
-    };
-    const rawBeforeOlderSave = readRawRow(dataDir, answerId).steps;
-    const olderInMemorySteps: AnswerSteps = {
-      sentAt: fullSteps.sentAt,
-      finishedAt: fullSteps.finishedAt,
-      phases: fullSteps.phases.filter((p) => Object.hasOwn(olderKnownPhases, p.phase)),
-      reasoning: fullSteps.reasoning,
-      firstWordMs: fullSteps.firstWordMs,
-    };
-    const savedByOlder = mergeStoredSteps(
-      rawBeforeOlderSave,
-      olderInMemorySteps,
-      () => olderInMemorySteps,
-      { stepKeys: olderKnownKeys, phases: olderKnownPhases },
+    const olderKnownPhases = new Set(["loading", "searching", "writing"]);
+    const rawStored = JSON.parse(readRawRow(dataDir, answerId).steps ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    const olderSaved: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawStored)) {
+      if (!olderKnownKeys.has(key)) olderSaved[key] = value;
+    }
+    olderSaved.sentAt = fullSteps.sentAt;
+    olderSaved.finishedAt = fullSteps.finishedAt;
+    olderSaved.reasoning = fullSteps.reasoning;
+    olderSaved.firstWordMs = fullSteps.firstWordMs;
+    olderSaved.phases = (rawStored.phases as Record<string, unknown>[]).map((entry) =>
+      isRecord(entry) && typeof entry.phase === "string" && olderKnownPhases.has(entry.phase)
+        ? { phase: entry.phase, at: entry.at }
+        : entry,
     );
-    db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [savedByOlder, answerId]);
+    db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [
+      JSON.stringify(olderSaved),
+      answerId,
+    ]);
     db.close();
 
-    // Now this version reads the Answer back through the core's public interface.
+    // This version reads the Answer back through the core's public interface.
     const readBack = answerOf(await core.getConversation(conversation.id), answerId);
     expect(readBack.steps).toEqual(fullSteps);
     expect(Object.keys(PHASES)).toContain("checking-claims");
     core.close();
   });
 
-  // protects=every other stored JSON column on an Answer and Question (citations and nested location/quotedWords/unstated/cells, figures and nested inputs/show/unitStatement, analyses and nested range/figure inputs/versions/end/output/markers, tool_calls and nested connector/error/mindChange.selfCheck/command.window, Question focus/scope/quotes) preserves unknown fields at each nesting level across every save path that touches it; fails_when=any save path drops an extra field at any nesting level of citations, figures, analyses, tool_calls, or Question JSON columns; no_claim=none beyond protects.
-  test("carries unknown fields at every nesting level of Citations, figures, Analyses, Tool calls, and Question JSON columns", async () => {
+  // protects=every other stored JSON column on an Answer and Question (citations and nested location/quotedWords/unstated/cells, figures and nested inputs, analyses and nested inputs, tool_calls and nested mindChange.selfCheck/command.window, Question focus/scope/quotes) preserves unknown fields across startup recovery, Check again, and Conversation updates; fails_when=any save path drops an extra field on citations, figures, analyses, tool_calls, or Question JSON columns; no_claim=none beyond protects.
+  test("carries unknown fields on Citations, figures, Analyses, Tool calls, and Question JSON columns across startup recovery and saves", async () => {
     const { core, dataDir, ended, adapters } = await setUp(
       streamingModel("The tide rises 4.2m [^1] [=1]."),
     );
@@ -600,7 +794,6 @@ describe("Stored Answers keep values and phases this version does not know (#307
     const questionId = content.messages.find((m) => m.kind === "question")?.id;
     if (!questionId) throw new Error("Missing Question.");
 
-    // Seed Question JSON columns with extra fields at each nesting level.
     const rawFocus = {
       selection: "Spring tides",
       blockIds: ["b-1"],
@@ -626,7 +819,6 @@ describe("Stored Answers keep values and phases this version does not know (#307
       },
     ];
 
-    // Seed Answer citations, figures, analyses, tool_calls with extra fields at each nesting level.
     const rawCitations = [
       {
         marker: 1,
@@ -664,66 +856,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
         marker: 1,
         label: "Tide range",
         formula: "high - low",
-        inputs: [
-          {
-            name: "high",
-            label: "High tide",
-            citation: {
-              passageId: "p-1",
-              documentId: "doc-1",
-              documentName: "Tides",
-              contentHash: "hash-1",
-              pageFrom: 1,
-              pageTo: 1,
-              location: { kind: "page", from: 1, to: 1, futureInputLocField: "box-1" },
-              quote: SPRING,
-              check: "found",
-              checkReason: null,
-              futureInputCitationField: "input-cit-extra",
-            },
-            number: {
-              chars: "4.2",
-              at: 0,
-              value: 4.2,
-              scale: 1,
-              scaleWord: null,
-              unit: { kind: "unit", unit: "m" },
-              decimals: 1,
-              approximate: false,
-              reading: null,
-              futureNumberField: "decimal-dot",
-            },
-            cell: { sheet: "Sheet1", ref: "B2", stored: 4.2, futureCellField: "formula-cached" },
-            unitStatement: {
-              citation: {
-                passageId: "p-1",
-                documentId: "doc-1",
-                documentName: "Tides",
-                contentHash: "hash-1",
-                pageFrom: 1,
-                pageTo: 1,
-                location: null,
-                quote: "Units in metres",
-                check: "found",
-                checkReason: null,
-                futureUnitCitField: "header-cit",
-              },
-              scale: 1,
-              scaleWord: null,
-              currency: null,
-              futureUnitStatementField: "row-header",
-            },
-            futureFigureInputField: "first-input",
-          },
-        ],
-        value: 4.2,
-        unit: { kind: "unit", unit: "m" },
-        approximate: false,
-        shown: "4.2m",
-        show: { language: "en", as: null, decimals: 1, scale: null, futureShowField: "compact" },
-        literals: [],
-        engine: 1,
-        written: null,
+        inputs: [{ name: "high", futureFigureInputField: "first-input" }],
         futureFigureField: "top-level-fig",
       },
     ];
@@ -732,48 +865,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
       {
         number: 1,
         title: "Tide summary",
-        language: "python",
-        code: "print(4.2)",
-        inputs: [
-          {
-            kind: "range",
-            name: "tides",
-            citation: {
-              passageId: "p-1",
-              documentId: "doc-1",
-              documentName: "Tides",
-              contentHash: "hash-1",
-              pageFrom: 1,
-              pageTo: 1,
-              location: null,
-              quote: "Tide table",
-              check: "found",
-              checkReason: null,
-              futureRangeCitField: "range-cit",
-            },
-            range: "A1:B10",
-            rows: 9,
-            columns: 2,
-            rowCount: 9,
-            cut: false,
-            setAside: { struck: [2], hidden: [], futureSetAsideField: "archived-row" },
-            sha256: "sha-range",
-            table: {
-              number: 1,
-              rows: [{ row: 1, unit: 1, quote: "Tide" }],
-              futureTableField: "pdf-grid",
-            },
-            futureRangeInputField: "range-input-extra",
-          },
-        ],
-        versions: { python: "3.12", packages: {}, futureVersionsField: "cpython" },
-        codeSha256: "sha-code",
-        outputSha256: "sha-out",
-        end: { kind: "ok", futureEndField: "exit-0" },
-        output: { figures: [], tables: [], charts: [], pictures: [], futureOutputField: "stdout" },
-        ms: 45,
-        ranAt: "2026-03-01T00:00:01.000Z",
-        markers: { figures: [], tables: [], charts: [], futureMarkersField: "placed" },
+        inputs: [{ kind: "range", name: "tides", futureRangeInputField: "range-input-extra" }],
         futureAnalysisField: "top-level-analysis",
       },
     ];
@@ -865,7 +957,6 @@ describe("Stored Answers keep values and phases this version does not know (#307
         (questionInMemory.quotes[0] as unknown as Record<string, unknown>)?.futureQuoteField,
     ).toBeUndefined();
 
-    // Verify startup recovery kept all unknown fields in citations and tool_calls while updating known fields.
     const rowAfterRestart = readRawRow(dataDir, answerId);
     const citsAfterRestart = JSON.parse(rowAfterRestart.citations) as Record<string, unknown>[];
     expect(citsAfterRestart[0]).toMatchObject({
@@ -908,233 +999,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
       futureToolCallField: "call-2-extra",
     });
 
-    // 2. Verify mergeStoredCitations, mergeStoredFigures, mergeStoredAnalyses, and mergeStoredToolCalls
-    // preserve every extra field when writeAnswer / writeCitations / writeToolCalls saves updated records.
-    const inMemoryAnswer = answerOf(afterRestartContent, answerId);
-    const mergedCitationsJson = mergeStoredCitations(
-      rowAfterRestart.citations,
-      inMemoryAnswer.citations.map((c) => ({ ...c, check: "found" })),
-    );
-    expect(JSON.parse(mergedCitationsJson)[0]).toMatchObject({
-      check: "found",
-      futureCitationField: "top-level-cit",
-      location: { futureLocField: "column-2" },
-      quotedWords: {
-        answer: [{ futurePieceField: "exact" }],
-        futureQuotedWordsField: "checked-once",
-      },
-      unstated: { futureUnstatedField: "numeric-gap" },
-      cells: [{ futureCellField: "col-0" }, { futureCellField: "col-1" }],
-    });
-
-    const cleanFigures: MarkedFigure[] = (
-      JSON.parse(JSON.stringify(rawFigures)) as MarkedFigure[]
-    ).map((fig) => ({
-      marker: fig.marker,
-      label: "Updated tide range",
-      formula: fig.formula,
-      inputs: fig.inputs.map((inp) => ({
-        name: inp.name,
-        label: inp.label,
-        citation: {
-          passageId: inp.citation.passageId,
-          documentId: inp.citation.documentId,
-          documentName: inp.citation.documentName,
-          contentHash: inp.citation.contentHash,
-          pageFrom: inp.citation.pageFrom,
-          pageTo: inp.citation.pageTo,
-          location: { kind: "page", from: 1, to: 1 },
-          quote: inp.citation.quote,
-          check: "found",
-          checkReason: null,
-        },
-        number: {
-          chars: inp.number.chars,
-          at: inp.number.at,
-          value: inp.number.value,
-          scale: inp.number.scale,
-          scaleWord: inp.number.scaleWord,
-          unit: inp.number.unit,
-          decimals: inp.number.decimals,
-          approximate: inp.number.approximate,
-          reading: inp.number.reading,
-        },
-        cell: inp.cell
-          ? { sheet: inp.cell.sheet, ref: inp.cell.ref, stored: inp.cell.stored }
-          : null,
-        unitStatement: inp.unitStatement
-          ? {
-              citation: {
-                passageId: inp.unitStatement.citation.passageId,
-                documentId: inp.unitStatement.citation.documentId,
-                documentName: inp.unitStatement.citation.documentName,
-                contentHash: inp.unitStatement.citation.contentHash,
-                pageFrom: inp.unitStatement.citation.pageFrom,
-                pageTo: inp.unitStatement.citation.pageTo,
-                location: null,
-                quote: inp.unitStatement.citation.quote,
-                check: "found",
-                checkReason: null,
-              },
-              scale: inp.unitStatement.scale,
-              scaleWord: inp.unitStatement.scaleWord,
-              currency: inp.unitStatement.currency,
-            }
-          : null,
-      })),
-      value: fig.value,
-      unit: fig.unit,
-      approximate: fig.approximate,
-      shown: fig.shown,
-      show: {
-        language: fig.show.language,
-        as: fig.show.as,
-        decimals: fig.show.decimals,
-        scale: fig.show.scale,
-      },
-      literals: fig.literals,
-      engine: fig.engine,
-      written: fig.written,
-    }));
-    const mergedFigures = JSON.parse(
-      mergeStoredFigures(rowAfterRestart.figures, cleanFigures),
-    ) as Record<string, unknown>[];
-    expect(mergedFigures[0]).toMatchObject({
-      label: "Updated tide range",
-      futureFigureField: "top-level-fig",
-      show: { futureShowField: "compact" },
-      inputs: [
-        {
-          futureFigureInputField: "first-input",
-          citation: {
-            futureInputCitationField: "input-cit-extra",
-            location: { futureInputLocField: "box-1" },
-          },
-          number: { futureNumberField: "decimal-dot" },
-          cell: { futureCellField: "formula-cached" },
-          unitStatement: {
-            futureUnitStatementField: "row-header",
-            citation: { futureUnitCitField: "header-cit" },
-          },
-        },
-      ],
-    });
-
-    const cleanAnalyses: AnswerAnalysis[] = [
-      {
-        number: 1,
-        title: "Updated tide summary",
-        language: "python",
-        code: "print(4.2)",
-        inputs: [
-          {
-            kind: "range",
-            name: "tides",
-            citation: {
-              passageId: "p-1",
-              documentId: "doc-1",
-              documentName: "Tides",
-              contentHash: "hash-1",
-              pageFrom: 1,
-              pageTo: 1,
-              location: null,
-              quote: "Tide table",
-              check: "found",
-              checkReason: null,
-            },
-            range: "A1:B10",
-            rows: 9,
-            columns: 2,
-            rowCount: 9,
-            cut: false,
-            setAside: { struck: [2], hidden: [] },
-            sha256: "sha-range",
-            table: { number: 1, rows: [{ row: 1, unit: 1, quote: "Tide" }] },
-          },
-        ],
-        versions: {
-          language: "python",
-          languageVersion: "3.14.2",
-          runtime: "Pyodide 314.0.7",
-          packages: {},
-          helper: "sha-helper",
-          app: "0.1.0",
-        },
-        codeSha256: "sha-code",
-        outputSha256: "sha-out",
-        end: { kind: "done" },
-        output: noAnalysisOutput(),
-        ms: 50,
-        ranAt: "2026-03-01T00:00:01.000Z",
-        markers: { figures: [], tables: [], charts: [] },
-      },
-    ];
-    const mergedAnalyses = JSON.parse(
-      mergeStoredAnalyses(rowAfterRestart.analyses, cleanAnalyses),
-    ) as Record<string, unknown>[];
-    expect(mergedAnalyses[0]).toMatchObject({
-      title: "Updated tide summary",
-      ms: 50,
-      futureAnalysisField: "top-level-analysis",
-      versions: { futureVersionsField: "cpython" },
-      end: { futureEndField: "exit-0" },
-      output: { futureOutputField: "stdout" },
-      markers: { futureMarkersField: "placed" },
-      inputs: [
-        {
-          futureRangeInputField: "range-input-extra",
-          citation: { futureRangeCitField: "range-cit" },
-          setAside: { futureSetAsideField: "archived-row" },
-          table: { futureTableField: "pdf-grid" },
-        },
-      ],
-    });
-
-    const cleanToolCalls: AnswerToolCall[] = [
-      {
-        id: "call-mind",
-        tool: "edit_mind",
-        source: "minds",
-        input: { text: "Updated note" },
-        status: "done",
-        resultCount: null,
-        connector: { id: "conn-1", name: "Local" },
-        error: { kind: "unknown", message: "none" },
-        mindChange: {
-          mindId: "mind-1",
-          created: false,
-          request: "req-1",
-          proposals: 1,
-          selfCheck: {
-            request: "req-1",
-            checkable: 2,
-            cited: 2,
-            sent: 2,
-            checked: 2,
-            failed: 0,
-            blocked: { reason: "local-mode", count: 1 },
-          },
-        },
-      },
-    ];
-    const mergedCalls = JSON.parse(
-      mergeStoredToolCalls(JSON.stringify(rawToolCalls), cleanToolCalls),
-    ) as Record<string, unknown>[];
-    expect(mergedCalls[0]).toMatchObject({
-      futureToolCallField: "call-1-extra",
-      connector: { futureConnectorField: "stdio" },
-      error: { futureErrorField: "retried" },
-      mindChange: {
-        futureMindChangeField: "change-meta",
-        selfCheck: {
-          checked: 2,
-          futureSelfCheckField: "check-meta",
-          blocked: { futureBlockedField: "offline" },
-        },
-      },
-    });
-
-    // 3. Conversation operations (rename, move, delete, restore) leave Question and Answer stored JSON intact.
+    // 2. Conversation operations (rename, move, delete, restore) leave Question and Answer stored JSON intact.
     await reopened.renameConversation(conversation.id, "Tide heights");
     const folder = await reopened.createLibraryGroup({ name: "Marine", description: "" });
     await reopened.moveToFolder({ conversationIds: [conversation.id], folderId: folder.id });
