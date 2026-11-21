@@ -27,6 +27,8 @@ import {
   type AskedSentence,
   MAX_ASKED_SENTENCES,
   type Mind,
+  NOT_IN_A_FOLDER_ID,
+  type OrganizeTarget,
   type SearchScope,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
@@ -115,7 +117,7 @@ const quoteOf = (asked: AskedSentence, say: Say) =>
 /** The line the User sends, and the request that waits: the Note named by its title, and its id in the request. */
 export function agentRequest(
   note: { title: string; mindId: string } | null,
-  ask: AgentAsk,
+  ask: Exclude<AgentAsk, { kind: "organize" }>,
   say: Say,
   meeting?: { transcriptId: string; propose: boolean },
   file?: HandedFileAsked | null,
@@ -336,9 +338,24 @@ const words = (value: unknown): string => {
   return value.trim();
 };
 
+function organizeTarget(value: unknown): OrganizeTarget {
+  if (isRecord(value)) {
+    if ("folderId" in value && !("ids" in value)) return { folderId: words(value.folderId) };
+    if (!("folderId" in value)) {
+      if (value.ids === null) return { ids: null };
+      if (Array.isArray(value.ids) && value.ids.length > 0) {
+        return { ids: [...new Set(value.ids.map(words))] };
+      }
+    }
+  }
+  throw new InvalidInputError({ key: "error.agent.askRequest" });
+}
+
 function parseAsk(value: unknown): AgentAsk {
   if (!isRecord(value)) throw new InvalidInputError({ key: "error.agent.askRequest" });
   switch (value.kind) {
+    case "organize":
+      return { kind: "organize", target: organizeTarget(value.target) };
     case "meeting":
       return { kind: "meeting", meetingId: words(value.meetingId) };
     case "question":
@@ -427,11 +444,48 @@ export function createAgentAsk(options: AgentAskOptions) {
     };
   };
 
+  function canOrganize(pairing: AgentPairing, target: OrganizeTarget): boolean {
+    if ("ids" in target && target.ids !== null) {
+      const readable = options.reads(pairing.id, { folderIds: [], documentIds: target.ids });
+      return readable.documentIds.length === target.ids.length;
+    }
+    const folder = "folderId" in target ? target.folderId : NOT_IN_A_FOLDER_ID;
+    return options
+      .reads(pairing.id, { folderIds: [folder], documentIds: [] })
+      .folderIds.includes(folder);
+  }
+
+  function sortingRequest(pairing: AgentPairing, target: OrganizeTarget): AgentRequestText {
+    if (!canOrganize(pairing, target)) throw new NotFoundError({ key: "error.agent.cantOrganize" });
+    return {
+      line: options.say("agents.ask.line.organize"),
+      request: null,
+      named: {
+        organize: "folderId" in target ? "folder" : target.ids === null ? "loose" : "selected",
+        open: [],
+        folders: "folderId" in target ? [target.folderId] : [],
+        documents: "ids" in target && target.ids !== null ? [...target.ids] : [],
+      },
+      sentences: [],
+    };
+  }
+
   return {
+    forOrganize(input: unknown) {
+      const target = organizeTarget(input);
+      const agents = options.askable(null);
+      return {
+        eligible: agents.filter((agent) => canOrganize(agent, target)),
+        connected: agents.length > 0,
+      };
+    },
     async ask(input: unknown): Promise<AskAgentResult> {
       const { pairingId, mindId, ask, onScreen, scope } = parseInput(input);
       const pairing = options.askable(mindId).find((each) => each.id === pairingId);
-      if (!pairing) throw new NotFoundError({ key: "error.agent.cantAsk" });
+      if (!pairing)
+        throw new NotFoundError({
+          key: ask.kind === "organize" ? "error.agent.cantOrganize" : "error.agent.cantAsk",
+        });
       const mind = options.minds().find((each) => each.id === mindId);
       const note = mind
         ? { title: mindName(mind) || options.say("mind.untitled"), mindId: mind.id }
@@ -447,20 +501,28 @@ export function createAgentAsk(options: AgentAskOptions) {
         throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
       }
       const looking = ask.kind === "question" ? lookingAt(pairingId, onScreen, scope) : undefined;
-      const { line, request, named, sentences } = agentRequest(
-        note,
-        ask,
-        options.say,
-        transcriptId ? { transcriptId, propose: pairing.propose } : undefined,
-        note ? options.handedFile(note.mindId) : null,
-        looking,
-      );
+      if (ask.kind === "organize" && mindId !== null)
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      const { line, request, named, sentences } =
+        ask.kind === "organize"
+          ? sortingRequest(pairing, ask.target)
+          : agentRequest(
+              note,
+              ask,
+              options.say,
+              transcriptId ? { transcriptId, propose: pairing.propose } : undefined,
+              note ? options.handedFile(note.mindId) : null,
+              looking,
+            );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
       if (request !== null || named !== undefined) {
         options.keepRequest({
           pairingId,
           mindId: note?.mindId ?? null,
-          title: note?.title ?? looking?.open[0]?.name ?? "",
+          title:
+            ask.kind === "organize"
+              ? options.say("library.classify")
+              : (note?.title ?? looking?.open[0]?.name ?? ""),
           sentences,
           text: request ?? "",
           named: named ?? null,

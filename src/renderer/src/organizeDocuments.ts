@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { OrganizeStart } from "../../core/api";
+import type { AgentPairing, OrganizeStart, OrganizeTarget } from "../../core/api";
+import { askAgent } from "./askYourAi";
 import { core } from "./core";
 import { organize, organizeEach } from "./organizeReview";
 import { type AppState, allExamples, isOwnDocument, useAppStore } from "./store";
@@ -19,9 +20,6 @@ export function looseDocumentIds(
     .map((each) => each.id);
 }
 
-/** What an Organize was asked for: these Documents, those in no Folder (null), or a Folder's. */
-export type OrganizeTarget = { ids: readonly string[] | null } | { folderId: string };
-
 export type OrganizeNeeds = Extract<OrganizeStart, { ready: false }>;
 
 /**
@@ -37,6 +35,16 @@ export const useOrganizeAsk = create<{
   ask: (target, needs) => set({ asked: { target, needs } }),
   close: () => set({ asked: null }),
 }));
+
+export async function askToOrganize(agent: AgentPairing, target: OrganizeTarget): Promise<void> {
+  const { asked } = useOrganizeAsk.getState();
+  if (
+    (await askAgent(agent, null, { kind: "organize", target })) &&
+    useOrganizeAsk.getState().asked === asked
+  ) {
+    useOrganizeAsk.getState().close();
+  }
+}
 
 /**
  * Runs Organize on a model of this kind: planned as a whole into the Review, where nothing moves
@@ -119,7 +127,7 @@ export function organizeFolder(folderId: string): Promise<void> {
  */
 export async function allowAndOrganize(): Promise<void> {
   const { asked } = useOrganizeAsk.getState();
-  if (!asked || asked.needs.needs !== "consent") return;
+  if (asked?.needs.needs !== "consent") return;
   const { target, needs } = asked;
   useOrganizeAsk.getState().close();
   const forService = needs.service.id;
