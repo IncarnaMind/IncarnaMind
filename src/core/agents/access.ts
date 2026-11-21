@@ -388,6 +388,8 @@ export interface AgentCreated {
   uncited: string[];
   /** Each picture or chart that isn't in the Note, and why: the Note has a line saying so (#3413). */
   refused: VisualLeftOut[];
+  /** How many of its sentences hold no check result, and whether they wait for the User (#3576). */
+  next: string | null;
 }
 
 /** A picture or chart an agent wrote that isn't in the Note: what it wrote, and why, in words. */
@@ -802,6 +804,8 @@ export interface AgentAccessDeps {
   versions: Map<string, string>;
   /** `CHECK_WAIT_MS`, unless a test waits less. */
   checkWaitMs?: number;
+  /** Whether what is written is checked as it lands (Settings › AI), else it waits for the User's Check. */
+  checksWritten(): boolean;
   citations: AgentCitations;
   /** The requests the User made of their own AI, kept for each agent to read once (./requests). */
   requests: Pick<AgentRequests, "ofPairing" | "markRead">;
@@ -1564,6 +1568,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
    */
   const checkReach = (pairing: AdmittedPairing): Set<string> =>
     new Set([...scopeOf(pairing, undefined), ...deps.citedFiles()]);
+
+  /**
+   * What an agent's write leaves unchecked: with checking as it lands on, to check now; else that
+   * it waits for the User's Check or their asking (#3576).
+   */
+  const leftToCheck = (unchecked: number): string | null => {
+    if (unchecked === 0) return null;
+    const [one, more] = deps.checksWritten()
+      ? (["agents.propose.unchecked.one", "agents.propose.unchecked"] as const)
+      : (["agents.write.waits.one", "agents.write.waits"] as const);
+    return t(unchecked === 1 ? one : more, { count: unchecked });
+  };
 
   /** A Passage as a search result: its best sentence cited, if the check finds it. */
   const asResult = (
@@ -2849,12 +2865,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             // As the change's bar counts them, from what was written, the Citations kept too.
             uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
             refused: leftOut(written.refused),
-            next:
-              unchecked === 0
-                ? null
-                : t(unchecked === 1 ? "agents.propose.unchecked.one" : "agents.propose.unchecked", {
-                    count: unchecked,
-                  }),
+            next: leftToCheck(unchecked),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
           count: own ? null : written.waiting,
@@ -2974,6 +2985,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         });
         opened({ kind: "mind", mindId: mind.id });
         const listed = deps.minds().find((each) => each.id === mind.id);
+        const left = deps.checkTask(mind.id, inScope);
         return {
           result: {
             mindId: mind.id,
@@ -2985,6 +2997,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               (token) => tokens.get(token)?.cited?.citable === true,
             ),
             refused: leftOut(made.refused),
+            next: leftToCheck(left.ok ? left.value.sentences.length : 0),
           },
           count: 1,
           documentIds: [...tokens.values()].flatMap((each) =>

@@ -92,6 +92,8 @@ export interface HandOverDeps {
   marks(mindId: string, reach: ReadonlySet<string>): HandedMarks;
   say(key: MessageKey, params?: MessageParams): string;
   sleep(ms: number): Promise<void>;
+  /** Whether what is written is checked as it lands (Settings › AI); off, a version waits for the User's Check. */
+  checksWritten(): boolean;
   log: Logger;
 }
 
@@ -442,7 +444,9 @@ export function createHandOver(deps: HandOverDeps) {
     deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
     // A line the version before had too, checked with the same context, keeps that result while it
     // still stands (#3412): only what changed, or what its Documents changed under, is checked again.
-    startCheck(made.mind.id, { carryFrom: before?.mindId ?? null, reach });
+    // With checking as it lands off, the version waits for the User's Check (#3576).
+    if (deps.checksWritten())
+      startCheck(made.mind.id, { carryFrom: before?.mindId ?? null, reach });
     return doneOf(file, { ...version, mindId: made.mind.id });
   }
 
@@ -557,9 +561,12 @@ export function createHandOver(deps: HandOverDeps) {
     ): Promise<HandedCheck> {
       const earlier = runs.get(mindId);
       const found = store.ofMind(mindId);
+      // With checking as it lands off, nothing starts here: a check the User started shows by its marks.
+      const asItLands = deps.checksWritten();
       if (
-        (earlier === undefined && found !== null && found.version.checkedAt === null) ||
-        (earlier?.outcome && !SETTLED.has(earlier.outcome.kind))
+        asItLands &&
+        ((earlier === undefined && found !== null && found.version.checkedAt === null) ||
+          (earlier?.outcome && !SETTLED.has(earlier.outcome.kind)))
       ) {
         const before = found
           ? store
@@ -571,7 +578,7 @@ export function createHandOver(deps: HandOverDeps) {
           ...(earlier?.options ?? { carryFrom: before?.mindId ?? null, keep: true }),
           reach,
         });
-      } else if (earlier?.outcome !== null) {
+      } else if (asItLands && earlier?.outcome !== null) {
         const { stale, checking } = deps.marks(mindId, reach);
         const remakes = idsKey(stale);
         if (stale.length > 0 && checking === 0 && remakes !== earlier?.remakes) {
@@ -586,6 +593,22 @@ export function createHandOver(deps: HandOverDeps) {
       const formulas = marks.formulas;
       if ((run && run.outcome === null) || marks.checking > 0) {
         return { status: "running", why: null, supported: 0, needLook: 0, claims: [], formulas };
+      }
+      if (
+        !run &&
+        !asItLands &&
+        found?.version.checkedAt == null &&
+        marks.supported + marks.needLook.length === 0
+      ) {
+        const waits = deps.say("agents.handOver.notChecked.waits");
+        return {
+          status: "not-checked",
+          why: waits,
+          supported: 0,
+          needLook: 0,
+          claims: [],
+          formulas,
+        };
       }
       const why = run?.outcome ? notChecked(run.outcome) : null;
       const stop = run?.outcome?.kind === "checked" ? run.outcome.stop : null;

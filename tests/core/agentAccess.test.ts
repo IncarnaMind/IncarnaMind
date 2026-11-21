@@ -135,6 +135,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     handedAt: () => null,
     handOver: () => Promise.reject(new Error("No file is handed over here.")),
     handedCheck: () => Promise.reject(new Error("No file is handed over here.")),
+    checksWritten: () => false,
     ...overrides,
   };
   return createAgentAccess(deps, "pairing");

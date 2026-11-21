@@ -5890,6 +5890,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     say: (key, params) => translate(settings.get().language, key, params),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    checksWritten: () => settings.get().user.checkAssistantWrites,
     log: adapters.log ?? silentLogger,
   });
 
@@ -6196,6 +6197,7 @@ export function createCore(adapters: CoreAdapters): Core {
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
+      checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),
