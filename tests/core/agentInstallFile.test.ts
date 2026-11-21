@@ -1,7 +1,7 @@
 /**
  * The install file IncarnaMind opens Claude's app on (#3523): it holds the pairing's key and waits
  * in the temporary folder for as long as the pairing waits for Claude, whatever the clock says
- * and through a restart. It goes when Claude first connects, and when the pairing is
+ * and through a restart. It goes when Claude connects, and when the pairing is
  * disconnected, undone or deleted; if the system cleared it, opening the install again makes it
  * anew. Every path is in a temporary folder, and Claude's app is never opened.
  */
@@ -11,11 +11,8 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Core } from "../../src/core";
-import { DATABASE_FILE } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
 import { openPackage } from "../../src/core/documents/formats/zip";
-import { openDatabase } from "../../src/core/storage";
-import { type Migration, migrations } from "../../src/core/storage/migrations";
 import { agentSocketAnswers } from "../helpers/agentClients";
 import { agentsAdapter, buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
@@ -62,15 +59,20 @@ async function computer() {
   return { core, coast, dataDir, tempDir, opened, bundleFolders, restart, connectClaude };
 }
 
-/** A file of an earlier quit, as one would be if its removal hadn't finished. */
-async function leaveFile(tempDir: string, folder: string) {
+/**
+ * A file of an earlier quit, as one would be if its removal hadn't finished. The more `files`, the
+ * later its removal ends, so a start has finished tidying once a heavy one has gone.
+ */
+async function leaveFile(tempDir: string, folder: string, files = 1) {
   await mkdir(join(tempDir, folder), { mode: 0o700 });
-  await writeFile(join(tempDir, folder, "IncarnaMind.mcpb"), "old", { mode: 0o600 });
+  for (let each = 0; each < files; each++) {
+    await writeFile(join(tempDir, folder, `old-${each}`), "old", { mode: 0o600 });
+  }
 }
 
 /** Claude's app, once it has installed the file, starts the shim, which connects. */
 async function claudeStarts(core: Core, pairingId: string) {
-  await connectLegacyAgent(await core.getAgentLaunch(pairingId));
+  return connectLegacyAgent(await core.getAgentLaunch(pairingId));
 }
 
 describe("Claude's install file (#3523)", () => {
@@ -101,30 +103,37 @@ describe("Claude's install file (#3523)", () => {
     expect((await core.getAgents()).awaitingInstall).toHaveLength(1);
   });
 
-  it("stays through a restart while it waits, and a start takes away the file of a pairing that is gone", async () => {
-    const { connectClaude, restart, core, tempDir, bundleFolders } = await computer();
-    const { pairing } = await connectClaude();
-    const file = join(tempDir, `${PREFIX}${pairing.id}`, "IncarnaMind.mcpb");
-    const kept = await readFile(file);
-    const gone = `${PREFIX}${randomUUID()}`;
-    await leaveFile(tempDir, gone);
-
-    const restarted = await restart(core);
-    // The start has finished tidying once the file of the pairing that is gone has gone.
-    await vi.waitFor(async () => expect(await bundleFolders()).toEqual([`${PREFIX}${pairing.id}`]));
-    expect(await readFile(file)).toEqual(kept);
-    expect((await restarted.getAgents()).awaitingInstall).toEqual([pairing.id]);
-  });
-
-  it("takes away at a start what a pairing that has connected left, and leaves the one still waiting", async () => {
+  it("stays through a restart while it waits, and a start takes away only the files of pairings it holds that no longer wait", async () => {
     const { connectClaude, restart, core, tempDir, bundleFolders } = await computer();
     const waiting = await connectClaude();
-    const connected = await connectClaude();
-    await claudeStarts(core, connected.pairing.id);
+    const disconnected = await connectClaude();
+    await core.disconnectAgent(disconnected.pairing.id);
+    const file = join(tempDir, `${PREFIX}${waiting.pairing.id}`, "IncarnaMind.mcpb");
+    const kept = await readFile(file);
+    // The temporary folder is shared by every IncarnaMind of the account: this one is another's.
+    const another = `${PREFIX}${randomUUID()}`;
+    await leaveFile(tempDir, another);
+    await leaveFile(tempDir, `${PREFIX}${disconnected.pairing.id}`, 40);
+
+    const restarted = await restart(core);
+    await vi.waitFor(async () =>
+      expect(await bundleFolders()).toEqual([another, `${PREFIX}${waiting.pairing.id}`].sort()),
+    );
+    expect(await readFile(file)).toEqual(kept);
+    expect((await restarted.getAgents()).awaitingInstall).toEqual([waiting.pairing.id]);
+  });
+
+  it("takes away at a start what a pairing that has been used left, and leaves the one still waiting", async () => {
+    const { connectClaude, restart, core, tempDir, bundleFolders } = await computer();
+    const waiting = await connectClaude();
+    const used = await connectClaude();
+    const agent = await claudeStarts(core, used.pairing.id);
+    await agent.callTool({ name: "search", arguments: { query: "spring tides" } });
     await vi.waitFor(async () =>
       expect(await bundleFolders()).toEqual([`${PREFIX}${waiting.pairing.id}`]),
     );
-    await leaveFile(tempDir, `${PREFIX}${connected.pairing.id}`);
+    expect((await core.getAgents()).awaitingInstall).toEqual([waiting.pairing.id]);
+    await leaveFile(tempDir, `${PREFIX}${used.pairing.id}`);
 
     await restart(core);
     await vi.waitFor(async () =>
@@ -132,19 +141,37 @@ describe("Claude's install file (#3523)", () => {
     );
   });
 
-  it("goes when Claude first connects, and the pairing stays connected through a restart", async () => {
-    const { connectClaude, core, restart, bundleFolders } = await computer();
+  it("goes when Claude connects, and the pairing waits again once its agent has gone", async () => {
+    const { connectClaude, core, bundleFolders } = await computer();
     const { pairing } = await connectClaude();
     const announced: string[][] = [];
     core.on("agents.changed", (settings) => announced.push(settings.awaitingInstall));
 
-    await claudeStarts(core, pairing.id);
+    const agent = await claudeStarts(core, pairing.id);
     await vi.waitFor(async () => expect(await bundleFolders()).toEqual([]));
     expect((await core.getAgents()).awaitingInstall).toEqual([]);
     expect(announced.at(-1)).toEqual([]);
 
+    await agent.close();
+    await vi.waitFor(async () =>
+      expect((await core.getAgents()).awaitingInstall).toEqual([pairing.id]),
+    );
+    expect(announced.at(-1)).toEqual([pairing.id]);
+  });
+
+  it("after a restart, a pairing that connected but was never used waits until its agent connects again", async () => {
+    const { connectClaude, core, restart, bundleFolders } = await computer();
+    const { pairing } = await connectClaude();
+    await claudeStarts(core, pairing.id);
+    await vi.waitFor(async () => expect(await bundleFolders()).toEqual([]));
+
     const restarted = await restart(core);
-    expect((await restarted.getAgents()).awaitingInstall).toEqual([]);
+    expect((await restarted.getAgents()).awaitingInstall).toEqual([pairing.id]);
+    await restarted.openAgentInstallAgain(pairing.id);
+    expect(await bundleFolders()).toEqual([`${PREFIX}${pairing.id}`]);
+
+    await claudeStarts(restarted, pairing.id);
+    await vi.waitFor(async () => expect(await bundleFolders()).toEqual([]));
   });
 
   it("goes when the pairing is disconnected", async () => {
@@ -259,44 +286,5 @@ describe("Claude's install file (#3523)", () => {
 
       await expect(core.openAgentInstallAgain("no-such-pairing")).rejects.toThrow();
     });
-  });
-});
-
-describe("when an agent first connected", () => {
-  it("is kept for a pairing used before it was kept", async () => {
-    const dataDir = await createTempDataFolder();
-    const tempDir = await createTempDataFolder();
-    const keychain = createMemoryKeychain();
-    const adapters = {
-      keychain,
-      paths: { dataDir, tempDir },
-      agents: await agentsAdapter(dataDir),
-    };
-    const original = startCore(dataDir, adapters);
-    const coast = await original.createLibraryGroup({ name: "Coast", description: "The sea." });
-    const used = await original.connectAgent({
-      name: "Used",
-      folderIds: [coast.id],
-      client: "claude-desktop",
-    });
-    const unused = await original.connectAgent({
-      name: "Unused",
-      folderIds: [coast.id],
-      client: "claude-desktop",
-    });
-    original.close();
-
-    const ours = migrations.find((each) => each.description.includes("(#3523)")) as Migration;
-    const db = openDatabase(join(dataDir, DATABASE_FILE));
-    db.exec(`
-      ALTER TABLE agent_pairings DROP COLUMN connected_at;
-      UPDATE agent_pairings SET last_used_at = '2026-11-20T10:00:00.000Z' WHERE id = '${used.pairing.id}';
-      DELETE FROM schema_migrations WHERE version = ${ours.version};
-      PRAGMA user_version = ${ours.version - 1};
-    `);
-    db.close();
-
-    const upgraded = startCore(dataDir, adapters);
-    expect((await upgraded.getAgents()).awaitingInstall).toEqual([unused.pairing.id]);
   });
 });

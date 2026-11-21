@@ -81,7 +81,7 @@ const MAX_NAME_CHARS = 80;
 
 /** What setting an agent up left waiting for its pairing: told when the pairing's agent connects or the pairing goes. */
 export interface PairingEvents {
-  /** The pairing's agent reached IncarnaMind's server for the first time. */
+  /** The pairing's agent reached IncarnaMind's server, as it does at every start. */
   connected(pairingId: string): void;
   /** Waited for: the pairing's disconnect is done once it has returned. */
   disconnected(pairingId: string): Promise<void>;
@@ -270,21 +270,16 @@ export function createAgents(options: AgentsOptions) {
     return pairing;
   };
 
-  /** The pairings whose agent installs a file IncarnaMind made and hasn't connected yet. */
-  const awaitingInstall = (pairings: readonly AgentPairing[]): string[] => {
-    const unconnected = new Set(
-      db
-        .all<{ id: string }>(
-          "SELECT id FROM agent_pairings WHERE connected_at IS NULL AND deleted_at IS NULL",
-        )
-        .map((row) => row.id),
-    );
-    return pairings
+  /** The pairings whose agent installs a file IncarnaMind made, hasn't been used and isn't connected now. */
+  const awaitingInstall = (pairings: readonly AgentPairing[]): string[] =>
+    pairings
       .filter(
-        (each) => unconnected.has(each.id) && clientDefinition(each.client)?.setup === "bundle",
+        (each) =>
+          each.lastUsedAt === null &&
+          (connections.get(each.id)?.size ?? 0) === 0 &&
+          clientDefinition(each.client)?.setup === "bundle",
       )
       .map((each) => each.id);
-  };
 
   const settings = (): AgentSettings => {
     const pairings = livePairings();
@@ -534,21 +529,14 @@ export function createAgents(options: AgentsOptions) {
     return { pairingId, access: createAgentAccess(accessDeps, pairingId ?? "") };
   };
 
-  /** Notes that a pairing's agent reached the server, the first time it does. */
-  const markConnected = (pairingId: string) => {
-    const row = db.get<{ connected_at: string | null }>(
-      "SELECT connected_at FROM agent_pairings WHERE id = ? AND deleted_at IS NULL",
-      [pairingId],
-    );
-    if (!row || row.connected_at !== null) return;
-    const at = options.now();
-    db.run("UPDATE agent_pairings SET connected_at = ?, updated_at = ? WHERE id = ?", [
-      at,
-      at,
-      pairingId,
-    ]);
-    changed();
-    for (const watcher of watchers) watcher.connected(pairingId);
+  /** Tells the windows the settings changed because a connection opened or closed, unless the core is closing. */
+  const connectionsChanged = () => {
+    if (closed) return;
+    try {
+      changed();
+    } catch (error) {
+      options.reportError(error);
+    }
   };
 
   const closeConnections = async (pairingId: string | null) => {
@@ -572,13 +560,13 @@ export function createAgents(options: AgentsOptions) {
             const list = connections.get(pairingId) ?? new Set<ServedConnection>();
             list.add(connection);
             connections.set(pairingId, list);
-            socket.once("close", () => list.delete(connection));
+            socket.once("close", () => {
+              list.delete(connection);
+              if (pairingId !== null) connectionsChanged();
+            });
             if (pairingId === null) return;
-            try {
-              markConnected(pairingId);
-            } catch (error) {
-              options.reportError(error);
-            }
+            for (const watcher of watchers) watcher.connected(pairingId);
+            connectionsChanged();
           },
           reportError: options.reportError,
         }),
@@ -748,9 +736,14 @@ export function createAgents(options: AgentsOptions) {
       );
     },
 
-    /** Hears each pairing's agent connect for the first time, and each pairing disconnected. */
+    /** Hears each connection of a pairing's agent, and each pairing disconnected. */
     watch(events: PairingEvents): void {
       watchers.add(events);
+    },
+
+    /** Every pairing this database has held: those disconnected too, which stay marked deleted. */
+    held(): string[] {
+      return db.all<{ id: string }>("SELECT id FROM agent_pairings").map((row) => row.id);
     },
 
     /** Records the settings files and folders that setting this pairing's agent up created. */

@@ -96,6 +96,8 @@ export interface AgentSetupOptions {
     /** Tells the windows the agents' settings changed. */
     announce(): void;
     watch(events: PairingEvents): void;
+    /** Every pairing this database has held, disconnected ones too. */
+    held(): string[];
   };
   /** The Skill's copies, as IncarnaMind wrote them (see ./skillFiles). */
   skills: SkillFiles;
@@ -237,21 +239,24 @@ export function createAgentSetup(options: AgentSetupOptions) {
     join(options.tempDir, `${BUNDLE_FOLDER_PREFIX}${pairingId}`);
   const removeBundle = (pairingId: string) =>
     rm(bundleFolder(pairingId), { recursive: true, force: true });
-  // A bundle holds its pairing's key: it stays only while the pairing waits for its agent.
+  // A bundle holds its pairing's key: it stays only while the pairing waits for its agent. A
+  // folder of a pairing this database never held is another IncarnaMind's, which shares the
+  // temporary folder (every app of one account does).
   options.agents.watch({
     connected: (pairingId) => void removeBundle(pairingId).catch(options.reportError),
     disconnected: removeBundle,
   });
   const waiting = new Set(options.agents.settings().awaitingInstall);
+  const held = new Set(options.agents.held());
   readdir(options.tempDir)
     .then((names) =>
       Promise.all(
         names
-          .filter(
-            (name) =>
-              name.startsWith(BUNDLE_FOLDER_PREFIX) &&
-              !waiting.has(name.slice(BUNDLE_FOLDER_PREFIX.length)),
-          )
+          .filter((name) => name.startsWith(BUNDLE_FOLDER_PREFIX))
+          .filter((name) => {
+            const pairingId = name.slice(BUNDLE_FOLDER_PREFIX.length);
+            return held.has(pairingId) && !waiting.has(pairingId);
+          })
           .map((name) => rm(join(options.tempDir, name), { recursive: true, force: true })),
       ),
     )

@@ -59,7 +59,7 @@ export function AgentPairingRow({
   skillInstalled: boolean;
   /** The agent's Skill is one the User changed, and IncarnaMind's text has changed since. */
   skillOutOfDate: boolean;
-  /** Its install file waits for the agent, which hasn't connected yet (#3523). */
+  /** Its install file waits for the agent, which hasn't connected or been used (#3523). */
   awaitingInstall: boolean;
   folders: readonly LibraryGroup[];
   justSetUp: JustSetUp | null;

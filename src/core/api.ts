@@ -12716,8 +12716,10 @@ export interface AgentSettings {
    */
   skillsOutOfDate: string[];
   /**
-   * The pairings whose agent installs an install file IncarnaMind made and hasn't connected yet:
-   * the file waits for it, and `openAgentInstallAgain` makes it and opens it once more (#3523).
+   * The pairings whose agent installs an install file IncarnaMind made, hasn't been used and isn't
+   * connected now: the file waits for it, and `openAgentInstallAgain` makes it and opens it once
+   * more. After a restart, one whose agent connected but was never used is among them until its
+   * agent connects again (#3523).
    */
   awaitingInstall: string[];
 }
@@ -15471,7 +15473,7 @@ export interface CoreApi {
   /**
    * Makes the install file of a pairing in `AgentSettings.awaitingInstall` anew and opens it in
    * its app, for when the file is gone or the app's install window is stale (#3523). Does nothing
-   * for a pairing whose agent has connected since: its file is gone for good.
+   * for a pairing that isn't in it: its agent is connected, or has been used.
    */
   openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
