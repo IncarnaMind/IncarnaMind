@@ -1,7 +1,7 @@
 import { translate } from "../../shared/i18n";
 import { shownSpeaker } from "../../shared/speakers";
 import { transcriptCueLines } from "../../shared/units";
-import type { Document, Meeting } from "../api";
+import type { Document, Meeting, MeetingSummarySource } from "../api";
 import type { createDocuments } from "../documents";
 import { hashBytes } from "../documents/files";
 import { isRecord, NotFoundError } from "../errors";
@@ -16,7 +16,12 @@ import type { createMeetings } from "./index";
 import { candidateSurvives } from "./summaryCandidates";
 import { summaryCandidateUnavailable } from "./summaryCorrections";
 import type { meetingSummaryRoute } from "./summaryRoute";
-import { meetingSummarySources } from "./summarySources";
+import {
+  meetingSummarySources,
+  type TranscriptActionLine,
+  transcriptActionLine,
+  transcriptActionSources,
+} from "./summarySources";
 
 interface Options {
   meetings: Pick<
@@ -26,6 +31,7 @@ interface Options {
     | "summaryCandidateReview"
     | "summaryItemEvidence"
     | "saveCandidateReview"
+    | "addTranscriptAction"
     | "addSummaryCandidate"
     | "undoAddSummaryCandidate"
   >;
@@ -64,7 +70,7 @@ export function createMeetingCandidateReview({
     }
   }
 
-  async function currentSummaryCandidateCues(meetingId: string, documentId: string) {
+  async function currentSummaryCues(meetingId: string, documentId: string) {
     try {
       if (!meetingSummaryDocument(meetingId, documentId)) return null;
       await extract(documentId);
@@ -88,9 +94,9 @@ export function createMeetingCandidateReview({
     }
   }
 
-  function currentCandidateTranscript(
+  function currentTranscriptCues(
     meetingId: string,
-    checked: Awaited<ReturnType<typeof currentSummaryCandidateCues>>,
+    checked: Awaited<ReturnType<typeof currentSummaryCues>>,
   ) {
     if (!checked) return null;
     try {
@@ -129,7 +135,7 @@ export function createMeetingCandidateReview({
   const candidateReviews = createCandidateReviews({
     current: (scope) => candidateReviewMeeting(scope) !== null,
     async input(scope) {
-      const indexed = await currentSummaryCandidateCues(scope.meetingId, scope.documentId);
+      const indexed = await currentSummaryCues(scope.meetingId, scope.documentId);
       const current = candidateReviewMeeting(scope);
       if (!current || indexed?.contentHash !== scope.contentHash || !indexed.cues.length)
         return null;
@@ -167,8 +173,8 @@ export function createMeetingCandidateReview({
   async function cachedSummaryCandidates(meetingId: string) {
     const review = summaryCandidateReview(meetingId)?.review;
     if (!review?.candidates.length) return [];
-    const checked = await currentSummaryCandidateCues(meetingId, review.documentId);
-    const cues = currentCandidateTranscript(meetingId, checked);
+    const checked = await currentSummaryCues(meetingId, review.documentId);
+    const cues = currentTranscriptCues(meetingId, checked);
     const current = summaryCandidateReview(meetingId)?.review;
     if (
       !cues ||
@@ -236,6 +242,32 @@ export function createMeetingCandidateReview({
     },
     get: cachedSummaryCandidates,
     review: reviewMeetingSummaryCandidates,
+    async addTranscriptAction(meetingId: string, documentId: string, source: MeetingSummarySource) {
+      if (!isRecord(source)) throw summaryCandidateUnavailable();
+      const checked = await currentSummaryCues(meetingId, documentId);
+      const doc = checked && meetingSummaryDocument(meetingId, documentId);
+      if (
+        !doc ||
+        !checked ||
+        doc.contentHash !== checked.contentHash ||
+        meetings.get(meetingId).transcript?.state !== "saved"
+      )
+        throw summaryCandidateUnavailable();
+      const line = transcriptActionLine(checked.cues, doc.speakers, source);
+      if (!line) throw summaryCandidateUnavailable();
+      return meetings.addTranscriptAction(meetingId, documentId, checked.contentHash, line);
+    },
+    async transcriptActionSources(
+      meetingId: string,
+      documentId: string,
+      line: TranscriptActionLine,
+    ) {
+      const checked = await currentSummaryCues(meetingId, documentId);
+      const doc = checked && meetingSummaryDocument(meetingId, documentId);
+      return checked && doc && doc.contentHash === checked.contentHash
+        ? transcriptActionSources(checked.cues, doc.speakers, line)
+        : [];
+    },
     async add(meetingId: string, candidateId: number) {
       if (!Number.isSafeInteger(candidateId) || candidateId <= 0)
         throw summaryCandidateUnavailable();
@@ -245,8 +277,8 @@ export function createMeetingCandidateReview({
       const review = state?.review;
       const candidate = review?.candidates.find(({ id }) => id === candidateId);
       if (!review || !candidate) throw summaryCandidateUnavailable();
-      const checked = await currentSummaryCandidateCues(meetingId, review.documentId);
-      const cues = currentCandidateTranscript(meetingId, checked);
+      const checked = await currentSummaryCues(meetingId, review.documentId);
+      const cues = currentTranscriptCues(meetingId, checked);
       if (
         !cues ||
         checked?.contentHash !== review.contentHash ||
@@ -276,9 +308,9 @@ export function createMeetingCandidateReview({
         accepted.documentId === review?.documentId &&
         accepted.contentHash === review.contentHash &&
         accepted.route === review.route
-          ? await currentSummaryCandidateCues(meetingId, accepted.documentId)
+          ? await currentSummaryCues(meetingId, accepted.documentId)
           : null;
-      const cues = currentCandidateTranscript(meetingId, checked);
+      const cues = currentTranscriptCues(meetingId, checked);
       return meetings.undoAddSummaryCandidate(
         meetingId,
         candidateId,

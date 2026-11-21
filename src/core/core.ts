@@ -8483,17 +8483,30 @@ export function createCore(adapters: CoreAdapters): Core {
     getMeetingSummaryItemSources: async (meetingId, itemId) => {
       const documentId = meetings.transcriptOf(meetingId);
       if (!documentId) return null;
+      const line = meetings.summaryItemEvidence(meetingId, itemId)?.line;
+      if (line) {
+        const sources = await candidateReviews.transcriptActionSources(meetingId, documentId, line);
+        return meetings.summaryItemEvidence(meetingId, itemId)?.documentId === documentId
+          ? { documentId, sources }
+          : null;
+      }
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
       if (!meetingSummaryDocument(meetingId, documentId)) return null;
       const evidence = meetings.summaryItemEvidence(meetingId, itemId);
       const version = documents.currentVersion(documentId);
       if (!evidence || evidence.documentId !== documentId || !version) return null;
       const units = documents.pageTexts(documentId, version, null, null);
-      return { documentId, sources: meetingSummarySources(units, evidence.quotes) };
+      return {
+        documentId,
+        sources: meetingSummarySources(units, evidence.quotes),
+      };
     },
     canReviewMeetingSummaryCandidates: async (meetingId) => candidateReviews.canReview(meetingId),
     getMeetingSummaryCandidates: candidateReviews.get,
     reviewMeetingSummaryCandidates: candidateReviews.review,
+    addMeetingTranscriptAction: candidateReviews.addTranscriptAction,
+    undoAddMeetingTranscriptAction: async (meetingId, itemId) =>
+      meetings.undoAddTranscriptAction(meetingId, itemId),
     addMeetingSummaryCandidate: candidateReviews.add,
     undoAddMeetingSummaryCandidate: candidateReviews.undo,
     correctMeetingSummaryItem: async (meetingId, expected, replacement) =>

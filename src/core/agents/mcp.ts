@@ -446,7 +446,7 @@ export function createAgentServer(
     {
       title: "Change a Note",
       description:
-        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no named paragraphs, start with ¶0+. Write Markdown with [cite:…] tokens, pictures, charts and tabs as in create_mind. Changes apply in Notes you wrote and wait for review elsewhere.",
+        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no named paragraphs, start with ¶0+. Write Markdown as in create_mind, with its [cite:…] tokens. Changes apply in Notes you wrote and wait for review elsewhere.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
@@ -491,7 +491,7 @@ export function createAgentServer(
     {
       title: "Write a new Note",
       description:
-        'Write a new Note: a report, a summary, a draft. It is there at once, marked as yours. Write Markdown; cite each claim from the User\'s Documents with its [cite:…] token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. A chart: a table of its figures, each cell a figure with its token, then a ```chart block right under it, {"kind": "bar", "title": "…"}, adding "leaveOut": ["Total"] for rows not to draw. Tabs only if asked: a ```tab block of its title opens each. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
+        'Write a new Note (a report, a summary, a draft), marked as yours. Lay it out in Markdown for its reader, who reads compared figures faster in a table than in sentences, and a change over periods or a figure against its limit faster in a chart: a heading for each part; compared figures in a table, its first column their labels and each other cell one figure with its [cite:…] token; where that table holds a change over periods or a figure against its limit, draw it with a ```chart block right under it, {"kind": "bar", "title": "…"} (or "line"), with "leaveOut": ["Total"] for rows not to draw. Keep a short answer short. Cite each claim from the User\'s Documents with its token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. Tabs only if asked: a ```tab block of its title opens each. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),

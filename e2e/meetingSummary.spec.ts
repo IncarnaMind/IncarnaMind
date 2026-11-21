@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { setTimeout as pause } from "node:timers/promises";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { meetingSummaryModelRoute } from "../src/shared/meetingSummary";
 import {
@@ -21,7 +22,9 @@ import {
   setWindowSize,
   startRecording,
   transcriptSaved,
+  turnOf,
 } from "./app";
+import { encode, film } from "./feel";
 
 const screenshots = process.env.INCARNAMIND_SCREENSHOTS;
 const meetingWords = {
@@ -627,6 +630,222 @@ for (const [language, request, reply] of [
       expect(snapshot.candidates).toEqual([]);
       expect(snapshot.checked).toBe(true);
     } finally {
+      await running?.app.close();
+      await removeDataFolder(dir);
+    }
+  });
+}
+
+// protects=local cue-to-action items in both Transcript views, with one Undo step per actual addition
+// fails_when=the action requires a model, a duplicate creates another Undo, or a source opens at the wrong cue
+for (const language of ["en", "zh-CN"] as const) {
+  test(`a saved transcript line becomes a local action item (${language})`, async () => {
+    const dir = await createDataFolder();
+    let running: Awaited<ReturnType<typeof launchApp>> | null = null;
+    let stopFilm: Awaited<ReturnType<typeof film>> | undefined;
+    const [, , firstQuote, secondQuote] = meetingWords[language].opening;
+    const words =
+      language === "en"
+        ? {
+            add: "Add to action items",
+            added: "Added to action items.",
+            already: "Already in action items",
+            empty: "No summary was generated.",
+          }
+        : {
+            add: "加入待办事项",
+            added: "已加入待办。",
+            already: "待办事项中已有这句",
+            empty: "未生成摘要。",
+          };
+    try {
+      running = await launchApp(dir, {
+        computerSound: "silent",
+        transcriber: { live: true, lines: [firstQuote, secondQuote] },
+      });
+      const { app, window } = running;
+      const bridge = await coreOf(window);
+      const width = language === "en" ? 1440 : 900;
+      await setWindowSize(app, window, width, 720);
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await firstTranscriptLine(window);
+      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+      const inline = window.getByTestId("meeting-note-transcript");
+      const cue = (scope: Locator, text: string) =>
+        scope.getByTestId("transcript-line").filter({ hasText: text }).first();
+      await expect(cue(inline, secondQuote)).toBeVisible();
+      await expect(inline.getByTestId("transcript-line-actions")).toHaveCount(0);
+      await pointAndClick(window, inline.getByTestId("meeting-stop"));
+      await transcriptSaved(window);
+      await settleFirstFill(window);
+      const first = cue(inline, firstQuote);
+      await expect(first).toBeVisible();
+      const source = {
+        startMs: Number(await first.getAttribute("data-cue-start")),
+        endMs: Number(await first.getAttribute("data-cue-end")),
+        text: firstQuote,
+      };
+      expect(source.endMs).toBeGreaterThan(source.startMs);
+      const readMeeting = () =>
+        bridge.evaluate(async (core) => {
+          const [meeting] = await core.listMeetings();
+          const settings = await core.getSettings();
+          return {
+            route: settings.device.meetingSummaryRoute,
+            text: meeting?.summary?.text,
+            items: meeting?.summary?.items ?? [],
+          };
+        });
+      expect((await readMeeting()).route).toBeFalsy();
+
+      const frames = screenshots ? join(screenshots, "meeting-cue-action-frames") : undefined;
+      if (frames && language === "en") stopFilm = await film(window, frames);
+
+      await first.focus();
+      await window.keyboard.press("Tab");
+      const trigger = turnOf(first).getByTestId("transcript-line-actions");
+      await expect(trigger).toBeFocused();
+      await expect(trigger).toHaveAttribute("aria-label", new RegExp(firstQuote));
+      await window.keyboard.press("Space");
+      const menu = turnOf(first).getByTestId("transcript-line-menu");
+      await expect(menu).toBeVisible();
+      if (screenshots) {
+        await window.screenshot({
+          animations: "disabled",
+          path: join(screenshots, `meeting-cue-actions-${language}-${width}.png`),
+        });
+      }
+      await window.keyboard.press("ArrowDown");
+      await expect(menu.getByRole("menuitem", { name: words.add })).toBeFocused();
+      if (stopFilm) await pause(1100);
+      await window.keyboard.press("Enter");
+      await expect(menu).toBeHidden();
+      await expect(first).toBeFocused();
+      await expect(window.getByTestId("undo-message")).toHaveText(words.added);
+      const summary = inline.getByTestId("meeting-summary");
+      await expect(summary).not.toContainText(words.empty);
+      await expect(summary.getByTestId("meeting-summary-text")).toHaveCount(0);
+      const items = summary.getByTestId("meeting-summary-items");
+      if (stopFilm) await pause(1000);
+      await pointAndClick(window, items.locator("summary"));
+      await expectItem(
+        items.getByTestId("meeting-summary-item"),
+        firstQuote,
+        meetingWords[language].status.open,
+      );
+      if (stopFilm && frames && screenshots) {
+        await stopFilm();
+        stopFilm = undefined;
+        await encode(frames, join(screenshots, "meeting-cue-action.mp4"));
+      }
+      const [original] = (await readMeeting()).items;
+      expect(original?.corrected).toBe(true);
+
+      const originalSpeech = await showSpeech(
+        window,
+        items.getByTestId("meeting-summary-item"),
+        firstQuote,
+      );
+      await pointAndClick(window, originalSpeech.getByTestId("meeting-summary-item-source"));
+      const standalone = window.getByTestId("viewer-transcript").filter({
+        has: window.locator(
+          `[data-cue-start="${source.startMs}"][data-cue-end="${source.endMs}"] [data-quote-highlight]`,
+        ),
+      });
+      await expect(standalone).toBeVisible();
+      const inViewer = cue(standalone, firstQuote);
+      await inViewer.hover();
+      await pointAndClick(window, turnOf(inViewer).getByTestId("transcript-line-actions"));
+      await pointAndClick(
+        window,
+        turnOf(inViewer)
+          .getByTestId("transcript-line-menu")
+          .getByRole("menuitem", { name: words.add }),
+      );
+      await expect(
+        window.getByTestId("transcript-added").filter({ hasText: words.already }),
+      ).toBeVisible();
+      await expect(window.getByTestId("undo-message")).toHaveText(words.added);
+      await pointAndClick(window, window.getByTestId("undo-action"));
+      await expect.poll(async () => (await readMeeting()).items).toHaveLength(0);
+
+      await window.keyboard.press("ControlOrMeta+Shift+KeyZ");
+      await expect.poll(async () => (await readMeeting()).items).toHaveLength(1);
+      expect((await readMeeting()).items[0]?.id).not.toBe(original?.id);
+
+      const second = cue(standalone, secondQuote);
+      const wholeStart = Number(await second.getAttribute("data-cue-start"));
+      const wholeEnd = Number(await second.getAttribute("data-cue-end"));
+      await second.focus();
+      await window.keyboard.press("ArrowRight");
+      await window.keyboard.press("ArrowRight");
+      await window.keyboard.press("Enter");
+      const speakers = window.locator('[data-testid="speaker-menu"]:popover-open');
+      await pointAndClick(window, speakers.getByTestId("speaker-new"));
+      await window.keyboard.insertText(language === "en" ? "Taylor" : "李然");
+      await window.keyboard.press("Enter");
+      await expect(speakers).toHaveCount(0);
+      const cueBounds = `[data-cue-start="${wholeStart}"][data-cue-end="${wholeEnd}"]`;
+      const part = standalone.locator(`${cueBounds}:not([data-start="${wholeStart}"])`);
+      await expect(part).toBeVisible();
+      const partText = (await part.innerText()).trim();
+      const partStart = Number(await part.getAttribute("data-start"));
+      const partEnd = Number(await part.getAttribute("data-end"));
+      expect(partText).not.toBe(secondQuote);
+      expect(partStart).toBeGreaterThan(wholeStart);
+      expect(partEnd).toBe(wholeEnd);
+
+      await part.focus();
+      await runCommand(window, "meeting.addTranscriptAction", words.add);
+      await expect
+        .poll(async () => (await readMeeting()).items.map((item) => item.text))
+        .toEqual([firstQuote, partText]);
+      expect((await readMeeting()).text ?? "").toBe("");
+
+      await pointAndClick(
+        window,
+        window.getByTestId("mind-tab").filter({ hasText: /Meeting|会议/ }),
+      );
+      const allItems = window.getByTestId("meeting-summary-items");
+      if ((await allItems.getAttribute("open")) === null)
+        await pointAndClick(window, allItems.locator("summary"));
+      const partItem = allItems.getByTestId("meeting-summary-item").filter({ hasText: partText });
+      const partSpeech = await showSpeech(window, partItem, partText);
+      await pointAndClick(window, partSpeech.getByTestId("meeting-summary-item-source"));
+      const highlight = window.locator(
+        `[data-testid="viewer-transcript"] [data-start="${partStart}"][data-end="${partEnd}"] [data-quote-highlight]`,
+      );
+      await expect
+        .poll(async () => (await highlight.allTextContents()).join("").replace(/\s/g, ""))
+        .toBe(partText.replace(/\s/g, ""));
+      await expect(
+        window.locator(
+          `[data-testid="viewer-transcript"] ${cueBounds}[data-start="${wholeStart}"] [data-quote-highlight]`,
+        ),
+      ).toHaveCount(0);
+      await pointAndClick(window, window.getByTestId("undo-action"));
+      await expect
+        .poll(async () => (await readMeeting()).items.map((item) => item.text))
+        .toEqual([firstQuote]);
+      if (screenshots) {
+        const otherWidth = width === 1440 ? 900 : 1440;
+        await setWindowSize(app, window, otherWidth, 720);
+        await pointAndClick(window, window.getByTestId("document-tab"));
+        const viewer = window.getByTestId("viewer").getByTestId("viewer-transcript");
+        const line = cue(viewer, firstQuote);
+        await line.hover();
+        const turn = turnOf(line);
+        await pointAndClick(window, turn.getByTestId("transcript-line-actions"));
+        await expect(turn.getByRole("menuitem", { name: words.add })).toBeVisible();
+        await window.screenshot({
+          animations: "disabled",
+          path: join(screenshots, `meeting-cue-actions-${language}-${otherWidth}.png`),
+        });
+      }
+    } finally {
+      await stopFilm?.();
       await running?.app.close();
       await removeDataFolder(dir);
     }

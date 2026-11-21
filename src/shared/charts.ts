@@ -771,6 +771,30 @@ function yearAxis(header: string, cells: readonly string[]): boolean {
   return YEAR_HEADER.test(header) || (cells.length > 0 && cells.every((c) => BARE_YEAR.test(c)));
 }
 
+/**
+ * A ratio to one ("3.5:1", as a loan agreement writes a covenant's limit) is one figure, the same
+ * multiple as "3.5x". Read as the two numbers it is written with, its table draws no chart (#3510).
+ */
+function ratioToOne(text: string, figures: readonly Figure[]): readonly Figure[] {
+  const [first, one] = figures;
+  if (!first || !one || figures.length !== 2) return figures;
+  const whole =
+    first.unit.kind === "plain" &&
+    first.scale === 1 &&
+    one.unit.kind === "plain" &&
+    one.value === 1 &&
+    /^\s*[:：]\s*$/u.test(text.slice(first.end, one.start));
+  if (!whole) return figures;
+  return [
+    {
+      ...first,
+      unit: { kind: "times" },
+      end: one.end,
+      chars: text.slice(first.start, one.end),
+    },
+  ];
+}
+
 function readTable(grid: SourceGrid, language: string): TableReading {
   const first = grid[0] ?? [];
   const context = figureContextOf(
@@ -782,7 +806,7 @@ function readTable(grid: SourceGrid, language: string): TableReading {
     const trimmed = text.trim();
     let figures = read.get(trimmed);
     if (!figures) {
-      figures = readFigures(trimmed, context);
+      figures = ratioToOne(trimmed, readFigures(trimmed, context));
       read.set(trimmed, figures);
     }
     return figures;
