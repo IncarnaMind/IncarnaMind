@@ -17,6 +17,7 @@ import {
   useSummaryDocument,
 } from "../agentNote";
 import { type AskBlock, useAnswers } from "../answers";
+import { forgetAsked, useAskedAgent } from "../askedAgent";
 import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
 import { focusComposer } from "../commands/assistant";
 import { shortcutLabel } from "../commands/keymap";
@@ -184,6 +185,13 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const askers = useAgentsToAskRead(null, named?.id);
   const connected = useAgentsToAskRead(null);
   const askStep = askStepOf(summary, askers, connected);
+  // What became of the ask, until the Note it writes ticks the step (#3587).
+  const namedId = named?.id ?? null;
+  const asked = useAskedAgent(namedId === null ? null : { kind: "summary", documentId: namedId });
+  const wrote = agentNote !== null;
+  useEffect(() => {
+    if (wrote && namedId !== null) forgetAsked({ kind: "summary", documentId: namedId });
+  }, [wrote, namedId]);
   const lead = work[0];
   const steps = cardStepsOf(lead, agent !== null);
   const addFiles = useRef<HTMLButtonElement>(null);
@@ -356,6 +364,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
           step={askStep}
           summary={summary}
           askers={askers}
+          asked={live ? asked : null}
           live={live}
           onAsk={askForSummary}
           onAdd={() => void pickDocuments()}

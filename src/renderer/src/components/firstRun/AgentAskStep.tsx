@@ -1,4 +1,5 @@
 import type { AgentPairing } from "../../../../core/api";
+import type { AgentAsked } from "../../askedAgent";
 import { quotedName } from "../../../../shared/naming";
 import type { SummaryDocument } from "../../agentNote";
 import { useT } from "../../i18n";
@@ -36,6 +37,7 @@ export function AgentAskStep({
   step,
   summary,
   askers,
+  asked,
   live,
   onAsk,
   onAdd,
@@ -44,6 +46,8 @@ export function AgentAskStep({
   step: AskStep;
   summary: SummaryDocument;
   askers: readonly AgentPairing[] | null;
+  /** What became of the ask, in the words the Note's check badge uses for its own (#3587). */
+  asked: { asked: AgentAsked; words: string } | null;
   /** Only the card the User sees carries test ids: the unseen states only hold its height. */
   live: boolean;
   onAsk(agent: AgentPairing): void;
@@ -73,16 +77,36 @@ export function AgentAskStep({
       </div>
     );
   }
-  const [first, ...others] = askers ?? [];
+  // Once asked, the agent asked leads with Ask again; the others stay behind the ⌄.
+  const lead = asked?.asked.agent;
+  const [first, ...others] = lead
+    ? [lead, ...(askers ?? []).filter((each) => each.id !== lead.id)]
+    : (askers ?? []);
+  const line =
+    summary.kind === "named"
+      ? t("firstOpen.agent.line", { document: quotedName(summary.document.name) })
+      : " ";
   return (
     <div className="flex items-start gap-2 rounded-md bg-chip py-1.5 pr-1.5 pl-2.5">
-      <p
-        data-testid={only("first-open-agent-line")}
-        className="min-w-0 flex-1 py-1 text-[13px] leading-5 text-ink select-text"
-      >
-        {summary.kind === "named"
-          ? t("firstOpen.agent.line", { document: quotedName(summary.document.name) })
-          : " "}
+      {/* The line and what became of its ask share one place, as tall as the taller of the two. */}
+      <p className="grid min-w-0 flex-1 py-1 text-[13px] leading-5 text-ink select-text">
+        <span
+          data-testid={asked ? undefined : only("first-open-agent-line")}
+          aria-hidden={asked ? true : undefined}
+          className={`col-start-1 row-start-1 ${asked ? "invisible" : ""}`}
+        >
+          {line}
+        </span>
+        {asked && (
+          <span
+            role="status"
+            data-testid={only("first-open-agent-asked")}
+            data-state={asked.asked.state}
+            className="col-start-1 row-start-1"
+          >
+            {asked.words}
+          </span>
+        )}
       </p>
       {step === "ask" && first && (
         <span className="inline-flex shrink-0 items-center gap-0.5">
@@ -92,7 +116,7 @@ export function AgentAskStep({
             onClick={() => onAsk(first)}
             className={buttonStyle("secondary", "sm")}
           >
-            {t("agents.ask.action", { agent: first.name })}
+            {lead ? t("agents.asked.again") : t("agents.ask.action", { agent: first.name })}
           </button>
           {others.length > 0 && (
             <OtherAgents

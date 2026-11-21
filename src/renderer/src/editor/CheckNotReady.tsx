@@ -1,4 +1,5 @@
 import type { AgentPairing, ChatReadiness } from "../../../core/api";
+import { useAskedAgent } from "../askedAgent";
 import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
 import { dismissCheckProblem } from "../checks";
 import { AskAgentLine } from "../components/AskAgentLine";
@@ -9,6 +10,7 @@ import {
   readinessAlso,
 } from "../components/providers/ChatReadinessNotice";
 import { useT } from "../i18n";
+import { noModelSetUp } from "../noModelSetUp";
 import { useAppStore } from "../store";
 
 /**
@@ -33,7 +35,7 @@ export function CheckNotReady({
   const noModel = readiness.reason === "no-provider";
   // Until the agents are read the line holds its place, empty, so the card's height is right when
   // it comes.
-  if (noModel && agents === null) return <p className="mind-health-line">{"\u00A0"}</p>;
+  if (noModel && agents === null) return <p className="mind-health-line">{" "}</p>;
   if (noModel && agents !== null && agents.length > 0) {
     const ask = async (agent: AgentPairing) => {
       if (await askAgent(agent, mindId, { kind: "check" })) dismiss();
@@ -62,5 +64,38 @@ export function CheckNotReady({
         <ReadinessExplanation readiness={readiness} inLine />
       )}
     </ProblemLine>
+  );
+}
+
+/**
+ * The Note's card while the User's own AI is asked to check it (#3587): what became of the request,
+ * in the words the badge says, then Ask again, the other AIs behind its ⌄, and Set up a model.
+ */
+export function AskedCheckLine({ mindId }: { mindId: string }) {
+  const t = useT();
+  const openSettings = useAppStore((state) => state.openSettings);
+  const readiness = useAppStore((state) => state.chatReadiness);
+  const asked = useAskedAgent({ kind: "check", mindId });
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAskRead(mindId);
+  if (!asked || !noModelSetUp(readiness)) return null;
+  const { agent } = asked.asked;
+  const others = (agents ?? []).filter((each) => each.id !== agent.id);
+  const setUp = readinessAction(readiness, t, openSettings, t("agents.ask.setUpModel"));
+  return (
+    <div className="mind-health-line">
+      <p role="status" data-testid="checks-asked" data-state={asked.asked.state}>
+        {asked.words}
+      </p>
+      <AskAgentLine
+        agents={[agent, ...others]}
+        label={(name) =>
+          name === agent.name ? t("agents.asked.again") : t("agents.ask.action", { agent: name })
+        }
+        onAsk={(each) => void askAgent(each, mindId, { kind: "check" })}
+        setUp={{ ...setUp, testId: "checks-asked-set-up" }}
+        testId="checks-asked-line"
+      />
+    </div>
   );
 }

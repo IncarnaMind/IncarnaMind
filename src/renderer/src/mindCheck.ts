@@ -27,7 +27,8 @@ import { TranslatableError } from "../../core/errors";
 import { contradictionWatchOf } from "../../shared/contradictionWatch";
 import { mindCheckOf, observeMindCheck } from "../../shared/mindCheck";
 import { isClaim } from "../../shared/sentences";
-import { noModel } from "./askYourAi";
+import { forgetAsked } from "./askedAgent";
+import { askToCheck, noModel } from "./askYourAi";
 import {
   dismissCheckProblem,
   setCheckCardOpen,
@@ -263,6 +264,7 @@ async function checkMindNow(
   figureIds?: string[],
   blockIds?: string[],
 ): Promise<CheckEnd> {
+  forgetAsked({ kind: "check", mindId });
   try {
     const result = await core.checkMind({
       requestId,
@@ -803,14 +805,14 @@ async function askOrCheck(
     showCheckCard(mindId);
     return null;
   }
-  // With no AI model set up no run can start, so a question about its price would only be
-  // answered by the same line: say so now, where the User's own AI is offered to check (#3533).
+  // With no AI model set up no run can start: the press asks the User's own AI to check the Note,
+  // and the card says how that goes (#3587); with none to ask, it says what a check needs (#3533).
   const readiness = useAppStore.getState().chatReadiness;
   if (!plan.model && noModelSetUp(readiness)) {
     clearAsk(mindId);
     dismissCheckProblem(mindId);
-    setCheckProblem(mindId, { kind: "not-ready", readiness });
     showCheckCard(mindId);
+    if (!(await askToCheck(mindId))) setCheckProblem(mindId, { kind: "not-ready", readiness });
     return null;
   }
   // No price arrived at the card's press: the question asks with the couldn't-estimate line.

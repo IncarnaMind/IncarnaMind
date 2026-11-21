@@ -8879,6 +8879,13 @@ export const en = {
   "agents.ask.fixAll": "Ask {agent} to fix {count}",
   "agents.ask.waiting": "Waiting for {agent} to read your request.",
   "agents.ask.read": "{agent} read your request.",
+  // What became of a check or a summary handed to the User's own AI, until it lands (#3587).
+  "agents.asked.opened": "Asked {agent}: send the request there.",
+  "agents.asked.copied": "Copied for {agent}: paste the request there and send it.",
+  "agents.asked.checking": "{agent} is checking this note.",
+  "agents.asked.writing": "{agent} is writing the note.",
+  "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",
+  "agents.asked.again": "Ask again",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",

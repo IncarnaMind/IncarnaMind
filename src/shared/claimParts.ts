@@ -960,6 +960,7 @@ export function readClaimParts(
       ...(each.byAssistant === true && plan.kind === "opinion" && { byAssistant: true }),
       ...(firstReading && { firstReading }),
       ...(each.restsOnPassage === true && { restsOnPassage: true }),
+      ...(each.restsOnEveryQuote === true && { restsOnEveryQuote: true }),
       ...(each.figures !== undefined && { figures }),
       ...(remainder !== undefined && { remainder }),
       ...(typeof each.checkedAt === "string" && { checkedAt: each.checkedAt }),

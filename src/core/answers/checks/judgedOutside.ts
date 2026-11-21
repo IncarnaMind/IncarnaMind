@@ -384,7 +384,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
           );
           const judgedResult = worked
             ? workedResult(each, worked, evidence, sentence.said.length)
-            : resultOf(each, evidence);
+            : reportedResult(each, evidence, sentence.said.length);
           const result =
             sentence.element.nodeName === CHART_NODE
               ? onEachValue(judgedResult, sentence.figures ?? [])
@@ -509,7 +509,28 @@ function workedResult(
       ]);
 }
 
-/** The result a sentence's mark holds: the agent's verdict, on the Citations IncarnaMind found. */
+/**
+ * The result a sentence's mark holds: the agent's verdict, on every Citation it gave that
+ * IncarnaMind found. The agent names no one of them as the deciding one, so a verdict on several
+ * keeps them all on the sentence's one part, in the order given, and its card shows each (#3587).
+ */
+function reportedResult(
+  judged: JudgedSentence,
+  evidence: readonly Citation[],
+  length: number,
+): ClaimCheckResult {
+  const result = resultOf(judged, evidence);
+  if (evidence.length < 2 || result.verdict === "not-checked") return result;
+  // An own view keeps its first quote apart, as its card reads one (#3322).
+  const listed = judged.verdict === "own-view" ? evidence.slice(1) : evidence;
+  return resultFromParts([
+    {
+      ...partWithResult({ kind: "fact", span: { start: 0, end: length } }, result, listed),
+      restsOnEveryQuote: true,
+    },
+  ]);
+}
+
 /**
  * A chart's result as the Note's own Check marks a chart, on each of its values, which is how the
  * Note shows one checked (#3465): the agent's verdict on the chart is its verdict on each value.

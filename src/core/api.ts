@@ -7966,6 +7966,12 @@ export interface ClaimCheckPart
    * shown as a quote, and the part says nothing in `says`.
    */
   restsOnPassage?: true;
+  /**
+   * A verdict that rests on every one of its quotes, none of them deciding it before another: an
+   * outside agent's, which names its quotes and not which one decides (#3587). Its card shows them
+   * all.
+   */
+  restsOnEveryQuote?: true;
   figures?: ClaimPartFigure[];
   remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];
