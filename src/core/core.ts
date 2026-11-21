@@ -5890,6 +5890,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     say: (key, params) => translate(settings.get().language, key, params),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    checksWritten: () => settings.get().user.checkAssistantWrites,
     log: adapters.log ?? silentLogger,
   });
 
@@ -5947,6 +5948,7 @@ export function createCore(adapters: CoreAdapters): Core {
       });
       let supported = 0;
       let checking = 0;
+      let judged = 0;
       const stale: string[] = [];
       const needLook: (FoundClaim & { checkId: string })[] = [];
       for (const marked of checkedSentences(fragment)) {
@@ -5956,6 +5958,7 @@ export function createCore(adapters: CoreAdapters): Core {
           checking++;
           continue;
         }
+        judged++;
         // Not counted: a check makes it again, and told as not checked if none can.
         if (shown.state === "needs-recheck") stale.push(check.id);
         // The writer's own view, and what the User keeps as theirs: the check doesn't rule on it.
@@ -6016,6 +6019,7 @@ export function createCore(adapters: CoreAdapters): Core {
         supported,
         checking,
         stale,
+        judged,
         needLook,
         formulas: workbook
           ? {
@@ -6196,6 +6200,7 @@ export function createCore(adapters: CoreAdapters): Core {
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
+      checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),

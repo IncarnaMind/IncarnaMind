@@ -10,6 +10,7 @@ import { buildPdf } from "../tests/helpers/pdf";
 import { plainDeck } from "../tests/helpers/pptx";
 import {
   acceptPlainTextKeys,
+  checkAssistantWrites,
   checkCard,
   createDataFolder,
   dismissChatSetup,
@@ -166,6 +167,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
+    // A hand-over is checked as it lands only with this on (#3576).
+    await checkAssistantWrites(window);
     try {
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
