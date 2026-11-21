@@ -2794,9 +2794,9 @@ export const en = {
   "status.taggingWith.one": "Tagging 1 Document with {service}…",
   "status.taggingWith.other": "Tagging {count} Documents with {service}…",
   "status.sends":
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}, with your interface language for a chat model.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text go to {service}, with your interface language unless the model is just for sorting.",
   "status.sends.onThisComputer":
-    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language for a chat model.",
+    "The kinds of Document, the names and descriptions of your own Tags, and each Document’s name, type and the start of its text stay on this computer, with your interface language unless the model is just for sorting.",
   "status.sends.organize":
     "The names and descriptions of your Folders and your own Tags, the kinds of Document, and each Document’s name, outline and short excerpts, go to {service}.",
   "status.sends.organize.onThisComputer":
@@ -3306,7 +3306,7 @@ export const en = {
   "setup.sorting.asks":
     "Sorting and tagging new Documents is on: IncarnaMind asks you before the first one goes to {service}.",
   "setup.sorting.sendsWhenOn":
-    "When automatic tagging is on, new Documents get Suggestions for you to review, including files from Linked folders. {service} receives the name, file type, page count and opening text (up to about 6,000 English characters or 1,500 Chinese characters), plus slide titles or sheet names where present. It also receives the Document kinds and the names and descriptions of your Tags and Folders. Chat models receive your interface language. You can request Suggestions for existing Documents yourself.",
+    "When automatic tagging is on, new Documents get Suggestions for you to review, including files from Linked folders. {service} receives the name, file type, page count and opening text (up to about 6,000 English characters or 1,500 Chinese characters), plus slide titles or sheet names where present. It also receives the Document kinds and the names and descriptions of your Tags and Folders. An AI model that isn’t just for sorting also receives your interface language. You can request Suggestions for existing Documents yourself.",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
   "command.tagging.turnOn.keywords": "tags automatic tagging sorting switch on settings",
   "setup.sorting.chat": "Tags and Folders use {model}",
@@ -8951,6 +8951,10 @@ export const en = {
     "This update exceeds your installed Codex client’s 4,000-byte limit. Retry with a Codex version that supports longer meeting updates.",
   "error.meeting.summaryUnavailable":
     "Check the selected summary AI and its access to this meeting in Settings.",
+  "meetings.summary.needsTranscript": "A saved transcript is needed to prepare the summary.",
+  "meetings.summary.retryTranscript": "Retry transcription",
+  "meetings.summary.share":
+    "Your AI needs access to the meeting note and transcript to prepare a summary.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",
   "meetings.summary.updateFailed": "Couldn’t finish the summary.",
   // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
@@ -8965,7 +8969,8 @@ export const en = {
   "agents.ask.line.questionScope":
     "From the Documents in my search scope in IncarnaMind:\n\n{question}",
   "agents.ask.line.check": "Check my note {title} in IncarnaMind against my Documents.",
-  "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
+  "agents.ask.line.meeting":
+    "First read the request I left in IncarnaMind for {title}, then prepare the meeting notes as requested.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
     "In IncarnaMind, the check of my note {title} (mindId: {mindId}) says this sentence {verdict}:\n\n{sentence}{quote}\n\nFix that sentence from my Documents, and change nothing else in the note. Then check the note again yourself.",

@@ -2675,9 +2675,9 @@ export const zhCN = {
   "status.taggingWith.one": "正在用 {service} 为 1 个文档打标签…",
   "status.taggingWith.other": "正在用 {service} 为 {count} 个文档打标签…",
   "status.sends":
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 {service}；使用聊天模型时，还有你的界面语言。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 {service}；如果模型不是专门用来整理的，还有你的界面语言。",
   "status.sends.onThisComputer":
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；使用聊天模型时，还有你的界面语言。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；如果模型不是专门用来整理的，还有你的界面语言。",
   "status.sends.organize":
     "文件夹和你自己的标签的名称和描述、文档类别，以及每个文档的名称、目录和简短摘录，都会发送到 {service}。",
   "status.sends.organize.onThisComputer":
@@ -3147,7 +3147,7 @@ export const zhCN = {
   "setup.sorting.asks":
     "已开启新文档自动整理和打标签：第一个文档发送给 {service} 前，IncarnaMind 会先问你。",
   "setup.sorting.sendsWhenOn":
-    "开启自动打标签后，新文档会生成建议，由你确认，关联文件夹里的新文件也一样。{service} 会收到文档名称、文件类型、页数和开头的一段文字（最多约 1,500 个汉字或 6,000 个英文字符），以及演示文稿的幻灯片标题或工作簿的工作表名称。它还会收到文档类别、你的标签和文件夹的名称及描述。聊天模型也会收到你的界面语言。已有文档可以在需要时手动整理。",
+    "开启自动打标签后，新文档会生成建议，由你确认，关联文件夹里的新文件也一样。{service} 会收到文档名称、文件类型、页数和开头的一段文字（最多约 1,500 个汉字或 6,000 个英文字符），以及演示文稿的幻灯片标题或工作簿的工作表名称。它还会收到文档类别、你的标签和文件夹的名称及描述。不是专门用来整理的 AI 模型，还会收到你的界面语言。已有文档可以在需要时手动整理。",
   "command.tagging.turnOn": "开启自动给新文档打标签…",
   "command.tagging.turnOn.keywords": "zidong dabiaoqian 自动打标签 标签 开启 设置",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
@@ -8430,6 +8430,9 @@ export const zhCN = {
   "error.meeting.codexSummaryTooLong":
     "本次更新超出了当前 Codex 客户端的 4,000 字节上限。请使用支持较长会议更新的 Codex 版本后重试。",
   "error.meeting.summaryUnavailable": "请在设置中查看所选的摘要 AI，以及它是否有权读取这场会议。",
+  "meetings.summary.needsTranscript": "请先保存转写稿，再生成摘要。",
+  "meetings.summary.retryTranscript": "重试转写",
+  "meetings.summary.share": "请先让你的 AI 可以读取这场会议的笔记和转写稿，再生成摘要。",
   "meetings.summary.failed": "无法生成摘要。",
   "meetings.summary.updateFailed": "无法补全摘要。",
   "agents.ask.line.fix": "把 IncarnaMind 在笔记{title}里标出来的那句改好。",
@@ -8442,7 +8445,7 @@ export const zhCN = {
     "关于我在 IncarnaMind 中的笔记{title}和文档{document}：\n\n{question}",
   "agents.ask.line.questionScope": "请根据我在 IncarnaMind 中搜索范围内的文档回答：\n\n{question}",
   "agents.ask.line.check": "对照我在 IncarnaMind 中的文档，核对笔记{title}。",
-  "agents.ask.line.meeting": "整理我在 IncarnaMind 中的会议笔记{title}。",
+  "agents.ask.line.meeting": "先读取我留在 IncarnaMind 里的请求，再按要求整理会议笔记{title}。",
   "agents.ask.request.fix":
     "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，这句话{verdict}：\n\n{sentence}{quote}\n\n请根据我的文档改正这句话，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
   "agents.ask.request.fixAll":
