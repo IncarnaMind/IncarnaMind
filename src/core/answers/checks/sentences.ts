@@ -81,6 +81,8 @@ interface Run {
   attributes?: Attributes;
 }
 
+const blank = (run: Run): boolean => typeof run.insert === "string" && run.insert.trim() === "";
+
 /** A sentence the selection touches, to check. */
 export interface SelectedSentence {
   element: Y.XmlElement;
@@ -763,7 +765,9 @@ const marksOfBlock = perBlock((block): readonly MarkedSentence[] => {
         const length = typeof run.insert === "string" ? run.insert.length : 1;
         const raw = countingCheckOf(run.attributes)?.attrs;
         const check = readClaimCheck(raw);
-        if (check) {
+        // A space a rewrite left between two sentences can keep an earlier check's mark: it would
+        // stretch that mark over the next sentence, which then reads as changed (#3541).
+        if (check && !blank(run)) {
           const partsComplete = completeParts(raw, check);
           const known = found.get(check.id);
           if (known && known.element === element) {

@@ -6184,7 +6184,8 @@ export function createCore(adapters: CoreAdapters): Core {
         answers.answerOutside(question, documentIds, signal),
       checkNote: (mindId, documentIds) =>
         inFlow("check-mind", () => checks.checkMindOutside(mindId, new Set(documentIds))),
-      checkTask: (mindId, documentIds) => checks.checkTaskOutside(mindId, documentIds),
+      checkTask: (mindId, documentIds, every) =>
+        checks.checkTaskOutside(mindId, documentIds, every),
       landJudged: (mindId, documentIds, agent, task, judged) =>
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),

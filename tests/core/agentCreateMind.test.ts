@@ -111,11 +111,23 @@ describe("a Note an outside agent writes (#3306)", () => {
     const { core, agent, coast, tides, pairing } = await paired();
     const before = await core.listMinds();
     const spring = await springToken(agent);
+    const draft = `Spring tides come twice a month ${spring}.`;
+    const checked = structured<{
+      citations: { cite: string; document: string; location: string }[];
+    }>(await agent.callTool({ name: "check_citations", arguments: { text: draft } }));
+    expect(checked.citations).toEqual([
+      expect.objectContaining({
+        cite: spring,
+        check: "found",
+        document: "Tides",
+        location: "§ Tides",
+      }),
+    ]);
     const made = structured<Created>(
       await create(agent, {
         title: "Tide report",
         markdown: [
-          `Spring tides come twice a month ${spring}.`,
+          draft,
           "",
           "- The harbour floods every winter.",
           "- King tides are rare [cite:notmine1].",
@@ -162,11 +174,18 @@ describe("a Note an outside agent writes (#3306)", () => {
       pairingId: pairing.id,
     });
 
-    // The agent reads it back like any Note in its Folders.
+    await core.renameDocument(tides.id, "Tides [cite:printed]");
     const read = structured<{ markdown: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: made.mindId } }),
     );
     expect(read.markdown).toContain("Spring tides come twice a month");
+    expect(read.markdown).toContain(`${spring} Tides \\[cite:printed\\]`);
+    const rechecked = structured<{ citations: { cite: string; check: string }[] }>(
+      await agent.callTool({ name: "check_citations", arguments: { text: read.markdown } }),
+    );
+    expect(rechecked.citations).toEqual([
+      expect.objectContaining({ cite: spring, check: "found" }),
+    ]);
     const activity = await core.listAgentActivity(pairing.id);
     expect(activity.find((each) => each.tool === "create_mind")).toMatchObject({
       outcome: "done",

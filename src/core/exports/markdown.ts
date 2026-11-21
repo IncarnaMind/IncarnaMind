@@ -558,7 +558,8 @@ class MarkdownWriter {
 /** A Citation's source, as its footnote says it, e.g. "Tides, p. 2 [unverified]". */
 function citationSource(footnote: Footnote, labels: MarkdownLabels): string {
   const marker = footnote.unverified ? ` ${labels.unverified}` : "";
-  return `${escapeMarkdownText(footnote.source, false)}${marker}`;
+  const cite = footnote.agentCite ? `${footnote.agentCite} ` : "";
+  return `${cite}${escapeMarkdownText(footnote.source, false)}${marker}`;
 }
 
 /** A column's cell in a table's delimiter row, which says how the column is aligned. */

@@ -37,7 +37,7 @@ Each is tagged with the persona it stands in for (analyst, litigator, student). 
 
 ## What it measures
 
-The same way for every harness, from the reply the User reads. An outside harness's `[cite:…]` tokens become Citation markers with the Citations minted for its own pairing (`score.ts`); a token minted for no one, or for another pairing, is a marker without a Citation.
+Every harness returns a draft for IncarnaMind to check. The outside harnesses are explicitly asked to keep the issued `[cite:…]` tokens in that draft. The scorer turns them into Citation markers with the Citations minted for its own pairing (`score.ts`); a token minted for no one, or for another pairing, is a marker without a Citation.
 
 - **Completed:** the run passes every guard `eval/everyday/checks.ts` holds its request to, and, for a draft, gives the Documents' figure for each wrong one.
 - **Supported, Unsupported, Contradicted:** the research questions' cited sentences, as the app's own Check against Documents judges them (`eval/everyday/support.ts`), on the model under test or on the one `INCARNAMIND_EVAL_HARNESS_CHECK_*` names.

@@ -8513,7 +8513,7 @@ export const en = {
     "The note changed after check_mind_yourself gave its sentences. Call check_mind_yourself again, then report.",
   "agents.check.results": "Give results: one result for each sentence, {max} at most.",
   "agents.check.nothingLeft":
-    "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those; there is nothing to hand to report_check.",
+    "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those. To judge the sentences again yourself, call check_mind_yourself with again: true and hand your results to report_check: a verdict only in your reply leaves the note’s marks as they are.",
   "agents.check.reportAgain":
     "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, a run_analysis result of this check, or a working whose numbers stand in their quotes and whose expression gives its figure, that IncarnaMind can confirm, and none from the User’s own working file.",
   // An outside agent writes a new note (#3306).
@@ -8752,7 +8752,7 @@ export const en = {
   "agents.handOver.unread.range": "The workbook has no sheet by that name.",
   "agents.handOver.unread.word": "IncarnaMind kept the file but couldn’t read it as a Word file.",
   "agents.handOver.notChecked.not-ready":
-    "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. With no model in IncarnaMind, check it yourself, as you check a note you wrote: check_mind_yourself with its mindId, then report_check.",
+    "Not checked yet: no AI model is set up in IncarnaMind. Check this file yourself now: check_mind_yourself with its mindId gives what to check in it, then report_check.",
   "agents.handOver.notChecked.consent-needed":
     "The User hasn’t allowed IncarnaMind’s checks to go to their AI model’s service, so it wasn’t checked. They can check it from its note.",
   "agents.handOver.notChecked.local-mode":
@@ -8830,6 +8830,8 @@ export const en = {
   "agents.done.link": "Opened {agent}: click Install there to finish.",
   "agents.done.wrote":
     "Added to the settings of {agent}. Start a new session in {agent} to use it.",
+  "agents.done.wrote.codex":
+    "Start a new chat in {agent}. When Codex asks to hand a file to IncarnaMind, “Allow for this session” lets it hand over more files in the same chat.",
   "agents.done.command": "Copied. Paste it into a terminal and run it.",
   "agents.done.settings": "Copied. In {agent}, add it as a new server, then restart it.",
   "agents.done.settings.other":

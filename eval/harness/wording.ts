@@ -33,7 +33,7 @@ export const HARNESS_INSTRUCTIONS = SERVER_INSTRUCTIONS.split("\n")
  * on the hidden Tools: each harness is given it as instructions of its own,
  * since with its built-in Tools off it can't open a Skill's file.
  */
-export const HARNESS_SKILL = SKILL_MARKDOWN.replace(/^---\n[\s\S]*?\n---\n+/, "")
+const skill = SKILL_MARKDOWN.replace(/^---\n[\s\S]*?\n---\n+/, "")
   .split("\n\n")
   .map((paragraph) =>
     paragraph
@@ -44,3 +44,5 @@ export const HARNESS_SKILL = SKILL_MARKDOWN.replace(/^---\n[\s\S]*?\n---\n+/, ""
   .filter((paragraph) => paragraph.trim() !== "")
   .join("\n\n")
   .trim();
+
+export const HARNESS_SKILL = `${skill}\n\nYour final response is the draft IncarnaMind will check. Return that draft with the exact Citation tokens you checked.`;
