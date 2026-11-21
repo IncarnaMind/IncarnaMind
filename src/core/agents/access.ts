@@ -51,6 +51,7 @@ import {
   decideProposals,
   waitingChanges,
 } from "../../shared/proposals";
+import { shownSpeaker } from "../../shared/speakers";
 import { setTextOrigin } from "../../shared/textOrigins";
 import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
@@ -1538,7 +1539,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       { documentId: passage.documentId },
       deps.liveDocuments(),
     )?.speakers;
-    const marked = withCueMarks(passage.text, units, speakers, window);
+    const marked = withCueMarks(passage.text, units, speakers, window, (who, ms, label) =>
+      shownSpeaker(who, ms, label, t),
+    );
     return {
       location: span ? label({ kind: "time", ...span }, null, null, passage.documentId) : null,
       ...(marked !== passage.text.slice(window.start, window.end) && {
