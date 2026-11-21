@@ -321,7 +321,7 @@ function parseAssignmentState(input: unknown): AssignmentState {
 
 /** Each Document's place before, from the changes that filed it. */
 function parseFiled(input: unknown): { documentId: string; before: AssignmentState }[] {
-  const invalid = new InvalidInputError("Say each Document filed, with its place before.");
+  const invalid = new InvalidInputError({ key: "error.library.projectUndo" });
   if (!Array.isArray(input)) throw invalid;
   return input.map((each: unknown) => {
     if (!isRecord(each) || typeof each.documentId !== "string") throw invalid;
