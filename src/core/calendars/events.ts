@@ -11,7 +11,7 @@ export interface ReadEvent {
   /** The service's id of this occurrence, unique in its calendar. */
   externalId: string;
   /** The invite's own id and occurrence: the same event in another calendar has it too. */
-  key: string;
+  key: string | null;
   title: string;
   /** ISO 8601, UTC. */
   startsAt: string;
@@ -110,13 +110,13 @@ function attendeesOf(people: readonly (CalendarAttendee | null)[]): CalendarAtte
   return kept;
 }
 
-const keyOf = (uid: string | null, occurrence: string | null, fallback: string) =>
-  `${uid ?? fallback}|${utc(occurrence) ?? ""}`;
+const keyOf = (uid: string | null, occurrence: string | null) =>
+  uid === null ? null : `${uid}|${utc(occurrence) ?? ""}`;
 
 /** A timed event that ends after it starts; null for anything else. */
 function timed(
   externalId: string,
-  key: string,
+  key: string | null,
   title: string,
   start: string | null,
   end: string | null,
@@ -165,7 +165,7 @@ export function fromGoogle(item: unknown, untitled: string): ReadEvent | null {
     : null;
   return timed(
     id,
-    keyOf(text(item.iCalUID), original, `google:${id}`),
+    keyOf(text(item.iCalUID), original),
     titleOf(item.summary, untitled),
     start,
     end,
@@ -222,7 +222,7 @@ export function fromMicrosoft(item: unknown, account: string, untitled: string):
     );
   return timed(
     id,
-    keyOf(text(item.iCalUId), null, `microsoft:${id}`),
+    keyOf(text(item.iCalUId), null),
     titleOf(item.subject, untitled),
     graphUtc(item.start),
     graphUtc(item.end),
@@ -242,7 +242,7 @@ export function fromMac(event: SystemCalendarEvent, untitled: string): ReadEvent
   const externalId = event.occurrence ? `${event.id}|${event.occurrence}` : event.id;
   return timed(
     externalId,
-    keyOf(text(event.externalId), event.occurrence, `mac:${event.id}`),
+    keyOf(text(event.externalId), event.occurrence),
     titleOf(event.title, untitled),
     event.start,
     event.end,

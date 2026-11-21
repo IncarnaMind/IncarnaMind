@@ -1,8 +1,8 @@
 /**
- * Offers to take notes in a call that isn't on the calendar (#208). A call app taking the
- * microphone is offered once, while the User's switches allow it and nothing records; only Take
- * notes records. When the app a Meeting was taken for lets go of the microphone, the Meeting
- * stops 30 seconds later unless the User keeps recording or the app takes it back.
+ * Offers to take notes in an upcoming calendar meeting (#189) or a detected call (#208).
+ * A scheduled reminder takes precedence while both are eligible. Only Take notes records.
+ * A Meeting taken for a detected call stops 30 seconds after its app releases the microphone
+ * unless the User keeps recording or the app takes it back.
  */
 import type { CallWatcher, Logger } from "../adapters";
 import type {
@@ -10,9 +10,11 @@ import type {
   CallOffer,
   CallWatchProblem,
   DeviceSettings,
+  MeetingOffer,
   MeetingOffers,
 } from "../api";
 import { NotFoundError } from "../errors";
+import { type CalendarOffersOptions, createCalendarOffers } from "./calendarOffers";
 
 /** A call app that lets go of the microphone and takes it back within this is still in the same call (a device switch, a rejoin). */
 export const SAME_CALL_MS = 10_000;
@@ -36,29 +38,31 @@ export function offerAllowed(
   return device.callOffers && !device.callOffersOff.includes(offer.app);
 }
 
-export interface MeetingOffersOptions {
+export interface MeetingOffersOptions extends CalendarOffersOptions {
   watcher: CallWatcher | undefined;
   /** Whether call offers are wanted at all: watching stops while they aren't. */
   watching(): boolean;
   /** Whether a call in `app` may be offered now (`offerAllowed`). */
   allowed(app: string): boolean;
-  /** A Meeting records or is paused: nothing is offered then. */
-  busy(): boolean;
   /** Whether the Meeting records or is paused. */
   live(meetingId: string): boolean;
   /** Records the call in a new Note, opened in the main window; its Meeting's id. */
   record(app: string): string;
+  recordCalendar(eventId: string): TakenMeetingOffer;
   stop(meetingId: string): void;
   changed(offers: MeetingOffers): void;
-  newId(): string;
-  now(): Date;
   log: Logger;
+}
+
+export interface TakenMeetingOffer {
+  meetingId: string;
+  joinUrl: string | null;
 }
 
 export interface MeetingOffersControl {
   get(): MeetingOffers;
-  take(offerId: string): string;
-  decline(offerId: string, always: boolean): void;
+  take(offerId: string): TakenMeetingOffer;
+  decline(offerId: string, always: boolean): MeetingOffer | null;
   keepRecording(meetingId: string): void;
   /** The switches or Meetings changed: starts or stops watching, and takes back what no longer holds. */
   refresh(): void;
@@ -70,21 +74,32 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
   let stopWatching: (() => void) | null = null;
   let problem: CallWatchProblem | null = null;
   let using = new Set<string>();
-  let offer: CallOffer | null = null;
+  let call: CallOffer | null = null;
+  let taking = false;
+  let closed = false;
+  const calendar = createCalendarOffers(options, () => refresh());
+
   let ending: (CallEnding & { timer: ReturnType<typeof setTimeout> }) | null = null;
   /** Meetings taken from an offer, by id: the call app each records. */
   const taken = new Map<string, string>();
   /** Apps that let go of the microphone, until the call is over (`SAME_CALL_MS`). */
-  const letGo = new Map<string, ReturnType<typeof setTimeout>>();
+  const letGo = new Map<string, { timer: ReturnType<typeof setTimeout>; exact: boolean }>();
   /** Apps whose call the User declined; offered again once that call is over. */
   const declined = new Set<string>();
 
   const state = (): MeetingOffers => ({
-    offer,
+    offer: taking ? null : (calendar.get() ?? call),
     ending: ending && { meetingId: ending.meetingId, app: ending.app, stopsAt: ending.stopsAt },
     problem,
   });
-  const changed = () => options.changed(state());
+  let published = JSON.stringify(state());
+  const changed = () => {
+    const snapshot = state();
+    const serialized = JSON.stringify(snapshot);
+    if (published === serialized) return;
+    published = serialized;
+    options.changed(snapshot);
+  };
 
   const cancelEnding = () => {
     if (!ending) return;
@@ -95,16 +110,29 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
   const callOver = (app: string) => {
     letGo.delete(app);
     declined.delete(app);
-    if (offer?.app === app) {
-      offer = null;
+    if (call?.app === app) {
+      call = null;
       changed();
     }
+  };
+
+  const offerCall = (app: string) => {
+    if (taking || call || declined.has(app)) return;
+    if ([...taken.values()].includes(app)) return;
+    if (options.busy() || !options.allowed(app)) return;
+    call = { kind: "call", id: options.newId(), app, at: options.now().toISOString() };
+    log.info("meeting.offered");
+  };
+
+  const revealCall = () => {
+    if (call && !using.has(call.app)) call = null;
+    for (const app of using) offerCall(app);
   };
 
   const tookMicrophone = (app: string) => {
     const waiting = letGo.get(app);
     if (waiting) {
-      clearTimeout(waiting);
+      clearTimeout(waiting.timer);
       letGo.delete(app);
     }
     if (ending?.app === app) {
@@ -112,19 +140,12 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
       log.info("meeting.callBack");
       changed();
     }
-    if (offer || declined.has(app)) return;
-    if ([...taken.values()].includes(app)) return;
-    if (options.busy() || !options.allowed(app)) return;
-    offer = { id: options.newId(), app, at: options.now().toISOString() };
-    log.info("meeting.offered");
+    offerCall(app);
     changed();
   };
 
   const letGoOfMicrophone = (app: string, exact: boolean) => {
-    letGo.set(
-      app,
-      setTimeout(() => callOver(app), SAME_CALL_MS),
-    );
+    letGo.set(app, { timer: setTimeout(() => callOver(app), SAME_CALL_MS), exact });
     // Only a watcher that says when an app lets go may stop a recording.
     if (ending || !exact) return;
     const meetingId = [...taken].find(
@@ -151,6 +172,7 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
   };
 
   const heard = (apps: readonly string[], exact: boolean) => {
+    if (closed) return;
     const now = new Set(apps);
     const before = using;
     using = now;
@@ -158,62 +180,91 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
     for (const app of before) if (!now.has(app)) letGoOfMicrophone(app, exact);
   };
 
-  const stop = () => {
+  const stopWatchingCalls = () => {
     stopWatching?.();
     stopWatching = null;
     using = new Set();
-    for (const timer of letGo.values()) clearTimeout(timer);
+    for (const waiting of letGo.values()) clearTimeout(waiting.timer);
     letGo.clear();
     declined.clear();
-    offer = null;
+    call = null;
     cancelEnding();
   };
 
-  const refresh = () => {
+  function refresh() {
+    if (closed) return;
     const wanted = options.watching() && options.watcher !== undefined;
-    const before = JSON.stringify(state());
-    if (!wanted && stopWatching) stop();
+    const previousCalendar = calendar.get();
+    if (!taking) calendar.refresh();
+    if (previousCalendar && !calendar.get()) revealCall();
+    if (call && !previousCalendar && calendar.get()) call = { ...call, id: options.newId() };
+    if (!wanted && stopWatching) stopWatchingCalls();
     if (!wanted) problem = null;
     if (wanted && !stopWatching && options.watcher) {
       problem = null;
       stopWatching = options.watcher.watch({
         apps: heard,
         problem: (found) => {
+          if (closed) return;
           log.warn("meeting.callWatchProblem", { problem: found });
           problem = found;
           changed();
         },
       });
     }
-    if (offer && (options.busy() || !options.allowed(offer.app))) offer = null;
+    if (call && (options.busy() || !options.allowed(call.app))) call = null;
     for (const id of taken.keys()) {
       if (options.live(id)) continue;
       taken.delete(id);
       if (ending?.meetingId === id) cancelEnding();
     }
-    if (JSON.stringify(state()) !== before) changed();
-  };
+    changed();
+  }
 
   return {
     get: state,
     take(offerId) {
-      if (!offer || offer.id !== offerId) {
+      refresh();
+      const offer = state().offer;
+      if (
+        !offer ||
+        offer.id !== offerId ||
+        (offer.kind === "call" && letGo.get(offer.app)?.exact)
+      ) {
         throw new NotFoundError({ key: "error.meetingOffer.gone" });
       }
-      const { app } = offer;
-      offer = null;
+      taking = true;
+      call = null;
       changed();
-      const meetingId = options.record(app);
-      taken.set(meetingId, app);
-      log.info("meeting.offerTaken");
-      return meetingId;
+      try {
+        const result =
+          offer.kind === "calendar"
+            ? options.recordCalendar(offer.eventId)
+            : { meetingId: options.record(offer.app), joinUrl: null };
+        if (offer.kind === "calendar") calendar.dismiss();
+        else taken.set(result.meetingId, offer.app);
+        log.info("meeting.offerTaken");
+        return result;
+      } finally {
+        taking = false;
+        refresh();
+      }
     },
     decline(offerId, always) {
-      if (!offer || offer.id !== offerId) return;
-      declined.add(offer.app);
+      refresh();
+      const offer = state().offer;
+      if (!offer || offer.id !== offerId) return null;
+      if (offer.kind === "calendar") {
+        calendar.dismiss();
+        revealCall();
+        refresh();
+      } else {
+        declined.add(offer.app);
+        call = null;
+      }
       log.info("meeting.offerDeclined", { always });
-      offer = null;
       changed();
+      return offer;
     },
     keepRecording(meetingId) {
       if (ending?.meetingId !== meetingId) return;
@@ -221,6 +272,10 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
       changed();
     },
     refresh,
-    close: stop,
+    close() {
+      closed = true;
+      calendar.close();
+      stopWatchingCalls();
+    },
   };
 }
