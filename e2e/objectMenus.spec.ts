@@ -385,6 +385,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
   );
   expect(linkedMenu).toEqual([
     "linkedFolder.pause",
+    "linkedFolder.makeProject",
     "folder.sort",
     "—",
     "linkedFolder.reveal",

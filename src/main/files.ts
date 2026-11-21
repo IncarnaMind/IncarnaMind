@@ -296,6 +296,18 @@ export function serveFileActions(
    * starts wherever macOS last was, often iCloud. `titleKey` and `properties`
    * are the caller's, since a picker that takes a folder too differs there.
    */
+  const documentsStartFolder = () => {
+    let fallback = "";
+    try {
+      fallback = app.getPath("downloads");
+    } catch (error) {
+      logger.warn("picker.downloadsUnavailable", {
+        kind: error instanceof Error ? error.name : "unknown",
+      });
+    }
+    return startFolder(dataDir, "documents", fallback);
+  };
+
   const pickDocumentsSheet = async (
     event: IpcMainInvokeEvent,
     titleKey: MessageKey,
@@ -309,7 +321,7 @@ export function serveFileActions(
       filters: [
         { name: translate(language, "documents.pick.filter"), extensions: [...ADDABLE_EXTENSIONS] },
       ],
-      defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
+      defaultPath: documentsStartFolder(),
     };
     const { canceled, filePaths } = await showOpenDialog(
       BrowserWindow.fromWebContents(event.sender),
@@ -362,7 +374,7 @@ export function serveFileActions(
           extensions: REFERENCE_EXTENSIONS,
         },
       ],
-      defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
+      defaultPath: documentsStartFolder(),
     };
     const { canceled, filePaths } = await showOpenDialog(
       BrowserWindow.fromWebContents(event.sender),
@@ -386,7 +398,7 @@ export function serveFileActions(
       title: translate(language, title),
       properties: ["openFile"],
       filters: [{ name: translate(language, filter), extensions }],
-      defaultPath: startFolder(dataDir, "documents", app.getPath("downloads")),
+      defaultPath: documentsStartFolder(),
     };
     const { canceled, filePaths } = await showOpenDialog(
       BrowserWindow.fromWebContents(event.sender),

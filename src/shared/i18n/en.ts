@@ -4069,7 +4069,6 @@ export const en = {
   "composer.scope.leftOut.one": "All Documents · 1 Folder left out",
   "composer.scope.leftOut": "All Documents · {count} Folders left out",
   "scope.openNote": "Open a note there",
-  "composer.scope.allLabel": "Search scope: all your Documents. Limit it (@)",
   "composer.scope.allTitle": "Searches all your Documents. Type @ to limit it",
   "composer.scope.allEmptyFolder":
     "“{folder}” has no Documents yet, so all your Documents are searched. Type @ to limit it",
@@ -6461,6 +6460,8 @@ export const en = {
   "error.library.autoNotLocal": "Automatic classification must run on this computer.",
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
+  "error.library.projectUndo":
+    "Couldn’t undo the project: where its folder’s files were before is unknown.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
   "error.meeting.purgeFailed":
     "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
@@ -8458,8 +8459,18 @@ export const en = {
     "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
+  "agents.cite.left.one":
+    "The last of your {total} quotes wasn’t checked, to keep this answer short: send it again in another call.",
+  "agents.cite.left.other":
+    "The last {count} of your {total} quotes weren’t checked, to keep this answer short: send them again in another call.",
+  "agents.problem.citeWithoutPassage":
+    "Nothing was cited: each quote needs the passageId that search or read_passages gave its passage, or a file’s full path as path.",
   "agents.problem.citeNotFound":
     "Nothing was cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
+  "agents.read.left.one":
+    "Not the whole Document: its last passage of {total} is still to read, and a summary or a quote needs each passage’s full text, so read on with from set to next before you write about it.",
+  "agents.read.left.other":
+    "Not the whole Document: {count} of its {total} passages are still to read, and a summary or a quote needs each passage’s full text, so read on with from set to next before you write about it.",
   "agents.problem.documentChanged":
     "“{document}” changed since you began reading it. Read it again from its start.",
   // Told with a result that can read as "nothing is there" (#3544): it names nothing outside.
