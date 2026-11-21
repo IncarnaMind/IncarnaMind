@@ -8301,7 +8301,7 @@ export const zhCN = {
   "agents.propose.hint":
     "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版并加以核对。它对你笔记的修改等你处理。",
   "agents.connect.reads.all":
-    "它可以读取你的全部文档和笔记，包括之后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
+    "它可以读取你的全部文档和笔记，包括以后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
   "agents.connect.reads": "它读取的内容会发送给{agent}所用的 AI 模型。",
   "agents.connect.reads.projects": "它读取的内容会发送给{agent}所用的 AI 模型。项目只能单独共享。",
   "agents.connect.reads.walled":
