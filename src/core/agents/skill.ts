@@ -42,6 +42,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "8520df46fa31a2e15f3fe56105fb89f5bda025a2452e7cc3295165221ec1cb3d",
   "c6ffe44cd9d91e314ab956a8a767277bd7a800af4267433f44e8eae82665e68c",
   "85df4e1302b0b07fb00ed56a90c0fc04c4c5474159d0c3ed9b44cebe68f690d9",
+  "d504fe653687e16b282730bcdec1d33081223ce81d8770e0fb0d0e4fee9bfbdd",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -98,7 +99,7 @@ For a page to look at, such as a report with pictures or a small dashboard, \`pu
 
 ## When you made a file for the User: hand it over
 
-A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_file\` with its full path. IncarnaMind reads that one file, keeps it with each version, and checks it against their Documents: each claim on a slide or page, each typed-in number of a sheet, each formula worked out again. It tells you what needs a look and where. While its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version, checked again on the User's AI model. Do this once on your own, then tell the User what still needs a look, and where. So that it checks well:
+A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_file\` with its full path, unasked. IncarnaMind reads that one file and keeps it with each version. Its check, against their Documents (each claim on a slide or page, each typed-in number of a sheet, each formula worked out again), waits for the User's Check unless they turned on checking as it lands; its result says which, and how a check starts. When it is checked, it tells you what needs a look and where; while its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version. Then tell the User what still needs a look, and where. So that it checks well:
 
 - Put each figure in a slide's text, a table, a chart or the speaker notes, not only in a picture or a slide title.
 - Write no \`[cite:…]\` token in the file: it shows there as typed. Name the Document a figure comes from in words, in a sources line or the speaker notes.
@@ -111,7 +112,7 @@ A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_fi
 
 To change a Note, read it with \`read_mind\` and \`named\`, then \`propose_changes\`: in a Note you wrote, your changes apply at once and the User can undo them; in any other, they wait for the User. In a Note you wrote, paragraphs marked as the User's are theirs: leave them as they are unless the User asks you to change them.
 
-Whenever the User wants to know whether a Note you wrote is right, however they ask, and right after you write one, check it: start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. A Note you wrote is one \`list_minds\` marks \`yours\`, from this chat or an earlier one. \`check_mind_yourself\` gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`run_analysis\` and reported on the id it gives; one you work out yourself from numbers Passages give is reported with its working, each number with its Citation, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note: those marks are the answer the User sees, and a verdict only in your reply leaves the Note unchecked. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
+When the User asks whether a Note you wrote is right, or asks for a check, however they ask, and when what you wrote says to, check it: start with \`check_mind_yourself\`, not with \`check_mind\` or a search of your own. A Note you wrote is one \`list_minds\` marks \`yours\`, from this chat or an earlier one. \`check_mind_yourself\` gives the Note's sentences and the rules to judge them by: judge every sentence from the Documents, cited or not, and hand your results back with \`report_check\`. A figure no Passage states, such as a total over a sheet's rows or a count of the Documents, is worked out with \`run_analysis\` and reported on the id it gives; one you work out yourself from numbers Passages give is reported with its working, each number with its Citation, not on a quote that doesn't state it. IncarnaMind confirms each Citation or run and marks the Note: those marks are the answer the User sees, and a verdict only in your reply leaves the Note unchecked. Tell the User which claims need a look, and correct them with \`read_mind\` and \`propose_changes\`.
 
 \`check_mind\` is IncarnaMind's own check of that Note instead, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general. When it answers "running", call it again.
 `;

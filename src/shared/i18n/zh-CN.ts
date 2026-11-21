@@ -4044,8 +4044,8 @@ export const zhCN = {
   "ai.jobs.search.offLine": "按含义查找段落 · 135 MB，在这台电脑上",
   "ai.jobs.search.line": "按含义查找段落，在这台电脑上",
   "ai.jobs.search.server": "其他服务器…",
-  "ai.jobs.checkWrites": "自动核对助手写入的内容",
-  "ai.jobs.checkWrites.line": "写入后立即核对。关闭时，等你点“核对”后再核对。",
+  "ai.jobs.checkWrites": "自动核对助手和你自己的 AI 写入的内容",
+  "ai.jobs.checkWrites.line": "写入或交来后立即核对。关闭时，等你点“核对”后再核对。",
   "ai.jobs.web": "回答时搜索网页",
   "ai.jobs.web.line": "使用回答模型自带的搜索",
   "ai.payer.plan": "{plan}已包含",
@@ -8135,6 +8135,14 @@ export const zhCN = {
     "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
   "agents.propose.unchecked":
     "笔记中有 {count} 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这些句子。",
+  "agents.write.waits.one":
+    "笔记中有 1 句还没有核对结果，等用户在 IncarnaMind 里点“核对”；如果用户让你核对这篇笔记，现在就用 check_mind_yourself 核对，它会给出这一句。",
+  "agents.write.waits":
+    "笔记中有 {count} 句还没有核对结果，等用户在 IncarnaMind 里点“核对”；如果用户让你核对这篇笔记，现在就用 check_mind_yourself 核对，它会给出这些句子。",
+  "agents.write.checkNow.one":
+    "笔记中有 1 句还没有核对结果，而用户开启了写入后立即核对：结束前现在就用 check_mind_yourself 核对这一句，再用 report_check 交回结果。",
+  "agents.write.checkNow":
+    "笔记中有 {count} 句还没有核对结果，而用户开启了写入后立即核对：结束前现在就用 check_mind_yourself 核对这些句子，再用 report_check 交回结果。",
   "agents.read.unchecked.one":
     "这篇笔记中有 1 句还没有核对结果：要告诉用户它对不对，先用 check_mind_yourself 核对，它会给出这一句。",
   "agents.read.unchecked":
@@ -8256,6 +8264,8 @@ export const zhCN = {
   "agents.handOver.unread.word": "IncarnaMind 已保留文件，但无法作为 Word 文件读取。",
   "agents.handOver.notChecked.not-ready":
     "还没有核对：IncarnaMind 里没有设置 AI 模型。请你现在自己核对这个文件：用它的 mindId 调用 check_mind_yourself，取得要核对的内容，再用 report_check 交回结果。",
+  "agents.handOver.notChecked.waits":
+    "还没有核对：等用户在 IncarnaMind 里点“核对”。如果用户让你核对，现在就核对：用它的 mindId 调用 check_mind_yourself，再用 report_check 交回结果。",
   "agents.handOver.notChecked.consent-needed":
     "用户还没有允许把 IncarnaMind 的核对发送到其 AI 模型服务，所以没有核对。用户可以在它的笔记里核对。",
   "agents.handOver.notChecked.local-mode":
@@ -8309,7 +8319,7 @@ export const zhCN = {
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
-    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版并加以核对。它对你笔记的修改等你处理。",
+    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版。它写入的内容等你点“核对”，除非你在“设置 › AI”中开启了写入后立即核对。它对你笔记的修改等你处理。",
   "agents.connect.reads.all":
     "它可以读取你的全部文档和笔记，包括以后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
   "agents.connect.reads": "它读取的内容会发送给{agent}所用的 AI 模型。",
