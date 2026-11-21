@@ -29,8 +29,13 @@ export function useHandedFile(mindId: string | null, doc: Y.Doc): HandedFileOfMi
       ? ""
       : (state.documents.find((each) => each.id === documentId)?.contentHash ?? ""),
   );
+  // A version read while its check was being made has no Note yet, and the Document takes no
+  // newer version when the Note comes: it is read again as the Notes change, until it has one.
+  const unmade = handed?.versions.some((each) => each.mindId === null) === true;
+  const minds = useAppStore((state) => (unmade ? state.minds : null));
   useEffect(() => {
-    if (mindId === null || !checksFile || readAt.get(mindId) === version) return;
+    if (mindId === null || !checksFile || (readAt.get(mindId) === version && minds === null))
+      return;
     readAt.set(mindId, version);
     core
       .handedFileOf(mindId)
@@ -38,7 +43,7 @@ export function useHandedFile(mindId: string | null, doc: Y.Doc): HandedFileOfMi
         useHanded.setState(({ byMind }) => ({ byMind: { ...byMind, [mindId]: found } })),
       )
       .catch((error: unknown) => console.error("The handed-over file couldn't be read.", error));
-  }, [mindId, version, checksFile]);
+  }, [mindId, version, checksFile, minds]);
   return checksFile ? handed : null;
 }
 
