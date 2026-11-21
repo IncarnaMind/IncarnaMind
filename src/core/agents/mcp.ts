@@ -218,13 +218,13 @@ export function createAgentServer(
     tool("read_passages"),
     {
       title: "Read Passages",
-      description: `Read a Document: whole in one call up to about ${READ_PART_TOKENS.toLocaleString("en")} tokens, a longer one in parts (pass each part's \`next\` as \`from\`). Or read a Passage with up to ${MAX_AROUND} before and after it.`,
+      description: `Read a Document: whole in one call up to about ${READ_PART_TOKENS.toLocaleString("en")} tokens, a longer one in parts (pass each part's \`next\` as \`from\`), each sized to be read in full: a summary or a quote needs every Passage's whole \`text\`. Or read a Passage with up to ${MAX_AROUND} before and after it.`,
       inputSchema: z.object({
         documentId: z.string().optional(),
         from: z.string().optional(),
         passageId: passageId.optional(),
-        before: z.number().int().min(0).max(MAX_AROUND).optional(),
-        after: z.number().int().min(0).max(MAX_AROUND).optional(),
+        before: z.number().int().min(0).optional(),
+        after: z.number().int().min(0).optional(),
       }),
       outputSchema: z.object({
         documentId: z.string(),
@@ -234,6 +234,7 @@ export function createAgentServer(
         ),
         previous: z.string().nullable(),
         next: z.string().nullable(),
+        left: z.string().optional(),
       }),
       annotations: READ_ONLY,
     },

@@ -24,6 +24,7 @@ interface Read {
   passages: { passageId: string; location: string | null; text: string; timedText?: string }[];
   previous: string | null;
   next: string | null;
+  left?: string;
 }
 
 const PLACES = ["Kendal", "Leeds", "Preston", "Bristol", "Inverness", "Lancaster"];
@@ -105,6 +106,7 @@ describe("an agent reading a Document", () => {
     expect(whole.result.isError ?? false).toBe(false);
     expect(estimateTokens(whole.text)).toBeLessThanOrEqual(READ_PART_TOKENS);
     expect(whole.read).toMatchObject({ documentId: short.id, previous: null, next: null });
+    expect(whole.read.left).toBeUndefined();
     expect(whole.read.passages.length).toBeGreaterThan(4);
     expect(words(whole.read.passages.map((each) => each.text).join("\n"))).toBe(words(shortText));
 
@@ -146,6 +148,19 @@ describe("an agent reading a Document", () => {
     expect(read.at(-1)?.read.next).toBeNull();
     const ids = read.flatMap((part) => part.read.passages.map((each) => each.passageId));
     expect(new Set(ids).size).toBe(ids.length);
+    // Each part before the last says it isn't the whole Document and how much is left (#3586).
+    let seen = 0;
+    for (const part of read) {
+      seen += part.read.passages.length;
+      expect(part.read.left).toBe(
+        part.read.next === null
+          ? undefined
+          : translate("en", "agents.read.left.other", {
+              count: ids.length - seen,
+              total: ids.length,
+            }),
+      );
+    }
     const joined = read.flatMap((part) => part.read.passages.map((each) => each.text)).join("\n");
     expect(words(joined)).toBe(words(longText));
 
@@ -230,6 +245,31 @@ describe("an agent reading a Document", () => {
     );
     expect(around.read.previous).toBe(part.read.passages[6]?.passageId);
     expect(around.read.next).toBe(part.read.passages[14]?.passageId);
+  });
+
+  // protects=an input a read doesn't use, or asks for more than it gives, is answered, not refused (#3586); fails_when=after or before with a documentId or from, or more than three around a Passage, is refused
+  it("answers before and after it doesn't use, and gives three around a Passage when asked for more", async () => {
+    const { read, long } = await library();
+    const first = await read({ documentId: long.id });
+    for (const args of [
+      { documentId: long.id, after: 50 },
+      { documentId: long.id, before: 9, after: 9 },
+    ]) {
+      const again = await read(args);
+      expect(again.result.isError ?? false).toBe(false);
+      expect(again.read).toEqual(first.read);
+    }
+    const second = await read({ from: first.read.next });
+    expect((await read({ from: first.read.next, after: 50 })).read).toEqual(second.read);
+
+    const middle = first.read.passages[10];
+    const asked = await read({ passageId: middle?.passageId, before: 7, after: 50 });
+    expect(asked.result.isError ?? false).toBe(false);
+    expect(asked.read).toEqual(
+      (await read({ passageId: middle?.passageId, before: 3, after: 3 })).read,
+    );
+    expect(asked.read.passages).toHaveLength(7);
+    expect(asked.read.left).toBeUndefined();
   });
 
   // protects=an agent citing what it read is told which Passage it named that it doesn't have; fails_when=the refusal leaves the agent to send the same call again
