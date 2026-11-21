@@ -78,6 +78,7 @@ import type { Database, SqlValue } from "../storage";
 import { type CommandWindow, parseCommandWindow } from "../tools/commands/offered";
 import { excerptOf, findTerms, searchTerms, termQuery } from "../wordSearch";
 import { indexText, plainText } from "./search";
+import { mergeStoredSteps, PHASES, storedList, timeOrNull, withStoredRawCells } from "./storedJson";
 
 /** A Question to add, read from `askInConversation`'s input (see `parseQuestion`). */
 export interface QuestionInput {
@@ -225,19 +226,6 @@ const STATUSES: readonly AnswerStatus[] = ["streaming", "done", "stopped", "fail
 const SUPPORTS: readonly CitationSupport[] = ["tools", "structured-output", "none"];
 const isErrorKind = (value: string | null): value is ProviderErrorKind =>
   value !== null && Object.hasOwn(PROVIDER_ERROR_KINDS, value);
-
-const PHASES: Record<AnswerPhase, true> = {
-  "waiting-for-consent": true,
-  loading: true,
-  searching: true,
-  writing: true,
-  "checking-quotes": true,
-  "checking-figures": true,
-  "checking-claims": true,
-};
-
-const timeOrNull = (value: unknown): string | null =>
-  typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
 
 /** The uncited sentences an Answer's judgement marked (#3410), as stored: each one read whole. */
 const storedUncitedChecks = (stored: readonly unknown[]): UncitedCheck[] =>
@@ -396,16 +384,6 @@ function storedCoverage(value: unknown): { coverage: AnswerCoverage } | null {
 
 /** A conversation's name: the title the User typed, else its own. */
 const nameOf = (row: { title: string; auto_title: string }) => row.title || row.auto_title;
-
-/** The records in a list stored as JSON; none when it isn't one (written by a newer version, say). */
-function storedList<T>(value: string): T[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? (parsed.filter(isRecord) as T[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 /** An Answer's text as words are read from it: each figure marker its figure's shown text. */
 function shownText(text: string, figures: readonly MarkedFigure[]): string {
@@ -1430,14 +1408,14 @@ export function createConversations(db: Database, now: () => string) {
            WHERE id = ?`,
           [
             write.text,
-            JSON.stringify(write.citations),
+            JSON.stringify(withStoredRawCells(row.citations, write.citations)),
             JSON.stringify(write.figures),
             JSON.stringify(write.analyses),
             JSON.stringify(write.toolCalls),
             write.support,
             write.textOrigin,
             ...readColumns(write.read),
-            JSON.stringify(write.steps),
+            mergeStoredSteps(row.steps, write.steps),
             outcome?.status ?? "streaming",
             outcome?.error?.kind ?? null,
             outcome?.error?.message ?? null,
@@ -1494,13 +1472,18 @@ export function createConversations(db: Database, now: () => string) {
       const at = now();
       db.run(
         "UPDATE conversation_messages SET text = ?, citations = ?, updated_at = ? WHERE id = ?",
-        [marked ?? text, JSON.stringify(citations), at, answerId],
+        [
+          marked ?? text,
+          JSON.stringify(withStoredRawCells(row.citations, citations)),
+          at,
+          answerId,
+        ],
       );
       if (uncited !== undefined) {
         const steps = storedSteps(row.steps);
         if (steps) {
           db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [
-            JSON.stringify({ ...steps, uncitedChecks: uncited }),
+            mergeStoredSteps(row.steps, { ...steps, uncitedChecks: [...uncited] }),
             answerId,
           ]);
         }
