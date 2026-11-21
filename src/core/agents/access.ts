@@ -94,6 +94,7 @@ import type { Language } from "../language";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
+import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
@@ -757,10 +758,7 @@ export interface AgentAccessDeps {
   /** Tells the windows of a Note an agent wrote, or changed at once (#3371). */
   noteChanged(change: AgentNoteChange): void;
   /** A Mind as Markdown, each Citation's footnote as `footnote` words it (see ../exports). */
-  mindMarkdown(
-    mindId: string,
-    footnote: (attributes: Record<string, unknown>) => { source: string; unverified: boolean },
-  ): string;
+  mindMarkdown(mindId: string, footnote: (attributes: Record<string, unknown>) => Footnote): string;
   /** A new, empty Mind in a Folder, or in none; with no `title`, its text names it. */
   createMind(title: string, folderId: string | null): Mind;
   /** How many Notes the pairing wrote since `since` (ISO 8601, UTC). */
@@ -2622,7 +2620,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           // Made before Citations kept their Passage: checked, but nothing to mint from.
           if (citation.passageId === "") return { source, unverified: false };
           return {
-            source: `${citeTag(mint(pairing, citation).token)} ${source}`,
+            agentCite: citeTag(mint(pairing, citation).token),
+            source,
             unverified: false,
           };
         });
