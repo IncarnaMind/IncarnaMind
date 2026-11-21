@@ -330,6 +330,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // Filed with its Documents in a Folder the User's own AI is connected to, the line offers
       // to ask that AI: an agent reads only the Notes in the Folders it is let into.
+      await acceptPlainTextKeys(window);
       await window.evaluate(async () => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         const { mindId } = await bridge.getExamples();
