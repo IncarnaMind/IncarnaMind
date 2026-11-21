@@ -5,7 +5,7 @@
  * agent may read is what it read before; a Document changed between two parts says so.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { MAX_CITES, READ_PART_TOKENS } from "../../src/core/agents/access";
+import { READ_PART_TOKENS } from "../../src/core/agents/access";
 import { estimateTokens } from "../../src/core/answers/context";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
@@ -272,8 +272,8 @@ describe("an agent reading a Document", () => {
     expect(asked.read.left).toBeUndefined();
   });
 
-  // protects=an agent citing what it read is told how to go on when a call is refused: more quotes than one call takes, or a Passage it doesn't have, named; fails_when=a refusal leaves the agent to send the same call again
-  it("tells an agent citing what it read how to go on: too many quotes for one call, or a Passage it doesn't have", async () => {
+  // protects=an agent citing what it read is told which Passage it named that it doesn't have; fails_when=the refusal leaves the agent to send the same call again
+  it("tells an agent citing what it read which Passage it doesn't have", async () => {
     const { agent, read, short } = await library();
     const whole = await read({ documentId: short.id });
     const quotes = whole.read.passages.flatMap((passage) =>
@@ -282,19 +282,8 @@ describe("an agent reading a Document", () => {
         .filter((line) => line.startsWith("Dorothy"))
         .map((quote) => ({ passageId: passage.passageId, quote })),
     );
-    expect(quotes.length).toBeGreaterThan(MAX_CITES);
     const cite = (citations: unknown[]) =>
       agent.callTool({ name: "cite", arguments: { citations } });
-
-    const tooMany = await cite(quotes.slice(0, MAX_CITES + 1));
-    expect(tooMany.isError).toBe(true);
-    expect(resultText(tooMany)).toContain(
-      `At most ${MAX_CITES} quotes a call: cite the first ${MAX_CITES}, then the rest in another call.`,
-    );
-    for (const some of [quotes.slice(0, MAX_CITES), quotes.slice(MAX_CITES)]) {
-      const cited = (await cite(some)).structuredContent as { citations: { check: string }[] };
-      expect(cited.citations.map((each) => each.check)).toEqual(some.map(() => "found"));
-    }
 
     const madeUp = "0001da17-5c2f-463f-a18d-5ee8be66219e";
     const named = await cite([quotes[0], { passageId: madeUp, quote: quotes[1]?.quote }]);

@@ -7987,6 +7987,12 @@ export const zhCN = {
     "等待期间，这个智能体能读取的内容有了变化，因此没有返回任何内容。请再调用一次。",
   "agents.problem.wallShared": "“{folder}”只在本文件夹内工作，不能和其他文件夹共用一个智能体",
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
+  "agents.cite.left.one":
+    "为免结果过长，你的 {total} 条引文中最后 1 条没有核对：请在下一次调用中重新发送。",
+  "agents.cite.left.other":
+    "为免结果过长，你的 {total} 条引文中最后 {count} 条没有核对：请在下一次调用中重新发送这 {count} 条。",
+  "agents.problem.citeWithoutPassage":
+    "没有引用任何内容：每条引文都要填写 search 或 read_passages 给出的 passageId，或在 path 中填写文件的完整路径。",
   "agents.problem.citeNotFound":
     "没有引用任何内容：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
   "agents.read.left.one":
