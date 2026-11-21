@@ -1115,6 +1115,30 @@ describe("a table that is a series of numbers", () => {
     ).toBe(true);
   });
 
+  test("with a ratio to one read as the multiple it is (#3510)", () => {
+    const leverage = rows(
+      ["Test date", "Net debt to EBITDA", "Covenant limit"],
+      ["27 June 2026", "2.7x", "3.5:1"],
+      ["26 September 2026", "3.1x", "3.5:1"],
+      ["31 December 2026", "about 2.9x", "3.25 : 1"],
+    );
+    expect(isNumericSeries(leverage, "en")).toBe(true);
+    const chart = fromTable(leverage);
+    expect(chart?.data.series).toEqual(["Net debt to EBITDA", "Covenant limit"]);
+    expect(chart?.data.rows.map((row) => row.values.map((value) => value?.value))).toEqual([
+      [2.7, 3.5],
+      [3.1, 3.5],
+      [2.9, 3.25],
+    ]);
+    expect(chart?.data.rows[0]?.values[1]?.shown).toBe("3.5:1");
+    // Both columns are multiples, so one scale draws them.
+    expect(chart && unitGroups(chart)).toHaveLength(1);
+    // A score or a screen's shape is no ratio to one.
+    expect(isNumericSeries(rows(["Match", "Score"], ["Home", "3:2"], ["Away", "16:9"]), "en")).toBe(
+      false,
+    );
+  });
+
   test("with dashes and n/a counting for nothing", () => {
     expect(
       isNumericSeries(

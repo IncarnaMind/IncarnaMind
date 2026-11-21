@@ -749,8 +749,9 @@ describe("outside agents", () => {
     // counts as the Note's page gives them (#3453); 3,153 before read_mind said a picture comes
     // without its data (#3465); 3,166 before hand_over_file (#3412) and a chart's leaveOut (#3466);
     // 3,232 before list_minds said what its entry with no name is (#3487); 3,245 before cite took a
-    // file by its path (#3509).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_275);
+    // file by its path (#3509); 3,275 before create_mind said how to lay a Note out for its reader,
+    // with a table and a chart (#3510).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_351);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
