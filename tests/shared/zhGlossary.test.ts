@@ -6,6 +6,8 @@ const NOT_ALLOWED: readonly [string, string][] = [
   ["在网页上搜索", "联网搜索"],
   ["网页搜索", "联网搜索"],
   ["查找来源", "查找资料"],
+  ["聊天模型", "AI 模型"],
+  ["对话模型", "AI 模型"],
 ];
 
 describe("Chinese strings keep to the glossary", () => {

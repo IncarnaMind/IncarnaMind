@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Meeting } from "../../../core/api";
 import { useT } from "../i18n";
 import { isLive } from "../meetings";
-import { focusTaken, useMeetingViewFocus } from "../meetingViews";
+import { focusTaken, showMeetingNoteView, useMeetingViewFocus } from "../meetingViews";
 import { useAppStore, type ViewerTarget } from "../store";
 import { openTranscriptBeside } from "../transcripts";
 import { MeetingTranscriptView } from "../viewer/TranscriptView";
 import { type ViewerFrame, ViewerFrameContext } from "../viewer/ViewerHeader";
 import { OpenBesideLineIcon } from "./lineIcons";
 import { LiveMeetingBar } from "./MeetingInMind";
+import { MeetingAgentNotes } from "./meetings/MeetingAgentNotes";
 import { MeetingSummary } from "./meetings/MeetingSummary";
 import { useTabPlace } from "./tabs/tabItems";
 
@@ -68,6 +69,15 @@ export function MeetingTranscriptInNote({ meeting, tabId }: { meeting: Meeting; 
         </div>
       )}
       <MeetingSummary meeting={meeting} inTranscript />
+      {!live && meeting.fill?.state === "own-ai" && meeting.fill.agentId && (
+        <div className="shrink-0 border-b border-rule px-4 py-2">
+          <MeetingAgentNotes
+            meeting={meeting}
+            agentId={meeting.fill.agentId}
+            onAsked={() => showMeetingNoteView(tabId, meeting.mindId, "notes", { focus: true })}
+          />
+        </div>
+      )}
       <ViewerFrameContext.Provider value={frame}>
         <MeetingTranscriptView
           key={meeting.id}
