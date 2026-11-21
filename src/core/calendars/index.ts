@@ -485,7 +485,8 @@ export function createCalendars(options: CalendarsOptions) {
         const row = existing.get(event.externalId);
         existing.delete(event.externalId);
         const next = {
-          event_key: event.key,
+          // Without an iCalendar UID the provider's occurrence id is local to its calendar.
+          event_key: event.key ?? JSON.stringify(["calendar-local", calendarId, event.externalId]),
           title: event.title,
           starts_at: event.startsAt,
           ends_at: event.endsAt,
@@ -686,10 +687,13 @@ export function createCalendars(options: CalendarsOptions) {
         }
         if (!accountRow(accountId)) return;
         clearRetry(accountId);
+        if (row.service === "mac" && row.problem === "denied") changed = true;
         setProblem(accountId, null, true);
       } catch (error) {
         if (!accountRow(accountId)) return;
         const problem = problemFor(error);
+        if (row.service === "mac" && (row.problem === "denied") !== (problem === "denied"))
+          changed = true;
         setProblem(accountId, problem);
         log.warn("calendars.readFailed", {
           service: row.service,
@@ -752,9 +756,15 @@ export function createCalendars(options: CalendarsOptions) {
   };
 
   const countedEvents = (from: string, to: string) =>
-    db.all<EventRow & { service: CalendarService }>(
+    db.all<
+      EventRow & {
+        service: CalendarService;
+        problem: CalendarProblem | null;
+        offered_for_start: string | null;
+      }
+    >(
       `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at, e.ends_at,
-         e.attendees, e.join_url, a.service
+         e.attendees, e.join_url, e.offered_for_start, a.service, a.problem
        FROM calendar_events e
        JOIN calendars c ON c.id = e.calendar_id AND c.counted = 1
        JOIN calendar_accounts a ON a.id = c.account_id
@@ -768,11 +778,13 @@ export function createCalendars(options: CalendarsOptions) {
    * its title and times, shown as the copy with a call's link and the most people, with every
    * copy's key and id, so its Note is found from any of them.
    */
-  const once = <T extends EventRow>(rows: readonly T[]) => {
+  const sameDisplayEvent = (a: EventRow, b: EventRow) =>
+    a.event_key === b.event_key ||
+    (a.title === b.title && a.starts_at === b.starts_at && a.ends_at === b.ends_at);
+  const sameOccurrence = (a: EventRow, b: EventRow) =>
+    a.event_key === b.event_key && a.starts_at === b.starts_at;
+  const once = <T extends EventRow>(rows: readonly T[], twins = sameDisplayEvent) => {
     const groups: { shown: T; members: T[] }[] = [];
-    const twins = (a: T, b: T) =>
-      a.event_key === b.event_key ||
-      (a.title === b.title && a.starts_at === b.starts_at && a.ends_at === b.ends_at);
     const weight = (row: T) => (row.join_url ? 2 : 0) + parseAttendees(row.attendees).length / 1000;
     for (const row of rows) {
       const group = groups.find((each) => each.members.some((member) => twins(member, row)));
@@ -785,16 +797,51 @@ export function createCalendars(options: CalendarsOptions) {
     }
     return groups.map(({ shown, members }) => ({
       shown,
+      members,
       keys: [...new Set(members.map((member) => member.event_key))],
       ids: members.map((member) => member.id),
     }));
   };
 
+  function markOffered(ids: readonly string[], startsAt: string) {
+    db.run(
+      "UPDATE calendar_events SET offered_for_start = ? WHERE id IN (SELECT value FROM json_each(?))",
+      [startsAt, JSON.stringify(ids)],
+    );
+  }
+
   /** The Meeting an event is a copy of, as Coming up shows it. */
-  const groupOf = (event: EventRow) =>
-    once(countedEvents(event.starts_at, event.ends_at)).find((group) =>
+  const groupOf = (event: EventRow, twins = sameDisplayEvent) =>
+    once(countedEvents(event.starts_at, event.ends_at), twins).find((group) =>
       group.ids.includes(event.id),
     );
+
+  function getEvent(eventId: unknown): EventRow {
+    if (typeof eventId !== "string")
+      throw new InvalidInputError({ key: "error.calendar.badRequest" });
+    const event = db.get<EventRow>(
+      `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at, e.ends_at,
+           e.attendees, e.join_url
+         FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id WHERE e.id = ?`,
+      [eventId],
+    );
+    if (!event) throw new NotFoundError({ key: "error.calendar.eventGone" });
+    return event;
+  }
+
+  function notesForEvent(event: EventRow, keys: readonly string[]) {
+    const existing = noteFor(keys);
+    if (existing) return { mindId: existing, created: false };
+    const mindId = options.createNote(event.title);
+    const at = options.now();
+    db.run(
+      `INSERT INTO calendar_event_notes (id, mind_id, event_key, event, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      [randomUUID(), mindId, event.event_key, snapshotOf(event), at, at],
+    );
+    options.eventsChanged();
+    return { mindId, created: true };
+  }
 
   const parseWindow = (input: unknown): ListCalendarEventsInput => {
     if (!isRecord(input) || typeof input.from !== "string" || typeof input.to !== "string") {
@@ -1050,29 +1097,57 @@ export function createCalendars(options: CalendarsOptions) {
       }));
     },
 
+    reminderEvents() {
+      const rows = countedEvents(options.now(), window().to).filter(
+        (row) => row.service !== "mac" || row.problem !== "denied",
+      );
+      // A title and time can group a display row, but cannot identify what a click may record.
+      return once(rows, sameOccurrence).flatMap(({ shown, members, ids }) => {
+        if (!members.some((row) => parseAttendees(row.attendees).length >= 2)) return [];
+        const mindId = noteFor([shown.event_key]);
+        if (
+          mindId &&
+          db.get(
+            "SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL AND status <> 'ready'",
+            [mindId],
+          )
+        )
+          return [];
+        const seen = members.some((row) => row.offered_for_start === shown.starts_at);
+        // A newly synced copy must remember the offer even if the first calendar is disconnected.
+        if (seen) {
+          const unmarked = members.filter((row) => row.offered_for_start !== shown.starts_at);
+          if (unmarked.length)
+            markOffered(
+              unmarked.map((row) => row.id),
+              shown.starts_at,
+            );
+        }
+        return [
+          {
+            id: shown.id,
+            ids,
+            occurrenceKey: shown.event_key,
+            title: shown.title,
+            startsAt: shown.starts_at,
+            endsAt: shown.ends_at,
+            seen,
+          },
+        ];
+      });
+    },
+
+    markReminderSeen: markOffered,
+
     takeNotes(eventId: unknown): { mindId: string; created: boolean } {
-      if (typeof eventId !== "string")
-        throw new InvalidInputError({ key: "error.calendar.badRequest" });
-      const event = db.get<EventRow>(
-        `SELECT e.id, e.calendar_id, e.external_id, e.event_key, e.title, e.starts_at, e.ends_at,
-           e.attendees, e.join_url
-         FROM calendar_events e JOIN calendars c ON c.id = e.calendar_id WHERE e.id = ?`,
-        [eventId],
-      );
-      if (!event) throw new NotFoundError({ key: "error.calendar.eventGone" });
-      // Any copy of the invite opens the same Note, whichever copy Coming up showed.
-      const group = groupOf(event);
-      const existing = noteFor(group?.keys ?? [event.event_key]);
-      if (existing) return { mindId: existing, created: false };
-      const mindId = options.createNote(event.title);
-      const at = options.now();
-      db.run(
-        `INSERT INTO calendar_event_notes (id, mind_id, event_key, event, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), mindId, event.event_key, snapshotOf(event), at, at],
-      );
-      options.eventsChanged();
-      return { mindId, created: true };
+      const event = getEvent(eventId);
+      return notesForEvent(event, groupOf(event)?.keys ?? [event.event_key]);
+    },
+
+    takeReminderNotes(eventId: string) {
+      const event = getEvent(eventId);
+      const { mindId } = notesForEvent(event, [event.event_key]);
+      return { mindId, joinUrl: event.join_url };
     },
 
     noteEvent(mindId: unknown): NoteEvent | null {
@@ -1092,7 +1167,10 @@ export function createCalendars(options: CalendarsOptions) {
          WHERE e.event_key = ? ORDER BY e.rowid`,
         [link.event_key],
       );
-      const live = copy && groupOf(copy)?.shown;
+      const recorded = db.get("SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL", [
+        mindId,
+      ]);
+      const live = copy && groupOf(copy, recorded ? sameOccurrence : sameDisplayEvent)?.shown;
       if (live) {
         return {
           eventId: live.id,

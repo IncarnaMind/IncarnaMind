@@ -14,7 +14,7 @@ import { SortingStep } from "./SortingStep";
 import { TranscriptionStep } from "./TranscriptionStep";
 import { WorkStep } from "./WorkStep";
 
-const FIRST_RUN: readonly SetupStep[] = ["work", "ai", "sorting", "meetings"];
+const FIRST_RUN: readonly SetupStep[] = ["work", "ai", "meetings"];
 export const MODEL_STEPS: readonly SetupStep[] = ["ai", "sorting", "meetings"];
 
 /**
@@ -75,7 +75,7 @@ export function SetupSteps({
 
 /**
  * The first run's setup (#3296), the window's only page while it shows: what the User works on,
- * then their AI, sorting and meeting transcription, one short step each, every one skippable.
+ * then their AI and meeting transcription, one short step each, every one skippable.
  * The dialogs a step can raise (a consent, a local model's download, a problem) draw over it as
  * they do over the app.
  */

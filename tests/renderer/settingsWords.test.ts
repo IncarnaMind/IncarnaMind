@@ -113,12 +113,10 @@ const CONSENT_FACTS = [
   // What is sent where a service is chosen, and the GitHub sign-in's notice (#2900).
   "providers.sendsLine",
   "copilot.notice.sends",
-  "needsModel.organize",
   "needsModel.compare",
   "needsModel.help",
   "setup.sorting.here",
   "setup.sorting.chatHere",
-  "setup.sorting.sends",
   "setup.sorting.sendsWhenOn",
   // Which service isn't allowed yet, while sorting new Documents asks before the first one goes (#3353).
   "ai.organize.automatic.asks",

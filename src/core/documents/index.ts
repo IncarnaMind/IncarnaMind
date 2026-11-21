@@ -209,6 +209,7 @@ interface DocumentRow {
   meeting_mind_id: string | null;
   counted_as_evidence: number;
   not_cited: number;
+  cited_by: string | null;
   processing_version: number;
   keywords_version: number;
   file_mtime_ms: number | null;
@@ -314,7 +315,7 @@ const COLUMNS = `id, content_hash, name, kind, size, page_count, status,
   tagging_error_kind,
   tagging_error_message, tagging_error_resets_at, embedding_model, path, linked_folder_id, file_status,
   source_kind, creation_date, title, own_file, converted_from, your_note_mind_id, your_note_at,
-  meeting_mind_id, counted_as_evidence, not_cited, processing_version, keywords_version, file_mtime_ms,
+  meeting_mind_id, counted_as_evidence, not_cited, cited_by, processing_version, keywords_version, file_mtime_ms,
   file_created_ns, file_properties, speakers, created_at,
   updated_at`;
 
@@ -489,6 +490,8 @@ export interface CitationSource {
   documentDeleted: boolean;
   /** The User keeps the Document as their own workings: its Passages are read, never cited. */
   notCited: boolean;
+  /** The agent that cited its file by path from outside the Library (#3509); null for any other. */
+  citedBy: string | null;
   /** Set when the Document is a snapshot of a Mind (#335): when the version quoted was taken. */
   yourNoteAt: string | null;
 }
@@ -780,6 +783,7 @@ export function createDocuments(options: DocumentsOptions) {
       found: foundSourceOf(db, row.id),
       importedAs: importedMindOf(row.id),
       handedBy: handedByOf(row.id),
+      citedBy: row.cited_by,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2901,12 +2905,14 @@ export function createDocuments(options: DocumentsOptions) {
         content_hash: string;
         deleted_at: string | null;
         not_cited: number;
+        cited_by: string | null;
         your_note_mind_id: string | null;
         your_note_at: string | null;
         your_note_version_at: string | null;
       }>(
         `SELECT p.id, p.text, p.page_from, p.page_to, p.document_id, d.name, d.kind,
            coalesce(p.content_hash, d.content_hash) AS content_hash, d.deleted_at, d.not_cited,
+           d.cited_by,
            d.your_note_mind_id, d.your_note_at,
            (SELECT dp.version_at FROM document_pages dp
             WHERE dp.document_id = d.id AND dp.content_hash = coalesce(p.content_hash, d.content_hash)
@@ -2928,6 +2934,7 @@ export function createDocuments(options: DocumentsOptions) {
         contentHash: row.content_hash,
         documentDeleted: row.deleted_at !== null,
         notCited: row.not_cited === 1,
+        citedBy: row.cited_by,
         yourNoteAt:
           row.your_note_mind_id === null ? null : (row.your_note_version_at ?? row.your_note_at),
       };
@@ -3554,6 +3561,27 @@ export function createDocuments(options: DocumentsOptions) {
       const updated = find(id);
       if (!updated) throw new NotFoundError({ key: "error.document.notFound" });
       return toDocument(updated);
+    },
+
+    /** The live Documents that are files an agent cited by its path (`Document.citedBy`, #3509). */
+    citedFiles: (): string[] =>
+      db
+        .all<{ id: string }>(
+          "SELECT id FROM documents WHERE cited_by IS NOT NULL AND deleted_at IS NULL",
+        )
+        .map((row) => row.id),
+
+    /**
+     * Marks a Document as a file the agent named cited by its path (`Document.citedBy`, #3509), or,
+     * with null, as the User's own.
+     */
+    setCitedBy(documentId: string, agent: string | null): void {
+      db.run("UPDATE documents SET cited_by = ?, updated_at = ? WHERE id = ?", [
+        agent,
+        now(),
+        documentId,
+      ]);
+      announce(documentId);
     },
 
     /**

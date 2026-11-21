@@ -112,6 +112,30 @@ describe("An offer when a call app takes the microphone", () => {
     expect(await core.listMeetings()).toEqual([]);
   });
 
+  test("an exact microphone release prevents a stale click from recording, and a rejoin can still take the same offer", async () => {
+    const { core, calls } = await offersCore();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    calls.use(["zoom"]);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (!offer) throw new Error("No offer.");
+    calls.use([]);
+    await expect(core.takeMeetingOffer(offer.id)).rejects.toThrow();
+    expect(await core.listMeetings()).toEqual([]);
+    calls.use(["zoom"]);
+    expect((await core.takeMeetingOffer(offer.id)).status).toBe("recording");
+  });
+
+  test("a watcher reporting only the foreground app cannot invalidate a click on an ongoing call", async () => {
+    const { core, calls } = await offersCore();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    calls.use(["zoom"], false);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (!offer) throw new Error("No offer.");
+    calls.use([], false);
+    expect((await core.takeMeetingOffer(offer.id)).status).toBe("recording");
+    expect((await core.getMeetingOffers()).ending).toBeNull();
+  });
+
   test("Not now records nothing and doesn't ask again in the same call; the next call asks", async () => {
     const { core, calls } = await offersCore();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -188,7 +212,7 @@ describe("Take notes", () => {
 
     calls.use(["zoom", "slack"]);
     expect((await core.getMeetingOffers()).offer).toBeNull();
-    await expect(core.takeMeetingOffer(offer.id)).rejects.toThrow("That call has ended.");
+    await expect(core.takeMeetingOffer(offer.id)).rejects.toThrow("This offer has expired.");
   });
 
   test("stops 30 seconds after the call app lets go of the microphone, saying so first", async () => {

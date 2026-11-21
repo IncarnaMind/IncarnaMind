@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { Meeting } from "../../src/core/api";
+import type { Meeting, MeetingOffer } from "../../src/core/api";
 import { type TrayActions, type TrayState, trayMenu } from "../../src/main/trayMenu";
 
 const did: string[] = [];
@@ -63,7 +63,12 @@ describe("The menu bar icon's menu", () => {
   });
 
   test("holds the offer for a call, with Take notes and Don't ask, in Chinese too", () => {
-    const offer = { id: "o1", app: "slack", at: "2026-11-08T10:04:00.000Z" };
+    const offer: MeetingOffer = {
+      kind: "call",
+      id: "o1",
+      app: "slack",
+      at: "2026-11-08T10:04:00.000Z",
+    };
     expect(labels({ ...idle, offer }, "win32").slice(0, 3)).toEqual([
       "Huddle detected · Slack (off)",
       "Take notes",
@@ -74,6 +79,31 @@ describe("The menu bar icon's menu", () => {
     );
     click({ ...idle, offer }, "tray.takeNotes");
     expect(did.at(-1)).toBe("take o1");
+  });
+
+  test("offers the calendar meeting by title and can skip just that meeting", () => {
+    const offer: MeetingOffer = {
+      kind: "calendar",
+      id: "calendar-offer",
+      eventId: "event",
+      title: "Design review",
+      startsAt: "2026-11-08T10:04:00.000Z",
+    };
+    const state = { ...idle, offer };
+    expect(labels(state, "win32").slice(0, 3)).toEqual([
+      "Calendar meeting · Design review (off)",
+      "Take notes",
+      "Not now",
+    ]);
+    expect(labels({ ...state, language: "zh-CN" }, "win32").slice(0, 3)).toEqual([
+      "日历会议 · Design review (off)",
+      "记录会议",
+      "暂不",
+    ]);
+    click(state, "tray.takeNotes");
+    expect(did.at(-1)).toBe("take calendar-offer");
+    click(state, "tray.notNow");
+    expect(did.at(-1)).toBe("decline calendar-offer false");
   });
 
   test("counts down a call's end, and keeps recording", () => {

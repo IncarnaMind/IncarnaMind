@@ -39,6 +39,7 @@ export const documentOf = (id: string, over: Partial<Document> = {}): Document =
   found: null,
   importedAs: null,
   handedBy: null,
+  citedBy: null,
   createdAt: "",
   updatedAt: "",
   ...over,

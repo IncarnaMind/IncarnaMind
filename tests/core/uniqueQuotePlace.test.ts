@@ -43,6 +43,7 @@ function cueSession(cues: Cue[]) {
     pageTo: units.length,
     documentDeleted: false,
     notCited: false,
+    citedBy: null,
     yourNoteAt: null,
   };
   const passage: WindowedPassage = {

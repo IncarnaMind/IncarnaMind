@@ -39,6 +39,42 @@ describe("Migrations", () => {
     db.close();
   });
 
+  test("legacy calendar-local IDs are scoped without attributing an old Note to the remaining calendar", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "calendar.db"));
+    try {
+      migrate(
+        db,
+        migrations.filter((entry) => entry.version < 153),
+      );
+      db.exec(`
+        INSERT INTO calendar_accounts (id, service, created_at, updated_at) VALUES ('mac', 'mac', '0', '0');
+        INSERT INTO calendars VALUES ('work', 'mac', 'work', 'Work', NULL, 1, '0', '0');
+        INSERT INTO calendar_events VALUES
+          ('one', 'work', 'same', 'mac:same|', 'Standup', '1', '2', '[]', NULL, '0', '0'),
+          ('two', 'work', 'series|2026-11-09T08:00:00Z', 'mac:series|2026-11-09T08:00:00.000Z', 'Weekly', '1', '2', '[]', NULL, '0', '0'),
+          ('three', 'work', 'shared', 'invite@example.test|', 'Review', '1', '2', '[]', NULL, '0', '0');
+        INSERT INTO minds (id, title, created_at, updated_at) VALUES ('old', 'Old standup', '0', '0');
+        INSERT INTO calendar_event_notes (id, mind_id, event_key, event, created_at, updated_at)
+          VALUES ('link', 'old', 'mac:same|', '{"title":"Old standup"}', '0', '0');
+      `);
+      migrate(db);
+      const events = db.all<{ event_key: string }>(
+        "SELECT event_key FROM calendar_events ORDER BY rowid",
+      );
+      expect(events.map((row) => row.event_key)).toEqual([
+        JSON.stringify(["calendar-local", "work", "same"]),
+        JSON.stringify(["calendar-local", "work", "series|2026-11-09T08:00:00Z"]),
+        "invite@example.test|",
+      ]);
+      expect(db.get("SELECT event_key, event FROM calendar_event_notes")).toMatchObject({
+        event_key: "mac:same|",
+        event: '{"title":"Old standup"}',
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   test("version numbers may skip numbers reserved by work in progress", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "test.db"));
 

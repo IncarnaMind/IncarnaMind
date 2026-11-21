@@ -13,7 +13,7 @@ import type { HandOverInput } from "../agentFiles/handOver";
 import type { AgentToolName, Effect, HandedFile } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
 import type { AdmittedPairing } from "./access";
-import { AgentRefusedError, text } from "./refusals";
+import { AgentRefusedError, MAX_PATH_CHARS, text } from "./refusals";
 
 /** The largest file one hand-over reads. */
 export const MAX_HANDED_BYTES = 50 * 1024 * 1024;
@@ -22,7 +22,6 @@ export const MAX_HAND_OVERS_AN_HOUR = 60;
 /** The most claims that need a look one answer lists. */
 const MAX_LISTED = 30;
 const MAX_TITLE_CHARS = 200;
-const MAX_PATH_CHARS = 4096;
 const HOUR_MS = 3_600_000;
 const MB = 1024 * 1024;
 
