@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { createDataFolder, dismissChatSetup, firstTranscriptLine, launchApp, openSettings, pointAndClick, recordMeeting, removeDataFolder, setLanguage, setWindowSize, transcribeHere, transcriptSaved } from "./app";
+import { coreOf, createDataFolder, dismissChatSetup, firstTranscriptLine, launchApp, openSettings, pointAndClick, recordMeeting, removeDataFolder, setLanguage, setWindowSize, transcribeHere, transcriptSaved } from "./app";
 
 for (const example of [
   { language: "en", width: 1280, height: 800, zoom: 1, dark: false },
@@ -22,16 +22,25 @@ for (const example of [
       await page.evaluate(axe);
       const evidence = await page.evaluate(async () => {
         const scan = await (window as unknown as {axe:{run:(root:Document, options:object)=>Promise<{violations:{id:string;impact:string;nodes:{target:string[];failureSummary:string;html:string}[]}[]}>}}).axe.run(document, {runOnly:{type:"tag",values:["wcag2a","wcag2aa","wcag21a","wcag21aa"]},resultTypes:["violations"]});
-        return {actualWindow:[innerWidth,innerHeight], scrollWidth:document.documentElement.scrollWidth, theme:document.documentElement.dataset.theme,
+        return {actualWindow:[innerWidth,innerHeight], scrollWidth:document.documentElement.scrollWidth, theme:document.documentElement.dataset.theme, bodyColor:getComputedStyle(document.body).backgroundColor,
+          treeMarkup:[...document.querySelectorAll('[role="tree"]')].map(el=>({heading:document.getElementById(el.getAttribute('aria-labelledby')||'')?.innerText, structure:el.innerHTML.slice(0,16000)})),
+          tabText:[...document.querySelectorAll('[role="tab"]')].map(el=>[el.textContent,el.getAttribute('aria-label')]),
+          partial:[...document.querySelectorAll('.transcript-sentence--partial')].map(el=>getComputedStyle(el).color),
           findings:scan.violations.map((v:{id:string;impact:string;nodes:{target:string[];failureSummary:string;html:string}[]})=>({rule:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,detail:n.failureSummary,html:n.html.slice(0,220)}))}))};
       });
-      await page.screenshot({ path:join(folder, prefix+"-"+stage+".png"), animations:"disabled" });
+      if(example.zoom!==1){
+        const native=await app.evaluate(async({BrowserWindow})=>{const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('/renderer/index.html'));if(!w)throw Error('No fixture window');return (await w.webContents.capturePage()).toPNG().toString('base64')});
+        await writeFile(join(folder,prefix+"-"+stage+".png"),Buffer.from(native,'base64'));
+      }else await page.screenshot({ path:join(folder, prefix+"-"+stage+".png"), animations:"disabled" });
       await writeFile(join(folder,prefix+"-"+stage+".json"),JSON.stringify(evidence,null,2));
     };
     try {
       await dismissChatSetup(window);
       await setWindowSize(app,window,example.width,example.height);
-      if(example.dark) await app.evaluate(({nativeTheme})=>{nativeTheme.themeSource="dark";});
+      if(example.dark) {
+        await (await coreOf(window)).evaluate(c=>c.updateSettings({device:{appearance:"dark"}}));
+        await expect.poll(()=>window.evaluate(()=>document.documentElement.dataset.theme)).toBe("dark");
+      }
       if(example.zoom!==1) await app.evaluate(({BrowserWindow},factor)=>{BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(factor);},example.zoom);
       const settings = await openSettings(window,"meetings");
       await expect(settings).toBeVisible();
