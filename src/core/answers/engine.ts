@@ -1982,6 +1982,13 @@ const runMessage = (message: AnswerMessage): RunMessage =>
 const PRESEARCH_NOTE =
   "IncarnaMind searched the Question's own words for you. If these Passages don't hold all of the answer, search again with other words before writing.";
 
+/** What a check's Run is told of its first search (#3512): it judges a sentence, and replies with a verdict. */
+const CHECK_PRESEARCH_NOTE =
+  "IncarnaMind searched the sentence's own words for you. If these Passages don't decide it, search again with other words before you reply.";
+
+/** The id of the search made before the first call, as the model's prompt carries it. */
+export const FIRST_SEARCH_ID = "question-search";
+
 /** The search an Answer made before its first call (#1633), and the third-party text it read. */
 interface Presearched {
   query: string;
@@ -1999,10 +2006,10 @@ function presearchMessages(
   request: AnswerRequest,
   loop: ReturnType<WindowBudget["loop"]> | null,
 ): RunMessage[] {
-  const id = "question-search";
+  const id = FIRST_SEARCH_ID;
   const input = { query };
   const read = (passages: string) =>
-    `${fittedResultText(result, passages, request.documents, request.languageNote)}\n\n${PRESEARCH_NOTE}`;
+    `${fittedResultText(result, passages, request.documents, request.languageNote)}\n\n${request.toolSet === "check" ? CHECK_PRESEARCH_NOTE : PRESEARCH_NOTE}`;
   const fitted = loop
     ? loop.carried(result.text, result.passageCount, result.ranks, (passages) => [
         JSON.stringify(input),

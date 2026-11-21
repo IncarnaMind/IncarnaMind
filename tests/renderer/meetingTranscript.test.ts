@@ -274,15 +274,16 @@ describe("A meeting's Transcript is placed where its Note is", () => {
   const filed = { documentId: lease.id, groupId: vault.id, source: "user" as const };
   const walls = {
     groups: [vault],
-    assignments: [filed],
-    documents: [lease, owned],
-    minds: [inVault],
+    documentWalls: {
+      [lease.id]: { wallId: vault.id, byUser: true },
+      [owned.id]: { wallId: vault.id, byUser: true },
+    },
   };
 
   test("behind its Note's wall, as a Document filed there is", () => {
     expect(keptInsideName(walls, owned.id, null)).toBe("Vault");
     expect(keptInsideName(walls, owned.id, vault.id)).toBeNull();
-    expect(keptInsideName({ ...walls, minds: [] }, owned.id, null)).toBeNull();
+    expect(keptInsideName({ ...walls, documentWalls: {} }, owned.id, null)).toBeNull();
     const scope = { folderIds: [], tagIds: [], documentIds: [owned.id, lease.id] };
     expect(scopeOutsideWalls(walls, scope, null)?.documentIds).toEqual([]);
     expect(scopeOutsideWalls(walls, scope, vault.id)?.documentIds).toEqual([owned.id, lease.id]);
@@ -302,6 +303,7 @@ describe("A meeting's Transcript is placed where its Note is", () => {
       tags: [],
       documents: [owned],
       assignments: [],
+      documentWalls: walls.documentWalls,
       minds: [inVault],
       t: en,
     };

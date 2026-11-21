@@ -145,6 +145,11 @@ describe("Document-or-Folder choices", () => {
         filed(zhMatter.id, zhBrief.id, "user"),
         filed(matter.id, sorted.id, "automatic"),
       ],
+      documentWalls: {
+        [brief.id]: { wallId: matter.id, byUser: true },
+        [zhBrief.id]: { wallId: zhMatter.id, byUser: true },
+        [sorted.id]: { wallId: matter.id, byUser: false },
+      },
     };
     const kept = (wall: string | null, query = "") =>
       Object.fromEntries(

@@ -65,9 +65,9 @@ describe("The evaluation's request log", () => {
     expect(result.verdict).toBe("contradicted");
     const ofCheck = received.slice(asked);
     const requests = watch.take().get(SALARY) ?? [];
-    // The Run searches, cites and gives its verdict: one request each, at least.
+    // The Run cites and gives its verdict, on the search made for it: one request each, at least.
     const runs = ofCheck.filter((each) => each.run);
-    expect(runs.length).toBeGreaterThanOrEqual(3);
+    expect(runs.length).toBeGreaterThanOrEqual(2);
     expect(requests).toHaveLength(ofCheck.length);
     expect(requests.filter((request) => request.kind === "check")).toHaveLength(runs.length);
     expect(new Set(ofCheck.map((each) => each.tag))).toEqual(new Set([SALARY]));

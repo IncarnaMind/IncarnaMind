@@ -213,7 +213,7 @@ describe("A sentence that cites a court decision", () => {
     expect(summary(checks)).toEqual([[HARBOUR_CITED, "supported", true, false]]);
   });
 
-  test("gets no verdict from a model that never searches, though the check looked the case up", async () => {
+  test("is judged on the search made for a model that never searches, which is not the check's looking the case up", async () => {
     const calls: ModelCall[] = [];
     const model = scriptedModel(
       (call): ScriptedReply => {
@@ -226,7 +226,7 @@ describe("A sentence that cites a court decision", () => {
 
     const checks = await checkParagraph(core, [INVENTED]);
 
-    expect(checks).toMatchObject([{ state: "not-checked", reason: "unread" }]);
+    expect(checks).toMatchObject([{ state: "unsupported" }]);
     expect(calls).toHaveLength(2);
   });
 });

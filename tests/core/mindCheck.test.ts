@@ -102,7 +102,7 @@ const withoutDecisions =
 
 /** The check Runs made: each starts with a call that has no Tool results yet. */
 const runsIn = (calls: readonly ModelCall[]) =>
-  calls.filter((call) => isCheckRun(call) && call.results.length === 0);
+  calls.filter((call) => isCheckRun(call) && call.fresh);
 
 /**
  * A core with the two Documents in a Folder, a model on this computer (or,
@@ -244,7 +244,7 @@ test.each([
     (call) => {
       if (!isCheckRun(call)) return { text: "" };
       const sentence = sentenceOf(call);
-      const first = call.results.length === 0;
+      const first = call.fresh;
       if (first) {
         running.add(sentence);
         most = Math.max(most, running.size);
@@ -298,7 +298,7 @@ test("Check this note loads no reranking model", async () => {
   const fake = createFakeCrossEncoder();
   const model = scriptedModel(
     (call) => {
-      if (isCheckRun(call) && call.results.length === 0) events.push("check asks");
+      if (isCheckRun(call) && call.fresh) events.push("check asks");
       return checkReply(call, plans);
     },
     {
@@ -1246,10 +1246,12 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
     expect(loanCheck()).toMatchObject({ state: "contradicted", evidence: { quote: BANK } });
   });
 
-  test("a model that never searches gets no verdict: the sentence isn't checked, and says why", async () => {
-    const { core, mindId, loanCheck } = await yearEnd(3);
+  // The search is made for the model before its first request (#3512): one that never searches itself reads it.
+  test("a model that never searches itself is judged on the search made for it", async () => {
+    const { core, mindId, runs, loanCheck } = await yearEnd(3);
     await core.checkMind(request(mindId, "all"));
-    expect(loanCheck()).toMatchObject({ state: "not-checked", reason: "unread" });
+    expect(loanCheck()).toMatchObject({ state: "contradicted", evidence: { quote: BANK } });
+    expect(runs.find((call) => call.fresh && sentenceOf(call) === LOAN)?.results).toHaveLength(1);
   });
 
   test("asking once more comes out of the check's own steps, not a new Run's", async () => {
@@ -1258,13 +1260,13 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
         (call) => {
           const sentence = sentenceOf(call);
           if (sentence !== LOAN) {
-            return call.results.length === 0
+            return call.fresh
               ? { calls: [{ tool: "search_documents", input: { query: sentence } }] }
               : { text: "Verdict: unsupported" };
           }
           runs.push(call);
           // Busy with everything but a search until two steps are left, then a verdict each time.
-          return call.results.length < STEPS - 2
+          return call.step < STEPS - 2
             ? { calls: [{ tool: "cite", input: { citations: [] } }] }
             : { text: "Verdict: unsupported" };
         },
@@ -1272,7 +1274,7 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
       ),
     );
     await core.checkMind(request(mindId, "all"));
-    expect(loanCheck()).toMatchObject({ state: "not-checked", reason: "unread" });
+    expect(loanCheck()).toMatchObject({ state: "unsupported" });
     expect(runs).toHaveLength(STEPS);
   });
 });
@@ -1281,7 +1283,12 @@ describe("A sentence gets the same verdict in Check this note as checked alone",
  * A model whose reply naming the claims stops once its first sentence's record has closed: held
  * until `release`, or failing there as a provider that drops the reply does.
  */
-function sortStopsAfterFirst(model: LanguageModelV4, then: "held" | "fails") {
+function sortStopsAfterFirst(
+  model: LanguageModelV4,
+  then: "held" | "fails",
+  /** The failure comes once this resolves: the check it started has sent its first request, after the search made for it. */
+  after: Promise<void> = Promise.resolve(),
+) {
   const held = Promise.withResolvers<void>();
   const state = { ended: false, release: () => held.resolve() };
   const wrapped = wrapLanguageModel({
@@ -1314,8 +1321,10 @@ function sortStopsAfterFirst(model: LanguageModelV4, then: "held" | "fails") {
               controller.enqueue(part);
               if (part.type === "text-delta" && read(part.delta).length > 0) {
                 named = true;
-                if (then === "fails")
+                if (then === "fails") {
+                  await after;
                   controller.enqueue({ type: "error", error: new Error("Overloaded") });
+                }
               }
             },
             flush() {
@@ -1353,17 +1362,19 @@ describe("Check this note starts each sentence's check once its claims are named
       ...PLANS,
       [SECOND]: { verdict: "unsupported" },
     };
+    const requested = Promise.withResolvers<void>();
     const scripted = scriptedModel(
       (call) => {
         checks.push(call);
+        if (isCheckRun(call) && checking(first)(call)) requested.resolve();
         const reply = checkReply(call, plans);
-        if (call.results.length > 0 || !isCheckRun(call) || !checking(first)(call)) return reply;
+        if (!call.fresh || !isCheckRun(call) || !checking(first)(call)) return reply;
         const until = held[runsIn(checks).filter(checking(first)).length - 1];
         return until ? { ...reply, pause: { after: 0, until } } : reply;
       },
       { generate: checkGenerate(plans) },
     );
-    const sort = sortStopsAfterFirst(scripted, then);
+    const sort = sortStopsAfterFirst(scripted, then, requested.promise);
     const core = startCore(await createTempDataFolder(), {
       createChatModel: () => sort.model,
     });
@@ -1688,7 +1699,7 @@ test("Check this note checks every sentence and says once when a mark can't be w
     const model = scriptedModel(
       (call) => {
         calls.push(call);
-        if (!isCheckRun(call) || call.results.length > 0 || !page) return checkReply(call, plans);
+        if (!isCheckRun(call) || !call.fresh || !page) return checkReply(call, plans);
         // A newer version writes the Note while the first sentence's check is under way.
         if (!newer) {
           page.doc
