@@ -19,15 +19,18 @@ const MEET = "https://meet.google.com/abc-defg-hij";
 
 let dataDir: string;
 let fake: FakeCalendarsServer;
+let calendarNow: Date;
 
-const minutesFromNow = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+const minutesFromNow = (minutes: number) =>
+  new Date(calendarNow.getTime() + minutes * 60_000).toISOString();
 /** Tomorrow at this hour, on this computer's clock. */
 const tomorrowAt = (hour: number) => {
-  const now = new Date();
+  const now = calendarNow;
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hour).toISOString();
 };
 
 test.beforeEach(async () => {
+  calendarNow = new Date();
   dataDir = await createDataFolder();
   fake = await createFakeCalendars({
     google: {
@@ -116,6 +119,7 @@ for (const language of ["en", "zh-CN"] as const) {
       systemCalendar: macCalendar(),
     });
     try {
+      await window.clock.setFixedTime(calendarNow);
       await interceptOpenExternal(app);
       await setWindowSize(app, window, 1440, 760);
       await setLanguage(window, language);
@@ -192,7 +196,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(window.locator('[data-testid="mind-tab"][aria-selected="true"]')).toContainText(
         "Standup",
       );
-      await expect(bar.getByTestId("event-bar-when")).toContainText(t("eventBar.today"));
+      const startsToday =
+        new Date(minutesFromNow(20)).toDateString() === calendarNow.toDateString();
+      await expect(bar.getByTestId("event-bar-when")).toContainText(
+        t(startsToday ? "eventBar.today" : "eventBar.tomorrow"),
+      );
       await expect(bar.getByTestId("event-bar-when")).toContainText(
         t("eventBar.withN", { a: "Dana", b: "Sam", n: 2, m: 4 }),
       );

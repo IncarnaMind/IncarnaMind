@@ -32,6 +32,7 @@ import { useAssistantYields } from "../../assistantYields";
 import { ComposerDockContext } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { useCardWidth } from "../../layoutSlice";
+import { isLive, useMeetings } from "../../meetings";
 import { useSettingUp } from "../../modelSetup";
 import { useFoldForOwnAi, useOwnAiPill } from "../../ownAiPanel";
 import { useQuestionRoom } from "../../questionRoom";
@@ -46,6 +47,7 @@ import { AskPill } from "./AskPill";
 import { Assistant } from "./Assistant";
 import { FloatResize } from "./FloatResize";
 import { OwnAiPill } from "./OwnAiPill";
+import { useReadMindId } from "./readMind";
 import { SnapZones } from "./SnapZones";
 import { useAssistantDrag } from "./useAssistantDrag";
 
@@ -106,6 +108,10 @@ export function Workbench({
   // The first Question waits on choosing a model: its card grows the dock to the height a dock may
   // take, which keeps the Note's own room, so every way in shows in a short window (#2270).
   const settingUp = useSettingUp();
+  const mindId = useReadMindId();
+  const liveNote = useMeetings((state) =>
+    state.meetings.some((meeting) => meeting.mindId === mindId && isLive(meeting)),
+  );
   const resized = useQuestionRoom((state) => state.resized);
   const trayWaiting = useQuestionRoom((state) => state.fits !== null);
   const trayFits = useQuestionRoom((state) => (state.resized ? null : state.fits));
@@ -116,8 +122,19 @@ export function Workbench({
   // One largest height while a question waits, for its growth, the keys and a drag alike.
   const tallest = waits ? questionMax(room.height) : bottomMax(room.height);
   const ownHeight = bottomHeight(shown.height, room.height, tallest);
-  const height =
+  const wantedHeight =
     waits && needed !== null ? questionHeight(ownHeight, needed, room.height) : ownHeight;
+  // In a short Meeting window, the default dock leaves most of the page for speech.
+  const height =
+    dock === "bottom" &&
+    liveNote &&
+    viewport.height <= 640 &&
+    shown.height === DEFAULT_ASSISTANT.height &&
+    !resized &&
+    !trayWaiting &&
+    !folded
+      ? Math.min(wantedHeight, Math.max(BOTTOM_MIN, Math.round(room.height * 0.4)))
+      : wantedHeight;
   const float = floatRect(shown.float, folded, viewport);
   const atWindowLeft = dock === "left" && sidebarHidden;
 
