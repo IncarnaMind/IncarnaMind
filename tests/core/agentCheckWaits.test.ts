@@ -120,6 +120,33 @@ describe("what an outside agent writes waits for the User's Check (#3576)", () =
     expect(calls.length).toBeGreaterThan(0);
   });
 
+  // protects=once a check of a handed-over file has run, at the User's asking, the file no longer reads as waiting, even where every claim came back as the writer's own view (#3576 review); fails_when=hand_over_file says the file still waits for its first check after one ran
+  it("no longer says a handed-over file waits once a check of it ran", async () => {
+    const { core, coast, writer: pairing, files } = await started([], { asItLands: false });
+    for (const provider of await core.listChatProviders())
+      await core.deleteChatProvider(provider.id);
+    const agent = await connectLegacyAgent(pairing.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, DECK);
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const given = structured<{ task: string; sentences: { n: number }[] }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: first.mindId } }),
+    );
+    structured(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId: first.mindId,
+          task: given.task,
+          results: given.sentences.map(({ n }) => ({ n, verdict: "own view" })),
+        },
+      }),
+    );
+    const after = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    expect(after.why).not.toBe(FILE_WAITS);
+    expect(after.status).toBe("checked");
+  });
+
   // protects=with no model and checking as it lands off, a handed-over file says only that it waits for the User, not to check it now (#3576); fails_when=the agent is told to check the file itself unasked
   it("with no model set up, says a handed-over file waits rather than to check it now", async () => {
     const { core, coast, writer: pairing, files } = await started([], { asItLands: false });

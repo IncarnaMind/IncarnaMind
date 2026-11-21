@@ -40,6 +40,8 @@ export interface HandedMarks {
   checking: number;
   /** The results that no longer stand for the reader, by id: a check makes them again. */
   stale: string[];
+  /** The claims that hold a result of any kind, the writer's own views too. */
+  judged: number;
 }
 
 /** Where a handed-over file is, as the Library sees it (`HandOverDeps.placeOf`). */
@@ -594,12 +596,7 @@ export function createHandOver(deps: HandOverDeps) {
       if ((run && run.outcome === null) || marks.checking > 0) {
         return { status: "running", why: null, supported: 0, needLook: 0, claims: [], formulas };
       }
-      if (
-        !run &&
-        !asItLands &&
-        found?.version.checkedAt == null &&
-        marks.supported + marks.needLook.length === 0
-      ) {
+      if (!run && !asItLands && found?.version.checkedAt == null && marks.judged === 0) {
         const waits = deps.say("agents.handOver.notChecked.waits");
         return {
           status: "not-checked",

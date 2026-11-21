@@ -5948,6 +5948,7 @@ export function createCore(adapters: CoreAdapters): Core {
       });
       let supported = 0;
       let checking = 0;
+      let judged = 0;
       const stale: string[] = [];
       const needLook: (FoundClaim & { checkId: string })[] = [];
       for (const marked of checkedSentences(fragment)) {
@@ -5957,6 +5958,7 @@ export function createCore(adapters: CoreAdapters): Core {
           checking++;
           continue;
         }
+        judged++;
         // Not counted: a check makes it again, and told as not checked if none can.
         if (shown.state === "needs-recheck") stale.push(check.id);
         // The writer's own view, and what the User keeps as theirs: the check doesn't rule on it.
@@ -6017,6 +6019,7 @@ export function createCore(adapters: CoreAdapters): Core {
         supported,
         checking,
         stale,
+        judged,
         needLook,
         formulas: workbook
           ? {
