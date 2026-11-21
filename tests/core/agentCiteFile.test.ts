@@ -13,6 +13,8 @@ import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createSourceFolder } from "../helpers/documents";
 import { PLANS, refusal, started, structured } from "../helpers/handedFiles";
+import { connectToMind } from "../helpers/mindClient";
+import { note, writeMind } from "../helpers/minds";
 
 const LINE = "The east quay holds 31 boats.";
 const RIGHT = "The east quay holds 31 boats.";
@@ -44,8 +46,8 @@ interface Cited {
 }
 
 /** The Coast Library, Claude Code connected, and a file of notes in a folder IncarnaMind doesn't hold. */
-async function outside() {
-  const set = await started([], { plans });
+async function outside(options: Omit<NonNullable<Parameters<typeof started>[1]>, "plans"> = {}) {
+  const set = await started([], { plans, ...options });
   const agent = await connectLegacyAgent(set.writer.launch);
   const folder = await createSourceFolder();
   const path = join(folder, "Quay notes.md");
@@ -125,6 +127,114 @@ describe("a file outside the Library, cited by its path (#3509)", () => {
       passageId: null,
       text: null,
     });
+  });
+
+  // protects=a quote word for word inside a longer sentence of the file is found, a Chinese one too, which shares no word with its sentence (#3509 review); fails_when=a Passage that shares no word with the quote is never looked in
+  it("finds a quote inside a longer sentence, in Chinese as in English", async () => {
+    const { folder, cite } = await outside();
+    const minutes = join(folder, "董事会纪要.md");
+    await writeFile(
+      minutes,
+      "# 董事会纪要\n\n董事会认为本年度经营业绩表现良好且增长稳定。\n\nThe slipway closes at dusk on weekdays.\n",
+    );
+    expect(await cite("本年度经营业绩表现良好", minutes)).toMatchObject({ check: "found" });
+    expect(await cite("slipway closes at dusk", minutes)).toMatchObject({ check: "found" });
+  });
+
+  // protects=a cite call that reads a file by path judges every Passage it holds by what the agent reaches once the file is read: a Folder taken back meanwhile gives none of its text, whether its Passage came before the file or after (#3509 review, #3458); fails_when=the call gives back a Passage's text under the grant it had before the read
+  it.each([
+    ["after", "the file"],
+    ["before", "the file"],
+  ])(
+    "gives nothing of a Folder taken back while the file is read, for a Passage %s %s",
+    async (order) => {
+      let meanwhile = async () => {};
+      const { core, writer, more, agent, path } = await outside({
+        folders: ["Other"],
+        reading: () => meanwhile(),
+      });
+      const { passages } = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "harbour office open" } }),
+      );
+      const passageId = passages[0]?.passageId;
+      expect(passageId).toBeDefined();
+      meanwhile = async () => {
+        await core.updateAgent(writer.pairing.id, { folderIds: more.map((each) => each.id) });
+      };
+      const file = { path, quote: "The east quay holds 31 boats" };
+      const passage = { passageId, quote: "The harbour office closes at noon" };
+      const asked = await agent.callTool({
+        name: "cite",
+        arguments: { citations: order === "after" ? [file, passage] : [passage, file] },
+      });
+      expect((asked as { isError?: boolean }).isError).toBe(true);
+      expect(JSON.stringify(asked)).not.toContain("open every day");
+    },
+  );
+
+  // protects=a Document a check leaves out stays out when an agent cites it by path: an export IncarnaMind wrote supports nothing it cites (#3509 review); fails_when=a file IncarnaMind wrote, cited by path, is a check's evidence
+  it("leaves out a file IncarnaMind wrote, cited by its path, as every check does", async () => {
+    const { core, coast, agent, folder, cite } = await outside();
+    await core.setOutputLocation(folder);
+    const quays = await core.createMind({ title: "Quays" });
+    writeMind(await connectToMind(core, quays.id), [note(LINE)]);
+    const saved = await core.saveMindExport(quays.id, { format: "markdown" });
+    if (saved.status !== "saved") throw new Error(`The export wasn't saved: ${saved.status}.`);
+
+    const cited = await cite("The east quay holds 31 boats", saved.file.path);
+    expect(cited).toMatchObject({ check: "found" });
+    const exported = (await core.listDocuments()).find((each) => each.citedBy !== null);
+    expect(exported?.ownFile).toMatchObject({ kind: "export" });
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Quay summary",
+          markdown: `${RIGHT} ${cited?.cite}`,
+          folderId: coast.id,
+        },
+      }),
+    );
+    expect(
+      structured<{ supported: number }>(
+        await agent.callTool({ name: "check_mind", arguments: { mindId } }),
+      ),
+    ).toMatchObject({ supported: 0 });
+  });
+
+  // protects=a file cited by path is evidence only for the sentence that cites it: the agent's own verdict on another sentence that rests on it isn't taken (#3509 review); fails_when=report_check marks a sentence supported by a file the sentence doesn't cite
+  it("takes a verdict resting on the file only for the sentence that cites it", async () => {
+    const { coast, agent, cite } = await outside();
+    const cited = await cite("The east quay holds 31 boats");
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Quays",
+          markdown: `${RIGHT} ${cited?.cite}\n\nThe slipway closes at dusk.`,
+          folderId: coast.id,
+        },
+      }),
+    );
+    const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+    );
+    const numbered = (start: string) =>
+      given.sentences.find((each) => each.text.startsWith(start))?.n;
+    const results = ["The east quay", "The slipway"].map((start) => ({
+      n: numbered(start),
+      verdict: "supported",
+      cites: [cited?.cite],
+      explanation: "Quay notes say so.",
+    }));
+    expect(
+      structured<{ unconfirmed: number[] }>(
+        await agent.callTool({
+          name: "report_check",
+          arguments: { mindId, task: given.task, results },
+        }),
+      ),
+    ).toMatchObject({ unconfirmed: [numbered("The slipway")] });
   });
 
   // protects=a hidden file, a file in a hidden folder, and a file of a kind IncarnaMind doesn't read are refused in plain words, and nothing of them is kept (#3509); fails_when=IncarnaMind reads such a file

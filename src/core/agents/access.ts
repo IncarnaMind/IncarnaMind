@@ -2007,7 +2007,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             `citations must list 1 to ${MAX_CITES} quotes, each with its passageId or path.`,
           );
         }
-        const inScope = new Set(scopeOf(pairing, undefined));
+        const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
+        let inScope = new Set(scopeOf(pairing, undefined));
         const read: string[] = [];
         const citations: AgentCited[] = [];
         for (const entry of list) {
@@ -2021,8 +2022,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               text(record.path, "path", MAX_PATH_CHARS),
               quote,
               pairing.name,
-              (documentId) => inScope.has(documentId),
+              (documentId) => reachNow().has(documentId),
             );
+            // What the User shares may have changed while the file was read (#3458).
+            inScope = reachNow();
             read.push(filed.documentId);
             const found = filed.citation;
             if (found && deps.notCited(found.passageId)) {
@@ -2077,6 +2080,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             text: check === "found" ? null : excerpt(passage.text, null),
           });
         }
+        // Nothing read under an earlier grant goes out under one that leaves it out (#3458).
+        stillReaching(read.filter((documentId) => !deps.citedOutside(documentId)));
         return {
           result: { citations },
           count: citations.filter((each) => each.check === "found").length,

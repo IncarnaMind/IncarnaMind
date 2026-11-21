@@ -372,10 +372,12 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             else skipped.add(sentence.key);
             continue;
           }
+          // A file cited by path is evidence for the sentence that cites it alone (#3509).
+          const citesItself = new Set(sentence.cited.map((quote) => quote.documentId));
           const evidence = each.evidence.filter(
             (citation) =>
               scope.documentIds.has(citation.documentId) ||
-              options.citedOutside(citation.documentId),
+              (citesItself.has(citation.documentId) && options.citedOutside(citation.documentId)),
           );
           const judgedResult = worked
             ? workedResult(each, worked, evidence, sentence.said.length)

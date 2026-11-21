@@ -130,7 +130,8 @@ export function createFileCiting(deps: FileCitingDeps) {
       if (hiddenOrSystem(read.path)) throw refused("agents.cite.fileHidden");
       const documentId = await documentAt(read.path, agent, reaches);
       await readText(documentId);
-      // The Passages most of the quote's words are in first: each is looked in, as `cite` does.
+      // The Passages most of the quote's words are in first, then every other: a Chinese quote
+      // inside a longer sentence shares no word with it, and is found all the same.
       const wanted = words(quote);
       const ranked = deps
         .passages(documentId)
@@ -138,7 +139,6 @@ export function createFileCiting(deps: FileCitingDeps) {
           const has = words(passage.text);
           return { passage, score: [...wanted].filter((word) => has.has(word)).length };
         })
-        .filter((each) => each.score > 0)
         .sort((a, b) => b.score - a.score);
       const { name } = deps.document(documentId);
       for (const { passage } of ranked) {

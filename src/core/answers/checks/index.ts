@@ -1455,9 +1455,10 @@ export function createChecks(options: ChecksOptions) {
           source &&
           !source.documentDeleted &&
           !source.notCited &&
+          !scope.excluded.has(source.documentId) &&
           (source.citedBy !== null ||
-            (!scope.excluded.has(source.documentId) &&
-              (scope.documentIds === null || scope.documentIds.includes(source.documentId))));
+            scope.documentIds === null ||
+            scope.documentIds.includes(source.documentId));
         if (!source || !inScope) return [];
         const { pageFrom, pageTo } = source;
         const location =

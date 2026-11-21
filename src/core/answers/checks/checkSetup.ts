@@ -54,10 +54,9 @@ export function citedSources(
   for (const { passageId } of cited) {
     const source = passageId ? documents.citationSource(passageId) : null;
     if (!source || source.documentDeleted || source.notCited) continue;
+    if (scope.excluded.has(source.documentId)) continue;
     // A file an agent cited by path is evidence for the sentence that cites it, wherever it is (#3509).
-    const inScope =
-      !scope.excluded.has(source.documentId) &&
-      (scope.documentIds === null || scope.documentIds.includes(source.documentId));
+    const inScope = scope.documentIds === null || scope.documentIds.includes(source.documentId);
     if (!inScope && source.citedBy === null) continue;
     found.set(source.passageId, source);
   }
