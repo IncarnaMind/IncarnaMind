@@ -156,10 +156,13 @@ function retype(client: MindClient, from: string, to: string) {
 }
 
 /**
- * A memo with sections that open with a line, a lead-in and its list, a paragraph of three
- * sentences, and two tables, each with its caption, the first with section labels.
+ * A memo with a line above its title, sections that open with a line, a lead-in and its list, a
+ * paragraph of three sentences, and two tables, each with its caption, the first with section
+ * labels.
  */
 const MEMO = [
+  "Draft for the harbour board.",
+  "",
   "# Harbour review",
   "",
   "All amounts below are in thousands.",
@@ -500,6 +503,7 @@ describe("Verify a document", () => {
   // protects=a result stands on what frames its line by the Note's structure (#3455): its table's caption and section label, the opening lines of each section it is in, its list's lead-in and what its paragraph says before it, so one edit re-checks the lines it frames and only those; fails_when=an edit leaves standing a line it frames, so a result stands for a subject, unit or period its check never judged, or re-checks a line it doesn't frame (a later line, another section, another table), hiding that line's finding
   test.each([
     ["a claim on its own line", "holds 42", "holds 40", ["The north quay holds 42 boats."]],
+    ["the line above the Note's title", "harbour board", "harbour council", [...MEMO_CLAIMS]],
     ["the Note's opening line", "in thousands", "in millions", [...MEMO_CLAIMS]],
     [
       "its section's opening line",

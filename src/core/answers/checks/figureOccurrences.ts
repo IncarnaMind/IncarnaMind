@@ -606,7 +606,6 @@ export function framesAbove(node: Y.XmlElement): string[] {
   const keep = () =>
     frames.push(...pending.filter((at) => saysOfText(at) && !leftOut(at)).map(blockWords));
   for (const at of blocksBefore(block)) {
-    if (under <= 1) break;
     if (at.nodeName === "heading") {
       const level = headingLevel(at);
       if (level < under) {
