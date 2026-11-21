@@ -84,6 +84,7 @@ import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
+import { type Looking, lookingText } from "./ask";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -115,7 +116,7 @@ import {
   proposeNamed,
 } from "./proposals";
 import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
-import type { AgentRequests } from "./requests";
+import type { AgentRequests, RequestNamed } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
@@ -510,7 +511,8 @@ export interface AgentReadRequestInput {
 }
 
 export interface AgentReadRequest {
-  mindId: string;
+  /** The Note it is about; null for a request about no Note, and for the answer that none waits. */
+  mindId: string | null;
   title: string;
   /** What the User asked, beyond the line they sent: which Note, which sentences, what to do. */
   request: string;
@@ -1120,6 +1122,8 @@ interface Done<T> {
   effects?: Effect[];
   /** The request the call read (`read_request`). */
   requestId?: string;
+  /** What its activity line says, when only the call knows (`read_request`: the names it gave). */
+  summary?: string;
 }
 
 type ReachDeps = Pick<
@@ -1310,6 +1314,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           count: done.count,
           documentIds: [...new Set(done.documentIds)],
           effects: done.effects ?? effects,
+          ...(done.summary !== undefined && { summary: clip(done.summary, SUMMARY_CHARS) }),
         },
         done.requestId,
       );
@@ -1816,6 +1821,43 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       });
     },
   });
+
+  /**
+   * What a request named, as it is now: each Document and Folder that was deleted since is left
+   * out, and one that exists but isn't this pairing's to read now refuses the request, as a Note
+   * out of reach does, which then waits for the User to share it again.
+   */
+  const lookingNow = (pairing: AdmittedPairing, named: RequestNamed): Looking => {
+    const reached = reachedFolders(deps, pairing);
+    const readable = new Set(documentsForPairing(deps, pairing, [...reached], reached));
+    const folders = new Map(deps.folders().map((folder) => [folder.id, folder.name]));
+    const documents = new Map(
+      deps.documentsNamed([...named.open, ...named.documents]).map((each) => [each.id, each.name]),
+    );
+    const outOfReach = () =>
+      new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+    const still = (
+      ids: readonly string[],
+      nameOf: (id: string) => string | undefined,
+      reads: (id: string) => boolean,
+    ) =>
+      ids.flatMap((id) => {
+        const name = nameOf(id);
+        if (name === undefined) return [];
+        if (!reads(id)) throw outOfReach();
+        return [{ id, name }];
+      });
+    const document = (id: string) => documents.get(id);
+    return {
+      open: still(named.open, document, (id) => readable.has(id)),
+      folders: still(
+        named.folders,
+        (id) => folders.get(id),
+        (id) => reached.has(id),
+      ),
+      documents: still(named.documents, document, (id) => readable.has(id)),
+    };
+  };
 
   /**
    * The results a Note holds, as its page counts them, and what a Document says of each sentence
@@ -2952,20 +2994,28 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const about =
         given.length > 0
           ? given
-          : kept.filter((each) => comparableName(titleOf(each.mindId)) === named);
+          : kept.filter(
+              (each) => each.mindId !== null && comparableName(titleOf(each.mindId)) === named,
+            );
       const chosen = (named !== "" && about.length > 0 ? about : kept).find(
         (each) => each.readAt === null,
       );
-      const effects: Effect[] = chosen
+      const effects: Effect[] = chosen?.mindId
         ? [{ action: "read", scope: { kind: "mind", mindId: chosen.mindId } }]
         : [];
-      const summary = chosen ? titleOf(chosen.mindId) : (input?.note ?? "");
-      return call(
-        "read_request",
-        typeof summary === "string" ? summary : "",
-        effects,
-        (pairing) => {
-          if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+      // Nothing waiting is a look that found nothing, not a failure of the agent's call (#3533):
+      // its activity line says it looked, as it always did.
+      const none = {
+        result: { mindId: null, title: "", request: t("agents.request.none") },
+        count: 0,
+        documentIds: [],
+      };
+      // What a request about no Note names is not said until it is read: only then are its
+      // Documents and Folders known to be the agent's to read, and named as they are by then.
+      const summary = chosen?.mindId ? titleOf(chosen.mindId) : "";
+      return call("read_request", summary, effects, (pairing) => {
+        if (!chosen) return none;
+        if (chosen.mindId !== null) {
           const mind = minds.get(chosen.mindId);
           if (!mind) {
             // Sharing a Folder can't bring it back, so the request goes rather than wait in front of
@@ -2976,16 +3026,34 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (!reaches(pairing, mind)) {
             throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
           }
-          const read = deps.requests.markRead(chosen.id);
-          if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
-          return {
-            result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
-            count: 1,
-            documentIds: [],
-            requestId: read.id,
-          };
-        },
-      );
+        }
+        const looking = chosen.named === null ? null : lookingNow(pairing, chosen.named);
+        const [first] = [
+          ...(looking?.open ?? []),
+          ...(looking?.documents ?? []),
+          ...(looking?.folders ?? []),
+        ];
+        if (looking !== null && chosen.mindId === null && !first) {
+          // Everything it named was deleted since: nothing is left to go on, as for a deleted Note.
+          deps.requests.markRead(chosen.id);
+          throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+        }
+        const request = [chosen.text, looking ? lookingText(looking, t) : ""]
+          .filter((part) => part !== "")
+          .join("\n\n");
+        const read = deps.requests.markRead(chosen.id, request);
+        if (!read) return none;
+        // As the line named it: the Note, else the Document in front.
+        const title =
+          chosen.mindId !== null ? titleOf(chosen.mindId) : (looking?.open[0]?.name ?? "");
+        return {
+          result: { mindId: chosen.mindId, title, request },
+          count: 1,
+          documentIds: [],
+          requestId: read.id,
+          summary: title,
+        };
+      });
     },
   };
 }

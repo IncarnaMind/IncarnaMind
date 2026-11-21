@@ -851,6 +851,48 @@ describe("A Check another window runs or plans", () => {
     }
   });
 
+  // protects=#3533: every way into a Note's Check (the card's press with a price and without, the Note's pill and Home's next step, ⌘K's two Checks, the changed-since, the figures' and the assistant's write's) with no AI model set up leaves the one line that says so, where the User's own AI is offered, asks no question about a price no run will have, asks the core to estimate nothing, and throws nothing; fails_when=a route asks to check, estimates, runs, or ends with no line
+  describe("with no AI model set up, every route into a Note's Check says so at once", () => {
+    const routes: [
+      string,
+      (checks: typeof import("../../src/renderer/src/mindCheck")) => Promise<unknown>,
+    ][] = [
+      ["the card's press with a price", (checks) => checks.startCheck("mind")],
+      ["the card's press with no price", (checks) => checks.startCheckUnpriced("mind")],
+      ["the Note's pill, Home and ⌘K's Check", (checks) => checks.startCheckAsking("mind")],
+      [
+        "⌘K's Check as the assistant asks it",
+        (checks) => checks.checkFromAssistant("mind", false, false),
+      ],
+      ["⌘K's Check every sentence", (checks) => checks.checkFromAssistant("mind", true, false)],
+      ["Check every sentence again", (checks) => checks.startMindCheck("mind", "all")],
+      [
+        "Check all Documents",
+        (checks) => checks.startMindCheck("mind", "changed", { allDocuments: true }),
+      ],
+      ["the changed sentences after Change to", (checks) => checks.startChangedCheckAsking("mind")],
+      ["the figures chosen", (checks) => checks.startFigureCheckAsking("mind", ["figure-1"])],
+      ["what the assistant wrote", (checks) => checks.startWriteCheckAsking("mind", ["block-1"])],
+    ];
+    test.each(routes)("%s", async (_route, press) => {
+      store.chatReadiness = { ready: false, reason: "no-provider" };
+      const { setCheckProblem } = await import("../../src/renderer/src/checks");
+      const checks = await import("../../src/renderer/src/mindCheck");
+      try {
+        await press(checks);
+        expect(vi.mocked(setCheckProblem).mock.calls.at(-1)).toEqual([
+          "mind",
+          { kind: "not-ready", readiness: { ready: false, reason: "no-provider" } },
+        ]);
+        expect(checks.useMindCheck.getState().asking.mind).toBeUndefined();
+        expect(bridge.estimateRun).not.toHaveBeenCalled();
+        expect(bridge.checkMind).not.toHaveBeenCalled();
+      } finally {
+        store.chatReadiness = null;
+      }
+    });
+  });
+
   // protects=#2313: the card's press asks while its estimate is still pending, rather than spending unpriced; fails_when=it waits for the price instead of asking, or runs; no_claim=the estimate.
   test("the card's press asks while its estimate is still pending", async () => {
     bridge.estimateRun.mockReturnValue(new Promise(() => {}));

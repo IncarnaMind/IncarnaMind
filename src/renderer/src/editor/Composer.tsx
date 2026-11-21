@@ -905,7 +905,9 @@ export function Composer({
         </>
       )}
       <AskQueued draftKey={key} />
-      {offersAgent && <ComposerAskAgent agents={agents} draftKey={key} mindId={mindId} />}
+      {offersAgent && (
+        <ComposerAskAgent agents={agents} draftKey={key} mindId={mindId} scope={resolvedScope} />
+      )}
       {problem && !offersAgent && (
         <AskProblem
           problem={problem}

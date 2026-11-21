@@ -9,8 +9,9 @@
  */
 import { useEffect } from "react";
 import { create } from "zustand";
-import type { AgentAsk, AgentPairing, AgentRequest } from "../../core/api";
+import type { AgentAsk, AgentPairing, AgentRequest, SearchScope } from "../../core/api";
 import { core } from "./core";
+import { documentsOnScreen } from "./documentsOnScreen";
 import { noModelSetUp } from "./noModelSetUp";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
@@ -75,7 +76,7 @@ const useRequests = create<{ byMind: Readonly<Record<string, readonly AgentReque
   byMind: {},
 }));
 
-const keepRequest = (request: AgentRequest) =>
+const keepRequest = (request: AgentRequest & { mindId: string }) =>
   useRequests.setState(({ byMind }) => {
     const list = byMind[request.mindId];
     if (!list) return { byMind };
@@ -100,7 +101,7 @@ export function useReadAgentRequests(mindId: string): void {
       useRequests.setState(({ byMind }) => ({ byMind: { ...byMind, [mindId]: list } }));
     }, useAppStore.getState().reportError);
     const stop = core.on("agents.request", (request) => {
-      if (request.mindId === mindId) keepRequest(request);
+      if (request.mindId === mindId) keepRequest({ ...request, mindId });
     });
     return () => {
       current = false;
@@ -142,14 +143,24 @@ const noModelIn = (state: ReturnType<typeof useAppStore.getState>) =>
 export const noModel = (): boolean => noModelIn(useAppStore.getState());
 export const useNoModel = (): boolean => useAppStore(noModelIn);
 
-/** Hands `ask` to `agent`. Resolves to whether it went: a failure is a notice. */
+/**
+ * Hands `ask` to `agent`. A question goes with what the User is looking at, as the assistant is
+ * told it: the Documents open on screen and the chat box's Search scope (#3533). Resolves to
+ * whether it went: a failure is a notice.
+ */
 export async function askAgent(
   agent: AgentPairing,
   mindId: string | null,
   ask: AgentAsk,
+  scope?: SearchScope,
 ): Promise<boolean> {
   try {
-    const result = await core.askAgent({ pairingId: agent.id, mindId, ask });
+    const result = await core.askAgent({
+      pairingId: agent.id,
+      mindId,
+      ask,
+      ...(ask.kind === "question" && { onScreen: documentsOnScreen(), scope: scope ?? null }),
+    });
     if (result.kind === "copy") await navigator.clipboard.writeText(result.text);
     useNotices
       .getState()

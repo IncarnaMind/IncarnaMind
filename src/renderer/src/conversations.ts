@@ -31,10 +31,11 @@ import { clientId } from "./clientId";
 import { composerKey, useComposer } from "./composer";
 import { forgetConversationPick, showConversationModel } from "./conversationModel";
 import { core } from "./core";
+import { documentsOnScreen } from "./documentsOnScreen";
 import { describeError } from "./errors";
 import { cancelExplain } from "./explainQueue";
 import { translateNow } from "./i18n";
-import { currentTabOf, documentsOnScreenOf, groupsMerged, WINDOW_ID } from "./layoutSlice";
+import { currentTabOf, WINDOW_ID } from "./layoutSlice";
 import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
@@ -332,8 +333,6 @@ function sayLeftOut(result: ConversationAskResult): void {
       .showError(new Error(translateNow(said, { document: quote.documentName })));
   }
 }
-
-const documentsOnScreen = () => documentsOnScreenOf(useAppStore.getState().layout, groupsMerged());
 
 /**
  * Asks a Question from the composer in the assistant's conversation (a

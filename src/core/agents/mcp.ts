@@ -158,8 +158,19 @@ async function answer(run: () => Promise<object>): Promise<CallToolResult> {
   }
 }
 
-/** The MCP server for one connection, its Tools calling `access`. */
-export function createAgentServer(access: AgentAccess, version: string): McpServer {
+/** The MCP server for one connection, and what to tell it when a model becomes ready or stops being. */
+export interface AgentServer {
+  server: McpServer;
+  /** Lists the Tools that need a model while one is ready, and tells the agent's app the list changed. */
+  modelChanged(ready: boolean): void;
+}
+
+/** The MCP server for one connection, its Tools calling `access`; `modelReady`: one is ready now. */
+export function createAgentServer(
+  access: AgentAccess,
+  version: string,
+  modelReady: boolean,
+): AgentServer {
   const server = new McpServer(
     { name: SERVER_NAME, title: "IncarnaMind", version },
     { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
@@ -409,7 +420,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     (input) => answer(() => access.readMind(input)),
   );
 
-  server.registerTool(
+  const askTool = server.registerTool(
     tool("ask"),
     {
       title: "Ask IncarnaMind",
@@ -508,7 +519,7 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     (input) => answer(() => access.createMind(input)),
   );
 
-  server.registerTool(
+  const checkMindTool = server.registerTool(
     tool("check_mind"),
     {
       title: "IncarnaMind's own check of a Note you wrote",
@@ -783,7 +794,11 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
       inputSchema: z.object({
         note: z.string().optional().describe("The note's name, as the User wrote it."),
       }),
-      outputSchema: z.object({ mindId: z.string(), title: z.string(), request: z.string() }),
+      outputSchema: z.object({
+        mindId: z.string().nullable(),
+        title: z.string(),
+        request: z.string(),
+      }),
       // It reads the User's own request; reading it once is all that changes.
       annotations: { ...READ_ONLY, idempotentHint: false },
       _meta: ALWAYS_LOAD,
@@ -791,12 +806,29 @@ export function createAgentServer(access: AgentAccess, version: string): McpServ
     (input) => answer(() => access.readRequest(input)),
   );
 
-  return server;
+  // The Tools that can only refuse while IncarnaMind has no AI model of its own ready (#3533):
+  // `ask` hands the Question to it, and `check_mind` asks it to check every sentence. Of the others
+  // `hand_over_file` keeps the version and says it wasn't checked, and the rest use no model.
+  const needModel = [askTool, checkMindTool];
+  let offered = true;
+  const modelChanged = (ready: boolean) => {
+    if (ready === offered) return;
+    offered = ready;
+    for (const each of needModel) {
+      if (ready) each.enable();
+      else each.disable();
+    }
+  };
+  modelChanged(modelReady);
+
+  return { server, modelChanged };
 }
 
 /** One agent's connection, being served. */
 export interface ServedConnection {
   close(): Promise<void>;
+  /** A model of IncarnaMind's own became ready, or none is now: its Tool list follows (#3533). */
+  modelChanged(ready: boolean): void;
 }
 
 /**
@@ -810,6 +842,8 @@ export function serveConnection(
   socket: Duplex,
   options: {
     open(token: string): Promise<{ pairingId: string | null; access: AgentAccess }>;
+    /** Whether IncarnaMind has an AI model of its own ready now, read at each connection. */
+    modelReady(): Promise<boolean>;
     version: string;
     /** Called once the connection's pairing is known (null for an unknown token). */
     paired(pairingId: string | null, connection: ServedConnection): void;
@@ -848,21 +882,44 @@ export function serveConnection(
     }
     // What comes after the opening line waits in `input` while the token is looked up.
     if (rest.length > 0) input.write(rest);
-    options.open(token).then(
-      (opened) => {
+    Promise.all([options.open(token), options.modelReady()]).then(
+      ([opened, ready]) => {
         if (socket.destroyed) return;
-        const handle = serveStdio(() => createAgentServer(opened.access, options.version), {
-          transport: new StdioServerTransport(input, socket),
-          // By its kind only: the SDK's message can quote what the agent sent.
-          onerror: (error) =>
-            options.reportError(new Error(`An agent's connection failed (${error.name}).`)),
-        });
+        // The model's state as this connection last knew it: a server is built at its first
+        // message, which may come after the state changed.
+        let modelNow = ready;
+        let heard = false;
+        let current: AgentServer | null = null;
+        const handle = serveStdio(
+          () => {
+            current = createAgentServer(opened.access, options.version, modelNow);
+            return current.server;
+          },
+          {
+            transport: new StdioServerTransport(input, socket),
+            // By its kind only: the SDK's message can quote what the agent sent.
+            onerror: (error) =>
+              options.reportError(new Error(`An agent's connection failed (${error.name}).`)),
+          },
+        );
         options.paired(opened.pairingId, {
           close: async () => {
             // The connection first: nothing more reaches the core once this is called.
             socket.destroy();
             await handle.close().catch(() => undefined);
           },
+          modelChanged: (now) => {
+            heard = true;
+            modelNow = now;
+            current?.modelChanged(now);
+          },
+        });
+        // A change between the read above and the connection being registered reached nobody: read
+        // again now that it would, and keep what an event said since if one came first.
+        void options.modelReady().then((again) => {
+          if (heard || socket.destroyed) return;
+          modelNow = again;
+          current?.modelChanged(again);
         });
       },
       (error: unknown) => {

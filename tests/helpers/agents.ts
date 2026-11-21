@@ -72,9 +72,13 @@ export async function agentsAdapter(dataDir: string): Promise<CoreAdapters["agen
 /**
  * A core whose outside agents start the shim with this Node, on a temporary
  * data folder, with a local chat model (no consent needed) answering from
- * `model`.
+ * `model`, unless `modelSetUp` is false: a User with no AI model of their own set up.
  */
-export async function startAgentsCore(model: MockLanguageModelV4, overrides: TestAdapters = {}) {
+export async function startAgentsCore(
+  model: MockLanguageModelV4,
+  overrides: TestAdapters = {},
+  { modelSetUp = true } = {},
+) {
   const dataDir = await createTempDataFolder();
   const log = captureLog();
   const models = scriptedModels(model);
@@ -84,7 +88,7 @@ export async function startAgentsCore(model: MockLanguageModelV4, overrides: Tes
     agents: await agentsAdapter(dataDir),
     ...overrides,
   });
-  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  if (modelSetUp) await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
   return { core, dataDir, log, models };
 }
 
@@ -151,15 +155,21 @@ export async function startMeetingAgentsCore(
 }
 
 /** An agent on the protocol before 2026-07-28 (with `initialize`), as most clients still are. */
-export async function connectLegacyAgent(launch: AgentLaunch): Promise<Client> {
-  const client = await legacyAgentClient(launch);
+export async function connectLegacyAgent(
+  launch: AgentLaunch,
+  toolsChanged?: (names: string[]) => void,
+): Promise<Client> {
+  const client = await legacyAgentClient(launch, toolsChanged);
   onTestFinished(() => client.close());
   return client;
 }
 
 /** An agent on the current protocol, 2026-07-28 (stateless, `server/discover`), and nothing else. */
-export async function connectModernAgent(launch: AgentLaunch): Promise<ModernClient> {
-  const client = await modernAgentClient(launch);
+export async function connectModernAgent(
+  launch: AgentLaunch,
+  toolsChanged?: (names: string[]) => void,
+): Promise<ModernClient> {
+  const client = await modernAgentClient(launch, toolsChanged);
   onTestFinished(() => client.close());
   return client;
 }
