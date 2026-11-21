@@ -251,6 +251,24 @@ test("Skip on every step: nothing set, the setup gone for good, and the first Qu
   await expect(setupOf(window)).toHaveCount(0);
 });
 
+// protects=a User with no transcription key can end the setup by its main button: with the cloud service picked and no key typed, Finish leaves the choice to the first recording, as "Set up when I record" does, and nothing is chosen or sent (#3536); fails_when=Finish is greyed, chooses a service, or the setup stays; no_claim=what the first recording's sheet then asks, which meetingStart covers.
+test("with no transcription key, Finish ends the setup as Set up when I record does, choosing nothing", async () => {
+  test.setTimeout(120_000);
+  const window = await launch();
+  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  await (await atStep(window, "ai")).getByTestId("setup-skip").click();
+  const meetings = await atStep(window, "meetings");
+  await expect(meetings.getByTestId("setup-transcription").first().locator("input")).toBeChecked();
+  await expect(meetings.getByTestId("setup-transcription-key")).toHaveValue("");
+  const finish = meetings.getByTestId("setup-next");
+  await expect(finish).toBeEnabled();
+  await finish.click();
+
+  await expect(panelOf(window)).toHaveCount(0);
+  const { device } = await bridge(window).settings();
+  expect(device).toMatchObject({ setupFinished: true, transcriptionRoute: null });
+});
+
 // protects=a pasted key works with no other click, More services… opens the directory inside the step and Esc comes back to it, and the next step is Meetings with a model available for sorting; fails_when=Settings opens, the setup is left, a click is needed after the paste, sorting requires its own setup, or tagging is turned on; no_claim=the hosts' own requests.
 test("a pasted key works at once, More services… stays in the setup, and sorting stays automatic", async () => {
   test.setTimeout(120_000);
@@ -469,7 +487,8 @@ test("with no AI yet, sorting and transcription each ask for one key, and one pr
   await expect(cloud.getByTestId("setup-keys-stay")).toBeVisible();
   await expect(cloud.getByTestId("setup-transcription-sends")).toContainText("an hour");
   await expect(cloud.getByRole("button", { name: /Use this|Cancel|Save/ })).toHaveCount(0);
-  await expect(finish).toBeDisabled();
+  // With no key typed, Finish is the way on too: it leaves the choice to the first recording (#3536).
+  await expect(finish).toBeEnabled();
   await shot(window, `setup-meetings-needs-key-${service}-en-900`);
   await meetings.getByTestId("setup-transcription-key").fill("a-made-up-transcription-key");
   await expect(finish).toBeEnabled();
