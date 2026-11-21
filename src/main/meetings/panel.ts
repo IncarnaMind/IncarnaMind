@@ -319,7 +319,13 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
       corner = { right: bounds.x + bounds.width, top: bounds.y };
     });
     // The User clicked into another app: the next click on a prompt mustn't take the keys back.
-    window.on("blur", () => giveKeyboardBack(window));
+    window.on("blur", () => {
+      if (process.platform !== "win32") return giveKeyboardBack(window);
+      // Wait for Windows to finish activating the window the User clicked before changing focusability.
+      setImmediate(() => {
+        if (!window.isDestroyed() && !window.isFocused()) giveKeyboardBack(window);
+      });
+    });
     window.on("closed", () => {
       // However it went (its close, ⌘K, the setting, the system), a line left unsent in its field
       // goes into the Note. A Note that refuses it leaves it kept, for the field to show again.
