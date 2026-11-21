@@ -31,8 +31,9 @@ import {
 /*
  * A sentence that already cites the Passage its check found is never offered
  * it again (#1620): whatever span the check quoted, the margin mark is the
- * plain tick, the card says "Already cited" with the Citation's own number and
- * words, and a check never leaves a second Citation on the same words. A
+ * plain tick, the card shows the quote the check found with the Citation's own
+ * number beside it (#3587), and a check never leaves a second Citation on the
+ * same words. A
  * different clause of the Document, or another Document, still offers Add as
  * Citation. The scripted model (src/main/fakeChat/checks.ts) finds a sentence
  * supported by the line of a Document that shares the most words with it.
@@ -276,7 +277,8 @@ test("Check on a note whose sentences cite their Passages: the ones that already
   await expect(card.getByText("Already cited")).toHaveCount(0);
   await expect(card.getByTestId("claim-where").getByTestId("claim-already-chip")).toHaveText("2");
   await expect(card.getByRole("button", { name: "Already cited: open citation 2" })).toBeVisible();
-  await expect(card.getByTestId("claim-quote")).toHaveText("Spring tides happen at new moon");
+  // The quote is the one the check found and opens; the Citation is its number beside it (#3587).
+  await expect(card.getByTestId("claim-quote")).toHaveText(LONGER_LINE);
   await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
   // A ✓ card has no buttons: the quote opens the page.
   await expect(card.locator(".citation-card-actions")).toHaveCount(0);
@@ -293,7 +295,7 @@ test("Check on a note whose sentences cite their Passages: the ones that already
 
   await openCard(window, marks(window).nth(2));
   await expect(card.getByTestId("claim-already-chip")).toHaveText("3");
-  await expect(card.getByTestId("claim-quote")).toHaveText(`${HEADING} ${SHORTER_LINE}`);
+  await expect(card.getByTestId("claim-quote")).toHaveText(SHORTER_LINE);
   await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
   await window.keyboard.press("Escape");
 

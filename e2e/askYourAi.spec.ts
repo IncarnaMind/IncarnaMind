@@ -457,7 +457,7 @@ test("with no model, one press of Check asks the User's own AI and the Note says
       const { task, sentences } = (
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
       ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
-      await expect(asked).toHaveText("Claude Code is checking this note.");
+      await expect(asked).toHaveText("Checking this note in Claude Code.");
       await expect(badge).toHaveText("Your AI is checking");
       await shot(window, "check-no-model-checking-en");
       await setLanguage(window, "zh-CN");

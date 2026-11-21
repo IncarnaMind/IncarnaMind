@@ -17,6 +17,15 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { type MessageKey, translate } from "../../src/shared/i18n";
 
+// What the card's quote opens: the Document at the quote the verdict rests on (#3587).
+const opened = vi.hoisted(() => [] as { quote: string | null }[]);
+vi.mock("../../src/renderer/src/openCited", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/renderer/src/openCited")>()),
+  openCited: async (citation: { quote: string | null }) => {
+    opened.push({ quote: citation.quote });
+  },
+}));
+
 const passage = (quote: string): CitationAttributes => ({
   passageId: `passage-${quote}`,
   documentId: "review",
@@ -209,6 +218,7 @@ async function card(
   sentence: string,
   check: ClaimCheckAttributes,
   shown: { state: string },
+  decision: unknown = { kind: "none" },
 ) {
   const { useAppStore } = await import("../../src/renderer/src/store");
   useAppStore.setState({ settings: { language, user: { personId: "person" } } } as never);
@@ -251,7 +261,7 @@ async function card(
         keep: false,
         corrections: [],
         editor,
-        decision: { kind: "none" },
+        decision,
         added: 0,
         onAdd: noop,
         onWiden: noop,
@@ -429,6 +439,33 @@ describe.each(["en", "zh-CN"] as const)("a verdict the User's own AI reported (%
     await card(language, example.season, reported("supported", two), { state: "supported" });
     expect(texts("claim-part-citation")).toEqual(two);
     expect(container.querySelector('[data-testid="claim-part-more"]')).toBeNull();
+  });
+});
+
+describe.each(["en", "zh-CN"] as const)("a sentence whose own Citation is at the verdict's place (%s)", (language) => {
+  const example = EXAMPLES[language];
+  const [, verdictQuote] = example.seasonQuotes;
+  // The Note's writer cited a shorter span at the same place, as the walks found.
+  const noteQuote = verdictQuote.slice(2);
+
+  // protects=a card shows the quote its verdict rests on, and that quote is what it opens; the sentence's own Citation at the same place is its number beside it, never its words in place of the verdict's (#3587); fails_when=the card shows the Note's Citation's words while opening the verdict's, or drops the Citation's number
+  test("shows the verdict's quote, opens it, and names the sentence's Citation beside it", async () => {
+    opened.length = 0;
+    const check = checkOf(
+      example.season,
+      wholePart(example.season, { evidence: [passage(verdictQuote)], says: example.seasonSays }),
+    );
+    const already = {
+      kind: "already",
+      citation: { pos: 1, number: 1, key: "block-1:0", attributes: passage(noteQuote) },
+    };
+    await card(language, example.season, check, { state: "supported" }, already);
+    expect(texts("claim-quote")).toEqual([verdictQuote]);
+    expect(texts("claim-already-chip")).toEqual(["1"]);
+    await act(async () =>
+      (container.querySelector('[data-testid="claim-open-quote"]') as HTMLElement).click(),
+    );
+    expect(opened).toEqual([{ quote: verdictQuote }]);
   });
 });
 

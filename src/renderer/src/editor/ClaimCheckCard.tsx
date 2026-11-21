@@ -1045,13 +1045,9 @@ export function ClaimCard({
   const already = decision.kind === "already" ? decision.citation : null;
   // A Mark that rests on its Passage shows no quote: the card names the place, which opens (#3118).
   const resting = restsOnPassage(awaiting ? claim.check : check);
-  const citedQuote = resting
-    ? null
-    : already?.attributes.quote
-      ? already.attributes
-      : property || library
-        ? null
-        : evidence;
+  // The quote is always the verdict's own, the one it opens: a Citation the sentence already holds
+  // at that place is its number beside it, never its words in place of the verdict's (#3587).
+  const citedQuote = resting || property || library ? null : evidence;
   const quote = useReadableQuote(citedQuote);
   const documents = useAppStore((store) => store.documents);
   const where =

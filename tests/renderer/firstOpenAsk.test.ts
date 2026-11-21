@@ -247,7 +247,7 @@ describe("the step that asks the User's AI for a document", () => {
     [
       "en",
       "Asked Claude Code: send the request there.",
-      "Claude Code is writing the note.",
+      "Writing the note in Claude Code.",
       "Ask again",
     ],
     ["zh-CN", "已交给 Claude Code：在那里发送请求即可。", "Claude Code 正在写笔记。", "再问一次"],

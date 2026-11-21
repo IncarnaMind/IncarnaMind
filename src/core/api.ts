@@ -13845,8 +13845,9 @@ export interface CoreApi {
   readScannedQuote(input: ScannedQuoteInput): Promise<ScannedQuote | null>;
   /**
    * A Citation's quote as its Document's text reads it (#905): a word a PDF split at a line end
-   * whole again, and a quote that stops at one run to the end of its word. Null when the quote
-   * isn't in the Units it cites, which leaves the quote as it is.
+   * whole again, and a quote that stops at one run to the end of its word. The line breaks the
+   * Document's viewer shows as its own (a text file's lines, a transcript's turns) stay (#3587).
+   * Null when the quote isn't in the Units it cites, which leaves the quote as it is.
    */
   readableQuote(input: ScannedQuoteInput): Promise<string | null>;
   /** The built-in text recognition model's download state (#397). */

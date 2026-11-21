@@ -541,7 +541,7 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
       "en",
       [
         "Asked Codex: send the request there.",
-        "Codex is checking this note.",
+        "Checking this note in Codex.",
         "Ask again",
         "Ask another AI",
         "Set up a model",

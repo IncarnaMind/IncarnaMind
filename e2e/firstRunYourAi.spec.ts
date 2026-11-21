@@ -562,7 +562,7 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
       "cargo tonnes",
       "The Port of Wenlow handled 1.8 million tonnes of cargo in 2025.",
     );
-    await expect(asked).toHaveText("Claude Code is writing the note.");
+    await expect(asked).toHaveText("Writing the note in Claude Code.");
     await stills(window, "4f-card-agent-writing");
     const ferry = await cite(
       agent,
