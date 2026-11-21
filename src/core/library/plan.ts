@@ -675,7 +675,7 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
     least: Math.max(AIM.least, Math.min(input.aim?.least ?? AIM.least, MOST_NEW)),
     most: Math.max(AIM.least, Math.min(input.aim?.most ?? AIM.most, MOST_NEW)),
   };
-  // The Folders there are go to the model as F1, F2…; new ones are N1, N2… in the plan.
+  // Later sorts can propose N1 again, so previously proposed Folders need distinct keys.
   const known = input.folders.map((folder, at) => ({ ...folder, ref: `F${at + 1}` }));
   const folders: PlannedFolder[] = [];
   const choices = (): PlanFolder[] => [
@@ -725,7 +725,7 @@ export async function finishPlan(local: LocalPlan, run: PlanCallbacks): Promise<
       }
       let place = folder.id === null ? null : placeOf(folder.id);
       if (!place || place.kind === "none") {
-        const key = `N${folders.length + 1}`;
+        const key = `P${folders.length + 1}`;
         folders.push({ key, name: folder.name, description: folder.description, parentKey: null });
         place = { kind: "new", key };
       }
