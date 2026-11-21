@@ -35,7 +35,7 @@ export function CheckNotReady({
   const noModel = readiness.reason === "no-provider";
   // Until the agents are read the line holds its place, empty, so the card's height is right when
   // it comes.
-  if (noModel && agents === null) return <p className="mind-health-line">{" "}</p>;
+  if (noModel && agents === null) return <p className="mind-health-line">{"\u00A0"}</p>;
   if (noModel && agents !== null && agents.length > 0) {
     const ask = async (agent: AgentPairing) => {
       if (await askAgent(agent, mindId, { kind: "check" })) dismiss();

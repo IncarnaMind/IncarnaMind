@@ -8890,7 +8890,6 @@ export const en = {
   "agents.ask.fixAll": "Ask {agent} to fix {count}",
   "agents.ask.waiting": "Waiting for {agent} to read your request.",
   "agents.ask.read": "{agent} read your request.",
-  // What became of a check or a summary handed to the User's own AI, until it lands (#3587).
   "agents.asked.opened": "Asked {agent}: send the request there.",
   "agents.asked.copied": "Copied for {agent}: paste the request there and send it.",
   "agents.asked.checking": "{agent} is checking this note.",
