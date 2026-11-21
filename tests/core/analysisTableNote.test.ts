@@ -21,7 +21,6 @@ import {
   MIND_FIGURE_RUNS_FIELD,
 } from "../../src/core/api";
 import { homeReading, readNoteState } from "../../src/renderer/src/noteState";
-import { wallsOf } from "../../src/renderer/src/walls";
 import { type AnalysisValue, noAnalysisOutput } from "../../src/shared/analysis";
 import { columnLine, differingLine, footedLine } from "../../src/shared/analysisTables";
 import type { NodeJSON } from "../../src/shared/blockJson";
@@ -266,12 +265,7 @@ async function walked(
 }
 
 const blocksOf = (client: MindClient): NodeJSON[] => topLevelBlocks(client.blocks).map(nodeOf);
-const wallsNow = async (core: Core) =>
-  wallsOf({
-    library: await core.getLibrary(),
-    documents: await core.listDocuments(),
-    minds: await core.listMinds(),
-  });
+const wallsNow = (core: Core) => core.getLibrary();
 
 /** Every claim check's mark in the Note, by the words it marks. */
 function marks(client: MindClient): { text: string; state: string; reason: string | null }[] {

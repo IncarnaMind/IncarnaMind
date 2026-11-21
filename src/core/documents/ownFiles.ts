@@ -42,14 +42,18 @@ export function createOwnFiles(db: Database, now: () => string): OwnFiles {
           [contentHash, kind],
         );
         if (known) {
-          if (folderId !== null && known.folder_id !== folderId) {
-            db.run("UPDATE own_files SET folder_id = ?, updated_at = ? WHERE id = ?", [
-              folderId,
-              now(),
-              known.id,
-            ]);
-          }
-          return [];
+          if (folderId === null || known.folder_id === folderId) return [];
+          db.run("UPDATE own_files SET folder_id = ?, updated_at = ? WHERE id = ?", [
+            folderId,
+            now(),
+            known.id,
+          ]);
+          return db
+            .all<{ id: string }>(
+              "SELECT id FROM documents WHERE content_hash = ? AND deleted_at IS NULL",
+              [contentHash],
+            )
+            .map((row) => row.id);
         }
         const marked = db
           .all<{ id: string }>(
