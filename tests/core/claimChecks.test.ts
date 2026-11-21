@@ -458,7 +458,8 @@ describe("One claim check", () => {
       verdict: "supported",
       evidence: { check: "found" },
     });
-    expect(model.doStreamCalls).toHaveLength(4);
+    // Its first search is made for it (#3512): the cite that is refused, the one that holds, the verdict.
+    expect(model.doStreamCalls).toHaveLength(3);
   });
 
   test("the quotes a sentence cites name their Document as it is now, and as cited once it is gone", async () => {
@@ -654,7 +655,8 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
     expect(checked?.shown).toEqual({ state: "supported" });
     expect(checked?.check.says).toBe(SAYS);
     expect(checked?.check.evidence).toMatchObject({ quote: SPRING_QUOTE, check: "found" });
-    expect(model.doStreamCalls).toHaveLength(3);
+    // The cite, then the verdict: its first search is made for it (#3512).
+    expect(model.doStreamCalls).toHaveLength(2);
   });
 
   // protects=a Chinese check whose verdict lines come beside cite and whose sentence or last lines come after it, as Claude Haiku 5.5 wrote them, is Contradicted with its Citation and the Chinese sentence; fails_when=it reads "not checked"; no_claim=the verdict a real model gives.
