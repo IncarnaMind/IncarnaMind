@@ -94,6 +94,7 @@ import type { Language } from "../language";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
+import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
@@ -400,6 +401,11 @@ export interface AgentCheckMindInput {
   mindId: string;
 }
 
+export interface AgentCheckYourselfInput extends AgentCheckMindInput {
+  /** Every sentence, its result or not: the agent judges the Note again. */
+  again?: boolean;
+}
+
 /** A claim of a checked Note that needs a look, isn't checked or can be cited. */
 export interface AgentCheckedClaim {
   sentence: string;
@@ -568,7 +574,7 @@ export interface AgentAccess {
   /** Has a Note the agent wrote checked claim by claim against its Folder's Documents (#3317). */
   checkMind(input: AgentCheckMindInput): Promise<AgentMindCheck>;
   /** The sentences of a Note the agent wrote, for it to judge with its own model (#3342). */
-  checkMindYourself(input: AgentCheckMindInput): Promise<AgentCheckTask>;
+  checkMindYourself(input: AgentCheckYourselfInput): Promise<AgentCheckTask>;
   /** Marks the Note with the agent's results, each on the Citations IncarnaMind can confirm. */
   reportCheck(input: AgentReportInput): Promise<AgentReported>;
   /** Runs code over what the agent may read, in IncarnaMind's sandbox (#3363). */
@@ -752,10 +758,7 @@ export interface AgentAccessDeps {
   /** Tells the windows of a Note an agent wrote, or changed at once (#3371). */
   noteChanged(change: AgentNoteChange): void;
   /** A Mind as Markdown, each Citation's footnote as `footnote` words it (see ../exports). */
-  mindMarkdown(
-    mindId: string,
-    footnote: (attributes: Record<string, unknown>) => { source: string; unverified: boolean },
-  ): string;
+  mindMarkdown(mindId: string, footnote: (attributes: Record<string, unknown>) => Footnote): string;
   /** A new, empty Mind in a Folder, or in none; with no `title`, its text names it. */
   createMind(title: string, folderId: string | null): Mind;
   /** How many Notes the pairing wrote since `since` (ISO 8601, UTC). */
@@ -767,8 +770,11 @@ export interface AgentAccessDeps {
    * searching none but `documentIds`, the Documents the agent may read.
    */
   checkNote(mindId: string, documentIds: readonly string[]): Promise<OutsideCheck>;
-  /** A Note's sentences that hold no result yet, when its Check searches none but `documentIds`. */
-  checkTask(mindId: string, documentIds: ReadonlySet<string>): Judged<CheckTask>;
+  /**
+   * A Note's sentences that hold no result yet, or with `every` all it judges, results or not, when
+   * its Check searches none but `documentIds`.
+   */
+  checkTask(mindId: string, documentIds: ReadonlySet<string>, every?: boolean): Judged<CheckTask>;
   /** Marks a task's sentences with what the agent `agent` judged of them. */
   landJudged(
     mindId: string,
@@ -2614,7 +2620,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           // Made before Citations kept their Passage: checked, but nothing to mint from.
           if (citation.passageId === "") return { source, unverified: false };
           return {
-            source: `${citeTag(mint(pairing, citation).token)} ${source}`,
+            agentCite: citeTag(mint(pairing, citation).token),
+            source,
             unverified: false,
           };
         });
@@ -3042,7 +3049,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
       return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
         const mind = ownNote(pairing, input?.mindId);
-        const found = deps.checkTask(mind.id, checkReach(pairing));
+        const found = deps.checkTask(mind.id, checkReach(pairing), input?.again === true);
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
         const { task, sentences } = found.value;

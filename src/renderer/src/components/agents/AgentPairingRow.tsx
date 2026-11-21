@@ -80,6 +80,7 @@ export function AgentPairingRow({
   const [copied, setCopied] = useState<"settings" | "skill" | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  const nameButton = useRef<HTMLButtonElement>(null);
   const replaceButton = useRef<HTMLButtonElement>(null);
   const keepButton = useRef<HTMLButtonElement>(null);
   const asked = useRef(false);
@@ -159,6 +160,12 @@ export function AgentPairingRow({
     }
   };
   const done = justSetUp?.pairingId === pairing.id ? justSetUp.result : null;
+  useEffect(() => {
+    if (!done) return;
+    const frame = requestAnimationFrame(() => nameButton.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [done]);
+
   const toggle = (what: "folders" | "activity") => setOpen(open === what ? null : what);
 
   return (
@@ -172,6 +179,7 @@ export function AgentPairingRow({
           <button
             type="button"
             data-testid="agent-pairing-name"
+            ref={nameButton}
             title={pairing.name}
             onDoubleClick={() => setRenaming(true)}
             onKeyDown={(event) => {
