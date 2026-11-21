@@ -77,6 +77,29 @@ async function setup(
   return { dir, core, pairing, adapters, meeting, push, summary };
 }
 
+test("the first summary covers both confirmed lines of a short call in one request", async () => {
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
+    launchReply("Launch on Friday.", friday, null),
+  );
+  const { core, meeting, push, summary } = await setup(run);
+  try {
+    push(4500);
+    await until(core, meeting.id, (state) => state.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await summary()).toMatchObject({
+        state: "ready",
+        text: "Launch on Friday.",
+      }),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.lastCall?.[0].prompt).toContain(monday);
+    expect(run.mock.lastCall?.[0].prompt).toContain(friday);
+  } finally {
+    core.close();
+  }
+});
+
 // protects=an authorized participant can read a warm summary at Stop and receive the last correction later
 test("a ready draft is returned by Stop while the last confirmed decision is still being summarized", async () => {
   let finish: (text: string) => void = () => {};
