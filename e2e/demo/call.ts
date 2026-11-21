@@ -33,6 +33,8 @@ export async function speech(folder: string, name: string, voice: string, text: 
 
 interface CallCapture {
   say(source: "microphone" | "system", samples: number[]): void;
+  /** The lines handed over before the call, in order. */
+  lines: number[][];
 }
 
 /**
@@ -57,6 +59,7 @@ export async function connectCall(app: ElectronApplication): Promise<void> {
       const queues: Record<string, number[]> = { microphone: [], system: [] };
       const per = Math.round((tick * rate) / 1000);
       holder.demoCall = {
+        lines: [],
         say(source, samples) {
           const queue = queues[source];
           if (!queue) return;
@@ -68,12 +71,17 @@ export async function connectCall(app: ElectronApplication): Promise<void> {
         sink.state("microphone", "recording");
         if (request.systemAudio) sink.state("system", "recording");
         let microphoneOn = true;
+        let due = Date.now();
         const timer = setInterval(() => {
-          for (const source of request.systemAudio ? ["microphone", "system"] : ["microphone"]) {
-            const taken = (queues[source] ?? []).splice(0, per);
-            const samples = new Int16Array(per);
-            samples.set(taken);
-            if (source !== "microphone" || microphoneOn) sink.audio(source, samples, Date.now());
+          // A busy main process fires this late. What was due meanwhile is handed over with the
+          // time it was due, as a device keeps its own clock: no audio is lost to the app's work.
+          for (const now = Date.now(); due <= now; due += tick) {
+            for (const source of request.systemAudio ? ["microphone", "system"] : ["microphone"]) {
+              const taken = (queues[source] ?? []).splice(0, per);
+              const samples = new Int16Array(per);
+              samples.set(taken);
+              if (source !== "microphone" || microphoneOn) sink.audio(source, samples, due);
+            }
           }
         }, tick);
         return {
@@ -100,4 +108,34 @@ export async function say(
     { side: source, audio: samples },
   );
   await new Promise((resolve) => setTimeout(resolve, (samples.length / SAMPLE_RATE) * 1000));
+}
+
+/**
+ * Hands the app the call's lines before it starts: a line is minutes of samples, and taking them
+ * in while the call records would hold up the capture.
+ */
+export async function learnLines(app: ElectronApplication, lines: number[][]): Promise<void> {
+  for (const samples of lines) {
+    await app.evaluate((_electron, audio) => {
+      (globalThis as unknown as { demoCall: CallCapture }).demoCall.lines.push(audio);
+    }, samples);
+  }
+}
+
+/** Has a side say the line `learnLines` put at `index`, and resolves when the app has its audio. */
+export async function sayLine(
+  app: ElectronApplication,
+  source: "microphone" | "system",
+  index: number,
+): Promise<void> {
+  const length = await app.evaluate(
+    (_electron, { side, line }) => {
+      const call = (globalThis as unknown as { demoCall: CallCapture }).demoCall;
+      const samples = call.lines[line] ?? [];
+      call.say(side, samples);
+      return samples.length;
+    },
+    { side: source, line: index },
+  );
+  await new Promise((resolve) => setTimeout(resolve, (length / SAMPLE_RATE) * 1000));
 }
