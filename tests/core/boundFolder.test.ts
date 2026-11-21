@@ -50,6 +50,40 @@ async function project() {
   return { ...set, linked };
 }
 
+/**
+ * The project folder linked with sorting by itself off, as the app's own spec has it: the plan and
+ * the tide table with no filing at all, the harbour fees filed in Coast by the User. `before` is
+ * every Document's place then.
+ */
+async function unsorted() {
+  const set = await started();
+  const { core, coast, files } = set;
+  await core.saveLibrarySettings({ classifier: null, automatic: false, turnOn: false });
+  await writeFile(join(files, "Quay plan.md"), PLAN);
+  await writeFile(join(files, "Tide table.md"), "# Tide table\n\nHigh water is at 06:40.\n");
+  await writeFile(join(files, "Harbour fees.md"), "# Harbour fees\n\nA night costs 40 euros.\n");
+  const linked = await core.addLinkedFolder(files);
+  await core.reconcileDocuments();
+  await waitForProcessing(
+    core,
+    (await core.listDocuments()).map((each) => each.id),
+  );
+  const fees = (await core.listDocuments()).find((each) => each.name === "Harbour fees");
+  await core.assignDocumentGroup(fees?.id ?? "", coast.id);
+  const where = await filed(core);
+  expect([where("Quay plan"), where("Tide table")]).toEqual([
+    { groupId: null, source: null },
+    { groupId: null, source: null },
+  ]);
+  return { ...set, linked, before: await placesOf(core) };
+}
+
+/** A file written into the project folder and read. */
+async function arrives(core: Core, files: string, name: string) {
+  await writeFile(join(files, `${name}.md`), `# ${name}\n\nThe ferry was late.\n`);
+  await core.reconcileDocuments();
+}
+
 /** The disk Folder at `relative` in the Linked folder. */
 async function diskFolder(core: Core, relative: string) {
   const folder = (await core.listFolders()).find((each) => each.relativePath === relative);
@@ -159,55 +193,30 @@ describe("a Folder bound to a folder on disk", () => {
     expect((await filed(core))("Late").groupId).toBeNull();
   });
 
-  // protects=Undo of making a Project puts each of the folder's Documents back as it was: one in no Folder with no filing at all has none again, one the User filed elsewhere stays there, one that arrived since has none; done again, they are filed in the same Folder; made again after Undo, it files them (#3507); fails_when=Undo leaves a Document filed in no Folder as the User's choice, which Organize then never proposes a place for and a Project made again never files
-  it("Undo puts the folder's Documents back as they were; done again, they are filed again", async () => {
-    const set = await started();
-    const { core, coast, files } = set;
-    // As the app's own spec sets it: sorting by itself off, so the folder's files have no filing.
-    await core.saveLibrarySettings({ classifier: null, automatic: false, turnOn: false });
-    await writeFile(join(files, "Quay plan.md"), PLAN);
-    await writeFile(join(files, "Tide table.md"), "# Tide table\n\nHigh water is at 06:40.\n");
-    await writeFile(join(files, "Harbour fees.md"), "# Harbour fees\n\nA night costs 40 euros.\n");
-    const linked = await core.addLinkedFolder(files);
-    await core.reconcileDocuments();
-    await waitForProcessing(
-      core,
-      (await core.listDocuments()).map((each) => each.id),
-    );
-    const fees = (await core.listDocuments()).find((each) => each.name === "Harbour fees");
-    await core.assignDocumentGroup(fees?.id ?? "", coast.id);
-    const before = await placesOf(core);
-    expect((await filed(core))("Quay plan")).toEqual({ groupId: null, source: null });
-
+  // protects=Undo of making a Project leaves a file of its folder the User had filed in another Folder where they filed it (#3507); fails_when=Undo moves or unfiles a filing the Project never made
+  it("Undo leaves a file the User filed in another Folder where they filed it", async () => {
+    const { core, coast, linked } = await unsorted();
     const made = await core.createBoundFolder(linked.folderId);
-    const project = made.folder.id;
-    await writeFile(join(files, "Late.md"), "# Late\n\nThe ferry was late.\n");
-    await core.reconcileDocuments();
-    const inIt = ["Quay plan", "Tide table", "Late"];
-    let where = await filed(core);
-    expect(inIt.map((name) => where(name).groupId)).toEqual([project, project, project]);
+    expect((await filed(core))("Harbour fees")).toEqual({ groupId: coast.id, source: "user" });
+    await core.undoBoundFolder(made.folder.id, made.filed);
+    expect((await filed(core))("Harbour fees")).toEqual({ groupId: coast.id, source: "user" });
+  });
+
+  // protects=Undo of making a Project leaves a file that had no filing with none again, not in Not in a Folder as the User's choice, so a Project made again files it (#3507); fails_when=Undo leaves it in no Folder as the User's choice, which Organize never proposes a place for and a Project made again never files
+  it("Undo leaves a file that had no filing with none; a Project made again files it", async () => {
+    const { core, linked, before } = await unsorted();
+    const made = await core.createBoundFolder(linked.folderId);
     expect(made.filed).toHaveLength(2);
+    expect((await filed(core))("Quay plan")).toEqual({ groupId: made.folder.id, source: "user" });
 
-    await core.undoBoundFolder(project, made.filed);
+    await core.undoBoundFolder(made.folder.id, made.filed);
     expect(await placesOf(core)).toEqual(before);
-    expect((await core.getLibrary()).groups.some((each) => each.id === project)).toBe(false);
-
-    // Redo, as the app does it: the Folder restored, then its folder's files filed in it again.
-    await core.restore([{ kind: "folder", id: project }]);
+    expect((await core.getLibrary()).groups.some((each) => each.id === made.folder.id)).toBe(false);
     const again = await core.createBoundFolder(linked.folderId);
-    expect(again.folder.id).toBe(project);
-    where = await filed(core);
-    expect(inIt.map((name) => where(name).groupId)).toEqual([project, project, project]);
-    expect(where("Harbour fees").groupId).toBe(coast.id);
-
-    await core.undoBoundFolder(project, again.filed);
-    expect(await placesOf(core)).toEqual(before);
-    const remade = await core.createBoundFolder(linked.folderId);
-    where = await filed(core);
-    expect(inIt.map((name) => where(name).groupId)).toEqual([
-      remade.folder.id,
-      remade.folder.id,
-      remade.folder.id,
+    const where = await filed(core);
+    expect([where("Quay plan").groupId, where("Tide table").groupId]).toEqual([
+      again.folder.id,
+      again.folder.id,
     ]);
   });
 
@@ -225,6 +234,56 @@ describe("a Folder bound to a folder on disk", () => {
     expect((await filed(core))("Quay plan")).toEqual({ groupId: made.folder.id, source: "user" });
     await core.undoBoundFolder(made.folder.id, made.filed);
     expect(await placesOf(core)).toEqual(before);
+  });
+
+  // protects=Undo of making a Project leaves a file that arrived in its folder after it was made with no filing, as it had before it arrived in the Project (#3507); fails_when=Undo leaves it in no Folder as the User's choice
+  it("Undo leaves a file that arrived since with no filing", async () => {
+    const { core, files, linked, before } = await unsorted();
+    const made = await core.createBoundFolder(linked.folderId);
+    await arrives(core, files, "Late");
+    expect((await filed(core))("Late")).toEqual({ groupId: made.folder.id, source: "user" });
+
+    await core.undoBoundFolder(made.folder.id, made.filed);
+    expect((await filed(core))("Late")).toEqual({ groupId: null, source: null });
+    expect(await placesOf(core)).toEqual(before);
+  });
+
+  // protects=Redo of making a Project, which restores it as Recently deleted does, files its folder's files in it again, the one that arrived since too, and leaves the User's filing elsewhere; Undo again puts each back as it was (#3507); fails_when=the Project comes back without its folder's files, or the second Undo leaves them in no Folder as the User's choice
+  it("Redo, or a restore from Recently deleted, files the folder's files in it again; Undo again puts them back", async () => {
+    const { core, coast, files, linked, before } = await unsorted();
+    const made = await core.createBoundFolder(linked.folderId);
+    const project = made.folder.id;
+    await arrives(core, files, "Late");
+    await core.undoBoundFolder(project, made.filed);
+
+    await core.restore([{ kind: "folder", id: project }]);
+    const where = await filed(core);
+    expect(["Quay plan", "Tide table", "Late"].map((name) => where(name))).toEqual([
+      { groupId: project, source: "user" },
+      { groupId: project, source: "user" },
+      { groupId: project, source: "user" },
+    ]);
+    expect(where("Harbour fees").groupId).toBe(coast.id);
+
+    await core.undoBoundFolder(project, made.filed);
+    expect(await placesOf(core)).toEqual(before);
+  });
+
+  // protects=a Document filed in the Project from outside its folder goes as from any deleted Folder on Undo, and Redo brings it back in the Project (#3507); fails_when=Undo takes its filing away so that Redo leaves it out of the Project
+  it("a Document filed in it from outside its folder comes back with it on Redo", async () => {
+    const { core, added, linked } = await unsorted();
+    const survey = added[0]?.id ?? "";
+    const made = await core.createBoundFolder(linked.folderId);
+    await core.assignDocumentGroup(survey, made.folder.id);
+
+    await core.undoBoundFolder(made.folder.id, made.filed);
+    await core.restore([{ kind: "folder", id: made.folder.id }]);
+    expect(
+      (await core.getLibrary()).assignments.find((each) => each.documentId === survey),
+    ).toMatchObject({
+      groupId: made.folder.id,
+      source: "user",
+    });
   });
 });
 

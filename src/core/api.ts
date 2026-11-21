@@ -13112,14 +13112,15 @@ export interface CoreApi {
    * Makes a Folder bound to a folder on disk (ADR-0030): `folderId` is a Linked folder's own
    * Folder (`LinkedFolder.folderId`) or one inside it (`listFolders`). The new Folder is named
    * after it and keeps its work inside it; the folder's Documents with no filing of their own are
-   * filed in it now, and its new ones as they arrive. One already bound to it is returned, and the
-   * folder's Documents with no filing of their own are filed in it, as after it is restored.
+   * filed in it now, and its new ones as they arrive, and again when it is restored from Recently
+   * deleted. One already bound to it is returned as it is, filing nothing.
    */
   createBoundFolder(folderId: string): Promise<BoundFolderChange>;
   /**
    * Takes back a Folder `createBoundFolder` made (ADR-0030). Each of its folder's Documents still
-   * filed in it goes back as it was: one it filed as `filed` found it, one filed as it arrived to
-   * no filing. Then it is deleted as `deleteLibraryGroup` deletes one.
+   * filed in it goes back as it was: one it filed as `filed` found it, one filed since to no
+   * filing. Then it is deleted as `deleteLibraryGroup` deletes one; `restore` brings it back with
+   * its folder's Documents filed in it again.
    */
   undoBoundFolder(groupId: string, filed: BoundFolderChange["filed"]): Promise<void>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;

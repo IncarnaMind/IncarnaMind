@@ -2227,23 +2227,17 @@ export const useAppStore = create<AppState>()((set, get) => {
       attempt(async () => {
         const linked = get().linkedFolders.find((each) => each.id === linkedFolderId);
         if (!linked) return;
-        let made = await core.createBoundFolder(linked.folderId);
-        const project = made.folder;
+        const { folder: project, filed } = await core.createBoundFolder(linked.folderId);
         await get().refreshLibrary();
         push({
           said: (t) => t("undo.projectMade", { name: project.name }),
           name: (t) => t("undo.name.makeProject"),
           undo: async () => {
-            await core.undoBoundFolder(project.id, made.filed);
+            await core.undoBoundFolder(project.id, filed);
             await get().refreshLibrary();
           },
           redo: async () => {
             await core.restore([{ kind: "folder", id: project.id }]);
-            // Its folder's Documents went back to where they were, so they are filed in it again,
-            // unless it was unbound meanwhile (its folder unlinked).
-            const { groups } = await core.getLibrary();
-            const bound = groups.find((each) => each.id === project.id)?.boundFolderId;
-            if (bound) made = await core.createBoundFolder(bound);
             await get().refreshLibrary();
           },
         });

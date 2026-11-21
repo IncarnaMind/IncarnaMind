@@ -4119,6 +4119,17 @@ export function createCore(adapters: CoreAdapters): Core {
     const groupId = boundFolderAt(document.path);
     return groupId === null ? null : library.file(documentId, groupId);
   };
+  /**
+   * Files each Document under these folders on disk that has no filing of its own in the Project
+   * nearest above it, as binding does (ADR-0030). Returns the changes, for Undo.
+   */
+  const fileUnder = (folderIds: readonly string[]) =>
+    documents.list({}).flatMap((document) => {
+      const above = document.linkedFolderId ? documents.foldersAbove(document.path) : [];
+      if (!above.some((id) => folderIds.includes(id))) return [];
+      const change = fileInBoundFolder(document.id);
+      return change ? [change] : [];
+    });
   /** Whether a Document is in this folder on disk: a Linked folder's own Folder or one inside it. */
   const inFolderOnDisk = (documentId: string, folderId: string) => {
     const [document] = documents.getMany([documentId]);
@@ -4382,6 +4393,14 @@ export function createCore(adapters: CoreAdapters): Core {
       else layouts.forgetClosed(canvasIds);
     },
     forgotten: (ids) => layouts.forgetClosed(ids),
+    foldersRestored: (folderIds) => {
+      const bound = library
+        .folders()
+        .flatMap((each) =>
+          folderIds.includes(each.id) && each.boundFolderId ? [each.boundFolderId] : [],
+        );
+      if (bound.length > 0) fileUnder(bound);
+    },
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -7708,20 +7727,15 @@ export function createCore(adapters: CoreAdapters): Core {
       const folder = linked
         ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
         : folders.get(folderId);
-      const bound =
-        library.folders().find((each) => each.id === library.boundTo([folder.id])) ??
-        library.bind(
-          library.create({ name: folder.name.slice(0, 100), description: "", keepInside: true }).id,
-          folder.id,
-        );
-      const filed = documents
-        .list({ linkedFolderId: folder.linkedFolderId })
-        .flatMap((document) => {
-          if (!documents.foldersAbove(document.path).includes(folder.id)) return [];
-          const change = fileInBoundFolder(document.id);
-          return change ? [change] : [];
-        });
-      return { folder: bound, filed };
+      const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
+      if (already) return { folder: already, filed: [] };
+      const made = library.create({
+        name: folder.name.slice(0, 100),
+        description: "",
+        keepInside: true,
+      });
+      const bound = library.bind(made.id, folder.id);
+      return { folder: bound, filed: fileUnder([folder.id]) };
     },
     undoBoundFolder: async (groupId, filed) => {
       const { boundFolderId } = library.folder(groupId);
