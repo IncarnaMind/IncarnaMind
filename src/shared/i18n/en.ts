@@ -3366,6 +3366,9 @@ export const en = {
   // The step's two ways to an AI (#3362): the one the User already has, then a model here.
   "setupPage.ai.agents": "Use the AI you already have",
   "setupPage.ai.inApp": "Use a model in IncarnaMind",
+  "setupPage.ai.sorting": "Set up a model to sort and tag new Documents (optional)",
+  "setupPage.ai.sorting.about":
+    "Sorts and tags the Documents you add, by itself. It needs a key from an AI service or a model on this computer. Without it, IncarnaMind uses the model you set up, or asks your AI when you press Organize.",
   "setupPage.agents.failed": "Couldn\u2019t list the agents on this computer",
   "setupPage.agent.found": "On this computer",
   "setupPage.agent.connected": "{agent} is connected",

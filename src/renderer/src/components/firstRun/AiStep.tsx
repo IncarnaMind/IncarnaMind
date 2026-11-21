@@ -24,7 +24,8 @@ import { ChatGptPlanWay, LocalWay } from "../providers/SetupWays";
 import { providerName, savedProviderFor } from "../providers/shared";
 import { buttonStyle } from "../ui";
 import { AgentWays } from "./AgentWays";
-import { KeysStay, SetupPanel, type StepPlace, WorksRow } from "./SetupPanel";
+import { KeysStay, QuietLine, SetupPanel, type StepPlace, WorksRow } from "./SetupPanel";
+import { SortingModelLine } from "./SortingModelLine";
 
 type View =
   | { kind: "main" }
@@ -49,7 +50,9 @@ function backToMore(setView: (view: View) => void) {
  * key is recognised by its form and works at once, and the other ways follow, cloud first and a
  * model on this computer last. "More services…" opens the directory in the step, and a service
  * chosen there is set up in it, so the setup is never left. Continue waits for either way to
- * work; "Set up later" asks for a model where it is first needed instead.
+ * work; "Set up later" asks for a model where it is first needed instead. The last line, closed
+ * until asked for, is the optional model for sorting and tagging new Documents (#3570): Continue
+ * never waits for it.
  */
 export function AiStep({ place }: { place: StepPlace }) {
   const t = useT();
@@ -298,16 +301,12 @@ export function AiStep({ place }: { place: StepPlace }) {
           </div>
         </>
       ) : (
-        <button
-          type="button"
-          data-testid="setup-in-app-open"
-          onClick={openInApp}
-          className="-mt-1 flex w-fit items-center gap-1 rounded-sm text-[13px] leading-5 font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
-        >
+        <QuietLine testId="setup-in-app-open" onClick={openInApp}>
           {t("setupPage.ai.inApp")}
-          <ChevronRightLineIcon aria-hidden="true" className="size-3 shrink-0" />
-        </button>
+        </QuietLine>
       )}
+      {/* The model steps again have a Sorting step of their own next, which this would offer twice. */}
+      {!place.steps.includes("sorting") && <SortingModelLine />}
     </SetupPanel>
   );
 }
