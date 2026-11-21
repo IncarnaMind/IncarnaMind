@@ -9,7 +9,15 @@ import { useAppStore } from "../../store";
 import { MoveToPicker } from "../MoveToPicker";
 import { type ProblemAction, ProblemLine } from "../ProblemLine";
 
-export function MeetingAgentNotes({ meeting, agentId }: { meeting: Meeting; agentId: string }) {
+export function MeetingAgentNotes({
+  meeting,
+  agentId,
+  onAsked,
+}: {
+  meeting: Meeting;
+  agentId: string;
+  onAsked?: () => void;
+}) {
   const t = useT();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const documentId = meeting.transcript?.documentId ?? undefined;
@@ -25,7 +33,10 @@ export function MeetingAgentNotes({ meeting, agentId }: { meeting: Meeting; agen
   if (!allowed || !active || !noteReaders || !documentId) return null;
   const open = (agent: AgentPairing): ProblemAction => ({
     label: t("meetings.notesAgent.open", { agent: agent.name }),
-    onClick: () => void askAgent(agent, meeting.mindId, { kind: "meeting", meetingId: meeting.id }),
+    onClick: async () => {
+      if (await askAgent(agent, meeting.mindId, { kind: "meeting", meetingId: meeting.id }))
+        onAsked?.();
+    },
   });
   const agent = allowed.find((pairing) => pairing.id === agentId);
   if (agent)
