@@ -161,6 +161,7 @@ export function ExportMenu({ mindId }: { mindId: string }) {
       <button
         {...menu.buttonProps}
         type="button"
+        aria-label={t("export.action")}
         data-testid="export-mind"
         data-format={last}
         aria-busy={saving || undefined}

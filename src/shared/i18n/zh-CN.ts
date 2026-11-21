@@ -3873,7 +3873,6 @@ export const zhCN = {
   "composer.scope.leftOut.one": "全部文档 · 已排除 1 个文件夹",
   "composer.scope.leftOut": "全部文档 · 已排除 {count} 个文件夹",
   "scope.openNote": "在其中新建笔记",
-  "composer.scope.allLabel": "搜索范围：你的全部文档。缩小范围（@）",
   "composer.scope.allTitle": "搜索你的全部文档。输入 @ 缩小范围",
   "composer.scope.allEmptyFolder": "“{folder}”中还没有文档，因此搜索你的全部文档。输入 @ 缩小范围",
   "composer.scope.change": "{name}。更改搜索范围（@）",

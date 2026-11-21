@@ -1196,12 +1196,13 @@ export function Composer({
             <button
               type="button"
               data-testid="composer-scope-all"
-              aria-label={
+              aria-label={allLabel}
+              aria-description={
                 leftOutCount > 0
-                  ? allLabel
+                  ? undefined
                   : folderName !== null && !folderHolds
                     ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                    : t("composer.scope.allLabel")
+                    : t("composer.scope.allTitle")
               }
               title={
                 leftOutCount > 0
