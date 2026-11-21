@@ -25,6 +25,11 @@ const READ_WAIT_MS = 120_000;
 /** How often a check waits for a verify run the User started, and for how many times. */
 const BUSY_WAIT_MS = 3_000;
 const BUSY_TRIES = 100;
+/** How many times in a row a hand-over starts again because its item was deleted for good meanwhile. */
+const MAX_ENDED = 2;
+
+/** The item a hand-over was making a version of was deleted for good while it waited (#3505). */
+class ItemEnded extends Error {}
 
 /** What a check's Note shows its reader: its claims that need a look, where each is, and its formulas. */
 export interface HandedMarks {
@@ -65,6 +70,8 @@ export interface HandOverDeps {
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
   contentHashInUse(contentHash: string, exceptDocumentId: string | null): boolean;
+  /** Removes the copies of what was deleted for good, as `Documents.dropPurged` does. */
+  dropPurged(): Promise<void>;
   /** Someone else's file, checked: never the evidence for its own claims. */
   setNotCited(documentId: string): void;
   rename(documentId: string, name: string): void;
@@ -182,6 +189,31 @@ export function createHandOver(deps: HandOverDeps) {
   /** Each check started, by its Note, while this run of IncarnaMind lasts. */
   const runs = new Map<string, CheckRun>();
   let queue: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Throws unless the item is still there: the User may delete its Document for good while a write
+   * is awaited, and deleting never waits for the queue (#3505).
+   */
+  const stillThere = (file: StoredHandedFile): void => {
+    if (store.get(file.id) === null) throw new ItemEnded();
+  };
+
+  /** Writes a copy in the item's folder; once the item has ended, the write's outcome doesn't matter. */
+  async function keep(
+    file: StoredHandedFile,
+    path: string,
+    bytes: Uint8Array,
+  ): Promise<WrittenFile> {
+    let written: WrittenFile;
+    try {
+      written = await writeWholeFile(path, bytes, deps.now());
+    } catch (error) {
+      stillThere(file);
+      throw error;
+    }
+    stillThere(file);
+    return written;
+  }
 
   /**
    * Waits until the Document holds `contentHash`, its text read: true, or why it couldn't be. A
@@ -318,6 +350,7 @@ export function createHandOver(deps: HandOverDeps) {
       documentId = requireReach(input, file).documentId;
     }
     if (documentId === null) return null;
+    stillThere(file);
     // Set once, as the Document first becomes a handed file's: what the User chose since stands.
     if (
       store.holding(documentId).length === 0 &&
@@ -354,7 +387,7 @@ export function createHandOver(deps: HandOverDeps) {
         file.id,
         `file-${version.number}.${file.kind}`,
       );
-      const written = await writeWholeFile(path, input.bytes, deps.now());
+      const written = await keep(file, path, input.bytes);
       requireReach(input, file);
       const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
       documentId = document.id;
@@ -365,11 +398,12 @@ export function createHandOver(deps: HandOverDeps) {
       const was = deps.document(documentId);
       // A Linked folder's Document is the agent's file itself: it is read again, never written.
       const own = was.linkedFolderId === null;
-      if (own) await writeWholeFile(was.path, input.bytes, deps.now());
+      if (own) await keep(file, was.path, input.bytes);
       await deps.readAgain(was.path);
       if (own && deps.document(documentId).name !== input.title)
         deps.rename(documentId, input.title);
       const read = await versionRead(documentId, contentHash, was);
+      stillThere(file);
       if (read !== true) {
         store.setUnread(version.id, read);
         return doneOf(file, { ...version, unread: read });
@@ -381,6 +415,7 @@ export function createHandOver(deps: HandOverDeps) {
       folderId: file.folderId,
       ...(file.kind === "xlsx" && { allSheets: true }),
     });
+    stillThere(file);
     if (!made.ok) {
       const words = unreadWords(made);
       store.setUnread(version.id, words);
@@ -411,7 +446,25 @@ export function createHandOver(deps: HandOverDeps) {
     return doneOf(file, { ...version, mindId: made.mind.id });
   }
 
+  /**
+   * A hand-over whose item was deleted for good while it ran is as if it came after the delete, as
+   * a path handed over after one does: a new item at version 1. What it wrote goes with the cleanup.
+   */
   async function handOverNow(input: HandOverInput): Promise<HandOverDone> {
+    for (let ended = 0; ; ended++) {
+      try {
+        return await handOverOnce(input);
+      } catch (error) {
+        if (!(error instanceof ItemEnded)) throw error;
+        await deps.dropPurged();
+        if (ended + 1 >= MAX_ENDED) {
+          throw new AgentRefusedError("not-found", deps.say("agents.handOver.notFound"));
+        }
+      }
+    }
+  }
+
+  async function handOverOnce(input: HandOverInput): Promise<HandOverDone> {
     const contentHash = hashBytes(input.bytes);
     const at = deps.placeOf(input.place).documentId;
     // A file in a Linked folder is known by its Document there too, which follows it when renamed.
@@ -442,7 +495,7 @@ export function createHandOver(deps: HandOverDeps) {
       });
     const name = fileNameOf(input.title, file.kind);
     const relative = join(HANDED_FOLDER, file.id, `v${(file.version ?? 0) + 1}`, name);
-    await writeWholeFile(join(deps.dataDir, relative), input.bytes, deps.now());
+    await keep(file, join(deps.dataDir, relative), input.bytes);
     requireReach(input, file);
     const version = store.addVersion(file.id, {
       contentHash,
