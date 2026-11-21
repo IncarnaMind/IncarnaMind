@@ -8458,6 +8458,8 @@ export const en = {
     "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
+  "agents.cite.left":
+    "The last {count} of your {total} quotes weren’t checked, to keep this answer short: send those {count} again in another call.",
   "agents.problem.citeNotFound":
     "Nothing was cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
   "agents.problem.documentChanged":

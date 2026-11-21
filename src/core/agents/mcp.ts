@@ -275,6 +275,7 @@ export function createAgentServer(
             text: z.string().nullable(),
           }),
         ),
+        left: z.string().optional(),
       }),
       annotations: READ_ONLY,
     },
