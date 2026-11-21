@@ -625,8 +625,8 @@ export const MAX_AROUND = 3;
 export const READ_PART_TOKENS = 8_000;
 const PART_BATCH = 64;
 /**
- * The most quotes one `cite` call takes: a Note's, for an agent that read its Documents whole
- * (#3585). It checks them in order while their answers fit in `READ_PART_TOKENS`.
+ * The most quotes one `cite` call checks, in order while their answers fit in `READ_PART_TOKENS`:
+ * a Note's, for an agent that read its Documents whole (#3585). A quote by path reads its file.
  */
 export const MAX_CITES = 40;
 /** The most sentences `check_citations` lists as uncited. */
@@ -2331,10 +2331,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         .filter(Boolean)
         .join(" · ");
       return call("cite", summary, [READ_DOCUMENTS], async (pairing) => {
-        if (list.length === 0 || list.length > MAX_CITES) {
+        if (list.length === 0) {
           throw new AgentRefusedError(
             "invalid",
-            `citations must list 1 to ${MAX_CITES} quotes, each with its passageId or path.`,
+            "citations must list at least one quote, with its passageId or path.",
           );
         }
         const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
@@ -2342,13 +2342,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const read: string[] = [];
         const citations: AgentCited[] = [];
         // Each answer gives back its quote, and a quote not found up to `PASSAGE_CHARS` of its
-        // Passage, so the result is bounded by its size, as a part of a Document is.
-        let size = estimateTokens(
-          JSON.stringify({
-            citations,
-            left: t("agents.cite.left", { count: MAX_CITES, total: MAX_CITES }),
-          }),
-        );
+        // Passage, so the result is bounded by its size, as a part of a Document is. A list past
+        // what one call checks is never refused: the agent is told how many to send again (#3585).
+        const leftLine = (count: number) =>
+          t(count === 1 ? "agents.cite.left.one" : "agents.cite.left.other", {
+            count,
+            total: list.length,
+          });
+        let size = estimateTokens(JSON.stringify({ citations, left: leftLine(list.length) }));
         let left = 0;
         const fits = (answer: AgentCited, at: number) => {
           const cost = estimateTokens(JSON.stringify(answer)) + 1;
@@ -2361,6 +2362,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           return true;
         };
         for (const [at, entry] of list.entries()) {
+          if (at === MAX_CITES) {
+            left = list.length - at;
+            break;
+          }
           const record = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
             string,
             unknown
@@ -2440,7 +2445,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         return {
           result: {
             citations,
-            ...(left > 0 && { left: t("agents.cite.left", { count: left, total: list.length }) }),
+            ...(left > 0 && { left: leftLine(left) }),
           },
           count: citations.filter((each) => each.check === "found").length,
           documentIds: read,

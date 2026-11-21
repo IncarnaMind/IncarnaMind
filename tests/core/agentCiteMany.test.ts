@@ -1,7 +1,7 @@
 /**
  * An agent cites a whole Note's quotes in one call (#3585): through the same interface Claude Code
- * or Codex use, `cite` takes up to `MAX_CITES` quotes, checks them in order while their answers
- * fit in `READ_PART_TOKENS`, and says how many it left for another call.
+ * or Codex use, `cite` checks up to `MAX_CITES` quotes, in order while their answers fit in
+ * `READ_PART_TOKENS`, and says how many it left for another call, never refusing a long list.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { MAX_CITES, READ_PART_TOKENS } from "../../src/core/agents/access";
@@ -69,8 +69,8 @@ describe("an agent citing a whole Note's quotes", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=a Note's quotes are cited in one call up to the most a call takes, and more than that is refused with words to split them; fails_when=21 to 40 quotes are refused for their count
-  it(`cites up to ${MAX_CITES} quotes in one call, and refuses more with words to split them`, async () => {
+  // protects=a Note's quotes are cited in one call up to the most a call checks, and a longer list is never refused: the rest are counted for another call; fails_when=21 or more quotes are refused for their count
+  it(`cites up to ${MAX_CITES} quotes in one call, and counts any more for another call`, async () => {
     const { cite, quotes } = await readInterview();
     expect(MAX_CITES).toBe(40);
     const all = await cite(quotes.slice(0, MAX_CITES));
@@ -81,10 +81,23 @@ describe("an agent citing a whole Note's quotes", () => {
     expect(all.cited.left).toBeUndefined();
     expect(estimateTokens(all.text)).toBeLessThanOrEqual(READ_PART_TOKENS);
 
-    const more = await cite(quotes.slice(0, MAX_CITES + 1));
-    expect(more.result.isError).toBe(true);
-    expect(more.text).toContain(
-      `At most ${MAX_CITES} quotes a call: cite the first ${MAX_CITES}, then the rest in another call.`,
+    const more = await cite(quotes.slice(0, MAX_CITES + 5));
+    expect(more.result.isError ?? false).toBe(false);
+    expect(more.cited.citations).toHaveLength(MAX_CITES);
+    expect(more.cited.left).toBe(
+      translate("en", "agents.cite.left.other", { count: 5, total: MAX_CITES + 5 }),
+    );
+    const rest = await cite(quotes.slice(MAX_CITES, MAX_CITES + 5));
+    expect(rest.cited.citations.map((each) => each.check)).toEqual([
+      "found",
+      "found",
+      "found",
+      "found",
+      "found",
+    ]);
+    const one = await cite(quotes.slice(0, MAX_CITES + 1));
+    expect(one.cited.left).toBe(
+      translate("en", "agents.cite.left.one", { count: 1, total: MAX_CITES + 1 }),
     );
   });
 
@@ -106,7 +119,7 @@ describe("an agent citing a whole Note's quotes", () => {
     );
     const left = MAX_CITES - checked;
     expect(first.cited.left).toBe(
-      translate("en", "agents.cite.left", { count: left, total: MAX_CITES }),
+      translate("en", "agents.cite.left.other", { count: left, total: MAX_CITES }),
     );
 
     const again = await cite(unfound.slice(checked));

@@ -28,7 +28,6 @@ import {
   AgentRefusedError,
   MAX_AROUND,
   MAX_CHANGES,
-  MAX_CITES,
   MAX_SEARCH_PAGE,
   READ_PART_TOKENS,
 } from "./access";
@@ -256,12 +255,7 @@ export function createAgentServer(
               quote: z.string(),
             }),
           )
-          .min(1)
-          // The SDK refuses a longer list with this, before IncarnaMind reads it: say how to go on.
-          .max(
-            MAX_CITES,
-            `At most ${MAX_CITES} quotes a call: cite the first ${MAX_CITES}, then the rest in another call.`,
-          ),
+          .min(1),
       }),
       outputSchema: z.object({
         citations: z.array(
