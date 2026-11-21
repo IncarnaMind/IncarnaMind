@@ -125,8 +125,8 @@ export interface WordFileInput {
   contentType?: string;
   /** More entries in the package. */
   parts?: ZipInput[];
-  /** The inside of the body's last w:sectPr, the last section's layout: its header and footer references. */
-  sectPr?: string;
+  /** The inside of the body's last w:sectPr, the last section's layout: its header and footer references; `null` writes no w:sectPr at all. */
+  sectPr?: string | null;
 }
 
 /** A .docx of the given parts, as Word lays one out. */
@@ -204,7 +204,7 @@ export function wordFile(input: WordFileInput): Buffer {
     },
     {
       name: "word/document.xml",
-      data: `${DECLARATION}<w:document ${NAMESPACES}><w:body>${input.body}<w:sectPr>${input.sectPr ?? '<w:pgSz w:w="11906" w:h="16838"/>'}</w:sectPr></w:body></w:document>`,
+      data: `${DECLARATION}<w:document ${NAMESPACES}><w:body>${input.body}${input.sectPr === null ? "" : `<w:sectPr>${input.sectPr ?? '<w:pgSz w:w="11906" w:h="16838"/>'}</w:sectPr>`}</w:body></w:document>`,
     },
     {
       name: "word/_rels/document.xml.rels",

@@ -1,4 +1,3 @@
-import { renderAsync } from "docx-preview";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Document } from "../../../core/api";
 import { type DocxResult, extractDocx } from "../../../core/documents/formats/docx";
@@ -9,6 +8,7 @@ import type { ViewerTarget } from "../store";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { markAnnotationsInDom, unmarkAnnotationsInDom } from "./annotationMarks";
 import { useCitedArea, useCitedAreaFailure } from "./citedArea";
+import { renderWord } from "./docxDraw";
 import {
   type DocxComment,
   fixSymbols,
@@ -182,7 +182,7 @@ function DocxPages({
     const style = styles.current;
     if (!body || !style) return;
     let cancelled = false;
-    renderAsync(loaded.bytes, body, style, {
+    renderWord(loaded.bytes, body, style, {
       className: CLASS_NAME,
       inWrapper: true,
       breakPages: true,
