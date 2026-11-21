@@ -44,7 +44,7 @@ export const SERVER_INSTRUCTIONS = [
   "In Notes, Canvases and check drafts, put the exact issued [cite:…] after each claim. Never invent one. A token verifies the quote at its Location, not the claim. In chat, name the checked Document and its Location if given.",
   "For an ordinary Library question, `search` first, never your memory. Use `read_passages` for neighbours if needed and `check_citations` on the draft before replying.",
   "`ask` gives IncarnaMind's whole Answer with checked Citations in one call (it can take a minute).",
-  "When the User’s message names a Note, open Document, meeting, flagged sentence or search scope in IncarnaMind, `read_request` first. It holds the rest. Pass the named Note’s title.",
+  "For a handoff (“About my note … in IncarnaMind”, open Document, meeting, flagged sentence or search scope), `read_request` first. It holds the rest. Pass a named Note’s title.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`, which returns the Note's new version. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User.",
   "In a Note you wrote, the paragraphs `read_mind` marks as the User's are theirs: leave them as they are unless the User asks.",
   "To hand the User a new document, `create_mind` writes it as a Note of its own; a page to look at, `publish_canvas`.",
