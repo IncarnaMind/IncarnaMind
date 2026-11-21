@@ -23,6 +23,7 @@ export const PROMPT_TAGS = [
   "mind",
   "notebook",
   "paragraph",
+  "slide",
   "passage",
   "question",
   "quote",

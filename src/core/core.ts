@@ -73,6 +73,7 @@ import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
+import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createAgentSetup } from "./agents/setup";
@@ -90,7 +91,7 @@ import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { checkedSentences } from "./answers/checks/sentences";
-import { readingOf } from "./answers/checks/standing";
+import { judgedNow, readingOf } from "./answers/checks/standing";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -211,7 +212,7 @@ import {
 } from "./documents";
 import { createEvidence, parseCheckedDocument, passageResult } from "./documents/evidence";
 import { pdfIsLocked, pdfOpensWith, pdfTablePages } from "./documents/extract";
-import { hashBytes, statIdentity } from "./documents/files";
+import { hashBytes, kindOf, statIdentity } from "./documents/files";
 import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
@@ -301,6 +302,7 @@ import {
   otherCallTranscripts,
 } from "./meetings";
 import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
+import { createMeetingCandidateReview } from "./meetings/candidateReviews";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { createLiveSummaries } from "./meetings/liveSummary";
@@ -5214,6 +5216,7 @@ export function createCore(adapters: CoreAdapters): Core {
     dataDir,
     now,
     capture: adapters.audioCapture,
+    transcriptVersion: documents.currentVersion,
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
@@ -5299,6 +5302,7 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   });
   const speakerReview = createMeetingSpeakerReview({
+    heardCallAudio: (id) => transcripts?.heardCallAudio(id) ?? true,
     parts: (id) => listParts(meetingFolder(dataDir, id)),
     recording: sourceRecording,
     roomReviewer: adapters.roomSpeakerReviewer,
@@ -5730,7 +5734,22 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const isLive = (meeting: Meeting) =>
     meeting.status === "recording" || meeting.status === "paused";
-  // Offers to take notes in a call (#208): watched only while wanted, and only Take notes records.
+  const recordOffer = (mindId?: string) => {
+    const existing = mindId ? meetings.list().find((meeting) => meeting.mindId === mindId) : null;
+    const meeting = existing ?? meetings.create(mindId ? { mindId } : {});
+    layouts.change("main", {
+      type: "open",
+      item: { kind: "mind", mindId: meeting.mindId },
+      where: { in: "group" },
+    });
+    return meetings.start({ meetingId: meeting.id }).id;
+  };
+  let liveOfferMeetings = new Set(
+    meetings
+      .list()
+      .filter(isLive)
+      .map((meeting) => meeting.id),
+  );
   const meetingOffers = createMeetingOffers({
     watcher: adapters.callWatcher,
     watching: () => {
@@ -5740,18 +5759,17 @@ export function createCore(adapters: CoreAdapters): Core {
       );
     },
     allowed: (app) => offerAllowed(settings.get().device, { kind: "call", app }),
-    busy: () => meetings.list().some(isLive),
-    live: (meetingId) => meetings.list().some((each) => each.id === meetingId && isLive(each)),
-    record: () => {
-      const meeting = meetings.create({});
-      // The window the app opens on, whether or not it is open yet: its page reads the layout.
-      layouts.change("main", {
-        type: "open",
-        item: { kind: "mind", mindId: meeting.mindId },
-        where: { in: "group" },
-      });
-      meetings.start({ meetingId: meeting.id });
-      return meeting.id;
+    calendarAllowed: () =>
+      adapters.audioCapture !== undefined &&
+      offerAllowed(settings.get().device, { kind: "calendar" }),
+    calendarEvents: calendars.reminderEvents,
+    markCalendarReminderSeen: calendars.markReminderSeen,
+    busy: () => liveOfferMeetings.size > 0,
+    live: (meetingId) => liveOfferMeetings.has(meetingId),
+    record: () => recordOffer(),
+    recordCalendar: (eventId) => {
+      const { mindId, joinUrl } = calendars.takeReminderNotes(eventId);
+      return { meetingId: recordOffer(mindId), joinUrl };
     },
     stop: (meetingId) => {
       stopMeeting(meetingId);
@@ -5762,7 +5780,11 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   events.on("settings.changed", () => meetingOffers.refresh());
-  events.on("meetings.changed", () => meetingOffers.refresh());
+  events.on("meetings.changed", (list) => {
+    liveOfferMeetings = new Set(list.filter(isLive).map((meeting) => meeting.id));
+    meetingOffers.refresh();
+  });
+  events.on("calendarEvents.changed", () => meetingOffers.refresh());
   meetingOffers.refresh();
   const loginItemState = (): OpenAtLogin =>
     adapters.loginItem?.get() ?? { supported: false, on: false, needsApproval: false };
@@ -5988,6 +6010,22 @@ export function createCore(adapters: CoreAdapters): Core {
     writeValue: (key, value) => settings.writeDeviceValue(key, value),
     reportError: (error) => console.error(error),
   });
+  // A file an agent cites by its path, from outside the Library (#3509).
+  const fileCiting = createFileCiting({
+    ...(adapters.canvasFiles && { readNamed: adapters.canvasFiles.readNamed }),
+    kindOf,
+    placeOf: (path) => documents.placeOf(path),
+    readAgain: (path) => documents.checkNow(path),
+    add: async (path, citedBy) =>
+      (await documents.add([path], (documentId) => documents.setCitedBy(documentId, citedBy)))
+        .documents[0]?.id ?? null,
+    document: (documentId) => documents.get(documentId),
+    passages: (documentId) => documents.passagesCovering(documentId, null, null),
+    citeQuote: (passageId, quote) => citing.citeQuote(passageId, quote),
+    now,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    say: (key, params) => translate(settings.get().language, key, params),
+  });
   const agents = createAgents({
     offered: adapters.agents?.offered ?? true,
     log: adapters.log ?? silentLogger,
@@ -6059,6 +6097,9 @@ export function createCore(adapters: CoreAdapters): Core {
       libraryLists: agentLibraryLists,
       libraryVersion: (mindId) => libraryVersion(libraryListsOf(mindId)),
       citing,
+      citeFile: (path, quote, agent, reaches) => fileCiting.cite(path, quote, agent, reaches),
+      citedOutside: (documentId) => (documents.getMany([documentId])[0]?.citedBy ?? null) !== null,
+      citedFiles: () => documents.citedFiles(),
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
       minds: () => listedMinds().filter((mind) => isKnownKind(mind.kind)),
@@ -6155,19 +6196,20 @@ export function createCore(adapters: CoreAdapters): Core {
   if (adapters.agents?.offered ?? true) {
     agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
   }
+  const summaryRoute = meetingSummaryRoute({
+    settings: () => settings.get().device,
+    model: (mindId) => ownModelIn(mindId) ?? settings.get().user.chatModel,
+    chat,
+    get: (id) => meetings.get(id),
+    documentPresent: (id) => !!liveDocument(id),
+    insideWall: (mindId, documentId) =>
+      walledFolder(mindId) !== null || walledDocument(documentId) !== null,
+    client: (mindId, documentId, route) =>
+      agents.askable(mindId, documentId).find((pair) => pair.id === route)?.client ?? null,
+    agent: adapters.summarizeWithMeetingAgent,
+  });
   const liveSummaries = createLiveSummaries({
-    ...meetingSummaryRoute({
-      settings: () => settings.get().device,
-      model: (mindId) => ownModelIn(mindId) ?? settings.get().user.chatModel,
-      chat,
-      get: (id) => meetings.get(id),
-      documentPresent: (id) => !!liveDocument(id),
-      insideWall: (mindId, documentId) =>
-        walledFolder(mindId) !== null || walledDocument(documentId) !== null,
-      client: (mindId, documentId, route) =>
-        agents.askable(mindId, documentId).find((pair) => pair.id === route)?.client ?? null,
-      agent: adapters.summarizeWithMeetingAgent,
-    }),
+    ...summaryRoute,
     cues: (id) => transcripts?.confirmedCues(id) ?? [],
     saved: (id) => meetings.storedSummary(id),
     save: (id, value) => meetings.setSummary(id, value),
@@ -6178,8 +6220,51 @@ export function createCore(adapters: CoreAdapters): Core {
       });
     },
   });
-  events.on("meetings.changed", (list) => liveSummaries.changed(list));
-  const summaryAccessChanged = () => liveSummaries.changed(meetings.list(), true);
+  function meetingSummaryDocument(meetingId: string, documentId: string) {
+    const meeting = meetings.get(meetingId);
+    const doc = liveDocument(documentId);
+    if (
+      meeting.kind !== "meeting" ||
+      meeting.status !== "stopped" ||
+      doc?.kind !== "transcript" ||
+      meetings.transcriptOf(meetingId) !== documentId ||
+      (doc.meetingMindId !== null && doc.meetingMindId !== meeting.mindId) ||
+      walledDocument(documentId) !== walledFolder(meeting.mindId)
+    )
+      return null;
+    return doc;
+  }
+
+  const candidateReviews = createMeetingCandidateReview({
+    meetings,
+    documents,
+    summaryRoute,
+    meetingSummaryDocument,
+    walledFolder,
+    language: () => settings.get().language,
+    extract: (documentId) => extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS),
+    readTranscript: async (documentId) => readFile(await documents.filePath(documentId)),
+    closed: () => lifetime.signal.aborted,
+    failed(meetingId, error) {
+      (adapters.log ?? silentLogger).warn("meeting.candidateReviewFailed", {
+        meetingId,
+        kind: error instanceof Error ? error.name : "unknown",
+      });
+    },
+  });
+
+  events.on("meetings.changed", (list) => {
+    liveSummaries.changed(list);
+    candidateReviews.changed();
+  });
+  events.on("document.status", (document) => {
+    candidateReviews.changed();
+    if (document.kind === "transcript") meetings.candidateReviewTranscriptChanged(document.id);
+  });
+  const summaryAccessChanged = () => {
+    liveSummaries.changed(meetings.list(), true);
+    candidateReviews.changed();
+  };
   for (const event of [
     "settings.changed",
     "privacy.changed",
@@ -6243,10 +6328,16 @@ export function createCore(adapters: CoreAdapters): Core {
         onNew?.(documentId);
       })
       .finally(() => batches.done(batchId));
+    // A file an agent cited by its path that the User adds themselves is one of their own (#3509).
+    const added = result.documents.map((document) => {
+      if (document.citedBy === null) return document;
+      documents.setCitedBy(document.id, null);
+      return documents.get(document.id);
+    });
     skippedForShowing.clear();
     for (const skipped of result.skipped) skippedForShowing.add(skipped.path);
     usageData.record({ event: "documents_added", fields: addedCounts(result, since) });
-    return { ...result, batchId };
+    return { ...result, documents: added, batchId };
   };
 
   /** The temporary .docx copies the Word import screen has, each with the folder to remove (#104). */
@@ -7371,6 +7462,14 @@ export function createCore(adapters: CoreAdapters): Core {
     libraryListsVersion: async (mindId) => libraryVersion(libraryListsOf(mindId)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
+    judgedWithNow: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => ({
+        mindId: mind.id,
+        basis: fingerprintOfBlocks(fragment),
+        lines: Object.fromEntries(judgedNow(fragment)),
+      }));
+    },
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
@@ -8357,23 +8456,18 @@ export function createCore(adapters: CoreAdapters): Core {
       const documentId = meetings.transcriptOf(meetingId);
       if (!documentId) return null;
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      const meeting = meetings.get(meetingId);
-      const doc = liveDocument(documentId);
-      if (
-        meeting.kind !== "meeting" ||
-        meeting.status !== "stopped" ||
-        doc?.kind !== "transcript" ||
-        meetings.transcriptOf(meetingId) !== documentId ||
-        (doc.meetingMindId !== null && doc.meetingMindId !== meeting.mindId) ||
-        walledDocument(documentId) !== walledFolder(meeting.mindId)
-      )
-        return null;
+      if (!meetingSummaryDocument(meetingId, documentId)) return null;
       const evidence = meetings.summaryItemEvidence(meetingId, itemId);
       const version = documents.currentVersion(documentId);
       if (!evidence || evidence.documentId !== documentId || !version) return null;
       const units = documents.pageTexts(documentId, version, null, null);
       return { documentId, sources: meetingSummarySources(units, evidence.quotes) };
     },
+    canReviewMeetingSummaryCandidates: async (meetingId) => candidateReviews.canReview(meetingId),
+    getMeetingSummaryCandidates: candidateReviews.get,
+    reviewMeetingSummaryCandidates: candidateReviews.review,
+    addMeetingSummaryCandidate: candidateReviews.add,
+    undoAddMeetingSummaryCandidate: candidateReviews.undo,
     correctMeetingSummaryItem: async (meetingId, expected, replacement) =>
       meetings.correctSummaryItem(meetingId, expected, replacement),
     retryMeetingSummary: async (meetingId) => {
@@ -8458,13 +8552,23 @@ export function createCore(adapters: CoreAdapters): Core {
       return draft && recordsOrPaused(meeting) ? { ...draft } : null;
     },
     getMeetingOffers: async () => meetingOffers.get(),
-    takeMeetingOffer: async (offerId) => meetings.get(meetingOffers.take(String(offerId))),
+    takeMeetingOffer: async (offerId) => {
+      const { meetingId, joinUrl } = meetingOffers.take(String(offerId));
+      const meeting = meetings.get(meetingId);
+      if (joinUrl) {
+        try {
+          await adapters.browser.open(joinUrl);
+        } catch (error) {
+          throw new TranslatableError({ key: "error.meetingOffer.link" }, { cause: error });
+        }
+      }
+      return meeting;
+    },
     declineMeetingOffer: async (input) => {
       const offerId = isRecord(input) ? String(input.offerId) : "";
       const always = isRecord(input) && input.always === true;
-      const app = meetingOffers.get().offer?.app;
-      if (meetingOffers.get().offer?.id !== offerId) return;
-      meetingOffers.decline(offerId, always);
+      const offer = meetingOffers.decline(offerId, always);
+      const app = offer?.kind === "call" ? offer.app : null;
       const off = settings.get().device.callOffersOff;
       if (!always || !app || off.includes(app)) return;
       events.emit(
@@ -8613,6 +8717,7 @@ export function createCore(adapters: CoreAdapters): Core {
     systemAwake: () => {
       meetings.awake();
       calendars.awake();
+      meetingOffers.refresh();
     },
     windowCalled: (window, method, input) => windows.called(window, method, input),
     windowGone: (window) => windows.gone(window),
@@ -8628,6 +8733,7 @@ export function createCore(adapters: CoreAdapters): Core {
     close: () => {
       if (lifetime.signal.aborted) return;
       lifetime.abort();
+      candidateReviews.close();
       // What a Meeting has captured is saved before anything else stops, a line left unsent too.
       for (const meetingId of [...quickNoteDrafts.keys()]) keepUnsentLine(meetingId);
       liveSummaries.close();

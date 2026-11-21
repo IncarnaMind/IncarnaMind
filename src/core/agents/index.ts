@@ -689,9 +689,9 @@ export function createAgents(options: AgentsOptions) {
       });
       tokens.delete(pairing.id);
       options.consent.revoke("agents", serviceOf(pairing).id);
+      changed();
       await closeConnections(pairing.id);
       await options.secrets.delete(secretName(pairing.id));
-      changed();
     },
 
     /** Records the settings files and folders that setting this pairing's agent up created. */

@@ -18,8 +18,8 @@ import {
 } from "./app";
 
 /*
- * The first run's setup (#3296): a fresh profile opens on four short steps before the example
- * (what the User works on, their AI, sorting, meeting transcription), every one skippable, and
+ * The first run's setup (#3296): a fresh profile opens on three short steps before the example
+ * (what the User works on, their AI and meeting transcription), every one skippable, and
  * Settings › AI with nothing set leads to its model steps, in a dialog over the app. Every launch
  * uses the scripted chat model, and Ollama and the decision model hosts are pointed nowhere, so no
  * key reaches a service. Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
@@ -104,8 +104,8 @@ async function atStep(window: Page, step: string): Promise<Locator> {
 }
 
 /** The setup's skip on each step from here to the end. */
-async function skipTheRest(window: Page) {
-  for (const step of ["ai", "sorting", "meetings"]) {
+async function skipTheRest(window: Page, steps = ["ai", "meetings"]) {
+  for (const step of steps) {
     const panel = await atStep(window, step);
     await panel.getByTestId("setup-skip").click();
   }
@@ -124,7 +124,6 @@ test("a fresh profile opens on the setup: two picks, sent once, lead to their ex
     await expect(panel.getByTestId("setup-progress-step")).toHaveText([
       "Your work",
       "Your AI",
-      "Sorting",
       "Meetings",
     ]);
     const choices = panel.getByTestId("setup-work");
@@ -251,8 +250,8 @@ test("Skip on every step: nothing set, the setup gone for good, and the first Qu
   await expect(setupOf(window)).toHaveCount(0);
 });
 
-// protects=a pasted key works with no other click, More services… opens the directory inside the step and Esc comes back to it, and the next step reaches the key's decision model host with nothing more to enter and offers the Answers model, saving only the choice; fails_when=Settings opens, the setup is left, a click is needed after the paste, the decision model asks for a key the User gave, or tagging is turned on; no_claim=the hosts' own requests.
-test("a pasted key works at once, More services… stays in the setup, and sorting uses the key's host", async () => {
+// protects=a pasted key works with no other click, More services… opens the directory inside the step and Esc comes back to it, and the next step is Meetings with a model available for sorting; fails_when=Settings opens, the setup is left, a click is needed after the paste, sorting requires its own setup, or tagging is turned on; no_claim=the hosts' own requests.
+test("a pasted key works at once, More services… stays in the setup, and sorting stays automatic", async () => {
   test.setTimeout(120_000);
   const window = await launch({}, 900);
   await acceptPlainTextKeys(window);
@@ -302,22 +301,6 @@ test("a pasted key works at once, More services… stays in the setup, and sorti
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
   await ai.getByTestId("setup-next").click();
 
-  const sorting = await atStep(window, "sorting");
-  const radios = sorting.getByTestId("setup-sorting");
-  await expect(radios.first()).toHaveAttribute("data-value", "decision");
-  await expect(radios.first().locator("input")).toBeChecked();
-  await expect(radios.last()).toHaveAttribute("data-value", "local");
-  await expect(sorting.locator('[data-testid="setup-sorting"][data-value="chat"]')).toContainText(
-    "Use ",
-  );
-  await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openrouter");
-  await expect(sorting.getByTestId("setup-decision-works")).toContainText(
-    "Uses your OpenRouter key",
-  );
-  await expect(sorting.getByTestId("setup-sorting-sends")).toContainText("to OpenRouter.");
-  await shot(window, "setup-sorting-uses-key-en-900");
-  await sorting.getByTestId("setup-next").click();
-
   const meetings = await atStep(window, "meetings");
   const routes = meetings.getByTestId("setup-transcription");
   await expect(routes.first()).toHaveAttribute("data-value", "cloud");
@@ -328,7 +311,11 @@ test("a pasted key works at once, More services… stays in the setup, and sorti
   await expect(setupOf(window)).toHaveCount(0);
 
   const library = (await bridge(window).library()).settings;
-  expect(library.classifier).toMatchObject({ kind: "decision", host: "openrouter" });
+  expect(library.classifier).toEqual({ kind: "automatic" });
+  const automatic = await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getTaggingModels(),
+  );
+  expect(automatic.automatic).not.toBeNull();
   expect(library.automatic).toBe(false);
   expect((await bridge(window).settings()).device.transcriptionRoute).toBe("local");
 });
@@ -409,7 +396,7 @@ test("Settings › AI with nothing set: the lede, then No AI yet, whose Set up s
   const front = await frontMindName(window).textContent();
   await runCommand(window, "settings.setUpStepByStep", "Set up step by step");
   await expect(dialog).toBeVisible();
-  await skipTheRest(window);
+  await skipTheRest(window, ["ai", "sorting", "meetings"]);
   await expect(dialog).toBeHidden();
   await expect(frontMindName(window)).toHaveText(front ?? "");
   await expect(window.getByTestId("plus-menu")).toBeVisible();
@@ -418,19 +405,22 @@ test("Settings › AI with nothing set: the lede, then No AI yet, whose Set up s
 // protects=with no AI, the sorting step asks only for the host's key, under its name with where to get one, with the line that says what sorting sends and, as that key will also answer Questions, that line and the chat's; a refused key says so in one line under the field and puts the focus back; Use this then checks, keeps and chooses at once, the key becoming the Answers model; the transcription step asks for its service's key the same way, Finish enabled once one is typed; fails_when=a model line, a price link or a button of the form's own shows, the primary is enabled with no key, a refusal leaves the step or loses the focus, the key is not chosen, or the Answers model is not set; no_claim=the hosts' own checks.
 test("with no AI yet, sorting and transcription each ask for one key, and one press checks, keeps and chooses", async () => {
   test.setTimeout(120_000);
-  const window = await launch({}, 900);
+  const { app: launched, window } = await launchApp(dataDir, STAND_INS);
+  app = launched;
+  await setWindowSize(launched, window, 900, 900);
   await acceptPlainTextKeys(window);
-  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  const settings = await openSettings(window, "ai");
+  await settings.getByTestId("ai-none-step-by-step").click();
   await (await atStep(window, "ai")).getByTestId("setup-skip").click();
 
   const sorting = await atStep(window, "sorting");
   const next = sorting.getByTestId("setup-next");
   await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openrouter");
   const decision = sorting.getByTestId("setup-decision");
-  await expect(decision.getByText("OpenRouter key", { exact: true })).toBeVisible();
+  await expect(decision.getByText("Connection key from OpenRouter", { exact: true })).toBeVisible();
   await expect(decision.getByRole("link", { name: /Get a key/ })).toBeVisible();
   await expect(decision.getByTestId("setup-keys-stay")).toHaveText("Keys stay on this computer.");
-  await expect(decision.getByTestId("setup-sorting-sends")).toContainText("to OpenRouter.");
+  await expect(decision.getByTestId("setup-sorting-sends")).toContainText("OpenRouter receives");
   await expect(decision.getByTestId("setup-decision-answers")).toHaveText(
     "OpenRouter will also answer your Questions.",
   );
@@ -481,7 +471,7 @@ test("with no AI yet, sorting and transcription each ask for one key, and one pr
   // Not pressed with that key: it would be checked with the service. This computer instead.
   await meetings.getByTestId("setup-transcription").last().locator("input").check();
   await finish.click();
-  await expect(setupOf(window)).toHaveCount(0);
+  await expect(dialogOf(window)).toBeHidden();
   expect((await bridge(window).settings()).device.transcriptionRoute).toBe("local");
 });
 
@@ -497,14 +487,21 @@ test("an OpenAI key from the AI step is used by sorting and transcription, and a
   await expect(ai.getByTestId("setup-ai-works")).toBeVisible({ timeout: 20_000 });
   await ai.getByTestId("setup-next").click();
 
+  await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  const settings = await openSettings(window, "ai");
+  await settings.getByTestId("ai-set-up-again").click();
+  await (await atStep(window, "ai")).getByTestId("setup-skip").click();
+
   const sorting = await atStep(window, "sorting");
   await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openai");
-  await expect(sorting.getByTestId("setup-decision-works")).toContainText("Uses your OpenAI key");
+  await expect(sorting.getByTestId("setup-decision-works")).toContainText(
+    "Uses your connection to OpenAI",
+  );
   await expect(sorting.getByTestId("setup-next")).toBeEnabled();
   await shot(window, "setup-sorting-uses-openai-key-en-900");
 
   await sorting.getByTestId("setup-decision-host").selectOption("openrouter");
-  await expect(sorting.getByText("OpenRouter key", { exact: true })).toBeVisible();
+  await expect(sorting.getByText("Connection key from OpenRouter", { exact: true })).toBeVisible();
   await expect(sorting.getByTestId("setup-decision-answers")).toHaveCount(0);
   await expect(sorting.getByTestId("setup-decision-chat-sends")).toHaveCount(0);
   await sorting.getByTestId("setup-decision-key").fill(OPENROUTER_KEY);
@@ -526,7 +523,7 @@ test("an OpenAI key from the AI step is used by sorting and transcription, and a
   await expect(meetings.getByTestId("setup-transcription-sends")).toContainText("OpenAI");
   await shot(window, "setup-meetings-uses-openai-key-en-900");
   await meetings.getByTestId("setup-next").click();
-  await expect(setupOf(window)).toHaveCount(0);
+  await expect(dialogOf(window)).toBeHidden();
   expect((await bridge(window).settings()).device.transcriptionRoute).toBe("openai");
 });
 
@@ -559,8 +556,8 @@ test("in Local mode, every model step offers only this computer", async () => {
   await expect(dialogOf(window)).toBeHidden();
 });
 
-// protects=the setup holds its layout at 900 and 1,440 px, in English and Chinese, light and dark: one panel, no sideways scroll, the title where it was from step to step and the foot's buttons in view; fails_when=the panel overflows the window, the title moves between steps, or a button is cut off; no_claim=the steps' behaviour, tested above.
-test("the setup holds at 900 and 1,440 px, in English and Chinese, light and dark", async () => {
+// protects=the setup holds its layout at 900 and 1,280 px, in English and Chinese, light and dark: one panel, no sideways scroll, the title where it was from step to step and the foot's buttons in view; fails_when=the panel overflows the window, the title moves between steps, or a button is cut off; no_claim=the steps' behaviour, tested above.
+test("the setup holds at 900 and 1,280 px, in English and Chinese, light and dark", async () => {
   test.setTimeout(180_000);
   const window = await launch();
   for (const [language, appearance] of [
@@ -571,10 +568,10 @@ test("the setup holds at 900 and 1,440 px, in English and Chinese, light and dar
   ] as const) {
     await bridge(window).setLanguage(language);
     await bridge(window).setAppearance(appearance);
-    for (const width of [900, 1440]) {
+    for (const width of [900, 1280]) {
       await setWindowSize(app as ElectronApplication, window, width, 900);
       const tops: number[] = [];
-      for (const step of ["work", "ai", "sorting", "meetings"]) {
+      for (const step of ["work", "ai", "meetings"]) {
         const panel = await atStep(window, step);
         const fits = await window.evaluate(
           () => document.documentElement.scrollWidth <= globalThis.innerWidth,
@@ -587,7 +584,7 @@ test("the setup holds at 900 and 1,440 px, in English and Chinese, light and dar
       }
       expect(new Set(tops).size, `${language} ${appearance} ${width}`).toBe(1);
       // Back to the first step for the next size.
-      for (let at = 0; at < 3; at++) await panelOf(window).getByTestId("setup-back").click();
+      for (let at = 0; at < 2; at++) await panelOf(window).getByTestId("setup-back").click();
     }
   }
 });

@@ -208,7 +208,7 @@ async function connectClaudeCode(window: Page, ai: Locator): Promise<void> {
   await expect(ai.getByTestId("setup-agent-connected")).toHaveText("Claude Code is connected");
 }
 
-// protects=a fresh profile's Your AI step offers the User's own AI first, Claude Code connects inside the step with the lines Settings shows, Sorting explains how to ask the agent, the card follows the agent with no key asked for, and Settings › Agents lists the agent as one connected there and disconnects it; fails_when=the step asks for a key first, connecting leaves the step or needs a Document, Sorting shows with no model, the card asks for a key, or Settings shows another agent than the one connected
+// protects=a fresh profile's Your AI step offers the User's own AI first, Claude Code connects inside the step with the lines Settings shows, Meetings follows the AI connection, the card follows the agent with no key asked for, and Settings › Agents lists the agent as one connected there and disconnects it; fails_when=the step asks for a key first, connecting leaves the step or needs a Document, Sorting shows with no model, the card asks for a key, or Settings shows another agent than the one connected
 test("connecting the AI the User has in the step: no key, sorting on request, the agent's card, and Settings lists it", async () => {
   test.setTimeout(180_000);
   const window = await launch();
@@ -287,31 +287,17 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await stills(window, "3-your-ai-connected");
 
   await ai.getByTestId("setup-next").click();
-  const sorting = await atStep(window, "sorting");
-  await expect(sorting.getByTestId("setup-progress-step")).toHaveText([
+  const meetings = await atStep(window, "meetings");
+  await expect(meetings.getByTestId("setup-progress-step")).toHaveText([
     "Your work",
     "Your AI",
-    "Sorting",
     "Meetings",
   ]);
-  const choices = sorting.getByTestId("setup-sorting");
-  await expect(choices).toHaveCount(2);
-  await expect(choices.first()).toHaveAttribute("data-value", "decision");
-  await expect(choices.last()).toHaveAttribute("data-value", "local");
-  await expect(sorting.getByTestId("setup-sorting-agent-alone")).toHaveText(
-    "Automatic sorting uses a decision model, a model set up in IncarnaMind, or a model on this computer. You can also ask your connected AI to organize your Documents, then confirm its Suggestions.",
-  );
-  await expect(sorting.getByTestId("setup-decision-key")).toBeVisible();
-  await expect(sorting.getByTestId("setup-sorting-sends")).toContainText("to OpenRouter.");
-  await expect(sorting.getByTestId("setup-decision-answers")).toHaveCount(0);
-  await stills(window, "3b-sorting-agent-only");
-  await sorting.getByTestId("setup-skip").click();
-  const meetings = await atStep(window, "meetings");
   await expect(meetings.getByTestId("setup-meetings-needs-model")).toHaveText(
     "Notes after a call and help during it need a model in IncarnaMind.",
   );
   await meetings.getByTestId("setup-back").click();
-  await (await atStep(window, "sorting")).getByTestId("setup-skip").click();
+  await (await atStep(window, "ai")).getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   await expect(panelOf(window)).toHaveCount(0);
 
@@ -482,7 +468,6 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   await connectClaudeCode(window, await atStep(window, "ai"));
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
-  await (await atStep(window, "sorting")).getByTestId("setup-skip").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   const card = window.getByTestId("first-open-steps");
   const step = (name: string) =>
@@ -581,8 +566,8 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
   }
 });
 
-// protects=a User who chooses only a model keeps today's setup and card, and one who chooses both gets the agent's card with Sorting still offered; fails_when=the model-only card changes, or a model and an agent together lose Sorting or the agent's card
-test("only a model keeps today's card; a model and an agent get the agent's, with Sorting", async () => {
+// protects=the first-open card offers Ask with only a model, and asks the User to use their agent when both are connected; fails_when=either path shows the other card
+test("the first-open card follows the connected agent when both an agent and a model are set up", async () => {
   test.setTimeout(180_000);
   const window = await launch();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
@@ -591,7 +576,6 @@ test("only a model keeps today's card; a model and an agent get the agent's, wit
   const ai = await atStep(window, "ai");
   await expect(ai.getByTestId("setup-ai-works")).toBeVisible();
   await ai.getByTestId("setup-next").click();
-  await (await atStep(window, "sorting")).getByTestId("setup-skip").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   const card = window.getByTestId("first-open-steps");
   await expect(card.getByTestId("first-open-step")).toHaveText([
@@ -601,7 +585,6 @@ test("only a model keeps today's card; a model and an agent get the agent's, wit
   ]);
   await stills(window, "7-card-model-only");
 
-  // Both: the agent leads, and Sorting stays.
   await app?.close();
   app = null;
   await removeDataFolder(dataDir);
@@ -612,7 +595,6 @@ test("only a model keeps today's card; a model and an agent get the agent's, wit
   await useLocalChatModel(again);
   await connectClaudeCode(again, await atStep(again, "ai"));
   await (await atStep(again, "ai")).getByTestId("setup-next").click();
-  await (await atStep(again, "sorting")).getByTestId("setup-skip").click();
   await (await atStep(again, "meetings")).getByTestId("setup-skip").click();
   await expect(again.getByTestId("first-open-steps").getByTestId("first-open-step")).toHaveText([
     /Add your Documents/,
@@ -622,11 +604,16 @@ test("only a model keeps today's card; a model and an agent get the agent's, wit
 });
 
 // protects=a User with their own AI and no model here can still choose a decision model, its key typed in place, and the step turns nothing more on than it does for a User with a model: the key sorts and is no Answers model; fails_when=the step is hidden, offers to sort with the User's AI, makes the key the Answers model, or the card's foot misreads what sorts
-test("with only their own AI, the User chooses a decision model in place, and the key sorts and answers nothing", async () => {
+test("with only their own AI, the User chooses a dedicated sorting model later in Settings, and the key sorts and answers nothing", async () => {
   test.setTimeout(180_000);
   const window = await launch();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   await connectClaudeCode(window, await atStep(window, "ai"));
+  await (await atStep(window, "ai")).getByTestId("setup-next").click();
+  await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  await window.getByTestId("first-open-steps").getByTestId("first-open-set-change").click();
+  const settings = await showSettingsPage(window, "ai");
+  await settings.getByTestId("ai-none-step-by-step").click();
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
   const sorting = await atStep(window, "sorting");
   await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openrouter");
@@ -635,6 +622,7 @@ test("with only their own AI, the User chooses a decision model in place, and th
   await sorting.getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   await expect(panelOf(window)).toHaveCount(0);
+  await window.keyboard.press("Escape");
 
   const read = await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;

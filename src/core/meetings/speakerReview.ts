@@ -48,6 +48,7 @@ function unavailable(reason: Reason) {
 
 export function createMeetingSpeakerReview(options: {
   parts(id: string): AudioPart[];
+  heardCallAudio(id: string): boolean;
   recording(
     parts: AudioPart[],
     durationMs: number,
@@ -105,7 +106,7 @@ export function createMeetingSpeakerReview(options: {
     return null;
   }
 
-  function inspect(id: unknown, requested: AudioPart["source"] | "auto" = "system") {
+  function inspect(id: unknown, requested?: AudioPart["source"]) {
     const meeting = options.meeting(id);
     const reason = local(meeting);
     const doc = meeting.transcript?.documentId
@@ -113,9 +114,8 @@ export function createMeetingSpeakerReview(options: {
       : undefined;
     const kept =
       reason || !doc ? [] : options.parts(meeting.id).filter((part) => part.durationMs > 0);
-    const room =
-      kept.some((p) => p.source === "microphone") && !kept.some((p) => p.source === "system");
-    const source = requested === "auto" ? (room ? "microphone" : "system") : requested;
+    const room = kept.some((p) => p.source === "microphone") && !options.heardCallAudio(meeting.id);
+    const source = room ? "microphone" : "system";
     const parts = kept.filter((p) => p.source === source);
     const durationMs = parts.reduce(
       (end, part) => Math.max(end, part.offsetMs + part.durationMs),
@@ -123,7 +123,9 @@ export function createMeetingSpeakerReview(options: {
     );
     const problem: Reason =
       reason ??
-      (!doc?.contentHash || doc.status !== "ready"
+      (!doc?.contentHash ||
+      doc.status !== "ready" ||
+      (requested !== undefined && requested !== source)
         ? "transcript"
         : durationMs === 0
           ? "audio"
@@ -261,7 +263,7 @@ export function createMeetingSpeakerReview(options: {
   if (Object.keys(receiptBook()).length) schedule();
 
   const snapshot = (doc: Document) => JSON.stringify([doc.id, doc.contentHash, doc.speakers]);
-  async function prepare(id: string, state = inspect(id)) {
+  async function prepare(id: string, state = inspect(id, "system")) {
     const grant = state.problem ? null : await cloud.speakerReviewGrant();
     const budget = cloud.reviewBudget(state.estimatedUsd);
     const cached =
@@ -406,7 +408,7 @@ export function createMeetingSpeakerReview(options: {
 
   return {
     async quote(id: string): Promise<MeetingSpeakerReviewQuote> {
-      const state = inspect(id, "auto");
+      const state = inspect(id);
       if (state.room) {
         const doc = state.doc;
         const lines =

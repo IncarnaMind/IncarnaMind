@@ -18,6 +18,7 @@ import {
   checkText,
   everySentence,
   figuresNow,
+  markedSentences,
   noteTextOf,
   noteTextOfMarked,
   recordCiteNote,
@@ -39,19 +40,60 @@ function workbookCellsOf(verification: Verification | null): WorkbookCells | und
   };
 }
 
+/** The slide a deck's line is on, as the file holds it (#3455); null for a line of no slide. */
+export function slideOf(
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): number | null {
+  const page = verification?.pages[sentence.blockId];
+  return page !== undefined && verification?.slides?.[String(page)] !== undefined ? page : null;
+}
+
+/**
+ * What a deck's line is checked with, by the file's check and the Note's own alike (#3455): its
+ * claim, a table row whole with its headings, read with its slide as the file holds it, which
+ * says what a number in a box of its own is, in place of the lines above it in the Note; undefined
+ * for a line of no slide.
+ */
+export function deckSaidOf(
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): (ReturnType<typeof checkText> & { onSlide: number }) | undefined {
+  const slide = slideOf(sentence, verification);
+  const held = slide === null ? undefined : verification?.slides?.[String(slide)];
+  if (slide === null || held === undefined) return undefined;
+  const row = tableClaim(sentence, workbookCellsOf(verification));
+  const said = row === null || row === "not-a-claim" ? checkText(sentence) : row;
+  return { ...said, context: held, onSlide: slide };
+}
+
 /** A line as a file's check reads it: a table row whole with its headings, else the sentence. */
 export function claimOf(
   sentence: SelectedSentence,
   verification: Verification | null,
-): ReturnType<typeof checkText> | undefined {
+): (ReturnType<typeof checkText> & { onSlide?: number }) | undefined {
   const row = tableClaim(sentence, workbookCellsOf(verification));
   if (row === "not-a-claim") return undefined;
-  return row ?? checkText(sentence);
+  return deckSaidOf(sentence, verification) ?? row ?? checkText(sentence);
 }
 
-/** What a line's check is given: its claim, and what stands above it. */
-export const saidOf = (sentence: SelectedSentence, verification: Verification | null) =>
+/**
+ * What a line's check is given: its claim, and what it is read with: a deck's line its slide
+ * (`deckSaidOf`), a table row whole, else the sentence with what stands above it.
+ */
+export const saidOf = (
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): ReturnType<typeof checkText> & { onSlide?: number } =>
+  deckSaidOf(sentence, verification) ??
   claimOf(sentence, verification) ?? { claim: sentence.text, context: sentence.context };
+
+/**
+ * The fingerprint of what a check was given (`ClaimCheckBasis.judgedWith`), made from exactly what
+ * it was sent, so a result stands only while its line would be sent the same.
+ */
+export const fingerprintOf = ({ claim, context }: { claim: string; context: string }): string =>
+  createHash("sha256").update(`${claim}\n\n${context}`).digest("base64url").slice(0, 22);
 
 /** A letter or digit: a line with none states nothing to sort. */
 const WORDS = /[\p{L}\p{N}]/u;
@@ -79,8 +121,30 @@ export function judgedWithOf(
   sentence: SelectedSentence,
   verification: Verification | null,
 ): string {
-  const { claim, context } = saidOf(sentence, verification);
-  return createHash("sha256").update(`${claim}\n\n${context}`).digest("base64url").slice(0, 22);
+  return fingerprintOf(saidOf(sentence, verification));
+}
+
+const verificationIn = (blocks: Y.XmlFragment): Verification | null =>
+  blocks.doc ? (readVerification(blocks.doc.getMap<unknown>(MIND_SETTINGS_FIELD)) ?? null) : null;
+
+/**
+ * What each result in `blocks` that keeps what it was judged with would be judged with now, by
+ * the result's id: the one source of it, for the core's readings and the window's (#3455).
+ */
+export function judgedNow(blocks: Y.XmlFragment): Map<string, string> {
+  const judged = new Map<string, string>();
+  const marks = markedSentences(blocks).filter(({ check }) => check.judgedWith !== undefined);
+  if (marks.length === 0) return judged;
+  const verification = verificationIn(blocks);
+  const sentences = everySentence(blocks, { headings: true });
+  for (const { element, from, to, check } of marks) {
+    if (judged.has(check.id)) continue;
+    const sentence = sentences.find(
+      (each) => each.element === element && each.from < to && each.to > from,
+    );
+    if (sentence) judged.set(check.id, judgedWithOf(sentence, verification));
+  }
+  return judged;
 }
 
 /** Whoever reads a Note's results, and the Note's Documents and settings as they are now. */
@@ -96,9 +160,6 @@ export interface Reader {
 
 /** A stored result's place, as `checkedSentences` gives one. */
 interface MarkedPlace {
-  element: Y.XmlElement;
-  from: number;
-  to: number;
   sentence: string;
   citations: SelectedSentence["citations"];
   noteText?: string;
@@ -109,17 +170,8 @@ interface MarkedPlace {
 export function readingOf(blocks: Y.XmlFragment, reader: Reader) {
   const { figureContexts } = figuresNow(blocks);
   const note = recordCiteNote(blocks);
-  const verification = blocks.doc
-    ? (readVerification(blocks.doc.getMap<unknown>(MIND_SETTINGS_FIELD)) ?? null)
-    : null;
-  let sentences: SelectedSentence[] | undefined;
-  const judgedAt = (place: Pick<MarkedPlace, "element" | "from" | "to">) => () => {
-    sentences ??= everySentence(blocks, { headings: true });
-    const sentence = sentences.find(
-      (each) => each.element === place.element && each.from < place.to && each.to > place.from,
-    );
-    return sentence ? judgedWithOf(sentence, verification) : null;
-  };
+  const verification = verificationIn(blocks);
+  let judged: Map<string, string> | undefined;
   const now = {
     footing: reader.footing ?? NO_FOOTING,
     versions: reader.versions,
@@ -147,7 +199,10 @@ export function readingOf(blocks: Y.XmlFragment, reader: Reader) {
         citations: marked.citations,
         note: note(marked.place),
         ...noteTextOfMarked(marked),
-        judgedWith: judgedAt(marked),
+        judgedWith: () => {
+          judged ??= judgedNow(blocks);
+          return judged.get(check.id) ?? null;
+        },
       }),
   };
 }

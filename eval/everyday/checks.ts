@@ -57,6 +57,7 @@ import type {
   MarkedCitation,
   MarkedFigure,
 } from "../../src/core/api";
+import { SOURCE_TOOLS, WEB_TOOLS } from "../../src/core/tools";
 import { markersWithoutCitation } from "../../src/shared/answerBlocks";
 import { displayName } from "../../src/shared/documentNames";
 import { declines } from "../lib/declines";
@@ -132,6 +133,8 @@ export interface Expected {
    * false: it writes new text, not only a copy of the last Answer (#1734).
    */
   addsAnswer?: boolean;
+  /** It asks for published sources or the web: that Tool is called. Without it, neither is (#3462). */
+  outside?: "sources" | "web";
 }
 
 export interface RequestOutcome {
@@ -206,6 +209,8 @@ export type RequestFailure =
   | { kind: "cited-outside"; documents: number }
   | { kind: "outside"; blocks: number[] }
   | { kind: "beside" }
+  | { kind: "outside-unasked"; tools: string[] }
+  | { kind: "outside-missed"; wanted: "sources" | "web" }
   | { kind: "untouched" }
   | { kind: "not-longer" }
   | { kind: "as-text"; sources: string[] }
@@ -530,6 +535,12 @@ const ASSERTED_ANSWER =
   /(?:\b(?:was|were|is|are|equals?)\b[^.!?\n]{0,40}\d|[为是][^。！？!?\n]{0,20}\d|\b\d+(?:\.\d+)?\s*(?:days?|%|million|billion)\b|\d+(?:\.\d+)?\s*(?:元|亿元|天))/i;
 const ASSERTED_COPULA = /\b(?:was|were|is|are)\b|[为是]/i;
 
+/** The Tools that search outside the User's Documents, by what a request asks for. */
+const OUTSIDE_TOOLS: Record<"sources" | "web", readonly string[]> = {
+  sources: [SOURCE_TOOLS.find],
+  web: [WEB_TOOLS.search, WEB_TOOLS.read],
+};
+
 /** The ways one request failed its guards; none when it passed. */
 export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
   const { expected, answer } = outcome;
@@ -611,6 +622,14 @@ export function requestFailures(outcome: RequestOutcome): RequestFailure[] {
     (call) => call.tool === "add_to_mind" && call.mindChange && call.mindChange.proposals > 0,
   );
   if (expected.inPlace && added) failures.push({ kind: "beside" });
+  const called = new Set(answer.toolCalls.map((call) => call.tool));
+  const unasked = Object.entries(OUTSIDE_TOOLS)
+    .filter(([kind]) => kind !== expected.outside)
+    .flatMap(([, tools]) => tools.filter((tool) => called.has(tool)));
+  if (unasked.length > 0) failures.push({ kind: "outside-unasked", tools: unasked });
+  if (expected.outside && !OUTSIDE_TOOLS[expected.outside].some((tool) => called.has(tool))) {
+    failures.push({ kind: "outside-missed", wanted: expected.outside });
+  }
   const { addedBlocks } = outcome;
   if (
     expected.inPlace &&
@@ -813,6 +832,12 @@ export function failureLine(failure: RequestFailure): string {
       return `changed what it was asked to leave: Block ${failure.blocks.map((block) => block + 1).join(", ")}`;
     case "beside":
       return "added a new version beside the text it was asked to change";
+    case "outside-unasked":
+      return `searched outside the User's Documents unasked: ${failure.tools.join(", ")}`;
+    case "outside-missed":
+      return failure.wanted === "sources"
+        ? "was asked to find published sources and didn't call find_sources"
+        : "was asked to search the web and didn't call search_web";
     case "untouched":
       return "left the text it was asked to change as it was";
     case "not-longer":

@@ -9,6 +9,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
   addDocuments,
@@ -134,7 +135,9 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   // what goes. After its Allow, a Document is tagged without asking.
   const jobs = (await openSettings(window, "ai")).getByTestId("ai-jobs");
   const turnOn = jobs.getByTestId("tagging-automatic-organize");
-  await expect(jobs.getByTestId("tagging-automatic-sends")).toContainText("to OpenAI");
+  await expect(jobs.getByTestId("tagging-automatic-sends")).toContainText(
+    "OpenAI receives the name",
+  );
   await expect(turnOn).toBeChecked();
   await expect(jobs.getByTestId("tagging-automatic-asks")).toHaveText(
     "OpenAI isn’t allowed yet: IncarnaMind asks you before the first Document goes.",
@@ -154,7 +157,7 @@ test("first run: choosing a provider with a key is the consent for what runs by 
   });
   await expect(automatic).toBeChecked();
   await expect(tagging.getByTestId("tagging-automatic-sends")).toHaveText(
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, to OpenAI. Documents already in the Library go only when you run Organize.",
+    translate("en", "setup.sorting.sendsWhenOn", { service: "OpenAI" }),
   );
   await closeSettings(window);
 

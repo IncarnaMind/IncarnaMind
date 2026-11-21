@@ -9,14 +9,26 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { verificationOf } from "../../src/shared/verification";
-import { checkingModel, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
+import {
+  checkGenerate,
+  checkingModel,
+  checkReply,
+  isCheckRun,
+  type Plan,
+  sentenceOf,
+} from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
-import { type ModelCall, scriptedModels } from "../helpers/models";
+import {
+  type GenerateCall,
+  type ModelCall,
+  scriptedModel,
+  scriptedModels,
+} from "../helpers/models";
 import { encryptedOfficeFile } from "../helpers/office";
-import { para, plainDeck, pptxOf, rel, sp, txBody } from "../helpers/pptx";
+import { para, plainDeck, pptxOf, rel, sp, txBody, xfrm } from "../helpers/pptx";
 
 const HARBOUR = [
   "# Harbour survey",
@@ -191,6 +203,31 @@ describe("Verify a deck", () => {
     expect(new Set(calls.filter(isCheckRun).map(sentenceOf))).toEqual(
       new Set([SPRING, PENGUINS, OFFICE, NORTH, SOUTH]),
     );
+  });
+
+  // protects=a deck's line is judged with its slide whichever check asks: the file's check and Check this Note send the model the same request for it (#3455 review); fails_when=Check this Note judges a deck's line with the Note's lines above it in place of its slide
+  test("a deck's line is sent the same, with its slide, by the file's check and by Check this Note", async () => {
+    const calls: ModelCall[] = [];
+    const { core, sources } = await setUp(calls);
+    const result = await core.verifyDocument({
+      path: await writeSourceFile(sources, "Harbour review.pptx", DECK),
+    });
+    if (!result.ok) throw new Error(`The deck wasn't verified: ${result.reason}`);
+    const mindId = result.mind.id;
+    await core.findClaims(request(mindId));
+    await core.verifyClaims(request(mindId));
+    const sent = (from: number) => {
+      const call = calls
+        .slice(from)
+        .find((each) => isCheckRun(each) && sentenceOf(each) === SPRING);
+      return call && { system: call.system, prompt: call.prompt };
+    };
+    const byFile = sent(0);
+    expect(byFile?.prompt).toContain("The slide it is a line of");
+    const before = calls.length;
+
+    await core.checkMind({ requestId: crypto.randomUUID(), mindId, mode: "all" });
+    expect(sent(before)).toEqual(byFile);
   });
 
   // protects=every row of a deck's table reaches the check: a table of words alone has no heading row, and a one-column table is a list; fails_when=the first row of a table with no figures is made a heading, so its sentence is never checked
@@ -404,5 +441,114 @@ describe("Verify a deck", () => {
     expect(
       claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check.state]),
     ).toEqual([[TOTAL, "contradicted"]]);
+  });
+
+  // protects=a deck's line is sorted and checked with its slide as the file holds it: every box's text with where it sits, so a stat card's lone number is read with its label and unit in other boxes (#3455); fails_when=the sort or the check sees the lone number without the boxes around it, or a box's place is lost or wrong in a group
+  test("a stat card's lone number is sorted and checked with its slide: every box with where it sits", async () => {
+    const NUMBER = "243,300";
+    const calls: ModelCall[] = [];
+    const sorts: string[] = [];
+    const plans: Record<string, Plan> = {
+      [NUMBER]: {
+        verdict: "contradicted",
+        quote: "The ferries carried 423,300 passengers in 2025.",
+        says: "Harbour survey gives 423,300 passengers, not 243,300.",
+      },
+    };
+    const generate = checkGenerate(plans);
+    const model = scriptedModel(
+      (call) => {
+        calls.push(call);
+        return checkReply(call, plans);
+      },
+      {
+        generate: (call: GenerateCall) => {
+          if (call.question === "find-claims") sorts.push(call.prompt);
+          return generate(call);
+        },
+      },
+    );
+    const core = startCore(await createTempDataFolder(), {
+      createChatModel: scriptedModels(model).createChatModel,
+    });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Harbour survey.md",
+        "# Harbour survey\n\nThe ferries carried 423,300 passengers in 2025.\n",
+      ),
+    ]);
+    // On a 9,144,000 by 5,143,500 slide: the label above the number, and the unit, in a group
+    // whose child space is twice its own, below it.
+    const unit = sp({
+      id: 6,
+      name: "Unit",
+      spPr: xfrm(914400, 4114800, 1828800, 514350),
+      body: txBody(para("passengers in 2025")),
+    });
+    const group = `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="5" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="457200" y="2571750"/><a:ext cx="914400" cy="257175"/><a:chOff x="914400" y="4114800"/><a:chExt cx="1828800" cy="514350"/></a:xfrm></p:grpSpPr>${unit}</p:grpSp>`;
+    const deck = pptxOf({
+      slides: [
+        {
+          shapes: [
+            sp({
+              id: 2,
+              name: "Title",
+              ph: `<p:ph type="title"/>`,
+              spPr: xfrm(457200, 257175, 8229600, 514350),
+              body: txBody(para("2025 at a glance")),
+            }),
+            sp({
+              id: 3,
+              name: "Label",
+              spPr: xfrm(457200, 1028700, 1828800, 514350),
+              body: txBody(para("Passengers carried")),
+            }),
+            sp({
+              id: 4,
+              name: "Number",
+              spPr: xfrm(457200, 1543050, 1828800, 1028700),
+              body: txBody(para(NUMBER)),
+            }),
+            group,
+          ].join(""),
+        },
+      ],
+    });
+    const path = await writeSourceFile(sources, "Glance.pptx", deck);
+
+    const result = await core.verifyDocument({ path });
+    if (!result.ok) throw new Error(`The deck wasn't verified: ${result.reason}`);
+    const client = await connectToMind(core, result.mind.id);
+    await client.settled();
+    const heading =
+      "Slide 1, as the file holds it: each box in the file's order, with where it sits as a share of the slide.";
+    // Kept without its number, which the models are shown above it: a slide put in before it moves
+    // nothing its lines are judged with.
+    const slide = [
+      "[title, left 5%, top 5%, 90% wide, 10% high] 2025 at a glance",
+      "[text, left 5%, top 20%, 20% wide, 10% high] Passengers carried",
+      "[text, left 5%, top 30%, 20% wide, 20% high] 243,300",
+      "[text, left 5%, top 50%, 10% wide, 5% high] passengers in 2025",
+    ].join("\n");
+    expect(verificationOf(client.doc)?.slides).toEqual({ "1": slide });
+
+    await core.findClaims(request(result.mind.id));
+    const sorted = JSON.parse(sorts[0] ?? "{}") as {
+      slides?: Record<string, string>;
+      sentences?: { text: string; slide?: number }[];
+    };
+    expect(sorted.slides).toEqual({ "1": `${heading}\n${slide}` });
+    expect(sorted.sentences?.find((each) => each.text === NUMBER)?.slide).toBe(1);
+
+    await core.verifyClaims(request(result.mind.id));
+    const checked = calls.filter(isCheckRun).find((call) => sentenceOf(call) === NUMBER);
+    const asked = JSON.stringify(checked?.options.prompt ?? "");
+    expect(asked).toContain("The slide it is a line of");
+    expect(asked).toContain(JSON.stringify(heading).slice(1, -1));
+    expect(asked).toContain("Passengers carried");
+    expect(asked).toContain("passengers in 2025");
   });
 });

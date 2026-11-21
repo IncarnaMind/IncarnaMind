@@ -173,6 +173,15 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     const documentId = meeting.transcript?.documentId;
     const savedPath = meeting.transcript?.savedPath;
     if (!documentId || !savedPath) throw new Error("Missing transcript.");
+    const quote = await window.evaluate(
+      (id) =>
+        (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getMeetingSpeakerReview(
+          id,
+        ),
+      meeting.id,
+    );
+    expect(quote).toMatchObject({ available: false, reason: "soniox" });
+    expect(quote.roomDownloadBytes).toBeUndefined();
     const { contentHash } = await window.evaluate(
       (id) =>
         (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.readDocumentText(id),
@@ -394,20 +403,37 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
   }
 });
 
-test("a saved room meeting offers the model download and plays the suggested microphone line", async () => {
+test("a saved room meeting with silent computer audio offers local review and plays the microphone line", async () => {
   const dataDir = await createDataFolder();
-  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  const { app, window } = await launchApp(dataDir, { fakeChat: true, computerSound: "silent" });
   try {
     await dismissChatSetup(window);
     await chooseLocalChatModel(window);
     await window.evaluate(() =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-        device: { meetingNoticeAccepted: true, meetingSystemAudio: false },
+        device: { meetingNoticeAccepted: true },
       }),
     );
     const meeting = await savedMeeting(window);
     const { documentId, savedPath } = meeting.transcript ?? {};
     if (!documentId || !savedPath) throw new Error("Missing room transcript.");
+    expect(meeting.systemAudio).toBe(true);
+    const { silent, quote } = await window.evaluate(async (meetingId) => {
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { samples } = await core.readMeetingAudio({
+        meetingId,
+        source: "system",
+        fromMs: 0,
+        toMs: 1_000,
+      });
+      return {
+        silent: samples.length > 0 && samples.every((sample) => sample === 0),
+        quote: await core.getMeetingSpeakerReview(meetingId),
+      };
+    }, meeting.id);
+    expect(silent).toBe(true);
+    // The fake transcriber leaves out the native reviewer, so this is the on-device branch.
+    expect(quote).toMatchObject({ available: false, reason: "platform", estimatedUsd: 0 });
     const doc = await window.evaluate(
       async (id) =>
         (
@@ -445,6 +471,7 @@ test("a saved room meeting offers the model download and plays the suggested mic
     const panel = window.getByRole("region", { name: "Review speakers" });
     await expect(panel).toContainText("NVIDIA Sortformer");
     await expect(panel).toContainText("155 MB");
+    await expect(panel).not.toContainText("Soniox");
     expect((await activity()).runs).toBe(0);
     await panel.getByRole("button", { name: "Download and check speakers" }).click();
     const items = panel.getByRole("listitem");

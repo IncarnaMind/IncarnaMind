@@ -1520,6 +1520,7 @@ export interface CoreAdapters {
   speakerSeparator?: SpeakerSeparator;
   roomSpeakerReviewer?: RoomSpeakerReviewer;
   summarizeWithMeetingAgent?(request: {
+    purpose?: "candidate-review";
     client: "claude-code" | "codex";
     /** App-authored instructions only; the client may put them in its trusted context. */
     instructions: string;

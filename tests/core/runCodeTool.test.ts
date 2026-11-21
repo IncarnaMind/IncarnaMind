@@ -27,6 +27,7 @@ const SOURCE: CitationSource = {
   contentHash: "a".repeat(64),
   documentDeleted: false,
   notCited: false,
+  citedBy: null,
   yourNoteAt: null,
 };
 

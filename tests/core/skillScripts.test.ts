@@ -430,7 +430,7 @@ describe("Running a Skill's scripts", { timeout: 30_000 }, () => {
     const offered = calls.slice(before);
     expect(offered).toHaveLength(1);
     expect(offered[0]?.tools).not.toContain(SCRIPT_TOOL);
-    expect(offered[0]?.tools.sort()).toEqual(["read_skill_file", "use_skill"]);
+    expect(offered[0]?.tools.sort()).toEqual(["find_sources", "read_skill_file", "use_skill"]);
     expect(offered[0]?.system).not.toContain("run_skill_script");
     expect(answerText(client, answerId)).toBe("No scripts.");
     expect(existsSync(log)).toBe(false);

@@ -18,6 +18,7 @@ export interface StoredMeetingSummary {
   evidence?: Record<number, StoredSummaryQuote[]>;
   count: number;
   digest: string;
+  lastItemId?: number;
   summary: MeetingSummary;
 }
 
@@ -214,7 +215,8 @@ export function createLiveSummaries(options: Options) {
           (last, item) => (item.corrected ? Math.max(last, item.id) : last),
           0,
         );
-        const value = readMeetingSummaryUpdate(reply, input, lastCorrectedId);
+        const lastItemId = Math.max(lastCorrectedId ?? 0, options.saved(m.id)?.lastItemId ?? 0);
+        const value = readMeetingSummaryUpdate(reply, input, lastItemId);
         const speech = slice.map(summaryEvidenceCue);
         for (const [id, words] of Object.entries(value.evidence)) {
           const quote = storeSummaryQuote(words, speech);

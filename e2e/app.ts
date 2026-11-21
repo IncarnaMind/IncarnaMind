@@ -1428,7 +1428,10 @@ export type SettingsPage =
 
 /** Opens Settings from the sidebar, then one of the pages in its list. Returns the dialog. */
 export async function openSettings(window: Page, page: SettingsPage): Promise<Locator> {
-  await window.getByRole("button", { name: "Settings" }).click();
+  await window
+    .getByTestId("sidebar-footer")
+    .getByRole("button", { name: "Settings", exact: true })
+    .click();
   return showSettingsPage(window, page);
 }
 

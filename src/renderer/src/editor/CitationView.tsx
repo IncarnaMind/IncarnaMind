@@ -960,6 +960,7 @@ function CitationCard({
   const language = useLanguage();
   const gap = useGap();
   const live = useAppStore((store) => store.documents.find((each) => each.id === state.documentId));
+  const outside = (live?.citedBy ?? null) !== null;
   const web = live?.web ?? null;
   const place = useDocumentPlace(state.documentId ?? null);
   const location = citationLocation(attributes);
@@ -1088,6 +1089,11 @@ function CitationCard({
         {attributes.yourNoteAt && (
           <p data-testid="citation-own-record" className="citation-card-note">
             {t("citation.ownRecord")}
+          </p>
+        )}
+        {outside && (
+          <p data-testid="citation-outside" className="citation-card-note">
+            {t("citation.outsideLibrary")}
           </p>
         )}
         {attributes.foundByCheck && (

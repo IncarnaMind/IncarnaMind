@@ -233,16 +233,15 @@ const SAID: Record<OrganizeSend, Record<"en" | "zh-CN", string>> = {
   language: { en: "interface language", "zh-CN": "界面语言" },
 };
 
-/** Every sentence that asks for Organize's consent: the card, the footer's popover, the key's line. */
+/** Every sentence that asks for Organize's consent: the card and the footer's popover. */
 const ASKING: readonly MessageKey[] = [
   "library.organize.consent.sends",
   "library.toSort.sends.one",
   "library.toSort.sends.other",
-  "needsModel.organize",
 ];
 
 describe("The words that ask for Organize's consent name every kind it sends (#1569)", () => {
-  // protects=the card, the footer's popover and the key's line each name every kind in the list, in English and Chinese; fails_when=a sentence names fewer kinds than Organize sends; no_claim=how the sentence reads.
+  // protects=the card and the footer's popover each name every kind in the list, in English and Chinese; fails_when=a sentence names fewer kinds than Organize sends; no_claim=how the sentence reads.
   test.each(["en", "zh-CN"] as const)("%s", (language) => {
     const missing = ASKING.flatMap((key) => {
       const sentence = translate(language, key, { service: "Anthropic", count: 4 });
