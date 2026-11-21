@@ -333,6 +333,8 @@ export interface ModelCall {
    * search made for it before it began (#3512), which `results` lists as the first of its searches.
    */
   fresh: boolean;
+  /** How many results of the model's own Tool calls it holds so far, the search made for it not among them. */
+  step: number;
   options: CallOptions;
 }
 
@@ -429,9 +431,14 @@ export function promptText(prompt: CallOptions["prompt"]): string {
     .join("\n\n");
 }
 
-function resultsOf(options: CallOptions): { results: ModelCall["results"]; fresh: boolean } {
+function resultsOf(options: CallOptions): {
+  results: ModelCall["results"];
+  fresh: boolean;
+  step: number;
+} {
   const results: ModelCall["results"] = [];
   let turns = 0;
+  let step = 0;
   for (const message of options.prompt) {
     if (message.role === "assistant") {
       const searched =
@@ -452,9 +459,10 @@ function resultsOf(options: CallOptions): { results: ModelCall["results"]; fresh
             ? JSON.stringify(output.value)
             : "";
       results.push({ tool: part.toolName, text });
+      if (part.toolCallId !== FIRST_SEARCH_ID) step++;
     }
   }
-  return { results, fresh: turns === 0 };
+  return { results, fresh: turns === 0, step };
 }
 
 type Prompt = CallOptions["prompt"];

@@ -178,8 +178,8 @@ async function marksOf(client: MindClient) {
 }
 
 describe.each(LANGUAGES)("check requests ($language)", (example) => {
-  // protects=a plain factual sentence the assistant writes is checked with the requests it took before sentences had parts: no sorting request, one Run of search, cite and reply (#1635); fails_when=a written check sends a sorting request or splits a one-fact sentence; no_claim=how many steps a real model takes.
-  test("a plain factual written sentence costs main's three requests, with no sorting request", async () => {
+  // protects=a plain factual sentence the assistant writes is checked with the requests it took before sentences had parts: no sorting request, one Run of cite and reply on the search made for it (#1635, #3512); fails_when=a written check sends a sorting request or splits a one-fact sentence; no_claim=how many steps a real model takes.
+  test("a plain factual written sentence costs two requests, with no sorting request", async () => {
     const model = writingModel(example.source, example.written, (call) =>
       quoting(call, example.source),
     );
@@ -189,7 +189,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     const { change, client } = await write(core, folderId);
 
     expect(change.selfCheck?.sent).toBe(1);
-    expect(checkRequests(model)).toEqual({ sorting: 0, steps: 3, asked: 0 });
+    expect(checkRequests(model)).toEqual({ sorting: 0, steps: 2, asked: 0 });
     expect(await marksOf(client)).toEqual([
       {
         state: "supported",
@@ -198,7 +198,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     ]);
   });
 
-  // protects=written sentences with numbers cost the requests they did before sentences had parts: one Run each of search, cite and reply, judged whole, and no sorting request is sent (#1635, #1932); fails_when=a sentence with a figure sends a sorting request of its own, or takes more steps; no_claim=how many steps a real model takes.
+  // protects=written sentences with numbers cost the requests they did before sentences had parts: one Run each of cite and reply on the search made for it, judged whole, and no sorting request is sent (#1635, #1932); fails_when=a sentence with a figure sends a sorting request of its own, or takes more steps; no_claim=how many steps a real model takes.
   test("three written sentences with numbers make no sorting request", async () => {
     const sentences = [1, 2, 3].map(example.sentence);
     const plans = Object.fromEntries(
@@ -219,7 +219,7 @@ describe.each(LANGUAGES)("check requests ($language)", (example) => {
     const { change, client } = await write(core, folderId);
 
     expect(change.selfCheck?.sent).toBe(3);
-    expect(checkRequests(model)).toEqual({ sorting: 0, steps: 9, asked: 0 });
+    expect(checkRequests(model)).toEqual({ sorting: 0, steps: 6, asked: 0 });
     expect((await marksOf(client)).map((mark) => mark.state)).toEqual([
       "supported",
       "supported",

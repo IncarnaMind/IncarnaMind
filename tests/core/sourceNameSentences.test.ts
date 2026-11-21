@@ -406,7 +406,7 @@ const sentTo = (calls: readonly ModelCall[], from = 0) => [
   ...new Set(
     calls
       .slice(from)
-      .filter((call) => isCheckRun(call) && call.results.length === 0)
+      .filter((call) => isCheckRun(call) && call.fresh)
       .map(sentenceOf),
   ),
 ];

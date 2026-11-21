@@ -222,7 +222,7 @@ describe("A table the assistant writes is checked cell by cell, each with its ro
       });
       await client.settled();
 
-      const sent = checks.filter((call) => call.results.length === 0);
+      const sent = checks.filter((call) => call.fresh);
       expect(sent.map(sentenceOf)).toEqual(budget.rows.flatMap((row) => row.values));
       const [first] = budget.rows;
       const cell = sent.find((call) => sentenceOf(call).startsWith("100"));
@@ -431,7 +431,7 @@ describe("Check this Mind on the User's own numeric table", () => {
         checks.push(call);
         // A Run searches with the words it will quote: a bare cell's own words find nothing.
         const sentence = sentenceOf(call);
-        if (isCheckRun(call) && call.results.length === 0)
+        if (isCheckRun(call) && call.fresh)
           return {
             calls: [
               {
@@ -477,9 +477,9 @@ describe("Check this Mind on the User's own numeric table", () => {
 
     await core.checkMind({ requestId: randomUUID(), mindId, mode: "all" });
 
-    const sent = checks.filter((call) => call.results.length === 0).map(sentenceOf);
+    const sent = checks.filter((call) => call.fresh).map(sentenceOf);
     expect(sent).toEqual(expect.arrayContaining(["0.075", "3", "0.050", "2"]));
-    const wrong = checks.find((call) => call.results.length === 0 && sentenceOf(call) === "3");
+    const wrong = checks.find((call) => call.fresh && sentenceOf(call) === "3");
     expect(promptOf(wrong)).toContain("Quantity");
     expect(promptOf(wrong)).toContain("Glass beads | 0.075 | 3");
     // Its result lands on the cell as its own.

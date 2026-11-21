@@ -76,8 +76,7 @@ async function setUp(example: (typeof CASES)[number]) {
   await client.settled();
   expect(readMind(client).content.content.map((block) => block.type.name)).toEqual(["table"]);
   const request = () => ({ requestId: crypto.randomUUID(), mindId: mind.id });
-  const checked = () =>
-    calls.filter((call) => isCheckRun(call) && call.results.length === 0).map(sentenceOf);
+  const checked = () => calls.filter((call) => isCheckRun(call) && call.fresh).map(sentenceOf);
   return { core, client, model, tableSorts, original, edited, request, checked };
 }
 

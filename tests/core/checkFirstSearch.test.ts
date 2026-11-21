@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Core, SearchScope } from "../../src/core";
 import { mindScopeOf, setMindScope } from "../../src/shared/mindScope";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
-import { checkGenerate, checkingModel, isCheckRun } from "../helpers/checks";
+import { checkGenerate, checkingModel, isCheckRun, sentenceOf } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import {
@@ -213,5 +213,60 @@ describe("a check starts from the sentence's own search, in the scope its model'
       expect(call.prompt).not.toContain("the log says");
       expect(JSON.stringify(call.results)).not.toContain("the log says");
     }
+  });
+
+  const EAST = "The east quay holds 31 boats.";
+  const EAST_OTHER = "The east quay holds 35 boats.";
+  const FILE = "Quay notes";
+
+  // protects=a sentence an agent writes from a file outside the Library still gets that file, shown with the sentence, and no other sentence's first search is handed it (#3509); fails_when=the code's search hands the file to a sentence that doesn't cite it, or the sentence that cites it loses it
+  it("still gives a sentence the file it cites by path, and hands that file to no other sentence", async () => {
+    const calls: ModelCall[] = [];
+    const { writer, coast, files } = await started(calls, {
+      plans: {
+        ...PLANS,
+        [EAST]: {
+          verdict: "supported",
+          quote: "The east quay holds 31 boats",
+          says: "Quay notes say the east quay holds 31 boats.",
+        },
+        [EAST_OTHER]: { verdict: "unsupported" },
+      },
+    });
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, `${FILE}.md`);
+    await writeFile(path, `# ${FILE}\n\n${EAST}\n\nThe slipway closes at dusk.\n`);
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: { citations: [{ path, quote: "The east quay holds 31 boats" }] },
+      }),
+    );
+    const made = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Quays",
+          markdown: `${EAST} ${citations[0]?.cite}\n\n${EAST_OTHER}`,
+          folderId: coast.id,
+        },
+      }),
+    );
+    const before = calls.length;
+
+    const checked = structured<{ status: string; supported: number }>(
+      await agent.callTool({ name: "check_mind", arguments: { mindId: made.mindId } }),
+    );
+
+    expect(checked).toMatchObject({ status: "checked", supported: 1 });
+    const runs = calls.slice(before).filter(isCheckRun);
+    // The sentence that cites the file has it, shown with the sentence.
+    expect(runs.find((call) => sentenceOf(call) === EAST)?.prompt).toContain(FILE);
+    // No search of any check showed the file, the code's first search included.
+    for (const call of runs) expect(JSON.stringify(call.results)).not.toContain(FILE);
+    // The other sentence's first search found Documents, and not the file.
+    const other = runs.filter((call) => sentenceOf(call) === EAST_OTHER);
+    expect(shown(other).size).toBeGreaterThan(0);
+    expect(shown(other)).not.toContain(FILE);
   });
 });
