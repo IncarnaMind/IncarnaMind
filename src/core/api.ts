@@ -13023,7 +13023,8 @@ export type AgentToolName = (typeof AGENT_TOOLS)[number];
  * - "not-found": no such Passage, Document, Mind or Citation;
  * - "chat-not-ready": `ask` needs a chat model that is set up and allowed;
  * - "read-only": it may read but not propose changes (`AgentPairing.propose`);
- * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold;
+ * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold, or
+ *   the Document it reads in parts changed between two of them;
  * - "waiting": a paragraph it names has changes waiting for the User, or is being written;
  * - "invalid": its arguments make no sense;
  * - "no-python": `run_analysis` needs Python, which this computer can't run for IncarnaMind (#3363);

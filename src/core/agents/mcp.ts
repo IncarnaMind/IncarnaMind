@@ -30,6 +30,7 @@ import {
   MAX_CHANGES,
   MAX_CITES,
   MAX_SEARCH_PAGE,
+  READ_PART_TOKENS,
 } from "./access";
 import { OWN_VERDICT_WORDS } from "./ownCheck";
 import { SORTING_BATCH } from "./sorting";
@@ -218,10 +219,11 @@ export function createAgentServer(
     tool("read_passages"),
     {
       title: "Read Passages",
-      description: `Read a Passage with up to ${MAX_AROUND} before and after it, or a Document from its start. Never a whole Document: read on with \`previous\` or \`next\`.`,
+      description: `Read a Document: whole in one call up to about ${READ_PART_TOKENS.toLocaleString("en")} tokens, a longer one in parts (pass each part's \`next\` as \`from\`). Or read a Passage with up to ${MAX_AROUND} before and after it.`,
       inputSchema: z.object({
+        documentId: z.string().optional(),
+        from: z.string().optional(),
         passageId: passageId.optional(),
-        documentId: z.string().optional().describe("Read from its start instead."),
         before: z.number().int().min(0).max(MAX_AROUND).optional(),
         after: z.number().int().min(0).max(MAX_AROUND).optional(),
       }),
@@ -255,7 +257,11 @@ export function createAgentServer(
             }),
           )
           .min(1)
-          .max(MAX_CITES),
+          // The SDK refuses a longer list with this, before IncarnaMind reads it: say how to go on.
+          .max(
+            MAX_CITES,
+            `At most ${MAX_CITES} quotes a call: cite the first ${MAX_CITES}, then the rest in another call.`,
+          ),
       }),
       outputSchema: z.object({
         citations: z.array(

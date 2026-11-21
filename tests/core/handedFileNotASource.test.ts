@@ -86,7 +86,7 @@ describe("a file an outside agent handed over", () => {
             arguments: { citations: [{ passageId: own.passageId, quote: EAST }] },
           }),
         ),
-      ).toBe(NOT_FOUND);
+      ).toBe(translate("en", "agents.problem.citeNotFound", { passageId: own.passageId }));
       const row = await coastRow(each);
       expect(row?.documents).toBe(2);
       expect(row?.documentList.map((listed) => listed.id)).not.toContain(document.id);

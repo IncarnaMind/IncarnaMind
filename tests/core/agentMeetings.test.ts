@@ -326,11 +326,11 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     );
     const placed = async (documentId: string) =>
       structured<{ passages: { location: string | null }[] }>(
-        await agent.callTool({ name: "read_passages", arguments: { documentId, after: 1 } }),
+        await agent.callTool({ name: "read_passages", arguments: { documentId } }),
       ).passages.map((each) => each.location);
     // As before: a web page's section, and the lines of each Passage's Units.
     expect(await placed(page.document.id)).toEqual(["§ Start"]);
-    expect(await placed(log.id)).toEqual(["lines 1–50", "lines 1–100"]);
+    expect((await placed(log.id)).slice(0, 2)).toEqual(["lines 1–50", "lines 1–100"]);
   });
 
   // protects=a meeting goes where its Note goes: one whose Note the agent can't read, in a Folder not shared, in no Folder or behind a wall, is never listed, searched, cited or counted, and the refusal says nothing of it; fails_when=Not in a Folder or a shared Folder's tree hands the agent a Transcript whose Note it may not read, or a refusal tells such a meeting apart from an id that never was
@@ -363,22 +363,23 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
           arguments: { documentId: recorded[key].transcriptId },
         }),
         await agent.callTool({ name: "read_mind", arguments: { mindId: recorded[key].mindId } }),
-        await agent.callTool({
-          name: "cite",
-          arguments: {
-            citations: [
-              {
-                passageId: await passageOf(core, recorded[key].transcriptId, MEETINGS[key][0]),
-                quote: MEETINGS[key][0],
-              },
-            ],
-          },
-        }),
       ];
       for (const refusal of refusals) {
         expect(refusal.isError).toBe(true);
         expect(resultText(refusal)).toBe(nowhere);
       }
+      // A cite names the Passage it was given, as it names one that never was.
+      const cite = (passageId: string) =>
+        agent.callTool({
+          name: "cite",
+          arguments: { citations: [{ passageId, quote: MEETINGS[key][0] }] },
+        });
+      const passageId = await passageOf(core, recorded[key].transcriptId, MEETINGS[key][0]);
+      const cited = await cite(passageId);
+      expect(cited.isError).toBe(true);
+      expect(resultText(cited)).toBe(
+        resultText(await cite("no-such-passage")).replace("no-such-passage", passageId),
+      );
     }
     said.push(resultText(await countLists(agent)));
     for (const text of said) expect(text).not.toMatch(forbidden);
