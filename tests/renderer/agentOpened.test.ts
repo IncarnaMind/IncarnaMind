@@ -37,6 +37,9 @@ const page = new DOMParser().parseFromString(
   "text/html",
 );
 Object.assign(page.defaultView, { incarnamind: bridge, incarnamindFiles: bridge });
+/** Whether the User is in this window, as the page's `document.hasFocus()` says. */
+let inThisWindow = true;
+Object.assign(page, { hasFocus: () => inThisWindow });
 Object.assign(globalThis, {
   window: page.defaultView,
   document: page,
@@ -96,6 +99,7 @@ function tabs(): { notes: string[]; front: string | null } {
 /** The User in "Field notes", and the Notes that check versions 1 and 2 of a deck. */
 async function inANote() {
   handed.clear();
+  inThisWindow = true;
   real = startCore(await createTempDataFolder());
   const notes = (await coreOf().createMind({ title: "Field notes" })).id;
   const first = (await coreOf().createMind({ title: "Checking version 1: Harbour review" })).id;
@@ -105,6 +109,66 @@ async function inANote() {
   await vi.waitFor(() => expect(tabs()).toEqual({ notes: [notes], front: notes }));
   return { notes, first, second };
 }
+
+describe("what an agent made while the User is in another app", () => {
+  // protects=a Note an agent wrote while the User was in the agent's app is the tab in front when they come back (#3534); fails_when=it opens behind the tab the window showed, so the User has to find it
+  test("a Note it wrote takes the front tab", async () => {
+    const { notes } = await inANote();
+    const written = (await coreOf().createMind({ title: "Tide report" })).id;
+    inThisWindow = false;
+    announce(behind(written));
+    await vi.waitFor(() => expect(tabs()).toEqual({ notes: [notes, written], front: written }));
+  });
+
+  // protects=back in the window, the next Note an agent writes opens behind again, so the keyboard stays where the User types (#3371); fails_when=one Note written while away leaves every later one taking the front
+  test("back in the window, the next one opens behind", async () => {
+    const { notes } = await inANote();
+    const away = (await coreOf().createMind({ title: "Tide report" })).id;
+    const back = (await coreOf().createMind({ title: "Ferry log" })).id;
+    inThisWindow = false;
+    announce(behind(away));
+    await vi.waitFor(() => expect(tabs().front).toBe(away));
+    inThisWindow = true;
+    announce(behind(back));
+    await vi.waitFor(() => expect(tabs().notes).toEqual([notes, away, back]));
+    expect(tabs().front).toBe(away);
+  });
+
+  // protects=a newer version's check of a handed-over file, made while the User was away, is in front in the earlier one's place (#3493, #3534); fails_when=it stays behind, or opens a second tab
+  test("a file handed over again comes in front in its earlier version's place", async () => {
+    const { notes, first, second } = await inANote();
+    handedOver("deck", [first]);
+    announce(behind(first));
+    await vi.waitFor(() => expect(tabs().notes).toEqual([notes, first]));
+
+    handedOver("deck", [first, second]);
+    inThisWindow = false;
+    announce(behind(second));
+    await vi.waitFor(() => expect(tabs()).toEqual({ notes: [notes, second], front: second }));
+  });
+
+  // protects=a tab the User pinned is theirs while they are away too: the earlier version's pinned check stays where it is, and the newer opens in a tab of its own, in front (#3493, #3534); fails_when=coming in front closes, replaces or moves a pinned tab
+  test("a pinned first version stays, and version 2 opens in front in a tab of its own", async () => {
+    const { notes, first, second } = await inANote();
+    handedOver("deck", [first]);
+    announce(behind(first));
+    await vi.waitFor(() => expect(tabs().notes).toEqual([notes, first]));
+    const pinned = useAppStore
+      .getState()
+      .layout?.groups.flatMap((group) => group.tabs)
+      .find((tab) => tab.item.kind === "mind" && tab.item.mindId === first);
+    if (!pinned) throw new Error("Version 1's check has no tab.");
+    await useAppStore.getState().changeLayout({ type: "pin", tabId: pinned.id, pinned: true });
+    await vi.waitFor(() => expect(tabs().notes).toEqual([first, notes]));
+
+    handedOver("deck", [first, second]);
+    inThisWindow = false;
+    announce(behind(second));
+    await vi.waitFor(() => expect(tabs().notes).toHaveLength(3));
+    expect(tabs().notes.slice(0, 2)).toEqual([first, notes]);
+    expect(tabs().front).toBe(second);
+  });
+});
 
 describe("a file an agent handed over again", () => {
   // protects=two hand-overs of one file leave one tab, the newer version's check where the first was, behind the Note the User is in (#3493); fails_when=each version piles up a tab of its own, or the newer comes in front
