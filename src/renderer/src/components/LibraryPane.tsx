@@ -36,7 +36,6 @@ import {
 import { useTextSearch } from "../libraryTextSearch";
 import { queryWords } from "../matcher";
 import { meetingHitsOf } from "../meetingTranscript";
-import { organizeDocuments } from "../organizeDocuments";
 import { organizeStateOf } from "../organizeOutcome";
 import { openReview, useFoldersWaiting, useOrganizeReview } from "../organizeReview";
 import {
@@ -292,9 +291,7 @@ export function LibraryPane() {
   // A run that grouped none of them says so at the top: it doesn't say they are sorted too.
   const apart = useOrganizeReview((state) => state.apart !== null);
   const sortIntoFolders =
-    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing && foldersWaiting === 0
-      ? () => organizeDocuments(null).catch(useAppStore.getState().reportError)
-      : null;
+    folders.length === 0 && looseOwn >= DAY_ONE_DOCUMENTS && !narrowing && foldersWaiting === 0;
   const subOpen = useLibraryFolds((state) => state.subOpen);
   const shownIds = useMemo(
     () =>
@@ -469,7 +466,7 @@ export function LibraryPane() {
               count={headerCount}
               sorted={allSorted && waiting === 0 && !apart}
               organizeCount={looseOwn}
-              onSortIntoFolders={sortIntoFolders}
+              sortIntoFolders={sortIntoFolders}
               sorting={running}
               canAdd={snapshot !== null && !emptyLibrary}
               search={search}

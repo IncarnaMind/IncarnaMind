@@ -41,6 +41,7 @@ import {
 } from "../sidebarRows";
 import { FolderForm } from "./FolderForm";
 import { LibraryRow, pageRowClass } from "./LibraryRow";
+import { OrganizeButton } from "./OrganizeButton";
 import { SectionHead, sectionNameClass } from "./SectionHead";
 
 /** A link-like button in a section's head or foot: quiet until pointed at. */
@@ -592,6 +593,7 @@ function LooseHead({ documents, open }: { documents: readonly Document[]; open: 
  * it couldn't do, with one action.
  */
 function Organize({ documents }: { documents: readonly Document[] }) {
+  const target = useMemo(() => ({ ids: documents.map((doc) => doc.id) }), [documents]);
   const t = useT();
   const all = useListedDocuments();
   const library = useAppStore((state) => state.library);
@@ -664,14 +666,8 @@ function Organize({ documents }: { documents: readonly Document[] }) {
   }
   if (documents.length === 0) return null;
   return (
-    <button
-      type="button"
-      data-testid="library-organize"
-      title={t("library.organize.explain")}
-      onClick={() => run(documents.map((doc) => doc.id))}
-      className={quietButtonClass}
-    >
+    <OrganizeButton target={target} testId="library-organize" className={quietButtonClass}>
       {t("library.classify")}
-    </button>
+    </OrganizeButton>
   );
 }

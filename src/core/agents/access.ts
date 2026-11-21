@@ -1859,6 +1859,35 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
   };
 
+  function sortingRequest(
+    pairing: AdmittedPairing,
+    target: NonNullable<RequestNamed["organize"]>,
+    looking: Looking,
+  ) {
+    let scope: string;
+    if (target === "selected") {
+      scope = t("agents.ask.organize.selected", {
+        ids: JSON.stringify(looking.documents.map((doc) => doc.id)),
+      });
+    } else {
+      const reached = reachedFolders(deps, pairing);
+      if (target === "loose") {
+        if (!reached.has(NOT_IN_A_FOLDER_ID))
+          throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+        scope = t("agents.ask.organize.loose");
+      } else {
+        const folder = looking.folders[0]?.id;
+        if (!folder)
+          throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+        const children = deps
+          .foldersInside(folder)
+          .filter((id) => id !== folder && reached.has(id));
+        scope = t("agents.ask.organize.folder", { folder, folders: JSON.stringify(children) });
+      }
+    }
+    return t("agents.ask.request.organize", { scope });
+  }
+
   /**
    * The results a Note holds, as its page counts them, and what a Document says of each sentence
    * that needs a look: what this agent reaches only. The Documents read are in `read`.
@@ -3033,19 +3062,31 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           ...(looking?.documents ?? []),
           ...(looking?.folders ?? []),
         ];
-        if (looking !== null && chosen.mindId === null && !first) {
+        if (
+          looking !== null &&
+          chosen.mindId === null &&
+          !first &&
+          chosen.named?.organize !== "loose"
+        ) {
           // Everything it named was deleted since: nothing is left to go on, as for a deleted Note.
           deps.requests.markRead(chosen.id);
           throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
         }
-        const request = [chosen.text, looking ? lookingText(looking, t) : ""]
-          .filter((part) => part !== "")
-          .join("\n\n");
+        const request =
+          looking && chosen.named?.organize
+            ? sortingRequest(pairing, chosen.named.organize, looking)
+            : [chosen.text, looking ? lookingText(looking, t) : ""]
+                .filter((part) => part !== "")
+                .join("\n\n");
         const read = deps.requests.markRead(chosen.id, request);
         if (!read) return none;
         // As the line named it: the Note, else the Document in front.
         const title =
-          chosen.mindId !== null ? titleOf(chosen.mindId) : (looking?.open[0]?.name ?? "");
+          chosen.mindId !== null
+            ? titleOf(chosen.mindId)
+            : chosen.named?.organize
+              ? chosen.title
+              : (looking?.open[0]?.name ?? "");
         return {
           result: { mindId: chosen.mindId, title, request },
           count: 1,

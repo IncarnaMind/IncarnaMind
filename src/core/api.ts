@@ -7133,6 +7133,14 @@ export interface OrganizeLibraryInput {
   folders?: FolderCountAim;
 }
 
+/** A Library Organize press: its loose Documents, a selection, or the Documents in one Folder. */
+export type OrganizeTarget = { ids: readonly string[] | null } | { folderId: string };
+
+export interface OrganizeAgents {
+  eligible: AgentPairing[];
+  connected: boolean;
+}
+
 /** How many new Folders a plan made again aims at, against how many the last plan proposed. */
 export type FolderCountAim = { fewerThan: number } | { moreThan: number };
 
@@ -12927,6 +12935,7 @@ export const MAX_ASKED_SENTENCES = 30;
  * (#3533).
  */
 export type AgentAsk =
+  | { kind: "organize"; target: OrganizeTarget }
   | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
@@ -15498,6 +15507,8 @@ export interface CoreApi {
   openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
+  /** With no Organize model, the connected agents that can read the whole target the User chose. */
+  agentsForOrganize(target: OrganizeTarget): Promise<OrganizeAgents>;
   /**
    * Ask your AI (#3373): one line in the interface language, in the User's words, for them to send
    * in their own AI. Its app opens with the line typed where it documents a link for that;
@@ -16303,6 +16314,7 @@ const methods: Record<CoreApiMethod, true> = {
   undoAgentSetup: true,
   copyAgentSetup: true,
   openAgentInstallAgain: true,
+  agentsForOrganize: true,
   listAgentsToAsk: true,
   askAgent: true,
   handedFileOf: true,

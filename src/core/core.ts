@@ -8675,6 +8675,13 @@ export function createCore(adapters: CoreAdapters): Core {
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),
     copyAgentSetup: (pairingId) => agentSetup.settingsFor(pairingId),
     openAgentInstallAgain: (pairingId) => agentSetup.openInstallAgain(pairingId),
+    agentsForOrganize: async (target) => {
+      if (organizeModelOf(library.settings())) return { eligible: [], connected: false };
+      const available = agentAsk.forOrganize(target);
+      return available.connected && (await tagging.resolve())
+        ? { eligible: [], connected: false }
+        : available;
+    },
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
