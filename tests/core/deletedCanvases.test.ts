@@ -14,6 +14,7 @@ import type { WindowLayout } from "../../src/core";
 import type { CanvasFiles } from "../../src/core/adapters";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
+import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent, resultText, startAgentsCore } from "../helpers/agents";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import { createSourceFolder } from "../helpers/documents";
@@ -227,7 +228,8 @@ describe("A Canvas deleted", () => {
     await expect(core.restore([{ kind: "canvas", id: gone }])).rejects.toThrow(
       "“Tide report” was deleted permanently, so it can’t be restored.",
     );
-    expect(await reads(agent, gone)).toBe(NOT_REACHED);
+    // Coast, which this agent wasn't given, is more than it reaches (#3544).
+    expect(await reads(agent, gone)).toBe(`${NOT_REACHED} ${translate("en", "agents.notShared")}`);
     // The other is drawn whole, its picture too.
     const host = new URL((await core.showCanvas(kept)).url).hostname;
     expect((await core.serveCanvas(host, "/chart.png"))?.type).toBe("image/png");
