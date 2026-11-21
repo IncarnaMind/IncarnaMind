@@ -19,6 +19,11 @@ import type { MessageKey } from "../../shared/i18n";
 import { keysForm } from "../../shared/keyForms";
 import { type HelpShortcut, helpKeysOf, helpLabel, isHelpShortcut } from "../../shared/meetingHelp";
 import type { PanelState } from "../../shared/meetingPanel";
+import {
+  type ConversationAt,
+  MEETING_PANEL_BRIDGE_KEY,
+  type MeetingPanelBridge,
+} from "../../shared/meetingPanel";
 import { keysHere } from "./commands/keymap";
 import { useComposer } from "./composer";
 import { noMoveSinceAsked, openConversation, useConversations } from "./conversations";
@@ -28,6 +33,7 @@ import { helpToKeep } from "./helpReply";
 import { translateNow } from "./i18n";
 import { isLive, useMeetings } from "./meetings";
 import { useAppStore } from "./store";
+import { openTranscriptOfNote } from "./transcripts";
 import { windowKeysOf } from "./windowKeys";
 
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
@@ -265,6 +271,39 @@ export function helpKeysLabel(
   return keys && !windowKeysOf(isMac).has(keysForm(keys, isMac)) ? keysHere(keys) : null;
 }
 
+async function openHelpSource({ conversationId, answerId, sourceMarker }: ConversationAt) {
+  try {
+    const { messages } = await core.getConversation(conversationId);
+    const answer = messages.find((each) => each.id === answerId);
+    if (answer?.kind !== "answer" || !answer.steps?.meetingHelpAgent)
+      throw new Error(translateNow("meetings.help.agent.sourceMissing"));
+    const question = messages.find((each) => each.id === answer.questionId);
+    const source = answer.citations.find((each) => each.marker === sourceMarker);
+    if (
+      question?.kind !== "question" ||
+      !question.askedFrom ||
+      question.askedFrom.deleted ||
+      source?.check !== "found" ||
+      source.location?.kind !== "time"
+    )
+      throw new Error(translateNow("meetings.help.agent.sourceMissing"));
+    await openTranscriptOfNote(question.askedFrom.mindId, source.documentId, {
+      quote: source.quote,
+      transcriptCue: { startMs: source.location.from, endMs: source.location.to },
+    });
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+  }
+}
+
+export function revealHelpSource(at: ConversationAt) {
+  const panel = (window as Window & { [MEETING_PANEL_BRIDGE_KEY]?: MeetingPanelBridge })[
+    MEETING_PANEL_BRIDGE_KEY
+  ];
+  if (panel) panel.openInAssistant(at);
+  else void openHelpSource(at);
+}
+
 /** Shows a conversation of the call's help in the assistant, its composer ready to go on (#2925). */
 export async function openHelpInAssistant(conversationId: string, answerId?: string) {
   if (await openConversation(conversationId, answerId)) useComposer.getState().requestFocus();
@@ -282,7 +321,10 @@ export function useMeetingHelpInWindow(): void {
       files.onMeetingHelp((kind) => void askHelpInAssistant(kind)),
       files.onSetUpModel(() => useAppStore.getState().openSettings("ai")),
       files.onOpenConversation(
-        ({ conversationId, answerId }) => void openHelpInAssistant(conversationId, answerId),
+        (at) =>
+          void (at.sourceMarker
+            ? openHelpSource(at)
+            : openHelpInAssistant(at.conversationId, at.answerId)),
       ),
       files.onMeetingPanel((panel) => useMeetingHelp.setState({ panel })),
     ];

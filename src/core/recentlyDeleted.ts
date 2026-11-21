@@ -279,6 +279,8 @@ export function createRecentlyDeleted(options: {
   canvasesRestored(canvasIds: readonly string[], reopen: boolean): void;
   /** Minds and Canvases gone for good: what the layout kept for their tabs goes. */
   forgotten(ids: readonly string[]): void;
+  /** The Folders a restore brought back, in its transaction, once the Documents it restores are back. */
+  foldersRestored(folderIds: readonly string[]): void;
   conversationsChanged(): void;
   tagsChanged(): void;
   tagged(documentIds: string[]): void;
@@ -453,7 +455,7 @@ export function createRecentlyDeleted(options: {
           meetings: [] as RestoredMeeting[],
           conversations: false,
           documents: [] as string[],
-          folders: false,
+          folderIds: [] as string[],
           toTopLevel: [] as string[],
           tags: false,
           tagged: new Set<string>(),
@@ -523,7 +525,7 @@ export function createRecentlyDeleted(options: {
                   restored.canvases = true;
                 }
               }
-              restored.folders = true;
+              restored.folderIds.push(...taken.folders);
             } else if (kind === "canvas") {
               options.canvases.restore(ref.id);
               restored.canvasIds.push(ref.id);
@@ -540,6 +542,7 @@ export function createRecentlyDeleted(options: {
           }
         }
         bringBack();
+        if (restored.folderIds.length > 0) options.foldersRestored(restored.folderIds);
         // Once every ref is back, so a Document restored in the same call counts.
         const links = refs.flatMap((ref) => ref.links ?? []);
         checkLinks(links);
@@ -563,7 +566,7 @@ export function createRecentlyDeleted(options: {
         library.announce(done.documents);
         library.resume();
       }
-      if (done.folders) library.restored();
+      if (done.folderIds.length > 0) library.restored();
       if (done.canvases) options.canvases.announce();
       if (done.canvasIds.length > 0) options.canvasesRestored(done.canvasIds, reopen);
       if (done.tags || sourcesChanged) options.tagsChanged();

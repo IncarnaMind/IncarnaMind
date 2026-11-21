@@ -66,6 +66,7 @@ export const MEETING_PANEL_CHANNELS = {
 export interface ConversationAt {
   conversationId: string;
   answerId: string;
+  sourceMarker?: number;
 }
 
 export interface MeetingPanelBridge {

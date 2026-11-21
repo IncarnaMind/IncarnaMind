@@ -347,7 +347,7 @@
     @apply bg-hover;
   }
   .transcript-sentence--partial {
-    @apply text-ink-placeholder;
+    @apply text-ink-secondary;
   }
   /*
    * A column for the turn's actions keeps them beside the words when shown on pointer or focus.

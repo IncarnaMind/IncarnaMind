@@ -3873,7 +3873,6 @@ export const zhCN = {
   "composer.scope.leftOut.one": "全部文档 · 已排除 1 个文件夹",
   "composer.scope.leftOut": "全部文档 · 已排除 {count} 个文件夹",
   "scope.openNote": "在其中新建笔记",
-  "composer.scope.allLabel": "搜索范围：你的全部文档。缩小范围（@）",
   "composer.scope.allTitle": "搜索你的全部文档。输入 @ 缩小范围",
   "composer.scope.allEmptyFolder": "“{folder}”中还没有文档，因此搜索你的全部文档。输入 @ 缩小范围",
   "composer.scope.change": "{name}。更改搜索范围（@）",
@@ -6134,6 +6133,7 @@ export const zhCN = {
   "error.library.autoNotLocal": "自动分类必须在这台电脑上运行。",
   "error.library.localModelMissing": "输入本地服务器和分类模型。",
   "error.library.ollamaNotLocal": "Ollama 分类模型必须在这台电脑上运行。",
+  "error.library.projectUndo": "无法撤销设为项目：不知道文件夹中各个文件原先在哪里。",
   "error.meeting.notFound": "这个会议不存在或已删除。",
   "error.meeting.purgeFailed":
     "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
@@ -8412,6 +8412,21 @@ export const zhCN = {
   "meetings.notesAgent.unshared": "要用 {agent} 整理，请将这篇会议笔记移到已与它共享的文件夹。",
   "meetings.notesAgent.unavailable": "请在设置中重新连接 AI 或恢复访问权限。",
   "meetings.notesAgent.settings": "智能体设置",
+  "meetings.help.agent.used": "{agent} · 本场会议近期转写",
+  "meetings.help.agent.setting": "通话助手使用的 AI",
+  "meetings.help.agent.disclosure":
+    "选择 Claude Code 或 Codex 后，提问时会把问题和本场转写最近十分钟内的相关原话发给它。请先向它共享会议所在的文件夹。",
+  "meetings.help.agent.builtin": "使用应用的回答模型",
+  "meetings.help.agent.missing": "所选 AI 暂不可用",
+  "error.meeting.callHelpAgentDenied":
+    "请将会议所在的文件夹共享给所选 AI，或在会议设置中选择其他 AI。",
+  "error.meeting.callHelpQuestionTooLong": "请缩短问题后再提问。",
+  "error.meeting.callHelpAgentFailed": "所选 AI 未能回答。请在通话助手中重试。",
+  "meetings.help.agent.insufficient": "目前的会议转写还不足以回答这个问题。",
+  "error.meeting.callHelpAgentRetry": "请在会议进行时回到通话助手重新提问。",
+  "meetings.help.agent.sourceMissing": "会议转写中已找不到这句原话。",
+  "meetings.help.agent.openTranscript": "在转写中打开",
+  "meetings.help.agent.original": "原话 {number} · {location}",
   "meetings.summary.setting": "自动生成会议摘要",
   "meetings.summary.disclosure":
     "录音期间大约每分钟以及结束录音后，所选 AI 会收到新确认的转写内容，以及上一版概览、决定和待办事项。云端请求计入所选服务的用量。",

@@ -7,11 +7,10 @@ import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
-import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
-import { agentsAdapter } from "../helpers/agents";
-import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
-import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
+import { startLiveAgentMeeting } from "../helpers/liveAgentMeeting";
+import { until } from "../helpers/transcription";
 
 const monday = "The launch is on Monday.";
 const friday = "Correction, the launch is on Friday.";
@@ -24,58 +23,11 @@ function launchReply(text: string, quote: string, id: number | null) {
   });
 }
 
-async function setup(
+const setup = (
   run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>,
   grant = true,
   lines = [monday, friday],
-) {
-  const dir = await createTempDataFolder();
-  const clock = manualClock();
-  const capture = createFakeCapture({ now: () => clock.now().getTime() });
-  const { transcriber } = inProcessTranscriber(
-    {},
-    undefined,
-    createFakeCloud({ voices: 1, lines }),
-  );
-  const adapters = {
-    now: clock.now,
-    agents: await agentsAdapter(dir),
-    audioCapture: capture,
-    transcriber,
-    transcriptionModelSource: NO_TRANSCRIPTION_FILES,
-    transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
-    summarizeWithMeetingAgent: run,
-  };
-  const core = startCore(dir, adapters);
-  const folder = await core.createLibraryGroup({ name: "Launch", description: "" });
-  await core.setAgentsEnabled(true);
-  const { pairing } = await core.connectAgent({
-    name: "Codex",
-    client: "codex",
-    folderIds: [folder.id],
-  });
-  await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key-0123456789" });
-  await core.updateSettings({
-    device: {
-      meetingNoticeAccepted: true,
-      meetingNotesAgentId: pairing.id,
-      meetingSummaryRoute: grant ? pairing.id : null,
-      transcriptionRoute: "soniox",
-    },
-  });
-  const meeting = await core.createMeeting({ folderId: folder.id });
-  await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
-  await until(core, meeting.id, (m) => m.cloud === "soniox");
-  await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
-  const push = (millis: number) => {
-    for (let i = 0; i < millis; i += 500) {
-      clock.advance(500);
-      capture.push("system", 500);
-    }
-  };
-  const summary = async () => (await core.listMeetings()).find((m) => m.id === meeting.id)?.summary;
-  return { dir, core, pairing, adapters, meeting, push, summary };
-}
+) => startLiveAgentMeeting(run, grant, lines);
 
 test("the first summary covers both confirmed lines of a short call in one request", async () => {
   const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>

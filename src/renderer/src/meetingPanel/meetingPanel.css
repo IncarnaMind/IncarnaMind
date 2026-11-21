@@ -308,6 +308,7 @@ body {
   /* The thread brings a new ask into view itself: the browser's own anchoring would move it again. */
   overflow-anchor: none;
   border-top: 1px solid var(--color-rule);
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 
   & .panel-suggestion {
