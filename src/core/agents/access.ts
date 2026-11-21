@@ -51,6 +51,7 @@ import {
   decideProposals,
   waitingChanges,
 } from "../../shared/proposals";
+import { shownSpeaker } from "../../shared/speakers";
 import { setTextOrigin } from "../../shared/textOrigins";
 import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
@@ -65,7 +66,9 @@ import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
 import type { AnswerDocuments } from "../answers/citations";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
+import { estimateTokens } from "../answers/context";
 import { saidBetween, withCueMarks } from "../answers/cueMarks";
+import { withoutOverlap } from "../answers/documentText";
 import {
   type AgentActivity,
   type AgentCitationShown,
@@ -184,17 +187,20 @@ export interface AgentSearchResult {
 export interface AgentReadInput {
   /** Read around this Passage. */
   passageId?: string;
-  /** Or read this Document from its start. */
+  /** Or read this Document from its start, whole or its first part (`READ_PART_TOKENS`). */
   documentId?: string;
+  /** Or read on from this Passage, a part's `next`, in a part as large. */
+  from?: string;
   /** Passages before `passageId` to read too, at most `MAX_AROUND`. */
   before?: number;
-  /** Passages after it (or after the start of `documentId`) to read too, at most `MAX_AROUND`. */
+  /** Passages after `passageId` to read too, at most `MAX_AROUND`. */
   after?: number;
 }
 
 export interface AgentReadResult {
   documentId: string;
   document: string;
+  /** In a part, each Passage's text leaves out what it repeats of the one before it. */
   passages: { passageId: string; location: string | null; text: string; timedText?: string }[];
   /** The Passage before the first one read, to read on backwards; null at the start. */
   previous: string | null;
@@ -611,6 +617,13 @@ export const MAX_SEARCH_PAGE = 5;
 export const PASSAGE_CHARS = 1200;
 /** The most Passages read before or after one. */
 export const MAX_AROUND = 3;
+/**
+ * The most tokens one part of a Document carries, as `estimateTokens` counts its result: an
+ * hour-long interview in two or three parts. Codex cuts the middle out of a Tool result over
+ * 10,000 tokens, Claude Code saves one over 25,000 to a file (#3573).
+ */
+export const READ_PART_TOKENS = 8_000;
+const PART_BATCH = 64;
 /** The most quotes one `cite` call checks. */
 export const MAX_CITES = 20;
 /** The most sentences `check_citations` lists as uncited. */
@@ -1505,15 +1518,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     pairing: AdmittedPairing,
     inScope: ReadonlySet<string>,
     passageId: unknown,
+    notFound = (_id: string) => t("agents.problem.not-found"),
   ): WindowedPassage => {
     const id = text(passageId, "passageId", 200);
     // A Citation's token stands for its Passage too: agents give one where a passageId goes (#3465).
     const token = [...id.matchAll(CITATION_TOKEN)][0]?.[1] ?? id;
     const passage =
       deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
-    if (!passage || !inScope.has(passage.documentId)) {
-      throw new NotReachedError(t("agents.problem.not-found"));
-    }
+    if (!passage || !inScope.has(passage.documentId)) throw new NotReachedError(notFound(id));
     return passage;
   };
 
@@ -1542,13 +1554,92 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       { documentId: passage.documentId },
       deps.liveDocuments(),
     )?.speakers;
-    const marked = withCueMarks(passage.text, units, speakers, window);
+    const marked = withCueMarks(passage.text, units, speakers, window, (who, ms, label) =>
+      shownSpeaker(who, ms, label, t),
+    );
     return {
       location: span ? label({ kind: "time", ...span }, null, null, passage.documentId) : null,
       ...(marked !== passage.text.slice(window.start, window.end) && {
         timedText: `${window.start ? "…" : ""}${marked}${window.end < passage.text.length ? "…" : ""}`,
       }),
     };
+  };
+
+  /**
+   * A part of a Document, from the Passage at `position` on: its Passages in reading order, each
+   * without what it repeats of the one before (Passages overlap), as many as fit in
+   * `READ_PART_TOKENS` as the result is sent, and always one.
+   */
+  const partOf = (documentId: string, position: number): AgentReadResult => {
+    const passages: AgentReadResult["passages"] = [];
+    let behind = position > 0 ? deps.passagesBetween(documentId, position - 1, position - 1) : [];
+    const previous = behind[0]?.passageId ?? null;
+    let document: string | null = null;
+    let next: string | null = null;
+    let size = 0;
+    for (let at = position; next === null; at += PART_BATCH) {
+      const batch = deps.passagesBetween(documentId, at, at + PART_BATCH - 1);
+      const first = batch[0];
+      if (!first) break;
+      if (document === null) {
+        document = first.documentName;
+        size = estimateTokens(
+          JSON.stringify({ documentId, document, passages, previous, next: first.passageId }),
+        );
+      }
+      const shown = new Map(
+        withoutOverlap([...behind, ...batch]).map((each) => [each.passageId, each.text]),
+      );
+      for (const passage of batch) {
+        const text = shown.get(passage.passageId);
+        if (text === undefined) continue;
+        const entry = {
+          passageId: passage.passageId,
+          text,
+          ...passageReading(passage, {
+            start: passage.text.length - text.length,
+            end: passage.text.length,
+          }),
+        };
+        const cost = estimateTokens(JSON.stringify(entry)) + 1;
+        if (passages.length > 0 && size + cost > READ_PART_TOKENS) {
+          next = passage.passageId;
+          break;
+        }
+        passages.push(entry);
+        size += cost;
+      }
+      behind = batch.slice(-1);
+    }
+    if (document === null) throw new NotReachedError(t("agents.problem.not-found"));
+    return { documentId, document, passages, previous, next };
+  };
+
+  /** The first part of a Document the pairing reaches. */
+  const readStart = (reach: ReadonlySet<string>, given: unknown): AgentReadResult => {
+    const documentId = text(given, "passageId or documentId", 200);
+    if (!reach.has(documentId)) throw new NotReachedError(t("agents.problem.not-found"));
+    return partOf(documentId, 0);
+  };
+
+  /**
+   * The part of a Document from `from`, a part's `next`, on. A Document changed since that part
+   * has new Passages, so the one named is no longer live: that is said, to read it again from its
+   * start, rather than read on in another version of it.
+   */
+  const readOn = (reach: ReadonlySet<string>, given: unknown): AgentReadResult => {
+    const from = text(given, "from", 200);
+    const passage = deps.passage(from);
+    if (passage && reach.has(passage.documentId))
+      return partOf(passage.documentId, passage.position);
+    const earlier = passage ? null : deps.citationSource(from);
+    if (earlier && !earlier.documentDeleted && reach.has(earlier.documentId)) {
+      throw new AgentRefusedError(
+        "changed",
+        t("agents.problem.documentChanged", { document: earlier.documentName }),
+      );
+    }
+    throw new NotReachedError(t("agents.problem.not-found"));
   };
 
   /** Mints the token of a Citation the check found. */
@@ -2206,28 +2297,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
 
     readPassages(input) {
       return call("read_passages", "", [READ_DOCUMENTS], (pairing) => {
-        const before = whole(input?.before, "before", 0, MAX_AROUND, 0);
-        const after = whole(input?.after, "after", 0, MAX_AROUND, input?.passageId ? 0 : 2);
-        let documentId: string;
-        let from: number;
-        let to: number;
-        if (input?.passageId !== undefined) {
-          const passage = passageInScope(
-            pairing,
-            new Set(scopeOf(pairing, undefined)),
-            input.passageId,
-          );
-          documentId = passage.documentId;
-          from = Math.max(0, passage.position - before);
-          to = passage.position + after;
-        } else {
-          documentId = text(input?.documentId, "passageId or documentId", 200);
-          if (!scopeOf(pairing, undefined).includes(documentId)) {
-            throw new NotReachedError(t("agents.problem.not-found"));
-          }
-          from = 0;
-          to = after;
+        const reach = new Set(scopeOf(pairing, undefined));
+        if (input?.passageId === undefined) {
+          const result =
+            input?.from !== undefined
+              ? readOn(reach, input.from)
+              : readStart(reach, input?.documentId);
+          return { result, count: result.passages.length, documentIds: [result.documentId] };
         }
+        const before = whole(input.before, "before", 0, MAX_AROUND, 0);
+        const after = whole(input.after, "after", 0, MAX_AROUND, 0);
+        const passage = passageInScope(pairing, reach, input.passageId);
+        const documentId = passage.documentId;
+        const from = Math.max(0, passage.position - before);
+        const to = passage.position + after;
         // One more on each side, to say whether there is more to read.
         const read = deps.passagesBetween(documentId, Math.max(0, from - 1), to + 1);
         const inRange = read.filter((each) => each.position >= from && each.position <= to);
@@ -2310,7 +2393,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             });
             continue;
           }
-          const passage = passageInScope(pairing, inScope, record.passageId);
+          // One quote of many names a Passage it doesn't have: the agent is told which (#3573).
+          const passage = passageInScope(pairing, inScope, record.passageId, (id) =>
+            t("agents.problem.citeNotFound", { passageId: id }),
+          );
           if (deps.notCited(passage.passageId)) {
             throw new AgentRefusedError(
               "invalid",

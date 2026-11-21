@@ -3206,6 +3206,9 @@ export const zhCN = {
   "setupPage.ai.services": "选择服务",
   "setupPage.ai.agents": "用你已经在用的 AI",
   "setupPage.ai.inApp": "在 IncarnaMind 里用一个模型",
+  "setupPage.ai.sorting": "设置用来整理新文档和打标签的模型（可选）",
+  "setupPage.ai.sorting.about":
+    "自动整理你添加的文档，并为它们打标签。需要 AI 服务的密钥，或这台电脑上的模型。不设置时，IncarnaMind 会用你设置的模型，或在你点“整理”时请你的 AI 来做。",
   "setupPage.agents.failed": "未能列出这台电脑上的智能体",
   "setupPage.agent.found": "在这台电脑上",
   "setupPage.agent.connected": "已连接{agent}",
@@ -6108,6 +6111,7 @@ export const zhCN = {
   "error.agent.cantOrganize":
     "这个智能体目前没有权限整理这些文档。请在智能体设置里查看共享的文件夹。",
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
+  "error.agent.cantAskDocument": "这个智能体现在无法读取这个文档。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
   "error.agent.nameEmpty": "输入智能体的名称。",
   "error.firstRun.work": "这些不是设置里可选的工作类型。",
@@ -6640,11 +6644,12 @@ export const zhCN = {
   "firstOpen.step.files.done": "已添加你的文档",
   "firstOpen.step.agentAsk.title": "让你的 AI 写一份文档",
   "firstOpen.step.agentAsk.done": "你的 AI 写好了一篇笔记",
-  "firstOpen.agent.paste": "把这句话粘贴到{agent}：",
-  "firstOpen.agent.line": "在 IncarnaMind 里把我的文档总结成一篇新笔记，然后对照这些文档核对一遍。",
+  "firstOpen.agent.line": "在 IncarnaMind 里把文档{document}简要总结成一篇新笔记。",
+  "firstOpen.agent.noDocument": "还没有文档。添加一份，你的 AI 就能为它写一篇笔记。",
+  "firstOpen.agent.unshared": "已连接的 AI 都还读不了你的文档。请在智能体设置里共享给它们。",
   "firstOpen.step.agentLook.title": "查看需要留意的地方",
   "firstOpen.step.agentLook.done": "已查看需要留意的地方",
-  "firstOpen.step.agentLook.waiting": "{agent}核对完这篇笔记后，结果会显示在这里。",
+  "firstOpen.step.agentLook.waiting": "笔记核对完后，需要留意的地方会显示在这里。",
   "firstOpen.step.agentLook.look.one": "1 处需要留意。",
   "firstOpen.step.agentLook.look": "{count} 处需要留意。",
   "firstOpen.step.agentLook.all": "全部有依据。",
@@ -7982,6 +7987,9 @@ export const zhCN = {
     "等待期间，这个智能体能读取的内容有了变化，因此没有返回任何内容。请再调用一次。",
   "agents.problem.wallShared": "“{folder}”只在本文件夹内工作，不能和其他文件夹共用一个智能体",
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
+  "agents.problem.citeNotFound":
+    "没有引用任何内容：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
+  "agents.problem.documentChanged": "你开始读取后，“{document}”有了改动。请从开头重新读取。",
   "agents.notShared":
     "用户在 IncarnaMind 中还有未共享给你的内容。如果用户问的内容不在这里，请告诉用户可以在“设置 → 智能体”中共享更多内容给你。",
   "agents.problem.chat-not-ready":

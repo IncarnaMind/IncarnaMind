@@ -3366,6 +3366,9 @@ export const en = {
   // The step's two ways to an AI (#3362): the one the User already has, then a model here.
   "setupPage.ai.agents": "Use the AI you already have",
   "setupPage.ai.inApp": "Use a model in IncarnaMind",
+  "setupPage.ai.sorting": "Set up a model to sort and tag new Documents (optional)",
+  "setupPage.ai.sorting.about":
+    "Sorts and tags the Documents you add, by itself. It needs a key from an AI service or a model on this computer. Without it, IncarnaMind uses the model you set up, or asks your AI when you press Organize.",
   "setupPage.agents.failed": "Couldn\u2019t list the agents on this computer",
   "setupPage.agent.found": "On this computer",
   "setupPage.agent.connected": "{agent} is connected",
@@ -6434,6 +6437,7 @@ export const en = {
   "error.agent.cantOrganize":
     "This agent can’t organize these Documents with its current access. Check its shared Folders in agent settings.",
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
+  "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.agent.nameEmpty": "Give the agent a name.",
   "error.firstRun.work": "Those aren’t kinds of work the setup asks about.",
@@ -7018,12 +7022,13 @@ export const en = {
   // The card for a User whose own AI is connected (#3362).
   "firstOpen.step.agentAsk.title": "Ask your AI for a document",
   "firstOpen.step.agentAsk.done": "Your AI wrote a note",
-  "firstOpen.agent.paste": "Paste this into {agent}:",
-  "firstOpen.agent.line":
-    "Write a summary of my documents as a new note in IncarnaMind, then check it against them.",
+  "firstOpen.agent.line": "Write a short summary of {document} as a new note in IncarnaMind.",
+  "firstOpen.agent.noDocument": "No Documents yet. Add one, and your AI can write a note about it.",
+  "firstOpen.agent.unshared":
+    "No connected AI can read your Documents yet. Share them in its agent settings.",
   "firstOpen.step.agentLook.title": "See what needs a look",
   "firstOpen.step.agentLook.done": "Saw what needs a look",
-  "firstOpen.step.agentLook.waiting": "Its marks show here once {agent} has checked the note.",
+  "firstOpen.step.agentLook.waiting": "What needs a look shows here once the note is checked.",
   "firstOpen.step.agentLook.look.one": "1 sentence needs a look.",
   "firstOpen.step.agentLook.look": "{count} sentences need a look.",
   "firstOpen.step.agentLook.all": "All of it is supported.",
@@ -8453,6 +8458,10 @@ export const en = {
     "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
+  "agents.problem.citeNotFound":
+    "Nothing was cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
+  "agents.problem.documentChanged":
+    "“{document}” changed since you began reading it. Read it again from its start.",
   // Told with a result that can read as "nothing is there" (#3544): it names nothing outside.
   "agents.notShared":
     "The User has more in IncarnaMind than is shared with you. If what they asked about isn’t here, tell them they can share more with you in Settings → Agents.",

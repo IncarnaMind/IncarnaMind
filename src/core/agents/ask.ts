@@ -117,7 +117,7 @@ const quoteOf = (asked: AskedSentence, say: Say) =>
 /** The line the User sends, and the request that waits: the Note named by its title, and its id in the request. */
 export function agentRequest(
   note: { title: string; mindId: string } | null,
-  ask: Exclude<AgentAsk, { kind: "organize" }>,
+  ask: Exclude<AgentAsk, { kind: "organize" | "summary" }>,
   say: Say,
   meeting?: { transcriptId: string; propose: boolean },
   file?: HandedFileAsked | null,
@@ -364,6 +364,8 @@ function parseAsk(value: unknown): AgentAsk {
       return { kind: "note" };
     case "check":
       return { kind: "check" };
+    case "summary":
+      return { kind: "summary", documentId: words(value.documentId) };
     case "fix": {
       const given: unknown[] = Array.isArray(value.sentences) ? value.sentences : [];
       if (given.length === 0 || given.length > MAX_ASKED_SENTENCES) {
@@ -470,6 +472,17 @@ export function createAgentAsk(options: AgentAskOptions) {
     };
   }
 
+  /** One Document named in the line, which says everything: nothing waits for the agent (#3572). */
+  function summaryRequest(documentId: string): AgentRequestText {
+    const name = options.nameOf("document", documentId);
+    if (name === null) throw new NotFoundError({ key: "error.agent.cantAskDocument" });
+    return {
+      line: options.say("firstOpen.agent.line", { document: quotedName(name) }),
+      request: null,
+      sentences: [],
+    };
+  }
+
   return {
     forOrganize(input: unknown) {
       const target = organizeTarget(input);
@@ -481,10 +494,17 @@ export function createAgentAsk(options: AgentAskOptions) {
     },
     async ask(input: unknown): Promise<AskAgentResult> {
       const { pairingId, mindId, ask, onScreen, scope } = parseInput(input);
-      const pairing = options.askable(mindId).find((each) => each.id === pairingId);
+      const pairing = options
+        .askable(mindId, ask.kind === "summary" ? ask.documentId : undefined)
+        .find((each) => each.id === pairingId);
       if (!pairing)
         throw new NotFoundError({
-          key: ask.kind === "organize" ? "error.agent.cantOrganize" : "error.agent.cantAsk",
+          key:
+            ask.kind === "organize"
+              ? "error.agent.cantOrganize"
+              : ask.kind === "summary"
+                ? "error.agent.cantAskDocument"
+                : "error.agent.cantAsk",
         });
       const mind = options.minds().find((each) => each.id === mindId);
       const note = mind
@@ -501,19 +521,21 @@ export function createAgentAsk(options: AgentAskOptions) {
         throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
       }
       const looking = ask.kind === "question" ? lookingAt(pairingId, onScreen, scope) : undefined;
-      if (ask.kind === "organize" && mindId !== null)
+      if ((ask.kind === "organize" || ask.kind === "summary") && mindId !== null)
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       const { line, request, named, sentences } =
         ask.kind === "organize"
           ? sortingRequest(pairing, ask.target)
-          : agentRequest(
-              note,
-              ask,
-              options.say,
-              transcriptId ? { transcriptId, propose: pairing.propose } : undefined,
-              note ? options.handedFile(note.mindId) : null,
-              looking,
-            );
+          : ask.kind === "summary"
+            ? summaryRequest(ask.documentId)
+            : agentRequest(
+                note,
+                ask,
+                options.say,
+                transcriptId ? { transcriptId, propose: pairing.propose } : undefined,
+                note ? options.handedFile(note.mindId) : null,
+                looking,
+              );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
       if (request !== null || named !== undefined) {
         options.keepRequest({

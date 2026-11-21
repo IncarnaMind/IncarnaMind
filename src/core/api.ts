@@ -12955,10 +12955,11 @@ export const MAX_ASKED_SENTENCES = 30;
  * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
  * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
  * named, to go on in their AI; or to check the Note, with no model set up in IncarnaMind to do it
- * (#3533).
+ * (#3533); or, from Get started, to write a short summary of one Document as a new Note (#3572).
  */
 export type AgentAsk =
   | { kind: "organize"; target: OrganizeTarget }
+  | { kind: "summary"; documentId: string }
   | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
@@ -13022,7 +13023,8 @@ export type AgentToolName = (typeof AGENT_TOOLS)[number];
  * - "not-found": no such Passage, Document, Mind or Citation;
  * - "chat-not-ready": `ask` needs a chat model that is set up and allowed;
  * - "read-only": it may read but not propose changes (`AgentPairing.propose`);
- * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold;
+ * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold, or
+ *   the Document it reads in parts changed between two of them;
  * - "waiting": a paragraph it names has changes waiting for the User, or is being written;
  * - "invalid": its arguments make no sense;
  * - "no-python": `run_analysis` needs Python, which this computer can't run for IncarnaMind (#3363);
@@ -15530,6 +15532,8 @@ export interface CoreApi {
   openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
+  /** Of these Documents, those at least one connected agent can be asked about now, in the order given (#3572). */
+  listDocumentsToAsk(documentIds: string[]): Promise<string[]>;
   /** With no Organize model, the connected agents that can read the whole target the User chose. */
   agentsForOrganize(target: OrganizeTarget): Promise<OrganizeAgents>;
   /**
@@ -16341,6 +16345,7 @@ const methods: Record<CoreApiMethod, true> = {
   openAgentInstallAgain: true,
   agentsForOrganize: true,
   listAgentsToAsk: true,
+  listDocumentsToAsk: true,
   askAgent: true,
   handedFileOf: true,
   listCanvases: true,

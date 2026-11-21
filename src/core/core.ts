@@ -8693,6 +8693,20 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
+    listDocumentsToAsk: async (documentIds) => {
+      const wanted = Array.isArray(documentIds)
+        ? documentIds.filter((id): id is string => typeof id === "string")
+        : [];
+      const readable = new Set(
+        agents
+          .askable(null)
+          .flatMap(
+            (pairing) =>
+              agents.reads(pairing.id, { folderIds: [], documentIds: wanted }).documentIds,
+          ),
+      );
+      return wanted.filter((id) => readable.has(id));
+    },
     askAgent: (input) => agentAsk.ask(input),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
