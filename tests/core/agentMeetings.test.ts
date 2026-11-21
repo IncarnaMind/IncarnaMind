@@ -265,6 +265,38 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     ]);
   });
 
+  it("reads, searches and cites the same speaker words as the Chinese Transcript", async () => {
+    const { core, recorded, coast, connect } = await library();
+    const agent = await connect("Claude Code", [coast.id]);
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const read = async (documentId: string) =>
+      structured<{ passages: { text: string; timedText: string; passageId: string }[] }>(
+        await agent.callTool({ name: "read_passages", arguments: { documentId } }),
+      ).passages[0];
+    const refit = await read(recorded.refit.transcriptId);
+    expect(refit?.timedText).toContain(`[0:00 我] ${MEETINGS.refit[0]}`);
+    expect(refit?.timedText).toContain(` 对方] ${MEETINGS.refit[1]}`);
+    expect(refit?.text).toBe(MEETINGS.refit.join("\n"));
+    const hits = await search(agent, "Falmouth Yard January");
+    expect(hits.find((hit) => hit.passageId === refit?.passageId)?.timedText).toBe(
+      refit?.timedText,
+    );
+    const cited = structured<{ citations: { check: string; location: string }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: { citations: [{ passageId: refit?.passageId, quote: MEETINGS.refit[1] }] },
+      }),
+    );
+    expect(cited.citations[0]).toEqual(
+      expect.objectContaining({
+        check: "found",
+        location: expect.stringMatching(/^对方 · 0:0\d$/),
+      }),
+    );
+    const harbour = await read(recorded.harbour.transcriptId);
+    expect(harbour?.timedText).toContain(` Morwenna Pascoe] ${MEETINGS.harbour[1]}`);
+  });
+
   // protects=only a Transcript's Passage is placed as a Citation of it is; any other Document's keeps the place it had before (#3384); fails_when=read_passages narrows a web page's or a text file's Location to what its whole text covers
   it("places any other Document's Passage where it was placed before", async () => {
     const dataDir = await createTempDataFolder();
