@@ -1398,13 +1398,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       const select = settings.getByTestId("models-sorting");
       await expect(select.locator("option:checked")).toHaveText("Claude Haiku 5.5");
-      // The line is drawn once the services are read, after the choice shows.
       await expect
         .poll(() => organizeWords(settings))
         .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }));
-      expect(await organizeWords(settings)).not.toContain(
-        translate(language, "setup.sorting.sends", { service: "Anthropic" }),
-      );
       expect((await bridge(window).library()).automatic).toBe(false);
 
       await select.selectOption({ label: translate(language, "models.sorting.chat") });

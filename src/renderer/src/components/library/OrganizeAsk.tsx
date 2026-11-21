@@ -1,14 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef } from "react";
 import { useT } from "../../i18n";
-import {
-  allowAndOrganize,
-  type OrganizeNeeds,
-  type OrganizeTarget,
-  organizeTarget,
-  useOrganizeAsk,
-} from "../../organizeDocuments";
+import { allowAndOrganize, type OrganizeNeeds, useOrganizeAsk } from "../../organizeDocuments";
 import { useAppStore } from "../../store";
-import { NeedsModelCard } from "../providers/NeedsModelCard";
 import { buttonStyle } from "../ui";
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
@@ -23,12 +16,8 @@ const close = () => useOrganizeAsk.getState().close();
 export function OrganizeAsk() {
   const asked = useOrganizeAsk((state) => state.asked);
   if (!asked) return null;
-  const { target, needs } = asked;
-  return needs.needs === "consent" ? (
-    <ConsentCard needs={needs} />
-  ) : (
-    <NeedsModel target={target} noProvider={needs.noProvider} />
-  );
+  const { needs } = asked;
+  return needs.needs === "consent" ? <ConsentCard needs={needs} /> : <NeedsModel />;
 }
 
 function Card({
@@ -107,26 +96,9 @@ function ConsentCard({ needs }: { needs: Extract<OrganizeNeeds, { needs: "consen
   );
 }
 
-/**
- * No model can organize. With no AI model at all, first run's key field in place (#1922), and the
- * key saved, Organize starts again, asking in its own words before a cloud service reads anything.
- */
-function NeedsModel({ target, noProvider }: { target: OrganizeTarget; noProvider: boolean }) {
+function NeedsModel() {
   const t = useT();
   const title = useId();
-  if (noProvider)
-    return (
-      <Card testId="library-organize-needs-model">
-        <NeedsModelCard
-          line="needsModel.organize"
-          testId="library-organize-key"
-          onDone={() => void organizeTarget(target).catch(report)}
-        />
-        <div className="mt-1 flex justify-end">
-          <NotNow />
-        </div>
-      </Card>
-    );
   return (
     <Card testId="library-organize-needs-model" labelledBy={title}>
       <p id={title} className="font-semibold text-ink">

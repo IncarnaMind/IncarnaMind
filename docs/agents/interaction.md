@@ -44,7 +44,7 @@ Each rule has a check a reviewer can apply. A UI change that breaks a rule says 
 13. **Use the shared building blocks.** Selection, drag and drop, undo, the right-click menus, rename in place, the command list behind ⌘K and the menus, and optimistic updates each have one shared implementation, so the same gesture does the same thing everywhere. Where a block doesn't exist yet, don't build a one-off: say so in the pull request and keep the current behaviour, or build the block in its own issue.
     - Motion comes from the shared module (`src/renderer/src/motion.ts`) and follows `DESIGN.md` › Motion, Reduced and Off included; no hand-written transitions or animations.
     - Check: code review; no `onContextMenu`, `draggable` or undo handling outside the shared blocks.
-14. **Teach in context, not in onboarding.** First run covers three things: what the User works on, the three models the app needs (their AI, sorting, meeting transcription), each a short step the User can skip, and getting the User to their first checked Answer. Every other feature is found where it lives:
+14. **Teach in context, not in onboarding.** First run asks about the User’s work, their AI and meeting transcription. Each step can be skipped on the way to the first checked Answer. Sorting uses the available model and offers a choice in Settings when it needs one. Every other feature is found where it lives:
     - something that looks usable (a grip, a cursor, a chip);
     - its place in the right-click and ⋯ menus;
     - its ⌘K entry;
