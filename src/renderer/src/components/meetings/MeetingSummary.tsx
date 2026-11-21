@@ -42,6 +42,7 @@ export function MeetingSummary({
   )
     return null;
   const text = summary.text.trim();
+  const items = summary.items ?? NO_ITEMS;
   const coverage =
     text && summary.throughMs > 0
       ? t("meetings.summary.coverage", { time: clockTime(summary.throughMs) })
@@ -50,7 +51,7 @@ export function MeetingSummary({
     summary.state === "failed"
       ? null
       : summary.state === "ready"
-        ? text
+        ? text || items.length > 0
           ? null
           : t("meetings.summary.empty")
         : t(text ? "meetings.summary.updating" : "meetings.summary.preparing");
@@ -117,7 +118,7 @@ export function MeetingSummary({
       <MeetingSummaryItems
         key={meeting.id}
         meeting={meeting}
-        items={summary.items ?? NO_ITEMS}
+        items={items}
         focusSummary={() => heading.current?.focus()}
       />
       {(summary.candidatesReviewed ||

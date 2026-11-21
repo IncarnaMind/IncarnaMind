@@ -200,12 +200,16 @@ for (const language of ["en", "zh-CN"] as const) {
       // Add to note sits beside the line aimed at, and adds that line.
       const aimed = lines.nth(3);
       await aimed.hover();
-      const add = turn.getByTestId("transcript-add");
+      const add = turn.getByTestId("transcript-line-actions");
       await expect(add).toHaveAttribute("aria-label", new RegExp(words.lines[3] as string));
       const [lineBox, addBox] = await Promise.all([aimed.boundingBox(), add.boundingBox()]);
       if (!lineBox || !addBox) throw new Error("Not shown.");
       expect(Math.abs(addBox.y - lineBox.y)).toBeLessThan(lineBox.height);
       await pointAndClick(window, add);
+      await pointAndClick(
+        window,
+        turn.getByTestId("transcript-line-menu").getByRole("menuitem").first(),
+      );
       await expect(window.getByTestId("transcript-added")).toHaveText(words.added);
 
       // The turn's Speaker names every line of it, and one ⌘Z takes it back.

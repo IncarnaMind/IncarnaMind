@@ -3348,6 +3348,11 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE documents ADD COLUMN cited_by TEXT;
     `,
   },
+  {
+    version: 155,
+    description: "Reserve action item IDs for Meetings with no generated summary",
+    sql: "ALTER TABLE meetings ADD COLUMN last_transcript_action_id INTEGER NOT NULL DEFAULT 0;",
+  },
 ];
 
 /**

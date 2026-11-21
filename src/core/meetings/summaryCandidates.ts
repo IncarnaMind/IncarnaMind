@@ -80,9 +80,22 @@ export function bindCandidateSources(
   return found.sort((a, b) => a.first - b.first).map(({ sources }) => sources);
 }
 
-export function candidateExcerpts(entry: unknown): string[] | null {
+export function candidateExcerpts(
+  entry: unknown,
+  utterances: readonly { text: string; speaker?: string | null }[],
+): string[] | null {
   let words = entry;
   if (isRecord(entry)) {
+    if (typeof entry.text === "string") {
+      const excerpt = entry.text.trim();
+      if (
+        !excerpt ||
+        Object.keys(entry).some((key) => key !== "text" && key !== "speaker") ||
+        !utterances.some((cue) => cue.speaker === entry.speaker && cue.text.includes(excerpt))
+      )
+        return null;
+      return [excerpt];
+    }
     if (
       !("excerpt" in entry) ||
       Object.keys(entry).some((key) => key !== "excerpt" && key !== "excerpt_2")

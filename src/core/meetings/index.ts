@@ -83,11 +83,13 @@ import type { CaptureHealthRecords } from "./health";
 import type { StoredMeetingSummary } from "./liveSummary";
 import {
   acceptedSummaryCandidates,
+  addTranscriptAction as appendTranscriptAction,
   availableSummaryCandidates,
   correctItem,
   itemEvidence,
   promoteSummaryCandidate,
   readCorrections,
+  undoTranscriptAction as removeTranscriptAction,
   type StoredSummaryWithReview,
   type SummaryCandidateReference,
   summaryCandidateUnavailable,
@@ -95,6 +97,7 @@ import {
   visibleSummary,
   withReviewedCandidates,
 } from "./summaryCorrections";
+import type { TranscriptActionLine } from "./summarySources";
 import type { Transcripts } from "./transcript";
 
 /** The longest stretch of audio read at once for playing: the player asks for the next as it goes. */
@@ -154,6 +157,7 @@ interface MeetingRow {
   fill: string | null;
   summary: string | null;
   summary_corrections: string | null;
+  last_transcript_action_id: number;
   transcript_document_id: string | null;
   purged_at: string | null;
   created_at: string;
@@ -161,7 +165,7 @@ interface MeetingRow {
 }
 
 const COLUMNS =
-  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, transcript_document_id, purged_at, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, last_transcript_action_id, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends MeetingFill {
@@ -369,15 +373,21 @@ export function createMeetings(options: MeetingsOptions) {
   const transcriptDocumentOf = (row: Pick<MeetingRow, "id" | "transcript_document_id">) =>
     row.transcript_document_id ?? transcripts?.documentOf(row.id) ?? null;
 
-  function storeCandidateAction(
+  function storeActionCorrections(
     row: MeetingRow,
-    stored: StoredSummaryWithReview,
+    stored: StoredSummaryWithReview | null,
     corrections: ReturnType<typeof readCorrections>,
   ) {
-    const lastItemId = Math.max(stored.lastItemId ?? 0, ...corrections.map(({ item }) => item.id));
-    const summary = withReviewedCandidates({ ...stored, lastItemId }, corrections);
+    const lastItemId = Math.max(
+      row.last_transcript_action_id,
+      stored?.lastItemId ?? 0,
+      ...corrections.map(({ item }) => item.id),
+    );
     save(row.id, {
-      summary: JSON.stringify(summary),
+      ...(stored && {
+        summary: JSON.stringify(withReviewedCandidates({ ...stored, lastItemId }, corrections)),
+      }),
+      last_transcript_action_id: lastItemId,
       summary_corrections: corrections.length ? JSON.stringify(corrections) : null,
     });
   }
@@ -1264,7 +1274,11 @@ export function createMeetings(options: MeetingsOptions) {
       const written = db.transaction(() => {
         const row = rowOf(meetingId);
         const stored = storedSummaryOf(row);
-        if (row.kind !== "meeting" || row.status !== "stopped" || !stored)
+        if (
+          row.kind !== "meeting" ||
+          row.status !== "stopped" ||
+          (!stored && !row.summary_corrections)
+        )
           throw new InvalidInputError({ key: "error.meeting.summaryItemUnavailable" });
         const before = readCorrections(row.summary_corrections);
         const after = correctItem(stored, before, expected, replacement);
@@ -1347,6 +1361,51 @@ export function createMeetings(options: MeetingsOptions) {
       return result.candidates;
     },
 
+    addTranscriptAction(
+      meetingId: string,
+      documentId: string,
+      contentHash: string,
+      line: TranscriptActionLine,
+    ) {
+      const result = db.transaction(() => {
+        const row = rowOf(meetingId);
+        if (
+          row.kind !== "meeting" ||
+          row.status !== "stopped" ||
+          transcriptDocumentOf(row) !== documentId ||
+          options.transcriptVersion?.(documentId) !== contentHash
+        )
+          throw summaryCandidateUnavailable();
+        const stored = storedSummaryOf(row);
+        const before = readCorrections(row.summary_corrections);
+        const { itemId, corrections } = appendTranscriptAction(
+          stored,
+          before,
+          row.last_transcript_action_id,
+          documentId,
+          line,
+        );
+        if (before !== corrections) storeActionCorrections(row, stored, corrections);
+        return { itemId, added: before !== corrections };
+      });
+      if (result.added) changed();
+      return result;
+    },
+
+    undoAddTranscriptAction(meetingId: string, itemId: number) {
+      if (!Number.isSafeInteger(itemId) || itemId <= 0) throw summaryCandidateUnavailable();
+      const written = db.transaction(() => {
+        const row = rowOf(meetingId);
+        if (row.kind !== "meeting" || row.status !== "stopped") throw summaryCandidateUnavailable();
+        const before = readCorrections(row.summary_corrections);
+        const after = removeTranscriptAction(before, itemId);
+        if (after === before) return false;
+        storeActionCorrections(row, storedSummaryOf(row), after);
+        return true;
+      });
+      if (written) changed();
+    },
+
     addSummaryCandidate(meetingId: string, expected: SummaryCandidateReference): Meeting {
       const written = db.transaction(() => {
         const row = rowOf(meetingId);
@@ -1361,7 +1420,7 @@ export function createMeetings(options: MeetingsOptions) {
         const before = readCorrections(row.summary_corrections);
         const after = promoteSummaryCandidate(stored, before, expected);
         if (after === before) return false;
-        storeCandidateAction(row, stored, after);
+        storeActionCorrections(row, stored, after);
         return true;
       });
       if (written) changed();
@@ -1390,7 +1449,7 @@ export function createMeetings(options: MeetingsOptions) {
                 candidateReview: { ...previous, candidates: [restored, ...previous.candidates] },
               }
             : stored;
-        storeCandidateAction(row, next, after);
+        storeActionCorrections(row, next, after);
         return true;
       });
       if (written) changed();
@@ -1405,6 +1464,7 @@ export function createMeetings(options: MeetingsOptions) {
       const row = rowOf(meetingId);
       const previous = storedSummaryOf(row);
       const lastItemId = Math.max(
+        row.last_transcript_action_id,
         previous?.lastItemId ?? 0,
         value.lastItemId ?? 0,
         ...(value.summary.items?.map(({ id }) => id) ?? []),

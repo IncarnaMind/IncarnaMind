@@ -18,7 +18,7 @@ import {
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { openTranscriptBeside } from "../transcripts";
-import { readMindHandle, transcriptHandle } from "./handles";
+import { readMindHandle, transcriptHandle, viewerHandleInUse } from "./handles";
 import type { Command, CommandContext } from "./registry";
 import { mindOf } from "./targets";
 
@@ -243,6 +243,18 @@ export const meetingCommands: readonly Command[] = [
     enabled: () =>
       transcriptHandle.current?.hasLine() ? true : { reason: "meetings.command.noLine" },
     run: () => transcriptHandle.current?.addLine(),
+  },
+  {
+    id: "meeting.addTranscriptAction",
+    label: "transcript.action.add",
+    group: "main",
+    reversible: true,
+    when: () => viewerHandleInUse("transcriptActions", useAppStore.getState().layout) !== null,
+    enabled: () =>
+      viewerHandleInUse("transcriptActions", useAppStore.getState().layout)?.hasLine()
+        ? true
+        : { reason: "meetings.command.noLine" },
+    run: () => viewerHandleInUse("transcriptActions", useAppStore.getState().layout)?.add(),
   },
   {
     id: "meeting.playFromHere",

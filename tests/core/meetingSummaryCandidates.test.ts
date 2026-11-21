@@ -58,6 +58,42 @@ test("review returns full original speech at its indexed time and keeps the most
   ).toEqual([exact.slice(0, 1)]);
 });
 
+test("a returned transcript utterance must match its speaker and offers only the original timed line", () => {
+  const spoken = [
+    { ...cue("先问过地址，还得再问收件电话。", 0), speaker: "甲" },
+    { ...cue("We'll check both sizes.", 1000), speaker: null },
+    { text: "No label on this line.", startMs: 2000, endMs: 2800 },
+  ];
+  const review = (proposed: unknown[], established: string[] = []) =>
+    readMeetingCandidateReview(JSON.stringify(proposed), {
+      utterances: spoken,
+      items: [],
+      established,
+    });
+  const selected = { speaker: "甲", text: "还得再问收件电话" };
+  expect(review([selected, { speaker: null, text: "both sizes" }, { text: "No label" }])).toEqual(
+    spoken.map(({ startMs, endMs, text }) => [
+      { startMs: Math.round(startMs), endMs: Math.round(endMs), text },
+    ]),
+  );
+  expect(review([selected], ["还得再问收件电话"])).toEqual([]);
+  const invalid = [
+    { speaker: "乙", text: selected.text },
+    { text: selected.text },
+    { speaker: "甲", text: "问老师要私人号码" },
+    { ...selected, assignee: "甲" },
+    { speaker: "甲", text: "  " },
+  ];
+  expect(() => review(invalid)).toThrow();
+  expect(review([...invalid, selected])).toEqual(review([selected]));
+  expect(
+    readMeetingCandidateReview(JSON.stringify([selected]), {
+      items: [],
+      utterances: [...spoken, { ...cue(selected.text, 4000), speaker: "乙" }],
+    }),
+  ).toEqual([]);
+});
+
 test("one damaged or ambiguous member cannot turn into an item or hide an independently grounded suggestion", () => {
   const proposed = [
     "sketch the label",

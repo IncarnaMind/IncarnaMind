@@ -4232,8 +4232,8 @@ export interface DocumentPlace {
    * part ("w:p#12", "w:tbl#3"), as a Mind imported from it records (`WordSource.n`, #736).
    */
   wordPlace?: string;
-  /** The original Transcript cue, including when the speaker has since been split. */
-  transcriptCue?: { startMs: number; endMs: number };
+  /** The original Transcript cue, or an exact displayed speaker part within it. */
+  transcriptCue?: { startMs: number; endMs: number; part?: true };
 }
 
 export interface LayoutTab {
@@ -15342,6 +15342,12 @@ export interface CoreApi {
   canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
   reviewMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
   getMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  addMeetingTranscriptAction(
+    meetingId: string,
+    documentId: string,
+    source: MeetingSummarySource,
+  ): Promise<{ itemId: number; added: boolean }>;
+  undoAddMeetingTranscriptAction(meetingId: string, itemId: number): Promise<void>;
   undoAddMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
   addMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
   getMeetingSummaryItemSources(
@@ -15349,7 +15355,10 @@ export interface CoreApi {
     itemId: number,
   ): Promise<{
     documentId: string;
-    sources: MeetingSummarySource[];
+    sources: (MeetingSummarySource & {
+      part?: true;
+      parentCue?: { startMs: number; endMs: number };
+    })[];
   } | null>;
   correctMeetingSummaryItem(
     meetingId: string,
@@ -16245,6 +16254,8 @@ const methods: Record<CoreApiMethod, true> = {
   canReviewMeetingSummaryCandidates: true,
   reviewMeetingSummaryCandidates: true,
   getMeetingSummaryCandidates: true,
+  addMeetingTranscriptAction: true,
+  undoAddMeetingTranscriptAction: true,
   undoAddMeetingSummaryCandidate: true,
   addMeetingSummaryCandidate: true,
   getMeetingSummaryItemSources: true,
