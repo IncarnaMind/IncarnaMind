@@ -27,7 +27,7 @@ Once it's connected, ask your agent something like:
 
 > Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.
 
-The answer carries IncarnaMind's citations, written like `[cite:k3x9a2b7]`. To see one, ask:
+The reply names the source Document and its page, section or other location when available. To open a source, ask
 
 > Show me that citation in IncarnaMind.
 

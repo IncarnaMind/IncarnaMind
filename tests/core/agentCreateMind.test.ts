@@ -111,11 +111,23 @@ describe("a Note an outside agent writes (#3306)", () => {
     const { core, agent, coast, tides, pairing } = await paired();
     const before = await core.listMinds();
     const spring = await springToken(agent);
+    const draft = `Spring tides come twice a month ${spring}.`;
+    const checked = structured<{
+      citations: { cite: string; document: string; location: string }[];
+    }>(await agent.callTool({ name: "check_citations", arguments: { text: draft } }));
+    expect(checked.citations).toEqual([
+      expect.objectContaining({
+        cite: spring,
+        check: "found",
+        document: "Tides",
+        location: "§ Tides",
+      }),
+    ]);
     const made = structured<Created>(
       await create(agent, {
         title: "Tide report",
         markdown: [
-          `Spring tides come twice a month ${spring}.`,
+          draft,
           "",
           "- The harbour floods every winter.",
           "- King tides are rare [cite:notmine1].",

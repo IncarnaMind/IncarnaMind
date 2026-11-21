@@ -132,7 +132,7 @@ test("off by default; Connect asks once, writes Codex's settings as shown, and U
       .getByTestId("agent-pairing")
       .filter({ hasText: "ChatGPT app and Codex" });
     await expect(connected.getByTestId("agent-setup-done")).toContainText(
-      "Added to the settings of the ChatGPT app or Codex.",
+      "“Allow for this session” lets it hand over more files in the same chat.",
     );
     await expect(connected.getByTestId("agent-pairing-reads")).toHaveText("Reads Coast");
     await expect(connected.getByTestId("agent-pairing-skill")).toContainText("Skill installed");
@@ -408,7 +408,7 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
     const connected = page.getByTestId("agent-pairing").filter({ hasText: "ChatGPT 应用和 Codex" });
     await shot(window, "agents-codex-name-zh-connected-900");
     await expect(connected.getByTestId("agent-setup-done")).toContainText(
-      "已添加到 ChatGPT 应用或 Codex 的设置中。在 ChatGPT 应用或 Codex 中开始一个新会话即可使用。",
+      "选择“允许本次会话”后，这次对话里再交付文件就不用逐次确认。",
     );
     await setWindowSize(app, window, 1440, 900);
     await shot(window, "agents-codex-name-zh-connected-wide");

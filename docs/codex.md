@@ -9,7 +9,9 @@
 1. Keep IncarnaMind open. In **Settings → Agents**, turn on **Connect AI agents**, then choose **ChatGPT app and Codex → Connect**. Select the Folders it may read, review the settings change, then choose **Allow and connect**.
 2. IncarnaMind adds its entry to `~/.codex/config.toml`, preserving your other servers. It also installs the `incarnamind` Skill in `~/.agents/skills/incarnamind/SKILL.md`. The setup's **Undo** takes both back while they are unchanged.
 3. Start a new Codex session. Run `codex mcp list`, or use `/mcp` in its terminal interface, to check the connection.
-4. Ask: “Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.” The answer should carry `[cite:…]` references. Ask Codex to show one in IncarnaMind to inspect the original.
+4. Ask: “Using IncarnaMind, what do my Documents say about the cancellation period? Cite the passages and check your citations.” The answer should name each source Document and its location when available. Ask Codex to show one in IncarnaMind to inspect the original.
+
+When Codex asks to hand a file to IncarnaMind, choose **Allow for this session** to allow further hand-overs in that chat. Choose **Allow** to decide each time.
 
 If you use a custom Codex configuration directory, copy the connection's settings from the connected agent's **Details for technical users** into that configuration instead. They contain the pairing credential: keep them private, and do not share a settings file or paste it into a conversation.
 
@@ -28,7 +30,9 @@ If a call fails, see [If something goes wrong](agents.md#if-something-goes-wrong
 1. 保持 IncarnaMind 打开。在“设置 → 智能体”中开启“连接 AI 智能体”，选择“ChatGPT 应用和 Codex”的“连接”，勾选允许读取的文件夹，查看设置变更，再选择“允许并连接”。
 2. IncarnaMind 在 `~/.codex/config.toml` 中添加自己的设置，保留其他服务，并安装 `~/.agents/skills/incarnamind/SKILL.md`。设置未被修改时，可以用“撤销”恢复。
 3. 新开一个 Codex 会话。运行 `codex mcp list`，或在终端界面中用 `/mcp` 检查连接。
-4. 可以问：“用 IncarnaMind 查一下，我的文档中如何规定取消期限？请给出引用并核对。”再让 Codex 在 IncarnaMind 中打开引用。
+4. 可以问：“用 IncarnaMind 查一下，我的文档中如何规定取消期限？请给出引用并核对。”回复应列出来源文档，有页码或章节时也应标明。再让 Codex 在 IncarnaMind 中打开引用。
+
+Codex 询问是否把文件交给 IncarnaMind 时，选择 **Allow for this session（允许本次会话）**，这次对话里再交付文件就不用逐次确认。选择 **Allow（允许）** 可逐次确认。
 
 如果使用自定义的 Codex 配置目录，请从已连接智能体的“技术细节”中复制设置，添加到相应目录。复制的设置包含配对凭据，请勿公开或粘贴到对话中。
 

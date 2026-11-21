@@ -263,7 +263,7 @@ export function createAgentServer(
     {
       title: "Check Citations",
       description:
-        "Check a draft before you finish: each [cite:…] in it is checked again against its Document, and sentences with none are listed.",
+        "Check the [cite:…] tokens in your draft against their Documents and list uncited sentences.",
       inputSchema: z.object({ text: z.string().describe("Your draft, with its Citations.") }),
       outputSchema: z.object({
         citations: z.array(
@@ -277,10 +277,16 @@ export function createAgentServer(
           }),
         ),
         uncited: z.array(z.string()),
+        forChat: z.string(),
       }),
       annotations: READ_ONLY,
     },
-    (input) => answer(() => access.checkCitations(input)),
+    (input) =>
+      answer(async () => ({
+        ...(await access.checkCitations(input)),
+        forChat:
+          "In your chat reply, replace each found token with its document name and location if given. Keep the exact tokens in Notes and check drafts.",
+      })),
   );
 
   server.registerTool(
@@ -425,7 +431,7 @@ export function createAgentServer(
     {
       title: "Ask IncarnaMind",
       description:
-        "Ask a question about the User's Documents. IncarnaMind searches, answers on the User's own chat model and checks every Citation. Pass the answer on with its [cite:…] tokens as they are.",
+        "Ask a question about the User's Documents. IncarnaMind answers on the User's model and checks its Citations. In chat, cite their Document names and locations. In Notes, keep their tokens.",
       inputSchema: z.object({ question: z.string(), folderIds }),
       outputSchema: z.object({
         status: z.enum(["done", "stopped"]),
@@ -790,7 +796,7 @@ export function createAgentServer(
     {
       title: "Read the User's request",
       description:
-        "The rest of what the User asked you from IncarnaMind: the note or file, what its check flagged, and what to change and leave alone. Each is read once.",
+        "Read an IncarnaMind handoff first: its named Note, file, meeting, flagged sentence or search scope. Pass the named Note’s title. For ordinary questions, search.",
       inputSchema: z.object({
         note: z.string().optional().describe("The note's name, as the User wrote it."),
       }),

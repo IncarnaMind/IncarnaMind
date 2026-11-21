@@ -107,7 +107,9 @@ export function doneWords(
     case "opened":
       return result.how === "bundle" ? t("agents.done.bundle") : t("agents.done.link", { agent });
     case "wrote":
-      return t("agents.done.wrote", { agent });
+      return t(pairing.client === "codex" ? "agents.done.wrote.codex" : "agents.done.wrote", {
+        agent,
+      });
     case "copy":
       if (result.path) {
         return result.how === "command"

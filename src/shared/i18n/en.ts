@@ -8821,6 +8821,8 @@ export const en = {
   "agents.done.link": "Opened {agent}: click Install there to finish.",
   "agents.done.wrote":
     "Added to the settings of {agent}. Start a new session in {agent} to use it.",
+  "agents.done.wrote.codex":
+    "Start a new chat in {agent}. When Codex asks to hand a file to IncarnaMind, “Allow for this session” lets it hand over more files in the same chat.",
   "agents.done.command": "Copied. Paste it into a terminal and run it.",
   "agents.done.settings": "Copied. In {agent}, add it as a new server, then restart it.",
   "agents.done.settings.other":
