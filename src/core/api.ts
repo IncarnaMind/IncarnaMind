@@ -12923,19 +12923,29 @@ export const MAX_ASKED_SENTENCES = 30;
 /**
  * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
  * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
- * named, to go on in their AI.
+ * named, to go on in their AI; or to check the Note, with no model set up in IncarnaMind to do it
+ * (#3533).
  */
 export type AgentAsk =
   | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
-  | { kind: "note" };
+  | { kind: "note" }
+  | { kind: "check" };
 
 export interface AskAgentInput {
   pairingId: string;
   /** The Note it is about, named by its title; null for a question about no Note. */
   mindId: string | null;
   ask: AgentAsk;
+  /**
+   * With a question: the Documents open on screen, by id, the focused group's first, as
+   * `AskInConversationInput.onScreen`: what "this document" means. Only those the agent can read
+   * are named or kept (#3533).
+   */
+  onScreen?: string[] | null;
+  /** With a question: the chat box's Search scope, as `AskInConversationInput.scope`; only the Folders and Documents of it that the agent can read are named or kept. */
+  scope?: SearchScope | null;
 }
 
 /**
@@ -12952,7 +12962,8 @@ export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string }
 export interface AgentRequest {
   id: string;
   pairingId: string;
-  mindId: string;
+  /** The Note it is about; null for a question about the Documents the User has open (#3533). */
+  mindId: string | null;
   /** The sentences a fix names, each with the check result it was asked on; none for any other request. */
   sentences: { sentence: string; checkId: string | null }[];
   /** ISO 8601, UTC. */

@@ -13,6 +13,7 @@ import {
   type AssistantPlace,
   type ChatReadiness,
   DEFAULT_ASSISTANT,
+  type SearchScope,
   type WindowLayout,
 } from "../../src/core/api";
 import type { OwnAiPill } from "../../src/renderer/src/ownAiPanel";
@@ -23,13 +24,19 @@ const view = page.defaultView;
 
 const bridge = {
   agents: [] as AgentPairing[],
-  asked: [] as { pairingId: string; mindId: string | null; ask: AgentAsk }[],
+  asked: [] as {
+    pairingId: string;
+    mindId: string | null;
+    ask: AgentAsk;
+    onScreen?: string[];
+    scope?: SearchScope | null;
+  }[],
   /** The agent's app took the link, as Claude Code's does. */
   opens: false,
   on: () => () => undefined,
   listAgentsToAsk: async () => bridge.agents,
   listConversations: async () => [],
-  askAgent: async (input: { pairingId: string; mindId: string | null; ask: AgentAsk }) => {
+  askAgent: async (input: (typeof bridge.asked)[number]) => {
     bridge.asked.push(input);
     return bridge.opens ? { kind: "opened" } : { kind: "copy", text: "The request" };
   },
@@ -93,6 +100,16 @@ const { useQuietAssistant } = await import("../../src/renderer/src/quietAssistan
 const noticePath = "../../src/renderer/src/components/providers/ChatReadinessNotice.tsx";
 const { ChatReadinessNotice }: { ChatReadinessNotice: ComponentType<{ mindId: string }> } =
   await import(noticePath);
+const checkNotReadyPath = "../../src/renderer/src/editor/CheckNotReady.tsx";
+const {
+  CheckNotReady,
+}: {
+  CheckNotReady: ComponentType<{
+    mindId: string;
+    readiness: Extract<ChatReadiness, { ready: false }>;
+  }>;
+} = await import(checkNotReadyPath);
+const { setCheckProblem, useChecks } = await import("../../src/renderer/src/checks");
 
 const MIND = "mind-ferries";
 const pairing = (name: string, client: string | null): AgentPairing => ({
@@ -176,6 +193,22 @@ async function windowShown(): Promise<{ folded: boolean; rail: boolean; pill: Ow
 }
 
 let unmount: (() => Promise<void>) | null = null;
+/** The line a Check that no model can run leaves in the Note's card. */
+async function checkLine(readiness: Extract<ChatReadiness, { ready: false }>) {
+  setCheckProblem(MIND, { kind: "not-ready", readiness });
+  const container = page.createElement("div", {});
+  page.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(createElement(CheckNotReady, { mindId: MIND, readiness })));
+  // The agents are read from the core as the card shows.
+  await act(async () => undefined);
+  unmount = async () => {
+    await act(() => root.unmount());
+    container.remove();
+  };
+  return container as unknown as HTMLElement;
+}
+
 async function lineAbove(): Promise<HTMLElement> {
   const container = page.createElement("div", {});
   page.body.append(container);
@@ -268,7 +301,9 @@ describe("asking an agent", () => {
     user(NO_MODEL, [pairing("VS Code", "vscode")]);
     const ask = { kind: "question", text: "What did fuel cost in 2025?" } as const;
     expect(await askAgent(pairing("VS Code", "vscode"), MIND, ask)).toBe(true);
-    expect(bridge.asked).toEqual([{ pairingId: "pairing-VS Code", mindId: MIND, ask }]);
+    expect(bridge.asked).toEqual([
+      { pairingId: "pairing-VS Code", mindId: MIND, ask, onScreen: [], scope: null },
+    ]);
     expect(copied).toEqual(["The request"]);
     expect(useNotices.getState().confirmation).toMatchObject({
       message: "agents.ask.copied",
@@ -338,5 +373,114 @@ describe("a Question in the chat box with no model", () => {
     await lineAbove();
     expect(await askInAssistant(input)).toBe(true);
     expect(useModelSetup.getState().waiting?.text).toBe(input.text);
+  });
+});
+
+describe("a Question asked of the User's own AI with a Document open (#3533)", () => {
+  const withDocumentsOpen = (...documentIds: string[]) => {
+    user(NO_MODEL, [pairing("Claude Code", "claude-code")]);
+    const layout = bridge.layout as WindowLayout;
+    const [note] = layout.groups;
+    if (!note) throw new Error("No group.");
+    const tab = (documentId: string) => ({
+      id: `tab-${documentId}`,
+      item: { kind: "document", documentId },
+      preview: false,
+      pinned: false,
+      place: null,
+      opened: 0,
+    });
+    const groups = [
+      note,
+      ...documentIds.map((documentId) => ({
+        id: `group-${documentId}`,
+        tabs: [tab(documentId)],
+        activeTabId: `tab-${documentId}`,
+        width: 1,
+      })),
+    ];
+    useAppStore.setState({ layout: { ...layout, groups } } as never);
+  };
+  const scope: SearchScope = { folderIds: ["folder-ferries"], tagIds: [], documentIds: [] };
+  const question = { kind: "question", text: "Summarise this document" } as const;
+
+  // protects=a question goes to the agent with the Documents open on screen and the chat box's scope, as the assistant is given them; fails_when=either is left out, or another kind of ask carries them
+  test("goes with the Documents open on screen and the scope, and no other ask does", async () => {
+    withDocumentsOpen("doc-summary", "doc-tariffs");
+    const claude = pairing("Claude Code", "claude-code");
+    expect(await askAgent(claude, MIND, question, scope)).toBe(true);
+    expect(bridge.asked.at(-1)).toEqual({
+      pairingId: claude.id,
+      mindId: MIND,
+      ask: question,
+      onScreen: ["doc-summary", "doc-tariffs"],
+      scope,
+    });
+    expect(await askAgent(claude, MIND, { kind: "note" })).toBe(true);
+    expect(await askAgent(claude, MIND, { kind: "check" })).toBe(true);
+    for (const each of bridge.asked.slice(-2)) {
+      expect(each).not.toHaveProperty("onScreen");
+      expect(each).not.toHaveProperty("scope");
+    }
+  });
+
+  // protects=with nothing open and no scope the question carries none; fails_when=a Document that isn't open is sent
+  test("with nothing open it carries no Document", async () => {
+    user(NO_MODEL, [pairing("Claude Code", "claude-code")]);
+    await askAgent(pairing("Claude Code", "claude-code"), MIND, question);
+    expect(bridge.asked.at(-1)).toMatchObject({ onScreen: [], scope: null });
+  });
+});
+
+describe("a Check that no model can run, for each kind of User (#3533)", () => {
+  const claude = pairing("Claude Code", "claude-code");
+  const problemKind = () => useChecks.getState().problems[MIND]?.kind;
+
+  // protects=with no model and an agent that can read the Note, the Check's line offers to ask that agent, as "Ask {agent}" is worded elsewhere, with the others behind the arrow, and pressing it asks for a check and clears the line; fails_when=the line is about asking, offers no agent, or the press asks another kind of thing
+  test("with no model and an agent: Ask {agent} asks it to check the Note", async () => {
+    user(NO_MODEL, [claude, pairing("VS Code", "vscode")]);
+    const line = await checkLine(NO_MODEL as never);
+    expect(line.textContent).toContain("Ask Claude Code");
+    expect(line.textContent).toContain("Set up a model");
+    expect(line.textContent).not.toContain("Asking needs an AI model");
+    expect(line.querySelector('[data-testid="checks-ask-agent-others"]')).not.toBeNull();
+    const ask = line.querySelector('[data-testid="checks-ask-agent-ask"]') as HTMLElement;
+    await act(async () => ask.click());
+    expect(bridge.asked).toEqual([{ pairingId: claude.id, mindId: MIND, ask: { kind: "check" } }]);
+    expect(problemKind()).toBeUndefined();
+  });
+
+  // protects=with neither a model nor an agent the line says what a check needs, in words about checking, with the way to set a model up; fails_when=it says asking, or offers no way on
+  test("with no model and no agent: a line about checking, with the way to set a model up", async () => {
+    user(NO_MODEL, []);
+    const line = await checkLine(NO_MODEL as never);
+    expect(line.textContent).toContain("Checking needs an AI model");
+    expect(line.textContent).toContain("Set up");
+    expect(line.textContent).not.toContain("Asking");
+    expect(line.querySelector('[data-testid="checks-ask-agent"]')).toBeNull();
+  });
+
+  // protects=the same line in Chinese; fails_when=Chinese gets English words
+  test("says it in Chinese when the interface is", async () => {
+    user(NO_MODEL, [claude], "zh-CN");
+    expect((await checkLine(NO_MODEL as never)).textContent).toContain("Claude Code");
+    await unmount?.();
+    user(NO_MODEL, [], "zh-CN");
+    expect((await checkLine(NO_MODEL as never)).textContent).toContain("核对需要 AI 模型");
+  });
+
+  // protects=a model that is set up but can't be used (its key is gone) keeps its own explanation and no agent is offered; fails_when=the agent is offered for a problem the User fixes in Settings
+  test("with a model that can't be used: its own explanation, as before", async () => {
+    const missingKey = {
+      ready: false,
+      reason: "missing-api-key",
+      provider: { id: "anthropic", kind: "anthropic" },
+      modelId: "claude-haiku-5-5",
+    } as unknown as Extract<ChatReadiness, { ready: false }>;
+    user(missingKey, [claude]);
+    const line = await checkLine(missingKey);
+    expect(line.querySelector('[data-testid="checks-ask-agent"]')).toBeNull();
+    expect(line.textContent).not.toContain("Ask Claude Code");
+    expect(line.textContent).toContain("Set up");
   });
 });

@@ -510,7 +510,8 @@ export interface AgentReadRequestInput {
 }
 
 export interface AgentReadRequest {
-  mindId: string;
+  /** The Note it is about; null for a request about no Note, and for the answer that none waits. */
+  mindId: string | null;
   title: string;
   /** What the User asked, beyond the line they sent: which Note, which sentences, what to do. */
   request: string;
@@ -2952,20 +2953,30 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const about =
         given.length > 0
           ? given
-          : kept.filter((each) => comparableName(titleOf(each.mindId)) === named);
+          : kept.filter(
+              (each) => each.mindId !== null && comparableName(titleOf(each.mindId)) === named,
+            );
       const chosen = (named !== "" && about.length > 0 ? about : kept).find(
         (each) => each.readAt === null,
       );
-      const effects: Effect[] = chosen
+      const effects: Effect[] = chosen?.mindId
         ? [{ action: "read", scope: { kind: "mind", mindId: chosen.mindId } }]
         : [];
-      const summary = chosen ? titleOf(chosen.mindId) : (input?.note ?? "");
-      return call(
-        "read_request",
-        typeof summary === "string" ? summary : "",
-        effects,
-        (pairing) => {
-          if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+      // Nothing waiting is a look that found nothing, not a failure of the agent's call (#3533):
+      // its activity line says it looked, as it always did.
+      const none = {
+        result: { mindId: null, title: "", request: t("agents.request.none") },
+        count: 0,
+        documentIds: [],
+      };
+      const summary = chosen
+        ? chosen.mindId === null
+          ? chosen.title
+          : titleOf(chosen.mindId)
+        : "";
+      return call("read_request", summary, effects, (pairing) => {
+        if (!chosen) return none;
+        if (chosen.mindId !== null) {
           const mind = minds.get(chosen.mindId);
           if (!mind) {
             // Sharing a Folder can't bring it back, so the request goes rather than wait in front of
@@ -2976,16 +2987,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (!reaches(pairing, mind)) {
             throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
           }
-          const read = deps.requests.markRead(chosen.id);
-          if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
-          return {
-            result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
-            count: 1,
-            documentIds: [],
-            requestId: read.id,
-          };
-        },
-      );
+        }
+        const read = deps.requests.markRead(chosen.id);
+        if (!read) return none;
+        return {
+          result: {
+            mindId: chosen.mindId,
+            title: chosen.mindId === null ? chosen.title : titleOf(chosen.mindId),
+            request: read.text,
+          },
+          count: 1,
+          documentIds: [],
+          requestId: read.id,
+        };
+      });
     },
   };
 }

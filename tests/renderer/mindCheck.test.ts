@@ -851,6 +851,24 @@ describe("A Check another window runs or plans", () => {
     }
   });
 
+  // protects=#3533: with no AI model set up the card's press says so at once, where the User's own AI is offered, and asks no question about a price no run will have; fails_when=the press asks to check, or the line isn't set
+  test("the card's press with no model set up leaves the line that says so, and asks nothing", async () => {
+    store.chatReadiness = { ready: false, reason: "no-provider" };
+    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    const { startCheckUnpriced, useMindCheck } = await import("../../src/renderer/src/mindCheck");
+    try {
+      expect(await startCheckUnpriced("mind")).toBeNull();
+      expect(vi.mocked(setCheckProblem).mock.calls.at(-1)).toEqual([
+        "mind",
+        { kind: "not-ready", readiness: { ready: false, reason: "no-provider" } },
+      ]);
+      expect(useMindCheck.getState().asking.mind).toBeUndefined();
+      expect(bridge.checkMind).not.toHaveBeenCalled();
+    } finally {
+      store.chatReadiness = null;
+    }
+  });
+
   // protects=#2313: the card's press asks while its estimate is still pending, rather than spending unpriced; fails_when=it waits for the price instead of asking, or runs; no_claim=the estimate.
   test("the card's press asks while its estimate is still pending", async () => {
     bridge.estimateRun.mockReturnValue(new Promise(() => {}));

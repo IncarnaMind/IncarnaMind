@@ -1,10 +1,10 @@
 /**
- * What the User asked their own AI about a Note (#3419), beyond the line typed in the agent's app:
- * the line says what they want in their own words, and the rest (which Note, which sentences,
- * what the check found, what to change and what to leave alone) waits here for that agent, which
- * reads it with `read_request`. Each is read once, so two requests made before either is sent
- * each reach the agent once; read, it stays in that agent's activity list. On this device only,
- * as the pairings are.
+ * What the User asked their own AI about a Note (#3419) or the Documents they have open (#3533),
+ * beyond the line typed in the agent's app: the line says what they want in their own words, and
+ * the rest (which Note, which sentences, what the check found, what to change and what to leave
+ * alone) waits here for that agent, which reads it with `read_request`. Each is read once, so two
+ * requests made before either is sent each reach the agent once; read, it stays in that agent's
+ * activity list. On this device only, as the pairings are.
  */
 import type { AgentRequest } from "../api";
 import { isRecord } from "../errors";
@@ -24,7 +24,7 @@ interface RequestRow {
   created_at: string;
 }
 
-/** A request as IncarnaMind keeps it, with the Note's name its line gave and the text the agent reads. */
+/** A request as IncarnaMind keeps it, with the name its line gave (a Note's, else a Document's) and the text the agent reads. */
 export interface KeptRequest extends AgentRequest {
   title: string;
   text: string;
@@ -52,10 +52,13 @@ function sentencesOf(json: string): AgentRequest["sentences"] {
   }
 }
 
+/** The column can't hold null (migration 146), so a request about no Note keeps an empty id (#3533). */
+const NO_NOTE = "";
+
 const toRequest = (row: RequestRow): KeptRequest => ({
   id: row.id,
   pairingId: row.pairing_id,
-  mindId: row.mind_id,
+  mindId: row.mind_id === NO_NOTE ? null : row.mind_id,
   title: row.title,
   sentences: sentencesOf(row.sentences),
   text: row.text,
@@ -76,7 +79,7 @@ export function createAgentRequests(db: Database, now: () => string, newId: () =
           [
             id,
             request.pairingId,
-            request.mindId,
+            request.mindId ?? NO_NOTE,
             request.title,
             JSON.stringify(request.sentences),
             request.text,

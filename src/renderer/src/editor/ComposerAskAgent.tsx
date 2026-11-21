@@ -1,4 +1,4 @@
-import type { AgentPairing } from "../../../core/api";
+import type { AgentPairing, SearchScope } from "../../../core/api";
 import { useAnswers } from "../answers";
 import { askAgent } from "../askYourAi";
 import { AskAgentLine } from "../components/AskAgentLine";
@@ -15,10 +15,13 @@ export function ComposerAskAgent({
   agents,
   draftKey,
   mindId,
+  scope,
 }: {
   agents: readonly AgentPairing[];
   draftKey: string;
   mindId: string | null;
+  /** What the chat box searches, which the agent is told as the assistant is (#3533). */
+  scope: SearchScope;
 }) {
   const t = useT();
   const done = () => useAnswers.getState().dismiss(composerKey(mindId));
@@ -29,7 +32,7 @@ export function ComposerAskAgent({
       : mindId
         ? ({ kind: "note" } as const)
         : null;
-    if (!what || !(await askAgent(agent, mindId, what))) return;
+    if (!what || !(await askAgent(agent, mindId, what, scope))) return;
     if (text) useComposer.getState().update(draftKey, { text: "" });
     done();
   };

@@ -1762,6 +1762,7 @@ export const en = {
   "checks.acceptAndCheck": "Accept all and check",
   "checks.problem.local-mode": "Not checked: “Keep everything on this computer” is on.",
   "checks.problem.chooseModel": "Choose a model",
+  "checks.problem.no-provider": "Checking needs an AI model",
   "checks.tryAgain": "Try again",
   "checks.problem.failed": "Couldn’t check",
   "checks.problem.no-folder": "Nothing to check against: this note isn’t in a Folder.",
@@ -8435,7 +8436,7 @@ export const en = {
   "agents.problem.chat-consent":
     "IncarnaMind’s AI model isn’t allowed yet. Ask a Question in IncarnaMind to allow it.",
   "agents.problem.answer-failed": "IncarnaMind couldn’t answer: {message}",
-  "agents.problem.noRequest":
+  "agents.request.none":
     "No request from the User is waiting in IncarnaMind: each is read once. Go by what they wrote, or ask them to send it again from IncarnaMind.",
   "agents.problem.requestNoteDeleted":
     "The note this request is about was deleted in IncarnaMind, so there is nothing to change. Tell the User; if they restore it, they can ask again.",
@@ -8936,6 +8937,11 @@ export const en = {
   "agents.ask.line.note": "About my note {title} in IncarnaMind:",
   "agents.ask.line.question": "About my note {title} in IncarnaMind:\n\n{question}",
   "agents.ask.line.questionAlone": "From my Documents in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionDocument": "About my document {document} in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionNoteDocument":
+    "About my note {title} and my document {document} in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionScope": "From the Documents in my search scope in IncarnaMind:\n\n{question}",
+  "agents.ask.line.check": "Check my note {title} in IncarnaMind against my Documents.",
   "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
@@ -8957,6 +8963,15 @@ export const en = {
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
   "agents.ask.request.note":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
+  "agents.ask.request.document":
+    "My message is about the document I have open in IncarnaMind: {documents}.",
+  "agents.ask.request.documents":
+    "My message is about the documents I have open in IncarnaMind, the one in front first: {documents}.",
+  "agents.ask.request.scope":
+    "I limited this question to these folders and documents in IncarnaMind: {items}. Look only there.",
+  "agents.ask.request.item": "{name} ({idName}: {id})",
+  "agents.ask.request.check":
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. If you didn’t write the note, read it with read_mind and check it yourself instead. Then tell me which sentences need a look.",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
   "agents.ask.verdict.contradicted": "is contradicted by my Documents",
   "agents.ask.verdict.not-found": "isn’t found in my Documents",

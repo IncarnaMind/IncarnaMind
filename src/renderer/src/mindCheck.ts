@@ -799,6 +799,15 @@ async function askOrCheck(
     );
     return null;
   }
+  // With no AI model set up no run can start, so a question about its price would only be
+  // answered by the same line: say so now, where the User's own AI is offered to check (#3533).
+  const readiness = useAppStore.getState().chatReadiness;
+  if (!plan.model && readiness?.ready === false && readiness.reason === "no-provider") {
+    clearAsk(mindId);
+    dismissCheckProblem(mindId);
+    setCheckProblem(mindId, { kind: "not-ready", readiness });
+    return null;
+  }
   // No price arrived at the card's press: the question asks with the couldn't-estimate line.
   // Only the card's whole-Note press forces a question; a figures run asks with its price or
   // the couldn't-estimate line, so no figure ids reach this branch.
