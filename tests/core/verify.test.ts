@@ -8,6 +8,7 @@ import { copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
+import * as Y from "yjs";
 import type { Core, VerifyClaimsInput } from "../../src/core";
 import type { SortWord } from "../../src/core/answers/checks/claims";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
@@ -132,6 +133,65 @@ async function pageShows(core: Core, mindId: string, client: MindClient) {
     judgedNow: new Map(Object.entries(lines)),
   }).claims.map((claim) => claim.shown);
 }
+
+/** Writes `to` over the first `from` in the Mind's text, wherever it is, as the User would. */
+function retype(client: MindClient, from: string, to: string) {
+  const texts = (node: Y.XmlFragment | Y.XmlElement): Y.XmlText[] =>
+    node
+      .toArray()
+      .flatMap((child) =>
+        child instanceof Y.XmlText ? [child] : child instanceof Y.XmlElement ? texts(child) : [],
+      );
+  // Its words alone: `toString` writes a mark's attributes into the text.
+  const plain = (text: Y.XmlText) =>
+    text
+      .toDelta()
+      .map((op: { insert?: unknown }) => (typeof op.insert === "string" ? op.insert : ""))
+      .join("");
+  const text = texts(client.blocks).find((each) => plain(each).includes(from));
+  if (!text) throw new Error(`Nothing in the Mind reads ${from}.`);
+  const at = plain(text).indexOf(from);
+  text.delete(at, from.length);
+  text.insert(at, to);
+}
+
+/** A memo with sections, a lead-in and its list, and a paragraph of three sentences. */
+const MEMO = [
+  "# Harbour review",
+  "",
+  "All amounts below are in thousands.",
+  "",
+  "## North",
+  "",
+  "The north figures are for 2025.",
+  "",
+  "### Quays",
+  "",
+  "The north quay holds 42 boats.",
+  "",
+  "The north harbour has:",
+  "",
+  "- A fuel berth takes 12 boats.",
+  "- A crane lifts 40 tonnes.",
+  "",
+  "The office opens at seven. It closes at six. It shuts on Sundays.",
+  "",
+  "## South",
+  "",
+  "### Quays",
+  "",
+  "The south quay holds 19 boats.",
+].join("\n");
+
+const MEMO_CLAIMS = [
+  "The north quay holds 42 boats.",
+  "A fuel berth takes 12 boats.",
+  "A crane lifts 40 tonnes.",
+  "The office opens at seven.",
+  "It closes at six.",
+  "It shuts on Sundays.",
+  "The south quay holds 19 boats.",
+] as const;
 
 describe("Verify a document", () => {
   test("its text becomes a Mind, a paragraph or numbered heading to a Block with its page; its claims are found, then checked", async () => {
@@ -413,6 +473,110 @@ describe("Verify a document", () => {
   );
 
   // protects=a result stands on the headings it is under: renaming a heading re-checks the claims under it and leaves those under another heading standing (#3412, #3455); fails_when=a claim keeps a result made under a heading that now says otherwise, or the rename re-checks every claim of the Note
+  // protects=a result stands on what the Note's structure says frames its line (#3455): one edit re-checks the lines it frames, and only those (the table in the PR says the whole rule); fails_when=an edit re-checks a line it doesn't frame, or leaves standing one it frames, so a result stands for something its check didn't judge
+  test.each([
+    [
+      "a claim that is its own paragraph",
+      "holds 42",
+      "holds 40",
+      ["The north quay holds 42 boats."],
+    ],
+    [
+      "a section's opening line",
+      "are for 2025",
+      "are for 2024",
+      MEMO_CLAIMS.filter((claim) => !claim.includes("south")),
+    ],
+    ["the Note's opening line", "in thousands", "in millions", [...MEMO_CLAIMS]],
+    [
+      "a list's lead-in",
+      "north harbour has",
+      "north marina has",
+      ["A fuel berth takes 12 boats.", "A crane lifts 40 tonnes."],
+    ],
+    [
+      "a paragraph's second sentence",
+      "closes at six",
+      "closes at five",
+      ["It closes at six.", "It shuts on Sundays."],
+    ],
+  ])("editing %s re-checks the lines it frames, and no other", async (_, from, to, rechecked) => {
+    const { core, sources } = await setUp(
+      checkingModel(
+        Object.fromEntries(
+          MEMO_CLAIMS.map((claim) => [claim, { verdict: "unsupported" as const }]),
+        ),
+      ),
+    );
+    const { mind, client } = await verified(
+      core,
+      await writeSourceFile(sources, "Harbour review.md", MEMO),
+    );
+    await core.findClaims(request(mind.id));
+    await core.verifyClaims(request(mind.id));
+    expect(await pageShows(core, mind.id, client)).toEqual(
+      MEMO_CLAIMS.map(() => ({ state: "unsupported" })),
+    );
+
+    retype(client, from, to);
+
+    const edited = (claim: string) => claim.includes(from);
+    expect(await pageShows(core, mind.id, client)).toEqual(
+      MEMO_CLAIMS.map((claim) =>
+        !(rechecked as readonly string[]).includes(claim)
+          ? { state: "unsupported" }
+          : { state: "needs-recheck", why: edited(claim) ? "edited" : "context" },
+      ),
+    );
+  });
+
+  // protects=a table row's result stands on its table's caption and its section label, which say what the row is of, beside the headings above (#3455 review); fails_when=a caption or a section label changed with the same claim and headings above leaves the row's result standing for a different subject
+  test.each([
+    ["its table's caption", "(in thousands)", "(in millions)", ["Cash", "Fixed assets"]],
+    ["its section label", "Current assets:", "Liquid assets:", ["Cash"]],
+  ])("a table row is checked again when %s changes", async (_, from, to, rechecked) => {
+    const CASH = "Cash — 2025: 3,820; 2024: 3,145";
+    const FIXED = "Fixed assets — 2025: 9,470; 2024: 8,860";
+    const { core, sources } = await setUp(
+      checkingModel({ [CASH]: { verdict: "unsupported" }, [FIXED]: { verdict: "unsupported" } }),
+    );
+    const row = (y: number, cells: readonly string[]) =>
+      cells.map((text, column) => ({ text, x: [72, 260, 340][column] ?? 72, y }));
+    const balance = await writeSourceFile(
+      sources,
+      "Balance sheet.pdf",
+      buildPdf([
+        {
+          lines: ["Balance sheet at 31 December (in thousands)"],
+          placed: [
+            ...row(720, ["Item", "2025", "2024"]),
+            ...row(706, ["Current assets:"]),
+            ...row(692, ["Cash", "3,820", "3,145"]),
+            ...row(678, ["Non-current assets:"]),
+            ...row(664, ["Fixed assets", "9,470", "8,860"]),
+          ],
+        },
+      ]),
+    );
+    const { mind, client } = await verified(core, balance);
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 2 });
+    await core.verifyClaims(request(mind.id));
+    expect(await pageShows(core, mind.id, client)).toEqual([
+      { state: "unsupported" },
+      { state: "unsupported" },
+    ]);
+
+    retype(client, from, to);
+
+    expect(await pageShows(core, mind.id, client)).toEqual(
+      ["Cash", "Fixed assets"].map((label) =>
+        (rechecked as readonly string[]).includes(label)
+          ? { state: "needs-recheck", why: "context" }
+          : { state: "unsupported" },
+      ),
+    );
+  });
+
   test("a heading renamed re-checks the claims under it, not those under another heading", async () => {
     const { core, report } = await setUp();
     const { mind, client } = await verified(core, report);

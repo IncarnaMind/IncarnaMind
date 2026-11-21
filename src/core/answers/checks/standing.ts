@@ -14,7 +14,7 @@ import {
 import { isVerifiedBlock, readVerification, type Verification } from "../../../shared/verification";
 import { type ClaimCheckAttributes, MIND_SETTINGS_FIELD, type SearchScope } from "../../api";
 import type { RecordCitePlace } from "../../recordCites/referents";
-import { headingsAbove } from "./figureOccurrences";
+import { framesAbove } from "./figureOccurrences";
 import {
   checkText,
   everySentence,
@@ -24,6 +24,7 @@ import {
   noteTextOfMarked,
   recordCiteNote,
   type SelectedSentence,
+  wordsOf,
 } from "./sentences";
 import { tableClaim, type WorkbookCells } from "./verifyTables";
 
@@ -90,18 +91,33 @@ export const saidOf = (
   claimOf(sentence, verification) ?? { claim: sentence.text, context: sentence.context };
 
 /**
- * What a result stands on, of what its check was given (`said`): the claim and what frames its
- * line, a deck's line its slide, else the headings it is under (#3455). The other lines above it
- * and the rest of its paragraph are sent only for what the claim's words refer to, which adds
- * nothing to what it says; were they in, editing one claim would put every finding after it
- * behind Needs re-check.
+ * What a line's result stands on, of what its check is given (`saidOf`): the claim and what frames
+ * its line by the Note's own structure (#3455). A deck's line: its slide. Else: what its paragraph
+ * says before it, where "it" and "this" point; for a table row, its table's caption and section
+ * label; and what the Note's structure puts above it (`framesAbove`). A line of its own section,
+ * or of a sibling section, is sent only for what the claim's words refer to: were it in, editing
+ * one claim would put every finding after it behind Needs re-check. A frame only its meaning
+ * shows ("The figures below are in thousands." among a section's lines) is left out with them.
  */
 export function standsOn(
-  said: { claim: string; context: string; onSlide?: number },
   sentence: SelectedSentence,
+  verification: Verification | null,
 ): { claim: string; context: string } {
+  const said = saidOf(sentence, verification);
   if (said.onSlide !== undefined) return said;
-  return { claim: said.claim, context: headingsAbove(sentence.element).join("\n\n") };
+  const row = tableClaim(sentence, workbookCellsOf(verification));
+  const table =
+    row !== null && row !== "not-a-claim" && row.context !== row.claim ? [row.context] : [];
+  return {
+    claim: said.claim,
+    context: [
+      wordsOf(sentence.element, 0, sentence.from).trim(),
+      ...table,
+      ...framesAbove(sentence.element),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  };
 }
 
 /** The fingerprint of what a result stands on (`standsOn`, `ClaimCheckBasis.judgedWith`). */
@@ -134,7 +150,7 @@ export function judgedWithOf(
   sentence: SelectedSentence,
   verification: Verification | null,
 ): string {
-  return fingerprintOf(standsOn(saidOf(sentence, verification), sentence));
+  return fingerprintOf(standsOn(sentence, verification));
 }
 
 const verificationIn = (blocks: Y.XmlFragment): Verification | null =>

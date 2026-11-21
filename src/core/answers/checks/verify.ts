@@ -74,15 +74,7 @@ import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
 import { runChecks } from "./runChecks";
 import { everySentence, markedSentences, markSentence, type SelectedSentence } from "./sentences";
-import {
-  fileCheckLines,
-  fingerprintOf,
-  judgedWithOf,
-  readingOf,
-  saidOf,
-  slideOf,
-  standsOn,
-} from "./standing";
+import { fileCheckLines, judgedWithOf, readingOf, saidOf, slideOf } from "./standing";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks, slideText } from "./verifySlides";
 import { documentBlocks } from "./verifyTables";
@@ -562,7 +554,7 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
-          judgedWith: fingerprintOf(standsOn(said, sentence)),
+          judgedWith: judgedWithOf(sentence, verification),
         };
         // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
         if (claim.unsorted) {
