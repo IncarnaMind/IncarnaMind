@@ -36,7 +36,7 @@ const HOSTS: readonly Host[] = [
 const lineClass = "text-[12px] leading-5 text-ink-meta";
 
 /**
- * The setup's third step (#3296): what sorts new Documents and reads a check's sentences first. A
+ * The sorting step in Settings: what sorts new Documents and reads a check's sentences first. A
  * decision model leads, on the host the User's key already reaches, else on the best measured
  * one, whose key is asked for in place; then the User's AI model; last a model on this computer.
  * Use this checks and keeps a key typed and saves the choice, under the line that says what
@@ -300,7 +300,7 @@ export function SortingStep({ place }: { place: StepPlace }) {
           {decision ? (
             <>
               <WorksRow
-                text={t(status?.key === "provider" ? "setupPage.usesKey" : "setupPage.keyWorks", {
+                text={t(status?.key === "provider" ? "decisions.usesKey" : "setupPage.keyWorks", {
                   provider: keyName ?? decision.label,
                 })}
                 testId="setup-decision-works"
@@ -315,7 +315,7 @@ export function SortingStep({ place }: { place: StepPlace }) {
                 {asksKey && (
                   <StepKeyField
                     step={step}
-                    label={t("setupPage.key", { provider: keyName ?? "" })}
+                    label={t("setupPage.sorting.connectionKey", { provider: keyName ?? "" })}
                     keyUrl={status?.keyUrl ?? null}
                     testId="setup-decision-key"
                     onEnter={() => void next()}

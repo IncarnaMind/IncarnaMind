@@ -19,7 +19,7 @@ import {
 
 /*
  * Decision models offered before their key is saved (#2615, #1907): the sorting picker in
- * Settings › AI ends with "Set up another decision model", which holds
+ * Settings › AI ends with "Set up another sorting model", which holds
  * "Use TypeSafe Jev…" and each host with a key of its own. Choosing one opens its key entry in
  * place, with what choosing it sends. Nothing goes to the host before its Use this; a refused key
  * says so there and chooses nothing; a valid one makes it what sorts. One stand-in plays TypeSafe

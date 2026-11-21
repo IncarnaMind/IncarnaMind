@@ -267,16 +267,12 @@ export function SortingSelect({
 export function SortingLine({
   option,
   reading = false,
-  choosing = true,
 }: {
   option: SortingOption | null;
   /** The core hasn't answered: nothing is said. */
   reading?: boolean;
-  /** Choosing here turns tagging on, so the line says so; elsewhere it says what goes once it is on. */
-  choosing?: boolean;
 }) {
   const t = useT();
-  const sends = choosing ? "setup.sorting.sends" : "setup.sorting.sendsWhenOn";
   const rows = (each: SortingOption | null) => {
     if (!each) {
       return <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.none")}</p>;
@@ -289,7 +285,7 @@ export function SortingLine({
           </p>
           {each.provider && (
             <p className="text-[12px] leading-5 text-ink-meta">
-              {t(sends, { service: each.provider })}
+              {t("setup.sorting.sendsWhenOn", { service: each.provider })}
             </p>
           )}
         </>
@@ -305,7 +301,7 @@ export function SortingLine({
         <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
         {each.provider && (
           <p className="text-[12px] leading-5 text-ink-meta">
-            {t(sends, { service: each.provider })}
+            {t("setup.sorting.sendsWhenOn", { service: each.provider })}
           </p>
         )}
       </>

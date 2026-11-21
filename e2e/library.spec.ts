@@ -607,11 +607,9 @@ test("onboarding offers starter folders, and Organize with no model chosen opens
     await expect(sidebarFolder(window, "研究论文").getByTestId("folder-row")).toBeVisible();
     await pointAndClick(window, organize(window.getByTestId("library")));
     const needs = window.getByTestId("library-organize-needs-model");
-    await expect(needs).toContainText(
-      "整理需要一个 AI 模型。经你允许后，它会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给你设置的模型。",
-    );
-    await expect(needs.getByTestId("library-organize-key")).toBeVisible();
-    await needs.getByTestId("library-organize-dismiss").click();
+    await expect(needs).toContainText("选好 AI 模型，就能整理文档。");
+    await needs.getByRole("button", { name: "去设置选模型" }).click();
+    await expect(window.getByTestId("model-default-row-sorting")).toBeVisible();
     await expect(needs).toHaveCount(0);
   } finally {
     await app.close();
