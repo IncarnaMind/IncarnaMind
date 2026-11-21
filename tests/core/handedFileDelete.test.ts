@@ -13,7 +13,7 @@ import type { Mind } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createTempDataFolder } from "../helpers/core";
-import { waitForProcessing } from "../helpers/documents";
+import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
 import { type Handed, handOver, started, structured } from "../helpers/handedFiles";
 import { plainDeck } from "../helpers/pptx";
 
@@ -381,6 +381,77 @@ describe("deleting a handed-over file for good", () => {
     expect(await readdir(join(dataDir, "Handed files"))).toEqual([]);
     expect(await readFile(path)).toEqual(bytes[1]);
     expect(await core.handedFileOf(second.mindId ?? "")).toBeNull();
+  });
+
+  // protects=nothing inside a Linked folder is removed, though IncarnaMind's own copies are there: an item's folder the User linked keeps every file when its Document is deleted for good, and the failure is reported (#3505, ADR-0010); fails_when=a file in the Linked folder is deleted
+  it("never removes a file in a Linked folder: the item's own folder linked", async () => {
+    const { core, dataDir, document, first, copies } = await handedTwo();
+    await core.addLinkedFolder(join(dataDir, "Handed files", first.fileId));
+    await core.reconcileDocuments();
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await forGood(core, document.id);
+
+    expect(await kept(dataDir)).toEqual(together(copies.quay, copies.slip));
+    expect(reported).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
+    );
+    reported.mockRestore();
+  });
+
+  // protects=the whole of "Handed files" linked: every file there stays, the other handed file's too, and the failure is reported (#3505, ADR-0010); fails_when=a file in the Linked folder is deleted
+  it("never removes a file in a Linked folder: Handed files linked as a whole", async () => {
+    const { core, dataDir, document, copies } = await handedTwo();
+    await core.addLinkedFolder(join(dataDir, "Handed files"));
+    await core.reconcileDocuments();
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await forGood(core, document.id);
+
+    expect(await kept(dataDir)).toEqual(together(copies.quay, copies.slip));
+    expect(reported).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
+    );
+    reported.mockRestore();
+  });
+
+  // protects=a Linked folder inside an item's folder: the folder around it is not removed whole, only what is outside the Linked folder goes, and the Linked folder's files stay, reported (#3505, ADR-0010); fails_when=the item's folder is removed whole and the Linked folder's files with it
+  it("removes only what is outside a Linked folder inside the item's folder", async () => {
+    const { core, dataDir, document, first, copies } = await handedTwo();
+    await core.addLinkedFolder(join(dataDir, "Handed files", first.fileId, "v1"));
+    await core.reconcileDocuments();
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await forGood(core, document.id);
+
+    expect(await kept(dataDir)).toEqual(
+      together([`${first.fileId}/v1/Quay review.pptx`], copies.slip),
+    );
+    expect(reported).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
+    );
+    reported.mockRestore();
+  });
+
+  // protects=a Linked folder somewhere else changes nothing: the copies go, nothing is reported, and its own files stay (#3505); fails_when=a Linked folder elsewhere stops the removal, or is reported as if a file in it were in the way
+  it("a Linked folder elsewhere changes nothing", async () => {
+    const { core, dataDir, document, copies } = await handedTwo();
+    const elsewhere = await createSourceFolder();
+    const own = await writeSourceFile(
+      elsewhere,
+      "Notes.md",
+      "# Notes\n\nThe tide table is on the quay.\n",
+    );
+    await core.addLinkedFolder(elsewhere);
+    await core.reconcileDocuments();
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await forGood(core, document.id);
+
+    expect(await kept(dataDir)).toEqual(copies.slip);
+    expect(reported).not.toHaveBeenCalled();
+    expect(await readFile(own, "utf8")).toContain("The tide table");
+    reported.mockRestore();
   });
 
   // protects=a link inside a handed file's folder is removed as a link and never followed: what it points at, in a folder of the User's, stays (#3505); fails_when=a file or folder a link points at is deleted

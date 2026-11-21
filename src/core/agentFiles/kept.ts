@@ -6,7 +6,7 @@
  */
 import type { Stats } from "node:fs";
 import { lstat, readdir, realpath, rm } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { isGone, isInside, pathIn } from "../documents/files";
 import type { Database } from "../storage";
 import { HANDED_FOLDER } from "./handOver";
@@ -17,8 +17,21 @@ export const isKeptCopy = (dataDir: string, path: string): boolean => {
   return path !== root && isInside(root, path);
 };
 
-/** Removes a file or folder kept in "Handed files", which must be reached without a link. */
-async function removeKept(dataDir: string, target: string): Promise<void> {
+/** What a removal needs to know: where the data folder is, and the roots of the Linked folders. */
+interface Removal {
+  dataDir: string;
+  /** The Linked folders' roots, as stored and with links resolved. */
+  linked: readonly string[];
+  reportError(error: unknown): void;
+}
+
+/**
+ * Removes a file or folder kept in "Handed files", which must be reached without a link. Nothing
+ * inside a Linked folder is removed (ADR-0010), and a folder around one is not removed whole: only
+ * what is outside every Linked folder goes.
+ */
+async function removeKept(removal: Removal, target: string): Promise<void> {
+  const { dataDir, linked } = removal;
   if (!isKeptCopy(dataDir, target)) throw new Error(`Not removed, not a kept copy: ${target}`);
   let info: Stats;
   try {
@@ -32,7 +45,18 @@ async function removeKept(dataDir: string, target: string): Promise<void> {
   if (info.isSymbolicLink() || realParent !== join(realData, relative(dataDir, parent))) {
     throw new Error(`Not removed, a symbolic link is in the way: ${target}`);
   }
-  await rm(target, { recursive: true, force: true });
+  const real = join(realParent, basename(target));
+  if (linked.some((root) => isInside(root, real))) {
+    throw new Error(`Not removed, it is in a Linked folder: ${target}`);
+  }
+  if (!linked.some((root) => isInside(real, root))) {
+    await rm(target, { recursive: true, force: true });
+    return;
+  }
+  const entries = await readdir(target);
+  await Promise.all(
+    entries.map((name) => removeKept(removal, join(target, name)).catch(removal.reportError)),
+  );
 }
 
 /**
@@ -81,6 +105,9 @@ export async function dropPurgedHanded(options: {
       [`${HANDED_FOLDER}/`, `${HANDED_FOLDER}0`],
     )
     .map((row) => pathIn(dataDir, row.relative_path));
+  const linkedPaths = db
+    .all<{ path: string }>("SELECT path FROM linked_folders WHERE deleted_at IS NULL")
+    .map((row) => row.path);
   const root = join(dataDir, HANDED_FOLDER);
   const listing = (folder: string) =>
     readdir(folder).catch((error: unknown) => {
@@ -103,5 +130,11 @@ export async function dropPurgedHanded(options: {
   const outermost = [...targets].filter(
     (target) => ![...targets].some((other) => other !== target && isInside(other, target)),
   );
-  await Promise.all(outermost.map((target) => removeKept(dataDir, target).catch(reportError)));
+  const resolved = await Promise.all(linkedPaths.map((path) => realpath(path).catch(() => path)));
+  const removal: Removal = {
+    dataDir,
+    linked: [...new Set([...linkedPaths, ...resolved])],
+    reportError,
+  };
+  await Promise.all(outermost.map((target) => removeKept(removal, target).catch(reportError)));
 }
