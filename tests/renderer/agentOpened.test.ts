@@ -146,6 +146,28 @@ describe("what an agent made while the User is in another app", () => {
     announce(behind(second));
     await vi.waitFor(() => expect(tabs()).toEqual({ notes: [notes, second], front: second }));
   });
+
+  // protects=a tab the User pinned is theirs while they are away too: the earlier version's pinned check stays where it is, and the newer opens in a tab of its own, in front (#3493, #3534); fails_when=coming in front closes, replaces or moves a pinned tab
+  test("a pinned first version stays, and version 2 opens in front in a tab of its own", async () => {
+    const { notes, first, second } = await inANote();
+    handedOver("deck", [first]);
+    announce(behind(first));
+    await vi.waitFor(() => expect(tabs().notes).toEqual([notes, first]));
+    const pinned = useAppStore
+      .getState()
+      .layout?.groups.flatMap((group) => group.tabs)
+      .find((tab) => tab.item.kind === "mind" && tab.item.mindId === first);
+    if (!pinned) throw new Error("Version 1's check has no tab.");
+    await useAppStore.getState().changeLayout({ type: "pin", tabId: pinned.id, pinned: true });
+    await vi.waitFor(() => expect(tabs().notes).toEqual([first, notes]));
+
+    handedOver("deck", [first, second]);
+    inThisWindow = false;
+    announce(behind(second));
+    await vi.waitFor(() => expect(tabs().notes).toHaveLength(3));
+    expect(tabs().notes.slice(0, 2)).toEqual([first, notes]);
+    expect(tabs().front).toBe(second);
+  });
 });
 
 describe("a file an agent handed over again", () => {

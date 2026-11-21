@@ -528,7 +528,10 @@ test("what their own AI makes opens in a tab, in front once the User is in anoth
 
       // The same agent while the User is in its app, not in IncarnaMind: its Note is the tab in
       // front when they come back, and the app still stays where it is. A page says it is in use
-      // under Playwright whatever the screen shows, so the page is told it isn't.
+      // under Playwright whatever the screen shows, so the page is told it isn't. What the User
+      // had just typed in the Note they left is kept.
+      await pointAndClick(window, frontMind(window).getByTestId("mind-editor"));
+      await window.keyboard.type("Typed before I left. ");
       await window.evaluate(() => {
         document.hasFocus = () => false;
       });
@@ -539,6 +542,11 @@ test("what their own AI makes opens in a tab, in front once the User is in anoth
       await window.evaluate(() => {
         Reflect.deleteProperty(document, "hasFocus");
       });
+      await pointAndClick(window, tab(first));
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", first);
+      await expect(frontMind(window).getByTestId("mind-editor")).toContainText(
+        "Typed before I left.",
+      );
 
       // Asked from IncarnaMind and read by the agent: what it writes next opens in front, and the
       // app comes forward with it.
