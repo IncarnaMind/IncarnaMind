@@ -17,10 +17,11 @@ import {
   pointAndClick,
   recordMeeting,
   removeDataFolder,
+  setLanguage,
   setWindowSize,
   startRecording,
 } from "./app";
-import { callTool } from "./canvases";
+import { callTool, connectCanvasAgent } from "./canvases";
 
 /** What the agent reads of the request after the line it was handed (#3419). */
 async function requestRead(launch: AgentLaunch): Promise<string> {
@@ -131,39 +132,68 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await copied(window)).toBe(firstRequest);
       await reconnected.click();
       await expect.poll(() => requestRead(workAi)).toContain("¶0+");
+    } finally {
+      await removeDataFolder(dir);
+      await removeDataFolder(home);
+    }
+  });
+  test(`accepting cited notes clears the handoff in Notes and keeps it in the Transcript (${language})`, async () => {
+    const dir = await createDataFolder();
+    const home = await createDataFolder();
+    const { app, window } = await launchApp(dir, { home });
+    let agent: Client | undefined;
+    try {
+      await dismissChatSetup(window);
+      await setWindowSize(app, window, language === "en" ? 1280 : 900, 850);
+      await catchCopies(window);
+      agent = await connectCanvasAgent(window);
+      const bridge = await coreOf(window);
+      const start = await recordMeeting(window);
+      await bridge.evaluate(async (core) => {
+        const [pairing] = await core.listAgentsToAsk(null);
+        const [meeting] = await core.listMeetings();
+        if (!pairing || !meeting) throw new Error("The meeting needs a connected AI");
+        const folder = await core.createLibraryGroup({ name: "Shared meetings", description: "" });
+        await core.updateAgent(pairing.id, { folderIds: [folder.id] });
+        await core.moveToFolder({ mindIds: [meeting.mindId], folderId: folder.id });
+        await core.updateSettings({ device: { meetingNotesAgentId: pairing.id } });
+      });
+      const bar = await startRecording(window, start, { notice: true });
+      await firstTranscriptLine(window);
+      await setLanguage(window, language);
+      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      const action = window.getByTestId("meeting-agent-notes").getByRole("button");
+      await expect(action).toBeVisible();
+      await action.click();
+      await callTool(agent, "read_request", {});
+      const [meeting] = await bridge.evaluate((core) => core.listMeetings());
       if (!meeting?.transcript?.documentId) throw new Error("The meeting needs a saved Transcript");
-      const agent = new Client({ name: "test-agent", version: "1.0.0" });
-      await agent.connect(new StdioClientTransport({ ...workAi, stderr: "pipe" }));
-      try {
-        const read = await callTool<{ passages: { passageId: string; text: string }[] }>(
-          agent,
-          "read_passages",
-          { documentId: meeting.transcript.documentId },
-        );
-        const passage = read.passages[0];
-        if (!passage) throw new Error("The saved Transcript needs a Passage");
-        const quote = passage.text.split("\n")[0] ?? "";
-        const cited = await callTool<{ citations: { cite: string }[] }>(agent, "cite", {
-          citations: [{ passageId: passage.passageId, quote }],
-        });
-        const cite = cited.citations[0]?.cite;
-        expect(cite).toBeTruthy();
-        const { version } = await callTool<{ version: string }>(agent, "read_mind", {
-          mindId: meeting.mindId,
-          named: true,
-        });
-        await callTool(agent, "propose_changes", {
-          mindId: meeting.mindId,
-          version,
-          changes: [{ paragraph: "¶0+", text: `${quote} ${cite}` }],
-        });
-      } finally {
-        await agent.close();
-      }
-      await expect(reconnected).toBeVisible();
+      const read = await callTool<{ passages: { passageId: string; text: string }[] }>(
+        agent,
+        "read_passages",
+        { documentId: meeting.transcript.documentId },
+      );
+      const passage = read.passages[0];
+      if (!passage) throw new Error("The saved Transcript needs a Passage");
+      const quote = passage.text.split("\n")[0] ?? "";
+      const cited = await callTool<{ citations: { cite: string }[] }>(agent, "cite", {
+        citations: [{ passageId: passage.passageId, quote }],
+      });
+      const cite = cited.citations[0]?.cite;
+      expect(cite).toBeTruthy();
+      const { version } = await callTool<{ version: string }>(agent, "read_mind", {
+        mindId: meeting.mindId,
+        named: true,
+      });
+      await callTool(agent, "propose_changes", {
+        mindId: meeting.mindId,
+        version,
+        changes: [{ paragraph: "¶0+", text: `${quote} ${cite}` }],
+      });
+      await expect(action).toBeVisible();
       await pointAndClick(window, window.getByTestId("proposals-accept-all"));
       await expect(window.getByTestId("mind-editor").getByTestId("citation")).toBeVisible();
-      await expect(reconnected).toBeHidden();
+      await expect(action).toBeHidden();
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           animations: "disabled",
@@ -174,9 +204,10 @@ for (const language of ["en", "zh-CN"] as const) {
         window,
         window.getByTestId("meeting-view-menu").getByTestId("meeting-view-transcript"),
       );
-      await expect(transcript.getByRole("button", { name: /Work AI/ })).toBeVisible();
+      const transcript = window.getByTestId("meeting-note-transcript");
+      await expect(transcript.getByRole("button", { name: /Claude Code/ })).toBeVisible();
     } finally {
-      await app.close();
+      await agent?.close();
       await removeDataFolder(dir);
       await removeDataFolder(home);
     }
@@ -193,7 +224,7 @@ for (const transcriptFails of [false, true]) {
     async () => {
       const dir = await createDataFolder();
       const home = await createDataFolder();
-      const { app, window } = await launchApp(dir, {
+      const { window } = await launchApp(dir, {
         home,
         ...(transcriptFails && { transcriber: { failToLoad: "engine unavailable" } }),
       });
@@ -248,7 +279,6 @@ for (const transcriptFails of [false, true]) {
         await problem.getByRole("button", { name: "Settings", exact: true }).click();
         await expect(settings).toHaveAttribute("data-page", "meetings");
       } finally {
-        await app.close();
         await removeDataFolder(dir);
         await removeDataFolder(home);
       }
