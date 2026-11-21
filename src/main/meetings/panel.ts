@@ -187,8 +187,12 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   function giveKeyboardBack(window: BrowserWindow): void {
     if (!window.isFocusable()) return;
     const focused = window.isFocused();
+    // Electron deactivates unconditionally when setFocusable(false) runs on Windows.
+    const next = process.platform === "win32" && !focused ? BrowserWindow.getFocusedWindow() : null;
     if (process.platform === "win32" && focused) window.blur();
     window.setFocusable(false);
+    if (next && next !== window && !next.isDestroyed() && !BrowserWindow.getFocusedWindow())
+      next.focus();
     if (mac && focused) window.blur();
   }
 

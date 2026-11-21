@@ -4069,7 +4069,6 @@ export const en = {
   "composer.scope.leftOut.one": "All Documents · 1 Folder left out",
   "composer.scope.leftOut": "All Documents · {count} Folders left out",
   "scope.openNote": "Open a note there",
-  "composer.scope.allLabel": "Search scope: all your Documents. Limit it (@)",
   "composer.scope.allTitle": "Searches all your Documents. Type @ to limit it",
   "composer.scope.allEmptyFolder":
     "“{folder}” has no Documents yet, so all your Documents are searched. Type @ to limit it",
