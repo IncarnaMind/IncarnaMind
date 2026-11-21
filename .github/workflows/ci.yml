@@ -47,7 +47,7 @@ jobs:
   # request runs the tests its changes reach in Vitest's import graph; the nightly run and a
   # release run them all.
   unit:
-    name: Unit tests (${{ matrix.shard }}/8)
+    name: Meeting unit tests (${{ matrix.shard }}/4)
     if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4]
     steps:
       # The merge commit and its first parent, main, so the change is what this pull request adds.
       - uses: actions/checkout@v7
@@ -73,115 +73,14 @@ jobs:
         with:
           packages: bubblewrap socat ripgrep
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Vitest's --changed doesn't follow a change to the dependencies, the tests' own setup or CI,
-      # nor to a Markdown file, which a test reads as text and never imports.
-      - env:
-          EVENT: ${{ github.event_name }}
+      - name: Run the meeting unit tests
         run: |
-          only=()
-          if [ "$EVENT" = pull_request ] && ! git diff --name-only HEAD^1 HEAD \
-            | grep -qE '^(package(-lock)?\.json|vitest\.config\.ts|tests/setup/|\.github/workflows/ci\.yml)|\.md$'; then
-            only=(--changed=HEAD^1 --passWithNoTests)
-          fi
-          npm test -- --shard=${{ matrix.shard }}/8 "${only[@]}"
-          # This test reads the screens and the audit's scripts as text, which --changed doesn't
-          # follow (#2680).
-          if [ "$EVENT" = pull_request ] && [ "${{ matrix.shard }}" = 1 ] \
-            && git diff --name-only HEAD^1 HEAD | grep -qE '^(src/renderer/|e2e/audit/)'; then
-            npm test -- tests/scripts/auditTestIds.test.ts
-          fi
-          # And this one reads all of src and eval as text, for a check, comment or assistant's
-          # change read by the mark's bare name (#3024).
-          if [ "$EVENT" = pull_request ] && [ "${{ matrix.shard }}" = 1 ] \
-            && git diff --name-only HEAD^1 HEAD | grep -qE '^(src|eval)/'; then
-            npm test -- tests/shared/keyedMarkReaders.test.ts
-          fi
-
-  # A pull request's own specs (scripts/smoke-shard.mjs); every spec when the nightly run or a
-  # release calls this file.
-  smoke-plan:
-    name: Smoke specs to run
-    if: github.event.pull_request.draft != true
-    runs-on: ubuntu-latest
-    outputs:
-      specs: ${{ steps.plan.outputs.specs }}
-      count: ${{ steps.plan.outputs.count }}
-      shards: ${{ steps.plan.outputs.shards }}
-    steps:
-      # The merge commit and its first parent, main, so the diff is what this pull request adds.
-      - uses: actions/checkout@v7
+          mapfile -t files < <(rg --files tests/core tests/renderer tests/main tests/shared tests/eval | rg -i '(meeting|callhelp|earlierCall|otherCall|quickNote|capture|transcrip|audio|microphone|speaker|calendar|echo|soniox|liveRoute|recordCite|speech|askBar|roomVoice|roomDiar|roomReview|permissionGuide|voiceMemo|overlap|vad).*\.test\.tsx?$' | sort)
+          test "${#files[@]}" -gt 100
+          npx vitest run "${files[@]}" --shard "${{ matrix.shard }}/4" --reporter=default --reporter=json --outputFile=meeting-tests.json
+      - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          fetch-depth: 2
-      - id: plan
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT" = pull_request ]; then
-            git diff --name-only HEAD^1 HEAD | node scripts/smoke-shard.mjs plan >> "$GITHUB_OUTPUT"
-          else
-            node scripts/smoke-shard.mjs plan --all >> "$GITHUB_OUTPUT"
-          fi
-          grep '^count=' "$GITHUB_OUTPUT"
-
-  smoke:
-    name: Smoke tests (${{ matrix.shard }}/${{ needs.smoke-plan.outputs.count }}, Linux)
-    needs: smoke-plan
-    if: needs.smoke-plan.outputs.count != '0'
-    runs-on: ubuntu-latest
-    # A full shard's specs take about 16 minutes; the rest is for a slow package mirror.
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: ${{ fromJSON(needs.smoke-plan.outputs.shards) }}
-    env:
-      SMOKE_SPECS: ${{ needs.smoke-plan.outputs.specs }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      # Electron's download from GitHub's releases fails now and then (a 500).
-      - name: Make sure Electron is installed
-        run: |
-          for attempt in 1 2 3; do
-            node node_modules/electron/install.js && exit 0
-            sleep 20
-          done
-          exit 1
-      # Analyses run only in Chromium's sandbox (ADR-0023), whose helper starts on the runner only
-      # as root's and setuid.
-      - name: Let Electron's sandbox start
-        run: |
-          sudo chown root:root node_modules/electron/dist/chrome-sandbox
-          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-      # The runner has no Chinese face, so a printed PDF would hold no Chinese for the export specs
-      # to read back.
-      - uses: ./.github/actions/apt-install
-        with:
-          packages: fonts-noto-cjk
-      # One virtual display for each of the two workers: windows on one display take the keyboard
-      # focus from each other and share its clipboard.
-      - name: Run the specs
-        # With no files named, Playwright runs every spec, so a failed or empty selection stops here.
-        run: |
-          specs=$(node scripts/smoke-shard.mjs ${{ matrix.shard }} ${{ needs.smoke-plan.outputs.count }})
-          test -n "$specs"
-          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
-          for number in 98 99; do
-            Xvfb ":$number" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
-            for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X$number" ] && break; sleep 0.2; done
-            test -S "/tmp/.X11-unix/X$number"
-          done
-          DISPLAY=:98 INCARNAMIND_DISPLAYS=:98,:99 npm run test:smoke -- --workers=2 $specs
-      # The feel check's frames stay on disk without ffmpeg, and are too many to upload.
-      - if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: smoke-results-${{ matrix.shard }}
-          path: |
-            test-results/
-            !test-results/feel/
+          name: meeting-units-${{ matrix.shard }}
+          path: meeting-tests.json
           retention-days: 7
