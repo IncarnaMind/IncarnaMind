@@ -8630,9 +8630,13 @@ export const en = {
     "{count} sentences of the note hold no check result now: check them before you finish, with check_mind_yourself, which gives only those.",
   // After an agent writes a note while checking as it lands is off: it waits for the User (#3576).
   "agents.write.waits.one":
-    "1 sentence of the note holds no check result yet. It waits for the User: they press Check on the note in IncarnaMind, or ask you to check it.",
+    "1 sentence of the note holds no check result yet. It waits for the User’s Check in IncarnaMind; if they asked you to check the note, check it now with check_mind_yourself, which gives it.",
   "agents.write.waits":
-    "{count} sentences of the note hold no check result yet. They wait for the User: they press Check on the note in IncarnaMind, or ask you to check it.",
+    "{count} sentences of the note hold no check result yet. They wait for the User’s Check in IncarnaMind; if they asked you to check the note, check it now with check_mind_yourself, which gives them.",
+  "agents.write.checkNow.one":
+    "1 sentence of the note holds no check result yet, and the User has what is written checked as it lands: check it now, before you finish, with check_mind_yourself, then report_check.",
+  "agents.write.checkNow":
+    "{count} sentences of the note hold no check result yet, and the User has what is written checked as it lands: check them now, before you finish, with check_mind_yourself, then report_check.",
   "agents.read.unchecked.one":
     "1 sentence of this note holds no check result yet: to tell the User whether it is right, check it with check_mind_yourself, which gives it.",
   "agents.read.unchecked":
@@ -8760,7 +8764,7 @@ export const en = {
   "agents.handOver.notChecked.not-ready":
     "Not checked yet: no AI model is set up in IncarnaMind. Check this file yourself now: check_mind_yourself with its mindId gives what to check in it, then report_check.",
   "agents.handOver.notChecked.waits":
-    "Not checked yet: it waits for the User to press Check on its note in IncarnaMind, or to ask you to check it.",
+    "Not checked yet: it waits for the User’s Check in IncarnaMind. If they asked you to check it, check it now: check_mind_yourself with its mindId, then report_check.",
   "agents.handOver.notChecked.consent-needed":
     "The User hasn’t allowed IncarnaMind’s checks to go to their AI model’s service, so it wasn’t checked. They can check it from its note.",
   "agents.handOver.notChecked.local-mode":

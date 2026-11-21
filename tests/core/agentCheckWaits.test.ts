@@ -18,11 +18,11 @@ const NOTE = [
   "Penguins nest on the cliffs above the harbour.",
 ].join("\n\n");
 const WAITS =
-  "2 sentences of the note hold no check result yet. They wait for the User: they press Check on the note in IncarnaMind, or ask you to check it.";
+  "2 sentences of the note hold no check result yet. They wait for the User’s Check in IncarnaMind; if they asked you to check the note, check it now with check_mind_yourself, which gives them.";
 const CHECK_NOW =
-  "2 sentences of the note hold no check result now: check them before you finish, with check_mind_yourself, which gives only those.";
+  "2 sentences of the note hold no check result yet, and the User has what is written checked as it lands: check them now, before you finish, with check_mind_yourself, then report_check.";
 const FILE_WAITS =
-  "Not checked yet: it waits for the User to press Check on its note in IncarnaMind, or to ask you to check it.";
+  "Not checked yet: it waits for the User’s Check in IncarnaMind. If they asked you to check it, check it now: check_mind_yourself with its mindId, then report_check.";
 
 /** A core with agents on, Tides in "Coast", and an agent that may write there. */
 async function writer(asItLands: boolean) {
@@ -75,7 +75,7 @@ describe("what an outside agent writes waits for the User's Check (#3576)", () =
         },
       }),
     );
-    expect(changed.next).toContain("wait for the User");
+    expect(changed.next).toContain("wait for the User’s Check");
     expect(changed.next).not.toContain("before you finish");
 
     // Asked, the agent checks: every sentence is still there to judge.

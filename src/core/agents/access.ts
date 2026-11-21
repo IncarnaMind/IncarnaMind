@@ -1571,13 +1571,16 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
 
   /**
    * What an agent's write leaves unchecked: with checking as it lands on, to check now; else that
-   * it waits for the User's Check or their asking (#3576).
+   * it waits for the User's Check or their asking (#3576). A new Note says why it is to be checked:
+   * nothing else tells the agent to check what it just wrote.
    */
-  const leftToCheck = (unchecked: number): string | null => {
+  const leftToCheck = (unchecked: number, made: boolean): string | null => {
     if (unchecked === 0) return null;
-    const [one, more] = deps.checksWritten()
-      ? (["agents.propose.unchecked.one", "agents.propose.unchecked"] as const)
-      : (["agents.write.waits.one", "agents.write.waits"] as const);
+    const [one, more] = !deps.checksWritten()
+      ? (["agents.write.waits.one", "agents.write.waits"] as const)
+      : made
+        ? (["agents.write.checkNow.one", "agents.write.checkNow"] as const)
+        : (["agents.propose.unchecked.one", "agents.propose.unchecked"] as const);
     return t(unchecked === 1 ? one : more, { count: unchecked });
   };
 
@@ -2865,7 +2868,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             // As the change's bar counts them, from what was written, the Citations kept too.
             uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
             refused: leftOut(written.refused),
-            next: leftToCheck(unchecked),
+            next: leftToCheck(unchecked, false),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
           count: own ? null : written.waiting,
@@ -2997,7 +3000,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               (token) => tokens.get(token)?.cited?.citable === true,
             ),
             refused: leftOut(made.refused),
-            next: leftToCheck(left.ok ? left.value.sentences.length : 0),
+            next: leftToCheck(left.ok ? left.value.sentences.length : 0, true),
           },
           count: 1,
           documentIds: [...tokens.values()].flatMap((each) =>

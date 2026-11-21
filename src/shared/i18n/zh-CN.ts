@@ -8128,9 +8128,13 @@ export const zhCN = {
   "agents.propose.unchecked":
     "笔记中有 {count} 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这些句子。",
   "agents.write.waits.one":
-    "笔记中有 1 句还没有核对结果，等用户来核对：用户在 IncarnaMind 里点笔记上的“核对”，或让你核对。",
+    "笔记中有 1 句还没有核对结果，等用户在 IncarnaMind 里点“核对”；如果用户让你核对这篇笔记，现在就用 check_mind_yourself 核对，它会给出这一句。",
   "agents.write.waits":
-    "笔记中有 {count} 句还没有核对结果，等用户来核对：用户在 IncarnaMind 里点笔记上的“核对”，或让你核对。",
+    "笔记中有 {count} 句还没有核对结果，等用户在 IncarnaMind 里点“核对”；如果用户让你核对这篇笔记，现在就用 check_mind_yourself 核对，它会给出这些句子。",
+  "agents.write.checkNow.one":
+    "笔记中有 1 句还没有核对结果，而用户开启了写入后立即核对：结束前现在就用 check_mind_yourself 核对这一句，再用 report_check 交回结果。",
+  "agents.write.checkNow":
+    "笔记中有 {count} 句还没有核对结果，而用户开启了写入后立即核对：结束前现在就用 check_mind_yourself 核对这些句子，再用 report_check 交回结果。",
   "agents.read.unchecked.one":
     "这篇笔记中有 1 句还没有核对结果：要告诉用户它对不对，先用 check_mind_yourself 核对，它会给出这一句。",
   "agents.read.unchecked":
@@ -8253,7 +8257,7 @@ export const zhCN = {
   "agents.handOver.notChecked.not-ready":
     "还没有核对：IncarnaMind 里没有设置 AI 模型。请你现在自己核对这个文件：用它的 mindId 调用 check_mind_yourself，取得要核对的内容，再用 report_check 交回结果。",
   "agents.handOver.notChecked.waits":
-    "还没有核对：等用户在 IncarnaMind 里点它的笔记上的“核对”，或让你核对。",
+    "还没有核对：等用户在 IncarnaMind 里点“核对”。如果用户让你核对，现在就核对：用它的 mindId 调用 check_mind_yourself，再用 report_check 交回结果。",
   "agents.handOver.notChecked.consent-needed":
     "用户还没有允许把 IncarnaMind 的核对发送到其 AI 模型服务，所以没有核对。用户可以在它的笔记里核对。",
   "agents.handOver.notChecked.local-mode":
