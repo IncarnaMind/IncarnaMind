@@ -23,11 +23,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_INSERT_MARK,
 } from "../../../core/api";
-import {
-  type AnalysisTableShown,
-  columnEarns,
-  tableNeedsLook,
-} from "../../../shared/analysisTables";
+import type { AnalysisTableShown } from "../../../shared/analysisTables";
 import {
   chartCheckText,
   chartPoints,
@@ -47,7 +43,12 @@ import { readTableBinding } from "../../../shared/figureRuns";
 import { readFigures } from "../../../shared/figures";
 import { memoized } from "../../../shared/memo";
 import { sentenceKey } from "../../../shared/mindCheck";
-import { countSentence, emptyHealth, type NoteHealth } from "../../../shared/noteHealth";
+import {
+  countSentence,
+  countTable,
+  emptyHealth,
+  type NoteHealth,
+} from "../../../shared/noteHealth";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { INLINE_NODE, onlyNamesItsTable } from "../../../shared/sentences";
 import { onlyNamesItsSource } from "../../../shared/sourceNames";
@@ -295,24 +296,7 @@ export function noteHealth(doc: ProseMirrorNode, input: NoteHealthInput): NoteHe
       ),
     (table, pos) => {
       const shown = input.tableShown?.(table);
-      if (!shown) return;
-      const { kind } = shown.state;
-      if (kind === "kept-inside" || kind === "unavailable") return;
-      health.checkable++;
-      if (tableNeedsLook(shown)) {
-        health.lookClaims.push(pos);
-        return;
-      }
-      const unearned = shown.columns.filter((column) => !columnEarns(column)).length;
-      if (shown.columns.length > unearned) {
-        health.supported++;
-        health.supportedAt.push(pos);
-      }
-      for (let at = 0; at < unearned; at++) {
-        health.toCheck.push(pos);
-        health.failed.push(pos);
-        health.notRecalculated.push(pos);
-      }
+      if (shown) countTable(health, pos, shown);
     },
   );
   health.lookClaims.sort((a, b) => a - b);

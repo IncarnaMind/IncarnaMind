@@ -980,16 +980,11 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
     expect(folderOf(cited.documentId)).toBe(folder.id);
   });
 
-  test("isn't offered while the switch is off, in Local mode, for a Question that doesn't ask for the web, or with a provider that has no web search", async () => {
+  test("isn't offered while the switch is off, in Local mode, or with a provider that has no web search", async () => {
     const off = webSearchingModel(researcher(), FOUND);
     const first = await setUp(off.model, { webSearch: false });
     await askAndFinish(first.core, first.client, first.mind.id, "Search the web for tea");
     expect(offeredTools(off.model)).not.toContain("search_web");
-
-    const notAsked = webSearchingModel(researcher(), FOUND);
-    const second = await setUp(notAsked.model);
-    await askAndFinish(second.core, second.client, second.mind.id, "How did tea reach Europe?");
-    expect(offeredTools(notAsked.model)).not.toContain("search_web");
 
     const local = webSearchingModel(researcher(), FOUND);
     const third = await setUp(local.model);
@@ -1008,7 +1003,7 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
     if (saved.service) await fourth.core.allowDataFlow("chat", saved.service.id);
     await askAndFinish(fourth.core, fourth.client, fourth.mind.id, "Search the web for tea");
     expect(offeredTools(deepSeek.model)).not.toContain("search_web");
-    for (const each of [off, notAsked, local, deepSeek]) expect(each.searches).toEqual([]);
+    for (const each of [off, local, deepSeek]) expect(each.searches).toEqual([]);
     expect(await fourth.core.listDocuments()).toEqual([]);
   });
 

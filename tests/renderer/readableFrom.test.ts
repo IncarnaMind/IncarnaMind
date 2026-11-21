@@ -20,6 +20,7 @@ const folder = (id: string, name: string, keepInside = false): LibraryGroup => (
   description: "",
   parentId: null,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside,
   createdAt: "2026-11-01T00:00:00.000Z",
   updatedAt: "2026-11-01T00:00:00.000Z",

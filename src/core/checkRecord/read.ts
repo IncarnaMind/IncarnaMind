@@ -6,6 +6,7 @@
  * empty, never guessed.
  */
 import * as Y from "yjs";
+import { tableShownIn } from "../../shared/analysisTables";
 import {
   citationAttributesOf,
   citationState,
@@ -22,10 +23,20 @@ import {
   sentenceResultOf,
 } from "../../shared/claimChecks";
 import { restsOnPassage } from "../../shared/claimParts";
+import { keptBinding } from "../../shared/figureRuns";
 import { withoutInertBrackets } from "../../shared/inertBrackets";
 import type { Translate } from "../../shared/locations";
+import { mindCheckOf, sentenceKey } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
-import { type CheckRow, checkRowOf } from "../../shared/noteHealth";
+import {
+  type CheckRow,
+  checkRowOf,
+  checkRows,
+  countSentence,
+  countTable,
+  emptyHealth,
+} from "../../shared/noteHealth";
+import { readOpinionSentences, resolveOpinions } from "../../shared/opinions";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import {
   citationSignOffBasis,
@@ -36,9 +47,17 @@ import {
 } from "../../shared/signOffs";
 import { textOriginOf } from "../../shared/textOrigins";
 import { groupsOf, isProposed } from "../aiUseStatement/figures";
-import { checkedSentences, citationSentences } from "../answers/checks/sentences";
+import { nodeOf } from "../answers/blocks";
+import { inValueCell } from "../answers/checks/figureOccurrences";
+import {
+  checkedSentences,
+  citationSentences,
+  everySentence,
+  type SelectedSentence,
+} from "../answers/checks/sentences";
 import { readingOf } from "../answers/checks/standing";
 import {
+  ANALYSIS_TABLE_ATTRIBUTE,
   ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
@@ -165,6 +184,8 @@ export interface RecordSources {
   personId: string | null;
   /** The Documents whoever the record is for reaches: an outside agent's; null for the User. */
   reach?: ReadonlySet<string> | null;
+  /** The walled Folder that keeps a Document inside it, seen from the Mind; null when it may read it. */
+  keptInside?: ((documentId: string) => string | null) | null;
 }
 
 interface Run {
@@ -275,6 +296,8 @@ export function readRecord(sources: RecordSources): {
   recordCites: RecordCiteItem[];
   /** The requests the sentences were checked with: what each check's unread files are kept by. */
   requests: string[];
+  /** How many unmarked claims and Analysis table columns not recalculated the page counts as not checked (#3460). */
+  notChecked: number;
 } {
   const { fragment, documents, folderId, model } = sources;
   const scope = fragment.doc ? mindScopeOf(fragment.doc) : null;
@@ -291,23 +314,11 @@ export function readRecord(sources: RecordSources): {
   const sentences: SentenceItem[] = [];
   const recordCites: RecordCiteItem[] = [];
   const requests: string[] = [];
-  for (const {
-    element,
-    from,
-    to,
-    check,
-    sentence,
-    cited,
-    citations,
-    place,
-    noteText,
-  } of checkedSentences(fragment)) {
+  const checked = checkedSentences(fragment);
+  for (const { element, from, to, check, sentence, cited, citations, place, noteText } of checked) {
     requests.push(check.request);
     const shown = reading.ofMarked(
       {
-        element,
-        from,
-        to,
         sentence,
         citations,
         place,
@@ -409,6 +420,63 @@ export function readRecord(sources: RecordSources): {
     }
   }
 
+  const doc = fragment.doc;
+  const skipped = new Set((doc ? mindCheckOf(doc)?.skipped : undefined) ?? []);
+  const every = everySentence(fragment);
+  const opinions = doc ? resolveOpinions(every, readOpinionSentences(doc)) : [];
+  const leftOut = (sentence: SelectedSentence) =>
+    (skipped.has(sentenceKey(sentence.text)) && !inValueCell(sentence.figures)) ||
+    opinions.some(
+      (each) =>
+        each.blockId === sentence.blockId &&
+        each.text === sentence.text &&
+        each.occurrence === sentence.occurrence,
+    );
+  const uncounted = emptyHealth();
+  let place = 0;
+  for (const sentence of every) {
+    if (
+      checked.some(
+        (mark) =>
+          mark.element === sentence.element && mark.from < sentence.to && mark.to > sentence.from,
+      )
+    )
+      continue;
+    const chart = sentence.element.nodeName === CHART_NODE;
+    countSentence(uncounted, {
+      from: place++,
+      text: sentence.text,
+      ...(chart && { kind: "chart" as const }),
+      claim: null,
+      citations: sentence.citations.map((attributes, pos) => ({
+        attributes,
+        pos,
+        check: citationState(attributes, documents, sources.kept).check,
+      })),
+      inTable: false,
+      state: checkedSentence({
+        text: sentence.text,
+        hasFigures: chart || (sentence.figures?.length ?? 0) > 0,
+        check: null,
+        skipped: leftOut(sentence),
+        kept: false,
+      }),
+    });
+  }
+  if (doc) {
+    for (const block of fragment.toArray()) {
+      if (!(block instanceof Y.XmlElement) || isProposed(block) || block.nodeName !== "table")
+        continue;
+      if (!keptBinding(doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))) continue;
+      countTable(
+        uncounted,
+        place++,
+        tableShownIn(doc, nodeOf(block), "en", versions, sources.keptInside ?? null),
+      );
+    }
+  }
+  const notChecked = checkRows(uncounted).find(({ row }) => row === "toCheck")?.places.length ?? 0;
+
   const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
   const idOf = new Map<Footnote, string>();
   const readOptions = {
@@ -479,7 +547,7 @@ export function readRecord(sources: RecordSources): {
       signOff: signOffNow({ state: "checked", record: mark }, sources.personId),
     });
   }
-  return { sentences, citations, recordCites, requests };
+  return { sentences, citations, recordCites, requests, notChecked };
 }
 
 function citationsIn(

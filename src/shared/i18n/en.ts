@@ -637,12 +637,14 @@ export const en = {
   "undo.examplesShown": "Showed the examples",
   "menu.showExamples": "Show the examples again",
   "undo.folderLinked": "Linked “{name}”",
+  "undo.projectMade": "Made “{name}” a project",
   "undo.folderUnlinked": "Unlinked “{name}”",
   "undo.linkedFolder.mergedGone":
     "“{name}”, the Linked folder this link took in, isn’t on the disk any more.",
   "undo.linkedFolderPaused": "Paused reading in “{name}”",
   "undo.linkedFolderResumed": "Resumed reading in “{name}”",
   "undo.name.linkFolder": "Link “{name}”",
+  "undo.name.makeProject": "Make a project",
   "undo.name.move": "Move “{name}”",
   "undo.name.move.minds": "Move {count} notes",
   "undo.name.move.documents": "Move {count} Documents",
@@ -2739,6 +2741,7 @@ export const en = {
     "No files IncarnaMind can read in “{folder}” yet. New ones are read as they arrive.",
   "linkedFolders.more": "More actions for {name}",
   "linkedFolders.pause": "Pause reading",
+  "linkedFolders.makeProject": "Make it a project",
   "linkedFolders.resume": "Resume reading",
   "linkedFolders.downloadOnlineOnly.one": "Download and read 1 online-only file",
   "linkedFolders.downloadOnlineOnly.other": "Download and read {count} online-only files",
@@ -8862,6 +8865,27 @@ export const en = {
   "meetings.summary.status.cancelled": "Canceled",
   "meetings.summary.preparing": "Preparing a summary…",
   "meetings.summary.updating": "Finishing the summary…",
+  "meetings.summary.candidates.find": "Find quotes to review",
+  "meetings.summary.candidates.disclosure":
+    "Opening sends the transcript and current items to your selected AI once.",
+  "meetings.summary.candidates.checking": "Your AI is checking the transcript…",
+  "meetings.summary.candidates.empty":
+    "No quotes are waiting for review. You can read the full conversation in the transcript.",
+  "error.meeting.candidateReviewFailed":
+    "Your AI couldn’t check the transcript. Try again to request a new check.",
+  "meetings.summary.candidates": "Quotes to review ({count})",
+  "meetings.summary.candidate.add": "Add to action items",
+  "meetings.summary.candidate.added": "Added to action items.",
+  "error.meeting.candidateReviewTooLong":
+    "The transcript is too long for this AI to check in one request.",
+  "error.meeting.candidateReviewIncomplete":
+    "The AI returned an incomplete quote list. Try again to request a new check.",
+  "error.meeting.summaryCandidateReviewNotReady":
+    "You can check quotes when the transcript and summary have finished.",
+  "error.meeting.summaryCandidateReviewUnavailable":
+    "The transcript or AI access has changed. Check the meeting’s AI settings and try again.",
+  "error.meeting.summaryCandidateUnavailable":
+    "This quote has changed or is no longer available. Open the transcript to check the original words.",
   "meetings.summary.item.original": "Original speech",
   "meetings.summary.item.loading": "Looking up the original speech…",
   "meetings.summary.item.unavailable": "Couldn’t locate a unique source in the transcript.",

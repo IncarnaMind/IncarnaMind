@@ -8229,6 +8229,18 @@ export interface FigureSchedule {
  * A Figure schedule as a change to one the caller holds (`since`, that one's `token`): its rows
  * `from` to `to` give way to `rows`. With no `since`, `rows` are all of them.
  */
+/**
+ * What each result of a Note that keeps what it was judged with (`ClaimCheckBasis.judgedWith`)
+ * would be judged with now, by the result's id, read at the Note's fingerprint `basis`
+ * (`fingerprintOfMind`). The core works it out from the Note, a deck's slides and a table's
+ * headings, and the window reads each result with it, as the core does (#3455).
+ */
+export interface JudgedWithNow {
+  mindId: string;
+  basis: string;
+  lines: Record<string, string>;
+}
+
 export interface FigureScheduleChange extends Omit<FigureSchedule, "rows"> {
   /** Names this schedule, for asking for the next as a change to it. */
   token: string;
@@ -12070,9 +12082,22 @@ export interface MeetingSummaryItem {
   corrected?: true;
 }
 
+export interface MeetingSummarySource {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+export interface MeetingSummaryCandidate {
+  id: number;
+  sources: MeetingSummarySource[];
+}
+
 export interface MeetingSummary {
   text: string;
   items?: MeetingSummaryItem[];
+  candidateCount?: number;
+  candidatesReviewed?: true;
   problem?: "codex-input-limit";
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
@@ -13004,6 +13029,13 @@ export type AgentChangeStep = "done" | "nothing-left" | "unavailable";
 export interface CoreApi {
   getLibrary(): Promise<LibrarySnapshot>;
   createLibraryGroup(input: LibraryGroupInput): Promise<LibraryGroup>;
+  /**
+   * Makes a Folder bound to a folder on disk (ADR-0030): `folderId` is a Linked folder's own
+   * Folder (`LinkedFolder.folderId`) or one inside it (`listFolders`). The new Folder is named
+   * after it and keeps its work inside it; the folder's Documents with no filing of their own are
+   * filed in it now, and its new ones as they arrive. One already bound to it is returned as it is.
+   */
+  createBoundFolder(folderId: string): Promise<LibraryGroup>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
   /**
    * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
@@ -14504,6 +14536,8 @@ export interface CoreApi {
    * schedule crossing over. The whole schedule once the core no longer keeps that one.
    */
   getFigureScheduleChange(mindId: string, since: string | null): Promise<FigureScheduleChange>;
+  /** See `JudgedWithNow`: one source of it for the window, so its page reads each result as the core does. */
+  judgedWithNow(mindId: string): Promise<JudgedWithNow>;
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
@@ -15279,12 +15313,18 @@ export interface CoreApi {
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
+  /** Whether the selected AI route can start a new quote review for this saved Meeting. */
+  canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
+  reviewMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  getMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  undoAddMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
+  addMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
   getMeetingSummaryItemSources(
     meetingId: string,
     itemId: number,
   ): Promise<{
     documentId: string;
-    sources: { startMs: number; endMs: number; text: string }[];
+    sources: MeetingSummarySource[];
   } | null>;
   correctMeetingSummaryItem(
     meetingId: string,
@@ -15951,6 +15991,7 @@ const methods: Record<CoreApiMethod, true> = {
   libraryListsVersion: true,
   getFigureSchedule: true,
   getFigureScheduleChange: true,
+  judgedWithNow: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
@@ -16000,6 +16041,7 @@ const methods: Record<CoreApiMethod, true> = {
   listFolders: true,
   getLibrary: true,
   createLibraryGroup: true,
+  createBoundFolder: true,
   updateLibraryGroup: true,
   moveLibraryGroups: true,
   deleteLibraryGroup: true,
@@ -16168,6 +16210,11 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   retryMeetingSummary: true,
+  canReviewMeetingSummaryCandidates: true,
+  reviewMeetingSummaryCandidates: true,
+  getMeetingSummaryCandidates: true,
+  undoAddMeetingSummaryCandidate: true,
+  addMeetingSummaryCandidate: true,
   getMeetingSummaryItemSources: true,
   correctMeetingSummaryItem: true,
   undoMeetingFill: true,

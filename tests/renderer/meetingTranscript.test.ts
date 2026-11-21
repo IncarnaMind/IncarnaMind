@@ -73,6 +73,7 @@ const folder = (id: string, name: string): LibraryGroup => ({
   description: "",
   parentId: null,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside: false,
   createdAt: AT,
   updatedAt: AT,
@@ -104,7 +105,15 @@ describe("A meeting's Transcript in the lists", () => {
     ];
     // Harbour counts its lease alone, and the Transcript makes no Not in a Folder row.
     expect(agentFolderRows([folder("g-harbour", "Harbour")], [lease, transcript], filed)).toEqual([
-      { id: "g-harbour", name: "Harbour", documents: 1, depth: 0, walled: false, sharedWith: [] },
+      {
+        id: "g-harbour",
+        name: "Harbour",
+        documents: 1,
+        depth: 0,
+        walled: false,
+        sharedWith: [],
+        place: null,
+      },
     ]);
   });
 });

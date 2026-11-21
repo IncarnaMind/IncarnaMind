@@ -194,6 +194,40 @@ it("keeps long meeting content out of trusted Codex instructions and sends it on
   expect(invocation()[1].join(" ")).not.toContain("green pens");
 });
 
+it("requests only a JSON array for an explicit quote review in a connected agent", async () => {
+  const options = {
+    purpose: "candidate-review" as const,
+    prompt,
+    signal: new AbortController().signal,
+  };
+  const output = JSON.stringify({ ...response, result: "[]" });
+  useProgram(claudeServer(output));
+  await expect(summarizeWithMeetingAgent({ ...options, client: "claude-code" })).resolves.toBe(
+    "[]",
+  );
+  const args = invocation()[1];
+  expect(args[args.indexOf("--system-prompt") + 1]).toContain("only the requested JSON array");
+  useProgram(codexServer("text", prompt, "only the requested JSON array"));
+  await expect(summarizeWithMeetingAgent({ ...options, client: "codex" })).resolves.toBe(
+    "Green pens.",
+  );
+});
+
+it("explains the review input limit on an older Codex without starting a second request", async () => {
+  const value = "x".repeat(5000);
+  useProgram(codexServer("older", value));
+  await expect(
+    summarizeWithMeetingAgent({
+      client: "codex",
+      purpose: "candidate-review",
+      prompt: value,
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toMatchObject({
+    wording: { key: "error.meeting.candidateReviewTooLong" },
+  });
+});
+
 it("keeps the shared instructions outside an older Codex client's user payload limit", async () => {
   const instructions = "Summarize the supplied meeting only. ".repeat(150);
   expect(Buffer.byteLength(instructions)).toBeGreaterThan(4_000);

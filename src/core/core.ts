@@ -90,7 +90,7 @@ import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { checkedSentences } from "./answers/checks/sentences";
-import { readingOf } from "./answers/checks/standing";
+import { judgedNow, readingOf } from "./answers/checks/standing";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -301,6 +301,7 @@ import {
   otherCallTranscripts,
 } from "./meetings";
 import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
+import { createMeetingCandidateReview } from "./meetings/candidateReviews";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
 import { createLiveSummaries } from "./meetings/liveSummary";
@@ -1225,7 +1226,10 @@ export function createCore(adapters: CoreAdapters): Core {
         batches.changed([document.id]);
         rebuildMayHaveProgressed();
       },
-      emitMoved: (moved) => events.emit("documents.moved", moved),
+      emitMoved: (moved) => {
+        for (const document of moved) fileInBoundFolder(document.id);
+        events.emit("documents.moved", moved);
+      },
       emitRemoved: (ids) => {
         events.emit("documents.removed", ids);
         batches.changed(ids);
@@ -1243,7 +1247,10 @@ export function createCore(adapters: CoreAdapters): Core {
         events.emit("linkedFolders.changed", list);
         batches.linkedFoldersChanged(list);
       },
-      onFound: (documentId) => batches.found(documentId),
+      onFound: (documentId) => {
+        batches.found(documentId);
+        fileInBoundFolder(documentId);
+      },
       handedCopyAt: (path) =>
         handedCopyAt(
           handedFiles,
@@ -3505,6 +3512,8 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
+    keptInside: (mindId, documentId) =>
+      mayRecheckIn(mindId, documentId) ? null : (walledFolderName(documentId) ?? documentId),
   });
   const verificationOfNote = (mindId: string) =>
     content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
@@ -3683,6 +3692,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const unlinkFolder = (linkedFolderId: string, keep: readonly string[] = []) => {
+    const own = documents.linkedFolders.list().find((each) => each.id === linkedFolderId)?.folderId;
+    if (own) library.unbindLinkedFolder(linkedFolderId, own);
     documents.linkedFolders.remove(linkedFolderId, keep);
     outputs.forgetLinkedFolder(linkedFolderId);
   };
@@ -4079,6 +4090,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     prepare: prepareOrganize,
   });
+  /** The Folder a Linked folder's file is filed in as it arrives (ADR-0030); null for none. */
+  const boundFolderAt = (path: string) => library.boundTo(documents.foldersAbove(path));
+  /** Files a Linked folder's Document in its bound Folder, as the User's, unless it has a filing. */
+  const fileInBoundFolder = (documentId: string) => {
+    const [document] = documents.getMany([documentId]);
+    if (!document?.linkedFolderId || library.hasFiling(documentId)) return;
+    const groupId = boundFolderAt(document.path);
+    if (groupId !== null) library.file(documentId, groupId);
+  };
   const mindSources = createMindSources({
     dataDir,
     now,
@@ -5188,6 +5208,7 @@ export function createCore(adapters: CoreAdapters): Core {
     dataDir,
     now,
     capture: adapters.audioCapture,
+    transcriptVersion: documents.currentVersion,
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
@@ -5788,6 +5809,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readAgain: (path) => documents.checkNow(path),
     placeOf: (path) => documents.placeOf(path),
     filedIn: (documentId) => library.folderOfDocument(documentId),
+    filedOnArrival: (path) => boundFolderAt(path),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
@@ -6128,19 +6150,20 @@ export function createCore(adapters: CoreAdapters): Core {
   if (adapters.agents?.offered ?? true) {
     agentSetup.refreshSkills().catch((error: unknown) => console.error(error));
   }
+  const summaryRoute = meetingSummaryRoute({
+    settings: () => settings.get().device,
+    model: (mindId) => ownModelIn(mindId) ?? settings.get().user.chatModel,
+    chat,
+    get: (id) => meetings.get(id),
+    documentPresent: (id) => !!liveDocument(id),
+    insideWall: (mindId, documentId) =>
+      walledFolder(mindId) !== null || walledDocument(documentId) !== null,
+    client: (mindId, documentId, route) =>
+      agents.askable(mindId, documentId).find((pair) => pair.id === route)?.client ?? null,
+    agent: adapters.summarizeWithMeetingAgent,
+  });
   const liveSummaries = createLiveSummaries({
-    ...meetingSummaryRoute({
-      settings: () => settings.get().device,
-      model: (mindId) => ownModelIn(mindId) ?? settings.get().user.chatModel,
-      chat,
-      get: (id) => meetings.get(id),
-      documentPresent: (id) => !!liveDocument(id),
-      insideWall: (mindId, documentId) =>
-        walledFolder(mindId) !== null || walledDocument(documentId) !== null,
-      client: (mindId, documentId, route) =>
-        agents.askable(mindId, documentId).find((pair) => pair.id === route)?.client ?? null,
-      agent: adapters.summarizeWithMeetingAgent,
-    }),
+    ...summaryRoute,
     cues: (id) => transcripts?.confirmedCues(id) ?? [],
     saved: (id) => meetings.storedSummary(id),
     save: (id, value) => meetings.setSummary(id, value),
@@ -6151,8 +6174,51 @@ export function createCore(adapters: CoreAdapters): Core {
       });
     },
   });
-  events.on("meetings.changed", (list) => liveSummaries.changed(list));
-  const summaryAccessChanged = () => liveSummaries.changed(meetings.list(), true);
+  function meetingSummaryDocument(meetingId: string, documentId: string) {
+    const meeting = meetings.get(meetingId);
+    const doc = liveDocument(documentId);
+    if (
+      meeting.kind !== "meeting" ||
+      meeting.status !== "stopped" ||
+      doc?.kind !== "transcript" ||
+      meetings.transcriptOf(meetingId) !== documentId ||
+      (doc.meetingMindId !== null && doc.meetingMindId !== meeting.mindId) ||
+      walledDocument(documentId) !== walledFolder(meeting.mindId)
+    )
+      return null;
+    return doc;
+  }
+
+  const candidateReviews = createMeetingCandidateReview({
+    meetings,
+    documents,
+    summaryRoute,
+    meetingSummaryDocument,
+    walledFolder,
+    language: () => settings.get().language,
+    extract: (documentId) => extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS),
+    readTranscript: async (documentId) => readFile(await documents.filePath(documentId)),
+    closed: () => lifetime.signal.aborted,
+    failed(meetingId, error) {
+      (adapters.log ?? silentLogger).warn("meeting.candidateReviewFailed", {
+        meetingId,
+        kind: error instanceof Error ? error.name : "unknown",
+      });
+    },
+  });
+
+  events.on("meetings.changed", (list) => {
+    liveSummaries.changed(list);
+    candidateReviews.changed();
+  });
+  events.on("document.status", (document) => {
+    candidateReviews.changed();
+    if (document.kind === "transcript") meetings.candidateReviewTranscriptChanged(document.id);
+  });
+  const summaryAccessChanged = () => {
+    liveSummaries.changed(meetings.list(), true);
+    candidateReviews.changed();
+  };
   for (const event of [
     "settings.changed",
     "privacy.changed",
@@ -7344,6 +7410,14 @@ export function createCore(adapters: CoreAdapters): Core {
     libraryListsVersion: async (mindId) => libraryVersion(libraryListsOf(mindId)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
+    judgedWithNow: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => ({
+        mindId: mind.id,
+        basis: fingerprintOfBlocks(fragment),
+        lines: Object.fromEntries(judgedNow(fragment)),
+      }));
+    },
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
@@ -7531,6 +7605,27 @@ export function createCore(adapters: CoreAdapters): Core {
 
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
+    createBoundFolder: async (folderId) => {
+      // A Linked folder's own Folder is known before a scan has made its row: binding works by id.
+      const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
+      const folder = linked
+        ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
+        : folders.get(folderId);
+      const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
+      if (already) return already;
+      const made = library.create({
+        name: folder.name.slice(0, 100),
+        description: "",
+        keepInside: true,
+      });
+      const bound = library.bind(made.id, folder.id);
+      for (const document of documents.list({ linkedFolderId: folder.linkedFolderId })) {
+        if (documents.foldersAbove(document.path).includes(folder.id)) {
+          fileInBoundFolder(document.id);
+        }
+      }
+      return bound;
+    },
     updateLibraryGroup: async (id, input) => library.update(id, input),
     moveLibraryGroups: async (moves) => library.moveGroups(moves),
     deleteLibraryGroup: async (id) => removeFolder(id),
@@ -8303,23 +8398,18 @@ export function createCore(adapters: CoreAdapters): Core {
       const documentId = meetings.transcriptOf(meetingId);
       if (!documentId) return null;
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      const meeting = meetings.get(meetingId);
-      const doc = liveDocument(documentId);
-      if (
-        meeting.kind !== "meeting" ||
-        meeting.status !== "stopped" ||
-        doc?.kind !== "transcript" ||
-        meetings.transcriptOf(meetingId) !== documentId ||
-        (doc.meetingMindId !== null && doc.meetingMindId !== meeting.mindId) ||
-        walledDocument(documentId) !== walledFolder(meeting.mindId)
-      )
-        return null;
+      if (!meetingSummaryDocument(meetingId, documentId)) return null;
       const evidence = meetings.summaryItemEvidence(meetingId, itemId);
       const version = documents.currentVersion(documentId);
       if (!evidence || evidence.documentId !== documentId || !version) return null;
       const units = documents.pageTexts(documentId, version, null, null);
       return { documentId, sources: meetingSummarySources(units, evidence.quotes) };
     },
+    canReviewMeetingSummaryCandidates: async (meetingId) => candidateReviews.canReview(meetingId),
+    getMeetingSummaryCandidates: candidateReviews.get,
+    reviewMeetingSummaryCandidates: candidateReviews.review,
+    addMeetingSummaryCandidate: candidateReviews.add,
+    undoAddMeetingSummaryCandidate: candidateReviews.undo,
     correctMeetingSummaryItem: async (meetingId, expected, replacement) =>
       meetings.correctSummaryItem(meetingId, expected, replacement),
     retryMeetingSummary: async (meetingId) => {
@@ -8574,6 +8664,7 @@ export function createCore(adapters: CoreAdapters): Core {
     close: () => {
       if (lifetime.signal.aborted) return;
       lifetime.abort();
+      candidateReviews.close();
       // What a Meeting has captured is saved before anything else stops, a line left unsent too.
       for (const meetingId of [...quickNoteDrafts.keys()]) keepUnsentLine(meetingId);
       liveSummaries.close();

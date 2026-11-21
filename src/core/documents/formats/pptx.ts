@@ -65,6 +65,28 @@ const placeholderType = (shape: XmlElement): string | undefined => {
   return ph ? (ph.attrs.type ?? "body") : undefined;
 };
 
+/**
+ * Where a box sits on its slide, as the file places it: its left and top edges and its width and
+ * height, each a share of the slide's width or height (0 to 1).
+ */
+export interface SlidePlace {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * A box of a slide as the file holds it (#3455): its text, a table's as rows of cells joined with
+ * " | ", and where it sits; null where the file gives no place of its own (a placeholder that
+ * takes its layout's).
+ */
+export interface SlideBox {
+  kind: "title" | "text" | "table" | "chart";
+  lines: string[];
+  place: SlidePlace | null;
+}
+
 /** A slide as the viewer's outline shows it. */
 export interface SlideOutline {
   number: number;
@@ -80,6 +102,8 @@ export interface SlideOutline {
   images: { part: string; alt: string }[];
   /** The speaker notes, as paragraphs. */
   notes: string[];
+  /** Every box of the slide in the file's order (its z-order), each with where it sits. */
+  boxes: SlideBox[];
 }
 
 interface DeckRow {
@@ -94,10 +118,70 @@ interface Collected {
   tables: DeckRow[][];
   images: { part: string; alt: string }[];
   charts: string[];
+  /** Each box in the file's order: which of the lists above it is, and where it sits. */
+  boxes: { kind: SlideBox["kind"]; at: number; place: Rect | null }[];
+}
+
+/** A rectangle in a slide's own units (EMU), as the slide's shape tree places it. */
+interface Rect {
+  x: number;
+  y: number;
+  cx: number;
+  cy: number;
+}
+
+/** How a group maps its children's rectangles to its parent's: the identity at the slide itself. */
+type Placing = (rect: Rect) => Rect;
+const SLIDE: Placing = (rect) => rect;
+
+const numberAttr = (element: XmlElement | undefined, name: string): number | null => {
+  const value = Number(element?.attrs[name]);
+  return element && Number.isFinite(value) ? value : null;
+};
+
+/** A transform's rectangle (a:off and a:ext), or its children's (a:chOff and a:chExt). */
+function rectOf(xfrm: XmlElement | undefined, children = false): Rect | null {
+  const off = xfrm && child(xfrm, children ? "a:chOff" : "a:off");
+  const ext = xfrm && child(xfrm, children ? "a:chExt" : "a:ext");
+  const x = numberAttr(off, "x");
+  const y = numberAttr(off, "y");
+  const cx = numberAttr(ext, "cx");
+  const cy = numberAttr(ext, "cy");
+  return x === null || y === null || cx === null || cy === null ? null : { x, y, cx, cy };
+}
+
+/** A shape's own rectangle on the slide, its groups' transforms applied; null where it has none. */
+function placeOf(shape: XmlElement, placing: Placing): Rect | null {
+  const properties = child(shape, "p:spPr") ?? child(shape, "p:grpSpPr");
+  const xfrm = properties ? child(properties, "a:xfrm") : child(shape, "p:xfrm");
+  const rect = rectOf(xfrm);
+  return rect ? placing(rect) : null;
+}
+
+/** How a group places its children: their rectangles mapped from its child space to its own. */
+function groupPlacing(group: XmlElement, placing: Placing): Placing {
+  const xfrm = child(child(group, "p:grpSpPr") ?? group, "a:xfrm");
+  const outer = rectOf(xfrm);
+  const inner = rectOf(xfrm, true);
+  if (!outer || !inner) return placing;
+  const sx = inner.cx === 0 ? 1 : outer.cx / inner.cx;
+  const sy = inner.cy === 0 ? 1 : outer.cy / inner.cy;
+  return (rect) =>
+    placing({
+      x: outer.x + (rect.x - inner.x) * sx,
+      y: outer.y + (rect.y - inner.y) * sy,
+      cx: rect.cx * sx,
+      cy: rect.cy * sy,
+    });
 }
 
 /** Walks a shape tree in document order (z-order), into groups. */
-function collect(tree: XmlElement, rels: Relationships, into: Collected): void {
+function collect(
+  tree: XmlElement,
+  rels: Relationships,
+  into: Collected,
+  placing: Placing = SLIDE,
+): void {
   for (const shape of elements(tree)) {
     switch (shape.name) {
       case "p:sp": {
@@ -107,16 +191,23 @@ function collect(tree: XmlElement, rels: Relationships, into: Collected): void {
         if (lines.length === 0) break;
         const type = placeholderType(shape);
         if (type === "sldNum" || type === "dt" || type === "ftr") break;
+        const place = placeOf(shape, placing);
         if ((type === "title" || type === "ctrTitle") && into.title === null) {
           into.title = lines.join(" ");
-        } else into.blocks.push(lines);
+          into.boxes.push({ kind: "title", at: 0, place });
+        } else {
+          into.boxes.push({ kind: "text", at: into.blocks.length, place });
+          into.blocks.push(lines);
+        }
         break;
       }
       case "p:grpSp":
-        collect(shape, rels, into);
+        collect(shape, rels, into, groupPlacing(shape, placing));
         break;
       case "p:graphicFrame": {
+        const place = placeOf(shape, placing);
         for (const table of descendants(shape, "a:tbl")) {
+          into.boxes.push({ kind: "table", at: into.tables.length, place });
           into.tables.push(
             elements(table)
               .filter((each) => each.name === "a:tr")
@@ -137,7 +228,10 @@ function collect(tree: XmlElement, rels: Relationships, into: Collected): void {
         }
         for (const chart of descendants(shape, "c:chart")) {
           const rel = rels.get(chart.attrs["r:id"] ?? "");
-          if (rel?.type.endsWith(REL_CHART)) into.charts.push(rel.target);
+          if (rel?.type.endsWith(REL_CHART)) {
+            into.boxes.push({ kind: "chart", at: into.charts.length, place });
+            into.charts.push(rel.target);
+          }
         }
         break;
       }
@@ -194,6 +288,19 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     "Not a PowerPoint file",
   );
   const presentationRels = await pkg.internalRelationships(presentation);
+  const size = child(root, "p:sldSz");
+  const slideWidth = numberAttr(size, "cx");
+  const slideHeight = numberAttr(size, "cy");
+  /** A rectangle as shares of the slide; null where the slide's size or the box's place is unknown. */
+  const shareOf = (rect: Rect | null): SlidePlace | null =>
+    rect && slideWidth && slideHeight
+      ? {
+          left: rect.x / slideWidth,
+          top: rect.y / slideHeight,
+          width: rect.cx / slideWidth,
+          height: rect.cy / slideHeight,
+        }
+      : null;
   const list = child(root, "p:sldIdLst");
   const slideParts = (list ? elements(list) : [])
     .map((id) => presentationRels.get(id.attrs["r:id"] ?? ""))
@@ -208,7 +315,14 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
     const root = xml ? parseXml(xml) : null;
     const rels = await pkg.internalRelationships(part);
     const tree = root ? descendants(root, "p:spTree")[0] : undefined;
-    const collected: Collected = { title: null, blocks: [], tables: [], images: [], charts: [] };
+    const collected: Collected = {
+      title: null,
+      blocks: [],
+      tables: [],
+      images: [],
+      charts: [],
+      boxes: [],
+    };
     if (tree) collect(tree, rels, collected);
     for (const rows of collected.tables) {
       // A merge repeats the text it continues down the body's rows, not into another heading row,
@@ -288,6 +402,18 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
       text: builder.text,
       anchors: builder.anchors,
     });
+    const linesOf = (kind: SlideBox["kind"], at: number): string[] => {
+      switch (kind) {
+        case "title":
+          return collected.title ? [collected.title] : [];
+        case "text":
+          return collected.blocks[at] ?? [];
+        case "table":
+          return (collected.tables[at] ?? []).map((row) => row.cells.join(" | "));
+        case "chart":
+          return (charts[at] ?? "").split("\n").filter(Boolean);
+      }
+    };
     slides.push({
       number,
       hidden,
@@ -297,6 +423,10 @@ export async function extractPptx(bytes: Uint8Array): Promise<PptxResult> {
       charts: charts.filter(Boolean),
       images: collected.images,
       notes,
+      boxes: collected.boxes.flatMap((box) => {
+        const lines = linesOf(box.kind, box.at);
+        return lines.length > 0 ? [{ kind: box.kind, lines, place: shareOf(box.place) }] : [];
+      }),
     });
   }
   return { units, slides, unreadable: pkg.unreadable };
