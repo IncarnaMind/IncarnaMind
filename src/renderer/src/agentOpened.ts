@@ -1,7 +1,9 @@
 /**
- * What an outside agent made opens in a tab (#3534): behind the tab in front, as it always did for a
- * Note it wrote or a Canvas it published (#3406); in front, with the app, when the User asked that
- * agent from IncarnaMind and it read the request (the shell brings the window forward). The check
+ * What an outside agent made opens in a tab (#3534): behind the tab in front while the User is in
+ * this window, as it always did for a Note it wrote or a Canvas it published (#3406), so the
+ * keyboard stays where they type; in front when they are in another app, so it is what they find
+ * when they come back; in front, with the app, when the User asked that agent from IncarnaMind and
+ * it read the request (the shell brings the window forward). The check
  * of a file handed over again takes the tab of an earlier version's check, as Show version does
  * (#3493), so the file stays one tab rather than one a version.
  */
@@ -62,15 +64,16 @@ async function openNote(mindId: string, front: boolean): Promise<void> {
 function heardOpened({ item, front }: AgentOpened): void {
   const state = useAppStore.getState();
   if (front && state.settingsOpen) state.closeSettings();
+  const shown = front || !document.hasFocus();
   if (item.kind === "mind") {
-    void openNote(item.mindId, front);
+    void openNote(item.mindId, shown);
     return;
   }
   void state.changeLayout({
     type: "open",
     item: { kind: "canvas", canvasId: item.canvasId },
     where: { in: "group" },
-    ...(!front && { behind: true }),
+    ...(!shown && { behind: true }),
   });
 }
 

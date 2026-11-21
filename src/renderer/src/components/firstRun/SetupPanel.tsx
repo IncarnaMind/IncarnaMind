@@ -1,7 +1,13 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useT } from "../../i18n";
-import { CheckLineIcon, ChevronLeftLineIcon, CloseLineIcon } from "../lineIcons";
+import {
+  CheckLineIcon,
+  ChevronDownLineIcon,
+  ChevronLeftLineIcon,
+  ChevronRightLineIcon,
+  CloseLineIcon,
+} from "../lineIcons";
 import { OnThisComputer } from "../OnThisComputer";
 
 export type SetupStep = "work" | "ai" | "sorting" | "meetings";
@@ -210,6 +216,39 @@ export function SetupChoice({
         {line && <span className="text-[13px] leading-5 text-ink-secondary">{line}</span>}
       </span>
     </label>
+  );
+}
+
+/**
+ * A choice kept out of the way until the User asks for it, as plain text with a chevron. With
+ * `expanded` it opens and closes what `controls` names; without, it is pressed once and goes.
+ */
+export function QuietLine({
+  testId,
+  expanded,
+  controls,
+  onClick,
+  children,
+}: {
+  testId: string;
+  expanded?: boolean;
+  controls?: string;
+  onClick(): void;
+  children: ReactNode;
+}) {
+  const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-expanded={expanded}
+      aria-controls={controls}
+      onClick={onClick}
+      className="-mt-1 flex w-fit items-center gap-1 rounded-sm text-[13px] leading-5 font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+    >
+      {children}
+      <Chevron aria-hidden="true" className="size-3 shrink-0" />
+    </button>
   );
 }
 
