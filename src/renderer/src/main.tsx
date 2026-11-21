@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installAgentOpened } from "./agentOpened";
 import { installAppearance } from "./appearance";
 import { PanelBoundary } from "./components/PanelBoundary";
 import "./commands/app";
@@ -23,6 +24,7 @@ installTestHooks();
 retryTaggingWhenOnline();
 installWrittenChecks();
 installRateLimitWaits();
+installAgentOpened();
 // Before the first paint: the system's Reduce motion holds until the settings say the User's choice.
 installMotion();
 installAppearance();

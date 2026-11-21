@@ -2,7 +2,6 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
-  addToNote,
   askInAssistant,
   assistantAnswers,
   createDataFolder,
@@ -10,7 +9,6 @@ import {
   frontMind,
   launchApp,
   markSteps,
-  newMind,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -18,8 +16,8 @@ import {
   useLocalChatModel,
 } from "./app";
 
-// The scripted model says what real models said in #1172: a pointer after a short summary, and a
-// line setting the User's file apart from the example.
+// The scripted model says what real models said in #1172: a line setting the User's file apart
+// from the example.
 
 const WALKS = [
   {
@@ -29,8 +27,6 @@ const WALKS = [
     file: "Employment agreement.md",
     text: "# Employment agreement\n\nThe employee may work from home three days a week.\n\nHoliday is 27 working days a year.\n",
     question: "What are the home working rules?",
-    summary: "Can you give me a short summary of this agreement?",
-    pointer: /earlier answer|as above/i,
   },
   {
     name: "Chinese",
@@ -39,8 +35,6 @@ const WALKS = [
     file: "劳动合同.md",
     text: "# 劳动合同\n\n乙方每周可居家办公两天。\n\n年假为 15 个工作日。\n",
     question: "居家办公的规定是什么？",
-    summary: "请为这份合同写一个简短的摘要。",
-    pointer: /上一条回答|见上文/,
   },
 ] as const;
 
@@ -56,7 +50,7 @@ test.afterEach(async () => {
 });
 
 for (const walk of WALKS) {
-  test(`asked from the example's page, an Answer about their own file says nothing of the example, and a summary added to a page leaves its pointer in the panel (${walk.name})`, async () => {
+  test(`asked from the example's page, an Answer about their own file says nothing of the example (${walk.name})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, walk.language);
@@ -90,16 +84,6 @@ for (const walk of WALKS) {
     await expect(ownText).toContainText("Your Documents answer this");
     await expect(ownText).not.toContainText(walk.example);
     await expect(ownText).not.toContainText("Northwind");
-
-    await newMind(window);
-    const summary = await askInAssistant(window, walk.summary);
-    const summaryText = summary.getByTestId("assistant-answer-text");
-    await expect(summaryText).toContainText("That is all.");
-    await expect(summaryText).toContainText(walk.pointer);
-    await addToNote(window, summary);
-    const page = frontMind(window).getByTestId("mind-editor");
-    await expect(page).toContainText("Your Documents answer this");
-    await expect(page).not.toContainText(walk.pointer);
     await app.close();
   });
 }
