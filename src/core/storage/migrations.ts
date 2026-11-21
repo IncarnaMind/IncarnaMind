@@ -3339,6 +3339,15 @@ export const migrations: readonly Migration[] = [
         );
     `,
   },
+  {
+    version: 154,
+    description: "A file an outside agent cited by its path, from outside the Library (#3509)",
+    sql: `
+      -- The agent that cited the file by its path, as its pairing was named then: the Document is
+      -- evidence only for the sentences that cite it, and no source. NULL for every other Document.
+      ALTER TABLE documents ADD COLUMN cited_by TEXT;
+    `,
+  },
 ];
 
 /**

@@ -4767,6 +4767,12 @@ export interface Document {
    * User cites it, and no source until then (#3492).
    */
   handedBy: string | null;
+  /**
+   * The agent that cited this file by its path, from outside the Library (#3509), as the User had
+   * named its pairing then; null for every other Document. Such a Document is in no Folder and no
+   * source: it is evidence only for the sentences that cite it.
+   */
+  citedBy: string | null;
   /** When the Document was added to IncarnaMind. ISO 8601, UTC. */
   createdAt: string;
   /** ISO 8601, UTC. */

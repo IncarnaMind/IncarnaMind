@@ -218,6 +218,7 @@ export function offeredTags(
   const background = db
     .all<{ id: string }>(
       `SELECT id FROM documents WHERE deleted_at IS NULL AND meeting_mind_id IS NULL
+         AND cited_by IS NULL
        ORDER BY created_at DESC, rowid DESC LIMIT ?`,
       [BigInt(BACKGROUND)],
     )

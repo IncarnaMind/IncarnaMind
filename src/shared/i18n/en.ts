@@ -2591,6 +2591,9 @@ export const en = {
   "evidence.citeAgain.transcript": "Cite the Transcript again",
   "evidence.notCited.hint": "Read for context only: never cited or used as evidence.",
   "evidence.notCited.label": "Not cited",
+  "library.citedBy.label": "Cited by {agent}",
+  "library.citedBy.hint":
+    "A file from outside your Library that {agent} cited. IncarnaMind doesn’t search it or file it: it is evidence only for the sentences that cite it.",
   "evidence.notCited.done": "“{name}” won’t be cited",
   "evidence.notCited.doneMany": "{count} Documents won’t be cited",
   "evidence.citeAgain.done": "“{name}” can be cited again",
@@ -4880,6 +4883,7 @@ export const en = {
   "citation.reason.source-removed": "The source was removed.",
   "citation.yourNote": "Your note: {title}, {date}",
   "citation.ownRecord": "Your own record",
+  "citation.outsideLibrary": "A file outside the Library",
   "citation.foundByCheck": "Found by a check of this sentence",
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
@@ -8700,6 +8704,9 @@ export const en = {
   "agents.handOver.tooMany":
     "This agent has handed over {max} files in the last hour, which is the most it may. Try again later.",
   "agents.handOver.notFound": "That file is kept in a Folder this agent no longer reaches.",
+  "agents.cite.fileKind": "IncarnaMind can’t read that kind of file, so it can’t cite it.",
+  "agents.cite.fileHidden":
+    "IncarnaMind doesn’t read a hidden file, or a file in a hidden or system folder, so it can’t cite it.",
   "agents.handOver.notShared":
     "That file is in a Folder the User hasn’t shared with this agent, so it can’t be handed over from there.",
   "agents.handOver.paused":
