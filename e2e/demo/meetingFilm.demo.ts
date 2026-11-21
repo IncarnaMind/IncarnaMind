@@ -82,7 +82,7 @@ const WORDS = {
       { side: "me", text: "到今年年底，上限会降到三点二五倍。这样你们还有多少余量？" },
       {
         side: "them",
-        text: "按我们的预测，年底的杠杆率是二点九倍。合规证明我们会在一月十五日之前发给你。",
+        text: "年底，我们的杠杆率预计是二点九倍。合规证明我们会在一月十五日之前发给你。",
       },
       {
         side: "me",
@@ -340,10 +340,19 @@ test(`records a take of the film's meeting part in ${language}`, async () => {
     await shot("08-notes");
     take.note = (await editor.textContent())?.slice(0, 4000);
 
-    const quote = editor.getByTestId("citation").first();
-    if ((await quote.count()) === 0) {
+    const quotes = editor.getByTestId("citation");
+    if ((await quotes.count()) === 0) {
       await finish("notes accepted, no quote");
       return;
+    }
+    // A quote with room under it for its card: one at the page's top opens its card over the tabs.
+    let quote = quotes.first();
+    for (const each of await quotes.all()) {
+      const box = await each.boundingBox();
+      if (box && box.y > 300 && box.y < 620) {
+        quote = each;
+        break;
+      }
     }
     mark("quote");
     await click(quote, "quote");
