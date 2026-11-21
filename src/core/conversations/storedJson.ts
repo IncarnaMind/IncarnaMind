@@ -49,6 +49,7 @@ export const STEP_KEYS = {
   calculateUnavailable: true,
   askedAgainFor: true,
   example: true,
+  meetingHelpAgent: true,
   coverage: true,
   writtenFrom: true,
   stillReading: true,
@@ -247,6 +248,13 @@ export function mergeStoredSteps(raw: string | null, steps: AnswerSteps): string
           }),
     ...(steps.uncitedChecks !== undefined && {
       uncitedChecks: mergeStoredUncitedChecks(existing.uncitedChecks, steps.uncitedChecks),
+    }),
+    ...(steps.meetingHelpAgent && {
+      meetingHelpAgent: mergeKnownKeys(
+        existing.meetingHelpAgent,
+        { meetingId: true, pairingId: true, client: true },
+        steps.meetingHelpAgent,
+      ),
     }),
     ...(steps.coverage !== undefined && {
       coverage: mergeStoredCoverage(existing.coverage, steps.coverage),
