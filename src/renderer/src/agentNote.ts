@@ -12,7 +12,6 @@ import { core } from "./core";
 import { homeReading, type NoteState } from "./noteState";
 import { useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
-import { wallsOf } from "./walls";
 
 /** A Note an agent wrote, and how its check stands; null `state` before anything was checked. */
 export interface AgentNote {
@@ -121,7 +120,7 @@ export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | nul
           const reading = homeReading(snapshot, {
             documents,
             keptCitationTexts,
-            library: wallsOf({ library, documents, minds: useAppStore.getState().minds }),
+            library,
             folderId: mind.folderId,
           });
           if (current) setNote({ mindId: mind.id, state: reading.state });

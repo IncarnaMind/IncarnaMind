@@ -13,6 +13,7 @@ import { explicitWalledFolderScope } from "./answers/scopeLine";
 import {
   type DeletedItem,
   type Document,
+  type DocumentWall,
   NOT_IN_A_FOLDER_ID,
   type PassageSearchPlace,
   type SearchScope,
@@ -126,6 +127,21 @@ export function createWorkWall(options: WorkWallOptions) {
   /** The wall a Document is behind; null for none. */
   const walledDocument = (documentId: string): string | null =>
     wallOfDocument(documentId)?.id ?? null;
+  /**
+   * Each walled Document's wall, and whether a Note behind that wall searches it (`byUser`),
+   * from the same rules `wallOfDocument` and `resolveScope` use (#3131).
+   */
+  const walledByDocument = (): Record<string, DocumentWall> => {
+    const found: Record<string, DocumentWall> = {};
+    for (const folder of library().folders()) {
+      if (!folder.keepInside) continue;
+      const byUser = new Set(library().treeDocumentIds(folder.id));
+      for (const id of behindWall(folder.id)) {
+        found[id] ??= { wallId: folder.id, byUser: byUser.has(id) };
+      }
+    }
+    return found;
+  };
   /** All walls around each Document, including a Note's output indexed again in another Folder. */
   const documentWalls = () => {
     const byDocument = new Map<string, string[]>();
@@ -318,6 +334,7 @@ export function createWorkWall(options: WorkWallOptions) {
     walledFolderId,
     walledDocument,
     walledDocuments,
+    walledByDocument,
     documentWalls,
     deletedWall,
     walledFolderName,

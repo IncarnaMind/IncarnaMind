@@ -55,10 +55,11 @@ export function DocumentOrFolderPicker({
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
+  const documentWalls = useAppStore((state) => state.library?.documentWalls);
   const minds = useAppStore((state) => state.minds);
   // As the "@" picker has them: a meeting's Transcript is offered by its Note's name and counts in
   // its Note's Folder (#2528).
-  const library = { folders, groups, tags, documents, assignments, minds, t };
+  const library = { folders, groups, tags, documents, assignments, documentWalls, minds, t };
   const byId = new Map(documents.map((document) => [document.id, document]));
 
   const matching = (query: string): PickerSection<DocumentOrFolderChoice>[] => {

@@ -33,6 +33,7 @@ export type {
   DocumentBatch,
   DocumentGroupAssignment,
   DocumentTagging,
+  DocumentWall,
   LibraryClassifier,
   LibraryGroup,
   LibraryGroupInput,

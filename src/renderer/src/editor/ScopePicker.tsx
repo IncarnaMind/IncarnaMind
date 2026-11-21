@@ -232,8 +232,9 @@ export function ScopeChoiceList({
   const tags = useAppStore((state) => state.tags);
   const documents = useAppStore((state) => state.documents);
   const assignments = useAppStore((state) => state.library?.assignments);
+  const documentWalls = useAppStore((state) => state.library?.documentWalls);
   const minds = useAppStore((state) => state.minds);
-  const library = { folders, groups, tags, documents, assignments, minds, t };
+  const library = { folders, groups, tags, documents, assignments, documentWalls, minds, t };
   // Words said in a meeting find it as its Note's choice, as the Library's search does (#2528).
   const inside = useTextSearch(query);
   const named = scopeChoices(library, scope, query);

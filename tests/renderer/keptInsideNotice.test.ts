@@ -67,7 +67,8 @@ beforeEach(async () => {
   const library = {
     groups: [{ id: "a", name: "Client A", keepInside: true }],
     assignments: [{ documentId: "lease-a", groupId: "a" }],
-  } as Pick<LibrarySnapshot, "groups" | "assignments"> as LibrarySnapshot;
+    documentWalls: { "lease-a": { wallId: "a", byUser: true } },
+  } as unknown as LibrarySnapshot;
   useAppStore.setState({
     status: { kind: "ready", documents: [{ id: "lease-a", contentHash: "v2" } as Document] },
     documents: [{ id: "lease-a", contentHash: "v2" } as Document],
@@ -152,8 +153,91 @@ describe("a meeting's Transcript, its Note in a walled Folder", () => {
     useAppStore.setState((state) => ({
       documents: [...state.documents, { id: "call", meetingMindId: "meeting" } as Document],
       minds: [...state.minds, { id: "meeting", title: "Weekly call", folderId: "a" } as Mind],
+      library: state.library && {
+        ...state.library,
+        documentWalls: { ...state.library.documentWalls, call: { wallId: "a", byUser: true } },
+      },
     }));
     await showInOutsideNote(createElement(KeptInsideProbe, { useKeptInside, useKeptInsideOf }));
     expect(container.textContent).toBe("one: Client A · each: Client A · null");
+  });
+});
+
+describe("a file IncarnaMind wrote from a Note behind a wall (#3131)", () => {
+  const WRITTEN: CitationAttributes = {
+    ...LEASE,
+    documentId: "written-a",
+    documentName: "Client A summary",
+  };
+
+  test.each([
+    ["en", "Client A", "Kept inside Client A"],
+    ["zh-CN", "客户甲", "仅在“客户甲”内使用"],
+  ] as const)("its Citation card says %s when unfiled (%s)", async (language, folderName, said) => {
+    const { useAppStore } = await import("../../src/renderer/src/store");
+    const { blockedFrom, scopeChoices } = await import("../../src/renderer/src/scope");
+    const { documentOrFolderChoices, keptFrom } = await import(
+      "../../src/renderer/src/components/documentOrFolder"
+    );
+    const { NO_SCOPE } = await import("../../src/shared/searchScope");
+    const writtenDoc = {
+      id: "written-a",
+      name: "Client A summary",
+      kind: "markdown",
+      contentHash: "v2",
+      status: "ready",
+      fileStatus: "available",
+      meetingMindId: null,
+      ownFile: { kind: "export", counted: false },
+      tags: [],
+    } as unknown as Document;
+    const library = {
+      groups: [{ id: "a", name: folderName, parentId: null, keepInside: true }],
+      assignments: [],
+      documentWalls: { "written-a": { wallId: "a", byUser: false } },
+    } as unknown as LibrarySnapshot;
+    useAppStore.setState({
+      settings: { language, device: {}, user: {} } as never,
+      status: { kind: "ready", documents: [writtenDoc] },
+      documents: [writtenDoc],
+      minds: [{ id: "outside", title: "Outside note", autoTitle: "", folderId: null } as Mind],
+      library,
+    } as never);
+
+    const noticePath = "../../src/renderer/src/editor/ChangedSourceNotice.tsx";
+    const { ChangedCitations }: { ChangedCitations: ComponentType<Record<string, unknown>> } =
+      await import(noticePath);
+    await showInOutsideNote(
+      createElement(ChangedCitations, {
+        cited: [{ pos: 0, number: 1, key: "b1:0", attributes: WRITTEN, footnote: true }],
+      }),
+    );
+    expect(container.textContent ?? "").toContain(said);
+
+    const scopeLib = {
+      folders: [],
+      groups: library.groups,
+      tags: [],
+      documents: [writtenDoc],
+      assignments: library.assignments,
+      documentWalls: library.documentWalls,
+    };
+    const [scopeItem] = scopeChoices(scopeLib, NO_SCOPE, "summary");
+    const [docItem] = documentOrFolderChoices(scopeLib, "summary");
+    if (!scopeItem || !docItem) throw new Error("Written file missing from picker choices.");
+    // Outside the wall, neither picker offers it; behind the wall, neither offers it until filed.
+    expect(blockedFrom(scopeLib, scopeItem, null)).toBe(true);
+    expect(keptFrom(scopeLib, docItem, null)).toEqual({ inside: folderName });
+    expect(blockedFrom(scopeLib, scopeItem, "a")).toBe(true);
+    expect(keptFrom(scopeLib, docItem, "a")).toBe("outside");
+
+    const filedInWall = {
+      ...scopeLib,
+      documentWalls: { "written-a": { wallId: "a", byUser: true } },
+    };
+    expect(blockedFrom(filedInWall, scopeItem, null)).toBe(true);
+    expect(keptFrom(filedInWall, docItem, null)).toEqual({ inside: folderName });
+    expect(blockedFrom(filedInWall, scopeItem, "a")).toBe(false);
+    expect(keptFrom(filedInWall, docItem, "a")).toBeNull();
   });
 });

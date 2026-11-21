@@ -3,6 +3,7 @@ import type {
   DocumentGroupAssignment,
   DocumentKind,
   DocumentTextMatch,
+  DocumentWall,
   Folder,
   LibraryGroup,
   Mind,
@@ -26,7 +27,7 @@ import {
   withTranscriptsFiled,
 } from "./meetingTranscript";
 import type { Translate } from "./objects";
-import { documentWalls, type WallLibrary } from "./walls";
+import { documentWalls } from "./walls";
 
 /** What a scope item gone without its name is called: "Deleted Folder". */
 export const DELETED_NAMES: Record<ScopeKind, MessageKey> = {
@@ -45,6 +46,8 @@ export interface ScopeLibrary {
   documents: readonly Document[];
   /** Which in-app Folder each Document is filed in; the counts of those Folders read it. */
   assignments?: readonly DocumentGroupAssignment[];
+  /** Each walled Document's wall, as the core reads it (#3131). */
+  documentWalls?: Readonly<Record<string, DocumentWall>>;
   /** The Notes: a Meeting's Transcript counts in its Note's Folder (#2528), and none without them. */
   minds?: readonly Mind[];
   /** The words to name a Meeting's Transcript as its Note's: without them it is offered nowhere. */
@@ -54,18 +57,6 @@ export interface ScopeLibrary {
 /** Where the scope places each Document: a Meeting's Transcript is where its Note is (#2528). */
 const filingsOf = (library: ScopeLibrary): DocumentGroupAssignment[] =>
   withTranscriptsFiled(library.assignments ?? [], library.documents, library.minds ?? []);
-
-/** The Library as the walls are read from it (`documentWalls`). */
-export const wallLibraryOf = (
-  library: Pick<ScopeLibrary, "groups" | "assignments"> &
-    Pick<WallLibrary, "documents"> &
-    Partial<Pick<WallLibrary, "minds">>,
-): WallLibrary => ({
-  groups: library.groups ?? [],
-  assignments: library.assignments ?? [],
-  documents: library.documents,
-  minds: library.minds ?? [],
-});
 
 /**
  * Whether a Note behind `wall` (null: outside every wall) may not pick this choice: one behind
@@ -80,7 +71,7 @@ export function blockedFrom(
   if (item.walled === undefined || item.walled === null) return false;
   if (item.walled !== wall) return true;
   if (item.kind !== "document") return false;
-  return documentWalls(wallLibraryOf(library)).get(item.id)?.byUser !== true;
+  return documentWalls(library).get(item.id)?.byUser !== true;
 }
 
 /** A Meeting's Transcript as a scope names it: "Weekly call · Transcript", or null. */
@@ -216,7 +207,7 @@ export function scopeCounts(library: ScopeLibrary): Map<string, number> {
 function everything(library: ScopeLibrary): ScopeChoice[] {
   const counts = scopeCounts(library);
   const groups = library.groups ?? [];
-  const walls = documentWalls(wallLibraryOf(library));
+  const walls = documentWalls(library);
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
   const parents = new Map(library.folders.map((folder) => [folder.id, folder.parentId]));
   const pathOf = (folder: Folder) => {
