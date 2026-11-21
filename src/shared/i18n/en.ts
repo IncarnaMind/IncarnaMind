@@ -8460,6 +8460,10 @@ export const en = {
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
   "agents.problem.citeNotFound":
     "Nothing was cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
+  "agents.read.left.one":
+    "Not the whole Document: its last passage of {total} is still to read, and a summary or a quote needs each passage’s full text, so read on with from set to next before you write about it.",
+  "agents.read.left.other":
+    "Not the whole Document: {count} of its {total} passages are still to read, and a summary or a quote needs each passage’s full text, so read on with from set to next before you write about it.",
   "agents.problem.documentChanged":
     "“{document}” changed since you began reading it. Read it again from its start.",
   // Told with a result that can read as "nothing is there" (#3544): it names nothing outside.

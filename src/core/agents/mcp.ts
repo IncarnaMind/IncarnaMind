@@ -224,8 +224,8 @@ export function createAgentServer(
         documentId: z.string().optional(),
         from: z.string().optional(),
         passageId: passageId.optional(),
-        before: z.number().int().min(0).max(MAX_AROUND).optional(),
-        after: z.number().int().min(0).max(MAX_AROUND).optional(),
+        before: z.number().int().min(0).optional(),
+        after: z.number().int().min(0).optional(),
       }),
       outputSchema: z.object({
         documentId: z.string(),
@@ -235,6 +235,7 @@ export function createAgentServer(
         ),
         previous: z.string().nullable(),
         next: z.string().nullable(),
+        left: z.string().optional(),
       }),
       annotations: READ_ONLY,
     },

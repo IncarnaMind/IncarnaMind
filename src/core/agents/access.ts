@@ -191,9 +191,9 @@ export interface AgentReadInput {
   documentId?: string;
   /** Or read on from this Passage, a part's `next`, in a part as large. */
   from?: string;
-  /** Passages before `passageId` to read too, at most `MAX_AROUND`. */
+  /** Passages before `passageId` to read too; more than `MAX_AROUND` reads `MAX_AROUND`. */
   before?: number;
-  /** Passages after `passageId` to read too, at most `MAX_AROUND`. */
+  /** Passages after `passageId` to read too; more than `MAX_AROUND` reads `MAX_AROUND`. */
   after?: number;
 }
 
@@ -206,6 +206,8 @@ export interface AgentReadResult {
   previous: string | null;
   /** The Passage after the last one read, to read on; null at the end. */
   next: string | null;
+  /** In a part before a Document's last: that it isn't the whole, what is left, to read on (#3586). */
+  left?: string;
 }
 
 export interface AgentCiteInput {
@@ -1572,7 +1574,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     const previous = behind[0]?.passageId ?? null;
     let document: string | null = null;
     let next: string | null = null;
+    let nextAt = 0;
     let size = 0;
+    const leftLine = (count: number, total: number) =>
+      t(count === 1 ? "agents.read.left.one" : "agents.read.left.other", { count, total });
     for (let at = position; next === null; at += PART_BATCH) {
       const batch = deps.passagesBetween(documentId, at, at + PART_BATCH - 1);
       const first = batch[0];
@@ -1580,7 +1585,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       if (document === null) {
         document = first.documentName;
         size = estimateTokens(
-          JSON.stringify({ documentId, document, passages, previous, next: first.passageId }),
+          JSON.stringify({
+            documentId,
+            document,
+            passages,
+            previous,
+            next: first.passageId,
+            left: leftLine(99_999, 99_999),
+          }),
         );
       }
       const shown = new Map(
@@ -1600,6 +1612,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const cost = estimateTokens(JSON.stringify(entry)) + 1;
         if (passages.length > 0 && size + cost > READ_PART_TOKENS) {
           next = passage.passageId;
+          nextAt = passage.position;
           break;
         }
         passages.push(entry);
@@ -1608,7 +1621,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       behind = batch.slice(-1);
     }
     if (document === null) throw new NotReachedError(t("agents.problem.not-found"));
-    return { documentId, document, passages, previous, next };
+    if (next === null) return { documentId, document, passages, previous, next };
+    // An agent that writes from a part it skimmed or stopped at is told, as it reads, what it hasn't.
+    const rest = deps.passagesBetween(documentId, nextAt, Number.MAX_SAFE_INTEGER).length;
+    return { documentId, document, passages, previous, next, left: leftLine(rest, nextAt + rest) };
   };
 
   /** The first part of a Document the pairing reaches. */
@@ -2286,8 +2302,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               : readStart(reach, input?.documentId);
           return { result, count: result.passages.length, documentIds: [result.documentId] };
         }
-        const before = whole(input.before, "before", 0, MAX_AROUND, 0);
-        const after = whole(input.after, "after", 0, MAX_AROUND, 0);
+        // More than it reads is no reason to refuse: `previous` and `next` say how to read on (#3586).
+        const around = (given: unknown, what: string) =>
+          Math.min(MAX_AROUND, whole(given, what, 0, Number.MAX_SAFE_INTEGER, 0));
+        const before = around(input.before, "before");
+        const after = around(input.after, "after");
         const passage = passageInScope(pairing, reach, input.passageId);
         const documentId = passage.documentId;
         const from = Math.max(0, passage.position - before);
