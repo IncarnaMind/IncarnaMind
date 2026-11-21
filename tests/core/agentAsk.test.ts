@@ -507,8 +507,8 @@ describe("asking the User's own AI about what they are looking at (#3533)", () =
     });
   });
 
-  // protects=a Search scope set on the chat box reaches the agent in the ids its Tools take, and a Document open is not named twice; fails_when=the Folder or Document is left out, or named by an id no Tool takes
-  it("keeps the Search scope, as Folder and Document ids", async () => {
+  // protects=a Search scope set on the chat box reaches the agent whole, in the ids its Tools take, and a Document that is open and in the scope is named in both lines; fails_when=the Folder or Document is left out, one open Document is taken out of the scope, or one is named by an id no Tool takes
+  it("keeps the Search scope whole, as Folder and Document ids", async () => {
     const { core, ferries, summary, tariffs, pairing, agent } = await withDocuments();
     expect(
       await core.askAgent({
@@ -525,7 +525,52 @@ describe("asking the User's own AI about what they are looking at (#3533)", () =
     expect(await requestRead(agent)).toMatchObject({
       request: [
         `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`,
-        `I limited this question to these folders and documents in IncarnaMind: “Tallow Sound Ferries” (folderId: ${ferries.id}); “Tariffs” (documentId: ${tariffs.id}). Look only there.`,
+        `I limited this question to these folders and documents in IncarnaMind: “Tallow Sound Ferries” (folderId: ${ferries.id}); “Tariffs” (documentId: ${tariffs.id}); “Annual summary 2025” (documentId: ${summary.id}). Look only there.`,
+      ].join("\n\n"),
+    });
+  });
+
+  // protects=the scope the agent is told is the User's whole scope as far as it reads it, whatever is open: a scope of two Documents with one of them open names both, and a scope of only the open Document is still told; fails_when=the open Document is taken out of the scope, so the agent is told to leave out the Document in front, or the limit is lost
+  it("tells the scope whole when a Document in it is open", async () => {
+    const { core, summary, tariffs, pairing, agent } = await withDocuments();
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+      scope: { folderIds: [], tagIds: [], documentIds: [summary.id, tariffs.id] },
+    });
+    const open = `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`;
+    expect(await requestRead(agent)).toMatchObject({
+      request: `${open}\n\nI limited this question to these folders and documents in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}); “Tariffs” (documentId: ${tariffs.id}). Look only there.`,
+    });
+
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+      scope: { folderIds: [], tagIds: [], documentIds: [summary.id] },
+    });
+    expect(await requestRead(agent)).toMatchObject({
+      request: `${open}\n\nI limited this question to these folders and documents in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}). Look only there.`,
+    });
+  });
+
+  // protects=a Folder scope with a Document of that Folder open tells both, the Folder and the Document in front; fails_when=either is lost
+  it("tells a Folder's scope beside a Document of it that is open", async () => {
+    const { core, ferries, summary, pairing, agent } = await withDocuments();
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+      scope: { folderIds: [ferries.id], tagIds: [], documentIds: [] },
+    });
+    expect(await requestRead(agent)).toMatchObject({
+      request: [
+        `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`,
+        `I limited this question to these folders and documents in IncarnaMind: “Tallow Sound Ferries” (folderId: ${ferries.id}). Look only there.`,
       ].join("\n\n"),
     });
   });

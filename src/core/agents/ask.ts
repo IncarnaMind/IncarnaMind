@@ -418,16 +418,12 @@ export function createAgentAsk(options: AgentAskOptions) {
         const name = within.includes(id) ? options.nameOf(kind, id) : null;
         return name === null ? [] : [{ id, name }];
       });
-    const open = named("document", [...new Set(onScreen)], readable.documentIds);
-    const openIds = new Set(open.map((each) => each.id));
+    // The scope is told whole, as far as the agent reads it: a Document open and in the scope is
+    // named in both, which is true of both.
     return {
-      open,
+      open: named("document", [...new Set(onScreen)], readable.documentIds),
       folders: named("folder", scope?.folderIds ?? [], readable.folderIds),
-      documents: named(
-        "document",
-        (scope?.documentIds ?? []).filter((id) => !openIds.has(id)),
-        readable.documentIds,
-      ),
+      documents: named("document", scope?.documentIds ?? [], readable.documentIds),
     };
   };
 
