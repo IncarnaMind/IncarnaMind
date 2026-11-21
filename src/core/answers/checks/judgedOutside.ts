@@ -305,14 +305,17 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
     new Set(content.readSettings(mindId, readMindCheck)?.skipped ?? []);
 
   return {
-    task(mindId: string, reach: ReadonlySet<string>): Judged<CheckTask> {
+    /** The sentences with no result that stands, or with `every` all it judges, to judge again (#3541). */
+    task(mindId: string, reach: ReadonlySet<string>, every = false): Judged<CheckTask> {
       options.requireMind(mindId);
       const scope = scopeWithin(mindId, reach);
       if (!scope.ok) return scope;
       const skipped = skippedOf(mindId);
       return content.read(mindId, (blocks) => {
         const { verification, lines } = linesOf(blocks);
-        const sentences = pending(blocks, lines, skipped, scope.reader);
+        const sentences = every
+          ? lines.filter((sentence) => !(skipped.has(sentence.key) && !sentence.always))
+          : pending(blocks, lines, skipped, scope.reader);
         const grids = new Map<Y.XmlElement, TableLayout>();
         const task = nameOf(sentences);
         keep(task, mindId, sentences);
