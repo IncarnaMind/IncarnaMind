@@ -3348,6 +3348,17 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE documents ADD COLUMN cited_by TEXT;
     `,
   },
+  {
+    version: 155,
+    description: "When an outside agent first connected (#3523)",
+    sql: `
+      -- When the pairing's agent first reached IncarnaMind's server, ISO 8601, UTC; NULL while it
+      -- hasn't. Claude's install file waits for it. A pairing that was used before this had
+      -- connected then.
+      ALTER TABLE agent_pairings ADD COLUMN connected_at TEXT;
+      UPDATE agent_pairings SET connected_at = last_used_at WHERE last_used_at IS NOT NULL;
+    `,
+  },
 ];
 
 /**

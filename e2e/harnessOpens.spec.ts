@@ -50,7 +50,7 @@ const clients = (window: Parameters<typeof dismissChatSetup>[0]) =>
     ).map((each) => [each.id, each.installed] as const),
   );
 
-// protects=no spec's launched app hands a file or link to this computer's own apps, and no spec reads which agents this computer has; fails_when=the harness's default record of opens is missing, connecting Claude's app or Cursor opens them, or an agent counts as found from this computer's Applications folder
+// protects=no spec's launched app hands a file or link to this computer's own apps, and no spec reads which agents this computer has; fails_when=the harness's default record of opens is missing, connecting Claude's app or Cursor opens them, opening Claude's install again opens it, or an agent counts as found from this computer's Applications folder
 test("a launched app records what it would open, and finds only the agents the test set up", async () => {
   test.setTimeout(120_000);
   const { app, window } = await launchApp(dataDir, { home });
@@ -82,6 +82,12 @@ test("a launched app records what it would open, and finds only the agents the t
     }
     await expect.poll(() => pathsOpened(app)).toEqual([expect.stringMatching(/\.mcpb$/)]);
     expect(await urlsOpened(app)).toEqual([expect.stringMatching(/^cursor:\/\//)]);
+
+    const [file] = await pathsOpened(app);
+    const claude = page.locator('[data-testid="agent-pairing"][data-name="Claude"]');
+    await claude.getByTestId("agent-install-again").click();
+    await expect.poll(() => pathsOpened(app)).toEqual([file, file]);
+    await expect(claude.getByTestId("agent-setup-done")).toBeVisible();
   } finally {
     await app.close();
   }

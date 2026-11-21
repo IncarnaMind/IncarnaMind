@@ -8646,6 +8646,7 @@ export const en = {
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
+  "agents.pairing.installAgain": "Open the install in Claude again",
   "agents.pairing.renameLabel": "Name of {agent}",
   "agents.pairing.folders": "Folders…",
   "agents.pairing.foldersTitle": "Folders {agent} may read",

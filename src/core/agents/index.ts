@@ -52,6 +52,7 @@ import {
   reachedFolders,
 } from "./access";
 import { createAgentCitations } from "./citations";
+import { clientDefinition } from "./clients";
 import type { ServedConnection } from "./mcp";
 import { createAgentRequests, type KeptRequest } from "./requests";
 import { type AgentListener, listenForAgents } from "./socket";
@@ -77,6 +78,14 @@ const ACTIVITY_KEPT = 500;
 /** How often a pairing's "last used" time is written while it keeps calling. */
 const LAST_USED_EVERY_MS = 60_000;
 const MAX_NAME_CHARS = 80;
+
+/** What setting an agent up left waiting for its pairing: told when the pairing's agent connects or the pairing goes. */
+export interface PairingEvents {
+  /** The pairing's agent reached IncarnaMind's server for the first time. */
+  connected(pairingId: string): void;
+  /** Waited for: the pairing's disconnect is done once it has returned. */
+  disconnected(pairingId: string): Promise<void>;
+}
 
 /** How an agent starts the shim: the command and arguments for its MCP settings. */
 export interface AgentLauncher {
@@ -221,6 +230,8 @@ export function createAgents(options: AgentsOptions) {
   let closed = false;
   let mcp: Promise<typeof import("./mcp")> | null = null;
 
+  const watchers = new Set<PairingEvents>();
+
   const turnedOn = () => options.readValue(ENABLED_KEY) === true;
   const enabled = () => options.offered && turnedOn();
   const say = options.access.say;
@@ -259,6 +270,22 @@ export function createAgents(options: AgentsOptions) {
     return pairing;
   };
 
+  /** The pairings whose agent installs a file IncarnaMind made and hasn't connected yet. */
+  const awaitingInstall = (pairings: readonly AgentPairing[]): string[] => {
+    const unconnected = new Set(
+      db
+        .all<{ id: string }>(
+          "SELECT id FROM agent_pairings WHERE connected_at IS NULL AND deleted_at IS NULL",
+        )
+        .map((row) => row.id),
+    );
+    return pairings
+      .filter(
+        (each) => unconnected.has(each.id) && clientDefinition(each.client)?.setup === "bundle",
+      )
+      .map((each) => each.id);
+  };
+
   const settings = (): AgentSettings => {
     const pairings = livePairings();
     const skills = pairings.map((each) => ({ id: each.id, ...options.skillState(each.client) }));
@@ -268,6 +295,7 @@ export function createAgents(options: AgentsOptions) {
       pairings,
       skills: skills.filter((each) => each.installed).map((each) => each.id),
       skillsOutOfDate: skills.filter((each) => each.outOfDate).map((each) => each.id),
+      awaitingInstall: awaitingInstall(pairings),
     };
   };
 
@@ -506,6 +534,23 @@ export function createAgents(options: AgentsOptions) {
     return { pairingId, access: createAgentAccess(accessDeps, pairingId ?? "") };
   };
 
+  /** Notes that a pairing's agent reached the server, the first time it does. */
+  const markConnected = (pairingId: string) => {
+    const row = db.get<{ connected_at: string | null }>(
+      "SELECT connected_at FROM agent_pairings WHERE id = ? AND deleted_at IS NULL",
+      [pairingId],
+    );
+    if (!row || row.connected_at !== null) return;
+    const at = options.now();
+    db.run("UPDATE agent_pairings SET connected_at = ?, updated_at = ? WHERE id = ?", [
+      at,
+      at,
+      pairingId,
+    ]);
+    changed();
+    for (const watcher of watchers) watcher.connected(pairingId);
+  };
+
   const closeConnections = async (pairingId: string | null) => {
     const open = connections.get(pairingId);
     connections.delete(pairingId);
@@ -528,6 +573,12 @@ export function createAgents(options: AgentsOptions) {
             list.add(connection);
             connections.set(pairingId, list);
             socket.once("close", () => list.delete(connection));
+            if (pairingId === null) return;
+            try {
+              markConnected(pairingId);
+            } catch (error) {
+              options.reportError(error);
+            }
           },
           reportError: options.reportError,
         }),
@@ -692,6 +743,14 @@ export function createAgents(options: AgentsOptions) {
       changed();
       await closeConnections(pairing.id);
       await options.secrets.delete(secretName(pairing.id));
+      await Promise.all(
+        [...watchers].map((watcher) => watcher.disconnected(pairing.id).catch(options.reportError)),
+      );
+    },
+
+    /** Hears each pairing's agent connect for the first time, and each pairing disconnected. */
+    watch(events: PairingEvents): void {
+      watchers.add(events);
     },
 
     /** Records the settings files and folders that setting this pairing's agent up created. */
