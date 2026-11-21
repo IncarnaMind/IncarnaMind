@@ -181,11 +181,21 @@ test("an agent the User lets propose changes: its change waits in the Note with 
         arguments: { title: "Tide report", markdown: `${NEAP} ${RANGE}` },
       });
       expect(created.isError ?? false).toBe(false);
-      // IncarnaMind's own check (#3317) runs on the User's AI model: with none set up it isn't
-      // offered, and the agent checks with its own (#3533).
-      const tools = (await agent.listTools()).tools.map((each) => each.name);
-      expect(tools).not.toContain("check_mind");
-      expect(tools).toContain("check_mind_yourself");
+      // IncarnaMind's own check of it (#3317) runs on the User's AI model: with none set up it isn't
+      // offered (#3533), and the agent checks the Note itself.
+      const offered = (await agent.listTools()).tools.map((tool) => tool.name);
+      expect(offered).not.toContain("check_mind");
+      expect(offered).toContain("check_mind_yourself");
+      const own = await agent.callTool({
+        name: "check_mind_yourself",
+        arguments: { mindId: (created.structuredContent as { mindId: string }).mindId },
+      });
+      expect(own.isError ?? false).toBe(false);
+      expect(
+        (own.structuredContent as { sentences: { text: string }[] }).sentences.map(
+          (sentence) => sentence.text,
+        ),
+      ).toContain(NEAP);
     } finally {
       await agent.close();
     }

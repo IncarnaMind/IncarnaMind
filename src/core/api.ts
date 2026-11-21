@@ -8425,9 +8425,9 @@ export interface ClaimCheckBasis {
    */
   citedOnly?: true;
   /**
-   * A fingerprint of all the claim was judged with, its words and what stands above it (#3412):
-   * read against the line as it is now, a reading that knows it says whether the result still
-   * stands there. Absent on a check that kept none.
+   * A fingerprint of what the result stands on, its claim and what frames its line: a deck's slide,
+   * else the headings it is under (#3412): read against the line as it is now, a reading that knows
+   * it says whether the result still stands there. Absent on a check that kept none.
    */
   judgedWith?: string;
 }

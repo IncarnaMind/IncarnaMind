@@ -117,3 +117,8 @@ test("passages are lowercase inside sentences", () => {
   const offenders = Object.entries(en).filter(([, value]) => sentenceMedialPassage(value));
   expect(offenders).toEqual([]);
 });
+
+test("no string says chat model: in a sentence it is an AI model (#763)", () => {
+  const offenders = Object.entries(en).filter(([, value]) => /chat models?/i.test(value));
+  expect(offenders.map(([key]) => key)).toEqual([]);
+});

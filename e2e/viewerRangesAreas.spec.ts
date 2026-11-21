@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreApi, CoreBridge } from "../src/core/api";
 import { docxOf, xlsxOf } from "../tests/helpers/office";
 import { buildPdf, type PdfPage } from "../tests/helpers/pdf";
@@ -427,6 +427,19 @@ async function dragArea(
 ): Promise<void> {
   await pointAndClick(window, window.getByTestId("viewer-area-select"));
   await dragAreaOver(window, page, from, to);
+  await expect(areaChip(window)).toBeVisible();
+}
+
+/** Draws an area from the top left of `first` to the bottom right of `last`, wherever the page puts them. */
+async function dragAreaAcross(window: Page, first: Locator, last: Locator): Promise<void> {
+  await pointAndClick(window, window.getByTestId("viewer-area-select"));
+  const start = await first.boundingBox();
+  const end = await last.boundingBox();
+  if (!start || !end) throw new Error("The words to draw the area over aren't in view.");
+  await window.mouse.move(start.x + 1, start.y + 1, { steps: 4 });
+  await window.mouse.down();
+  await window.mouse.move(end.x + end.width - 1, end.y + end.height - 1, { steps: 12 });
+  await window.mouse.up();
   await expect(areaChip(window)).toBeVisible();
 }
 
@@ -934,8 +947,13 @@ test("an area of a Word page and of a slide is found where it is", async () => {
     ],
   });
   await openDocument(window, /Field report/);
-  await expect(window.getByTestId("viewer")).toContainText("0.4 metres");
-  await dragArea(window, 1, { x: 0.15, y: 0.15 }, { x: 0.85, y: 0.5 });
+  const words = window.getByTestId("viewer-docx").locator("section.docx p");
+  await expect(words.filter({ hasText: "0.4 metres" })).toBeVisible();
+  await dragAreaAcross(
+    window,
+    words.filter({ hasText: "Field report" }),
+    words.filter({ hasText: "0.4 metres" }),
+  );
   await expect(areaChip(window).getByTestId("composer-area-chip-show")).toHaveText(
     "Figure · § Field report",
   );

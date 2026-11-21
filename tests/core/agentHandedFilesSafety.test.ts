@@ -34,6 +34,7 @@ import {
 import { connectToMind } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 import { plainDeck } from "../helpers/pptx";
 
 const en = translate.bind(null, "en") as (
@@ -674,5 +675,111 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     const again = structured<Handed>(await handOver(agent, { path }));
     expect(sentAfter(calls, before)).toEqual(new Set([NORTH, SOUTH, OFFICE, NEVER_CLOSES]));
     expect(again).toMatchObject({ version: 1, status: "checked", supported: 2, needLook: 2 });
+  });
+
+  // protects=a result of a handed PDF stands on its own words and the headings it is under: the next version checks again the lines under a heading whose period changed, and only the line that changed when a line changes, not the lines after it (#3455); fails_when=a line keeps a result made under a heading that names another year, or one changed line sends every line after it to the model again
+  it("checks again the lines under a changed heading of a PDF's next version, and of a changed line only it", async () => {
+    const forty = "The north quay holds 40 boats.";
+    const plans: Record<string, Plan> = {
+      ...PLANS,
+      [forty]: {
+        verdict: "contradicted",
+        quote: "The north quay holds 42 boats",
+        says: "Harbour survey says the north quay holds 42 boats, not 40.",
+      },
+    };
+    const calls: ModelCall[] = [];
+    const { coast, writer, files } = await started(calls, { plans });
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour notes.pdf");
+    const notes = (year: string, north: string) =>
+      buildPdf([{ lines: [`1 Quays in ${year}`, north, SOUTH, "2 Office", OFFICE] }]);
+    await writeFile(path, notes("2025", NORTH));
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const renamed = calls.length;
+
+    await writeFile(path, notes("2026", NORTH));
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, renamed)).toEqual(new Set([NORTH, SOUTH]));
+    const changed = calls.length;
+
+    await writeFile(path, notes("2026", forty));
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, changed)).toEqual(new Set([forty]));
+  });
+
+  // protects=the results an agent's own check reported on a handed file read as the file's check's do: editing one of its claims in the Note re-checks that claim alone, and the agent's Contradicted and Not found after it still show (#3412, #3455); fails_when=one edit turns every result the agent reported after it to Needs re-check
+  it("keeps the agent's own results after an edited claim of a handed file", async () => {
+    const { core, coast, writer, files } = await started();
+    for (const provider of await core.listChatProviders()) {
+      await core.deleteChatProvider(provider.id);
+    }
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour notes.pdf");
+    await writeFile(path, buildPdf([{ lines: [NORTH, SOUTH, AT_NIGHT] }]));
+    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const mindId = handed.mindId ?? "";
+    const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+    );
+    const n = (text: string) => given.sentences.find((each) => each.text === text)?.n;
+    const { passages } = structured<{ passages: { passageId: string; document: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "north quay south quay boats" } }),
+    );
+    const cite = async (quote: string) => {
+      const { citations } = structured<{ citations: { cite: string | null }[] }>(
+        await agent.callTool({
+          name: "cite",
+          arguments: {
+            citations: passages
+              .filter((each) => each.document === "Harbour survey")
+              .map(({ passageId }) => ({ passageId, quote })),
+          },
+        }),
+      );
+      return citations.find((each) => each.cite !== null)?.cite;
+    };
+    const reported = structured<{ marked: number; unreported: number[] }>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            {
+              n: n(NORTH),
+              verdict: "supported",
+              cites: [await cite("The north quay holds 42 boats")],
+            },
+            {
+              n: n(SOUTH),
+              verdict: "contradicted",
+              cites: [await cite("the south quay holds 19 boats")],
+              explanation: "The survey gives the south quay 19 boats.",
+            },
+            { n: n(AT_NIGHT), verdict: "not found" },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ marked: 3, unreported: [] });
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const page = async () => {
+      await client.settled();
+      const { lines } = await core.judgedWithNow(mindId);
+      return claimsOf(readMind(client), {
+        footing: "not-yet-known",
+        versions: new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash])),
+        folderId: coast.id,
+        scope: null,
+        judgedNow: new Map(Object.entries(lines)),
+      }).claims.map((claim) => claim.shown.state);
+    };
+    expect(await page()).toEqual(["supported", "contradicted", "unsupported"]);
+
+    editMind(client, (blocks) => retyped(blocks, NORTH, `Today ${NORTH.toLowerCase()}`));
+
+    expect(await page()).toEqual(["needs-recheck", "contradicted", "unsupported"]);
   });
 });

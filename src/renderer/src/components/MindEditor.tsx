@@ -1334,7 +1334,12 @@ function MindEditorView({
             </OpinionMenu>
           </BlockHandle>
           {meeting?.kind === "meeting" && (
-            <MeetingFillAt editor={editor} meeting={meeting} lineShown={!myNotes} />
+            <MeetingFillAt
+              editor={editor}
+              doc={doc}
+              meeting={meeting}
+              lineShown={showingNotes && !myNotes}
+            />
           )}
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />

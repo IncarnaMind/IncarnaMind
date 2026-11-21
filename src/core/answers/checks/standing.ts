@@ -14,6 +14,7 @@ import {
 import { isVerifiedBlock, readVerification, type Verification } from "../../../shared/verification";
 import { type ClaimCheckAttributes, MIND_SETTINGS_FIELD, type SearchScope } from "../../api";
 import type { RecordCitePlace } from "../../recordCites/referents";
+import { headingsAbove } from "./figureOccurrences";
 import {
   checkText,
   everySentence,
@@ -89,9 +90,21 @@ export const saidOf = (
   claimOf(sentence, verification) ?? { claim: sentence.text, context: sentence.context };
 
 /**
- * The fingerprint of what a check was given (`ClaimCheckBasis.judgedWith`), made from exactly what
- * it was sent, so a result stands only while its line would be sent the same.
+ * What a result stands on, of what its check was given (`said`): the claim and what frames its
+ * line, a deck's line its slide, else the headings it is under (#3455). The other lines above it
+ * and the rest of its paragraph are sent only for what the claim's words refer to, which adds
+ * nothing to what it says; were they in, editing one claim would put every finding after it
+ * behind Needs re-check.
  */
+export function standsOn(
+  said: { claim: string; context: string; onSlide?: number },
+  sentence: SelectedSentence,
+): { claim: string; context: string } {
+  if (said.onSlide !== undefined) return said;
+  return { claim: said.claim, context: headingsAbove(sentence.element).join("\n\n") };
+}
+
+/** The fingerprint of what a result stands on (`standsOn`, `ClaimCheckBasis.judgedWith`). */
 export const fingerprintOf = ({ claim, context }: { claim: string; context: string }): string =>
   createHash("sha256").update(`${claim}\n\n${context}`).digest("base64url").slice(0, 22);
 
@@ -116,12 +129,12 @@ export function fileCheckLines(
   });
 }
 
-/** The fingerprint of all a line is judged with (`ClaimCheckBasis.judgedWith`). */
+/** The fingerprint of what a line's result stands on (`ClaimCheckBasis.judgedWith`). */
 export function judgedWithOf(
   sentence: SelectedSentence,
   verification: Verification | null,
 ): string {
-  return fingerprintOf(saidOf(sentence, verification));
+  return fingerprintOf(standsOn(saidOf(sentence, verification), sentence));
 }
 
 const verificationIn = (blocks: Y.XmlFragment): Verification | null =>
