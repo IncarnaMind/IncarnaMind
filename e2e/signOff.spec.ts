@@ -328,21 +328,23 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(alone).toContainText(t("checks.problem.no-provider"));
       await screenshot(window, `tie-out-no-model-${language}`);
 
-      // With the User's own AI connected to the Note's Folder, the line offers to ask it.
-      const mindId = await window
-        .locator('[data-testid="mind-pane"]:visible')
-        .getAttribute("data-mind-id");
-      await window.evaluate(async (id) => {
+      // Filed with its Documents, in a Folder the User's own AI is connected to, the line offers
+      // to ask that AI: an agent reads only the Notes in the Folders it is let into.
+      await window.evaluate(async () => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        const folderId = (await bridge.listMinds()).find((each) => each.id === id)?.folderId;
-        if (!folderId) throw new Error("The example Note is in no Folder.");
+        const { mindId, linkedFolderId } = await bridge.getExamples();
+        const linked = (await bridge.listLinkedFolders()).find(
+          (each) => each.id === linkedFolderId,
+        );
+        if (!mindId || !linked) throw new Error("The example is not all there.");
+        await bridge.moveToFolder({ mindIds: [mindId], folderId: linked.folderId });
         await bridge.setAgentsEnabled(true);
         await bridge.connectAgent({
           name: "Claude Code",
           client: "claude-code",
-          folderIds: [folderId],
+          folderIds: [linked.folderId],
         });
-      }, mindId);
+      });
       const asking = window.getByTestId("checks-ask-agent");
       await tieOut(asking);
       await expect(asking.getByTestId("checks-ask-agent-ask")).toHaveText(
