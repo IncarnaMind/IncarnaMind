@@ -288,7 +288,8 @@ describe("a file outside the Library, cited by its path (#3509)", () => {
   it("is one of the User's own once they add it", async () => {
     const { core, path, cite } = await outside();
     await cite("The east quay holds 31 boats");
-    await core.addDocuments([path]);
+    const { documents: added } = await core.addDocuments([path]);
+    expect(added.map((each) => each.citedBy)).toEqual([null]);
     const notes = (await core.listDocuments()).find((each) => each.name === "Quay notes");
     expect(notes?.citedBy).toBeNull();
     const evidence = await core.searchEvidence("east quay boats");

@@ -2481,7 +2481,7 @@ export const zhCN = {
   "evidence.notCited.label": "不引用",
   "library.citedBy.label": "{agent} 引用",
   "library.citedBy.hint":
-    "{agent} 引用的文库之外的文件。IncarnaMind 不搜索它，也不把它归入文件夹，它只作为引用它的句子的依据。",
+    "{agent} 引用的资料库之外的文件。IncarnaMind 不搜索它，也不把它归入文件夹，它只作为引用它的句子的依据。",
   "evidence.notCited.done": "“{name}”不再作为引用来源",
   "evidence.notCited.doneMany": "{count} 个文档不再作为引用来源",
   "evidence.citeAgain.done": "“{name}”已恢复为引用来源",
@@ -4672,7 +4672,7 @@ export const zhCN = {
   "citation.reason.source-removed": "来源已移除。",
   "citation.yourNote": "你的笔记：{title}，{date}",
   "citation.ownRecord": "你自己的记录",
-  "citation.outsideLibrary": "文库之外的文件",
+  "citation.outsideLibrary": "资料库之外的文件",
   "citation.foundByCheck": "核对这句话时找到",
   "citation.reason.kept-inside": "仅在“{folder}”内使用",
   "citation.reason.quoted-words-not-on-pages": "所引位置没有引号里的文字。",
@@ -8212,7 +8212,7 @@ export const zhCN = {
     "用户已在 IncarnaMind 中暂停这个文件所在的关联文件夹，恢复前不会读取其中的任何内容。恢复后，再提交一次。",
   "agents.handOver.unavailable": "这个版本的 IncarnaMind 无法读取智能体给出的文件。",
   "agents.handOver.inLibrary":
-    "用户的文库里已经有这个文件，而 IncarnaMind 每个文件只保留一份：修改后再提交。",
+    "用户的资料库里已经有这个文件，而 IncarnaMind 每个文件只保留一份：修改后再提交。",
   "agents.handOver.untitled": "未命名文件",
   "agents.handOver.unread.unreadable": "IncarnaMind 已保留文件，但无法读取：文件可能已损坏。",
   "agents.handOver.unread.password-protected": "IncarnaMind 已保留文件，但无法读取：文件需要密码。",

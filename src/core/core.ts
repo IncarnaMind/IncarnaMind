@@ -6303,13 +6303,15 @@ export function createCore(adapters: CoreAdapters): Core {
       })
       .finally(() => batches.done(batchId));
     // A file an agent cited by its path that the User adds themselves is one of their own (#3509).
-    for (const document of result.documents) {
-      if (document.citedBy !== null) documents.setCitedBy(document.id, null);
-    }
+    const added = result.documents.map((document) => {
+      if (document.citedBy === null) return document;
+      documents.setCitedBy(document.id, null);
+      return documents.get(document.id);
+    });
     skippedForShowing.clear();
     for (const skipped of result.skipped) skippedForShowing.add(skipped.path);
     usageData.record({ event: "documents_added", fields: addedCounts(result, since) });
-    return { ...result, batchId };
+    return { ...result, documents: added, batchId };
   };
 
   /** The temporary .docx copies the Word import screen has, each with the folder to remove (#104). */
