@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   isSettingsPage,
@@ -64,7 +64,7 @@ describe("every place that names a page held back while no model is set up (#353
         readFileSync(file, "utf8"),
       ),
     )
-    .map((file) => relative(source, file))
+    .map((file) => relative(source, file).split(sep).join("/"))
     .sort();
 
   test("are these, so a new one has to say what it does with no model", () => {
