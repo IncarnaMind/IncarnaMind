@@ -125,6 +125,25 @@ async function chooseSummaryModel(window: Page, route: Locator, modelId?: string
   return value;
 }
 
+async function settleFirstFill(window: Page) {
+  const bridge = await coreOf(window);
+  await expect
+    .poll(
+      () =>
+        bridge.evaluate(async (core) => {
+          const [meeting] = await core.listMeetings();
+          return !!meeting?.fill && !["waiting", "filling"].includes(meeting.fill.state);
+        }),
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  await motionSettled(window);
+  const menu = window.getByTestId("meeting-view-menu");
+  if (await menu.isVisible()) await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await motionSettled(window);
+}
+
 async function showMeetingView(window: Page, pane: Page | Locator, view: "notes" | "mine") {
   const menu = pane.getByTestId("meeting-view-menu");
   if (!(await menu.isVisible())) await pointAndClick(window, pane.getByTestId("meeting-view-chip"));
@@ -156,23 +175,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, language === "en" ? 1280 : 900, 660);
       await dismissChatSetup(window);
       const bridge = await coreOf(window);
-      const settleFirstFill = async () => {
-        await expect
-          .poll(
-            () =>
-              bridge.evaluate(async (core) => {
-                const [meeting] = await core.listMeetings();
-                return !!meeting?.fill && !["waiting", "filling"].includes(meeting.fill.state);
-              }),
-            { timeout: 30_000 },
-          )
-          .toBe(true);
-        await motionSettled(window);
-        const menu = window.getByTestId("meeting-view-menu");
-        if (await menu.isVisible()) await window.keyboard.press("Escape");
-        await expect(menu).toBeHidden();
-        await motionSettled(window);
-      };
       const afterShot = async (
         view:
           | "notes"
@@ -184,7 +186,7 @@ for (const language of ["en", "zh-CN"] as const) {
           | "corrected",
       ) => {
         if (!screenshots) return;
-        await settleFirstFill();
+        await settleFirstFill(window);
         await window.screenshot({
           animations: "disabled",
           path: join(screenshots, `meeting-summary-${view}-${language}.png`),
@@ -315,7 +317,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(sourceTab).toHaveCount(0);
 
       // The first Note fill opens a menu that takes Escape before the inline editor.
-      await settleFirstFill();
+      await settleFirstFill(window);
       await showMeetingView(window, window, "notes");
       await expect(transcript).toHaveCount(0);
       await expect(window.getByTestId("meeting-summary-text")).toHaveText(words.overview);
@@ -544,6 +546,7 @@ for (const [language, request, reply] of [
         return meeting?.summary?.candidatesReviewed;
       });
       expect(before).toBeUndefined();
+      await settleFirstFill(window);
       if (screenshots) {
         const fold = window.getByTestId("assistant-fold");
         if (await fold.isVisible()) await pointAndClick(window, fold);
@@ -553,8 +556,8 @@ for (const [language, request, reply] of [
           path: join(screenshots, `meeting-review-collapsed-${language}.png`),
         });
       }
-      await disclosure.focus();
-      await window.keyboard.press("Enter");
+      await disclosure.press("Enter");
+      await expect(disclosure).toHaveAttribute("aria-expanded", "true");
       const row = candidates.getByTestId("meeting-summary-candidate");
       await expect(row).toHaveCount(1);
       await pointAndClick(window, disclosure);
