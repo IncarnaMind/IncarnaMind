@@ -30,6 +30,13 @@ async function filed(core: Core) {
   };
 }
 
+/** Every Document's assignment, without how far its tagging has got, which moves on by itself. */
+async function placesOf(core: Core) {
+  return (await core.getLibrary()).assignments
+    .map(({ tagging: _tagging, ...place }) => place)
+    .sort((a, b) => a.documentId.localeCompare(b.documentId));
+}
+
 /** The Coast Library with its project folder, holding the plan, linked and read. */
 async function project() {
   const set = await started();
@@ -59,19 +66,19 @@ describe("a Folder bound to a folder on disk", () => {
     const fees = (await core.listDocuments()).find((each) => each.name === "Harbour fees");
     await core.assignDocumentGroup(fees?.id ?? "", coast.id);
 
-    const bound = await core.createBoundFolder(linked.folderId);
+    const { folder: bound } = await core.createBoundFolder(linked.folderId);
     expect(bound).toMatchObject({ name: basename(files), keepInside: true });
     const where = await filed(core);
     expect(where("Quay plan")).toEqual({ groupId: bound.id, source: "user" });
     expect(where("Harbour fees")).toEqual({ groupId: coast.id, source: "user" });
-    expect((await core.createBoundFolder(linked.folderId)).id).toBe(bound.id);
+    expect((await core.createBoundFolder(linked.folderId)).folder.id).toBe(bound.id);
   });
 
   // protects=an empty folder made a Project at once, before a scan has made its Folder, files its first file as it arrives; unlinked, it is bound no more (ADR-0030); fails_when=it can't be made a Project until a file is read, or stays bound once unlinked
   it("an empty folder made a Project at once files its first file; unlinked, bound no more", async () => {
     const { core, files } = await started();
     const linked = await core.addLinkedFolder(files);
-    const bound = await core.createBoundFolder(linked.folderId);
+    const { folder: bound } = await core.createBoundFolder(linked.folderId);
     expect(bound).toMatchObject({ name: basename(files), boundFolderId: linked.folderId });
     await writeFile(join(files, "Quay plan.md"), PLAN);
     await core.reconcileDocuments();
@@ -85,7 +92,7 @@ describe("a Folder bound to a folder on disk", () => {
   // protects=a new file in the bound folder is filed in it as it arrives, as the User's choice, so sorting leaves it alone (ADR-0030); fails_when=it lands in Not in a Folder or waits to be sorted
   it("files a new file in it as it arrives", async () => {
     const { core, files, linked } = await project();
-    const bound = await core.createBoundFolder(linked.folderId);
+    const { folder: bound } = await core.createBoundFolder(linked.folderId);
     await writeFile(join(files, "Quay crew.md"), "# Quay crew\n\nSix people work the east quay.\n");
     await core.reconcileDocuments();
     expect((await filed(core))("Quay crew")).toEqual({ groupId: bound.id, source: "user" });
@@ -101,7 +108,7 @@ describe("a Folder bound to a folder on disk", () => {
     await core.reconcileDocuments();
     const coastNotes = (await core.listDocuments()).find((each) => each.name === "Coast notes");
     await core.assignDocumentGroup(coastNotes?.id ?? "", coast.id);
-    const work = await core.createBoundFolder((await diskFolder(core, "work")).id);
+    const { folder: work } = await core.createBoundFolder((await diskFolder(core, "work")).id);
     expect((await filed(core))("Quay plan").groupId).toBeNull();
 
     await rename(join(files, "Loose notes.md"), join(files, "work", "Loose notes.md"));
@@ -119,8 +126,8 @@ describe("a Folder bound to a folder on disk", () => {
     await mkdir(join(files, "work"));
     await writeFile(join(files, "work", "Brief.md"), "# Brief\n\nThe quay opens in May.\n");
     await core.reconcileDocuments();
-    const outer = await core.createBoundFolder(linked.folderId);
-    const inner = await core.createBoundFolder((await diskFolder(core, "work")).id);
+    const { folder: outer } = await core.createBoundFolder(linked.folderId);
+    const { folder: inner } = await core.createBoundFolder((await diskFolder(core, "work")).id);
     expect((await filed(core))("Brief").groupId).toBe(outer.id);
 
     await writeFile(join(files, "work", "Crew.md"), "# Crew\n\nSix people work the quay.\n");
@@ -134,7 +141,7 @@ describe("a Folder bound to a folder on disk", () => {
   // protects=while the folder is paused nothing arrives; resumed, its new files are filed; unlinked, the Folder keeps its Notes and is bound no more, so the folder linked again files nothing in it (ADR-0030); fails_when=a file arrives while paused, or a Folder stays bound to a folder no longer linked
   it("paused, nothing arrives; unlinked, the Folder stays with its Notes, bound no more", async () => {
     const { core, files, linked } = await project();
-    const bound = await core.createBoundFolder(linked.folderId);
+    const { folder: bound } = await core.createBoundFolder(linked.folderId);
     await core.setLinkedFolderPaused(linked.id, true);
     await writeFile(join(files, "Late.md"), "# Late\n\nThe ferry was late.\n");
     await core.reconcileDocuments();
@@ -150,6 +157,74 @@ describe("a Folder bound to a folder on disk", () => {
     await core.addLinkedFolder(files);
     await core.reconcileDocuments();
     expect((await filed(core))("Late").groupId).toBeNull();
+  });
+
+  // protects=Undo of making a Project puts each of the folder's Documents back as it was: one in no Folder with no filing at all has none again, one the User filed elsewhere stays there, one that arrived since has none; done again, they are filed in the same Folder; made again after Undo, it files them (#3507); fails_when=Undo leaves a Document filed in no Folder as the User's choice, which Organize then never proposes a place for and a Project made again never files
+  it("Undo puts the folder's Documents back as they were; done again, they are filed again", async () => {
+    const set = await started();
+    const { core, coast, files } = set;
+    // As the app's own spec sets it: sorting by itself off, so the folder's files have no filing.
+    await core.saveLibrarySettings({ classifier: null, automatic: false, turnOn: false });
+    await writeFile(join(files, "Quay plan.md"), PLAN);
+    await writeFile(join(files, "Tide table.md"), "# Tide table\n\nHigh water is at 06:40.\n");
+    await writeFile(join(files, "Harbour fees.md"), "# Harbour fees\n\nA night costs 40 euros.\n");
+    const linked = await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    await waitForProcessing(
+      core,
+      (await core.listDocuments()).map((each) => each.id),
+    );
+    const fees = (await core.listDocuments()).find((each) => each.name === "Harbour fees");
+    await core.assignDocumentGroup(fees?.id ?? "", coast.id);
+    const before = await placesOf(core);
+    expect((await filed(core))("Quay plan")).toEqual({ groupId: null, source: null });
+
+    const made = await core.createBoundFolder(linked.folderId);
+    const project = made.folder.id;
+    await writeFile(join(files, "Late.md"), "# Late\n\nThe ferry was late.\n");
+    await core.reconcileDocuments();
+    const inIt = ["Quay plan", "Tide table", "Late"];
+    let where = await filed(core);
+    expect(inIt.map((name) => where(name).groupId)).toEqual([project, project, project]);
+    expect(made.filed).toHaveLength(2);
+
+    await core.undoBoundFolder(project, made.filed);
+    expect(await placesOf(core)).toEqual(before);
+    expect((await core.getLibrary()).groups.some((each) => each.id === project)).toBe(false);
+
+    // Redo, as the app does it: the Folder restored, then its folder's files filed in it again.
+    await core.restore([{ kind: "folder", id: project }]);
+    const again = await core.createBoundFolder(linked.folderId);
+    expect(again.folder.id).toBe(project);
+    where = await filed(core);
+    expect(inIt.map((name) => where(name).groupId)).toEqual([project, project, project]);
+    expect(where("Harbour fees").groupId).toBe(coast.id);
+
+    await core.undoBoundFolder(project, again.filed);
+    expect(await placesOf(core)).toEqual(before);
+    const remade = await core.createBoundFolder(linked.folderId);
+    where = await filed(core);
+    expect(inIt.map((name) => where(name).groupId)).toEqual([
+      remade.folder.id,
+      remade.folder.id,
+      remade.folder.id,
+    ]);
+  });
+
+  // protects=Undo of making a Project gives a Document Organize had a row for that row back as it was: in no Folder, Organize's, with its state, model and time (#3507); fails_when=Undo leaves it filed by the User, or with no row
+  it("Undo gives a Document Organize had read its row back", async () => {
+    const { core, linked } = await project();
+    const before = await placesOf(core);
+    const plan = (await core.listDocuments()).find((each) => each.name === "Quay plan");
+    expect(before.find((each) => each.documentId === plan?.id)).toMatchObject({
+      groupId: null,
+      source: "automatic",
+    });
+
+    const made = await core.createBoundFolder(linked.folderId);
+    expect((await filed(core))("Quay plan")).toEqual({ groupId: made.folder.id, source: "user" });
+    await core.undoBoundFolder(made.folder.id, made.filed);
+    expect(await placesOf(core)).toEqual(before);
   });
 });
 
@@ -168,7 +243,7 @@ describe("an agent given a bound Folder (#3507)", () => {
       set.core,
       (await set.core.listDocuments()).map((each) => each.id),
     );
-    const bound = await set.core.createBoundFolder(linked.folderId);
+    const { folder: bound } = await set.core.createBoundFolder(linked.folderId);
     await set.core.updateAgent(set.writer.pairing.id, { folderIds: [bound.id] });
     const agent = await connectLegacyAgent(set.writer.launch);
     return { ...set, bound, agent };
