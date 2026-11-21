@@ -7023,6 +7023,9 @@ export const en = {
   "firstOpen.step.agentAsk.title": "Ask your AI for a document",
   "firstOpen.step.agentAsk.done": "Your AI wrote a note",
   "firstOpen.agent.line": "Write a short summary of {document} as a new note in IncarnaMind.",
+  "firstOpen.agent.noDocument": "No Documents yet. Add one, and your AI can summarize it.",
+  "firstOpen.agent.unshared":
+    "No connected AI can read your Documents yet. Share them in its agent settings.",
   "firstOpen.step.agentLook.title": "See what needs a look",
   "firstOpen.step.agentLook.done": "Saw what needs a look",
   "firstOpen.step.agentLook.waiting": "What needs a look shows here once the note is checked.",

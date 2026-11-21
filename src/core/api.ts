@@ -15531,6 +15531,8 @@ export interface CoreApi {
   openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
+  /** Of these Documents, those at least one connected agent can be asked about now, in the order given (#3572). */
+  listDocumentsToAsk(documentIds: string[]): Promise<string[]>;
   /** With no Organize model, the connected agents that can read the whole target the User chose. */
   agentsForOrganize(target: OrganizeTarget): Promise<OrganizeAgents>;
   /**
@@ -16342,6 +16344,7 @@ const methods: Record<CoreApiMethod, true> = {
   openAgentInstallAgain: true,
   agentsForOrganize: true,
   listAgentsToAsk: true,
+  listDocumentsToAsk: true,
   askAgent: true,
   handedFileOf: true,
   listCanvases: true,

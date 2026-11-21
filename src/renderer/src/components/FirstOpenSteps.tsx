@@ -8,13 +8,13 @@ import {
 } from "react";
 import type { AgentPairing, WorkKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
-import { fitName, quotedName } from "../../../shared/naming";
+import { fitName } from "../../../shared/naming";
 import {
   type AgentNote,
   openAtFirstLook,
   useAgentNote,
   useAgentPairings,
-  useNewestDocument,
+  useSummaryDocument,
 } from "../agentNote";
 import { type AskBlock, useAnswers } from "../answers";
 import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
@@ -36,7 +36,7 @@ import { revealAssistant } from "../quietAssistant";
 import { readyRowOf } from "../readyRow";
 import { useAppStore } from "../store";
 import { useUnreadFiles } from "../unreadFiles";
-import { OtherAgents } from "./AskAgentLine";
+import { AgentAskStep, askStepOf } from "./firstRun/AgentAskStep";
 import { CardTail } from "./firstRun/CardTail";
 import { type CardStep, cardStepsOf, type StepWords, stepWords } from "./firstRun/cardWords";
 import { ExampleBanner } from "./GettingStarted";
@@ -177,9 +177,13 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const pairings = useAgentPairings();
   const agent = pairings?.at(-1)?.name ?? null;
   const agentNote = useAgentNote(pairings ?? []);
-  const named = useNewestDocument();
+  const summary = useSummaryDocument();
+  const named = summary.kind === "named" ? summary.document : null;
   useReadAgentsToAsk(null, named?.id);
-  const [asker, ...others] = useAgentsToAskRead(null, named?.id) ?? [];
+  useReadAgentsToAsk(null);
+  const askers = useAgentsToAskRead(null, named?.id);
+  const connected = useAgentsToAskRead(null);
+  const askStep = askStepOf(summary, askers, connected);
   const lead = work[0];
   const steps = cardStepsOf(lead, agent !== null);
   const addFiles = useRef<HTMLButtonElement>(null);
@@ -242,6 +246,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const askForSummary = (pairing: AgentPairing) => {
     if (named) void askAgent(pairing, null, { kind: "summary", documentId: named.id });
   };
+  const openAgentSettings = () => useAppStore.getState().openSettings("agents");
   // Seen only once its check has landed: before that there is nothing yet to look at.
   const openAgentNote = () => {
     if (!agentNote) return;
@@ -347,35 +352,15 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
       ),
       notes: body("notes"),
       agentAsk: (
-        <div className="flex items-start gap-2 rounded-md bg-chip py-1.5 pr-1.5 pl-2.5">
-          <p
-            data-testid={only("first-open-agent-line")}
-            className="min-w-0 flex-1 py-1 text-[13px] leading-5 text-ink select-text"
-          >
-            {named && t("firstOpen.agent.line", { document: quotedName(named.name) })}
-          </p>
-          {asker && (
-            <span className="inline-flex shrink-0 items-center gap-0.5">
-              <button
-                type="button"
-                data-testid={only("first-open-agent-ask")}
-                onClick={() => askForSummary(asker)}
-                className={buttonStyle("secondary", "sm")}
-              >
-                {t("agents.ask.action", { agent: asker.name })}
-              </button>
-              {others.length > 0 && (
-                <OtherAgents
-                  agents={others}
-                  label={(name) => t("agents.ask.action", { agent: name })}
-                  onAsk={askForSummary}
-                  testId={live ? "first-open-agent" : "first-open-agent-unseen"}
-                  className="h-7 text-ink-meta hover:bg-hover hover:text-ink"
-                />
-              )}
-            </span>
-          )}
-        </div>
+        <AgentAskStep
+          step={askStep}
+          summary={summary}
+          askers={askers}
+          live={live}
+          onAsk={askForSummary}
+          onAdd={() => void pickDocuments()}
+          onSettings={openAgentSettings}
+        />
       ),
       agentLook: (
         <AgentLook
@@ -393,7 +378,10 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
       record: startRecording,
       notes: openNotes,
       agentAsk: () => {
-        if (asker) askForSummary(asker);
+        const [asker] = askers ?? [];
+        if (askStep === "ask" && asker) askForSummary(asker);
+        else if (askStep === "add") void pickDocuments();
+        else if (askStep === "share" || askStep === "reconnect") openAgentSettings();
       },
       agentLook: agentNote && agentChecked(agentNote) ? openAgentNote : checkAgentNote,
     };

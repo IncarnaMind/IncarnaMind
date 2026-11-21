@@ -113,6 +113,19 @@ const typedIn = (link: string | undefined) =>
 
 let unmount: (() => Promise<void>) | null = null;
 
+interface Setup {
+  language?: "en" | "zh-CN";
+  /** The AIs are given one Folder holding only these Documents, not all of them. */
+  share?: string[];
+  /** Local mode pauses every agent. */
+  localOnly?: boolean;
+  /** What the step shows once it has been read; the line's Ask unless it lacks something. */
+  ready?: string;
+}
+
+const pickDocuments = vi.fn();
+const openSettings = vi.fn();
+
 /**
  * The card of a User with these AIs connected, the one connected last first, and these Documents
  * added in this order, as the window shows it.
@@ -120,7 +133,7 @@ let unmount: (() => Promise<void>) | null = null;
 async function card(
   clients: [string, AgentClientId][],
   documents: string[] = ["Harbour report 2025"],
-  language: "en" | "zh-CN" = "en",
+  { language = "en", share, localOnly = false, ready = "first-open-agent-ask" }: Setup = {},
 ) {
   const dataDir = await createTempDataFolder();
   real = startCore(dataDir, {
@@ -135,19 +148,27 @@ async function card(
   });
   if (language !== "en") await real.updateSettings({ user: { language } });
   await real.setAgentsEnabled(true);
+  const shared = share && (await real.createLibraryGroup({ name: "Shared", description: "" }));
   for (const [name, client] of clients) {
-    await real.connectAgent({ name, client, folderIds: [ALL_SHARED_ID] });
+    await real.connectAgent({
+      name,
+      client,
+      folderIds: shared ? [shared.id] : [ALL_SHARED_ID],
+    });
   }
   const sources = await createSourceFolder();
   for (const name of documents) {
-    await addAndProcess(real, [
+    const [added] = await addAndProcess(real, [
       await writeSourceFile(
         sources,
         `${name}.md`,
         `# ${name}\n\nThe port handled 1.8 million tonnes.`,
       ),
     ]);
+    if (shared && added && share?.includes(name))
+      await real.assignDocumentGroup(added.id, shared.id);
   }
+  if (localOnly) await real.setLocalOnly(true);
   useAppStore.setState({
     chatReadiness: { ready: false, reason: "no-provider" },
     minds: [],
@@ -166,7 +187,7 @@ async function card(
     container.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
   await vi.waitFor(async () => {
     await act(async () => undefined);
-    expect(part("first-open-agent-ask")).not.toBeNull();
+    expect(part(ready)).not.toBeNull();
   });
   return { container, part };
 }
@@ -175,6 +196,9 @@ beforeEach(() => {
   copied.length = 0;
   links.length = 0;
   useNotices.setState({ confirmation: null });
+  pickDocuments.mockClear();
+  openSettings.mockClear();
+  useAppStore.setState({ pickDocuments, openSettings } as never);
 });
 afterEach(async () => {
   await unmount?.();
@@ -245,7 +269,9 @@ describe("the step that asks the User's AI for a document", () => {
     const { container, part } = await card(
       [["Claude Code", "claude-code"]],
       ["Harbour report 2025"],
-      "zh-CN",
+      {
+        language: "zh-CN",
+      },
     );
     expect(part("first-open-agent-ask")?.textContent).toBe(
       translate("zh-CN", "agents.ask.action", { agent: "Claude Code" }),
@@ -259,6 +285,83 @@ describe("the step that asks the User's AI for a document", () => {
     await vi.waitFor(() => expect(links).toHaveLength(1));
     expect(typedIn(links[0])).toBe(LINE_ZH("Harbour report 2025"));
     expect(copied).toEqual([]);
+  });
+});
+
+describe("the step when there is nothing it can name (#3572)", () => {
+  const LACKING = "first-open-agent-lacking";
+
+  // protects=the step names the newest Document a connected AI can read, never one it can't, so a Document and an Ask always come together; fails_when=the newest Document is named though the AI reads only an older one, or the step has a line with no button
+  test("names the newest Document the connected AI can read", async () => {
+    const { part } = await card([["Claude Code", "claude-code"]], ["Older plan", "Newer plan"], {
+      share: ["Older plan"],
+    });
+    expect(part("first-open-agent-line")?.textContent).toBe(LINE("Older plan"));
+    await act(async () => part("first-open-agent-ask")?.click());
+    await vi.waitFor(() => expect(links).toHaveLength(1));
+    expect(typedIn(links[0])).toBe(LINE("Older plan"));
+  });
+
+  // protects=with no Document the step says so in one sentence and offers the card's own Add files, in place of the chip; fails_when=an empty chip shows, or the control doesn't add files
+  test("with no Document, one sentence and the card's own Add files", async () => {
+    const { part } = await card([["Claude Code", "claude-code"]], [], { ready: LACKING });
+    expect(part(LACKING)?.textContent).toBe(
+      "No Documents yet. Add one, and your AI can summarize it.",
+    );
+    expect(part("first-open-agent-line")).toBeNull();
+    expect(part("first-open-agent-ask")).toBeNull();
+    expect(part("first-open-agent-add")?.textContent).toBe("Add files…");
+    await act(async () => part("first-open-agent-add")?.click());
+    expect(pickDocuments).toHaveBeenCalledTimes(1);
+    expect(links).toEqual([]);
+  });
+
+  // protects=with Documents but none shared with the connected AI the step says so and opens the agent settings, as the other not-shared lines do; fails_when=the chip shows with no button, or the way to the settings is missing
+  test("with Documents none of which the AI can read, one sentence and the agent settings", async () => {
+    const { part } = await card([["Claude Code", "claude-code"]], ["Only plan"], {
+      share: [],
+      ready: LACKING,
+    });
+    expect(part(LACKING)?.textContent).toBe(
+      "No connected AI can read your Documents yet. Share them in its agent settings.",
+    );
+    expect(part("first-open-agent-line")).toBeNull();
+    expect(part("first-open-agent-settings")?.textContent).toBe("Agent settings");
+    await act(async () => part("first-open-agent-settings")?.click());
+    expect(openSettings).toHaveBeenCalledWith("agents");
+  });
+
+  // protects=with every agent paused the step says to reconnect or resume, not to share; fails_when=Local mode is told to share Documents
+  test("with the agents paused, it says to reconnect or resume their access", async () => {
+    const { part } = await card([["Claude Code", "claude-code"]], ["Harbour report 2025"], {
+      localOnly: true,
+      ready: LACKING,
+    });
+    expect(part(LACKING)?.textContent).toBe("Reconnect your AI or resume its access in Settings.");
+    expect(part("first-open-agent-settings")?.textContent).toBe("Agent settings");
+  });
+
+  // protects=the two sentences read in Chinese; fails_when=Chinese gets English words
+  test("reads in Chinese too", async () => {
+    const none = await card([["Claude Code", "claude-code"]], [], {
+      language: "zh-CN",
+      ready: LACKING,
+    });
+    expect(none.part(LACKING)?.textContent).toBe(
+      "还没有文档。添加一份，你的 AI 就能把它总结成笔记。",
+    );
+    expect(none.part("first-open-agent-add")?.textContent).toBe("添加文件…");
+    await unmount?.();
+    unmount = null;
+    const unshared = await card([["Claude Code", "claude-code"]], ["Only plan"], {
+      language: "zh-CN",
+      share: [],
+      ready: LACKING,
+    });
+    expect(unshared.part(LACKING)?.textContent).toBe(
+      "已连接的 AI 都还读不了你的文档。请在智能体设置里共享给它们。",
+    );
+    expect(unshared.part("first-open-agent-settings")?.textContent).toBe("智能体设置");
   });
 });
 

@@ -542,7 +542,7 @@ describe("asking the User's own AI for a summary of a Document, from Get started
     if (!report || !diary) throw new Error("The Documents weren't added.");
     await core.assignDocumentGroup(report.id, ferries.id);
     await core.assignDocumentGroup(diary.id, secret.id);
-    return { ...base, report, diary };
+    return { ...base, secret, report, diary };
   }
 
   // protects=the line typed in an app that opens with one names the Document by its name, in quotes, says nothing of a check, and nothing is kept for the agent to read; fails_when=the press copies instead of opening, the line asks for a check or names no Document, or a request is kept
@@ -597,6 +597,17 @@ describe("asking the User's own AI for a summary of a Document, from Get started
       kind: "opened",
     });
     expect(promptOf(links[0], "q")).toBe(line);
+  });
+
+  // protects=the Documents the card may name are those at least one connected agent reads, in the order asked, and none while agents are paused; fails_when=a Document no agent reads is listed, the order changes, or Local mode lists any
+  it("lists the Documents at least one connected agent can read, in the order given", async () => {
+    const { core, secret, report, diary, connect } = await withTwoDocuments();
+    await connect("Claude Code", "claude-code");
+    expect(await core.listDocumentsToAsk([diary.id, report.id, "gone"])).toEqual([report.id]);
+    await connect("VS Code", "vscode", [secret.id]);
+    expect(await core.listDocumentsToAsk([diary.id, report.id])).toEqual([diary.id, report.id]);
+    await core.setLocalOnly(true);
+    expect(await core.listDocumentsToAsk([report.id])).toEqual([]);
   });
 
   // protects=an agent that can't read the Document, or can't be asked now, is refused and nothing opens, as for every other ask; a request naming a Note is no request; fails_when=a Document the agent can't read is named to it, or the ask goes through
