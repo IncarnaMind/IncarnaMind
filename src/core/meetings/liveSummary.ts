@@ -37,6 +37,7 @@ interface Options {
   failed(meetingId: string, error: unknown): void;
 }
 
+const LIVE_BATCH_MS = 250;
 const INTERVAL_MS = 60_000;
 const BATCH_CHARS = 12_000;
 
@@ -60,6 +61,7 @@ export function createLiveSummaries(options: Options) {
     string,
     { stop: AbortController; route: string; documentId: string | null | undefined }
   >();
+  const liveBatches = new Map<string, ReturnType<typeof setTimeout>>();
   const observed = new Map<string, string>();
   const armed = new Map<string, string>();
   const failedAt = new Map<string, number>();
@@ -82,7 +84,7 @@ export function createLiveSummaries(options: Options) {
     return options.selected(m) === route && !!m.transcript?.documentId && options.allowed(m, route);
   }
 
-  function step(m: Meeting) {
+  function step(m: Meeting, batchReady = false) {
     if (m.kind !== "meeting" || m.status === "ready" || m.summary?.state === "ready") return;
     if (!live(m) && !armed.has(m.id) && (!m.summary || m.summary.state === "failed")) return;
     const selected = options.selected(m);
@@ -130,6 +132,7 @@ export function createLiveSummaries(options: Options) {
       if (stored) fail(m.id, stored);
       return;
     }
+    if (!live(m) && !final) return;
     const documentId = m.transcript?.documentId;
     const prior =
       stored?.route === selected && (!stored.documentId || stored.documentId === documentId)
@@ -144,6 +147,22 @@ export function createLiveSummaries(options: Options) {
     const lastFailure = failedAt.get(m.id);
     if (lastFailure !== undefined && !final && endMs - lastFailure < INTERVAL_MS) return;
     if (prior?.count && !final && endMs - prior.summary.throughMs < INTERVAL_MS) return;
+    // Speech services can confirm several turns in one burst, delivered to the core one at a time.
+    if (live(m) && !batchReady) {
+      if (!liveBatches.has(m.id)) {
+        liveBatches.set(
+          m.id,
+          setTimeout(() => {
+            liveBatches.delete(m.id);
+            const current = latest.find((each) => each.id === m.id);
+            if (!current || !live(current)) return;
+            observed.delete(m.id);
+            step(current, true);
+          }, LIVE_BATCH_MS),
+        );
+      }
+      return;
+    }
     const samePrefix =
       !!prior?.count &&
       prior.count <= cues.length &&
@@ -331,6 +350,8 @@ export function createLiveSummaries(options: Options) {
       closed = true;
       for (const { stop } of active.values()) stop.abort();
       active.clear();
+      for (const timer of liveBatches.values()) clearTimeout(timer);
+      liveBatches.clear();
       failedAt.clear();
       armed.clear();
       observed.clear();

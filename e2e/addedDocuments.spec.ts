@@ -2,6 +2,8 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { estimateLine } from "../src/renderer/src/cost";
+import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   acceptPlainTextKeys,
@@ -76,6 +78,28 @@ async function fileInto(window: Page, names: readonly string[], adding?: string)
       folderId: folder.id,
     });
   }, names);
+}
+
+/**
+ * The estimate line for Harbour notes' check of the Documents added since, as the Note's question
+ * works it out: the core's estimate for the sentences its plan sends, on the plan's model.
+ */
+async function estimateShown(window: Page): Promise<string> {
+  const estimate = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const mind = (await core.listMinds()).find((each) => each.title === "Harbour notes");
+    if (!mind) throw new Error("No Harbour notes.");
+    const plan = await core.planMindCheck(mind.id, "added");
+    if (plan.kind !== "ready") throw new Error(`The check plans ${plan.kind}.`);
+    return core.estimateRun({
+      items: plan.sentences,
+      each: "check",
+      ...(plan.model && { model: plan.model }),
+    });
+  });
+  const line = estimateLine(estimate, (key, params) => translate("en", key, params), "en");
+  if (!line) throw new Error("The check's question shows no estimate.");
+  return line.title;
 }
 
 test("a sentence nothing supported is offered a check again once a Document is added to the Mind's Folder, and is then supported; in English and Chinese at 1,100 px", async () => {
@@ -244,8 +268,13 @@ for (const widened of [false, true]) {
         ? "Check 1 sentence in this note against your Documents?"
         : "Check 1 sentence in this note against this Folder’s Documents?",
     );
-    // The scripted cloud model's estimate is of nothing, which shows no amount: its tokens show.
-    await expect(ask).toContainText(/(?<![\d.,])0 tokens/);
+    // The core's estimate for the run asked about, and the cap's month so far. Its tokens depend on
+    // how many requests the checks before it recorded: the scripted model reports no usage, which
+    // the estimate averages once there are two sentences' worth, and before that it prices a
+    // measured check's requests.
+    const shown = await estimateShown(window);
+    expect(shown).toMatch(/ tokens · \$0 of \$20\.00 used this month$/);
+    await expect(ask).toContainText(shown);
     await motionSettled(window);
     await screenshot(window, widened ? "ask-all-en" : "ask-folder-en");
     if (widened) {
