@@ -394,7 +394,7 @@ export type RecheckReason =
   | "referent"
   /** A fact of the Library it rests on says otherwise now (#2525). */
   | "library"
-  /** What stands above it, which it was judged with, reads otherwise now (#3412). */
+  /** What frames it, its slide or a heading it is under, reads otherwise now (#3412). */
   | "context"
   /** It rests on a Document whoever reads it doesn't reach (#3412). */
   | "reach";
@@ -466,7 +466,7 @@ export interface ClaimCheckNow {
   /** The walled Folder that keeps a Document inside it, seen from the Note; null when it may read it. */
   keptInside?: ((documentId: string) => string | null) | null;
   /**
-   * The fingerprint of all the sentence would be judged with now (`ClaimCheckBasis.judgedWith`),
+   * The fingerprint of what the sentence's result would stand on now (`ClaimCheckBasis.judgedWith`),
    * read only for a result that kept one; null, or absent, where it isn't known.
    */
   judgedWith?(): string | null;
@@ -906,7 +906,7 @@ function reliedOn(check: ClaimCheckAttributes): string[] {
 
 /**
  * How a stored result shows now, for whoever reads it: the one reading of whether it still stands
- * (#3412). It stands while its words and all it was judged with read the same, the Documents it
+ * (#3412). It stands while its words and what frames them read the same, the Documents it
  * read are at the versions it read, and each Document it rests on is one the reader reaches.
  */
 export function claimCheckShown(check: ClaimCheckAttributes, now: ClaimCheckNow): ClaimCheckShown {
