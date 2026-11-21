@@ -347,6 +347,30 @@ describe("Citations of a Transcript", () => {
     expect(withCueMarks(tail, units)).toMatch(/^\[12:20\] Two weeks/);
   });
 
+  test("a clipped Transcript excerpt keeps the speaker of a split turn", () => {
+    const text = "I will send the invoice. You can review the updated forecast tomorrow.";
+    const second = text.indexOf("You");
+    const units = transcriptUnits({
+      cues: [{ startMs: 0, endMs: 5000, speaker: "Me", text }],
+      gaps: [],
+    });
+    const speakers = {
+      labels: {},
+      lines: { "2000 Me": "Them" },
+      splits: { "0 Me": { text, parts: [{ at: second, ms: 2000 }] } },
+    };
+    expect(withCueMarks(text.slice(0, second + 7), units, speakers)).toBe(
+      "[0:00 Me] I will send the invoice. [0:02 Them] You can",
+    );
+    const start = text.indexOf("review");
+    expect(withCueMarks(text, units, speakers, { start, end: start + 6 })).toBe(
+      "[0:02 Them] review",
+    );
+    expect(withCueMarks(text, units, speakers, { start: 2, end: second + 3 })).toBe(
+      "[0:00 Me] will send the invoice. [0:02 Them] You",
+    );
+  });
+
   // protects=a Passage that starts part way through its block marks each line with its own time, when a short cue before it ("Yeah.") also starts a later line (#3151); fails_when=a line gets an earlier cue's time, or the lines before it get none; no_claim=a Passage that starts inside a cue marks that first piece.
   test("a short cue before the Passage isn't taken for a later line that starts with its words", () => {
     const said = [

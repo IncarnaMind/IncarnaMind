@@ -8,6 +8,7 @@ import {
   catchCopies,
   closeSettings,
   copied,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   firstTranscriptLine,
@@ -16,7 +17,6 @@ import {
   pointAndClick,
   recordMeeting,
   removeDataFolder,
-  useLocalChatModel as selectLocalChatModel,
   setWindowSize,
   startRecording,
 } from "./app";
@@ -38,12 +38,12 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`after Stop, move the meeting into a shared folder and prepare notes in the chosen AI (${language})`, async () => {
     const dir = await createDataFolder();
     const home = await createDataFolder();
-    const { app, window } = await launchApp(dir, { home, fakeChat: true });
+    const { app, window } = await launchApp(dir, { home });
     try {
       await window.emulateMedia({ reducedMotion: "reduce" });
       await setWindowSize(app, window, language === "en" ? 1280 : 900, 850);
       await dismissChatSetup(window);
-      await selectLocalChatModel(window);
+      expect(await (await coreOf(window)).evaluate((core) => core.listChatProviders())).toEqual([]);
       await acceptPlainTextKeys(window);
       await catchCopies(window);
       const ids = await window.evaluate(async () => {
@@ -91,7 +91,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await action.focus();
       await window.keyboard.press("Enter");
       const line =
-        language === "en" ? "Prepare the notes of my meeting" : "整理我在 IncarnaMind 中的会议笔记";
+        language === "en"
+          ? "First read the request I left in IncarnaMind"
+          : "先读取我留在 IncarnaMind 里的请求";
       await expect.poll(() => copied(window)).toContain(line);
       const meeting = await window.evaluate(async () => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -127,4 +129,77 @@ for (const language of ["en", "zh-CN"] as const) {
       await removeDataFolder(home);
     }
   });
+}
+
+// protects=an unshared meeting gives the User a way to restore the selected AI's access
+// fails_when=the summary offers an impossible retry or keeps blocking it after sharing the meeting
+for (const transcriptFails of [false, true]) {
+  test(
+    transcriptFails
+      ? "a failed transcript offers transcription recovery before summary access"
+      : "a failed summary can be retried once its original AI can read the meeting",
+    async () => {
+      const dir = await createDataFolder();
+      const home = await createDataFolder();
+      const { app, window } = await launchApp(dir, {
+        home,
+        ...(transcriptFails && { transcriber: { failToLoad: "engine unavailable" } }),
+      });
+      try {
+        await dismissChatSetup(window);
+        await acceptPlainTextKeys(window);
+        const bridge = await coreOf(window);
+        const agent = await bridge.evaluate(async (core) => {
+          await core.setAgentsEnabled(true);
+          const group = await core.createLibraryGroup({ name: "Shared meetings", description: "" });
+          const { pairing } = await core.connectAgent({
+            client: "claude-code",
+            name: "My Claude",
+            folderIds: [group.id],
+          });
+          return pairing.id;
+        });
+        const settings = await openSettings(window, "meetings");
+        await settings.getByLabel("AI for meeting notes").selectOption(agent);
+        await settings.getByTestId("meeting-summary-route").selectOption(agent);
+        await closeSettings(window);
+        const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+        if (transcriptFails)
+          await expect(window.getByTestId("meeting-transcript-line")).toContainText(
+            "Transcription stopped",
+            { timeout: 30_000 },
+          );
+        else await firstTranscriptLine(window);
+        await pointAndClick(window, bar.getByTestId("meeting-stop"));
+        const problem = window.getByTestId("meeting-summary-problem");
+        if (transcriptFails) {
+          await expect(problem).toContainText("A saved transcript is needed");
+          await expect(problem.getByRole("button", { name: "Retry transcription" })).toBeEnabled();
+          await expect(problem.getByRole("button", { name: "Agent settings" })).toHaveCount(0);
+          return;
+        }
+        await expect(problem).toContainText("access to the meeting note and transcript");
+        await expect(problem.getByTestId("meeting-summary-retry")).toHaveCount(0);
+        await problem.getByRole("button", { name: "Agent settings" }).click();
+        await expect(settings).toHaveAttribute("data-page", "agents");
+        await closeSettings(window);
+        await window.getByTestId("meeting-agent-unavailable").getByRole("button").click();
+        await window
+          .getByTestId("move-to-picker")
+          .getByRole("option", { name: "Shared meetings" })
+          .click();
+        await expect(problem.getByTestId("meeting-summary-retry")).toBeEnabled();
+        await bridge.evaluate((core) =>
+          core.updateSettings({ device: { meetingSummaryRoute: null } }),
+        );
+        await expect(problem.getByTestId("meeting-summary-retry")).toHaveCount(0);
+        await problem.getByRole("button", { name: "Settings", exact: true }).click();
+        await expect(settings).toHaveAttribute("data-page", "meetings");
+      } finally {
+        await app.close();
+        await removeDataFolder(dir);
+        await removeDataFolder(home);
+      }
+    },
+  );
 }
