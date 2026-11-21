@@ -159,7 +159,8 @@ function workedOut(message: string): { shown: string[]; inputs: string[]; quotes
  * sentence's first such number changes to the line's first. Fewer leave it unsupported, as does a
  * sentence that says more than its line (`SAYS_MORE_THAN_ITS_LINE`); one it takes for its writer's
  * own view (`SAYS_A_VIEW`) is that instead. One whose every number IncarnaMind worked out itself
- * searches for its figures' inputs and is supported by the line that holds them all. A sentence
+ * searches for its figures' inputs, unless the first search holds them, and is supported by the
+ * line that holds them all. A sentence
  * with "blank reply" gets an empty reply, one with "refuse" a refusal, and one with "no reason" an
  * unsupported verdict. Asked to search again before it says a sentence isn't found, it searches the sentence's
  * longer words and numbers alone.
@@ -189,6 +190,10 @@ export function checkReply(prompt: Prompt): Reply {
     const record = passagesIn(searched)
       .map((passage) => recordFor(passage, sentence, 1, holdsInputs)?.record)
       .find((each) => typeof each?.quote === "string" && holdsInputs(each.quote));
+    // IncarnaMind's first search is of the sentence's own words (#3512), which may share none with
+    // the line its inputs are quoted from: it searches for those quotes, as the search's note asks.
+    if (!record && searches.length === 1)
+      return { tool: "search_documents", input: { query: worked.quotes.join(" ") } };
     if (!record) return UNSUPPORTED;
     if (!cited) return { tool: "cite", input: { citations: [record] } };
     return supported("The Document's numbers give these figures [^1].");
