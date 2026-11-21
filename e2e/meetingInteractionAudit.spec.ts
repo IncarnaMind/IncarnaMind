@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { closeSettings, coreOf, createDataFolder, dismissChatSetup, firstTranscriptLine, launchApp, openSettings, pointAndClick, recordMeeting, removeDataFolder, setLanguage, setWindowSize, transcribeHere, transcriptSaved } from "./app";
+import { createDataFolder, dismissChatSetup, firstTranscriptLine, launchApp, openSettings, pointAndClick, recordMeeting, removeDataFolder, setLanguage, setWindowSize, transcribeHere, transcriptSaved } from "./app";
 
 for (const example of [
   { language: "en", width: 1280, height: 800, zoom: 1, dark: false },
@@ -12,14 +12,16 @@ for (const example of [
     test.setTimeout(180000);
     const folder = process.env.INCARNAMIND_SCREENSHOTS;
     if (!folder) throw new Error("Need a folder for this visual check.");
-    const axe = await readFile(join(process.env.RUNNER_TEMP!, "meeting-qa-axe/package/axe.min.js"), "utf8");
+    const temp = process.env.RUNNER_TEMP;
+    if (!temp) throw new Error("Need the accessibility tool directory.");
+    const axe = await readFile(join(temp, "meeting-qa-axe/package/axe.min.js"), "utf8");
     const data = await createDataFolder();
     const { app, window } = await launchApp(data, { computerSound: "silent", transcriber: { live: true, lines: ["Please check the budget.", "I will do that on Friday."] } });
     const prefix = `walk-${example.language}-${example.width}-${example.zoom}`;
     const sample = async (stage: string, page: Page = window) => {
       await page.evaluate(axe);
       const evidence = await page.evaluate(async () => {
-        const scan = await (window as unknown as {axe:{run:Function}}).axe.run(document, {runOnly:{type:"tag",values:["wcag2a","wcag2aa","wcag21a","wcag21aa"]},resultTypes:["violations"]});
+        const scan = await (window as unknown as {axe:{run:(root:Document, options:object)=>Promise<{violations:{id:string;impact:string;nodes:{target:string[];failureSummary:string;html:string}[]}[]}>}}).axe.run(document, {runOnly:{type:"tag",values:["wcag2a","wcag2aa","wcag21a","wcag21aa"]},resultTypes:["violations"]});
         return {actualWindow:[innerWidth,innerHeight], scrollWidth:document.documentElement.scrollWidth, theme:document.documentElement.dataset.theme,
           findings:scan.violations.map((v:{id:string;impact:string;nodes:{target:string[];failureSummary:string;html:string}[]})=>({rule:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,detail:n.failureSummary,html:n.html.slice(0,220)}))}))};
       });
@@ -33,8 +35,10 @@ for (const example of [
       if(example.zoom!==1) await app.evaluate(({BrowserWindow},factor)=>{BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(factor);},example.zoom);
       const settings = await openSettings(window,"meetings");
       await expect(settings).toBeVisible();
-      await closeSettings(window);
       await setLanguage(window,example.language);
+      await sample("settings");
+      await window.keyboard.press("Escape");
+      await expect(settings).toBeHidden();
       const start = await recordMeeting(window);
       await sample("start");
       await pointAndClick(window,start.getByTestId("meeting-start-record"));
