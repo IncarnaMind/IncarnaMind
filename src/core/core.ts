@@ -997,7 +997,7 @@ export function createCore(adapters: CoreAdapters): Core {
   let documentReady = (_documentId: string) => {};
   /** Set once rerank exists: a Document became ready, so the built-in reranking model is needed. */
   let prepareRerank = () => {};
-  let libraryDocumentChanged = (_documentId: string) => {};
+  let libraryDocumentChanged = (_document: Document) => {};
   const batches = createBatches({
     db,
     emit: (batch) => events.emit("documents.batch", batch),
@@ -1223,12 +1223,7 @@ export function createCore(adapters: CoreAdapters): Core {
         timeIndexing(document);
         events.emit("document.status", document);
         // A Document as it was (back from Recently deleted, or embedded again) isn't filed again (#1433, #2023).
-        if (!unchanged) {
-          libraryDocumentChanged(document.id);
-          if (document.ownFile !== null || document.meetingMindId !== null) {
-            events.emit("library.changed", null);
-          }
-        }
+        if (!unchanged) libraryDocumentChanged(document);
         batches.changed([document.id]);
         rebuildMayHaveProgressed();
       },
@@ -3431,11 +3426,24 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
   });
 
+  const announcedOwnWalls = new Map<string, string>();
+  const syncOwnDocumentWalls = (ids: readonly string[]) => {
+    let changed = false;
+    for (const id of ids) {
+      const current = walledDocument(id);
+      if ((announcedOwnWalls.get(id) ?? null) !== current) {
+        if (current === null) announcedOwnWalls.delete(id);
+        else announcedOwnWalls.set(id, current);
+        changed = true;
+      }
+    }
+    if (changed) events.emit("library.changed", null);
+  };
   // A Document already indexed with the same bytes is marked at once, and every window hears of it.
   const recordOwnFile = (data: Uint8Array, kind: OwnFileKind, folderId: string | null) => {
     const marked = ownFiles.record(data, kind, folderId);
     for (const document of documents.getMany(marked)) events.emit("document.status", document);
-    if (marked.length > 0) events.emit("library.changed", null);
+    syncOwnDocumentWalls(marked);
   };
   const quoteAsRead = ({
     documentId,
@@ -4228,7 +4236,19 @@ export function createCore(adapters: CoreAdapters): Core {
       return service ? [service] : [];
     },
   });
-  libraryDocumentChanged = (id) => library.documentChanged(id);
+  for (const [id, entry] of Object.entries(wall.walledByDocument())) {
+    announcedOwnWalls.set(id, entry.wallId);
+  }
+  libraryDocumentChanged = (document) => {
+    library.documentChanged(document.id);
+    if (
+      document.ownFile !== null ||
+      document.meetingMindId !== null ||
+      announcedOwnWalls.has(document.id)
+    ) {
+      syncOwnDocumentWalls([document.id]);
+    }
+  };
 
   // Reference records (#286): read from files as they're processed, edited by the User, and
   // filled by Look up, which sends a DOI or an arXiv id only, with consent, never in local mode.
