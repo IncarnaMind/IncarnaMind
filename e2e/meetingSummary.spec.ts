@@ -208,7 +208,13 @@ for (const language of ["en", "zh-CN"] as const) {
       const notes = settings.getByLabel("AI for meeting notes");
       const readRoute = () =>
         bridge.evaluate(async (core) => (await core.getSettings()).device.meetingSummaryRoute);
+      const help = settings.getByTestId("call-help-agent-route");
+      await expect(help).toHaveValue("");
+      await expect(help.locator(`option[value="${agents.vscode}"]`)).toHaveCount(0);
+      await help.selectOption(agents.claude);
+      await expect(notes).toHaveValue("");
       await expect(route).toHaveValue("");
+      await help.selectOption("");
       await expect(route.locator("option")).toHaveCount(1);
       await notes.selectOption(agents.vscode);
       await expect(route.locator("option")).toHaveCount(1);

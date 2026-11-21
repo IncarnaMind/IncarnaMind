@@ -30,7 +30,7 @@ import {
   replyAtEnd,
 } from "../../helpReplyEnd";
 import { useT } from "../../i18n";
-import { helpAsked, type PendingHelp } from "../../meetingHelp";
+import { helpAsked, type PendingHelp, revealHelpSource } from "../../meetingHelp";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { DocumentLineIcon } from "../lineIcons";
@@ -527,6 +527,37 @@ function Sources({
     <ul data-testid="help-sources" className="help-sources">
       {cited.map(({ citation, number }) => {
         const where = citedLocation(citation, t);
+        if (
+          answer.steps?.meetingHelpAgent &&
+          citation.location?.kind === "time" &&
+          citation.check === "found"
+        ) {
+          return (
+            <li key={citation.marker} className="help-source" data-testid="help-source">
+              <details className="min-w-0">
+                <summary className="cursor-pointer break-words">
+                  {t("meetings.help.agent.original", { time: where ?? "" })} · {number}
+                </summary>
+                <blockquote className="my-1 whitespace-pre-wrap break-words text-ink">
+                  {citation.quote}
+                </blockquote>
+                <button
+                  type="button"
+                  className="panel-link"
+                  onClick={() =>
+                    revealHelpSource({
+                      conversationId: answer.conversationId,
+                      answerId: answer.id,
+                      sourceMarker: citation.marker,
+                    })
+                  }
+                >
+                  {t("meetings.help.agent.openTranscript")}
+                </button>
+              </details>
+            </li>
+          );
+        }
         return (
           <li key={citation.marker} data-testid="help-source" className="help-source">
             <DocumentLineIcon
@@ -626,6 +657,13 @@ export function HelpSuggestion({
       className="help-suggestion"
     >
       <HelpHeading asked={help} heard={help.heard} />
+      {answer.steps?.meetingHelpAgent && answer.steps.sentAt && (
+        <p className="text-xs text-ink-secondary">
+          {t("meetings.help.agent.used", {
+            agent: answer.steps.meetingHelpAgent.client === "codex" ? "Codex" : "Claude Code",
+          })}
+        </p>
+      )}
       {items.map((item, index) => (
         <Item
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.

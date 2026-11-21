@@ -34,6 +34,7 @@ import {
   helpLabel,
   isMeetingHelpKind,
   isMeetingTemplate,
+  type MeetingHelpKind,
 } from "../shared/meetingHelp";
 import { bibliographyShown } from "../shared/mindBibliography";
 import {
@@ -64,6 +65,7 @@ import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { folderScope, hasSearchScope, NO_SCOPE, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
+import { cueTarget } from "../shared/units";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
 import { wordFontsOf, wordLookOf } from "../shared/wordLook";
@@ -301,6 +303,12 @@ import {
   meetingRecord,
   otherCallTranscripts,
 } from "./meetings";
+import {
+  answerWithMeetingAgent,
+  deniedCallHelp,
+  prepareCallHelp,
+  watchCallHelpAccess,
+} from "./meetings/agentHelp";
 import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
 import { createMeetingCandidateReview } from "./meetings/candidateReviews";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
@@ -5383,9 +5391,11 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return meeting;
   };
+  type AgentPress = ReturnType<typeof prepareAgentPress>;
   interface CallAsk {
     conversationId?: unknown;
     typed?: boolean;
+    kind?: MeetingHelpKind;
   }
   /** Each live Meeting's ask under way, which the next waits for: so it goes on in its conversation. */
   const asking = new Map<string, Promise<unknown>>();
@@ -5396,9 +5406,11 @@ export function createCore(adapters: CoreAdapters): Core {
    * call is still live.
    */
   const askInCall = (meeting: Meeting, text: string, how: CallAsk = {}) => {
-    const ask = (asking.get(meeting.id) ?? Promise.resolve()).then(() =>
-      askNow(liveCall(meeting.id), text, how),
-    );
+    const pairingId = settings.get().device.meetingCallHelpAgentId;
+    const selectedAgent = pairingId ? prepareAgentPress(meeting, pairingId, text, how.kind) : null;
+    const ask = (asking.get(meeting.id) ?? Promise.resolve())
+      .then(() => askNow(liveCall(meeting.id), text, how, selectedAgent))
+      .finally(() => selectedAgent?.close());
     // A failed ask is its caller's to tell; the next one goes on.
     asking.set(
       meeting.id,
@@ -5409,7 +5421,8 @@ export function createCore(adapters: CoreAdapters): Core {
   const askNow = async (
     meeting: Meeting,
     text: string,
-    { conversationId, typed = false }: CallAsk,
+    { conversationId, typed = false, kind }: CallAsk,
+    selectedAgent: AgentPress | null,
   ): Promise<ConversationAskResult> => {
     const { folderId } = minds.get(meeting.mindId);
     const kept = (questionId: string) => {
@@ -5421,7 +5434,7 @@ export function createCore(adapters: CoreAdapters): Core {
         text,
         mindId: meeting.mindId,
         scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
-        model: modelInUseIn(meeting.mindId),
+        model: selectedAgent ? null : modelInUseIn(meeting.mindId),
       }),
       ...(typed && { kept }),
     });
@@ -5436,10 +5449,144 @@ export function createCore(adapters: CoreAdapters): Core {
         asked = question(null);
       }
     }
-    const result = await answers.askInConversation(asked);
+    const result = selectedAgent
+      ? await askSelectedCallAgent(meeting, selectedAgent, asked, kind)
+      : await answers.askInConversation(asked);
     if (result.asked) helpConversations.set(meeting.id, result.conversation.id);
     return result;
   };
+  function prepareAgentPress(
+    meeting: Meeting,
+    pairingId: string,
+    text: string,
+    kind?: MeetingHelpKind,
+  ) {
+    const documentId = meeting.transcript?.documentId ?? null;
+    const selectedClient = () => {
+      const document = documentId ? liveDocument(documentId) : undefined;
+      const current = meetings.list().find((each) => each.id === meeting.id);
+      if (
+        !current ||
+        (current.status !== "recording" && current.status !== "paused") ||
+        current.mindId !== meeting.mindId ||
+        (current.transcript?.documentId ?? null) !== documentId ||
+        settings.get().device.meetingCallHelpAgentId !== pairingId ||
+        (documentId && (!document || document.notCited))
+      )
+        return null;
+      const client = agents
+        .askable(current.mindId, documentId ?? undefined)
+        .find((each) => each.id === pairingId)?.client;
+      return client === "claude-code" || client === "codex" ? client : null;
+    };
+    const client = selectedClient();
+    const run = adapters.summarizeWithMeetingAgent;
+    if (!client || !run) throw deniedCallHelp();
+    const request = prepareCallHelp(
+      documentId ? (transcripts?.confirmedCues(meeting.id) ?? []) : [],
+      text,
+      kind ?? "question",
+    );
+    return {
+      pairingId,
+      documentId,
+      client,
+      request,
+      run,
+      ...watchCallHelpAccess(
+        events,
+        lifetime.signal,
+        documentId,
+        () => selectedClient() === client,
+      ),
+    } as const;
+  }
+  async function askSelectedCallAgent(
+    meeting: Meeting,
+    { pairingId, documentId, request, signal, run, client, check }: AgentPress,
+    question: QuestionInput,
+    kind?: MeetingHelpKind,
+  ): Promise<ConversationAskResult> {
+    try {
+      const sentAt = now();
+      check();
+      signal.throwIfAborted();
+      const reply = await answerWithMeetingAgent({
+        request,
+        client,
+        run,
+        signal,
+        insufficient: translate(settings.get().language, "meetings.help.agent.insufficient"),
+        async cite(sources) {
+          if (!documentId) return [];
+          await transcripts?.refresh(meeting.id);
+          signal.throwIfAborted();
+          const indexed = await transcriptCues(documentId);
+          return sources.map((source) => {
+            const matches = indexed.filter(
+              (cue) =>
+                cue.target === cueTarget(source.startMs, source.endMs) && cue.text === source.text,
+            );
+            const [cue] = matches;
+            return cue && matches.length === 1
+              ? citing.citeUnit(cue.passageId, cue.text, cue.page, cue.at)
+              : null;
+          });
+        },
+      });
+      check();
+      signal.throwIfAborted();
+      const { turn, answer } = db.transaction(() => {
+        const { turn } = conversations.add(
+          {
+            ...question,
+            scope: documentId ? { folderIds: [], tagIds: [], documentIds: [documentId] } : null,
+            model: null,
+          },
+          null,
+          null,
+          undefined,
+          kind ?? null,
+        );
+        const answer = conversations.writeAnswer(turn.answer.id, {
+          text: reply.text,
+          citations: reply.citations,
+          figures: [],
+          analyses: [],
+          toolCalls: [],
+          support: null,
+          textOrigin: null,
+          read: null,
+          steps: {
+            sentAt: reply.sent ? sentAt : null,
+            finishedAt: now(),
+            phases: [],
+            reasoning: null,
+            meetingHelpAgent: { meetingId: meeting.id, pairingId, client },
+            ...(kind && { pressed: kind }),
+          },
+          outcome: { status: "done", error: null },
+        });
+        return { turn, answer };
+      });
+      question.kept?.(turn.question.id);
+      publishConversation({ ...turn, answer: answer ?? turn.answer });
+      return {
+        asked: true,
+        conversation: turn.conversation,
+        questionId: turn.question.id,
+        answerId: turn.answer.id,
+      };
+    } catch (error) {
+      if (signal.aborted) throw deniedCallHelp();
+      if (error instanceof InvalidInputError) throw error;
+      (adapters.log ?? silentLogger).warn("meeting.callHelpAgentFailed", {
+        kind: error instanceof Error ? error.name : "unknown",
+      });
+      throw new InvalidInputError({ key: "meetings.help.agent.failed" });
+    }
+  }
+
   const askMeetingHelp = async (given: unknown): Promise<ConversationAskResult> => {
     const input = isRecord(given) ? given : {};
     const meeting = liveCall(input.meetingId);
@@ -5449,6 +5596,7 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     const result = await askInCall(meeting, translate(settings.get().language, helpLabel(kind)), {
       conversationId: input.conversationId,
+      kind,
     });
     if (result.asked) {
       const from = HEARD_FROM[kind];
@@ -5527,6 +5675,40 @@ export function createCore(adapters: CoreAdapters): Core {
     const wall = walledFolderId(folderId);
     return { scope: wall === null ? null : folderScope(wall) };
   };
+  async function transcriptCues(documentId: string) {
+    await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
+    const version = documents.currentVersion(documentId);
+    if (!version) return [];
+    const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const covering = (page: number) =>
+      passages.filter(
+        (passage) =>
+          passage.pageFrom !== null &&
+          passage.pageTo !== null &&
+          page >= passage.pageFrom &&
+          page <= passage.pageTo,
+      );
+    const cues: (MemoCue & { target: string })[] = [];
+    for (const unit of documents.pageTexts(documentId, version, null, null)) {
+      if (unit.page === null) continue;
+      const candidates = covering(unit.page);
+      const [first] = candidates;
+      if (!first) continue;
+      for (const anchor of unit.anchors ?? []) {
+        const text = unit.text.slice(anchor.start, anchor.end);
+        // A Passage's pages can cover the Unit while its text holds only part of it (#2031).
+        const passage = candidates.find((each) => each.text.includes(text)) ?? first;
+        cues.push({
+          target: anchor.target,
+          text,
+          passageId: passage.passageId,
+          page: unit.page,
+          at: { start: anchor.start, end: anchor.end },
+        });
+      }
+    }
+    return cues;
+  }
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     notesAgentId: () => settings.get().device.meetingNotesAgentId,
@@ -5619,39 +5801,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return result.verdict === "supported";
     },
     citeUnit: (passageId, quote, page, at) => citing.citeUnit(passageId, quote, page, at),
-    async cues(documentId) {
-      await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      const version = documents.currentVersion(documentId);
-      if (!version) return [];
-      const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
-      const covering = (page: number) =>
-        passages.filter(
-          (passage) =>
-            passage.pageFrom !== null &&
-            passage.pageTo !== null &&
-            page >= passage.pageFrom &&
-            page <= passage.pageTo,
-        );
-      const cues: MemoCue[] = [];
-      for (const unit of documents.pageTexts(documentId, version, null, null)) {
-        if (unit.page === null) continue;
-        const candidates = covering(unit.page);
-        const [first] = candidates;
-        if (!first) continue;
-        for (const anchor of unit.anchors ?? []) {
-          const text = unit.text.slice(anchor.start, anchor.end);
-          // A Passage's pages can cover the Unit while its text holds only part of it (#2031).
-          const passage = candidates.find((each) => each.text.includes(text)) ?? first;
-          cues.push({
-            text,
-            passageId: passage.passageId,
-            page: unit.page,
-            at: { start: anchor.start, end: anchor.end },
-          });
-        }
-      }
-      return cues;
-    },
+    cues: transcriptCues,
     checkpoint: (mindId) => checkpoints.save(mindId, "enhance"),
     startsBeforeSpeakers: () => adapters.notesBeforeSpeakers?.() ?? true,
     language: () => settings.get().language,
@@ -6695,7 +6845,11 @@ export function createCore(adapters: CoreAdapters): Core {
     stopExampleReadyQuestion: async () => {
       for (const stop of [...stopReadyWaits]) stop();
     },
-    regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
+    regenerateConversationAnswer: async (input) => {
+      if (conversations.answer(conversations.questionOf(input).answerId)?.steps?.meetingHelpAgent)
+        throw new InvalidInputError({ key: "meetings.help.agent.retry" });
+      return answers.regenerateInConversation(input);
+    },
     countScopeDocuments: async (scope) => {
       const wanted = parseSearchScope(scope);
       return documents.searchableCount(scopeDocuments(wanted) ?? undefined);

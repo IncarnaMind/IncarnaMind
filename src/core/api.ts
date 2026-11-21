@@ -3750,6 +3750,8 @@ export interface DeviceSettings {
   meetingSystemAudio: boolean;
   /** The connected agent chosen for notes after Stop on this device. */
   meetingNotesAgentId: string | null;
+  /** The pairing allowed to answer explicit Call Help requests on this device. */
+  meetingCallHelpAgentId: string | null;
   /** The pairing or chat model allowed to prepare a summary during Meetings on this device. */
   meetingSummaryRoute: string | null;
   /**
@@ -8886,6 +8888,8 @@ export interface UncitedCheck {
 }
 
 export interface AnswerSteps {
+  /** A reply made from this Meeting’s confirmed speech by the User’s chosen agent. */
+  meetingHelpAgent?: { meetingId: string; pairingId: string; client: "claude-code" | "codex" };
   /** When its Question went to the model; null when none did (its Search scope had no Documents). */
   sentAt: string | null;
   /** When it ended; null while it is being written. */
