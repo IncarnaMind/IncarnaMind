@@ -29,19 +29,26 @@ export type ClaimsFound =
       parts: ReadonlyMap<number, readonly ClaimPartPlan[]>;
       /** The indexes of those no reply decided, asked about twice (#1682): neither claims nor left out. */
       undecided: ReadonlySet<number>;
+      /**
+       * The indexes of those whose batch got no reply that could be read, asked twice (#3506), among
+       * `undecided`: a file's check shows them not checked, where a Note's checks them anyway.
+       */
+      unsorted: ReadonlySet<number>;
     }
   | { kind: "failed"; error: ProviderError }
   | { kind: "cancelled" };
 
 type Asked =
   | { kind: "read"; words: Map<number, SortWord> }
-  | { kind: "unread" }
+  | { kind: "unread"; why: string }
   | Exclude<ClaimsFound, { kind: "found" }>;
 
 /** How a sort is run with the checks of its sentences. */
 export interface SortAlong {
   /** The limit on model requests at once that the sort shares with its sentences' checks. */
   slots?: Slots;
+  /** A deck's slides as the file holds them, by number, which its sentences name (#3455). */
+  slides?: Readonly<Record<string, string>>;
   /**
    * Hears each sentence's parts, by its index in `texts`, as soon as the reply names them, for its
    * check to start before the reply ends; the result, read from the whole reply, still decides.
@@ -70,18 +77,23 @@ export async function claimsAmong(
     sortedWhole(texts[number - 1]?.text ?? "", word);
   const ask = async (batch: Batch, tries: number): Promise<Asked> => {
     const numbers = batch.map((each) => each.number);
+    let why = "no reply";
     for (let tried = 0; tried < tries; tried++) {
       const { named } = along;
       const early = named ? sortWordsReader(numbers) : null;
+      let gave = "";
       const judged = await judge({
         model: prepared.model,
         question: { id: "find-claims", instructions },
-        parts: [{ text: findClaimsPrompt(batch) }],
+        parts: [{ text: findClaimsPrompt(batch, along.slides) }],
         data: [],
         reply: json((value) => sortWordsOf(value, numbers)),
         retries: 1,
         signal: sorting,
         temperature: answerTemperature(prepared.capabilities.facts.temperature),
+        onUnread: (reply: string) => {
+          gave = reply.trim().slice(0, 300);
+        },
         ...(named &&
           early && {
             onPartial: (delta: string) => {
@@ -92,24 +104,24 @@ export async function claimsAmong(
       if (judged.ok) return { kind: "read", words: judged.value };
       if (judged.reason === "stopped") return { kind: "cancelled" };
       if (judged.error) return { kind: "failed", error: judged.error };
+      why = `${judged.reason}: ${JSON.stringify(gave)}`;
     }
-    return { kind: "unread" };
+    return { kind: "unread", why };
   };
 
   type Sorted =
     | { kind: "read"; words: Map<number, SortWord> }
+    | { kind: "unsorted" }
     | Exclude<ClaimsFound, { kind: "found" }>;
   const sortBatch = async (batch: Batch): Promise<Sorted> => {
-    // A reply that can't be read is asked for once more.
+    // A reply that can't be read is asked for once more; then its sentences are left unsorted, never
+    // the whole check lost for one batch (#3506), and what the model gave is logged.
     const first = await ask(batch, 2);
     if (first.kind === "unread") {
-      return {
-        kind: "failed",
-        error: {
-          kind: "no-answer",
-          message: "The model's reply did not sort the sentences in a form that can be read.",
-        },
-      };
+      console.warn(
+        `The model's reply to the sort of sentences ${batch[0]?.number} to ${batch.at(-1)?.number} couldn't be read, twice (${first.why}), so they are left not sorted.`,
+      );
+      return { kind: "unsorted" };
     }
     if (first.kind !== "read") return first;
     const words = first.words;
@@ -150,8 +162,16 @@ export async function claimsAmong(
   const claims = new Set<number>();
   const parts = new Map<number, readonly ClaimPartPlan[]>();
   const undecided = new Set<number>();
+  const unsorted = new Set<number>();
   for (const [at, batch] of batches.entries()) {
     const outcome = sorted[at];
+    if (outcome?.kind === "unsorted") {
+      for (const { number } of batch) {
+        undecided.add(number - 1);
+        unsorted.add(number - 1);
+      }
+      continue;
+    }
     if (outcome?.kind !== "read") return { kind: "cancelled" };
     for (const { number } of batch) {
       const word = outcome.words.get(number);
@@ -162,5 +182,7 @@ export async function claimsAmong(
       }
     }
   }
-  return signal.aborted ? { kind: "cancelled" } : { kind: "found", claims, parts, undecided };
+  return signal.aborted
+    ? { kind: "cancelled" }
+    : { kind: "found", claims, parts, undecided, unsorted };
 }

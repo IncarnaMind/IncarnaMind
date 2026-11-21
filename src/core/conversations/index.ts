@@ -17,7 +17,6 @@ import { parseLocation } from "../../shared/locations";
 import { isMeetingHelpKind, type MeetingHelpKind } from "../../shared/meetingHelp";
 import { conversationName, cutTitle } from "../../shared/naming";
 import { parseThirdPartySource } from "../../shared/textOrigins";
-import { asksToCheckOrCalculate } from "../answers/carefulIntent";
 import {
   addCitedUnit,
   addCitedVersion,
@@ -1029,15 +1028,12 @@ export function createConversations(db: Database, now: () => string) {
 
     usualWait(answerId: unknown): number | null {
       if (typeof answerId !== "string") return null;
-      const asked = db.get<{ provider_id: string | null; model_id: string | null; text: string }>(
-        `SELECT answer.provider_id, answer.model_id, question.text
-         FROM conversation_messages answer
-         JOIN conversation_messages question ON question.id = answer.question_id
-         WHERE answer.id = ? AND answer.kind = 'answer' AND answer.deleted_at IS NULL`,
+      const asked = db.get<{ provider_id: string | null; model_id: string | null }>(
+        `SELECT provider_id, model_id FROM conversation_messages
+         WHERE id = ? AND kind = 'answer' AND deleted_at IS NULL`,
         [answerId],
       );
       if (!asked?.provider_id || !asked.model_id) return null;
-      const careful = asksToCheckOrCalculate(asked.text);
       const rows = db.all<{ steps: string }>(
         `SELECT steps FROM conversation_messages
          WHERE kind = 'answer' AND status = 'done' AND provider_id = ? AND model_id = ?
@@ -1048,9 +1044,7 @@ export function createConversations(db: Database, now: () => string) {
       return usualWait(
         rows.flatMap((row) => {
           const steps = storedSteps(row.steps);
-          return steps?.firstWordMs !== undefined && (steps.careful === true) === careful
-            ? [steps.firstWordMs]
-            : [];
+          return steps?.firstWordMs !== undefined ? [steps.firstWordMs] : [];
         }),
       );
     },

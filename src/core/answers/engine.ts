@@ -103,6 +103,7 @@ import type {
   RunEvent,
   RunMessage,
   RunRequest,
+  RunStep,
   RunToolCall,
   RunWindow,
   TokenUsage,
@@ -470,6 +471,8 @@ export interface AnswerRequest {
   scopeLine?: string;
   /** The model to answer with, from `Core.prepareChatModel`. */
   model: ChatLanguageModel;
+  /** See `RunRequest.modelAfter`: the model for the calls after one whose Tools ask for it. */
+  modelAfter?(step: RunStep): Promise<ChatLanguageModel | undefined> | undefined;
   /**
    * The model for the calls that don't write the Answer: rewriting a
    * follow-up Question into a search query, translating the query, and
@@ -2402,6 +2405,7 @@ async function* toolLoop(
     firstTool: string | null = null,
   ): RunRequest => ({
     model: request.model,
+    ...(request.modelAfter && { modelAfter: request.modelAfter }),
     instructions,
     messages: history,
     tools: runTools,

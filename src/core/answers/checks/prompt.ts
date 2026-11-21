@@ -15,11 +15,13 @@ import { asData, type PromptTag, tagged } from "../../promptData";
 import type { CiteReply } from "../engine";
 import { declines, parseJson, withoutThinking } from "../judge";
 import { setAsideRowsMeaning } from "../prompt";
+import { slideHeading } from "./claims";
 
 /** The checks' tags: none of them may be opened or closed by what they hold (#2423). */
 export const CHECK_TAGS: readonly PromptTag[] = [
   "sentence",
   "paragraph",
+  "slide",
   "passage",
   "quote",
   "figures",
@@ -53,7 +55,9 @@ export const verdictRules = (calls: boolean, cites = true): string[] => [
   "- The change between two percentages (of a rate, a share, a margin) is a number of percentage points (个百分点). Written as a percent (rose or fell so many %, 上升或下降百分之几), a percentage's change is a change by that share of itself, the points divided by the earlier percentage: another amount, not the points written another way, so a sentence that gives the points as a percent states another amount.",
   "- A word for which way something went or which is more (up, down, rose, fell, more than, 上升, 下降) is part of what the sentence states: work out which way the Document's own figures go.",
   "- Where a Document limits what it states (to a condition, within a limit, with an exception, to the party it applies to or the time it holds for), that limit is part of what it says, not a detail a sentence may leave out: a sentence that states it without the limit, or of someone the Document doesn't say it of, says more than the Document does, even when each word it has is the Document's.",
-  "- What is the writer's own is not for a Document to state: their advice (what ought to be done, what is worth checking), their opinion of a fact (that it is good or bad, too much or too little, what matters most) and words about the Note itself (where its content came from, how it was made, what it uses or leaves out). Leave them out of the verdict and judge what the sentence states as fact: a fact with the writer's opinion beside it is supported when the Passages state the fact. A conclusion or a reason the sentence states as fact is a statement, not an opinion; one the writer gives as their own reading of the facts (likely, probably, I expect, in my view) is their judgement.",
+  "- What is the writer's own is not for a Document to state: their advice (what ought to be done, what is worth checking), their opinion of a fact (that it is good or bad, too much or too little, what matters most), what they make of the facts the Passages state, what they assume or choose to put beside the Documents' facts, the condition they attach to their own conclusion, and words about the Note itself, whatever they name (where its content came from, how it was made, what it uses or leaves out). A Document neither supports nor lacks them: a line naming a source is not supported because the source is among the Documents, nor not found because it is not. Leave them out of the verdict and judge what the sentence states as fact: a fact with the writer's opinion beside it is supported when the Passages state the fact. A conclusion or a reason the sentence states as fact is a statement, not an opinion; one the writer gives as their own reading of the facts (likely, probably, I expect, in my view) is their judgement.",
+  "- A table's row gives each figure under its own heading and for its own row label: judge a figure only against what a Passage says of that same thing, for that period and on that basis.",
+  "- Only the sentence to check is judged, on what it states itself: the sentences around it tell what its words refer to and add nothing to it.",
   "- Every Passage is from one of the User's Documents, never from the Note the sentence is in: one in the sentence's own words is the Document saying it. A Passage that states the sentence, word for word or in other words, supports it and needs no second source.",
   "",
   "Decide one verdict:",
@@ -216,6 +220,8 @@ const ID_KEYS: ReadonlySet<string> = new Set(["passageId", "documentId", "conten
 export function claimPrompt(input: {
   claim: string;
   context?: string;
+  /** `context` is the deck's slide by this number that the line is on (#3455). */
+  onSlide?: number;
   cited?: readonly { documentName: string; quote: string }[];
   /** The Passages those Citations quote, as the search Tool shows Passages. */
   citedShown?: string | null;
@@ -228,11 +234,17 @@ export function claimPrompt(input: {
   const worked = (input.figures ?? []).flatMap(workedOut);
   return [
     ...(context && context !== input.claim.trim()
-      ? [
-          "Where it stands in the Note, for what it is about and what its words refer to: what is above it (the Note's opening, the headings it is under, its section so far), then the paragraph it is in:",
-          tagged("paragraph", context, "", CHECK_TAGS),
-          "",
-        ]
+      ? input.onSlide !== undefined
+        ? [
+            "The slide it is a line of, for what it is about and what its words refer to: every box's text with where it sits, as the file holds it. A number in a box of its own is what the boxes around it say it is, and a column's heading names each of its cells' figures in turn. The slide is the file being checked, not a source: what it says neither supports nor contradicts the line, which only the Documents' Passages can:",
+            tagged("slide", `${slideHeading(input.onSlide)}\n${context}`, "", CHECK_TAGS),
+            "",
+          ]
+        : [
+            "Where it stands in the Note, for what it is about and what its words refer to: what is above it (the Note's opening, the headings it is under, its section so far), then the paragraph it is in:",
+            tagged("paragraph", context, "", CHECK_TAGS),
+            "",
+          ]
       : []),
     ...(cited.length > 0
       ? [

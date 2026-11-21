@@ -8,7 +8,7 @@ We replaced the approved design that grouped Documents into a two-level tree of 
 
 - **Clustering into generated Topics, with model-written names:** rejected, as above. Its code was removed on 2026-10-10; the check's fixture set and results are in `eval/grouping/`.
 - **Moving or renaming the User's files on disk:** rejected, because ADR-0010 indexes Documents in place and IncarnaMind never changes a Linked folder.
-- **Projects as a kind of their own,** apart from the Library's Folders, as some notebook apps do: rejected. Two ideas for "where my work lives" is harder to pick up, and Organize already files Documents into Folders by what they are about.
+- **Projects as a kind of their own,** apart from the Library's Folders, as some notebook apps do: rejected. Two ideas for "where my work lives" is harder to pick up, and Organize already files Documents into Folders by what they are about. (Amended by ADR-0030: a Project is a Folder bound to a folder on disk, not a kind of its own.)
 
 ## Consequences
 

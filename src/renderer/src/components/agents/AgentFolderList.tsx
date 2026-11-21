@@ -1,5 +1,10 @@
 import { useMemo } from "react";
-import { type AgentFolderRow, agentFolderRows, onlyNotInAFolder } from "../../agentFolders";
+import {
+  type AgentFolderRow,
+  agentFolderRows,
+  onlyNotInAFolder,
+  projectPlaces,
+} from "../../agentFolders";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
 import { allExamples, isExampleDocument, isOwnDocument, useAppStore } from "../../store";
@@ -12,13 +17,37 @@ export function useAgentFolderRows(enabled = true, keepUnfiled = false): AgentFo
   const documents = useAppStore((state) => state.documents);
   const examples = useAppStore((state) => state.examples);
   const otherExamples = useAppStore((state) => state.otherExamples);
+  const onDisk = useAppStore((state) => state.folders);
+  const linked = useAppStore((state) => state.linkedFolders);
   return useMemo(() => {
     if (!enabled) return [];
     const made = allExamples({ examples, otherExamples });
-    return agentFolderRows(folders ?? [], documents, assignments ?? [], keepUnfiled, (document) =>
-      isExampleDocument(document, made),
+    return agentFolderRows(
+      folders ?? [],
+      documents,
+      assignments ?? [],
+      keepUnfiled,
+      (document) => isExampleDocument(document, made),
+      projectPlaces(folders ?? [], onDisk, linked),
     );
-  }, [enabled, folders, assignments, documents, keepUnfiled, examples, otherExamples]);
+  }, [
+    enabled,
+    folders,
+    assignments,
+    documents,
+    keepUnfiled,
+    examples,
+    otherExamples,
+    onDisk,
+    linked,
+  ]);
+}
+
+/** Whether the User has a Document of their own: the examples are not theirs. */
+export function useAnyOwnDocument(): boolean {
+  return useAppStore((state) =>
+    state.documents.some((document) => isOwnDocument(document, allExamples(state))),
+  );
 }
 
 /**
@@ -41,9 +70,7 @@ export function AgentFolderList({
 }) {
   const t = useT();
   const language = useLanguage();
-  const anyDocument = useAppStore((state) =>
-    state.documents.some((document) => isOwnDocument(document, allExamples(state))),
-  );
+  const anyDocument = useAnyOwnDocument();
 
   return (
     <>
@@ -78,8 +105,19 @@ export function AgentFolderList({
               <FolderLineIcon
                 className={`size-3.5 shrink-0 ${row.name === null ? "opacity-60" : ""}`}
               />
-              <span className="min-w-0 flex-1 truncate" title={name}>
-                {name}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate" title={name}>
+                  {name}
+                </span>
+                {row.place && (
+                  <span
+                    data-testid="agent-folder-place"
+                    className="truncate text-[12px] leading-4 text-ink-meta"
+                    title={row.place}
+                  >
+                    {row.place}
+                  </span>
+                )}
               </span>
               {row.walled && (
                 <span

@@ -6,14 +6,17 @@
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { PNG } from "../helpers/citedPages";
 import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import {
   DECK,
   type Handed,
@@ -29,7 +32,7 @@ import {
   structured,
 } from "../helpers/handedFiles";
 import { connectToMind } from "../helpers/mindClient";
-import { editMind } from "../helpers/minds";
+import { editMind, readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { plainDeck } from "../helpers/pptx";
 
@@ -72,6 +75,14 @@ function retitle(blocks: Y.XmlFragment, from: string, to: string) {
   }
   throw new Error(`No heading reads ${from}.`);
 }
+
+/** `blocks` with every text that reads `from` reading `to`, as the User would retype it. */
+const retyped = (blocks: JSONContent[], from: string, to: string): JSONContent[] =>
+  blocks.map((block) => ({
+    ...block,
+    ...(block.text === from && { text: to }),
+    ...(block.content && { content: retyped(block.content, from, to) }),
+  }));
 
 const SUNDAYS = "The harbour office closes on Sundays.";
 const AT_NIGHT = "The harbour office is open at night.";
@@ -270,7 +281,8 @@ describe("a file an outside agent hands over, where a call meets a change", () =
       plainDeck([
         { title: "Harbour review" },
         { lines: [NORTH, SOUTH] },
-        { lines: [OFFICE, SUNDAYS] },
+        { lines: [OFFICE, NEVER_CLOSES] },
+        { lines: [SUNDAYS] },
       ]),
     );
     const unchecked = structured<Handed>(await handOver(agent, { path }));
@@ -287,8 +299,8 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     const again = await connectLegacyAgent(writer.launch);
     const before = calls.length;
     const checked = structured<Handed>(await handOver(again, { path }));
-    expect(checked).toMatchObject({ version: 2, status: "checked", supported: 2, needLook: 2 });
-    // The lines version 1 had too kept their results: only the new one was sent to the model.
+    expect(checked).toMatchObject({ version: 2, status: "checked", supported: 2, needLook: 3 });
+    // The slides version 1 had too kept their results: only the new one's line was sent to the model.
     expect(new Set(calls.slice(before).filter(isCheckRun).map(sentenceOf))).toEqual(
       new Set([SUNDAYS]),
     );
@@ -322,6 +334,156 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     structured<Handed>(await handOver(agent, { path }));
     expect(new Set(calls.slice(before).filter(isCheckRun).map(sentenceOf))).toEqual(
       new Set([NORTH]),
+    );
+  });
+
+  // protects=a deck's line is judged with its own slide, so an edit re-checks only the lines of the slide it is on, whatever the slides before and after hold, titled or not (#3455); fails_when=one edited line re-checks every line after it within the reach of the lines above, across slides
+  it("checks again only the lines of the slide an edit is on", async () => {
+    const calls: ModelCall[] = [];
+    const { coast, writer, files } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    const deck = (opening: string) =>
+      plainDeck([
+        { lines: ["Harbour review"] },
+        { lines: [opening, NORTH] },
+        { lines: [SOUTH, OFFICE] },
+      ]);
+    await writeFile(path, deck("The harbour has two quays, north and south."));
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const before = calls.length;
+
+    await writeFile(path, deck("The harbour has a north quay and a south quay."));
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, before)).toEqual(new Set([NORTH]));
+  });
+
+  // protects=a slide's number is no part of what its lines are judged with: a slide put in before a checked one leaves every line after it standing, and a changed box on a slide checks that slide's lines again (#3455 review); fails_when=inserting a slide checks every later slide's lines again, or a box's change keeps its slide's results
+  it("keeps the results of a slide's lines when a slide is put in before it, and checks them again when a box on it changes", async () => {
+    const calls: ModelCall[] = [];
+    const { coast, writer, files } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    const quays = { title: "Quays", lines: [NORTH] };
+    await writeFile(path, plainDeck([quays, { title: "Office", lines: [OFFICE] }]));
+    structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const inserted = calls.length;
+
+    await writeFile(
+      path,
+      plainDeck([{ title: "South", lines: [SOUTH] }, quays, { title: "Office", lines: [OFFICE] }]),
+    );
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, inserted)).toEqual(new Set([SOUTH]));
+    const changed = calls.length;
+
+    await writeFile(
+      path,
+      plainDeck([
+        { title: "South", lines: [SOUTH] },
+        quays,
+        { title: "Office", lines: [OFFICE, NEVER_CLOSES] },
+      ]),
+    );
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, changed)).toEqual(new Set([OFFICE, NEVER_CLOSES]));
+  });
+
+  // protects=a result stands on exactly what its check was sent: a deck's cell that Check this Note judged with its slide keeps its result into the next version while its slide is the same, and loses it once anything else on the slide changes (#3455 review); fails_when=a cell judged with its slide is fingerprinted by the Note's lines alone, so its result stays current after its slide changed
+  it("keeps a deck cell's own check while its slide stands, and drops it once the slide changes", async () => {
+    const plans: Record<string, Plan> = {
+      ...PLANS,
+      "42": {
+        verdict: "supported",
+        quote: "The north quay holds 42 boats",
+        says: "Harbour survey says the north quay holds 42 boats.",
+      },
+    };
+    const { core, coast, writer, files } = await started([], { plans });
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    const deck = (title: string, office: readonly string[]) =>
+      plainDeck([
+        {
+          title,
+          table: [
+            ["Berth", "Boats"],
+            ["North quay", "42"],
+          ],
+        },
+        { title: "Office", lines: [...office] },
+      ]);
+    const marks = async (mindId: string | null) => {
+      const client = await connectToMind(core, mindId ?? "");
+      await client.settled();
+      return claimSpans(readMind(client))
+        .filter((span) => span.sentence.text === "42")
+        .map((span) => span.check.state);
+    };
+    await writeFile(path, deck("Moorings", [OFFICE]));
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    await core.checkMind({
+      requestId: crypto.randomUUID(),
+      mindId: first.mindId ?? "",
+      mode: "all",
+    });
+    expect(await marks(first.mindId)).toEqual(["supported"]);
+
+    // Another slide changed: the cell's slide is the same, and its result stands.
+    await writeFile(path, deck("Moorings", [OFFICE, NEVER_CLOSES]));
+    const second = structured<Handed>(await handOver(agent, { path }));
+    expect(await marks(second.mindId)).toEqual(["supported"]);
+
+    // Its own slide's title changed: what it was judged with changed, and its result goes.
+    await writeFile(path, deck("Berths", [OFFICE, NEVER_CLOSES]));
+    const third = structured<Handed>(await handOver(agent, { path }));
+    expect(await marks(third.mindId)).toEqual([]);
+  });
+
+  // protects=the Note's page reads each result by the one reading the core and the agents use: a row whose column heading the User changed in the window since its check shows Needs re-check on the page, from what the core says the row is judged with now, and the agent's hand-over checks it again (#3455); fails_when=the page keeps showing a result that exports and the agent are told needs a re-check, or the window's editor drops what a result was judged with
+  it("shows on the Note's page a row whose heading changed since its check as needing a re-check, as the agent is told", async () => {
+    const calls: ModelCall[] = [];
+    const { core, coast, writer, files } = await started(calls);
+    const agent = await connectLegacyAgent(writer.launch);
+    const book = new WorkbookBuilder();
+    book
+      .sheet("Inputs")
+      .text("A1", "Item")
+      .text("B1", "2026")
+      .text("A2", "Rent")
+      .number("B2", 14000)
+      .text("A3", "Moorings")
+      .number("B3", 2500);
+    const path = join(files, "Harbour budget.xlsx");
+    await writeFile(path, book.xlsx());
+    const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    expect(handed).toMatchObject({ status: "checked", supported: 1, needLook: 1 });
+    const mindId = handed.mindId ?? "";
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+
+    editMind(client, (blocks) => retyped(blocks, "2026", "2025"));
+    await client.settled();
+    const versions = new Map(
+      (await core.listDocuments()).map((each) => [each.id, each.contentHash]),
+    );
+    const { lines } = await core.judgedWithNow(mindId);
+    const page = claimsOf(readMind(client), {
+      footing: "not-yet-known",
+      versions,
+      folderId: coast.id,
+      scope: null,
+      judgedNow: new Map(Object.entries(lines)),
+    });
+    expect(page.claims.map((claim) => claim.shown)).toEqual([
+      { state: "needs-recheck", why: "context" },
+      { state: "needs-recheck", why: "context" },
+    ]);
+
+    const before = calls.length;
+    structured<Handed>(await handOver(agent, { path }));
+    expect(sentAfter(calls, before)).toEqual(
+      new Set(["Rent — 2025: 14000", "Moorings — 2025: 2500"]),
     );
   });
 
@@ -501,7 +663,7 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     await writeFile(path, DECK);
     expect(
       structured<Handed>(await handOver(agent, { path, folderId: NOT_IN_A_FOLDER_ID })),
-    ).toMatchObject({ folder: en("library.unsorted"), status: "checked", supported: 2 });
+    ).toMatchObject({ folder: "", status: "checked", supported: 2 });
     const survey = added.find((each) => each.name === "Harbour survey");
     if (!survey) throw new Error("No survey.");
     await writeFile(survey.path, `${SURVEY}\n\nThe harbour has one crane.\n`);

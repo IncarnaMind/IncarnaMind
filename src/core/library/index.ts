@@ -116,7 +116,7 @@ interface DocumentRow {
   status: string;
 }
 const GROUP_COLUMNS =
-  "id, name, description, parent_id AS parentId, counts_own_files, keep_inside, created_at AS createdAt, updated_at AS updatedAt";
+  "id, name, description, parent_id AS parentId, counts_own_files, keep_inside, bound_folder_id AS boundFolderId, created_at AS createdAt, updated_at AS updatedAt";
 
 /** A live Folder and every live Folder inside it, at any depth; none for a deleted one. */
 const SUBTREE = `
@@ -764,6 +764,14 @@ export function createLibrary(options: {
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
       [id],
     );
+  /** The live Folder an assignment files its Document in, or null. */
+  const liveFolderOf = (row: AssignmentRow | undefined): string | null => {
+    const groupId = row?.group_id ?? null;
+    const live =
+      groupId !== null &&
+      db.get("SELECT 1 FROM library_groups WHERE id = ? AND deleted_at IS NULL", [groupId]);
+    return live ? groupId : null;
+  };
   /**
    * Organize took this version up before and let it go: an Undo took its filing back, or it was
    * held back for the User. Reading the rest of it, or reading it again, doesn't file it (#2308).
@@ -1501,6 +1509,55 @@ export function createLibrary(options: {
     },
     allTreeDocumentIds(folderId: string): string[] {
       return [...new Set(tree(folderId).flatMap((id) => everyFiledDocumentIdsOf(id)))];
+    },
+    /** The live Folder a Document is filed in, or null for one in none, "Not in a Folder". */
+    folderOfDocument: (documentId: string): string | null => liveFolderOf(assignment(documentId)),
+    /**
+     * Whether a Document has a filing of its own: a live Folder, or Not in a Folder as the User
+     * chose it. A Document with none is filed in a bound Folder as it arrives (ADR-0030).
+     */
+    hasFiling(documentId: string): boolean {
+      const row = assignment(documentId);
+      return row !== undefined && (row.source === "user" || liveFolderOf(row) !== null);
+    },
+    /** The live Folder bound to the first of these folders on disk that has one (ADR-0030), or null. */
+    boundTo(folderIds: readonly string[]): string | null {
+      for (const folderId of folderIds) {
+        const row = db.get<{ id: string }>(
+          `SELECT id FROM library_groups WHERE bound_folder_id = ? AND deleted_at IS NULL
+           ORDER BY created_at LIMIT 1`,
+          [folderId],
+        );
+        if (row) return row.id;
+      }
+      return null;
+    },
+    /** Binds a Folder to a folder on disk, a Linked folder's own Folder or one inside it (ADR-0030). */
+    bind(groupId: string, folderId: string): LibraryGroup {
+      db.run("UPDATE library_groups SET bound_folder_id = ?, updated_at = ? WHERE id = ?", [
+        folderId,
+        now(),
+        group(groupId).id,
+      ]);
+      revision++;
+      changed();
+      return group(groupId);
+    },
+    /**
+     * Unbinds the Folders bound to a Linked folder's folders, its own (`ownFolderId`) included
+     * though a scan may not have made its row, as it is unlinked (ADR-0030).
+     */
+    unbindLinkedFolder(linkedFolderId: string, ownFolderId: string): void {
+      const bound = `(bound_folder_id = ? OR bound_folder_id IN
+        (SELECT id FROM folders WHERE linked_folder_id = ?))`;
+      const params = [ownFolderId, linkedFolderId];
+      if (!db.get(`SELECT 1 FROM library_groups WHERE ${bound}`, params)) return;
+      db.run(`UPDATE library_groups SET bound_folder_id = NULL, updated_at = ? WHERE ${bound}`, [
+        now(),
+        ...params,
+      ]);
+      revision++;
+      changed();
     },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": a Linked

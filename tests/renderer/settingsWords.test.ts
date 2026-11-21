@@ -81,6 +81,11 @@ const ERROR =
  */
 const CONSENT_FACTS = [
   "agents.connect.allUnfiled",
+  // What it may read and where that goes, in the line the User reads before they allow (#3487).
+  "agents.connect.reads.all",
+  "agents.connect.reads.folders",
+  "agents.connect.reads.none",
+  "agents.connect.backup",
   "agents.connect.body",
   // What the leave to write allows: a check of its notes goes to the User's AI model (#3317), and
   // IncarnaMind copies the files it names for a Canvas (#3406).

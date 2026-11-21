@@ -111,14 +111,20 @@ for (const language of ["en", "zh-CN"] as const) {
       const agent = await connectCanvasAgent(window);
 
       const deck = join(sources, "Harbour review.pptx");
-      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [SPRING, WRONG] }]));
+      await writeFile(
+        deck,
+        plainDeck([{ title: "Harbour review" }, { lines: [WRONG] }, { lines: [SPRING] }]),
+      );
       const first = await callTool<{ version: number; mindId: string; needLook: number }>(
         agent,
         "hand_over_file",
         { path: deck },
       );
       expect(first).toMatchObject({ version: 1, needLook: 1 });
-      await writeFile(deck, plainDeck([{ title: "Harbour review" }, { lines: [SPRING, RIGHT] }]));
+      await writeFile(
+        deck,
+        plainDeck([{ title: "Harbour review" }, { lines: [RIGHT] }, { lines: [SPRING] }]),
+      );
       const second = await callTool<{ version: number; mindId: string; needLook: number }>(
         agent,
         "hand_over_file",
@@ -136,7 +142,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const card = await checkCard(window);
       const handed = card.getByTestId("verify-handed");
       await expect(handed).toContainText(words.second);
-      // The spring tides line and all above it stood as they were: it kept version 1's result.
+      // The spring tides line's slide stood as it was: it kept version 1's result.
       await expect(handed).toContainText(words.kept);
       await shot(window, `handed-version-2-${language}`);
       const checkAll = handed.getByTestId("verify-handed-check-all");
@@ -147,8 +153,11 @@ for (const language of ["en", "zh-CN"] as const) {
 
       const other = handed.getByTestId("verify-handed-version");
       await expect(other).toHaveText([words.open[0] ?? ""]);
+      // Another version opens in this one's place, as a version history does: no tab piles up (#3493).
+      const tabs = await window.getByTestId("mind-tab").count();
       await pointAndClick(window, other);
       await expect(frontMindName(window)).toHaveText(words.firstName);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(tabs);
       await expect(window.getByTestId("mind-row")).toHaveCount(1);
       const firstCard = await checkCard(window);
       await expect(firstCard.getByTestId("verify-handed")).toContainText(words.first);
@@ -156,6 +165,9 @@ for (const language of ["en", "zh-CN"] as const) {
         words.open[1] ?? "",
       ]);
       await shot(window, `handed-version-1-${language}`);
+      await pointAndClick(window, firstCard.getByTestId("verify-handed-version"));
+      await expect(frontMindName(window)).toHaveText(words.name);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(tabs);
     } finally {
       await app.close();
     }

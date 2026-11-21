@@ -4,8 +4,18 @@
  * the agent's settings file written only as shown, with Undo, and tidied when
  * the agent is disconnected. Every path is in a temporary home folder.
  */
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { join, relative } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentLaunch, Core } from "../../src/core";
 import { SERVER_INSTRUCTIONS } from "../../src/core/agents/mcp";
@@ -388,19 +398,353 @@ describe("setting an agent up", () => {
     expect(zh.description).toMatch(/引文/);
   });
 
-  it("gives Claude Code one line, its key hidden where it shows", async () => {
-    const { core, coast } = await started();
-    const { pairing, result } = await core.setUpAgent({
-      client: "claude-code",
-      folderIds: [coast.id],
+  describe("Claude Code's settings file (#3487)", () => {
+    const FILE = [".claude.json"] as const;
+    /** What Claude Code keeps in its own file, beside the servers. */
+    const theirs = {
+      firstStartTime: "2026-11-20T15:59:24.401Z",
+      userID: "b0ed6c26",
+      numStartups: 41,
+      projects: { "/Users/ada/work": { allowedTools: [], history: ["one", "two"] } },
+      mcpServers: { notes: { type: "stdio", command: "n", args: [], env: {} } },
+    };
+    const text = `${JSON.stringify(theirs, null, 2)}\n`;
+
+    it("adds itself to the file, shown first, keeps all the rest and a copy of it, and works", async () => {
+      const { core, home, coast } = await started();
+      const path = join(home, ...FILE);
+      await writeFile(path, text, { mode: 0o640 });
+
+      const preview = await core.previewAgentSetup("claude-code");
+      expect(preview).toMatchObject({ path, backup: `${path}.incarnamind-backup` });
+      expect(JSON.parse(preview?.change ?? "").mcpServers.incarnamind.type).toBe("stdio");
+      expect(preview?.change).toContain("•••••••");
+
+      const { pairing, result } = await core.setUpAgent({
+        client: "claude-code",
+        folderIds: [coast.id],
+      });
+      expect(result).toEqual({ kind: "wrote", path });
+      const settings = JSON.parse(await readFile(path, "utf8"));
+      expect({ ...settings, mcpServers: { notes: settings.mcpServers.notes } }).toEqual(theirs);
+      expect(Object.keys(settings.mcpServers)).toEqual(["notes", "incarnamind"]);
+      expect(settings.mcpServers.incarnamind.type).toBe("stdio");
+      // The file keeps its mode; the copy, which holds the User's account, is for them alone.
+      expect((await stat(path)).mode & 0o777).toBe(0o640);
+      expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+      expect((await stat(`${path}.incarnamind-backup`)).mode & 0o777).toBe(0o600);
+      expect((await readdir(home)).filter((name) => name.includes("incarnamind-new"))).toEqual([]);
+      await searchesThrough(core, launchIn(settings.mcpServers.incarnamind));
+      // Its Details still give the line Claude Code documents.
+      expect((await core.copyAgentSetup(pairing.id)).text).toMatch(/^claude mcp add --scope user /);
+
+      await core.disconnectAgent(pairing.id);
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(theirs);
+      await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
     });
+
+    it("makes the file when Claude Code has made none, and takes it away again", async () => {
+      const { core, home, coast } = await started();
+      const path = join(home, ...FILE);
+      expect((await core.previewAgentSetup("claude-code"))?.backup).toBeNull();
+      const { pairing } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+      expect(Object.keys(JSON.parse(await readFile(path, "utf8")))).toEqual(["mcpServers"]);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+      await core.disconnectAgent(pairing.id);
+      expect(await readdir(home)).toEqual([]);
+    });
+
+    it.each([
+      ["comments", "{ // Claude Code doesn't write these\n}"],
+      ["a list", "[1, 2]"],
+      ["a number it can't keep", '{"messageCount": 12345678901234567890, "mcpServers": {}}'],
+      ["servers that aren't an object", '{"mcpServers": []}'],
+    ])(
+      "leaves a file with %s alone, with no copy, and gives the line to run instead",
+      async (_name, given) => {
+        const { core, home, coast } = await started();
+        const path = join(home, ...FILE);
+        await writeFile(path, given);
+        const { pairing, result } = await core.setUpAgent({
+          client: "claude-code",
+          folderIds: [coast.id],
+        });
+        expect(result).toMatchObject({ kind: "copy", how: "command", path });
+        if (result.kind !== "copy") throw new Error("Expected a line to copy.");
+        expect(result.text).toMatch(/^claude mcp add --scope user incarnamind --env /);
+        const token = (await core.getAgentLaunch(pairing.id)).env[TOKEN_ENV] ?? "";
+        expect(result.text).toContain(token);
+        expect(result.shown).not.toContain(token);
+        expect(await readFile(path, "utf8")).toBe(given);
+        expect((await readdir(home)).filter((name) => name.includes("backup"))).toEqual([]);
+      },
+    );
+
+    it("takes only its own entry out once Claude Code has rewritten the file, on Undo and on Disconnect", async () => {
+      for (const leave of ["undo", "disconnect"] as const) {
+        const { core, home, coast } = await started();
+        const path = join(home, ...FILE);
+        await writeFile(path, text);
+        const { pairing } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+        // Claude Code adds its own state at its next start, and the User a server.
+        const now = JSON.parse(await readFile(path, "utf8"));
+        now.numStartups = 42;
+        now.mcpServers.mine = { type: "stdio", command: "m", args: [], env: {} };
+        await writeFile(path, JSON.stringify(now));
+        if (leave === "undo") await core.undoAgentSetup(pairing.id);
+        else await core.disconnectAgent(pairing.id);
+        delete now.mcpServers.incarnamind;
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual(now);
+        await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+      }
+    });
+
+    it("leaves no empty server list behind in a file that had none", async () => {
+      const { core, home, coast } = await started();
+      const path = join(home, ...FILE);
+      const given = `${JSON.stringify({ userID: "b0ed6c26", numStartups: 3 }, null, 2)}\n`;
+      await writeFile(path, given);
+      const { pairing } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+      await core.disconnectAgent(pairing.id);
+      expect(await readFile(path, "utf8")).toBe(given);
+    });
+
+    it("keeps its copy on Undo until the last Claude Code pairing goes, as Disconnect does", async () => {
+      for (const first of ["second", "first"] as const) {
+        const { core, home, coast } = await started();
+        const path = join(home, ...FILE);
+        await writeFile(path, text);
+        const one = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+        const two = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+        const [early, late] = first === "second" ? [two, one] : [one, two];
+        await core.undoAgentSetup(early.pairing.id);
+        expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+        if (first === "second") await core.undoAgentSetup(late.pairing.id);
+        else await core.disconnectAgent(late.pairing.id);
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual(theirs);
+        await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+      }
+    });
+
+    it("keeps its copy until the last Claude Code pairing goes", async () => {
+      const { core, home, coast } = await started();
+      const path = join(home, ...FILE);
+      await writeFile(path, text);
+      const first = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+      const second = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+      // The second one's entry took the place of the first's: leaving the first changes nothing.
+      const both = await readFile(path, "utf8");
+      await core.disconnectAgent(first.pairing.id);
+      expect(await readFile(path, "utf8")).toBe(both);
+      expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+      await core.disconnectAgent(second.pairing.id);
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(theirs);
+      await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+    });
+  });
+
+  describe("a settings file the User keeps as a link, as a dotfiles manager does (#3487)", () => {
+    const AGENTS = [
+      { client: "claude-code", folder: [], name: ".claude.json", keeps: '"userID": "b0ed6c26"' },
+      { client: "codex", folder: [".codex"], name: "config.toml", keeps: 'model = "gpt-6-luna"' },
+    ] as const;
+    const ours = (name: string) =>
+      name.endsWith(".json") ? '{\n  "userID": "b0ed6c26"\n}\n' : 'model = "gpt-6-luna"\n';
+
+    it.each(
+      AGENTS.flatMap((agent) => [
+        [agent.client, "absolute", agent] as const,
+        [agent.client, "relative", agent] as const,
+      ]),
+    )(
+      "%s: a %s link stays a link, its target holds the entry, and Disconnect puts the target back",
+      async (_client, kind, agent) => {
+        const { core, home, coast } = await started();
+        const managed = await createTempDataFolder();
+        const target = join(managed, agent.name);
+        await writeFile(target, ours(agent.name), { mode: 0o640 });
+        await mkdir(join(home, ...agent.folder), { recursive: true });
+        const path = join(home, ...agent.folder, agent.name);
+        await symlink(kind === "relative" ? relative(join(path, ".."), target) : target, path);
+
+        const { pairing, result } = await core.setUpAgent({
+          client: agent.client,
+          folderIds: [coast.id],
+        });
+        expect(result).toEqual({ kind: "wrote", path });
+        expect((await lstat(path)).isSymbolicLink()).toBe(true);
+        expect(await readlink(path)).toBe(
+          kind === "relative" ? relative(join(path, ".."), target) : target,
+        );
+        expect(await readFile(target, "utf8")).toContain("incarnamind");
+        expect(await readFile(target, "utf8")).toContain(agent.keeps);
+        expect((await stat(target)).mode & 0o777).toBe(0o640);
+        expect(await readdir(managed)).toEqual([agent.name]);
+        expect(
+          (await readdir(join(home, ...agent.folder))).filter((name) => name.includes("-new")),
+        ).toEqual([]);
+
+        await core.disconnectAgent(pairing.id);
+        expect((await lstat(path)).isSymbolicLink()).toBe(true);
+        expect(await readFile(target, "utf8")).not.toContain("incarnamind");
+        expect(await readdir(managed)).toEqual([agent.name]);
+      },
+    );
+
+    it("keeps the copy of Claude Code's file beside the link the User knows, not its target", async () => {
+      const { core, home, coast } = await started();
+      const managed = await createTempDataFolder();
+      const target = join(managed, "claude.json");
+      await writeFile(target, ours(".claude.json"));
+      const path = join(home, ".claude.json");
+      await symlink(target, path);
+      const { pairing } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+      expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(ours(".claude.json"));
+      expect(await readdir(managed)).toEqual(["claude.json"]);
+      await core.disconnectAgent(pairing.id);
+      await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+    });
+
+    it.each(AGENTS)(
+      "%s: a link to nothing is left alone, and the User is given the line or the settings",
+      async (agent) => {
+        const { core, home, coast } = await started();
+        const managed = await createTempDataFolder();
+        const target = join(managed, agent.name);
+        await mkdir(join(home, ...agent.folder), { recursive: true });
+        const path = join(home, ...agent.folder, agent.name);
+        await symlink(target, path);
+
+        const { result } = await core.setUpAgent({ client: agent.client, folderIds: [coast.id] });
+        expect(result.kind).toBe("copy");
+        expect((await lstat(path)).isSymbolicLink()).toBe(true);
+        expect(await readlink(path)).toBe(target);
+        await expect(stat(target)).rejects.toThrow(/ENOENT/);
+        expect(await readdir(managed)).toEqual([]);
+        expect(
+          (await readdir(join(home, ...agent.folder))).filter(
+            (name) => name.includes("backup") || name.includes("-new"),
+          ),
+        ).toEqual([]);
+      },
+    );
+  });
+
+  describe("set-ups and a Disconnect at once on one settings file (#3487)", () => {
+    const FILES = [
+      {
+        client: "claude-code",
+        path: [".claude.json"],
+        text: `${JSON.stringify({ userID: "b0ed6c26", mcpServers: { notes: { type: "stdio", command: "n", args: [], env: {} } } }, null, 2)}\n`,
+        entries: (text: string) => Object.keys(JSON.parse(text).mcpServers ?? {}),
+        mine: (text: string) => (text.match(/"INCARNAMIND_AGENT_TOKEN": "([^"]+)"/g) ?? []).length,
+      },
+      {
+        client: "codex",
+        path: [".codex", "config.toml"],
+        text: 'model = "gpt-6-luna"\n\n[mcp_servers.github]\ncommand = "gh-mcp"\n',
+        entries: (text: string) =>
+          [...text.matchAll(/^\[mcp_servers\.([\w-]+)\]/gm)].map((found) => found[1] ?? ""),
+        mine: (text: string) => (text.match(/INCARNAMIND_AGENT_TOKEN = "[^"]+"/g) ?? []).length,
+      },
+    ] as const;
+
+    it.each(FILES)(
+      "$client: each ends with the User's own entries and exactly one of its own, none lost to another's write",
+      async ({ client, path: parts, text, entries, mine }) => {
+        const { core, home, coast } = await started();
+        const path = join(home, ...parts);
+        await mkdir(join(path, ".."), { recursive: true });
+        await writeFile(path, text);
+        const userEntries = entries(text);
+        const set = () => core.setUpAgent({ client, folderIds: [coast.id] });
+
+        let leaving = await set();
+        for (let round = 0; round < 5; round++) {
+          const settled = await Promise.all([
+            set(),
+            set(),
+            core.disconnectAgent(leaving.pairing.id),
+          ]);
+          const [one, two] = settled;
+          if (!one || !two) throw new Error("A set-up gave nothing.");
+          expect(one.result).toMatchObject({ kind: "wrote" });
+          expect(two.result).toMatchObject({ kind: "wrote" });
+          const now = await readFile(path, "utf8");
+          // The User's entries are all there, and one of IncarnaMind's, whose key is a pairing still connected.
+          expect(entries(now)).toEqual([...userEntries, "incarnamind"]);
+          expect(mine(now)).toBe(1);
+          const keys = await Promise.all(
+            [one, two].map(
+              async (each) => (await core.getAgentLaunch(each.pairing.id)).env[TOKEN_ENV] ?? "",
+            ),
+          );
+          expect(keys.some((key) => key !== "" && now.includes(key))).toBe(true);
+          expect((await readdir(join(path, ".."))).filter((name) => name.includes("-new"))).toEqual(
+            [],
+          );
+          if (client === "claude-code") {
+            expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+          }
+          // The one whose key is in the file leaves in the next round; the other, whose entry is gone, now.
+          const inFile = keys[0] !== "" && now.includes(keys[0] ?? "") ? one : two;
+          await core.disconnectAgent((inFile === one ? two : one).pairing.id);
+          leaving = inFile;
+        }
+        await core.disconnectAgent(leaving.pairing.id);
+        expect(await readFile(path, "utf8")).toBe(text);
+        await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+      },
+    );
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "leaves a settings file as it was, and no copy of it, when it can't be replaced",
+    async () => {
+      const { core, home, coast } = await started();
+      // The link's folder takes no new file, so the copy beside the link is made and the write then fails, as a rename can on Windows.
+      const managed = await createTempDataFolder();
+      const target = join(managed, "claude.json");
+      const given = `${JSON.stringify({ userID: "b0ed6c26" })}\n`;
+      await writeFile(target, given);
+      const path = join(home, ".claude.json");
+      await symlink(target, path);
+      await chmod(managed, 0o500);
+      try {
+        const { result } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+        expect(result).toMatchObject({ kind: "copy", how: "command", path });
+        expect(await readFile(target, "utf8")).toBe(given);
+        await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+      } finally {
+        await chmod(managed, 0o700);
+      }
+    },
+  );
+
+  it("on Windows writes the same file in the home, and gives the line in Windows' quoting when it can't", async () => {
+    const real = process.platform;
+    Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    let setup: Awaited<ReturnType<typeof started>>;
+    try {
+      setup = await started();
+    } finally {
+      Object.defineProperty(process, "platform", { configurable: true, value: real });
+    }
+    const { core, home, coast } = setup;
+    const path = join(home, ".claude.json");
+    await writeFile(path, '{"userID": "b0ed6c26"}\n');
+    const connected = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+    expect(connected.result).toEqual({ kind: "wrote", path });
+    expect(JSON.parse(await readFile(path, "utf8")).mcpServers.incarnamind.type).toBe("stdio");
+    await core.disconnectAgent(connected.pairing.id);
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ userID: "b0ed6c26" });
+
+    await writeFile(path, "[1]");
+    const { result } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
     if (result.kind !== "copy") throw new Error("Expected a line to copy.");
-    const token = (await core.getAgentLaunch(pairing.id)).env[TOKEN_ENV] ?? "";
-    expect(result.how).toBe("command");
-    expect(result.text).toMatch(/^claude mcp add --scope user incarnamind --env /);
-    expect(result.text).toContain(token);
-    expect(result.shown).not.toContain(token);
-    expect(result.shown).toContain("•••••••");
+    expect(result.text).toMatch(/^claude mcp add --scope user incarnamind --env "/);
+    expect(result.text).not.toContain("'");
   });
 
   it("leaves no pairing when the agent's app can't be opened", async () => {

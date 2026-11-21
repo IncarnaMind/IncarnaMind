@@ -15,7 +15,7 @@ import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
-import { askAgent, useAgentsToAsk, useNoModel } from "../askYourAi";
+import { useNoModel } from "../askYourAi";
 import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { EstimateMeta } from "../components/EstimateSource";
@@ -28,6 +28,7 @@ import { correctableCount, correctContradictions } from "../correctionFixes";
 import type { EstimateLine } from "../cost";
 import { useEdits } from "../editWithAi";
 import { fixableClaims, fixSentences } from "../fixSentence";
+import { useHandedFile } from "../handedFiles";
 import { useLanguage, useT } from "../i18n";
 import { frontTabOfMind } from "../layoutSlice";
 import {
@@ -42,10 +43,10 @@ import { useFade } from "../motion";
 import { checkedCaveat, type NoteState, noteStateOf, noteStateParts } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
-import { askedSentences } from "../unsupportedFixes";
 import { useGroupsMerged } from "../useWindowWidth";
 import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
+import { AskAgentAllButton, useAskAll } from "./AskAgentAll";
 import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
 import { CheckFasterLine } from "./CheckFasterLine";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
@@ -145,12 +146,12 @@ function MindBadge({
     () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
     [unexaminedKeys],
   );
-  const health = useHealth(editor, skipped, unexamined, doc);
+  const running = useChecks((state) => state.running[mindId]);
+  const health = useHealth(editor, skipped, unexamined, doc, running !== undefined);
   const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
-  const running = useChecks((state) => state.running[mindId]);
   // A check that finished keeps the badge's one width until the User types, as a running one
   // does; what it marked is the Note's resting state's to say (#2519).
   const justChecked = useJustChecked(editor, running ?? null, () => 0);
@@ -273,15 +274,8 @@ export function CheckActions({
     editor,
     selector: ({ editor: current }) => fixableClaims(current).length,
   });
-  // Every sentence that needs a look, in one request to the User's own AI (#3419).
-  const [agent] = useAgentsToAsk(mindId);
+  const askAll = useAskAll(editor, mindId, true);
   const noModel = useNoModel();
-  const toAsk = useEditorState({
-    editor,
-    selector: ({ editor: current }) =>
-      agent && current.isEditable ? askedSentences(current).length : 0,
-  });
-  const askAll = agent && toAsk >= 2 ? agent : null;
   // A model fixes the sentences; with none, Change to corrects them, or the User's own AI does (#3383).
   const fixes = noModel ? correctable : fixable;
   const askLeads = askAll !== null && noModel && correctable === 0;
@@ -332,23 +326,14 @@ export function CheckActions({
           </button>
         )}
         {askAll && (
-          <button
-            type="button"
-            data-testid="badge-ask-agent-all"
+          <AskAgentAllButton
+            editor={editor}
+            mindId={mindId}
+            ask={askAll}
+            primary={askLeads}
             disabled={running || editing}
-            className={buttonStyle(askLeads ? "primary" : "secondary", "sm")}
-            onClick={() => {
-              const sentences = askedSentences(editor);
-              if (sentences.length === 0) return;
-              void askAgent(askAll, mindId, { kind: "fix", sentences });
-              setCheckCardOpen(place, false);
-            }}
-          >
-            {t("agents.ask.fixAll", {
-              agent: askAll.name,
-              count: new Intl.NumberFormat(language).format(toAsk),
-            })}
-          </button>
+            onAsked={() => setCheckCardOpen(place, false)}
+          />
         )}
         <div className="check-card-press">
           <button
@@ -418,13 +403,17 @@ function VerifyBadge({
   const phase = shownPhase(state.running, marked);
   const checked = useJustChecked(editor, state.running, () => (state.problem ? 0 : marked));
   const toCheck = state.asking ? state.total : 0;
+  // A file an agent handed over is fixed by that agent: everything its check flagged, in one request.
+  const handed = useHandedFile(mindId, doc) !== null;
+  const askAll = useAskAll(editor, mindId, false);
   // No claims to check, or none found yet: the card says why, so the page isn't silently bare.
   const nothing =
     state.running === null && !state.asking && marked === 0 && state.opinions.length === 0;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const input: BadgeInput = {
     marks: {
-      contradicted: rows.contradicted.length,
+      // A formula whose saved result differs needs a look as the card counts it (#3278, #3493).
+      contradicted: rows.contradicted.length + (verification.workbook?.differs.length ?? 0),
       unsupported: rows.unsupported.length,
       notChecked: rows.notChecked.length,
       notYetCited: rows.notYetCited.length,
@@ -458,7 +447,7 @@ function VerifyBadge({
         state.asking &&
         holdKey === "brief" &&
         state.outcome?.kind !== "no-documents" &&
-        state.outcome?.kind !== "nothing" && (
+        state.outcome?.kind !== "nothing" ? (
           <VerifyAsk
             mindId={mindId}
             doc={doc}
@@ -466,6 +455,20 @@ function VerifyBadge({
             estimate={state.estimate}
             onNotNow={() => setCheckCardOpen(place, false)}
           />
+        ) : (
+          handed &&
+          askAll && (
+            <div className="check-card-actions">
+              <AskAgentAllButton
+                editor={editor}
+                mindId={mindId}
+                ask={askAll}
+                primary
+                disabled={state.running !== null}
+                onAsked={() => setCheckCardOpen(place, false)}
+              />
+            </div>
+          )
         )
       }
       foot={

@@ -3,6 +3,7 @@
  * a verified document's claims: those it has a plan for.
  */
 import { SEARCH_AGAIN } from "../../src/core/answers/checks/claimCheck";
+import type { SortWord } from "../../src/core/answers/checks/claims";
 import { recordClaimFacts } from "../../src/core/answers/checks/recordCites";
 import { sortReply } from "./claimSentences";
 
@@ -49,6 +50,8 @@ export interface Plan {
   part?: string;
   /** Asked to search again before it says the sentence isn't found: the query it writes, then how it checks. */
   again?: { query: string; plan: Plan };
+  /** How the claim sorter classifies the sentence; "undecided" omits it from the sort reply. */
+  sort?: SortWord | "undecided";
 }
 
 const SENTENCE = /<sentence>\n([\s\S]*?)\n<\/sentence>/;
@@ -140,7 +143,12 @@ export const checkGenerate =
       )?.[1];
     switch (call.question) {
       case "find-claims":
-        return { text: sortReply(call.prompt, (text) => (text in plans ? "claim" : "no")) };
+        return {
+          text: sortReply(call.prompt, (text) => {
+            const word = plans[text]?.sort;
+            return word === "undecided" ? undefined : (word ?? (text in plans ? "claim" : "no"));
+          }),
+        };
       case "verify-brief":
         return { text: JSON.stringify({ conclusions: [], figures: [] }) };
       case "parts":

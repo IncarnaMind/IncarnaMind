@@ -350,7 +350,7 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     expect(listed.folders.map((folder) => [folder.name, folder.documents])).toEqual([
       ["Coast", 1],
       ["Engineering", 0],
-      ["Not in a Folder", 0],
+      ["", 0],
     ]);
   });
 

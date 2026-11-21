@@ -5,7 +5,9 @@
 import {
   type Document,
   type DocumentGroupAssignment,
+  type Folder,
   type LibraryGroup,
+  type LinkedFolder,
   NOT_IN_A_FOLDER_ID,
 } from "../../core/api";
 import { buildFolderTree, flattenFolderTree } from "./folders";
@@ -24,6 +26,31 @@ export interface AgentFolderRow {
   walled: boolean;
   /** The Folders above it whose choice shares it too (#3394), the nearest first. */
   sharedWith: string[];
+  /** Where a Project's folder is on disk (ADR-0030), shown under its name; null for any other. */
+  place: string | null;
+}
+
+/** Each Project's folder on disk, by the Project's id: its Linked folder's path, and the way in. */
+export function projectPlaces(
+  folders: readonly Pick<LibraryGroup, "id" | "boundFolderId">[],
+  onDisk: readonly Pick<Folder, "id" | "linkedFolderId" | "relativePath">[],
+  linked: readonly Pick<LinkedFolder, "id" | "path" | "folderId">[],
+): Map<string, string> {
+  const places = new Map<string, string>();
+  for (const folder of folders) {
+    const own = linked.find((each) => each.folderId === folder.boundFolderId);
+    if (own) {
+      places.set(folder.id, own.path);
+      continue;
+    }
+    const bound = onDisk.find((each) => each.id === folder.boundFolderId);
+    const root = bound && linked.find((each) => each.id === bound.linkedFolderId);
+    if (!bound || !root) continue;
+    const separator = root.path.includes("\\") && !root.path.includes("/") ? "\\" : "/";
+    const inside = bound.relativePath.split("/").join(separator);
+    places.set(folder.id, inside === "" ? root.path : `${root.path}${separator}${inside}`);
+  }
+  return places;
 }
 
 type Placed = Pick<LibraryGroup, "id" | "parentId" | "keepInside">;
@@ -80,6 +107,7 @@ export function agentFolderRows(
   assignments: readonly Pick<DocumentGroupAssignment, "documentId" | "groupId">[],
   keepUnfiled = false,
   isExample: (document: Document) => boolean = () => false,
+  places: ReadonlyMap<string, string> = new Map(),
 ): AgentFolderRow[] {
   const folderOf = new Map(assignments.map((each) => [each.documentId, each.groupId]));
   const listed = documents.filter(isListedDocument);
@@ -104,6 +132,7 @@ export function agentFolderRows(
       depth,
       walled: folder.keepInside,
       sharedWith: sharedWith.get(folder.id) ?? [],
+      place: places.get(folder.id) ?? null,
     })),
     ...(loose.length > 0 || listed.every(isExample) || keepUnfiled
       ? [
@@ -114,6 +143,7 @@ export function agentFolderRows(
             depth: 0,
             walled: false,
             sharedWith: [],
+            place: null,
           },
         ]
       : []),

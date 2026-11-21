@@ -12,10 +12,11 @@ import { heading, note, writeMind } from "../helpers/minds";
 import { scriptedModel } from "../helpers/models";
 
 /*
- * What an Answer counts as read (#894), through the core as the app uses it: a Question from the
- * User's own Note reads only their Documents, and its line is the one it always was. One from the
- * example's Note reads the example's too, and the line tells them apart in one list, "your"
- * Documents counted as the Library counts them, the total what was read.
+ * What an Answer counts as read (#894, #3487), through the core as the app uses it: a Question in
+ * the assistant reads only the User's Documents once they have one, whichever Note is in focus, the
+ * example's too; before that, the example's. The User points at an example's Documents by naming
+ * them in the Search scope, and the line then tells them apart from their own, "your" Documents
+ * counted as the Library counts them, the total what was read.
  */
 
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -44,15 +45,14 @@ const WALKS = {
     question: "When does my lease end?",
     lines: {
       exampleOnly: "Read “Draft: credit committee paper” and 2 example Documents",
-      oneAndExamples:
-        "Read “Draft: credit committee paper”, 1 of your Documents and 2 example Documents",
-      twoAndExamples:
-        "Read “Draft: credit committee paper”, 2 of your Documents and 2 example Documents",
+      one: "Read “Draft: credit committee paper” and “Harbour lease”",
+      two: "Read “Draft: credit committee paper” and 2 Documents",
+      pointed: "Read “Draft: credit committee paper”, 1 of your Documents and 1 example Document",
       named: "Read “My flat”, 1 of your Documents and 1 example Document",
       none: "Read “My flat” and 2 Documents",
     },
     rows: {
-      twoAndExamples: "Read 2 of your Documents and 2 example Documents",
+      two: "Read 2 Documents",
       exampleOnly: "Read 2 example Documents",
     },
   },
@@ -75,13 +75,14 @@ const WALKS = {
     question: "我的租约什么时候到期？",
     lines: {
       exampleOnly: "读了“授信委员会报告（草稿）”和 2 个示例文档",
-      oneAndExamples: "读了“授信委员会报告（草稿）”、你的 1 个文档和 2 个示例文档",
-      twoAndExamples: "读了“授信委员会报告（草稿）”、你的 2 个文档和 2 个示例文档",
+      one: "读了“授信委员会报告（草稿）”，还读了“海港租约”",
+      two: "读了“授信委员会报告（草稿）”，还读了 2 个文档",
+      pointed: "读了“授信委员会报告（草稿）”、你的 1 个文档和 1 个示例文档",
       named: "读了“我的公寓”、你的 1 个文档和 1 个示例文档",
       none: "读了“我的公寓”，还读了 2 个文档",
     },
     rows: {
-      twoAndExamples: "读了你的 2 个文档和 2 个示例文档",
+      two: "读了 2 个文档",
       exampleOnly: "读了 2 个示例文档",
     },
   },
@@ -105,8 +106,8 @@ for (const language of ["en", "zh-CN"] as const) {
     translate(language, key, params);
 
   describe(`a Question after the User added Documents (${language})`, () => {
-    // protects=from the example's Note the line says what was read in one list: only the example's, then one then two of the User's own beside them; from the User's own Note it is the line it always was; naming an example's Document there is counted as an example's; the timeline's row has the same words and the local matches follow the same sides; fails_when=the example's are counted as the User's, are left out of the total, the words differ by branch, or the User's own Note's line changes; no_claim=how the line looks, which e2e/waitingQuestion.spec.ts shows.
-    test("the example's Note reads the example's Documents too and says so; their own Note says what it always did", async () => {
+    // protects=with the example's Note in focus the assistant reads the example's Documents until the User has one of their own, and then only theirs, as from their own Note; naming an example's Document in the Search scope reads it, counted as an example's beside theirs; a Question written in the example's Note itself still searches both; fails_when=the example's two are sent, counted or named once the User has a Document, the User's own Note's line changes, or pointing at an example reads none; no_claim=how the line looks, which e2e/answerSteps.spec.ts shows.
+    test("with the example's Note in focus, the assistant reads the User's Documents alone once they have one, and the example's when they point at them", async () => {
       const core = startCore(await createTempDataFolder(), {
         paths: { dataDir: await createTempDataFolder(), examples: EXAMPLES },
         systemLanguages: () => [walk.system],
@@ -180,14 +181,14 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await addOwn(0);
       const one = await fromExample();
-      expect(one.sent).toEqual([...walk.example, ownNames[0]].toSorted());
-      expect(one.line).toBe(walk.lines.oneAndExamples);
+      expect(one.sent).toEqual([ownNames[0]]);
+      expect(one.line).toBe(walk.lines.one);
 
       await addOwn(1);
       const two = await fromExample();
-      expect(two.sent).toEqual([...walk.example, ...ownNames].toSorted());
-      expect(two.line).toBe(walk.lines.twoAndExamples);
-      expect(two.row).toBe(walk.rows.twoAndExamples);
+      expect(two.sent).toEqual([...ownNames].toSorted());
+      expect(two.line).toBe(walk.lines.two);
+      expect(two.row).toBe(walk.rows.two);
 
       const inOwn = await wording(
         await askAssistant(core, { text: walk.question, mindId: ownNote.id }),
@@ -215,6 +216,22 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(named.sent).toEqual([ownNames[0], walk.example[0]].toSorted());
       expect(named.line).toBe(walk.lines.named);
 
+      const pointed = await wording(
+        await askAssistant(core, {
+          text: walk.question,
+          mindId: exampleMindId,
+          scope: {
+            folderIds: [],
+            tagIds: [],
+            documentIds: [idOf(ownNames[0] ?? ""), idOf(walk.example[0] ?? "")],
+          },
+        }),
+        exampleMindId,
+        walk.exampleNote,
+      );
+      expect(pointed.sent).toEqual([ownNames[0], walk.example[0]].toSorted());
+      expect(pointed.line).toBe(walk.lines.pointed);
+
       const found = async (mindId: string) =>
         new Set(
           (
@@ -229,6 +246,17 @@ for (const language of ["en", "zh-CN"] as const) {
       const inExampleNote = await found(exampleMindId);
       expect(inExampleNote.has(ownNames[0] ?? "")).toBe(true);
       expect(walk.example.some((name) => inExampleNote.has(name))).toBe(true);
+      // The same Note in focus of a Question in the assistant reads what the assistant did.
+      const askedFromExample = new Set(
+        (
+          await core.searchPassages("Northwind", {
+            mode: "keyword",
+            limit: 20,
+            place: { kind: "asked", askedFrom: { mindId: exampleMindId }, folderAskedIn: "" },
+          })
+        ).map((passage) => passage.documentName),
+      );
+      expect(askedFromExample).toEqual(new Set([ownNames[0]]));
       core.close();
     }, 120_000);
   });

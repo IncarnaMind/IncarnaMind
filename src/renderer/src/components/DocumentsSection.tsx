@@ -465,13 +465,17 @@ const DocumentRow = memo(function DocumentRow({
   );
 });
 
-export function NotCitedLabel({ item }: { item: Pick<Document, "notCited"> }) {
+export function NotCitedLabel({ item }: { item: Pick<Document, "notCited" | "handedBy"> }) {
   const t = useT();
   if (!item.notCited) return null;
   return (
     <span
       data-testid="document-not-cited"
-      title={t("evidence.notCited.hint")}
+      title={
+        item.handedBy === null
+          ? t("evidence.notCited.hint")
+          : t("evidence.notCited.handedHint", { agent: item.handedBy })
+      }
       className="shrink-0 text-label font-semibold text-ink-meta"
     >
       {t("evidence.notCited.label")}

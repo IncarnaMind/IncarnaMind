@@ -35,6 +35,7 @@ import { readRecordCiteChoices } from "../../../shared/recordCiteChoices";
 import { oneFolderOf } from "../../../shared/searchScope";
 import { isClaim } from "../../../shared/sentences";
 import { judgesUnreliably } from "../../../shared/smallModel";
+import { verificationOf } from "../../../shared/verification";
 import type {
   ChatModelChoice,
   CheckMindMode,
@@ -63,7 +64,7 @@ import type { DecisionReader } from "./decisionFirst";
 import { sortedByDecision } from "./decisionSort";
 import { cellHeadings, inValueCell, type TableLayout } from "./figureOccurrences";
 import { type ClaimsFound, claimsAmong } from "./findClaims";
-import { readsWithin } from "./judgedOutside";
+import { readsWithin, type Searched } from "./judgedOutside";
 import { recordOpinions, type SortedSentence } from "./opinions";
 import { checkRunOf } from "./runCheck";
 import {
@@ -90,7 +91,7 @@ import {
   topLevelBlockId,
   unmarkSourceNames,
 } from "./sentences";
-import { readingOf } from "./standing";
+import { deckSaidOf, fingerprintOf, readingOf } from "./standing";
 import type { MindCheckScope, VerifyOptions } from "./verify";
 import { tableClaim } from "./verifyTables";
 import { widerRun } from "./widerRun";
@@ -132,6 +133,7 @@ export interface MindCheckOptions extends RunChecksOptions {
   citedNow(cited: readonly CitedQuote[]): CheckedCitation[];
   /** Each live Document's version now, for which checks need a re-check. */
   documentVersions(): ReadonlyMap<string, string>;
+  searched: Searched;
   documents: {
     /**
      * The live Documents with Passages to search, of these (null: of all), that joined after
@@ -687,7 +689,7 @@ export function createMindCheck(options: MindCheckOptions) {
       if (found.marked.chosen || widened.size > 0) throw new NotAsked("beyond-reach");
       // A Folder with no Document searches every Document.
       if (found.marked.widened) throw new NotAsked("no-documents");
-      const admitted = readsWithin(found.scope, reach, options.documentVersions);
+      const admitted = readsWithin(found.scope, reach, options.searched);
       if (admitted === null) throw new NotAsked("beyond-reach");
       // What was admitted is all the run searches, every request it sends: a Document filed
       // where the agent may not read while the run goes on is never searched (#3364).
@@ -793,24 +795,32 @@ export function createMindCheck(options: MindCheckOptions) {
         ? tableClaim(sentence)
         : null;
       const row = rowClaim !== null && rowClaim !== "not-a-claim" ? rowClaim : null;
+      // A line of a deck is judged with its slide, as the file's check judges it (#3455).
+      const verification = blocks.doc ? verificationOf(blocks.doc) : null;
+      const deck = deckSaidOf(sentence, verification);
+      if (deck) mark.judgedWith = fingerprintOf(deck);
+      const own = checkText(sentence);
+      const said = deck ?? row ?? own;
+      // A row is asked whole, in words that aren't the sentence's.
+      const whole = said.claim !== own.claim;
       return {
         sentence,
         mark,
         unmarked: owners.length === 0,
         queued: {
           id: mark.id,
-          ...(row ? row : checkText(sentence)),
+          ...said,
           cited: options.citedNow(sentence.cited),
           recordClaim: noteTextOf(sentence),
           place: { blockId: sentence.blockId, from: sentence.from },
           scope: within.scope,
           ...(previousParts && {
-            previous: row
+            previous: whole
               ? previousParts.length === 1 &&
                 previousParts[0]?.kind === "fact" &&
                 previousParts[0].span.start === 0 &&
                 previousParts[0].span.end === sentence.text.length
-                ? [{ ...previousParts[0], span: { start: 0, end: row.claim.length } }]
+                ? [{ ...previousParts[0], span: { start: 0, end: said.claim.length } }]
                 : undefined
               : previousParts,
           }),

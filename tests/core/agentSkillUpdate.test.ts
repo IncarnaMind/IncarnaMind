@@ -266,11 +266,13 @@ describe("the Skill when a release changes its text", () => {
       pairings: [claude],
     } = await connected(core, ["claude-code"]);
     expect([...kept]).toEqual([[claudeFile(at.home), SKILL_MARKDOWN]]);
-    expect(await readdir(at.home)).toEqual([]);
+    // Claude Code's settings file is written (#3487), the Skill is not: no skills folder is made.
+    expect(await readdir(at.home)).toEqual([".claude.json"]);
     expect((await core.getAgents()).skills).toEqual([claude?.id]);
 
     await core.disconnectAgent(claude?.id ?? "");
     expect(kept.size).toBe(0);
+    expect(await readdir(at.home)).toEqual([]);
   });
 
   it("never writes outside the skills folders, whatever its record holds", async () => {

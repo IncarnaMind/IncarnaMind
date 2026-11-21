@@ -10,6 +10,7 @@ import type { Core } from "../../src/core";
 import { MIND_WRITER_FIELD, NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel, type Plan } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -184,7 +185,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
     await add("Tides.md", TIDES);
 
     const made = await write(agent);
-    expect(made.folder).toBe("Not in a Folder");
+    expect(made.folder).toBe("");
     const mind = (await core.listMinds()).find((each) => each.id === made.mindId);
     expect(mind?.folderId).toBeNull();
     expect((await list(agent)).find((each) => each.id === NOT_IN_A_FOLDER_ID)).toMatchObject({
@@ -547,10 +548,28 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
         arguments: { title: "Loose", markdown: NOTE, folderId: NOT_IN_A_FOLDER_ID },
       }),
     );
-    expect(none.folder).toBe("Not in a Folder");
+    expect(none.folder).toBe("");
     expect((await list(agent)).find((each) => each.id === NOT_IN_A_FOLDER_ID)?.minds).toEqual([
       expect.objectContaining({ id: none.mindId }),
     ]);
+  });
+
+  // protects=what is in no Folder reaches an agent with no Folder's name, in either language, so its reply and the Note it writes never say "in Not in a Folder" (#3487); fails_when=list_minds or create_mind hands the agent the Library's label for the place as a name, or the Tool's description stops saying what the empty name is
+  it("gives what is in no Folder no Folder's name, in English and Chinese (#3487)", async () => {
+    for (const language of ["en", "zh-CN"] as const) {
+      const { connect } = await fresh([], language);
+      const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
+      const label = translate(language, "library.unsorted");
+      const made = await write(agent);
+      const listed = (await list(agent)).find((each) => each.id === NOT_IN_A_FOLDER_ID);
+      expect(listed?.name).toBe("");
+      expect(made.folder).toBe("");
+      expect(JSON.stringify([listed, made])).not.toContain(label);
+      const tools = await agent.listTools();
+      expect(tools.tools.find((each) => each.name === "list_minds")?.description).toContain(
+        "What is in no Folder is one entry with an empty name",
+      );
+    }
   });
 
   // protects=each refusal on this path says what is so and what the User can change; fails_when=an agent that just read the Documents is told it can't read any, or a Note in no Folder is said to have a Folder
@@ -565,7 +584,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
       );
       const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
       const made = await write(agent);
-      expect(made.folder).toBe(language === "en" ? "Not in a Folder" : "不在文件夹中");
+      expect(made.folder).toBe("");
       expect(
         refusal(
           await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),

@@ -207,6 +207,12 @@ export interface LibraryHooks {
   announce(documentId: string): void;
   /** A new Document was stored and announced; its processing isn't queued yet. */
   added(documentId: string): void;
+  /**
+   * The Document that is the data folder's copy of a file an outside agent handed over from this
+   * path (#3499), or null: a Linked folder's scan that finds the file makes that Document the
+   * file's, as it does the old layout's copy.
+   */
+  handedCopyAt(path: string): string | null;
   /** These Documents moved to another Folder, or into or out of a Linked folder. */
   moved(documentIds: string[]): void;
   /** A Document's name followed its file's: its keyword index needs the new name. */
@@ -636,6 +642,13 @@ export function createLibrary(options: LibraryOptions) {
       id,
     ]);
 
+  /** The live copy in the data folder of the file an outside agent handed over from `path`. */
+  const handedCopyAt = (path: string): FileRow | undefined => {
+    const id = hooks.handedCopyAt(path);
+    const row = id === null ? undefined : documentById(id);
+    return row?.linked_folder_id === null && insideDataFolder(row.path) !== null ? row : undefined;
+  };
+
   /** Which file is at a path on this computer's disks now, or null if it can't be told. */
   const identify = (path: string): Promise<FileIdentity | null> =>
     options.stat(path).then(fileIdentity, () => null);
@@ -989,6 +1002,7 @@ export function createLibrary(options: LibraryOptions) {
     file: Found,
     seen: { size: number; identity: FileIdentity | null; newVersion: boolean },
     changes: Changes,
+    handedCopy = false,
   ): Promise<boolean> {
     const current = documentById(row.id);
     const there = documentAt(file.path);
@@ -1015,8 +1029,9 @@ export function createLibrary(options: LibraryOptions) {
     noteMoved(row, place, changes);
     if (name !== row.name) hooks.renamed(row.id);
     if (seen.newVersion || current.status === "queued") hooks.process(row.id);
-    // The old layout's copy in the data folder isn't needed once the original is linked.
-    if (isLegacyCopy(options.dataDir, row.path)) {
+    // A copy in the data folder isn't needed once the original is linked: the old layout's, or a
+    // handed file's, whose versions keep what was handed over (#3499).
+    if (isLegacyCopy(options.dataDir, row.path) || handedCopy) {
       await rm(row.path, { force: true }).catch((error: unknown) => hooks.reportError(error));
     }
     return true;
@@ -1047,7 +1062,10 @@ export function createLibrary(options: LibraryOptions) {
     // A paused (or removed) Linked folder's files are left alone, unless the User adds one.
     if (closed || (!explicit && !ownerStillActive(file.owner))) return undefined;
     const identity = await identify(file.path);
+    // Known by its path alone: whatever the file holds now is that Document's newest version.
+    const copy = file.owner ? handedCopyAt(file.path) : undefined;
     const moved =
+      copy ??
       (await movedDocument(hashed.contentHash, file.path, removed)) ??
       (await editedDocument(file, identity, removed, twins));
     if (closed || (!explicit && !ownerStillActive(file.owner))) return undefined;
@@ -1056,7 +1074,7 @@ export function createLibrary(options: LibraryOptions) {
       identity,
       newVersion: moved?.content_hash !== hashed.contentHash,
     };
-    if (moved && (await relocate(moved, file, seen, changes))) {
+    if (moved && (await relocate(moved, file, seen, changes, moved === copy))) {
       consumeMatchedSource(moved, removed);
       return moved.id;
     }
@@ -1512,6 +1530,39 @@ export function createLibrary(options: LibraryOptions) {
     async sync(): Promise<void> {
       request({ all: true });
       await idle();
+    },
+
+    /**
+     * The live Linked folder `path` is inside and whether it is paused, and the live Document at
+     * `path`; null for each there isn't.
+     */
+    placeOf(path: string): {
+      linkedFolderId: string | null;
+      paused: boolean;
+      documentId: string | null;
+    } {
+      const owner = ownerOf(path);
+      return {
+        linkedFolderId: owner?.id ?? null,
+        paused: Boolean(owner?.paused),
+        documentId: documentAt(path)?.id ?? null,
+      };
+    },
+
+    /**
+     * The Folders a file at `path` is inside, in its live Linked folder: its folder's first, up to
+     * the Linked folder's own; none outside one. By their ids, whether or not a scan has made them.
+     */
+    foldersAbove(path: string): string[] {
+      const owner = ownerOf(path);
+      if (!owner) return [];
+      const above: string[] = [];
+      let relative = parentOf(relativePath(owner.path, path));
+      for (;;) {
+        above.push(folderIdFor(owner.id, relative));
+        if (relative === "") return above;
+        relative = parentOf(relative);
+      }
     },
 
     /**

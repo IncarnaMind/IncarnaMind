@@ -70,7 +70,7 @@ import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
-import { createHandOver, type HandedMarks } from "./agentFiles/handOver";
+import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import { agentSocketPath, createAgents } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import type { FoundClaim } from "./agents/handedFiles";
@@ -90,7 +90,7 @@ import { createDecisionChoice } from "./answers/checks/decisionChoice";
 import { tableCellFigurePlaces } from "./answers/checks/figureOccurrences";
 import { CLAIM_TIME_LIMIT_MS } from "./answers/checks/runCheck";
 import { checkedSentences } from "./answers/checks/sentences";
-import { readingOf } from "./answers/checks/standing";
+import { judgedNow, readingOf } from "./answers/checks/standing";
 import { AFTER_NEW_VERSION_MS } from "./answers/checks/watch";
 import {
   citeSelection,
@@ -1226,7 +1226,10 @@ export function createCore(adapters: CoreAdapters): Core {
         batches.changed([document.id]);
         rebuildMayHaveProgressed();
       },
-      emitMoved: (moved) => events.emit("documents.moved", moved),
+      emitMoved: (moved) => {
+        for (const document of moved) fileInBoundFolder(document.id);
+        events.emit("documents.moved", moved);
+      },
       emitRemoved: (ids) => {
         events.emit("documents.removed", ids);
         batches.changed(ids);
@@ -1244,7 +1247,16 @@ export function createCore(adapters: CoreAdapters): Core {
         events.emit("linkedFolders.changed", list);
         batches.linkedFoldersChanged(list);
       },
-      onFound: (documentId) => batches.found(documentId),
+      onFound: (documentId) => {
+        batches.found(documentId);
+        fileInBoundFolder(documentId);
+      },
+      handedCopyAt: (path) =>
+        handedCopyAt(
+          handedFiles,
+          path,
+          (documentId) => documents.getMany([documentId])[0]?.linkedFolderId === null,
+        ),
       onReady: (documentId) => {
         // There is something to search now: the built-in reranking model downloads, if it reranks.
         prepareRerank();
@@ -1824,17 +1836,20 @@ export function createCore(adapters: CoreAdapters): Core {
   /**
    * "Every Document" for a search with no Search scope: the examples' until the User has a
    * Document of their own, and from then on theirs and the examples `mindId` cites (#1942, #3083).
-   * Null: all of them, as an example's own Note always searches.
+   * Null: all of them, as an example's own Note always searches. `focusOnly`: `mindId` is only the
+   * Note in focus of a Question asked in the assistant, so an example's is not the User's work and
+   * adds none of the examples (#3487).
    */
-  const unscopedDocuments = (mindId: string | null): string[] | null => {
+  const unscopedDocuments = (mindId: string | null, focusOnly = false): string[] | null => {
     const made = examples.made();
-    if (made.documentIds.length === 0 || (mindId && made.mindIds.includes(mindId))) return null;
+    const exampleNote = mindId !== null && made.mindIds.includes(mindId);
+    if (made.documentIds.length === 0 || (exampleNote && !focusOnly)) return null;
     const left = new Set(made.documentIds);
     // The examples are the User's Library until a Document of their own exists (#1942), a
     // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
     if (own.length === 0) return null;
-    if (mindId === null) return own;
+    if (mindId === null || exampleNote) return own;
     // A Note the User wrote against an example is their own work, so what it cites stays in its
     // reach, for its checks, Answers and assistant alike (#3083).
     const cited: CitedUnits[] = [];
@@ -3497,6 +3512,8 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     figures: (mindId) => readFigureSchedule(mindId).rows,
     personId: () => settings.get().user.personId,
+    keptInside: (mindId, documentId) =>
+      mayRecheckIn(mindId, documentId) ? null : (walledFolderName(documentId) ?? documentId),
   });
   const verificationOfNote = (mindId: string) =>
     content.read(mindId, (blocks) => (blocks.doc ? verificationOf(blocks.doc) : null));
@@ -3675,6 +3692,8 @@ export function createCore(adapters: CoreAdapters): Core {
     }
   };
   const unlinkFolder = (linkedFolderId: string, keep: readonly string[] = []) => {
+    const own = documents.linkedFolders.list().find((each) => each.id === linkedFolderId)?.folderId;
+    if (own) library.unbindLinkedFolder(linkedFolderId, own);
     documents.linkedFolders.remove(linkedFolderId, keep);
     outputs.forgetLinkedFolder(linkedFolderId);
   };
@@ -4071,6 +4090,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     prepare: prepareOrganize,
   });
+  /** The Folder a Linked folder's file is filed in as it arrives (ADR-0030); null for none. */
+  const boundFolderAt = (path: string) => library.boundTo(documents.foldersAbove(path));
+  /** Files a Linked folder's Document in its bound Folder, as the User's, unless it has a filing. */
+  const fileInBoundFolder = (documentId: string) => {
+    const [document] = documents.getMany([documentId]);
+    if (!document?.linkedFolderId || library.hasFiling(documentId)) return;
+    const groupId = boundFolderAt(document.path);
+    if (groupId !== null) library.file(documentId, groupId);
+  };
   const mindSources = createMindSources({
     dataDir,
     now,
@@ -5779,6 +5807,9 @@ export function createCore(adapters: CoreAdapters): Core {
     newId: () => crypto.randomUUID(),
     addHanded: (id, name, file, kind) => documents.addHanded(id, name, file, kind),
     readAgain: (path) => documents.checkNow(path),
+    placeOf: (path) => documents.placeOf(path),
+    filedIn: (documentId) => library.folderOfDocument(documentId),
+    filedOnArrival: (path) => boundFolderAt(path),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
@@ -5994,11 +6025,15 @@ export function createCore(adapters: CoreAdapters): Core {
         const behind = folders.some((id) => walledFolderId(id) !== null);
         const walled = new Set(behind ? [] : walledDocuments());
         const outside = filed.filter((id) => !walled.has(id));
-        if (!folderIds.includes(NOT_IN_A_FOLDER_ID)) return [...new Set(outside)];
         // The app's own examples are not the User's Documents, in no Folder or out of one (#3364).
         const leftOut = new Set([...walledDocuments(), ...examples.made().documentIds]);
-        const unfiled = library.unfiledDocumentIds().filter((id) => !leftOut.has(id));
-        return [...new Set([...outside, ...unfiled])];
+        const unfiled = folderIds.includes(NOT_IN_A_FOLDER_ID)
+          ? library.unfiledDocumentIds().filter((id) => !leftOut.has(id))
+          : [];
+        const reached = [...new Set([...outside, ...unfiled])];
+        // A file an agent handed over is no source for any agent until the User cites it (#3492).
+        const sources = new Set(documents.ids({ ids: reached, sources: true }));
+        return reached.filter((id) => sources.has(id));
       },
       noteTranscripts: () => noteTranscripts(db),
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
@@ -7375,6 +7410,14 @@ export function createCore(adapters: CoreAdapters): Core {
     libraryListsVersion: async (mindId) => libraryVersion(libraryListsOf(mindId)),
     getFigureSchedule: async (mindId) => readFigureSchedule(mindId),
     getFigureScheduleChange: async (mindId, since) => figureScheduleChangeFor(mindId, since),
+    judgedWithNow: async (mindId) => {
+      const mind = minds.get(mindId);
+      return content.peek(mind.id, (fragment) => ({
+        mindId: mind.id,
+        basis: fingerprintOfBlocks(fragment),
+        lines: Object.fromEntries(judgedNow(fragment)),
+      }));
+    },
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
 
     getSecretStorage: async () => secrets.status(),
@@ -7562,6 +7605,27 @@ export function createCore(adapters: CoreAdapters): Core {
 
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
+    createBoundFolder: async (folderId) => {
+      // A Linked folder's own Folder is known before a scan has made its row: binding works by id.
+      const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
+      const folder = linked
+        ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
+        : folders.get(folderId);
+      const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
+      if (already) return already;
+      const made = library.create({
+        name: folder.name.slice(0, 100),
+        description: "",
+        keepInside: true,
+      });
+      const bound = library.bind(made.id, folder.id);
+      for (const document of documents.list({ linkedFolderId: folder.linkedFolderId })) {
+        if (documents.foldersAbove(document.path).includes(folder.id)) {
+          fileInBoundFolder(document.id);
+        }
+      }
+      return bound;
+    },
     updateLibraryGroup: async (id, input) => library.update(id, input),
     moveLibraryGroups: async (moves) => library.moveGroups(moves),
     deleteLibraryGroup: async (id) => removeFolder(id),

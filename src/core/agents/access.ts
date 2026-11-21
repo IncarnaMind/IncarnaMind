@@ -752,7 +752,7 @@ export interface AgentAccessDeps {
   checkRecord(
     mindId: string,
     reach: ReadonlySet<string>,
-  ): Promise<Pick<CheckRecord, "models" | "sentences">>;
+  ): Promise<Pick<CheckRecord, "models" | "sentences"> & Partial<Pick<CheckRecord, "notChecked">>>;
   /** The Checks agents started, shared by every connection (`createCheckRuns`). */
   checkRuns: CheckRuns;
   /** What IncarnaMind worked out for agents, shared by every connection (`createAgentWorkings`). */
@@ -1623,7 +1623,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     const reached = reachedFolders(deps, pairing);
     const folders = deps.folders().filter((folder) => reached.has(folder.id));
     const unfiled = reached.has(NOT_IN_A_FOLDER_ID);
-    const none = { id: null, name: t("library.unsorted") };
+    const none = { id: null, name: "" };
     if (folders.length === 0 && !unfiled) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
@@ -1874,7 +1874,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         models: record.models,
         supported: counted("supported"),
         needLook: counted("look"),
-        notChecked: counted("toCheck"),
+        notChecked: counted("toCheck") + (record.notChecked ?? 0),
         canBeCited: counted("notYetCited"),
         ownViews: counted("ownViews"),
         claims,
@@ -2237,9 +2237,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           });
         if (reached.has(NOT_IN_A_FOLDER_ID)) {
           const documentIds = deps.documentsIn([NOT_IN_A_FOLDER_ID]);
+          // Not a Folder, so it has no Folder's name to say in a sentence: an agent that was
+          // given one wrote "in Not in a Folder" (#3487).
           folders.push({
             id: NOT_IN_A_FOLDER_ID,
-            name: t("library.unsorted"),
+            name: "",
             ...listed(documentIds),
             minds: minds
               .filter((mind) => mind.folderId === null && yours(mind))

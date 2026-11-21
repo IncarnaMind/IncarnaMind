@@ -13,6 +13,7 @@ const group = (id: string, name: string): LibraryGroup => ({
   description: "",
   parentId: null,
   countsOwnFiles: false,
+  boundFolderId: null,
   keepInside: false,
   createdAt: "",
   updatedAt: "",
@@ -67,6 +68,7 @@ const doc = (id: string, name: string, status: DocumentStatus = "ready"): Docume
   notCited: false,
   found: null,
   importedAs: null,
+  handedBy: null,
   createdAt: "",
   updatedAt: "",
 });
