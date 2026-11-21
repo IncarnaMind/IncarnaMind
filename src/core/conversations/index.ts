@@ -78,6 +78,16 @@ import type { Database, SqlValue } from "../storage";
 import { type CommandWindow, parseCommandWindow } from "../tools/commands/offered";
 import { excerptOf, findTerms, searchTerms, termQuery } from "../wordSearch";
 import { indexText, plainText } from "./search";
+import {
+  mergeStoredAnalyses,
+  mergeStoredCitations,
+  mergeStoredFigures,
+  mergeStoredSteps,
+  mergeStoredToolCalls,
+  PHASES,
+  storedList,
+  timeOrNull,
+} from "./storedJson";
 
 /** A Question to add, read from `askInConversation`'s input (see `parseQuestion`). */
 export interface QuestionInput {
@@ -225,19 +235,6 @@ const STATUSES: readonly AnswerStatus[] = ["streaming", "done", "stopped", "fail
 const SUPPORTS: readonly CitationSupport[] = ["tools", "structured-output", "none"];
 const isErrorKind = (value: string | null): value is ProviderErrorKind =>
   value !== null && Object.hasOwn(PROVIDER_ERROR_KINDS, value);
-
-const PHASES: Record<AnswerPhase, true> = {
-  "waiting-for-consent": true,
-  loading: true,
-  searching: true,
-  writing: true,
-  "checking-quotes": true,
-  "checking-figures": true,
-  "checking-claims": true,
-};
-
-const timeOrNull = (value: unknown): string | null =>
-  typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
 
 /** The uncited sentences an Answer's judgement marked (#3410), as stored: each one read whole. */
 const storedUncitedChecks = (stored: readonly unknown[]): UncitedCheck[] =>
@@ -396,16 +393,6 @@ function storedCoverage(value: unknown): { coverage: AnswerCoverage } | null {
 
 /** A conversation's name: the title the User typed, else its own. */
 const nameOf = (row: { title: string; auto_title: string }) => row.title || row.auto_title;
-
-/** The records in a list stored as JSON; none when it isn't one (written by a newer version, say). */
-function storedList<T>(value: string): T[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? (parsed.filter(isRecord) as T[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 /** An Answer's text as words are read from it: each figure marker its figure's shown text. */
 function shownText(text: string, figures: readonly MarkedFigure[]): string {
@@ -910,8 +897,8 @@ export function createConversations(db: Database, now: () => string) {
    * judge it. One of an Answer left being written never had its quote checked: it stays as it was.
    */
   db.transaction(() => {
-    for (const row of db.all<{ id: string; citations: string }>(
-      `SELECT id, citations FROM conversation_messages
+    for (const row of db.all<{ id: string; citations: string; steps: string | null }>(
+      `SELECT id, citations, steps FROM conversation_messages
        WHERE kind = 'answer' AND status <> 'streaming' AND citations LIKE '%"check":"checking"%'`,
     )) {
       const citations = storedList<MarkedCitation>(row.citations).map(
@@ -920,21 +907,39 @@ export function createConversations(db: Database, now: () => string) {
             ? { ...citation, check: "not-checked", checkReason: null }
             : citation,
       );
-      db.run("UPDATE conversation_messages SET citations = ?, updated_at = ? WHERE id = ?", [
-        JSON.stringify(citations),
-        now(),
-        row.id,
-      ]);
+      const steps = storedSteps(row.steps);
+      db.run(
+        "UPDATE conversation_messages SET citations = ?, steps = ?, updated_at = ? WHERE id = ?",
+        [
+          mergeStoredCitations(row.citations, citations),
+          steps ? mergeStoredSteps(row.steps, steps, storedSteps) : row.steps,
+          now(),
+          row.id,
+        ],
+      );
     }
   });
 
   /** Answers left being written by an earlier run of the app: nothing writes them any more. */
   db.transaction(() => {
-    for (const row of db.all<{ seq: number; text: string; figures: string }>(
+    for (const row of db.all<{
+      id: string;
+      seq: number;
+      text: string;
+      figures: string;
+      steps: string | null;
+    }>(
       `UPDATE conversation_messages SET status = 'stopped', updated_at = ?
-       WHERE kind = 'answer' AND status = 'streaming' RETURNING seq, text, figures`,
+       WHERE kind = 'answer' AND status = 'streaming' RETURNING id, seq, text, figures, steps`,
       [now()],
     )) {
+      const steps = storedSteps(row.steps);
+      if (steps) {
+        db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [
+          mergeStoredSteps(row.steps, steps, storedSteps),
+          row.id,
+        ]);
+      }
       indexMessage(row.seq, row.text, storedList<MarkedFigure>(row.figures));
     }
   });
@@ -945,16 +950,21 @@ export function createConversations(db: Database, now: () => string) {
    * says what it hadn't checked.
    */
   db.transaction(() => {
-    for (const row of db.all<{ id: string; tool_calls: string }>(
-      `SELECT id, tool_calls FROM conversation_messages
+    for (const row of db.all<{ id: string; tool_calls: string; steps: string | null }>(
+      `SELECT id, tool_calls, steps FROM conversation_messages
        WHERE kind = 'answer' AND tool_calls LIKE '%"running":true%'`,
     )) {
       const calls = storedList<AnswerToolCall>(row.tool_calls).map(unfinished);
-      db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
-        JSON.stringify(calls),
-        now(),
-        row.id,
-      ]);
+      const steps = storedSteps(row.steps);
+      db.run(
+        "UPDATE conversation_messages SET tool_calls = ?, steps = ?, updated_at = ? WHERE id = ?",
+        [
+          mergeStoredToolCalls(row.tool_calls, calls),
+          steps ? mergeStoredSteps(row.steps, steps, storedSteps) : row.steps,
+          now(),
+          row.id,
+        ],
+      );
     }
   });
 
@@ -1430,14 +1440,14 @@ export function createConversations(db: Database, now: () => string) {
            WHERE id = ?`,
           [
             write.text,
-            JSON.stringify(write.citations),
-            JSON.stringify(write.figures),
-            JSON.stringify(write.analyses),
-            JSON.stringify(write.toolCalls),
+            mergeStoredCitations(row.citations, write.citations),
+            mergeStoredFigures(row.figures, write.figures),
+            mergeStoredAnalyses(row.analyses, write.analyses),
+            mergeStoredToolCalls(row.tool_calls, write.toolCalls),
             write.support,
             write.textOrigin,
             ...readColumns(write.read),
-            JSON.stringify(write.steps),
+            mergeStoredSteps(row.steps, write.steps, storedSteps),
             outcome?.status ?? "streaming",
             outcome?.error?.kind ?? null,
             outcome?.error?.message ?? null,
@@ -1462,7 +1472,7 @@ export function createConversations(db: Database, now: () => string) {
       const row = liveMessage(answerId);
       if (row?.kind !== "answer") return null;
       db.run("UPDATE conversation_messages SET tool_calls = ?, updated_at = ? WHERE id = ?", [
-        JSON.stringify(toolCalls),
+        mergeStoredToolCalls(row.tool_calls, toolCalls),
         now(),
         answerId,
       ]);
@@ -1492,19 +1502,19 @@ export function createConversations(db: Database, now: () => string) {
       const row = liveMessage(answerId);
       if (row?.kind !== "answer" || row.text !== text) return null;
       const at = now();
+      const steps = storedSteps(row.steps);
+      const nextSteps =
+        steps === null
+          ? row.steps
+          : mergeStoredSteps(
+              row.steps,
+              uncited === undefined ? steps : { ...steps, uncitedChecks: [...uncited] },
+              storedSteps,
+            );
       db.run(
-        "UPDATE conversation_messages SET text = ?, citations = ?, updated_at = ? WHERE id = ?",
-        [marked ?? text, JSON.stringify(citations), at, answerId],
+        "UPDATE conversation_messages SET text = ?, citations = ?, steps = ?, updated_at = ? WHERE id = ?",
+        [marked ?? text, mergeStoredCitations(row.citations, citations), nextSteps, at, answerId],
       );
-      if (uncited !== undefined) {
-        const steps = storedSteps(row.steps);
-        if (steps) {
-          db.run("UPDATE conversation_messages SET steps = ? WHERE id = ?", [
-            JSON.stringify({ ...steps, uncitedChecks: uncited }),
-            answerId,
-          ]);
-        }
-      }
       return toAnswer(storedMessage(answerId));
     },
 
