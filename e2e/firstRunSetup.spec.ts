@@ -10,6 +10,7 @@ import {
   exampleRow,
   frontMindName,
   launchApp,
+  openInAppModel,
   openSettings,
   removeDataFolder,
   runCommand,
@@ -258,8 +259,12 @@ test("a pasted key works at once, More services… stays in the setup, and sorti
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
   const field = ai.getByTestId("setup-key");
-  // The AI the User already has comes first (#3362): its first choice takes the focus.
+  // The AI the User already has comes first (#3362): its first choice takes the focus, and a
+  // model in IncarnaMind is one quiet line until it is pressed (#3537).
   await expect(ai.getByTestId("setup-agent").first().locator("input")).toBeFocused();
+  await expect(field).toHaveCount(0);
+  await expect(ai.getByTestId("setup-in-app-open")).toHaveText("Use a model in IncarnaMind");
+  await openInAppModel(ai);
   await expect(ai.getByTestId("setup-keys-stay")).toHaveText("Keys stay on this computer.");
   await expect(ai.getByTestId("setup-next")).toBeDisabled();
   // The other ways: cloud first, a model on this computer last.
@@ -373,6 +378,7 @@ test("Settings › AI with nothing set: the lede, then No AI yet, whose Set up s
   await expect(dialog.getByTestId("setup-agent").first().locator("input")).toBeFocused();
   await shot(window, "setup-dialog-ai-en-1440");
   // Esc in More services goes back to the step; Esc again closes the dialog.
+  await openInAppModel(dialog);
   await dialog.getByTestId("setup-way-more-open").click();
   await expect(dialog.getByTestId("provider-directory-search")).toBeFocused();
   await window.keyboard.press("Escape");
@@ -482,6 +488,7 @@ test("an OpenAI key from the AI step is used by sorting and transcription, and a
   await acceptPlainTextKeys(window);
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
+  await openInAppModel(ai);
   await ai.getByTestId("setup-key").fill(OPENAI_KEY);
   await ai.getByTestId("setup-key").press("Enter");
   await expect(ai.getByTestId("setup-ai-works")).toBeVisible({ timeout: 20_000 });
@@ -538,6 +545,7 @@ test("in Local mode, every model step offers only this computer", async () => {
   const settings = await openSettings(window, "ai");
   await settings.getByTestId("ai-none-step-by-step").click();
   const ai = await atStep(window, "ai");
+  await openInAppModel(ai);
   await expect(ai.getByTestId("setup-local-mode")).toBeVisible();
   await expect(ai.getByTestId("setup-key")).toHaveCount(0);
   await expect(ai.locator('[data-testid^="setup-way-"]:not([data-testid$="-open"])')).toHaveText([
@@ -580,6 +588,16 @@ test("the setup holds at 900 and 1,280 px, in English and Chinese, light and dar
         await expect(panel.getByTestId("setup-next")).toBeInViewport();
         tops.push((await panel.locator("#setup-title").boundingBox())?.y ?? -1);
         await shot(window, `setup-${step}-${language}-${appearance}-${width}`);
+        if (step === "ai") {
+          // The model in IncarnaMind, pressed open, fits as the whole step did.
+          await openInAppModel(panel);
+          const opened = await window.evaluate(
+            () => document.documentElement.scrollWidth <= globalThis.innerWidth,
+          );
+          expect(opened, `${language} ${appearance} ${width} ${step} open`).toBe(true);
+          await expect(panel.getByTestId("setup-next")).toBeInViewport();
+          await shot(window, `setup-ai-open-${language}-${appearance}-${width}`);
+        }
         if (step !== "meetings") await panel.getByTestId("setup-skip").click();
       }
       expect(new Set(tops).size, `${language} ${appearance} ${width}`).toBe(1);
