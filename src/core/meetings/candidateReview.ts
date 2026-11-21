@@ -56,7 +56,9 @@ export function readMeetingCandidateReview(
     throw incomplete();
   }
   if (!Array.isArray(proposed)) throw incomplete();
-  const excerpts = proposed.map(candidateExcerpts).filter((entry) => entry !== null);
+  const excerpts = proposed
+    .map((entry) => candidateExcerpts(entry, input.utterances))
+    .filter((entry) => entry !== null);
   if (proposed.length && !excerpts.length) throw incomplete();
   const sources = bindCandidateSources(input.utterances, excerpts, input.established ?? []);
   if (!sources) throw incomplete();
