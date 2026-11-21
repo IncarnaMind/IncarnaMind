@@ -201,6 +201,20 @@ function purge(
     db.run(`DELETE FROM web_page_pictures WHERE document_id ${IN} AND deleted_at IS NOT NULL`, [
       list,
     ]);
+    // A file an outside agent handed over ends with its Document, its versions with it (#3505):
+    // `Documents.dropPurged` removes their copies from the data folder.
+    const handed = `(SELECT f.id FROM agent_files f WHERE f.deleted_at IS NULL AND f.document_id IN
+      (SELECT id FROM documents WHERE id ${IN} AND deleted_at IS NOT NULL AND purged_at IS NULL))`;
+    db.run(
+      `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
+       WHERE deleted_at IS NULL AND file_id IN ${handed}`,
+      [at, at, list],
+    );
+    db.run(`UPDATE agent_files SET deleted_at = ?, updated_at = ? WHERE id IN ${handed}`, [
+      at,
+      at,
+      list,
+    ]);
   }
   if (kind === "tag") db.run(`DELETE FROM document_tags WHERE tag_id ${IN}`, [list]);
   if (kind === "folder") db.run(`DELETE FROM deleted_folder_items WHERE folder_id ${IN}`, [list]);
@@ -622,6 +636,8 @@ export function createRecentlyDeleted(options: {
       // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
       const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
       for (const mindId of minds) content.forget(mindId);
+      // A handed file's earlier versions' Notes were hidden under its newest's; without the file they are listed (#3505).
+      if (refs.some(({ kind }) => kind === "document")) options.mindsChanged();
       const withTabs = refs.flatMap(({ kind, id }) =>
         kind === "mind" || kind === "canvas" ? [id] : [],
       );
