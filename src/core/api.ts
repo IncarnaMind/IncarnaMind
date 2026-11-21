@@ -3815,12 +3815,23 @@ export type CallWatchProblem = "no-pactl" | "not-on-windows" | "unavailable";
 
 /** An offer to take notes in a call that isn't on the calendar (#208): a call app took the microphone. */
 export interface CallOffer {
+  kind: "call";
   id: string;
   /** The call app's id (src/shared/meetingApps.ts). */
   app: string;
   /** When the app took the microphone (ISO 8601). */
   at: string;
 }
+
+export interface CalendarOffer {
+  kind: "calendar";
+  id: string;
+  eventId: string;
+  title: string;
+  startsAt: string;
+}
+
+export type MeetingOffer = CallOffer | CalendarOffer;
 
 /** A Meeting taken from a call offer whose call app let go of the microphone: it stops at `stopsAt` (ISO 8601) unless kept. */
 export interface CallEnding {
@@ -3831,7 +3842,7 @@ export interface CallEnding {
 
 /** The offers to take notes as they are now (#208). */
 export interface MeetingOffers {
-  offer: CallOffer | null;
+  offer: MeetingOffer | null;
   ending: CallEnding | null;
   /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
   problem: CallWatchProblem | null;
@@ -15392,11 +15403,11 @@ export interface CoreApi {
   addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
   /** The live Meeting's kept unsent line, for a panel that opens again to show it; null with none. */
   getQuickNoteDraft(meetingId: string): Promise<{ text: string; atMs: number | null } | null>;
-  /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
+  /** The offer to take notes in a calendar meeting or call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
-   * Take notes: records the call offered in a new Note, opened in the main window. The click is
-   * what records: nothing else starts a Meeting from an offer. NotFoundError once the offer is gone.
+   * Take notes opens the event’s Note (a new Note for an ad-hoc call) and starts recording.
+   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers.
    */
   takeMeetingOffer(offerId: string): Promise<Meeting>;
   /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
@@ -15747,6 +15758,7 @@ export interface CoreEvents {
    * show it (#208). Home, which holds the offer with Take notes, comes in front.
    */
   "meetings.offerShown": null;
+  "meetings.offerLinkFailed": null;
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.

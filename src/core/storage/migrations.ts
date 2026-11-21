@@ -3324,6 +3324,23 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 153,
+    description: "Scheduled meeting reminders and calendar-scoped fallback event keys",
+    sql: `
+      ALTER TABLE calendar_events ADD COLUMN offered_for_start TEXT;
+
+      -- A legacy Note with no invite UID has no source calendar. Its saved invite stays with it.
+      UPDATE calendar_events AS e
+        SET event_key = json_array('calendar-local', e.calendar_id, e.external_id)
+        FROM calendars AS c JOIN calendar_accounts AS a ON a.id = c.account_id
+        WHERE e.calendar_id = c.id AND (
+          instr(e.event_key, a.service || ':' || e.external_id || '|') = 1
+          OR (a.service = 'mac' AND instr(e.external_id, '|') > 0 AND
+            instr(e.event_key, 'mac:' || substr(e.external_id, 1, instr(e.external_id, '|'))) = 1)
+        );
+    `,
+  },
+  {
+    version: 154,
     description: "A file an outside agent cited by its path, from outside the Library (#3509)",
     sql: `
       -- The agent that cited the file by its path, as its pairing was named then: the Document is
