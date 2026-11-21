@@ -15,6 +15,15 @@ type AskableDocument = Pick<
   "id" | "name" | "title" | "status" | "fileStatus" | "notCited"
 >;
 
+/**
+ * The Documents a Question, or a hand-over to the User's own AI, can be about: a missing file's
+ * text is left out of search, and a Document the User kept as their own workings is never cited.
+ */
+export const askableDocuments = <D extends AskableDocument>(own: readonly D[]): D[] =>
+  own.filter(
+    (each) => isSearchable(each.status) && each.fileStatus !== "missing" && !each.notCited,
+  );
+
 export function readyQuestionOf({
   own,
   example,
@@ -41,11 +50,7 @@ export function readyQuestionOf({
       reading,
     };
   }
-  // A missing file's text is left out of search, and a Document the User kept as their own
-  // workings is never cited: a Question about either one could not be answered and cited.
-  const askable = own.filter(
-    (each) => isSearchable(each.status) && each.fileStatus !== "missing" && !each.notCited,
-  );
+  const askable = askableDocuments(own);
   if (askable.length === 0) return { ready: null, reading };
   // One Document is asked about by name; more are all asked about alike, so no one of them
   // reads as the one the app picked (#2270).

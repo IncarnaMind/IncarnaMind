@@ -6437,6 +6437,7 @@ export const en = {
   "error.agent.cantOrganize":
     "This agent can’t organize these Documents with its current access. Check its shared Folders in agent settings.",
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
+  "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.agent.nameEmpty": "Give the agent a name.",
   "error.firstRun.work": "Those aren’t kinds of work the setup asks about.",
@@ -7021,12 +7022,13 @@ export const en = {
   // The card for a User whose own AI is connected (#3362).
   "firstOpen.step.agentAsk.title": "Ask your AI for a document",
   "firstOpen.step.agentAsk.done": "Your AI wrote a note",
-  "firstOpen.agent.paste": "Paste this into {agent}:",
-  "firstOpen.agent.line":
-    "Write a summary of my documents as a new note in IncarnaMind, then check it against them.",
+  "firstOpen.agent.line": "Write a short summary of {document} as a new note in IncarnaMind.",
+  "firstOpen.agent.noDocument": "No Documents yet. Add one, and your AI can write a note about it.",
+  "firstOpen.agent.unshared":
+    "No connected AI can read your Documents yet. Share them in its agent settings.",
   "firstOpen.step.agentLook.title": "See what needs a look",
   "firstOpen.step.agentLook.done": "Saw what needs a look",
-  "firstOpen.step.agentLook.waiting": "Its marks show here once {agent} has checked the note.",
+  "firstOpen.step.agentLook.waiting": "What needs a look shows here once the note is checked.",
   "firstOpen.step.agentLook.look.one": "1 sentence needs a look.",
   "firstOpen.step.agentLook.look": "{count} sentences need a look.",
   "firstOpen.step.agentLook.all": "All of it is supported.",
