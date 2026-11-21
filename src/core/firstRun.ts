@@ -1,7 +1,7 @@
 /**
  * The first run's setup (#3296): a fresh profile opens on it, before the example, to ask what the
- * User works on and set up the three models. Nothing is kept or made until it is finished or
- * skipped through, so a setup left halfway shows again at the next launch.
+ * User works on and set up their AI and meeting transcription. A setup left halfway shows again
+ * at the next launch.
  */
 import { keptOrder } from "../shared/keptOrder";
 import { type Examples, type FirstRunSetup, WORK_KINDS, type WorkKind } from "./api";
