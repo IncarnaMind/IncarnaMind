@@ -242,10 +242,10 @@ export function createAgentSetup(options: AgentSetupOptions) {
     connected: (pairingId) => void removeBundle(pairingId).catch(options.reportError),
     disconnected: removeBundle,
   });
+  const waiting = new Set(options.agents.settings().awaitingInstall);
   readdir(options.tempDir)
-    .then((names) => {
-      const waiting = new Set(options.agents.settings().awaitingInstall);
-      return Promise.all(
+    .then((names) =>
+      Promise.all(
         names
           .filter(
             (name) =>
@@ -253,8 +253,8 @@ export function createAgentSetup(options: AgentSetupOptions) {
               !waiting.has(name.slice(BUNDLE_FOLDER_PREFIX.length)),
           )
           .map((name) => rm(join(options.tempDir, name), { recursive: true, force: true })),
-      );
-    })
+      ),
+    )
     .catch(options.reportError);
   const pathOf = (file: SettingsFile) => join(options.home, ...file.path);
 
