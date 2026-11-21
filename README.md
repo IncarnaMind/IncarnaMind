@@ -70,7 +70,7 @@ npm install && npm run dev
 
 | | |
 |---|---|
-| **Your AI writes here** | Connect [Claude Code](docs/claude-code.md) or [another agent](docs/agents.md) to the Folders you choose. What it writes opens here as a Note. A Note is a notebook for one topic. The agent's changes to your own Notes wait for you. |
+| **Your AI writes here** | Connect [Claude Code](docs/claude-code.md) or [another agent](docs/agents.md) to all your Documents, or the Folders you choose. What it writes opens here as a Note. A Note is a notebook for one topic. The agent's changes to your own Notes wait for you. |
 | **Check** | Check a Note, or a PDF, Word file, deck or workbook someone sent you, against your files, sentence by sentence. Only what needs a look is marked, with the page that decides it, and one click hands the sentence to your AI to fix. Figures over a whole sheet are worked out again on your computer, with the working shown. |
 | **Library** | Your files, read where they are: PDF, Word, PowerPoint, Excel and more. Ask them all at once, every page cited. |
 | **Sort** | Link your folders. Organize suggests Folders and Tags for you to accept. |

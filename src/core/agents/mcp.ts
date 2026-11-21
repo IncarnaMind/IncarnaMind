@@ -61,6 +61,12 @@ const folderIds = z
 
 const location = z.string().nullable();
 
+/** The one line a result carries when the User has more than this agent was given (#3544). */
+const notShared = z
+  .string()
+  .optional()
+  .describe("Present when the User has more that isn't shared with you: pass it on if it matters.");
+
 const timedText = z
   .string()
   .optional()
@@ -200,6 +206,7 @@ export function createAgentServer(
         passages: z.array(passageOut),
         page: z.number(),
         more: z.boolean(),
+        notShared,
       }),
       annotations: READ_ONLY,
       _meta: ALWAYS_LOAD,
@@ -372,7 +379,7 @@ export function createAgentServer(
     {
       title: "List Notes",
       description:
-        "List the shared Folders with their Documents and the User's Notes. What is in no Folder is one entry with an empty name; its Notes are only yours.",
+        "List the shared Folders with their Documents and the User's Notes. What is in no Folder is one entry with an empty name.",
       inputSchema: z.object({}),
       outputSchema: z.object({
         folders: z.array(
@@ -404,6 +411,7 @@ export function createAgentServer(
               .optional(),
           }),
         ),
+        notShared,
       }),
       annotations: READ_ONLY,
     },

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  ALL_SHARED_ID,
   type Document,
   type DocumentGroupAssignment,
   type LibraryGroup,
@@ -7,6 +8,9 @@ import {
 } from "../../src/core/api";
 import {
   agentFolderRows,
+  choiceOfAll,
+  foldersReached,
+  leftOutOfAll,
   onlyNotInAFolder,
   projectPlaces,
   sharedInside,
@@ -202,5 +206,37 @@ describe("a Project in the list (#3507)", () => {
       ["legal", null],
       [NOT_IN_A_FOLDER_ID, null],
     ]);
+  });
+});
+
+describe("all of the User's Documents and notes (#3544)", () => {
+  const coast = folder("coast", "Coast");
+  const bays = { ...folder("bays", "Bays"), parentId: "coast" };
+  const matter = { ...folder("matter", "Matter"), keepInside: true };
+  const inside = { ...folder("inside", "Inside the matter"), parentId: "matter" };
+  const quay = { ...folder("quay", "Quay"), keepInside: true, boundFolderId: "disk-quay" };
+  const open = { ...folder("yard", "Yard"), boundFolderId: "disk-yard" };
+
+  test("reaches every Folder outside a wall, as the core's reach does, and none behind one", () => {
+    expect(foldersReached([coast, bays, matter, inside, quay, open], [ALL_SHARED_ID])).toEqual([
+      "coast",
+      "bays",
+      "yard",
+    ]);
+  });
+
+  test("going to Choose Folders ticks what all reaches now: the outermost Folders and Not in a Folder", () => {
+    const rows = agentFolderRows([coast, bays, matter, inside], [], [], true);
+    expect(choiceOfAll([coast, bays, matter, inside], rows)).toEqual(["coast", NOT_IN_A_FOLDER_ID]);
+    expect(choiceOfAll([coast], agentFolderRows([coast], [doc()], [], false))).toEqual([
+      "coast",
+      NOT_IN_A_FOLDER_ID,
+    ]);
+  });
+
+  test("says which Folders all leaves out: Projects alone, or any Folder that keeps its work inside it", () => {
+    expect(leftOutOfAll([coast, open])).toBe("none");
+    expect(leftOutOfAll([coast, quay])).toBe("projects");
+    expect(leftOutOfAll([coast, quay, matter])).toBe("walled");
   });
 });

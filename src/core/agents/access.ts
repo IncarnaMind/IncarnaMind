@@ -7,7 +7,11 @@
  * and it reaches only the Documents in the pairing's Folders and those
  * Folders' Minds, and, if Not in a Folder is one of them, the Documents in no
  * Folder at the time of each call and the Minds there the pairing wrote itself
- * (#3364), never another's. Nothing here changes the
+ * (#3364), never another's; given all of the User's Documents and Notes, it
+ * reaches every Folder outside a wall at the time of each call, and every Mind
+ * in no Folder but the examples (#3544). Where a result can read as "nothing is
+ * there", it says in one line, naming nothing, when the User has more than the
+ * pairing reaches (`holdsMore`). Nothing here changes the
  * User's Documents, and a Mind only through `propose_changes`, which the User
  * allows per pairing and whose changes wait for them as Proposals (#352,
  * ./proposals). With the same leave `create_mind` writes a new Mind (#3306):
@@ -68,6 +72,7 @@ import {
   type AgentNoteChange,
   type AgentOpened,
   type AgentToolName,
+  ALL_SHARED_ID,
   BLOCK_ID_ATTRIBUTE,
   type Citation,
   type CitationLocation,
@@ -122,7 +127,7 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
-import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
+import { AgentRefusedError, MAX_PATH_CHARS, NotReachedError, text, whole } from "./refusals";
 import type { AgentRequests, RequestNamed } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
@@ -171,6 +176,8 @@ export interface AgentSearchResult {
   page: number;
   /** There are more results on the next page. */
   more: boolean;
+  /** Present when the User has more than the agent reaches (`holdsMore`): one line, naming nothing. */
+  notShared?: string;
 }
 
 export interface AgentReadInput {
@@ -275,6 +282,8 @@ export interface AgentMindList {
     /** The Canvases in it the agent reaches (#3406), when there are any. */
     canvases?: AgentCanvasListed[];
   }[];
+  /** As `AgentSearchResult.notShared`. */
+  notShared?: string;
 }
 
 /** A Meeting or voice memo a Note holds, as `list_minds` marks the Note (#3384). */
@@ -718,6 +727,8 @@ export interface AgentAccessDeps {
   opened(opened: AgentOpened): void;
   /** The Minds there are. */
   minds(): Mind[];
+  /** The examples' Minds: never the User's, so no share of everything reaches one in no Folder. */
+  exampleNotes(): readonly string[];
   /** The Mind a Mind was duplicated from; null for one that is no copy. */
   duplicatedFrom(mindId: string): string | null;
   /** These Documents' names and kinds, those that are live, in this order. */
@@ -1143,20 +1154,56 @@ interface Done<T> {
 
 type ReachDeps = Pick<
   AgentAccessDeps,
-  "foldersInScope" | "foldersInside" | "mindBlocks" | "duplicatedFrom"
+  | "folders"
+  | "wallOf"
+  | "foldersInScope"
+  | "foldersInside"
+  | "mindBlocks"
+  | "duplicatedFrom"
+  | "exampleNotes"
 >;
+
+/** The pairing was given all of the User's Documents and Notes, those added later too (#3544). */
+export const sharesAll = (pairing: Pick<AdmittedPairing, "folderIds">): boolean =>
+  pairing.folderIds.includes(ALL_SHARED_ID);
 
 /**
  * Everything a pairing reaches, by Folder (#3394): each Folder it was granted, as walls allow, with
  * the Folders inside it up to the next wall, and `NOT_IN_A_FOLDER_ID` when it was granted that.
- * Its Documents and its Notes are those in these Folders, and a meeting goes with its Note.
+ * Given all, every Folder outside a wall now, and `NOT_IN_A_FOLDER_ID` (#3544). Its Documents and
+ * its Notes are those in these Folders, and a meeting goes with its Note.
  */
 export function reachedFolders(deps: ReachDeps, pairing: AdmittedPairing): Set<string> {
+  if (sharesAll(pairing)) {
+    return new Set([
+      ...deps
+        .folders()
+        .filter((folder) => deps.wallOf(folder.id) === null)
+        .map((folder) => folder.id),
+      NOT_IN_A_FOLDER_ID,
+    ]);
+  }
   return new Set(
     deps
       .foldersInScope(pairing.folderIds)
       .flatMap((id) => (id === NOT_IN_A_FOLDER_ID ? [id] : deps.foldersInside(id))),
   );
+}
+
+/**
+ * The Folders a pairing's reach is named by, as the User granted them: given all, those of the
+ * Folders it reaches that are inside none of them, a Folder inside one being part of it.
+ */
+function grantedFolders(deps: ReachDeps, pairing: AdmittedPairing): string[] {
+  if (!sharesAll(pairing)) return deps.foldersInScope(pairing.folderIds);
+  const reached = reachedFolders(deps, pairing);
+  return deps
+    .folders()
+    .filter(
+      (folder) =>
+        reached.has(folder.id) && (folder.parentId === null || !reached.has(folder.parentId)),
+    )
+    .map((folder) => folder.id);
 }
 
 /**
@@ -1177,17 +1224,21 @@ function pairingWrote(deps: ReachDeps, pairing: AdmittedPairing, mindId: string)
 
 /**
  * Whether `read_mind` reads this Mind for the pairing: in a Folder it reaches, or in none when it
- * wrote it there. `reached`: the pairing's `reachedFolders`, when the caller has them.
+ * wrote it there, or when it was given all and the Mind is no example's. `reached`: the pairing's
+ * `reachedFolders`, when the caller has them.
  */
 export const pairingReaches = (
   deps: ReachDeps,
   pairing: AdmittedPairing,
   mind: Mind,
   reached: ReadonlySet<string> = reachedFolders(deps, pairing),
-): boolean =>
-  mind.folderId === null
-    ? reached.has(NOT_IN_A_FOLDER_ID) && pairingWrote(deps, pairing, mind.id)
-    : reached.has(mind.folderId);
+): boolean => {
+  if (mind.folderId !== null) return reached.has(mind.folderId);
+  if (!reached.has(NOT_IN_A_FOLDER_ID)) return false;
+  return sharesAll(pairing)
+    ? !deps.exampleNotes().includes(mind.id)
+    : pairingWrote(deps, pairing, mind.id);
+};
 
 /**
  * The Documents filed in these Folders, of those the pairing reaches, a Transcript among them only
@@ -1211,13 +1262,41 @@ export function documentsForPairing(
         // No Note it wrote is older than the pairing, which spares reading the others' records.
         return (
           !mind ||
-          (mind.folderId === null && mind.createdAt < pairing.createdAt) ||
+          (mind.folderId === null && !sharesAll(pairing) && mind.createdAt < pairing.createdAt) ||
           !pairingReaches(deps, pairing, mind, reached)
         );
       })
       .map(({ documentId }) => documentId),
   );
   return documentIds.filter((id) => !apart.has(id));
+}
+
+/**
+ * Whether the User has a Folder, a Document or a Note the pairing doesn't reach (#3544): the one
+ * thing an agent is told of what it wasn't given, never which, how many or of what kind. The
+ * examples, Recently deleted and the files agents hand over count for nothing: no share reaches
+ * them. A meeting's Transcript counts as its Note does.
+ */
+export function holdsMore(
+  deps: AgentAccessDeps,
+  pairing: AdmittedPairing,
+  reached: ReadonlySet<string> = reachedFolders(deps, pairing),
+): boolean {
+  if (deps.folders().some((folder) => !reached.has(folder.id))) return true;
+  if (!reached.has(NOT_IN_A_FOLDER_ID)) {
+    const transcripts = new Set(deps.noteTranscripts().map((each) => each.documentId));
+    if (deps.documentsIn([NOT_IN_A_FOLDER_ID]).some((id) => !transcripts.has(id))) return true;
+  }
+  const examples = new Set(deps.exampleNotes());
+  return deps
+    .minds()
+    .some(
+      (mind) =>
+        mind.folderId === null &&
+        isListedMind(mind) &&
+        !examples.has(mind.id) &&
+        !pairingReaches(deps, pairing, mind, reached),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1341,13 +1420,29 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     } catch (error) {
       if (error instanceof AgentRefusedError) {
         record(error.problem === "failed" ? "failed" : "refused", { problem: error.problem });
-        throw error;
+        throw error instanceof NotReachedError ? withNotShared(error) : error;
       }
       deps.reportError(error);
       record("failed", { problem: "failed" });
       throw new AgentRefusedError("failed", t("agents.problem.failed"));
     }
   }
+
+  /** The line that the User has more than the pairing reaches now, read after any wait; null if not. */
+  const notShared = (): string | null => {
+    try {
+      return holdsMore(deps, deps.admit(pairingId)) ? t("agents.notShared") : null;
+    } catch (error) {
+      if (error instanceof AgentRefusedError) return null;
+      throw error;
+    }
+  };
+
+  /** A refusal that found nothing of what was named, with `notShared`'s line where it has one. */
+  const withNotShared = (error: AgentRefusedError): AgentRefusedError => {
+    const line = notShared();
+    return line === null ? error : new AgentRefusedError(error.problem, `${error.message} ${line}`);
+  };
 
   /**
    * The Documents a call may read: everything its pairing reaches, or only what the Folders it
@@ -1407,7 +1502,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     const passage =
       deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
     if (!passage || !inScope.has(passage.documentId)) {
-      throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+      throw new NotReachedError(t("agents.problem.not-found"));
     }
     return passage;
   };
@@ -1598,7 +1693,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const mindInScope = (pairing: AdmittedPairing, mindId: string): Mind => {
     const mind = deps.minds().find((each) => each.id === mindId);
     if (!mind || !reaches(pairing, mind)) {
-      throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+      throw new NotReachedError(t("agents.problem.not-found"));
     }
     return mind;
   };
@@ -1706,6 +1801,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
     if (folderId === undefined) {
+      // Given all, a Note goes where a Note the User makes goes, until the agent names a Folder.
+      if (sharesAll(pairing)) return none;
       const [only, ...others] = folders.filter((folder) => granted.includes(folder.id));
       if (only && others.length === 0) return only;
       if (!only) return none;
@@ -1817,7 +1914,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           mindIds: [...reach.mindIds].filter((id) => id !== checking),
         };
         // Named as the User granted them: a Folder inside one is part of it.
-        const granted = deps.foldersInScope(pairing.folderIds);
+        const granted = grantedFolders(deps, pairing);
         const names = [
           ...deps
             .folders()
@@ -2042,7 +2139,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const page = whole(input?.page, "page", 1, MAX_SEARCH_PAGE, 1);
         const documentIds = scopeOf(pairing, input?.folderIds);
         if (documentIds.length === 0) {
-          return { result: { passages: [], page, more: false }, count: 0, documentIds: [] };
+          const line = notShared();
+          return {
+            result: { passages: [], page, more: false, ...(line !== null && { notShared: line }) },
+            count: 0,
+            documentIds: [],
+          };
         }
         // Enough for this page and one more result, to know if there is a next page.
         const wanted = SEARCH_PAGE_SIZE * page + 1;
@@ -2062,8 +2164,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const shown = ranked.slice(SEARCH_PAGE_SIZE * (page - 1), SEARCH_PAGE_SIZE * page);
         const terms = keywordTerms(words);
         const passages = shown.map((passage) => asResult(granted, passage, terms));
+        // Told with every page: only the agent can tell whether its Passages answer the User.
+        const line = holdsMore(deps, granted) ? t("agents.notShared") : null;
         return {
-          result: { passages, page, more: ranked.length > SEARCH_PAGE_SIZE * page },
+          result: {
+            passages,
+            page,
+            more: ranked.length > SEARCH_PAGE_SIZE * page,
+            ...(line !== null && { notShared: line }),
+          },
           count: passages.length,
           documentIds: passages.map((passage) => passage.documentId),
         };
@@ -2089,7 +2198,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         } else {
           documentId = text(input?.documentId, "passageId or documentId", 200);
           if (!scopeOf(pairing, undefined).includes(documentId)) {
-            throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+            throw new NotReachedError(t("agents.problem.not-found"));
           }
           from = 0;
           to = after;
@@ -2098,7 +2207,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const read = deps.passagesBetween(documentId, Math.max(0, from - 1), to + 1);
         const inRange = read.filter((each) => each.position >= from && each.position <= to);
         const first = inRange[0];
-        if (!first) throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+        if (!first) throw new NotReachedError(t("agents.problem.not-found"));
         const previous = read.find((each) => each.position === from - 1)?.passageId ?? null;
         const next = read.find((each) => each.position === to + 1)?.passageId ?? null;
         return {
@@ -2186,7 +2295,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           read.push(passage.documentId);
           const quote = text(record.quote, "quote", MAX_QUOTE_CHARS);
           const citation = deps.citing.citeQuote(passage.passageId, quote);
-          if (!citation) throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          if (!citation) throw new NotReachedError(t("agents.problem.not-found"));
           const check =
             citation.check === "found" || citation.check === "cant-check"
               ? citation.check
@@ -2281,7 +2390,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const token = [...tag.matchAll(CITATION_TOKEN)][0]?.[1] ?? tag;
         const kept = deps.citations.find(pairing.id, token);
         if (!kept || !usable(new Set(scopeOf(pairing, undefined)), kept.documentId)) {
-          throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          throw new NotReachedError(t("agents.problem.not-found"));
         }
         const now = deps.recheck({
           documentId: kept.documentId,
@@ -2291,7 +2400,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           location: kept.location,
         });
         if (now.contentHash === null) {
-          throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          throw new NotReachedError(t("agents.problem.not-found"));
         }
         const location = now.location ?? kept.location;
         const where = label(location, now.pageFrom, now.pageTo, kept.documentId, kept.quote);
@@ -2433,13 +2542,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             name: "",
             ...listed(documentIds),
             minds: minds
-              .filter((mind) => mind.folderId === null && yours(mind))
-              .map((mind) => row(mind, true, new Set(documentIds))),
+              .filter(
+                (mind) =>
+                  mind.folderId === null &&
+                  (sharesAll(pairing) ? reaches(pairing, mind, reached) : yours(mind)),
+              )
+              .map((mind) => row(mind, yours(mind), new Set(documentIds))),
             ...canvasesIn(NOT_IN_A_FOLDER_ID),
           });
         }
+        const line = holdsMore(deps, pairing, reached) ? t("agents.notShared") : null;
         return {
-          result: { folders },
+          result: { folders, ...(line !== null && { notShared: line }) },
           count: folders.reduce((sum, folder) => sum + folder.minds.length, 0),
           documentIds: [],
         };

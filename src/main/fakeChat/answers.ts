@@ -40,10 +40,8 @@
  * with its marker; one that also asks for a share (占比) gets the earlier number's share of the
  * later one as a second figure. One that asks what drives 2027 EBITDA (2027 年的 EBITDA 由什么驱动)
  * traces it through its workbook's formulas and works it out again at 3% growth (#2347).
- * As models did (#1172), one for a "short summary" (简短的摘要) ends with a
- * paragraph pointing to an earlier Answer, and one about "home working"
- * (居家办公) asked beside a Mind ends by setting the Documents apart from it,
- * unless the instructions say that Mind is an example.
+ * As models did (#1172), one about "home working" (居家办公) asked beside a Mind ends by
+ * setting the Documents apart from it, unless the instructions say that Mind is an example.
  * One that asks about the minutes (纪要) searches only the first listed Document whose name says
  * so, by that name, as a model that takes a name for one Document does (#1512).
  * Before its search it reasons, a line that quotes the Question, as a model
@@ -553,14 +551,10 @@ function minutesNamed(prompt: Prompt, question: string): string | undefined {
   return namesIn(systemOf(prompt)).find((name) => MINUTES.test(name.replace(/ \(“[^”]*”\)$/, "")));
 }
 
-const SHORT_SUMMARY = /\bshort summary\b|简短的摘要/i;
 const HOME_WORKING = /\bhome working\b|居家办公/i;
 
 function withAsides(prompt: Prompt, question: string, answer: string): string {
   const chinese = /\p{Script=Han}/u.test(question);
-  if (SHORT_SUMMARY.test(question)) {
-    return `${answer}\n\n${chinese ? "居家办公的规定见上一条回答。" : "Notice, holiday and home working are covered in my earlier answer."}`;
-  }
   const beside = /<mind name="([^"]*)">/.exec(
     userText(prompt.find((message) => message.role === "user")),
   )?.[1];

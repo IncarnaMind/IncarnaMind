@@ -12,6 +12,7 @@
  */
 import type { MessageKey, MessageParams } from "../shared/i18n";
 import { isTagColour } from "../shared/tagColours";
+import { endPurgedHanded } from "./agentFiles/kept";
 import type { TagAsShown } from "./api";
 import {
   DELETED_KINDS,
@@ -218,6 +219,8 @@ function purge(
      WHERE id ${IN} AND deleted_at IS NOT NULL AND purged_at IS NULL`,
     [at, at, list],
   );
+  // A file an outside agent handed over ends with its Document: `Documents.dropPurged` removes its copies (#3505).
+  if (kind === "document") endPurgedHanded(db, at);
 }
 
 export function purgeExpired(db: Database, now: string, documentText: DocumentText): void {
@@ -622,6 +625,8 @@ export function createRecentlyDeleted(options: {
       // Only once purged for good: a rollback keeps the Minds, and what still waits in them.
       const minds = refs.flatMap(({ kind, id }) => (kind === "mind" ? [id] : []));
       for (const mindId of minds) content.forget(mindId);
+      // A handed file's earlier versions' Notes were hidden under its newest's; without the file they are listed (#3505).
+      if (refs.some(({ kind }) => kind === "document")) options.mindsChanged();
       const withTabs = refs.flatMap(({ kind, id }) =>
         kind === "mind" || kind === "canvas" ? [id] : [],
       );

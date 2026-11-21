@@ -12694,6 +12694,14 @@ export interface ListCalendarEventsInput {
 export const NOT_IN_A_FOLDER_ID = "not-in-a-folder";
 
 /**
+ * Stands for all of the User's Documents and Notes, those added later too, where a pairing's
+ * Folders go (#3544): every Folder outside a work wall at the time of each call, the Documents
+ * and Notes in no Folder, and never the examples. A walled Folder is never part of it, and can't
+ * be shared with it. An older version drops it as a Folder that doesn't exist, which shares less.
+ */
+export const ALL_SHARED_ID = "all";
+
+/**
  * An outside agent the User connected: an AI agent they run themselves, such
  * as Claude Code or Codex, that uses IncarnaMind as an MCP server. One pairing
  * per agent, on this device only: the agent runs on this computer.
@@ -12706,8 +12714,8 @@ export interface AgentPairing {
   name: string;
   /**
    * The Folders it may search and read, with their Minds, and `NOT_IN_A_FOLDER_ID` for the
-   * Documents in no Folder at the time of each call, without their Minds. None until the
-   * User picks some.
+   * Documents in no Folder at the time of each call, without their Minds; or `ALL_SHARED_ID`
+   * alone. None until the User chooses.
    */
   folderIds: string[];
   /** The agent it was set up in, e.g. "codex"; null for one set up by hand. */
@@ -12759,7 +12767,7 @@ export interface AgentDisconnected {
 export interface ConnectAgentInput {
   /** Trimmed; must not be empty, nor another pairing's name (ignoring case). */
   name: string;
-  /** Folders (by id, or `NOT_IN_A_FOLDER_ID`) it may read; none by default. */
+  /** Folders (by id, or `NOT_IN_A_FOLDER_ID`), or `ALL_SHARED_ID`, it may read; none by default. */
   folderIds?: string[];
   /** The agent it is set up in, e.g. "codex": lower-case letters, digits and hyphens. */
   client?: string;
@@ -12905,7 +12913,7 @@ export type AgentSetupResult =
 
 export interface SetUpAgentInput {
   client: AgentClientId;
-  /** The Folders it may read; the User picks at least one. */
+  /** The Folders it may read, or `ALL_SHARED_ID`; the User picks at least one. */
   folderIds: string[];
   /** The name the User gave it ("Other agent" only); otherwise its own name. */
   name?: string;

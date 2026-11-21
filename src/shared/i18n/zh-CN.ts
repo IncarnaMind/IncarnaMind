@@ -6097,6 +6097,8 @@ export const zhCN = {
   "error.restore.folderLimit": "资料库最多可有 100 个文件夹，请先删除一个，再恢复。",
   "error.restore.notDeleted": "“{name}”尚未删除，无法彻底删除。",
   "error.history.gone": "该版本已不再保留。",
+  "error.linkedFolder.inData":
+    "这个文件夹是 IncarnaMind 自己的数据文件夹，或在其中，无法关联。请选择你自己的文件夹。",
   "error.linkedFolder.keep": "IncarnaMind 无法确定要保留哪些文档。",
   "error.linkedFolder.notThis": "这个文件夹中没有“{name}”的文件。请选择存放这些文件的文件夹。",
   "error.linkedFolder.overlaps": "这个文件夹与某个关联文件夹重叠。请选择“{name}”现在所在的文件夹。",
@@ -7980,6 +7982,8 @@ export const zhCN = {
     "等待期间，这个智能体能读取的内容有了变化，因此没有返回任何内容。请再调用一次。",
   "agents.problem.wallShared": "“{folder}”只在本文件夹内工作，不能和其他文件夹共用一个智能体",
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
+  "agents.notShared":
+    "用户在 IncarnaMind 中还有未共享给你的内容。如果用户问的内容不在这里，请告诉用户可以在“设置 → 智能体”中共享更多内容给你。",
   "agents.problem.chat-not-ready":
     "IncarnaMind 还没有可用的 AI 模型。在“设置 › AI”中设置一个，或改为搜索并引用。",
   "agents.problem.chat-consent":
@@ -8131,10 +8135,10 @@ export const zhCN = {
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",
   "agents.settings.lead": "在 Claude、Codex 或 Cursor 里问你的文档。",
-  "agents.settings.intro": "让你常用的 AI 工具读取你选定的文件夹。",
+  "agents.settings.intro": "让你常用的 AI 工具读取你的文档。",
   "agents.settings.switch": "连接 AI 智能体",
   "agents.settings.switch.off": "已关闭：任何智能体都无法读取你的文档。",
-  "agents.settings.switch.on": "已开启：IncarnaMind 打开时，各智能体可读取各自的文件夹。",
+  "agents.settings.switch.on": "已开启：IncarnaMind 打开时，各智能体可读取你共享给它的内容。",
   "agents.settings.paused": "智能体已暂停：已开启“所有内容都留在这台电脑上”。",
   "agents.settings.paused.open": "设置 › AI",
   "agents.settings.connected": "已连接的智能体",
@@ -8161,6 +8165,7 @@ export const zhCN = {
   "agents.sentence.other": "你的智能体",
   "agents.pairing.reads": "可读取：{folders}",
   "agents.pairing.readsNothing": "还没有可读取的文件夹",
+  "agents.pairing.readsAll": "可读取你的全部文档和笔记，包括以后添加的",
   "agents.pairing.proposes": "可在其中新建笔记和页面、提交文件，对你的笔记提出修改",
   "agents.pairing.inside": "也读取其中的文件夹：{folders}",
   "agents.folders.sharedWith": "已随“{folder}”共享",
@@ -8169,7 +8174,7 @@ export const zhCN = {
   "agents.pairing.installAgain": "在 Claude 中重新打开安装",
   "agents.pairing.renameLabel": "{agent}的名称",
   "agents.pairing.folders": "文件夹…",
-  "agents.pairing.foldersTitle": "{agent}可以读取的文件夹",
+  "agents.pairing.foldersTitle": "{agent}可以读取的内容",
   "agents.pairing.activity": "活动",
   "agents.pairing.disconnect": "断开连接",
   "agents.pairing.details": "技术细节",
@@ -8285,10 +8290,10 @@ export const zhCN = {
   "agents.reason.no-python": "这台电脑无法为它运行代码",
   "agents.connect.title": "允许{agent}读取你的文档？",
   "agents.connect.body":
-    "它可以读取你所选的文件夹及其中的文件夹，以及其中的笔记、会议和页面，包括每场会议的转写稿及其中的发言人名字；选了“不在文件夹中”时，还能读取它自己写在那里的笔记和页面。只在本文件夹内工作的文件夹只能单独共享。列出时会发送每个文件夹的名称、内部 ID 和它在其中的位置、其中每个文档的名称、类型和内部 ID、每篇笔记的名称、内部 ID 和最后修改时间（会议笔记还有会议开始的时间），以及每个页面的标题、内部 ID、版本号和最后修改时间；读取页面时会发送页面的 HTML，以及其中文件的名称、类型和大小。IncarnaMind 还可以在这台电脑上为它运行代码：对这些文件夹中的表格或 CSV 文件运行时，发送代码给出的结果；对它可读取内容的名称、类型、文件夹和标签运行时，只发送算出的数字。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。你让它整理文档时，它可以读取文档开头的文字，以及共享文件夹内文档上已有标签的名称和内部 ID。它提出的建议由你确认。",
+    "它可以读取你共享的文件夹及其中的文件夹，以及其中的笔记、会议和页面，包括每场会议的转写稿及其中的发言人名字；选了“不在文件夹中”时，还能读取它自己写在那里的笔记和页面。“全部文档和笔记”指每个文件夹（包括你以后新建的）和不在文件夹中的内容（包括你在那里的笔记），但从不包括示例。只在本文件夹内工作的文件夹从不在其中，只能单独共享。列出时会发送每个文件夹的名称、内部 ID 和它在其中的位置、其中每个文档的名称、类型和内部 ID、每篇笔记的名称、内部 ID 和最后修改时间（会议笔记还有会议开始的时间），以及每个页面的标题、内部 ID、版本号和最后修改时间；读取页面时会发送页面的 HTML，以及其中文件的名称、类型和大小。IncarnaMind 还可以在这台电脑上为它运行代码：对这些文件夹中的表格或 CSV 文件运行时，发送代码给出的结果；对它可读取内容的名称、类型、文件夹和标签运行时，只发送算出的数字。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。你让它整理文档时，它可以读取文档开头的文字，以及共享文件夹内文档上已有标签的名称和内部 ID。它提出的建议由你确认。",
   "agents.connect.name": "名称",
   "agents.connect.namePlaceholder": "我的智能体",
-  "agents.connect.folders": "它可以读取的文件夹",
+  "agents.connect.folders": "它可以读取的内容",
   "agents.connect.allUnfiled":
     "你的文档还没有放进文件夹，这里就是全部文档。想只分享一部分，先把它们放进一个文件夹。",
   "agents.connect.noneYet": "还没有文档：之后添加且不在文件夹中的文档，它都能读取。",
@@ -8297,12 +8302,14 @@ export const zhCN = {
   "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
     "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版并加以核对。它对你笔记的修改等你处理。",
-  "agents.connect.reads.folders":
-    "它可以读取你在下面勾选的文件夹。它读取的内容会发送给{agent}所用的 AI 模型。",
   "agents.connect.reads.all":
-    "它可以读取你的全部文档，包括之后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
-  "agents.connect.reads.none":
-    "你还没有添加文档，之后添加的它都能读取。它读取的内容会发送给{agent}所用的 AI 模型。",
+    "它可以读取你的全部文档和笔记，包括以后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
+  "agents.connect.reads": "它读取的内容会发送给{agent}所用的 AI 模型。",
+  "agents.connect.reads.projects": "它读取的内容会发送给{agent}所用的 AI 模型。项目只能单独共享。",
+  "agents.connect.reads.walled":
+    "它读取的内容会发送给{agent}所用的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
+  "agents.share.all": "我的全部文档和笔记，包括以后添加的",
+  "agents.share.folders": "选择文件夹",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",

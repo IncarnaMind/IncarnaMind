@@ -2565,24 +2565,6 @@ core.on("chatReadiness.changed", (chatReadiness) => {
   useAppStore.setState({ chatReadiness });
 });
 
-// What an outside agent made opens in a tab (#3534): behind the tab in front, as it always did for a
-// Note it wrote or a Canvas it published (#3406); in front, with the app, when the User asked that
-// agent from IncarnaMind and it read the request (the shell brings the window forward).
-core.on("agents.opened", ({ item, front }) => {
-  const state = useAppStore.getState();
-  if (front && state.settingsOpen) state.closeSettings();
-  if (item.kind === "mind") {
-    state.openMind(item.mindId, front ? { newTab: true } : { behind: true });
-    return;
-  }
-  void state.changeLayout({
-    type: "open",
-    item: { kind: "canvas", canvasId: item.canvasId },
-    where: { in: "group" },
-    ...(!front && { behind: true }),
-  });
-});
-
 // An outside agent asked to show one of its Citations (#351): it opens beside the Mind, at its quote.
 core.on("agents.citationShown", (place) => {
   const state = useAppStore.getState();

@@ -22,8 +22,8 @@ const linkClass =
  * computer first, then Other agent. Choosing one shows the lines Settings › Agents shows before
  * it connects one, and Allow and connect does what it does there, turning connecting agents on
  * with it: the agent is then the one Settings lists. A connected agent shows as set, with what is
- * left to do in it. With nothing to read yet it reads Not in a Folder, and it may write notes
- * unless the User unticks it, so it can write the first one.
+ * left to do in it. It reads all of the User's Documents and notes, those added later too (#3544),
+ * and it may write notes unless the User unticks it, so it can write the first one.
  */
 export function AgentWays({
   clients,
