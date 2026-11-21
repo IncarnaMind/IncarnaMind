@@ -571,9 +571,56 @@ function sectionsAbove(block: Y.XmlElement): SectionAbove[] {
   return [...sections, { lines: pending }];
 }
 
-/** The headings a Block is under, nearest first, a table's for each of its cells. */
-export function headingsAbove(node: Y.XmlElement): string[] {
-  return sectionsAbove(outsideTable(node)).flatMap(({ heading }) => (heading ? [heading] : []));
+const LISTS = new Set(["bulletList", "orderedList", "taskList"]);
+
+const headingLevel = (block: Y.XmlElement) => Number(block.getAttribute("level")) || 1;
+
+/**
+ * What frames a Block by the Note's own structure (#3455), nearest first: the lead-in of each list
+ * it is in, each heading it is under with that section's opening lines, and, under a heading, the
+ * Note's lines before its first one ("# Report / All amounts below are in thousands. / ## North").
+ * A table's cells take their table's. Not the lines of its own section, nor a sibling section's:
+ * only their meaning could say whether they frame it.
+ */
+export function framesAbove(node: Y.XmlElement): string[] {
+  const block = outsideTable(node);
+  const frames: string[] = [];
+  for (
+    let at: Y.XmlElement | null = block;
+    at;
+    at = at.parent instanceof Y.XmlElement ? at.parent : null
+  ) {
+    const lead = LISTS.has(at.nodeName) ? at.prevSibling : null;
+    if (
+      lead instanceof Y.XmlElement &&
+      lead.nodeName !== "heading" &&
+      saysOfText(lead) &&
+      !leftOut(lead)
+    )
+      frames.push(blockWords(lead));
+  }
+  let under = block.nodeName === "heading" ? headingLevel(block) : Number.POSITIVE_INFINITY;
+  let inOwn = under === Number.POSITIVE_INFINITY;
+  // Only the lines it keeps are read: a Note's every line is passed for each of its lines.
+  let pending: Y.XmlElement[] = [];
+  const keep = () =>
+    frames.push(...pending.filter((at) => saysOfText(at) && !leftOut(at)).map(blockWords));
+  for (const at of blocksBefore(block)) {
+    if (at.nodeName === "heading") {
+      const level = headingLevel(at);
+      if (level < under) {
+        if (!inOwn) keep();
+        inOwn = false;
+        under = level;
+        if (!leftOut(at)) frames.push(plainText(at).trim());
+      }
+      pending = [];
+      continue;
+    }
+    if (!inOwn) pending.push(at);
+  }
+  if (!inOwn) keep();
+  return frames.filter(Boolean);
 }
 
 /** Those lines, nearest first: the Block's own section's, then each heading with its opening lines. */
