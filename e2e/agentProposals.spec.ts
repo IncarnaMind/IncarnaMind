@@ -128,6 +128,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       .click();
     const dialog = window.getByTestId("connect-agent-dialog");
     await dialog.getByTestId("connect-agent-name").fill("Research assistant agent");
+    await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     const propose = dialog.getByTestId("agent-propose");
     await expect(propose).not.toBeChecked();

@@ -241,7 +241,10 @@ for (const width of [900, 1280]) {
         await expect(reads).toHaveText(words.readsFolders);
         const shareAll = dialog.getByTestId("agent-share-all");
         await expect(shareAll).toBeChecked();
-        await expect(dialog.locator("label", { has: shareAll })).toHaveText(words.shareAll);
+        // Queried inside the label, so the inner locator starts from the window.
+        await expect(
+          dialog.locator("label", { has: window.getByTestId("agent-share-all") }),
+        ).toHaveText(words.shareAll);
         await expect(rows).toHaveCount(0);
         await expect(allow).toBeEnabled();
         await expectInView(window, allow);
@@ -323,7 +326,7 @@ for (const width of [900, 1280]) {
         await expect(row.getByTestId("agent-pairing-reads")).toHaveText(words.pairingAll);
         await expect(own).toHaveCount(0);
         await expect(
-          panel.locator("label", { has: panel.getByTestId("agent-share-all") }),
+          panel.locator("label", { has: window.getByTestId("agent-share-all") }),
         ).toHaveText(words.shareAll);
         await expect.poll(pairingFolders).toEqual([[ALL_SHARED_ID]]);
         await shot(window, `all-connected-${width}-${language}`);

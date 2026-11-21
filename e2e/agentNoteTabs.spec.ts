@@ -83,6 +83,7 @@ async function connectAgent(window: Page): Promise<Client> {
     .click();
   const dialog = window.getByTestId("connect-agent-dialog");
   await dialog.getByTestId("connect-agent-name").fill("Ferry agent");
+  await dialog.getByTestId("agent-share-folders").check();
   await dialog.getByTestId("agent-folder").check();
   await dialog.getByTestId("agent-propose").check();
   await dialog.getByTestId("connect-agent-allow").click();
