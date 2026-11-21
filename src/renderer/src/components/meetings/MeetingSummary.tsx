@@ -9,6 +9,7 @@ import { useAppStore } from "../../store";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { ProblemLine, ProblemMark } from "../ProblemLine";
 import { useTabPlace } from "../tabs/tabItems";
+import { MeetingSummaryCandidates } from "./MeetingSummaryCandidates";
 import { MeetingSummaryItems } from "./MeetingSummaryItems";
 
 const NO_ITEMS: readonly MeetingSummaryItem[] = [];
@@ -41,6 +42,7 @@ export function MeetingSummary({
   )
     return null;
   const text = summary.text.trim();
+  const items = summary.items ?? NO_ITEMS;
   const coverage =
     text && summary.throughMs > 0
       ? t("meetings.summary.coverage", { time: clockTime(summary.throughMs) })
@@ -49,7 +51,7 @@ export function MeetingSummary({
     summary.state === "failed"
       ? null
       : summary.state === "ready"
-        ? text
+        ? text || items.length > 0
           ? null
           : t("meetings.summary.empty")
         : t(text ? "meetings.summary.updating" : "meetings.summary.preparing");
@@ -72,7 +74,7 @@ export function MeetingSummary({
       aria-labelledby={id}
       className={
         inTranscript
-          ? "max-h-[min(35vh,65%)] shrink-0 overflow-auto border-b border-rule px-4 py-3 has-[details[open]]:max-h-[65%]"
+          ? "max-h-[min(35vh,65%)] shrink-0 overflow-auto border-b border-rule px-4 py-3 has-[details[open]]:max-h-[65%] has-[[aria-expanded=true]]:max-h-[65%]"
           : "mb-4 border-b border-rule pb-3"
       }
     >
@@ -116,9 +118,18 @@ export function MeetingSummary({
       <MeetingSummaryItems
         key={meeting.id}
         meeting={meeting}
-        items={summary.items ?? NO_ITEMS}
+        items={items}
         focusSummary={() => heading.current?.focus()}
       />
+      {(summary.candidatesReviewed ||
+        (summary.state === "ready" && !!text && meeting.transcript?.state === "saved")) && (
+        <MeetingSummaryCandidates
+          key={`candidates-${meeting.id}`}
+          meeting={meeting}
+          count={summary.candidateCount ?? 0}
+          focusSummary={() => heading.current?.focus()}
+        />
+      )}
     </section>
   );
 }

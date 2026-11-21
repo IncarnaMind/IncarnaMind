@@ -4,7 +4,7 @@
  * never works it out itself, so its chip, its scope and where a saved paste goes follow what
  * Answers search.
  */
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import type { TurnPlace } from "../../core/api";
 import { useConversations, useOpenConversation } from "./conversations";
 import { core } from "./core";
@@ -86,12 +86,9 @@ export function useKeptInside(documentId: string | null): string | null {
   );
 }
 
-/** The walls as the store holds them, the same until its Library, Documents or Notes change. */
+/** The walls as the store holds them. */
 export function useWalls(): ReturnType<typeof wallsOf> {
-  const library = useAppStore((state) => state.library);
-  const documents = useAppStore((state) => state.documents);
-  const minds = useAppStore((state) => state.minds);
-  return useMemo(() => wallsOf({ library, documents, minds }), [library, documents, minds]);
+  return useAppStore((state) => wallsOf(state));
 }
 
 /**

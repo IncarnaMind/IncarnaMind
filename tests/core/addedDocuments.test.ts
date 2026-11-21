@@ -69,7 +69,7 @@ async function setUp() {
     { type: "paragraph", attrs: { id: "two" }, content: [text(PUFFINS)] },
   ]);
   await client.settled();
-  const checkRuns = () => calls.filter((call) => isCheckRun(call) && call.results.length === 0);
+  const checkRuns = () => calls.filter((call) => isCheckRun(call) && call.fresh);
   return {
     core,
     client,

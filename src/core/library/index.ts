@@ -62,6 +62,7 @@ import type {
   ClassificationStatus,
   DocumentGroupAssignment,
   DocumentTagging,
+  DocumentWall,
   LibraryClassifier,
   LibraryGroup,
   LibrarySettings,
@@ -344,6 +345,8 @@ export function createLibrary(options: {
   changed(): void;
   /** These Documents' assignments changed, each whole. */
   assigned(assignments: DocumentGroupAssignment[]): void;
+  /** Each walled Document's wall, as the core's search reads it (#3131). */
+  documentWalls(): Record<string, DocumentWall>;
   tags: TagsStore;
   offeredTags: TagsOfferedTo;
   tagged(ids: string[]): void;
@@ -756,9 +759,14 @@ export function createLibrary(options: {
     }
     return doc;
   };
-  /** What Organize leaves where it is: the examples' Documents (#1942) and Meetings' Transcripts (#2528). */
+  /**
+   * What Organize leaves where it is: the examples' Documents (#1942), Meetings' Transcripts (#2528)
+   * and a file from outside the Library an agent cited by its path (#3509).
+   */
   const leftAlone = (id: string): boolean =>
-    options.isExampleDocument?.(id) === true || isTranscriptOfNote(id);
+    options.isExampleDocument?.(id) === true ||
+    isTranscriptOfNote(id) ||
+    db.get("SELECT 1 FROM documents WHERE id = ? AND cited_by IS NOT NULL", [id]) !== undefined;
   const assignment = (id: string) =>
     db.get<AssignmentRow>(
       "SELECT * FROM document_groups WHERE document_id = ? AND deleted_at IS NULL",
@@ -781,6 +789,23 @@ export function createLibrary(options: {
       "SELECT 1 FROM document_groups WHERE document_id = ? AND content_hash IS ? AND deleted_at IS NOT NULL LIMIT 1",
       [doc.id, doc.content_hash],
     );
+  let wallsDirty = false;
+  const noteWallFiling = (
+    documentId: string,
+    fromGroupId: string | null,
+    toGroupId: string | null,
+    fromSource?: "automatic" | "user",
+    toSource?: "automatic" | "user",
+  ) => {
+    if (fromGroupId === toGroupId && fromSource === toSource) return;
+    if (
+      (fromGroupId !== null && wallOf(fromGroupId) !== null) ||
+      (toGroupId !== null && wallOf(toGroupId) !== null) ||
+      options.documentWalls()[documentId] !== undefined
+    ) {
+      wallsDirty = true;
+    }
+  };
   /**
    * Announces these Documents' assignments, as the snapshot lists them (those
    * of Documents still there), so a client changes only these.
@@ -793,6 +818,10 @@ export function createLibrary(options: {
       )
       .map((row) => assignmentOf(row, taggingOf(row) ?? undefined));
     if (changed.length > 0) options.assigned(changed);
+    if (wallsDirty) {
+      wallsDirty = false;
+      options.changed();
+    }
   };
   const hasContent = (doc: DocumentRow) => {
     const classifier = doc.kind === "pdf" ? organizeModelOf(getSettings()) : null;
@@ -910,6 +939,7 @@ export function createLibrary(options: {
   ) => {
     const at = now();
     const existing = assignment(doc.id);
+    noteWallFiling(doc.id, existing?.group_id ?? null, groupId, existing?.source, source);
     if (existing) {
       db.run(
         "UPDATE document_groups SET filed_at = CASE WHEN group_id IS ? THEN filed_at ELSE ? END, group_id = ?, source = ?, status = ?, content_hash = ?, request_id = ?, error_kind = NULL, error_message = NULL, error_wording = NULL, updated_at = ?, classification_model = ? WHERE document_id = ? AND deleted_at IS NULL",
@@ -952,6 +982,8 @@ export function createLibrary(options: {
     target: Omit<DocumentGroupAssignment, "documentId"> | null,
   ) => {
     if (!target) {
+      const existing = assignment(doc.id);
+      noteWallFiling(doc.id, existing?.group_id ?? null, null, existing?.source, undefined);
       const at = now();
       db.run(
         "UPDATE document_groups SET deleted_at = ?, updated_at = ? WHERE document_id = ? AND deleted_at IS NULL",
@@ -1592,6 +1624,7 @@ export function createLibrary(options: {
         groups: groups(),
         deletedGroups,
         assignments,
+        documentWalls: options.documentWalls(),
         settings: shownSettings(saved),
         asksFor: asksFor(saved),
         reviewCount: options.reviewCount(),

@@ -293,8 +293,21 @@ export function createEvidence(deps: EvidenceDependencies) {
       checked: CheckedDocument = {},
     ): EvidenceScope {
       const excluded = new Map<string, EvidenceExclusion>();
-      const scoped = documentIds === null ? "" : `AND ${inList("d.id")}`;
-      const scopeParams = documentIds === null ? [] : [JSON.stringify(documentIds)];
+      // A file an agent cited by path is evidence for what cites it wherever it is (#3509): what
+      // leaves a Document out of the check leaves it out too.
+      const among =
+        documentIds === null
+          ? null
+          : [
+              ...documentIds,
+              ...db
+                .all<{ id: string }>(
+                  "SELECT id FROM documents WHERE cited_by IS NOT NULL AND deleted_at IS NULL",
+                )
+                .map((row) => row.id),
+            ];
+      const scoped = among === null ? "" : `AND ${inList("d.id")}`;
+      const scopeParams = among === null ? [] : [JSON.stringify(among)];
 
       if (deps.leaveOutOwnFiles()) {
         const own = db.all<{ id: string }>(
@@ -350,7 +363,7 @@ export function createEvidence(deps: EvidenceDependencies) {
         for (const row of copies) excluded.set(row.id, "checked-document");
         const sameText = deps.textCopies.holding(
           checkedTexts(fingerprints, checkedIds),
-          documentIds,
+          among,
           new Set(copies.map((row) => row.id)),
           checked.contentHashes,
         );

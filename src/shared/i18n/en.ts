@@ -28,7 +28,7 @@ export const en = {
   "library.organize.failed": "Couldn’t organize {count} Documents",
   "library.organize.retry": "Try again",
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
-  "library.organize.needsModel": "Organize needs an AI model",
+  "library.organize.needsModel": "Choose an AI model to sort your Documents.",
   "library.toSort.one": "1 to organize",
   "library.toSort.other": "{count} to organize",
   "library.toSort.allow": "Allow {service}",
@@ -50,7 +50,7 @@ export const en = {
     "You said no to this before. Allow and organize sends them this time only.",
   "library.organize.allow": "Allow and organize",
   "library.organize.dismiss": "Not now",
-  "library.organize.setUp": "Set up a model on this computer",
+  "library.organize.setUp": "Choose a model in Settings",
   "library.organize.noneFit": "Organize found no Folder to suggest for these Documents",
   "library.organize": "Organize Documents not in a Folder",
   "library.organize.keywords": "organize sort folders tags suggest",
@@ -2591,6 +2591,9 @@ export const en = {
   "evidence.citeAgain.transcript": "Cite the Transcript again",
   "evidence.notCited.hint": "Read for context only: never cited or used as evidence.",
   "evidence.notCited.label": "Not cited",
+  "library.citedBy.label": "Cited by {agent}",
+  "library.citedBy.hint":
+    "A file from outside your Library that {agent} cited. IncarnaMind doesn’t search it or file it: it is evidence only for the sentences that cite it.",
   "evidence.notCited.done": "“{name}” won’t be cited",
   "evidence.notCited.doneMany": "{count} Documents won’t be cited",
   "evidence.citeAgain.done": "“{name}” can be cited again",
@@ -3124,9 +3127,9 @@ export const en = {
   "jev.settings.title": "TypeSafe Jev",
   "jev.settings.setUp": "Use TypeSafe Jev…",
   "jev.setUp.line": "TypeSafe’s model for sorting and meeting hints, with your key",
-  "decisions.setUp.group": "Set up another decision model",
+  "decisions.setUp.group": "Set up another sorting model",
   "decisions.setUp.row": "Use {model} · {provider}…",
-  "decisions.usesKey": "Uses your {provider} key",
+  "decisions.usesKey": "Uses your connection to {provider}",
   "decisions.account.cloudflare-account": "Account ID",
   "decisions.account.alibaba-workspace": "Workspace ID",
   "decisions.account.hint.cloudflare-account":
@@ -3151,7 +3154,7 @@ export const en = {
   "tagging.cost.estimate": "{cost} per 100 Documents",
   "tagging.decision.auto": "Tev1 and Clef-Flash, picked per Document",
   "tagging.other": "Other model…",
-  "tagging.other.auto": "Local decision models, picked per Document · Ollama",
+  "tagging.other.auto": "Ollama picks a local sorting model for each Document",
   "tagging.other.save": "Use this model",
   "tagging.localMode": "“Keep everything on this computer” is on: no cloud tagging.",
   "tagging.plan": "Uses your ChatGPT plan, one Document at a time.",
@@ -3287,17 +3290,15 @@ export const en = {
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
-  "setup.sorting.sends":
-    "Choosing it tags new Documents by themselves, new ones in your Linked folders too: each one’s name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, go to {service}. Documents already in the Library go only when you run Organize.",
   "setup.sorting.asks":
     "Sorting and tagging new Documents is on: IncarnaMind asks you before the first one goes to {service}.",
   "setup.sorting.sendsWhenOn":
-    "With tagging new Documents on, each new one, new ones in your Linked folders too, sends its name and type and an excerpt of its start (about 1,500 tokens), with the kinds of Document, your own Tags’ and your Folders’ names and descriptions and, except to Jev and decision models, your interface language, to {service}. Documents already in the Library go only when you run Organize.",
+    "When automatic tagging is on, new Documents get Suggestions for you to review, including files from Linked folders. {service} receives the name, file type, page count and opening text (up to about 6,000 English characters or 1,500 Chinese characters), plus slide titles or sheet names where present. It also receives the Document kinds and the names and descriptions of your Tags and Folders. Chat models receive your interface language. You can request Suggestions for existing Documents yourself.",
   "command.tagging.turnOn": "Turn on tagging new Documents…",
   "command.tagging.turnOn.keywords": "tags automatic tagging sorting switch on settings",
   "setup.sorting.chat": "Tags and Folders use {model}",
   "setup.sorting.chatHere": "Tags and Folders use {model} on this computer \u00b7 nothing leaves",
-  "setup.sorting.chat.hints": "Meeting hints stay off until a decision model is chosen",
+  "setup.sorting.chat.hints": "For meeting hints, choose a model that supports them.",
   "setup.sorting.none": "No model can sort yet. Set up your AI first.",
   "setup.sorting.noChoice": "No model yet",
   "setup.claude.title": "Already pay for Claude?",
@@ -3355,17 +3356,18 @@ export const en = {
   "setupPage.agents.failed": "Couldn\u2019t list the agents on this computer",
   "setupPage.agent.found": "On this computer",
   "setupPage.agent.connected": "{agent} is connected",
-  "setupPage.sorting.title": "Sorting and first checks",
-  "setupPage.sorting.lead": "A small, fast model that files and tags your Documents.",
-  "setupPage.sorting.decision": "A decision model",
-  "setupPage.sorting.decision.line": "Fastest, and costs least",
+  "setupPage.sorting.title": "Sort and tag Documents",
+  "setupPage.sorting.lead": "Choose which model suggests Folders and Tags for your Documents.",
+  "setupPage.sorting.decision": "A model just for sorting",
+  "setupPage.sorting.decision.line": "Uses less time and credit per Document",
   "setupPage.sorting.chat": "Use {model}",
   "setupPage.sorting.chat.line": "Nothing more to set up",
   "setupPage.sorting.local": "A model on this computer",
   "setupPage.sorting.local.line": "Free",
   "setupPage.sorting.local.none": "No model on this computer can sort yet.",
   "setupPage.sorting.agentAlone":
-    "Automatic sorting uses a decision model, a model set up in IncarnaMind, or a model on this computer. You can also ask your connected AI to organize your Documents, then confirm its Suggestions.",
+    "To sort automatically, IncarnaMind first looks for a dedicated sorting model, then a model set up in the app, then one on this computer. You can also ask your connected AI to organize your Documents and review its Suggestions.",
+  "setupPage.sorting.connectionKey": "Connection key from {provider}",
   "setupPage.sorting.provider": "Provider",
   "setupPage.meetings.title": "Meeting transcription",
   "setupPage.meetings.lead": "Turns what is said into text.",
@@ -4184,8 +4186,6 @@ export const en = {
   "models.removed.answers": "Removed {provider}. Answers now use {model}.",
   "models.removed.noAnswers": "Removed {provider}. Choose a model for Answers.",
   "models.removed.automatic": "Removed {provider}. Its defaults are back to Automatic.",
-  "needsModel.organize":
-    "Organize needs an AI model. It sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to the model you set up, once you allow it.",
   "needsModel.compare":
     "Compare Documents needs an AI model. It sends the Documents you chose to the model you set up.",
   "needsModel.help":
@@ -4883,6 +4883,7 @@ export const en = {
   "citation.reason.source-removed": "The source was removed.",
   "citation.yourNote": "Your note: {title}, {date}",
   "citation.ownRecord": "Your own record",
+  "citation.outsideLibrary": "A file outside the Library",
   "citation.foundByCheck": "Found by a check of this sentence",
   "citation.reason.kept-inside": "Kept inside {folder}",
   "citation.reason.quoted-words-not-on-pages": "The quoted words aren’t in the cited place.",
@@ -6450,7 +6451,9 @@ export const en = {
   "error.meeting.quickNoteEmpty": "Type something to add to notes.",
   "error.meeting.quickNoteTime": "That isn’t a time in the meeting.",
   "error.meeting.questionEmpty": "Type a question to ask about the call.",
-  "error.meetingOffer.gone": "That call has ended.",
+  "error.meetingOffer.gone": "This offer has expired.",
+  "error.meetingOffer.link":
+    "Recording has started, but the meeting link couldn’t be opened. You can open it from your calendar.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
@@ -7148,6 +7151,8 @@ export const en = {
     "IncarnaMind also stays in the tray and opens at login, to offer to take notes when a call starts. Turn this off in Settings › General.",
   "offers.call.title": "Are you in a call right now?",
   "offers.call.body": "{app} is using the microphone",
+  "offers.calendar.title": "{title} starts in 1 minute",
+  "offers.calendar.label": "Calendar meeting · {title}",
   "offers.take": "Take notes",
   "offers.notNow": "Not now",
   "offers.dontAsk": "Don’t ask for {app}",
@@ -7725,6 +7730,10 @@ export const en = {
   "meetings.recording.saved": "Saved the recording",
   "meetings.command.noMeetingInView": "Open a meeting’s note to delete its audio",
   "meetings.command.audioWhileRecording": "Pause or stop the recording to delete its audio",
+  "transcript.action.menu": "Line actions",
+  "transcript.action.menu.line": "Line actions for {time}, {text}",
+  "transcript.action.add": "Add to action items",
+  "transcript.action.already": "Already in action items",
   "transcript.addToNote": "Add to note",
   "transcript.addToNote.line": "Add to note: {time}, {text}",
   "transcript.addToNote.added": "Added to the note",
@@ -8641,6 +8650,7 @@ export const en = {
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
   "agents.pairing.notUsed": "Not used yet",
+  "agents.pairing.installAgain": "Open the install in Claude again",
   "agents.pairing.renameLabel": "Name of {agent}",
   "agents.pairing.folders": "Folders…",
   "agents.pairing.foldersTitle": "Folders {agent} may read",
@@ -8699,6 +8709,9 @@ export const en = {
   "agents.handOver.tooMany":
     "This agent has handed over {max} files in the last hour, which is the most it may. Try again later.",
   "agents.handOver.notFound": "That file is kept in a Folder this agent no longer reaches.",
+  "agents.cite.fileKind": "IncarnaMind can’t read that kind of file, so it can’t cite it.",
+  "agents.cite.fileHidden":
+    "IncarnaMind doesn’t read a hidden file, or a file in a hidden or system folder, so it can’t cite it.",
   "agents.handOver.notShared":
     "That file is in a Folder the User hasn’t shared with this agent, so it can’t be handed over from there.",
   "agents.handOver.paused":
@@ -8865,6 +8878,27 @@ export const en = {
   "meetings.summary.status.cancelled": "Canceled",
   "meetings.summary.preparing": "Preparing a summary…",
   "meetings.summary.updating": "Finishing the summary…",
+  "meetings.summary.candidates.find": "Find quotes to review",
+  "meetings.summary.candidates.disclosure":
+    "Opening sends the transcript and current items to your selected AI once.",
+  "meetings.summary.candidates.checking": "Your AI is checking the transcript…",
+  "meetings.summary.candidates.empty":
+    "No quotes are waiting for review. You can read the full conversation in the transcript.",
+  "error.meeting.candidateReviewFailed":
+    "Your AI couldn’t check the transcript. Try again to request a new check.",
+  "meetings.summary.candidates": "Quotes to review ({count})",
+  "meetings.summary.candidate.add": "Add to action items",
+  "meetings.summary.candidate.added": "Added to action items.",
+  "error.meeting.candidateReviewTooLong":
+    "The transcript is too long for this AI to check in one request.",
+  "error.meeting.candidateReviewIncomplete":
+    "The AI returned an incomplete quote list. Try again to request a new check.",
+  "error.meeting.summaryCandidateReviewNotReady":
+    "You can check quotes when the transcript and summary have finished.",
+  "error.meeting.summaryCandidateReviewUnavailable":
+    "The transcript or AI access has changed. Check the meeting’s AI settings and try again.",
+  "error.meeting.summaryCandidateUnavailable":
+    "This quote has changed or is no longer available. Open the transcript to check the original words.",
   "meetings.summary.item.original": "Original speech",
   "meetings.summary.item.loading": "Looking up the original speech…",
   "meetings.summary.item.unavailable": "Couldn’t locate a unique source in the transcript.",

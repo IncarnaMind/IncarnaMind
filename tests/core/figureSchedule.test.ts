@@ -267,6 +267,7 @@ function sourceTable(lines: string[], stored: Readonly<Record<string, number>> =
             documentKind: "xlsx",
             documentDeleted: false,
             notCited: false,
+            citedBy: null,
             yourNoteAt: null,
             text,
             pageFrom: 1,

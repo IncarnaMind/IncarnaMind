@@ -78,6 +78,7 @@ function sessionOver({ name, pages, passages }: Excerpt) {
               documentKind: "pdf",
               documentDeleted: false,
               notCited: false,
+              citedBy: null,
               yourNoteAt: null,
             }
           : null;

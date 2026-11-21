@@ -116,6 +116,14 @@ export function judgeLines(judge: readonly JudgeRequest[] | undefined, heading: 
       "",
       ...(call.result === null ? [] : ["The app answered:", "", ...fenced(call.result), ""]),
     ]),
+    ...(request.handed.length === 0
+      ? []
+      : [
+          `The searches before it handed the model ${request.handed.length} Passages (report.json has their text):`,
+          "",
+          ...request.handed.map((passage) => `- ${passage.document}`),
+          "",
+        ]),
     ...(request.reply.trim() === ""
       ? ["No reply text.", ""]
       : ["Reply:", "", ...fenced(request.reply), ""]),

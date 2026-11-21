@@ -42,6 +42,8 @@ Menu names can differ a little between versions of each app.
 
 Click **Connect**. Claude opens and shows IncarnaMind: click **Install**. Then start a new chat. Every Claude plan works, the free one included.
 
+IncarnaMind keeps the file Claude installs until Claude has connected, so there is no hurry, and closing IncarnaMind doesn't lose it. If Claude says it can't find the file, click **Open the install in Claude again** next to the connection in Settings → Agents.
+
 <a id="claude-code"></a>
 ### Claude Code
 

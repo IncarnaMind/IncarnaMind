@@ -394,6 +394,9 @@ export function createTranscripts(options: TranscriptsOptions) {
   const vttPath = (meetingId: string) => join(folder, `${meetingId}.vtt`);
   const jsonPath = (meetingId: string) => join(folder, `${meetingId}.json`);
 
+  // A cloud service may number every remote speaker, leaving no line labelled "Them".
+  const hasCallAudio = (state: State) => state.callHeard === true || isCall(state.cues);
+
   // ---- Files ----
 
   function load(meetingId: string): State {
@@ -1596,8 +1599,7 @@ export function createTranscripts(options: TranscriptsOptions) {
   function separate(state: State): void {
     const pass = options.speakers;
     if (!pass || state.separating || closed) return;
-    // Once a cloud service numbers the other side's voices, no line says "Them".
-    const call = state.callHeard === true || isCall(state.cues);
+    const call = hasCallAudio(state);
     if (!state.savedPath || options.audioDeleted(state.meetingId) || named(state)) {
       settle(state, "done");
       return;
@@ -1768,6 +1770,10 @@ export function createTranscripts(options: TranscriptsOptions) {
   }
 
   return {
+    heardCallAudio(meetingId: string): boolean {
+      return hasCallAudio(load(meetingId));
+    },
+
     confirmedCues(meetingId: string): readonly Cue[] {
       return load(meetingId).cues;
     },

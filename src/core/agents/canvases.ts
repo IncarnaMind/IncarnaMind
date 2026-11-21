@@ -20,7 +20,7 @@ import {
 import { tokensOutsideText } from "../canvases/markers";
 import { networkReferences } from "../canvases/references";
 import type { AdmittedPairing } from "./access";
-import { AgentRefusedError, text, whole } from "./refusals";
+import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
 
 /** The most versions, first publishes and updates together, one pairing publishes in an hour. */
 export const MAX_CANVAS_VERSIONS_AN_HOUR = 60;
@@ -29,8 +29,6 @@ export const CANVAS_PAGE_CHARS = 20_000;
 /** The longest name of a Canvas, as of a Note an agent writes. */
 const MAX_TITLE_CHARS = 200;
 const HOUR_MS = 3_600_000;
-/** The longest path of a file an agent names. */
-const MAX_PATH_CHARS = 4096;
 const MB = 1024 * 1024;
 /** A picture or font inline in the page, as a `data:` address. */
 const INLINE_DATA = /data:[\w.+-]+\/[\w.+-]+(?:;[\w=.+-]+)*,[^"'\s)>]*/g;

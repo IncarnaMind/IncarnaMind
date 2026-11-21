@@ -16,6 +16,9 @@ export class AgentRefusedError extends Error {
 }
 
 /** A call's text argument, trimmed; a refusal when it is missing, blank or longer than `max`. */
+/** The longest path an agent may name for a file on this computer. */
+export const MAX_PATH_CHARS = 4096;
+
 export function text(value: unknown, what: string, max: number): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new AgentRefusedError("invalid", `${what} must be text.`);

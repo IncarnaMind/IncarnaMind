@@ -169,7 +169,7 @@ async function write(writing: Writing) {
   await client.settled();
   const marks: ClaimCheckAttributes[] = claimSpans(readMind(client)).map((span) => span.check);
   // A Run starts with a call that has read no Tool result yet.
-  const checkRuns = calls.filter((call) => isCheckRun(call) && call.results.length === 0).length;
+  const checkRuns = calls.filter((call) => isCheckRun(call) && call.fresh).length;
   const sentenceChecks = (await core.listAiUse()).filter(
     (each) => each.kind === "sentence-checked",
   );
@@ -476,6 +476,7 @@ describe("which sentences and Citations the quick model may look at", () => {
     contentHash: "v2",
     documentDeleted: false,
     notCited: false,
+    citedBy: null,
     yourNoteAt: null,
   };
   const CITATION = {

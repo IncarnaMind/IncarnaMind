@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import type { MeetingOffers } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { core } from "./core";
 import { useAppStore } from "./store";
 
-/** The offers to take notes as the core holds them (#208): a call's end waiting to stop its Meeting, why calls can't be noticed. */
+/** Meeting reminders, the call ending countdown, and call detection status as held by the core. */
 export const useMeetingOffers = create<{ offers: MeetingOffers; load(): Promise<void> }>()(
   (set) => ({
     offers: { offer: null, ending: null, problem: null },
@@ -19,3 +20,6 @@ export const useMeetingOffers = create<{ offers: MeetingOffers; load(): Promise<
 
 core.on("meetings.offers", (offers) => useMeetingOffers.setState({ offers }));
 core.on("meetings.offerShown", () => void useAppStore.getState().openHome());
+core.on("meetings.offerLinkFailed", () => {
+  useAppStore.getState().reportError(new TranslatableError({ key: "error.meetingOffer.link" }));
+});

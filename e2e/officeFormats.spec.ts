@@ -13,6 +13,7 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import type { TestHooks } from "../src/shared/testHooks";
 import { footnotesOf, part, unzip } from "../tests/helpers/docx";
+import { commented, paragraph, run, wordFile } from "../tests/helpers/word";
 import {
   addDocuments,
   addToNote,
@@ -456,6 +457,86 @@ test("a Question about a Word comment cites the comment by its author, found, an
   });
   expect(Math.abs(markBox.y + markBox.height / 2 - line)).toBeLessThanOrEqual(1.5);
   await screenshot(window, "docx-comment-cited");
+  await app.close();
+});
+
+test("a Word file that sets no page is drawn as pages on Letter paper with one-inch margins, fits the window and its comment's note, and opens at a Citation (#3522)", async () => {
+  const fee = "The fee is capped at ten thousand.";
+  const remark = commented(1, "J. Moreau", "Check the cap with finance.", run(fee));
+  const file = join(sources, "Services Agreement.docx");
+  await writeFile(
+    file,
+    wordFile({
+      body: [
+        paragraph("1 Scope", { style: "Heading1" }),
+        paragraph("The supplier delivers the services described in the schedule."),
+        '<w:p><w:r><w:br w:type="page"/></w:r></w:p>',
+        paragraph("2 Payment", { style: "Heading1" }),
+        paragraph(remark.inline),
+      ].join(""),
+      comments: remark.comment,
+      sectPr: null,
+    }),
+  );
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await widen(app, window);
+  await addDocuments(window, [file]);
+  await openDocumentAt(window, {
+    documentId: await documentIdOf(window, "Services Agreement"),
+    pageFrom: 2,
+    pageTo: 2,
+    quote: fee,
+    citation: { check: "found", label: "§ 2 Payment" },
+  });
+
+  const docx = window.getByTestId("viewer").getByTestId("viewer-docx");
+  await expect(docx).toHaveAttribute("data-rendered", "yes");
+  const pages = docx.locator("section.docx");
+  await expect(pages).toHaveCount(2);
+  // A sheet's box and where its text starts in it, read together so a scroll can't come between.
+  const layout = (sheet: Locator) =>
+    sheet.evaluate((page) => {
+      const box = page.getBoundingClientRect();
+      const text = page.querySelector(":scope > article")?.getBoundingClientRect();
+      return {
+        x: box.x,
+        width: box.width,
+        height: box.height,
+        textX: (text?.x ?? 0) - box.x,
+        textY: (text?.y ?? 0) - box.y,
+      };
+    });
+  const zoom = () => docx.locator(".docx-view").evaluate((host) => Number(host.style.zoom));
+
+  // Letter's 8.5 in by 11 in, drawn at 96 pixels to the inch, with its text one inch from the edges.
+  expect(await zoom()).toBe(1);
+  const second = await layout(pages.nth(1));
+  for (const sheet of [await layout(pages.nth(0)), second]) {
+    expect(Math.round(sheet.width)).toBe(816);
+    expect(sheet.height).toBeGreaterThanOrEqual(1055);
+    expect([Math.round(sheet.textX), Math.round(sheet.textY)]).toEqual([96, 96]);
+  }
+
+  // The Citation's quote is washed and in view, and the comment's note stands beside the page.
+  const washed = docx.locator("[data-quote-highlight]");
+  expect((await washed.allTextContents()).join("")).toBe(fee);
+  await expect(washed.first()).toBeInViewport();
+  const note = docx.getByTestId("viewer-docx-comment");
+  await expect(note).toContainText("Check the cap with finance.");
+  expect((await boxOf(note)).x).toBeGreaterThan(second.x + second.width);
+  await screenshot(window, "docx-no-page-setup");
+
+  // In a narrow window the pages shrink to fit it, notes and all.
+  await setWindowSize(app, window, 900, 800);
+  await expect.poll(zoom).toBeLessThan(1);
+  const view = await boxOf(docx);
+  const narrow = await boxOf(pages.nth(1));
+  const narrowNote = await boxOf(note);
+  expect(Math.abs(narrow.width - 816 * (await zoom()))).toBeLessThan(1);
+  expect(narrow.x).toBeGreaterThanOrEqual(view.x);
+  expect(narrowNote.x + narrowNote.width).toBeLessThanOrEqual(view.x + view.width + 1);
   await app.close();
 });
 

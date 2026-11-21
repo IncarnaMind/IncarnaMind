@@ -1,5 +1,14 @@
 import type { KeyboardEvent, ReactNode } from "react";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Document, Meeting } from "../../../core/api";
 import {
   type GapReason,
@@ -14,7 +23,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { partsOf, speakerName, type TranscriptLine, withLineSplit } from "../../../shared/speakers";
 import { TURN_PAUSE_MS } from "../../../shared/transcriptTurns";
 import { timeAt } from "../../../shared/wordTimes";
-import { transcriptHandle, useHandle } from "../commands/handles";
+import { transcriptHandle, useHandle, useViewerHandle } from "../commands/handles";
 import { MicOffLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
@@ -24,7 +33,8 @@ import { openSpeakerReview } from "../meetingSpeakerReview";
 import { isLive, useMeetings } from "../meetings";
 import { durationLabel } from "../meetingTime";
 import { type SpeakersStep, useAppStore, type ViewerTarget } from "../store";
-import { addLineToNote, type LineAdded } from "../transcriptNotes";
+import { addTranscriptAction } from "../transcriptActions";
+import { addLineToNote } from "../transcriptNotes";
 import { useTranscriptPlayer } from "../transcriptPlayer";
 import { useCitedArea } from "./citedArea";
 import { citedPlaceGone } from "./citedPlace";
@@ -39,7 +49,7 @@ import { TranscriptTurn } from "./TranscriptTurn";
 import { fileLineOf, lineId, type PartRow, type TurnRow, turnRowsOf } from "./transcriptTurnRows";
 import { piecesBetween, wordPieces } from "./transcriptWords";
 import type { LoadedFile } from "./useDocumentFile";
-import { ViewerHeader } from "./ViewerHeader";
+import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
 import { ViewerMessage } from "./ViewerMessage";
 
 /** Within this of the bottom, the view follows new lines as they come. */
@@ -223,6 +233,20 @@ function lineBeside(
   return index < 0 ? null : (all[index + (direction === "next" ? 1 : -1)] ?? null);
 }
 
+function quoteLinesAt(
+  body: HTMLElement,
+  { startMs, endMs, part }: NonNullable<ViewerTarget["transcriptCue"]>,
+  quote: string,
+) {
+  const selector = part
+    ? `[data-start="${startMs}"][data-end="${endMs}"]`
+    : `[data-cue-start="${startMs}"][data-cue-end="${endMs}"]`;
+  const lines = Array.from(body.querySelectorAll<HTMLElement>(selector));
+  if (!part) return lines;
+  const exact = lines.filter((line) => line.textContent === quote);
+  return exact.length === 1 ? exact : [];
+}
+
 const NOT_SAID: NonNullable<Meeting["transcript"]>["partials"] = [];
 
 function TranscriptContent({
@@ -263,7 +287,8 @@ function TranscriptContent({
   const caretRef = useRef(caret);
   caretRef.current = caret;
   const [rest, setRest] = useState<{ line: string; step: SpeakersStep; done(): void } | null>(null);
-  const [added, setAdded] = useState<LineAdded | null>(null);
+  const [added, setAdded] = useState<MessageKey | null>(null);
+  const frame = useContext(ViewerFrameContext);
 
   const microphonePausedAtMs = meeting?.microphonePausedAtMs ?? null;
   const resumeMicrophone = () => {
@@ -343,15 +368,14 @@ function TranscriptContent({
       ),
     [parts],
   );
-  // Who speaks is said on a Meeting's saved Transcript, once the speaker pass has settled (#138).
-  const nameable =
+  const canAddAction =
     meeting?.kind === "meeting" &&
     meeting.status === "stopped" &&
     state === "saved" &&
-    !meeting.transcript?.separating &&
-    document?.kind === "transcript"
-      ? document
-      : null;
+    document?.kind === "transcript" &&
+    meeting.transcript?.documentId === document.id;
+  // Who speaks is said on a Meeting's saved Transcript, once the speaker pass has settled (#138).
+  const nameable = canAddAction && !meeting?.transcript?.separating ? document : null;
   const reviewTrigger = useRef<HTMLButtonElement>(null);
   const reviewable = nameable !== null && meetingId !== null && transcript.cues.length > 0;
   // A saved Transcript plays while its audio is kept; never while it records (#138).
@@ -410,23 +434,36 @@ function TranscriptContent({
           cue.startMs >= label.from &&
           cue.startMs <= label.to,
       );
+      const result = await addLineToNote({
+        document,
+        meetingId,
+        cue: { ...cue, text: part.text },
+        page: unit?.page ?? null,
+      });
       setAdded(
-        await addLineToNote({
-          document,
-          meetingId,
-          cue: { ...cue, text: part.text },
-          page: unit?.page ?? null,
-        }),
+        result === "failed"
+          ? null
+          : result === "added"
+            ? "transcript.addToNote.added"
+            : "transcript.addToNote.already",
       );
     },
     [document, meetingId, units],
   );
+  const addAction = useCallback(
+    async ({ part: { startMs, endMs, text } }: PartRow) => {
+      if (!canAddAction || !meetingId || !document) return;
+      const result = await addTranscriptAction(meetingId, document.id, { startMs, endMs, text });
+      setAdded(result === "already" ? "transcript.action.already" : null);
+    },
+    [canAddAction, document, meetingId],
+  );
   useEffect(() => {
-    if (added === null || added === "failed") return;
+    if (added === null) return;
     const timer = setTimeout(() => setAdded(null), ADDED_SHOWN_MS);
     return () => clearTimeout(timer);
   }, [added]);
-  useDismissOnEscape(added !== null && added !== "failed", () => setAdded(null));
+  useDismissOnEscape(added !== null, () => setAdded(null));
 
   const durationMs = meeting?.recordedMs ?? 0;
   const playFrom = useCallback(
@@ -540,6 +577,23 @@ function TranscriptContent({
     ],
   );
   useHandle(transcriptHandle, lend);
+  useViewerHandle(
+    "transcriptActions",
+    useMemo(
+      () =>
+        canAddAction
+          ? {
+              hasLine: () => activeRow() !== null,
+              add: async () => {
+                const row = activeRow();
+                if (row) await addAction(row);
+              },
+            }
+          : null,
+      [activeRow, addAction, canAddAction],
+    ),
+    frame?.tabId,
+  );
   const firstId = parts[0]?.id;
 
   // A focused line that a regrouping of turns moves to another turn is drawn anew: the focus follows it.
@@ -632,13 +686,7 @@ function TranscriptContent({
     if (units.length === 0) return;
     shownRequest.current = request;
     unmarkQuote(body);
-    const cueLines = cue
-      ? Array.from(
-          body.querySelectorAll<HTMLElement>(
-            `[data-cue-start="${cue.startMs}"][data-cue-end="${cue.endMs}"]`,
-          ),
-        )
-      : null;
+    const cueLines = cue ? quoteLinesAt(body, cue, target.quote) : null;
     const lines = cueLines ?? citedLines();
     let range: Range | undefined;
     const first = lines[0];
@@ -730,9 +778,9 @@ function TranscriptContent({
             {t("transcript.recording")}
           </span>
         )}
-        {added && added !== "failed" && (
+        {added && (
           <span role="status" data-testid="transcript-added" className="viewer-meta">
-            {t(added === "added" ? "transcript.addToNote.added" : "transcript.addToNote.already")}
+            {t(added)}
           </span>
         )}
         {hasLines && (
@@ -822,6 +870,8 @@ function TranscriptContent({
                       onKeyDown={onLineKey}
                       onWord={onWord}
                       onAdd={(each) => void addLine(each)}
+                      onAddAction={canAddAction ? (each) => void addAction(each) : undefined}
+                      focusLine={focusLine}
                     />
                   ) : row.kind === "microphone" ? (
                     <li

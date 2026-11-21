@@ -146,9 +146,16 @@ export function AgentsSettings() {
                 pairing={pairing}
                 skillInstalled={settings.skills.includes(pairing.id)}
                 skillOutOfDate={settings.skillsOutOfDate.includes(pairing.id)}
+                awaitingInstall={settings.awaitingInstall.includes(pairing.id)}
                 folders={folders}
                 justSetUp={justSetUp}
                 onUndone={() => setJustSetUp(null)}
+                onInstallReopened={() =>
+                  setJustSetUp({
+                    pairingId: pairing.id,
+                    result: { kind: "opened", how: "bundle" },
+                  })
+                }
                 onDisconnected={(agent, left) =>
                   setSkillLeft(
                     left.skillsLeft.length > 0

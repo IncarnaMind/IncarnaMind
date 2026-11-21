@@ -74,18 +74,17 @@ import {
   withMcpServersEntry,
   withoutCodexTable,
 } from "./clients";
+import type { PairingEvents } from "./index";
 import { SKILL_MARKDOWN } from "./skill";
 import type { SkillFiles } from "./skillFiles";
 
-/** How long a bundle waits in the temporary folder for the agent's app to install it. */
-const BUNDLE_KEPT_MS = 15 * 60_000;
 /** The folder each bundle waits in, in the temporary folder. */
 const BUNDLE_FOLDER_PREFIX = "incarnamind-agent-";
 
 export interface AgentSetupOptions {
   /** Pairing (see ./index). */
   agents: {
-    settings(): { pairings: AgentPairing[] };
+    settings(): { pairings: AgentPairing[]; awaitingInstall: string[] };
     connect(input: unknown): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
     disconnect(pairingId: unknown): Promise<void>;
     launch(pairingId: unknown): Promise<AgentLaunch>;
@@ -96,6 +95,9 @@ export interface AgentSetupOptions {
     recordCreated(pairingId: string, paths: readonly string[]): void;
     /** Tells the windows the agents' settings changed. */
     announce(): void;
+    watch(events: PairingEvents): void;
+    /** Every pairing this database has held, disconnected ones too. */
+    held(): string[];
   };
   /** The Skill's copies, as IncarnaMind wrote them (see ./skillFiles). */
   skills: SkillFiles;
@@ -233,12 +235,28 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const t = options.say;
   /** Settings files written, by pairing, while their Undo stands. */
   const written = new Map<string, Written[]>();
-  // Bundles a quit left before their time was up hold a key: they go now.
+  const bundleFolder = (pairingId: string) =>
+    join(options.tempDir, `${BUNDLE_FOLDER_PREFIX}${pairingId}`);
+  const removeBundle = (pairingId: string) =>
+    rm(bundleFolder(pairingId), { recursive: true, force: true });
+  // A bundle holds its pairing's key: it stays only while the pairing waits for its agent. A
+  // folder of a pairing this database never held is another IncarnaMind's, which shares the
+  // temporary folder (every app of one account does).
+  options.agents.watch({
+    connected: (pairingId) => void removeBundle(pairingId).catch(options.reportError),
+    disconnected: removeBundle,
+  });
+  const waiting = new Set(options.agents.settings().awaitingInstall);
+  const held = new Set(options.agents.held());
   readdir(options.tempDir)
     .then((names) =>
       Promise.all(
         names
           .filter((name) => name.startsWith(BUNDLE_FOLDER_PREFIX))
+          .filter((name) => {
+            const pairingId = name.slice(BUNDLE_FOLDER_PREFIX.length);
+            return held.has(pairingId) && !waiting.has(pairingId);
+          })
           .map((name) => rm(join(options.tempDir, name), { recursive: true, force: true })),
       ),
     )
@@ -342,7 +360,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
     ...(path && { path }),
   });
 
-  /** Claude's bundle, in the temporary folder for its app to install, then gone. */
+  /** Claude's bundle, in the temporary folder for its app to install, until its agent has connected. */
   const openBundle = async (pairingId: string, launch: AgentLaunch) => {
     if (!options.shimScript || !options.openPath) {
       throw new Error("This copy of IncarnaMind can't make an install file for Claude.");
@@ -366,14 +384,12 @@ export function createAgentSetup(options: AgentSetupOptions) {
       ],
       deflateRawSync,
     );
-    const folder = join(options.tempDir, `${BUNDLE_FOLDER_PREFIX}${pairingId}`);
+    const folder = bundleFolder(pairingId);
+    // A new folder, so a mode someone widened doesn't carry over to the key.
+    await rm(folder, { recursive: true, force: true });
     await mkdir(folder, { recursive: true, mode: 0o700 });
     const path = join(folder, "IncarnaMind.mcpb");
     await writeFile(path, bundle, { mode: 0o600 });
-    // It holds the pairing's key: it goes once the app has had time to install it.
-    setTimeout(() => {
-      rm(folder, { recursive: true, force: true }).catch(options.reportError);
-    }, BUNDLE_KEPT_MS).unref?.();
     await options.openPath(path);
   };
 
@@ -644,6 +660,15 @@ export function createAgentSetup(options: AgentSetupOptions) {
       await removeSkill(pairing?.client ?? null, pairingId).catch(options.reportError);
       await removeCreatedFolders(options.agents.created(pairingId));
       await options.agents.disconnect(pairingId);
+    },
+
+    /** Makes the bundle of a pairing still waiting for its agent anew and opens it. */
+    async openInstallAgain(pairingId: unknown): Promise<void> {
+      const { pairings, awaitingInstall } = options.agents.settings();
+      const pairing = pairings.find((each) => each.id === pairingId);
+      if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
+      if (!awaitingInstall.includes(pairing.id)) return;
+      await openBundle(pairing.id, await options.agents.launch(pairing.id));
     },
 
     async settingsFor(pairingId: unknown) {

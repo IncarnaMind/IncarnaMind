@@ -5,7 +5,7 @@ import { useAppStore } from "../../store";
 import { KeyEntry } from "./KeyEntry";
 
 /**
- * Where a model is needed later — Organize, Compare Documents, call help: first run's key field
+ * Where a model is needed later — Compare Documents and call help: first run's key field
  * in place (#1922), with one line naming what that work sends, and no step through Settings.
  * The key saved, `onDone` goes on with what the User was doing.
  */

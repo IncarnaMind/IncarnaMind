@@ -205,10 +205,15 @@ function parsePlace(value: unknown): DocumentPlace {
       !Number.isSafeInteger(cue.startMs) ||
       !Number.isSafeInteger(cue.endMs) ||
       cue.startMs < 0 ||
-      cue.endMs < cue.startMs
+      cue.endMs < cue.startMs ||
+      (cue.part !== undefined && cue.part !== true)
     )
       throw new InvalidInputError({ key: "error.layout.transcriptCue" });
-    place.transcriptCue = { startMs: cue.startMs, endMs: cue.endMs };
+    place.transcriptCue = {
+      startMs: cue.startMs,
+      endMs: cue.endMs,
+      ...(cue.part && { part: cue.part }),
+    };
   }
   if (value.wordPlace !== undefined) {
     if (typeof value.wordPlace !== "string" || !WORD_PLACE.test(value.wordPlace)) {

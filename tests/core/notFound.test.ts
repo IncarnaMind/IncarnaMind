@@ -90,8 +90,9 @@ describe("Before a check says a sentence isn't found (#1608)", () => {
     expect(checked.check?.state).toBe("unsupported");
     expect(checked.check?.evidence).toBeNull();
     expect(checked.notFound).toBe(true);
-    // The ask is the last message of every request after it: one ask, two requests that carry it.
-    expect(checked.runs).toBe(checked.askedAgain + 2);
+    // The ask is the last message of every request after it: the request before it, which has its
+    // first search made for it, and the two that carry it.
+    expect(checked.runs).toBe(checked.askedAgain + 1);
   });
 
   test("“not found” on no quote is asked to search again, as the older “unsupported” is", async () => {

@@ -33,6 +33,7 @@ export type {
   DocumentBatch,
   DocumentGroupAssignment,
   DocumentTagging,
+  DocumentWall,
   LibraryClassifier,
   LibraryGroup,
   LibraryGroupInput,
@@ -3815,12 +3816,23 @@ export type CallWatchProblem = "no-pactl" | "not-on-windows" | "unavailable";
 
 /** An offer to take notes in a call that isn't on the calendar (#208): a call app took the microphone. */
 export interface CallOffer {
+  kind: "call";
   id: string;
   /** The call app's id (src/shared/meetingApps.ts). */
   app: string;
   /** When the app took the microphone (ISO 8601). */
   at: string;
 }
+
+export interface CalendarOffer {
+  kind: "calendar";
+  id: string;
+  eventId: string;
+  title: string;
+  startsAt: string;
+}
+
+export type MeetingOffer = CallOffer | CalendarOffer;
 
 /** A Meeting taken from a call offer whose call app let go of the microphone: it stops at `stopsAt` (ISO 8601) unless kept. */
 export interface CallEnding {
@@ -3831,7 +3843,7 @@ export interface CallEnding {
 
 /** The offers to take notes as they are now (#208). */
 export interface MeetingOffers {
-  offer: CallOffer | null;
+  offer: MeetingOffer | null;
   ending: CallEnding | null;
   /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
   problem: CallWatchProblem | null;
@@ -4220,8 +4232,8 @@ export interface DocumentPlace {
    * part ("w:p#12", "w:tbl#3"), as a Mind imported from it records (`WordSource.n`, #736).
    */
   wordPlace?: string;
-  /** The original Transcript cue, including when the speaker has since been split. */
-  transcriptCue?: { startMs: number; endMs: number };
+  /** The original Transcript cue, or an exact displayed speaker part within it. */
+  transcriptCue?: { startMs: number; endMs: number; part?: true };
 }
 
 export interface LayoutTab {
@@ -4756,6 +4768,12 @@ export interface Document {
    * User cites it, and no source until then (#3492).
    */
   handedBy: string | null;
+  /**
+   * The agent that cited this file by its path, from outside the Library (#3509), as the User had
+   * named its pairing then; null for every other Document. Such a Document is in no Folder and no
+   * source: it is evidence only for the sentences that cite it.
+   */
+  citedBy: string | null;
   /** When the Document was added to IncarnaMind. ISO 8601, UTC. */
   createdAt: string;
   /** ISO 8601, UTC. */
@@ -12082,9 +12100,22 @@ export interface MeetingSummaryItem {
   corrected?: true;
 }
 
+export interface MeetingSummarySource {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+export interface MeetingSummaryCandidate {
+  id: number;
+  sources: MeetingSummarySource[];
+}
+
 export interface MeetingSummary {
   text: string;
   items?: MeetingSummaryItem[];
+  candidateCount?: number;
+  candidatesReviewed?: true;
   problem?: "codex-input-limit";
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
@@ -12684,6 +12715,13 @@ export interface AgentSettings {
    * Skill's text changed: it was left as it is, and `replaceAgentSkill` replaces it (#3430).
    */
   skillsOutOfDate: string[];
+  /**
+   * The pairings whose agent installs an install file IncarnaMind made, hasn't been used and isn't
+   * connected now: the file waits for it, and `openAgentInstallAgain` makes it and opens it once
+   * more. After a restart, one whose agent connected but was never used is among them until its
+   * agent connects again (#3523).
+   */
+  awaitingInstall: string[];
 }
 
 /** What Disconnect left behind (#3430). */
@@ -15300,12 +15338,27 @@ export interface CoreApi {
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
+  /** Whether the selected AI route can start a new quote review for this saved Meeting. */
+  canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
+  reviewMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  getMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  addMeetingTranscriptAction(
+    meetingId: string,
+    documentId: string,
+    source: MeetingSummarySource,
+  ): Promise<{ itemId: number; added: boolean }>;
+  undoAddMeetingTranscriptAction(meetingId: string, itemId: number): Promise<void>;
+  undoAddMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
+  addMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
   getMeetingSummaryItemSources(
     meetingId: string,
     itemId: number,
   ): Promise<{
     documentId: string;
-    sources: { startMs: number; endMs: number; text: string }[];
+    sources: (MeetingSummarySource & {
+      part?: true;
+      parentCue?: { startMs: number; endMs: number };
+    })[];
   } | null>;
   correctMeetingSummaryItem(
     meetingId: string,
@@ -15367,11 +15420,11 @@ export interface CoreApi {
   addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
   /** The live Meeting's kept unsent line, for a panel that opens again to show it; null with none. */
   getQuickNoteDraft(meetingId: string): Promise<{ text: string; atMs: number | null } | null>;
-  /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
+  /** The offer to take notes in a calendar meeting or call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
-   * Take notes: records the call offered in a new Note, opened in the main window. The click is
-   * what records: nothing else starts a Meeting from an offer. NotFoundError once the offer is gone.
+   * Take notes opens the event’s Note (a new Note for an ad-hoc call) and starts recording.
+   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers.
    */
   takeMeetingOffer(offerId: string): Promise<Meeting>;
   /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
@@ -15426,6 +15479,12 @@ export interface CoreApi {
   undoAgentSetup(pairingId: string): Promise<void>;
   /** A paired agent's settings to paste again, e.g. into a second copy of it. */
   copyAgentSetup(pairingId: string): Promise<Extract<AgentSetupResult, { kind: "copy" }>>;
+  /**
+   * Makes the install file of a pairing in `AgentSettings.awaitingInstall` anew and opens it in
+   * its app, for when the file is gone or the app's install window is stale (#3523). Does nothing
+   * for a pairing that isn't in it: its agent is connected, or has been used.
+   */
+  openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
   /**
@@ -15722,6 +15781,7 @@ export interface CoreEvents {
    * show it (#208). Home, which holds the offer with Take notes, comes in front.
    */
   "meetings.offerShown": null;
+  "meetings.offerLinkFailed": null;
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.
@@ -16191,6 +16251,13 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   retryMeetingSummary: true,
+  canReviewMeetingSummaryCandidates: true,
+  reviewMeetingSummaryCandidates: true,
+  getMeetingSummaryCandidates: true,
+  addMeetingTranscriptAction: true,
+  undoAddMeetingTranscriptAction: true,
+  undoAddMeetingSummaryCandidate: true,
+  addMeetingSummaryCandidate: true,
   getMeetingSummaryItemSources: true,
   correctMeetingSummaryItem: true,
   undoMeetingFill: true,
@@ -16224,6 +16291,7 @@ const methods: Record<CoreApiMethod, true> = {
   setUpAgent: true,
   undoAgentSetup: true,
   copyAgentSetup: true,
+  openAgentInstallAgain: true,
   listAgentsToAsk: true,
   askAgent: true,
   handedFileOf: true,

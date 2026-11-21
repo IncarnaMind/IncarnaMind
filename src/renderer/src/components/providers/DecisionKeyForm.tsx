@@ -228,7 +228,6 @@ export function DecisionSortingSetUp({
                 provider: name,
                 decisionModel: true,
               }}
-              choosing={false}
             />
           ),
           choose,
