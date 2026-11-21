@@ -150,7 +150,14 @@ function MindBadge({
   const running = useChecks((state) => state.running[mindId]);
   // The User's own AI asked to check the Note: the badge says how that goes until its marks land (#3587).
   const asked = useAskedAgent({ kind: "check", mindId });
-  const health = useHealth(editor, skipped, unexamined, doc, running !== undefined);
+  // Counted again as the AI's marks land, as at a run's end, so the badge says what it marked.
+  const health = useHealth(
+    editor,
+    skipped,
+    unexamined,
+    doc,
+    running !== undefined || asked !== null,
+  );
   const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
@@ -197,8 +204,8 @@ function MindBadge({
           <RunningText editor={editor} mindId={mindId} />
         ) : (
           asked && (
-            <span data-testid="badge-asked" data-state={asked.asked.state}>
-              {asked.words}
+            <span data-testid="badge-asked" data-state={asked.asked.state} title={asked.words}>
+              {asked.short}
             </span>
           )
         )

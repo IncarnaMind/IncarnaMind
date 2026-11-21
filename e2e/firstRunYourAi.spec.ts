@@ -604,13 +604,13 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
         AGENT_LINE,
         "Check my note “Harbour summary” in IncarnaMind against my Documents.",
       ]);
-    const badge = frontMind(window).getByTestId("badge-asked");
-    await expect(badge).toHaveText("Asked Claude Code: send the request there.");
+    const badge = window.getByTestId("badge-asked");
+    await expect(badge).toHaveText("Asked your AI");
 
     const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
     );
-    await expect(badge).toHaveText("Claude Code is checking this note.");
+    await expect(badge).toHaveText("Your AI is checking");
     const results = given.sentences.map((sentence) =>
       sentence.text.startsWith(CARGO)
         ? { n: sentence.n, verdict: "supported", cites: [cargo] }

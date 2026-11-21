@@ -8897,6 +8897,9 @@ export const en = {
   "agents.asked.writing": "{agent} is writing the note.",
   "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",
   "agents.asked.again": "Ask again",
+  "agents.asked.short.asked": "Asked your AI",
+  "agents.asked.short.working": "Your AI is checking",
+  "agents.asked.short.quiet": "No word from your AI",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",

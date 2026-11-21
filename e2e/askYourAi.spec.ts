@@ -436,7 +436,8 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     const asked = window.getByTestId("checks-asked");
     const badge = window.getByTestId("badge-asked");
     await expect(asked).toHaveText(ASKED);
-    await expect(badge).toHaveText(ASKED);
+    await expect(badge).toHaveText("Asked your AI");
+    await expect(badge).toHaveAttribute("title", ASKED);
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Ask again");
     await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
@@ -456,12 +457,12 @@ test("with no model, one press of Check asks the User's own AI and the Note says
       const { task, sentences } = (
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
       ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
-      const CHECKING = "Claude Code is checking this note.";
-      await expect(asked).toHaveText(CHECKING);
-      await expect(badge).toHaveText(CHECKING);
+      await expect(asked).toHaveText("Claude Code is checking this note.");
+      await expect(badge).toHaveText("Your AI is checking");
       await shot(window, "check-no-model-checking-en");
       await setLanguage(window, "zh-CN");
-      await expect(badge).toHaveText("Claude Code 正在核对这篇笔记。");
+      await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
+      await expect(badge).toHaveText("你的 AI 正在核对");
       await shot(window, "check-no-model-checking-zh-CN");
       await setLanguage(window, "en");
 
@@ -510,6 +511,7 @@ test("with no model, one press of Check asks the User's own AI and the Note says
       });
       await expect(asked).toHaveCount(0);
       await expect(badge).toHaveCount(0);
+      await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
       await pointAndClick(
         window,
         window.locator('[data-testid="claim-mark"][data-check="unsupported"]').first(),

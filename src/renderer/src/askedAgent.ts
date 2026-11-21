@@ -103,8 +103,13 @@ export function forgetAsked(asked: AskedFor): void {
   if (useAgentAsked.getState().byKey[keyOf(asked)]) put(keyOf(asked), null);
 }
 
-/** What was asked of the User's own AI about this Note or Document, and what it says now; null for nothing. */
-export function useAskedAgent(asked: AskedFor | null): { asked: AgentAsked; words: string } | null {
+/**
+ * What was asked of the User's own AI about this Note or Document, and what it says now: `words`
+ * for a line, `short` for the check badge, which shares its row with the Ask pill; null for nothing.
+ */
+export function useAskedAgent(
+  asked: AskedFor | null,
+): { asked: AgentAsked; words: string; short: string } | null {
   const t = useT();
   const key = asked ? keyOf(asked) : null;
   const now = useAgentAsked((state) => (key === null ? undefined : state.byKey[key]));
@@ -116,5 +121,5 @@ export function useAskedAgent(asked: AskedFor | null): { asked: AgentAsked; word
       : now.state === "working"
         ? t(now.for.kind === "check" ? "agents.asked.checking" : "agents.asked.writing", { agent })
         : t("agents.asked.quiet", { agent });
-  return { asked: now, words };
+  return { asked: now, words, short: t(`agents.asked.short.${now.state}`) };
 }
