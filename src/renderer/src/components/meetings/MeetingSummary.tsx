@@ -45,14 +45,18 @@ export function MeetingSummary({
     text && summary.throughMs > 0
       ? t("meetings.summary.coverage", { time: clockTime(summary.throughMs) })
       : null;
-  const progress =
-    summary.state === "failed"
-      ? null
-      : summary.state === "ready"
-        ? text || items.length > 0
-          ? null
-          : t("meetings.summary.empty")
-        : t(text ? "meetings.summary.updating" : "meetings.summary.preparing");
+  const needsRecovery =
+    summary.state === "failed" ||
+    (summary.state !== "ready" &&
+      meeting.transcript?.state !== "saved" &&
+      !!meeting.transcript?.problem);
+  const progress = needsRecovery
+    ? null
+    : summary.state === "ready"
+      ? text || items.length > 0
+        ? null
+        : t("meetings.summary.empty")
+      : t(text ? "meetings.summary.updating" : "meetings.summary.preparing");
 
   return (
     <section
@@ -73,7 +77,7 @@ export function MeetingSummary({
       >
         {t("meetings.summary.title")}
       </h2>
-      {summary.state === "failed" && <MeetingSummaryProblem meeting={meeting} summary={summary} />}
+      {needsRecovery && <MeetingSummaryProblem meeting={meeting} summary={summary} />}
       {(progress || coverage) && (
         <p role="status" className="text-[13px] leading-5 text-ink-meta">
           {[progress, coverage].filter(Boolean).join(" · ")}

@@ -10,6 +10,24 @@ import { ProblemLine, ProblemMark } from "../ProblemLine";
 type Props = { meeting: Meeting; summary: MeetingSummary };
 
 export function MeetingSummaryProblem({ meeting, summary }: Props) {
+  const t = useT();
+  if (meeting.transcript?.state !== "saved" || !meeting.transcript?.documentId)
+    return (
+      <ProblemLine
+        testId="meeting-summary-problem"
+        action={
+          meeting.transcript?.problem && meeting.transcript.problem.kind !== "speakers"
+            ? {
+                label: t("meetings.summary.retryTranscript"),
+                onClick: () => void useMeetings.getState().retryTranscript(meeting.id),
+              }
+            : undefined
+        }
+      >
+        <ProblemMark />
+        {t("meetings.summary.needsTranscript")}
+      </ProblemLine>
+    );
   if (summary.retryAgentId)
     return (
       <AgentSummaryProblem meeting={meeting} summary={summary} agentId={summary.retryAgentId} />
@@ -24,23 +42,6 @@ function AgentSummaryProblem({ meeting, summary, agentId }: Props & { agentId: s
   const documentId = meeting.transcript?.documentId ?? undefined;
   useReadAgentsToAsk(meeting.mindId, documentId);
   const agents = useAgentsToAskRead(meeting.mindId, documentId);
-  if (meeting.transcript?.state !== "saved" || !documentId)
-    return (
-      <ProblemLine
-        testId="meeting-summary-problem"
-        action={
-          meeting.transcript?.state === "failed" && meeting.transcript.problem
-            ? {
-                label: t("meetings.summary.retryTranscript"),
-                onClick: () => void useMeetings.getState().retryTranscript(meeting.id),
-              }
-            : undefined
-        }
-      >
-        <ProblemMark />
-        {t("meetings.summary.needsTranscript")}
-      </ProblemLine>
-    );
   if (!device || agents === null) return null;
   if (agentId !== device.meetingNotesAgentId || agentId !== device.meetingSummaryRoute)
     return (
