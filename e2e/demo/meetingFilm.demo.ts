@@ -73,7 +73,7 @@ const WORDS = {
     folder: "Northwind Retail",
     prep: "Northwind 电话提纲",
     questions: ["上半年末的杠杆率是多少？", "年底上限下调后还有多少余量", "合规证明什么时候发来？"],
-    voices: { them: "Eddy (Chinese (China mainland))", me: "Tingting" },
+    voices: { them: "Tingting", me: "Meijia" },
     call: [
       {
         side: "them",
