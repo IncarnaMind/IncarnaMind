@@ -5,7 +5,7 @@
  * agent may read is what it read before; a Document changed between two parts says so.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { MAX_CITES, READ_PART_TOKENS } from "../../src/core/agents/access";
+import { READ_PART_TOKENS } from "../../src/core/agents/access";
 import { estimateTokens } from "../../src/core/answers/context";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
@@ -24,6 +24,7 @@ interface Read {
   passages: { passageId: string; location: string | null; text: string; timedText?: string }[];
   previous: string | null;
   next: string | null;
+  left?: string;
 }
 
 const PLACES = ["Kendal", "Leeds", "Preston", "Bristol", "Inverness", "Lancaster"];
@@ -105,6 +106,7 @@ describe("an agent reading a Document", () => {
     expect(whole.result.isError ?? false).toBe(false);
     expect(estimateTokens(whole.text)).toBeLessThanOrEqual(READ_PART_TOKENS);
     expect(whole.read).toMatchObject({ documentId: short.id, previous: null, next: null });
+    expect(whole.read.left).toBeUndefined();
     expect(whole.read.passages.length).toBeGreaterThan(4);
     expect(words(whole.read.passages.map((each) => each.text).join("\n"))).toBe(words(shortText));
 
@@ -146,6 +148,19 @@ describe("an agent reading a Document", () => {
     expect(read.at(-1)?.read.next).toBeNull();
     const ids = read.flatMap((part) => part.read.passages.map((each) => each.passageId));
     expect(new Set(ids).size).toBe(ids.length);
+    // Each part before the last says it isn't the whole Document and how much is left (#3586).
+    let seen = 0;
+    for (const part of read) {
+      seen += part.read.passages.length;
+      expect(part.read.left).toBe(
+        part.read.next === null
+          ? undefined
+          : translate("en", "agents.read.left.other", {
+              count: ids.length - seen,
+              total: ids.length,
+            }),
+      );
+    }
     const joined = read.flatMap((part) => part.read.passages.map((each) => each.text)).join("\n");
     expect(words(joined)).toBe(words(longText));
 
@@ -232,8 +247,33 @@ describe("an agent reading a Document", () => {
     expect(around.read.next).toBe(part.read.passages[14]?.passageId);
   });
 
-  // protects=an agent citing what it read is told how to go on when a call is refused: more quotes than one call takes, or a Passage it doesn't have, named; fails_when=a refusal leaves the agent to send the same call again
-  it("tells an agent citing what it read how to go on: too many quotes for one call, or a Passage it doesn't have", async () => {
+  // protects=an input a read doesn't use, or asks for more than it gives, is answered, not refused (#3586); fails_when=after or before with a documentId or from, or more than three around a Passage, is refused
+  it("answers before and after it doesn't use, and gives three around a Passage when asked for more", async () => {
+    const { read, long } = await library();
+    const first = await read({ documentId: long.id });
+    for (const args of [
+      { documentId: long.id, after: 50 },
+      { documentId: long.id, before: 9, after: 9 },
+    ]) {
+      const again = await read(args);
+      expect(again.result.isError ?? false).toBe(false);
+      expect(again.read).toEqual(first.read);
+    }
+    const second = await read({ from: first.read.next });
+    expect((await read({ from: first.read.next, after: 50 })).read).toEqual(second.read);
+
+    const middle = first.read.passages[10];
+    const asked = await read({ passageId: middle?.passageId, before: 7, after: 50 });
+    expect(asked.result.isError ?? false).toBe(false);
+    expect(asked.read).toEqual(
+      (await read({ passageId: middle?.passageId, before: 3, after: 3 })).read,
+    );
+    expect(asked.read.passages).toHaveLength(7);
+    expect(asked.read.left).toBeUndefined();
+  });
+
+  // protects=an agent citing what it read is told which Passage it named that it doesn't have; fails_when=the refusal leaves the agent to send the same call again
+  it("tells an agent citing what it read which Passage it doesn't have", async () => {
     const { agent, read, short } = await library();
     const whole = await read({ documentId: short.id });
     const quotes = whole.read.passages.flatMap((passage) =>
@@ -242,19 +282,8 @@ describe("an agent reading a Document", () => {
         .filter((line) => line.startsWith("Dorothy"))
         .map((quote) => ({ passageId: passage.passageId, quote })),
     );
-    expect(quotes.length).toBeGreaterThan(MAX_CITES);
     const cite = (citations: unknown[]) =>
       agent.callTool({ name: "cite", arguments: { citations } });
-
-    const tooMany = await cite(quotes.slice(0, MAX_CITES + 1));
-    expect(tooMany.isError).toBe(true);
-    expect(resultText(tooMany)).toContain(
-      `At most ${MAX_CITES} quotes a call: cite the first ${MAX_CITES}, then the rest in another call.`,
-    );
-    for (const some of [quotes.slice(0, MAX_CITES), quotes.slice(MAX_CITES)]) {
-      const cited = (await cite(some)).structuredContent as { citations: { check: string }[] };
-      expect(cited.citations.map((each) => each.check)).toEqual(some.map(() => "found"));
-    }
 
     const madeUp = "0001da17-5c2f-463f-a18d-5ee8be66219e";
     const named = await cite([quotes[0], { passageId: madeUp, quote: quotes[1]?.quote }]);

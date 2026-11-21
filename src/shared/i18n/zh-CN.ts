@@ -6133,6 +6133,7 @@ export const zhCN = {
   "error.library.autoNotLocal": "自动分类必须在这台电脑上运行。",
   "error.library.localModelMissing": "输入本地服务器和分类模型。",
   "error.library.ollamaNotLocal": "Ollama 分类模型必须在这台电脑上运行。",
+  "error.library.projectUndo": "无法撤销设为项目：不知道文件夹中各个文件原先在哪里。",
   "error.meeting.notFound": "这个会议不存在或已删除。",
   "error.meeting.purgeFailed":
     "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
@@ -7986,8 +7987,18 @@ export const zhCN = {
     "等待期间，这个智能体能读取的内容有了变化，因此没有返回任何内容。请再调用一次。",
   "agents.problem.wallShared": "“{folder}”只在本文件夹内工作，不能和其他文件夹共用一个智能体",
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
+  "agents.cite.left.one":
+    "为免结果过长，你的 {total} 条引文中最后 1 条没有核对：请在下一次调用中重新发送。",
+  "agents.cite.left.other":
+    "为免结果过长，你的 {total} 条引文中最后 {count} 条没有核对：请在下一次调用中重新发送这 {count} 条。",
+  "agents.problem.citeWithoutPassage":
+    "没有引用任何内容：每条引文都要填写 search 或 read_passages 给出的 passageId，或在 path 中填写文件的完整路径。",
   "agents.problem.citeNotFound":
     "没有引用任何内容：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
+  "agents.read.left.one":
+    "这不是整篇文档：其 {total} 个段落中还有最后 1 个未读，摘要或引文需要每个段落的全文，所以请先把 from 设为 next 接着读，再写关于它的内容。",
+  "agents.read.left.other":
+    "这不是整篇文档：其 {total} 个段落中还有 {count} 个未读，摘要或引文需要每个段落的全文，所以请先把 from 设为 next 接着读，再写关于它的内容。",
   "agents.problem.documentChanged": "你开始读取后，“{document}”有了改动。请从开头重新读取。",
   "agents.notShared":
     "用户在 IncarnaMind 中还有未共享给你的内容。如果用户问的内容不在这里，请告诉用户可以在“设置 → 智能体”中共享更多内容给你。",
