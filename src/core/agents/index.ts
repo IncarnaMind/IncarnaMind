@@ -52,6 +52,7 @@ import {
   reachedFolders,
 } from "./access";
 import { createAgentCitations } from "./citations";
+import { clientDefinition } from "./clients";
 import type { ServedConnection } from "./mcp";
 import { createAgentRequests, type KeptRequest } from "./requests";
 import { type AgentListener, listenForAgents } from "./socket";
@@ -77,6 +78,14 @@ const ACTIVITY_KEPT = 500;
 /** How often a pairing's "last used" time is written while it keeps calling. */
 const LAST_USED_EVERY_MS = 60_000;
 const MAX_NAME_CHARS = 80;
+
+/** What setting an agent up left waiting for its pairing: told when the pairing's agent connects or the pairing goes. */
+export interface PairingEvents {
+  /** The pairing's agent reached IncarnaMind's server, as it does at every start. */
+  connected(pairingId: string): void;
+  /** Waited for: the pairing's disconnect is done once it has returned. */
+  disconnected(pairingId: string): Promise<void>;
+}
 
 /** How an agent starts the shim: the command and arguments for its MCP settings. */
 export interface AgentLauncher {
@@ -221,6 +230,8 @@ export function createAgents(options: AgentsOptions) {
   let closed = false;
   let mcp: Promise<typeof import("./mcp")> | null = null;
 
+  const watchers = new Set<PairingEvents>();
+
   const turnedOn = () => options.readValue(ENABLED_KEY) === true;
   const enabled = () => options.offered && turnedOn();
   const say = options.access.say;
@@ -259,6 +270,17 @@ export function createAgents(options: AgentsOptions) {
     return pairing;
   };
 
+  /** The pairings whose agent installs a file IncarnaMind made, hasn't been used and isn't connected now. */
+  const awaitingInstall = (pairings: readonly AgentPairing[]): string[] =>
+    pairings
+      .filter(
+        (each) =>
+          each.lastUsedAt === null &&
+          (connections.get(each.id)?.size ?? 0) === 0 &&
+          clientDefinition(each.client)?.setup === "bundle",
+      )
+      .map((each) => each.id);
+
   const settings = (): AgentSettings => {
     const pairings = livePairings();
     const skills = pairings.map((each) => ({ id: each.id, ...options.skillState(each.client) }));
@@ -268,6 +290,7 @@ export function createAgents(options: AgentsOptions) {
       pairings,
       skills: skills.filter((each) => each.installed).map((each) => each.id),
       skillsOutOfDate: skills.filter((each) => each.outOfDate).map((each) => each.id),
+      awaitingInstall: awaitingInstall(pairings),
     };
   };
 
@@ -506,6 +529,16 @@ export function createAgents(options: AgentsOptions) {
     return { pairingId, access: createAgentAccess(accessDeps, pairingId ?? "") };
   };
 
+  /** Tells the windows the settings changed because a connection opened or closed, unless the core is closing. */
+  const connectionsChanged = () => {
+    if (closed) return;
+    try {
+      changed();
+    } catch (error) {
+      options.reportError(error);
+    }
+  };
+
   const closeConnections = async (pairingId: string | null) => {
     const open = connections.get(pairingId);
     connections.delete(pairingId);
@@ -527,7 +560,13 @@ export function createAgents(options: AgentsOptions) {
             const list = connections.get(pairingId) ?? new Set<ServedConnection>();
             list.add(connection);
             connections.set(pairingId, list);
-            socket.once("close", () => list.delete(connection));
+            socket.once("close", () => {
+              list.delete(connection);
+              if (pairingId !== null) connectionsChanged();
+            });
+            if (pairingId === null) return;
+            for (const watcher of watchers) watcher.connected(pairingId);
+            connectionsChanged();
           },
           reportError: options.reportError,
         }),
@@ -692,6 +731,19 @@ export function createAgents(options: AgentsOptions) {
       changed();
       await closeConnections(pairing.id);
       await options.secrets.delete(secretName(pairing.id));
+      await Promise.all(
+        [...watchers].map((watcher) => watcher.disconnected(pairing.id).catch(options.reportError)),
+      );
+    },
+
+    /** Hears each connection of a pairing's agent, and each pairing disconnected. */
+    watch(events: PairingEvents): void {
+      watchers.add(events);
+    },
+
+    /** Every pairing this database has held: those disconnected too, which stay marked deleted. */
+    held(): string[] {
+      return db.all<{ id: string }>("SELECT id FROM agent_pairings").map((row) => row.id);
     },
 
     /** Records the settings files and folders that setting this pairing's agent up created. */

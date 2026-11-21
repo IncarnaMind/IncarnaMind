@@ -8653,6 +8653,7 @@ export function createCore(adapters: CoreAdapters): Core {
     setUpAgent: (input) => agentSetup.setUp(input),
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),
     copyAgentSetup: (pairingId) => agentSetup.settingsFor(pairingId),
+    openAgentInstallAgain: (pairingId) => agentSetup.openInstallAgain(pairingId),
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),

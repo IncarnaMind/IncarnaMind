@@ -47,9 +47,11 @@ export function AgentPairingRow({
   pairing,
   skillInstalled,
   skillOutOfDate,
+  awaitingInstall,
   folders,
   justSetUp,
   onUndone,
+  onInstallReopened,
   onDisconnected,
 }: {
   pairing: AgentPairing;
@@ -57,9 +59,13 @@ export function AgentPairingRow({
   skillInstalled: boolean;
   /** The agent's Skill is one the User changed, and IncarnaMind's text has changed since. */
   skillOutOfDate: boolean;
+  /** Its install file waits for the agent, which hasn't connected or been used (#3523). */
+  awaitingInstall: boolean;
   folders: readonly LibraryGroup[];
   justSetUp: JustSetUp | null;
   onUndone(): void;
+  /** The install file was made and opened again. */
+  onInstallReopened(): void;
   /** The agent is disconnected; `agent` is how a sentence names it. */
   onDisconnected(agent: string, left: AgentDisconnected): void;
 }) {
@@ -192,6 +198,21 @@ export function AgentPairingRow({
             {pairing.lastUsedAt
               ? t("agents.pairing.lastUsed", { when: timeWords(pairing.lastUsedAt, language) })
               : t("agents.pairing.notUsed")}
+            {awaitingInstall && (
+              <>
+                <span aria-hidden="true"> · </span>
+                <button
+                  type="button"
+                  data-testid="agent-install-again"
+                  onClick={() =>
+                    core.openAgentInstallAgain(pairing.id).then(onInstallReopened, reportError)
+                  }
+                  className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                >
+                  {t("agents.pairing.installAgain")}
+                </button>
+              </>
+            )}
           </span>
           {skillInstalled && (
             <span data-testid="agent-pairing-skill" className="block">

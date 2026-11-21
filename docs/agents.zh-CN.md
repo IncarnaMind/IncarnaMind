@@ -44,6 +44,8 @@
 
 点击“连接”。Claude 会打开并显示 IncarnaMind：点击“安装”，然后新建一个对话。所有 Claude 套餐都可用，包括免费版。
 
+Claude 安装用的文件会一直保留到 Claude 连接成功，不必着急，退出 IncarnaMind 也不会丢失。如果 Claude 提示找不到文件，在“设置 → 智能体”中点击该连接旁的“在 Claude 中重新打开安装”。
+
 <a id="claude-code"></a>
 ### Claude Code
 

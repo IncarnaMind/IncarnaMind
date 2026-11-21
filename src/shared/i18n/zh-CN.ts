@@ -8147,6 +8147,7 @@ export const zhCN = {
   "agents.folders.sharedWith": "已随“{folder}”共享",
   "agents.pairing.lastUsed": "上次使用：{when}",
   "agents.pairing.notUsed": "尚未使用",
+  "agents.pairing.installAgain": "在 Claude 中重新打开安装",
   "agents.pairing.renameLabel": "{agent}的名称",
   "agents.pairing.folders": "文件夹…",
   "agents.pairing.foldersTitle": "{agent}可以读取的文件夹",
