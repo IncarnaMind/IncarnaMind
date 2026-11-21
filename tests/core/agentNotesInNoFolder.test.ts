@@ -283,7 +283,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
           refusal(await agent.callTool({ name, arguments: args })),
           `${name} of ${mindId}`,
         ).toBe(
-          "No such passage, Document, note or Citation in the Folders shared with this agent.",
+          `No such passage, Document, note or Citation in the Folders shared with this agent. ${translate("en", "agents.notShared")}`,
         );
       }
     }
@@ -316,7 +316,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
     ] as const) {
       const said = refusal(await agent.callTool({ name, arguments: args }));
       expect(said, name).toBe(
-        "No such passage, Document, note or Citation in the Folders shared with this agent.",
+        `No such passage, Document, note or Citation in the Folders shared with this agent. ${translate("en", "agents.notShared")}`,
       );
     }
     const read = structured<{ markdown: string }>(

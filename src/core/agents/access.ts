@@ -121,7 +121,7 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
-import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
+import { AgentRefusedError, MAX_PATH_CHARS, NotReachedError, text, whole } from "./refusals";
 import type { AgentRequests, RequestNamed } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
@@ -1407,7 +1407,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     } catch (error) {
       if (error instanceof AgentRefusedError) {
         record(error.problem === "failed" ? "failed" : "refused", { problem: error.problem });
-        throw error.problem === "not-found" ? withNotShared(error) : error;
+        throw error instanceof NotReachedError ? withNotShared(error) : error;
       }
       deps.reportError(error);
       record("failed", { problem: "failed" });
@@ -1489,7 +1489,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     const passage =
       deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
     if (!passage || !inScope.has(passage.documentId)) {
-      throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+      throw new NotReachedError(t("agents.problem.not-found"));
     }
     return passage;
   };
@@ -1649,7 +1649,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const mindInScope = (pairing: AdmittedPairing, mindId: string): Mind => {
     const mind = deps.minds().find((each) => each.id === mindId);
     if (!mind || !reaches(pairing, mind)) {
-      throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+      throw new NotReachedError(t("agents.problem.not-found"));
     }
     return mind;
   };
@@ -2125,7 +2125,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         } else {
           documentId = text(input?.documentId, "passageId or documentId", 200);
           if (!scopeOf(pairing, undefined).includes(documentId)) {
-            throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+            throw new NotReachedError(t("agents.problem.not-found"));
           }
           from = 0;
           to = after;
@@ -2134,7 +2134,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const read = deps.passagesBetween(documentId, Math.max(0, from - 1), to + 1);
         const inRange = read.filter((each) => each.position >= from && each.position <= to);
         const first = inRange[0];
-        if (!first) throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+        if (!first) throw new NotReachedError(t("agents.problem.not-found"));
         const previous = read.find((each) => each.position === from - 1)?.passageId ?? null;
         const next = read.find((each) => each.position === to + 1)?.passageId ?? null;
         return {
@@ -2222,7 +2222,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           read.push(passage.documentId);
           const quote = text(record.quote, "quote", MAX_QUOTE_CHARS);
           const citation = deps.citing.citeQuote(passage.passageId, quote);
-          if (!citation) throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          if (!citation) throw new NotReachedError(t("agents.problem.not-found"));
           const check =
             citation.check === "found" || citation.check === "cant-check"
               ? citation.check
@@ -2315,7 +2315,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const token = [...tag.matchAll(CITATION_TOKEN)][0]?.[1] ?? tag;
         const kept = deps.citations.find(pairing.id, token);
         if (!kept || !usable(new Set(scopeOf(pairing, undefined)), kept.documentId)) {
-          throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          throw new NotReachedError(t("agents.problem.not-found"));
         }
         const now = deps.recheck({
           documentId: kept.documentId,
@@ -2325,7 +2325,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           location: kept.location,
         });
         if (now.contentHash === null) {
-          throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          throw new NotReachedError(t("agents.problem.not-found"));
         }
         const location = now.location ?? kept.location;
         const where = label(location, now.pageFrom, now.pageTo, kept.documentId);

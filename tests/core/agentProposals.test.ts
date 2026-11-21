@@ -20,6 +20,7 @@ import {
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { ProposalReview, pendingIn } from "../../src/renderer/src/editor/proposalReview";
 import { uncitedSentences } from "../../src/renderer/src/editor/uncitedSentences";
+import { translate } from "../../src/shared/i18n";
 import {
   aiUseOfAccepted,
   decideProposals,
@@ -572,7 +573,7 @@ describe("an outside agent's proposed changes (#352)", () => {
 
     // A Note outside its Folders is no Note it can name, read or change.
     expect(refusal(await propose(elsewhere.id, version, rewrite))).toBe(
-      "No such passage, Document, note or Citation in the Folders shared with this agent.",
+      `No such passage, Document, note or Citation in the Folders shared with this agent. ${translate("en", "agents.notShared")}`,
     );
     expect(
       refusal(
