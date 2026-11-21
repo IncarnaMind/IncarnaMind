@@ -99,6 +99,35 @@ describe("The Mac's calendar through the helper (#190)", () => {
     ]);
   });
 
+  it("only counts people when a room or equipment is booked, including as the organizer", async () => {
+    const host = { name: "Pat", email: "pat@example.test", self: true, status: "accepted" };
+    const room = {
+      name: "Boardroom",
+      email: "room@example.test",
+      self: false,
+      status: "accepted",
+      resource: true,
+    };
+    const projector = { ...room, name: "Projector", email: "projector@example.test" };
+    const { calendar } = fakeHelper({
+      events: ok({
+        events: [
+          { ...event, attendees: [room, { ...host, resource: false }, projector], organizer: room },
+          { ...event, attendees: event.attendees, organizer: host },
+        ],
+      }),
+    });
+    const events = await calendar.events({
+      from: event.start,
+      to: event.end,
+      calendarIds: ["work"],
+    });
+    expect(events).toMatchObject([
+      { attendees: [host], organizer: null },
+      { attendees: event.attendees, organizer: host },
+    ]);
+  });
+
   it("runs nothing for events when no calendar counts", async () => {
     const { calendar, runs } = fakeHelper({});
     expect(await calendar.events({ from: "a", to: "b", calendarIds: [] })).toEqual([]);
