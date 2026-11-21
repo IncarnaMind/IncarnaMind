@@ -97,6 +97,7 @@ func person(_ participant: EKParticipant) -> [String: Any] {
     "name": participant.name ?? NSNull(),
     "email": emailOf(participant.url),
     "self": participant.isCurrentUser,
+    "resource": participant.participantType == .room || participant.participantType == .resource,
     "status": statusOf(participant),
   ]
 }

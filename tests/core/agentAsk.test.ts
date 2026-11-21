@@ -507,8 +507,8 @@ describe("asking the User's own AI about what they are looking at (#3533)", () =
     });
   });
 
-  // protects=a Search scope set on the chat box reaches the agent in the ids its Tools take, and a Document open is not named twice; fails_when=the Folder or Document is left out, or named by an id no Tool takes
-  it("keeps the Search scope, as Folder and Document ids", async () => {
+  // protects=a Search scope set on the chat box reaches the agent whole, in the ids its Tools take, and a Document that is open and in the scope is named in both lines; fails_when=the Folder or Document is left out, one open Document is taken out of the scope, or one is named by an id no Tool takes
+  it("keeps the Search scope whole, as Folder and Document ids", async () => {
     const { core, ferries, summary, tariffs, pairing, agent } = await withDocuments();
     expect(
       await core.askAgent({
@@ -525,7 +525,52 @@ describe("asking the User's own AI about what they are looking at (#3533)", () =
     expect(await requestRead(agent)).toMatchObject({
       request: [
         `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`,
-        `I limited this question to these folders and documents in IncarnaMind: “Tallow Sound Ferries” (folderId: ${ferries.id}); “Tariffs” (documentId: ${tariffs.id}). Look only there.`,
+        `I limited this question to these folders and documents in IncarnaMind: “Tallow Sound Ferries” (folderId: ${ferries.id}); “Tariffs” (documentId: ${tariffs.id}); “Annual summary 2025” (documentId: ${summary.id}). Look only there.`,
+      ].join("\n\n"),
+    });
+  });
+
+  // protects=the scope the agent is told is the User's whole scope as far as it reads it, whatever is open: a scope of two Documents with one of them open names both, and a scope of only the open Document is still told; fails_when=the open Document is taken out of the scope, so the agent is told to leave out the Document in front, or the limit is lost
+  it("tells the scope whole when a Document in it is open", async () => {
+    const { core, summary, tariffs, pairing, agent } = await withDocuments();
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+      scope: { folderIds: [], tagIds: [], documentIds: [summary.id, tariffs.id] },
+    });
+    const open = `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`;
+    expect(await requestRead(agent)).toMatchObject({
+      request: `${open}\n\nI limited this question to these folders and documents in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}); “Tariffs” (documentId: ${tariffs.id}). Look only there.`,
+    });
+
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+      scope: { folderIds: [], tagIds: [], documentIds: [summary.id] },
+    });
+    expect(await requestRead(agent)).toMatchObject({
+      request: `${open}\n\nI limited this question to these folders and documents in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}). Look only there.`,
+    });
+  });
+
+  // protects=a Folder scope with a Document of that Folder open tells both, the Folder and the Document in front; fails_when=either is lost
+  it("tells a Folder's scope beside a Document of it that is open", async () => {
+    const { core, ferries, summary, pairing, agent } = await withDocuments();
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+      scope: { folderIds: [ferries.id], tagIds: [], documentIds: [] },
+    });
+    expect(await requestRead(agent)).toMatchObject({
+      request: [
+        `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`,
+        `I limited this question to these folders and documents in IncarnaMind: “Tallow Sound Ferries” (folderId: ${ferries.id}). Look only there.`,
       ].join("\n\n"),
     });
   });
@@ -611,6 +656,119 @@ describe("asking the User's own AI about what they are looking at (#3533)", () =
         onScreen: [summary.id],
       }),
     ).toEqual({ kind: "copy", text: `About my note “${TITLE}” in IncarnaMind:` });
+  });
+});
+
+describe("a request that names Documents and Folders, read after a wait (#3533)", () => {
+  const ask = (
+    core: Awaited<ReturnType<typeof withDocuments>>["core"],
+    id: string,
+    input: object,
+  ) =>
+    core.askAgent({
+      pairingId: id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      ...input,
+    });
+  const calls = async (core: Awaited<ReturnType<typeof withDocuments>>["core"], id: string) =>
+    (await core.listAgentActivity(id)).map((each) => ({
+      outcome: each.outcome,
+      problem: each.problem,
+      summary: each.summary,
+      request: each.request,
+    }));
+
+  // protects=a request made while the agent could read a Document, and read after the Folder was unshared, is refused as a Note's is, tells the agent none of its names, and waits; fails_when=the agent is handed the Document's name, its activity line or request text carries it, or the request is lost for good
+  it("is refused with no name when its Folder was unshared since, and waits for it to be shared again", async () => {
+    const { core, fares, ferries, tariffs, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, { onScreen: [tariffs.id] });
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id] });
+    const refused = await requestRead(agent);
+    expect(refused).toEqual({ refused: translate("en", "agents.problem.requestOutOfReach") });
+    expect(JSON.stringify(refused)).not.toContain("Tariffs");
+    expect(JSON.stringify(refused)).not.toContain(tariffs.id);
+    const [call] = await calls(core, pairing.id);
+    expect(call).toMatchObject({
+      outcome: "refused",
+      problem: "outside-scope",
+      summary: "",
+      request: null,
+    });
+    expect(JSON.stringify(await calls(core, pairing.id))).not.toContain("Tariffs");
+
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id, fares.id] });
+    expect(await requestRead(agent)).toMatchObject({
+      title: "Tariffs",
+      request: `My message is about the document I have open in IncarnaMind: “Tariffs” (documentId: ${tariffs.id}).`,
+    });
+  });
+
+  // protects=a Folder of the scope is read again too; fails_when=an unshared Folder's name goes to the agent
+  it("is refused when a Folder it named is no longer shared", async () => {
+    const { core, fares, ferries, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, {
+      scope: { folderIds: [fares.id], tagIds: [], documentIds: [] },
+    });
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id] });
+    const refused = await requestRead(agent);
+    expect(refused).toEqual({ refused: translate("en", "agents.problem.requestOutOfReach") });
+    expect(JSON.stringify(refused)).not.toContain("Fares");
+  });
+
+  // protects=a Document renamed since is named as it is now, in the text the agent reads and in its activity; fails_when=the old name comes back
+  it("names a Document as it is when read, not as when asked", async () => {
+    const { core, tariffs, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, { onScreen: [tariffs.id] });
+    await core.renameDocument(tariffs.id, "Tariffs 2026");
+    const read = await requestRead(agent);
+    expect(read).toEqual({
+      mindId: null,
+      title: "Tariffs 2026",
+      request: `My message is about the document I have open in IncarnaMind: “Tariffs 2026” (documentId: ${tariffs.id}).`,
+    });
+    const [call] = await calls(core, pairing.id);
+    expect(call).toMatchObject({ outcome: "done", summary: "Tariffs 2026" });
+    expect(JSON.stringify(call)).not.toContain("“Tariffs”");
+  });
+
+  // protects=a Document deleted since is left out of what the agent reads; a request left with nothing it named goes, as one about a deleted Note does; fails_when=a deleted Document is named, or the request stays in front of the next
+  it("leaves out what was deleted, and goes when nothing is left", async () => {
+    const { core, summary, tariffs, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, { onScreen: [tariffs.id, summary.id] });
+    await core.deleteDocument(tariffs.id);
+    const read = await requestRead(agent);
+    expect(read).toEqual({
+      mindId: null,
+      title: "Annual summary 2025",
+      request: `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`,
+    });
+    expect(JSON.stringify(read)).not.toContain("Tariffs");
+
+    await ask(core, pairing.id, { onScreen: [summary.id] });
+    await core.deleteDocument(summary.id);
+    const gone = await requestRead(agent);
+    expect(gone).toEqual({ refused: translate("en", "agents.problem.requestNoteDeleted") });
+    expect(JSON.stringify(gone)).not.toContain("Annual summary");
+    expect(await requestRead(agent)).toEqual(NONE);
+  });
+
+  // protects=a request with a Note keeps the Note's sentence, and the Documents it named come after it, named now; a Note's own reach is read again as before; fails_when=the Document is lost from a Note's request, or a Document the agent can no longer read is named
+  it("keeps a Note's sentence and names the Documents beside it when read", async () => {
+    const { core, mind, summary, tariffs, pairing, agent } = await withDocuments();
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: mind.id,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+    });
+    await core.renameDocument(summary.id, "Annual summary");
+    expect(await requestRead(agent)).toEqual({
+      mindId: mind.id,
+      title: TITLE,
+      request: `My message is about my note “${TITLE}” in IncarnaMind (mindId: ${mind.id}).\n\nMy message is about the document I have open in IncarnaMind: “Annual summary” (documentId: ${summary.id}).`,
+    });
+    expect(tariffs.id).toBeTruthy();
   });
 });
 

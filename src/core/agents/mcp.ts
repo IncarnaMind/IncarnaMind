@@ -888,6 +888,7 @@ export function serveConnection(
         // The model's state as this connection last knew it: a server is built at its first
         // message, which may come after the state changed.
         let modelNow = ready;
+        let heard = false;
         let current: AgentServer | null = null;
         const handle = serveStdio(
           () => {
@@ -908,9 +909,17 @@ export function serveConnection(
             await handle.close().catch(() => undefined);
           },
           modelChanged: (now) => {
+            heard = true;
             modelNow = now;
             current?.modelChanged(now);
           },
+        });
+        // A change between the read above and the connection being registered reached nobody: read
+        // again now that it would, and keep what an event said since if one came first.
+        void options.modelReady().then((again) => {
+          if (heard || socket.destroyed) return;
+          modelNow = again;
+          current?.modelChanged(again);
         });
       },
       (error: unknown) => {

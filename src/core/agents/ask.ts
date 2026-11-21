@@ -32,6 +32,7 @@ import {
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { parseSearchScope } from "../scope";
 import { promptLinkFor } from "./clients";
+import type { RequestNamed } from "./requests";
 
 type Say = (key: MessageKey, params?: MessageParams) => string;
 
@@ -49,6 +50,7 @@ export interface AgentAskOptions {
     request: Pick<AgentRequest, "pairingId" | "mindId" | "sentences"> & {
       title: string;
       text: string;
+      named: RequestNamed | null;
     },
   ): AgentRequest;
   /**
@@ -99,6 +101,8 @@ export interface HandedFileAsked {
 export interface AgentRequestText {
   line: string;
   request: string | null;
+  /** What the request names by id, whose names are put in its text when the agent reads it (#3533). */
+  named?: RequestNamed;
   sentences: AgentRequest["sentences"];
 }
 
@@ -195,33 +199,9 @@ export function agentRequest(
 const itemOf = (item: Named, idName: "folderId" | "documentId", say: Say) =>
   say("agents.ask.request.item", { name: quotedName(item.name), idName, id: item.id });
 
-/**
- * The words the User typed in the chat box, named by the Note they are in, else by the Document in
- * front, else by the scope they set, whichever there is: the request holds the rest of what they
- * look at, and none when there is nothing more than today's line says.
- */
-function questionRequest(
-  note: { title: string; mindId: string } | null,
-  question: string,
-  { open, folders, documents }: Looking,
-  say: Say,
-): AgentRequestText {
-  const [front] = open;
-  const title = note && quotedName(note.title);
-  const document = front && quotedName(front.name);
-  const scoped = folders.length + documents.length > 0;
-  const line =
-    title !== null && document
-      ? say("agents.ask.line.questionNoteDocument", { title, document, question })
-      : title !== null
-        ? say("agents.ask.line.question", { title, question })
-        : document
-          ? say("agents.ask.line.questionDocument", { document, question })
-          : scoped
-            ? say("agents.ask.line.questionScope", { question })
-            : say("agents.ask.line.questionAlone", { question });
+/** What a question names of what the User looks at, as sentences: the Documents open, then the scope. */
+export function lookingText({ open, folders, documents }: Looking, say: Say): string {
   const parts = [
-    ...(note ? [say("agents.ask.request.note", { title: title ?? "", mindId: note.mindId })] : []),
     ...(open.length > 0
       ? [
           say(open.length === 1 ? "agents.ask.request.document" : "agents.ask.request.documents", {
@@ -229,7 +209,7 @@ function questionRequest(
           }),
         ]
       : []),
-    ...(scoped
+    ...(folders.length + documents.length > 0
       ? [
           say("agents.ask.request.scope", {
             items: [
@@ -240,9 +220,47 @@ function questionRequest(
         ]
       : []),
   ];
+  return parts.join("\n\n");
+}
+
+/**
+ * The words the User typed in the chat box, named by the Note they are in, else by the Document in
+ * front, else by the scope they set, whichever there is. What waits is the Note's sentence; the
+ * Documents and Folders are kept by id, to be named when the agent reads it.
+ */
+function questionRequest(
+  note: { title: string; mindId: string } | null,
+  question: string,
+  looking: Looking,
+  say: Say,
+): AgentRequestText {
+  const [front] = looking.open;
+  const title = note && quotedName(note.title);
+  const document = front && quotedName(front.name);
+  const scoped = looking.folders.length + looking.documents.length > 0;
+  const line =
+    title !== null && document
+      ? say("agents.ask.line.questionNoteDocument", { title, document, question })
+      : title !== null
+        ? say("agents.ask.line.question", { title, question })
+        : document
+          ? say("agents.ask.line.questionDocument", { document, question })
+          : scoped
+            ? say("agents.ask.line.questionScope", { question })
+            : say("agents.ask.line.questionAlone", { question });
+  const ids = (each: Named[]) => each.map((one) => one.id);
   return {
     line,
-    request: parts.length > 0 ? parts.join("\n\n") : null,
+    request: note
+      ? say("agents.ask.request.note", { title: title ?? "", mindId: note.mindId })
+      : null,
+    ...(lookingText(looking, say) !== "" && {
+      named: {
+        open: ids(looking.open),
+        folders: ids(looking.folders),
+        documents: ids(looking.documents),
+      },
+    }),
     sentences: [],
   };
 }
@@ -400,16 +418,12 @@ export function createAgentAsk(options: AgentAskOptions) {
         const name = within.includes(id) ? options.nameOf(kind, id) : null;
         return name === null ? [] : [{ id, name }];
       });
-    const open = named("document", [...new Set(onScreen)], readable.documentIds);
-    const openIds = new Set(open.map((each) => each.id));
+    // The scope is told whole, as far as the agent reads it: a Document open and in the scope is
+    // named in both, which is true of both.
     return {
-      open,
+      open: named("document", [...new Set(onScreen)], readable.documentIds),
       folders: named("folder", scope?.folderIds ?? [], readable.folderIds),
-      documents: named(
-        "document",
-        (scope?.documentIds ?? []).filter((id) => !openIds.has(id)),
-        readable.documentIds,
-      ),
+      documents: named("document", scope?.documentIds ?? [], readable.documentIds),
     };
   };
 
@@ -433,7 +447,7 @@ export function createAgentAsk(options: AgentAskOptions) {
         throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
       }
       const looking = ask.kind === "question" ? lookingAt(pairingId, onScreen, scope) : undefined;
-      const { line, request, sentences } = agentRequest(
+      const { line, request, named, sentences } = agentRequest(
         note,
         ask,
         options.say,
@@ -442,13 +456,14 @@ export function createAgentAsk(options: AgentAskOptions) {
         looking,
       );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
-      if (request !== null) {
+      if (request !== null || named !== undefined) {
         options.keepRequest({
           pairingId,
           mindId: note?.mindId ?? null,
           title: note?.title ?? looking?.open[0]?.name ?? "",
           sentences,
-          text: request,
+          text: request ?? "",
+          named: named ?? null,
         });
       }
       const link = promptLinkFor(pairing.client, line);
