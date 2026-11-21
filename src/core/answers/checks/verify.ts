@@ -81,6 +81,7 @@ import {
   readingOf,
   saidOf,
   slideOf,
+  standsOn,
 } from "./standing";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks, slideText } from "./verifySlides";
@@ -561,7 +562,7 @@ export function createVerify(options: VerifyOptions) {
           versions: [],
           excluded: [],
           checkedAt: startedAt,
-          judgedWith: fingerprintOf(said),
+          judgedWith: fingerprintOf(standsOn(said, sentence)),
         };
         // A line whose sort couldn't be read is shown not checked, never as checked (#3506).
         if (claim.unsorted) {
@@ -819,11 +820,12 @@ export function createVerify(options: VerifyOptions) {
 
   /**
    * Copies the results of `fromMindId`'s checked lines onto the same lines of `toMindId`, a later
-   * version of the same file (#3412). A result goes only to a line whose claim and all it would be
-   * checked with read as what the result was judged with, as the result keeps it: a table row with
-   * its headings, a line with the headings and lines above it. One whose heading changed ("2025" to
-   * "2026") since, in either Note, is checked again. Whether each result still stands is the
-   * check's to decide (`readingOf`), as it decides for Check this Note. Returns how many took one.
+   * version of the same file (#3412). A result goes only to a line whose claim and what frames it
+   * read as what the result stands on, as the result keeps it (`standsOn`): a table row with its
+   * headings, a deck's line with its slide, a line with the headings above it. One whose heading
+   * changed ("2025" to "2026") since, in either Note, is checked again. Whether each result still
+   * stands is the check's to decide (`readingOf`), as it decides for Check this Note. Returns how
+   * many took one.
    */
   function carryChecks(fromMindId: string, toMindId: string): number {
     const landed = content.read(fromMindId, (blocks) => {

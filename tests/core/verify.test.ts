@@ -10,7 +10,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, VerifyClaimsInput } from "../../src/core";
 import type { SortWord } from "../../src/core/answers/checks/claims";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { verificationOf } from "../../src/shared/verification";
@@ -114,6 +114,23 @@ async function shownChecks(core: Core, client: MindClient) {
       scope: null,
     }),
   }));
+}
+
+/**
+ * Each claim's mark as the Note's page shows it: each result read with what the core says it
+ * stands on now, as the window reads it (#3455).
+ */
+async function pageShows(core: Core, mindId: string, client: MindClient) {
+  await client.settled();
+  const versions = new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash]));
+  const { lines } = await core.judgedWithNow(mindId);
+  return claimsOf(readMind(client), {
+    footing: "not-yet-known",
+    versions,
+    folderId: null,
+    scope: null,
+    judgedNow: new Map(Object.entries(lines)),
+  }).claims.map((claim) => claim.shown);
 }
 
 describe("Verify a document", () => {
@@ -363,17 +380,50 @@ describe("Verify a document", () => {
     expect(calls).toEqual([]);
   });
 
-  test("results go “needs re-check” as Check against Documents' do: an edited claim", async () => {
+  // protects=editing one claim of a checked file re-checks that claim alone, on the Note's page as in the core: the results after it stand on their own words and the headings they are under, so a Contradicted and an Unsupported below it, under its heading or under none, still need a look (#3455); fails_when=an edit turns every result after it within the lines a check reads above a claim to Needs re-check, hiding their findings
+  test.each([
+    ["under a heading", REPORT, 2],
+    [
+      "under none",
+      buildPdf([
+        { lines: ["Harbour report", SUPPORTED, CONTRADICTED] },
+        { lines: [UNSUPPORTED, THANKS] },
+      ]),
+      1,
+    ],
+  ])(
+    "results go “needs re-check” as Check against Documents' do: an edited claim alone, %s",
+    async (_, pdf, edited) => {
+      const { core, sources } = await setUp();
+      const { mind, client } = await verified(
+        core,
+        await writeSourceFile(sources, "Harbour notes.pdf", pdf),
+      );
+      await core.findClaims(request(mind.id));
+      await core.verifyClaims(request(mind.id));
+
+      typeInto(client, edited, 0, "Not all ");
+
+      expect(await pageShows(core, mind.id, client)).toEqual([
+        { state: "needs-recheck", why: "edited" },
+        { state: "contradicted" },
+        { state: "unsupported" },
+      ]);
+    },
+  );
+
+  // protects=a result stands on the headings it is under: renaming a heading re-checks the claims under it and leaves those under another heading standing (#3412, #3455); fails_when=a claim keeps a result made under a heading that now says otherwise, or the rename re-checks every claim of the Note
+  test("a heading renamed re-checks the claims under it, not those under another heading", async () => {
     const { core, report } = await setUp();
     const { mind, client } = await verified(core, report);
     await core.findClaims(request(mind.id));
     await core.verifyClaims(request(mind.id));
 
-    typeInto(client, 2, 0, "Not all ");
+    typeInto(client, 1, 2, "Spring ");
 
-    expect((await shownChecks(core, client)).map((each) => each.shown)).toEqual([
-      { state: "needs-recheck", why: "edited" },
-      { state: "contradicted" },
+    expect(await pageShows(core, mind.id, client)).toEqual([
+      { state: "needs-recheck", why: "context" },
+      { state: "needs-recheck", why: "context" },
       { state: "unsupported" },
     ]);
   });

@@ -571,6 +571,11 @@ function sectionsAbove(block: Y.XmlElement): SectionAbove[] {
   return [...sections, { lines: pending }];
 }
 
+/** The headings a Block is under, nearest first, a table's for each of its cells. */
+export function headingsAbove(node: Y.XmlElement): string[] {
+  return sectionsAbove(outsideTable(node)).flatMap(({ heading }) => (heading ? [heading] : []));
+}
+
 /** Those lines, nearest first: the Block's own section's, then each heading with its opening lines. */
 function linesAbove(block: Y.XmlElement): string[] {
   return sectionsAbove(block)
