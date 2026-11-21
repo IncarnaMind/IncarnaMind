@@ -4958,7 +4958,7 @@ export function createCore(adapters: CoreAdapters): Core {
     restoreMind: (mindId) =>
       recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
     editMind: (mindId, change) => content.edit(mindId, change),
-    linkFolder: (path) => documents.linkedFolders.add(path),
+    linkFolder: (path) => documents.linkedFolders.add(path, true),
     unlinkFolder,
     restoreFolder: (linkedFolderId) => {
       db.transaction(() => {
