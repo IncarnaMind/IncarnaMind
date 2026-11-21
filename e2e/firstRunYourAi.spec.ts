@@ -17,6 +17,7 @@ import {
   interceptOpenPath,
   launchApp,
   motionSettled,
+  openSettings,
   removeDataFolder,
   setWindowSize,
   showSettingsPage,
@@ -214,10 +215,8 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   const window = await launch();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
-  await expect(ai.getByRole("heading", { level: 2 })).toHaveText([
-    "Use the AI you already have",
-    "Use a model in IncarnaMind",
-  ]);
+  // The AI they have leads; a model in IncarnaMind is one quiet line, closed (#3537).
+  await expect(ai.getByRole("heading", { level: 2 })).toHaveText(["Use the AI you already have"]);
   const agents = ai.getByTestId("setup-agent");
   const claudeCode = ai.locator('[data-testid="setup-agent"][data-value="claude-code"]');
   // The chat apps first, then the coding tools, the one found on this computer ahead of the
@@ -237,9 +236,25 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   expect(order.slice(3, -1).some(([, found]) => found)).toBe(false);
   await expect(agents.last()).toHaveAttribute("data-value", "other");
   await expect(agents.first().locator("input")).toBeFocused();
-  await expect(ai.getByTestId("setup-key")).toBeVisible();
+  const inApp = ai.getByTestId("setup-in-app-open");
+  await expect(inApp).toHaveText("Use a model in IncarnaMind");
+  for (const behind of ["setup-key", "setup-way-chatgpt", "setup-way-more", "setup-way-local"]) {
+    await expect(ai.getByTestId(behind), behind).toHaveCount(0);
+  }
   await expect(ai.getByTestId("setup-next")).toBeDisabled();
   await stills(window, "1-your-ai");
+  // Pressed, it opens in place with the key field and the other ways, still the one step.
+  await inApp.click();
+  await expect(ai.getByRole("heading", { level: 2 })).toHaveText([
+    "Use the AI you already have",
+    "Use a model in IncarnaMind",
+  ]);
+  // The key field takes the focus, as a person who pressed it means to paste one.
+  await expect(ai.getByTestId("setup-key")).toBeFocused();
+  await expect(ai.getByTestId("setup-way-more")).toBeVisible();
+  await expect(ai.getByTestId("setup-next")).toBeDisabled();
+  await expect(panelOf(window)).toHaveAttribute("data-step", "ai");
+  await stills(window, "1b-your-ai-model-open");
 
   // Chosen: the three lines of the connect dialog, with nothing to read yet but the Documents to
   // come, the rest under Details, and Allow and connect in view at both widths.
@@ -319,6 +334,30 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await expect(models.getByTestId("model-default-row-sorting")).toContainText(
     "Ask your connected AI to suggest Folders and Tags.",
   );
+  // With only their own AI connected, Settings says whose it is and holds back what is for the
+  // built-in assistant: no Connectors, no Skills, here or in ⌘K (#3537).
+  const none = models.getByTestId("ai-none");
+  await expect(none).toContainText("Your AI: Claude Code");
+  await expect(none).toContainText("A model in IncarnaMind is optional.");
+  await expect(none).not.toContainText("No AI yet");
+  const listed = await models
+    .locator('[data-testid^="settings-nav-"]')
+    .evaluateAll((all) =>
+      all.map((each) => each.getAttribute("data-testid")?.replace("settings-nav-", "")),
+    );
+  expect(listed).toEqual(["general", "ai", "meetings", "agents", "privacy"]);
+  await expect(window.getByTestId("settings-nav-connectors")).toHaveCount(0);
+  await expect(window.getByTestId("settings-nav-skills")).toHaveCount(0);
+  await expect(window.getByTestId("settings-page-connectors")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("settings")).toBeHidden();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.getByTestId("palette-search").fill("Settings");
+  await expect(window.locator('[data-key="command:settings.privacy"]')).toBeVisible();
+  await expect(window.locator('[data-key="command:settings.connectors"]')).toHaveCount(0);
+  await expect(window.locator('[data-key="command:settings.skills"]')).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await openSettings(window, "ai");
   const page = await showSettingsPage(window, "agents");
   await expect(page.getByTestId("agents-enabled")).toBeChecked();
   const row = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
@@ -342,10 +381,8 @@ test("agents that can't be listed: the step says so in their place, and a model 
   await window.reload();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
-  await expect(ai.getByRole("heading", { level: 2 })).toHaveText([
-    "Use the AI you already have",
-    "Use a model in IncarnaMind",
-  ]);
+  await expect(ai.getByRole("heading", { level: 2 })).toHaveText(["Use the AI you already have"]);
+  await expect(ai.getByTestId("setup-in-app-open")).toBeVisible();
   const problem = ai.getByTestId("setup-agents-problem");
   await expect(problem).toContainText("Couldn\u2019t list the agents on this computer");
   await expect(ai.getByTestId("setup-agent")).toHaveCount(0);

@@ -62,6 +62,9 @@ export function AiStep({ place }: { place: StepPlace }) {
   const ready = readiness?.ready === true || (pairings?.length ?? 0) > 0;
   const [view, setView] = useState<View>({ kind: "main" });
   const [open, setOpen] = useState<Way | null>(null);
+  // The AI they already have leads; a model in IncarnaMind is one quiet line until it is asked
+  // for, and open while one works (#3537).
+  const [inAppAsked, setInAppAsked] = useState(false);
   const [providers, setProviders] = useState<ChatProvider[]>([]);
   const keyField = useRef<HTMLInputElement>(null);
   const sign = useContinueWithChatGpt({ onSignedIn: () => setView({ kind: "main" }) });
@@ -92,6 +95,7 @@ export function AiStep({ place }: { place: StepPlace }) {
   }, [away]);
   // A model that starts working while a service is set up brings the step back, with it set.
   const modelReady = readiness?.ready === true;
+  const inApp = inAppAsked || modelReady;
   const wasReady = useRef(modelReady);
   useEffect(() => {
     if (modelReady && !wasReady.current) setView({ kind: "main" });
@@ -99,9 +103,13 @@ export function AiStep({ place }: { place: StepPlace }) {
   }, [modelReady]);
 
   const main = () => setView({ kind: "main" });
+  const openInApp = () => {
+    setInAppAsked(true);
+    requestAnimationFrame(() => keyField.current?.focus());
+  };
   const useKeyInstead = () => {
     main();
-    requestAnimationFrame(() => keyField.current?.focus());
+    openInApp();
   };
   const toggle = (way: Way) => setOpen(open === way ? null : way);
   // The step opens whole, its first choice focused: in the setup they were read on its first step.
@@ -227,65 +235,79 @@ export function AiStep({ place }: { place: StepPlace }) {
       }
     >
       <AgentWays clients={clients} pairings={pairings ?? []} />
-      <h2 id="setup-in-app" className="-mb-2 text-ui font-semibold text-ink">
-        {t("setupPage.ai.inApp")}
-      </h2>
-      <div className="flex flex-col gap-2">
-        {localOnly ? (
-          <ProblemLine
-            testId="setup-local-mode"
-            action={{
-              label: t("localMode.turnOff"),
-              testId: "setup-local-mode-off",
-              onClick: () => void turnOffLocalMode(),
-            }}
-          >
-            {t("setup.localMode")}
-          </ProblemLine>
-        ) : (
-          <KeyEntry
-            testId="setup-key"
-            inputRef={keyField}
-            label="setupPage.ai.key"
-            placeholder="setupPage.ai.keyPlaceholder"
-            below={<KeysStay />}
-            onSaved={() => undefined}
-            unrecognised={{
-              label: "setup.key.chooseService",
-              run: (key, target) => setView({ kind: "key", key, target }),
-            }}
-          />
-        )}
-        {readiness?.ready && <ModelWorks />}
-      </div>
-      <div className="flex flex-col gap-2">
-        <h3 id="setup-other" className="text-[13px] leading-5 font-semibold text-ink-secondary">
-          {t("setup.other")}
-        </h3>
-        {/* Neither plan is sold in mainland China, which the Chinese interface stands for, so
-            there they come after the other services (#2865); this computer is last either way. */}
-        <ul aria-labelledby="setup-other" className="flex flex-col gap-2">
-          {chinese ? (
-            <>
-              {more}
-              {plans}
-            </>
-          ) : (
-            <>
-              {plans}
-              {more}
-            </>
-          )}
-          <WayRow
-            title={t("setupPage.ai.local")}
-            testId="setup-way-local"
-            expanded={open === "local"}
-            onClick={() => toggle("local")}
-          >
-            <LocalPanel />
-          </WayRow>
-        </ul>
-      </div>
+      {inApp ? (
+        <>
+          <h2 id="setup-in-app" className="-mb-2 text-ui font-semibold text-ink">
+            {t("setupPage.ai.inApp")}
+          </h2>
+          <div className="flex flex-col gap-2">
+            {localOnly ? (
+              <ProblemLine
+                testId="setup-local-mode"
+                action={{
+                  label: t("localMode.turnOff"),
+                  testId: "setup-local-mode-off",
+                  onClick: () => void turnOffLocalMode(),
+                }}
+              >
+                {t("setup.localMode")}
+              </ProblemLine>
+            ) : (
+              <KeyEntry
+                testId="setup-key"
+                inputRef={keyField}
+                label="setupPage.ai.key"
+                placeholder="setupPage.ai.keyPlaceholder"
+                below={<KeysStay />}
+                onSaved={() => undefined}
+                unrecognised={{
+                  label: "setup.key.chooseService",
+                  run: (key, target) => setView({ kind: "key", key, target }),
+                }}
+              />
+            )}
+            {readiness?.ready && <ModelWorks />}
+          </div>
+          <div className="flex flex-col gap-2">
+            <h3 id="setup-other" className="text-[13px] leading-5 font-semibold text-ink-secondary">
+              {t("setup.other")}
+            </h3>
+            {/* Neither plan is sold in mainland China, which the Chinese interface stands for, so
+                there they come after the other services (#2865); this computer is last either way. */}
+            <ul aria-labelledby="setup-other" className="flex flex-col gap-2">
+              {chinese ? (
+                <>
+                  {more}
+                  {plans}
+                </>
+              ) : (
+                <>
+                  {plans}
+                  {more}
+                </>
+              )}
+              <WayRow
+                title={t("setupPage.ai.local")}
+                testId="setup-way-local"
+                expanded={open === "local"}
+                onClick={() => toggle("local")}
+              >
+                <LocalPanel />
+              </WayRow>
+            </ul>
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          data-testid="setup-in-app-open"
+          onClick={openInApp}
+          className="-mt-1 flex w-fit items-center gap-1 rounded-sm text-[13px] leading-5 font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+        >
+          {t("setupPage.ai.inApp")}
+          <ChevronRightLineIcon aria-hidden="true" className="size-3 shrink-0" />
+        </button>
+      )}
     </SetupPanel>
   );
 }

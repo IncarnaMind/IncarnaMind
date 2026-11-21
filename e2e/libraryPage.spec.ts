@@ -987,7 +987,6 @@ test("an empty Library has one place to add, with no dashed box and no Add Docum
       "A folder on this computer…",
       "A web page…",
       "Find sources…",
-      "Connect an app…",
       "Import references…",
     ]);
   } finally {

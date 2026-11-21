@@ -9,6 +9,7 @@ import {
   addDocuments,
   askInAssistant,
   assistantAnswers,
+  useLocalChatModel as connectLocalChatModel,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -194,6 +195,8 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await setWindowSize(app, window, 900, 700);
       await dismissChatSetup(window);
+      // Skills are listed once a model is set up (#3537).
+      await connectLocalChatModel(window);
       // Opened by its English name, then shown in the language under test.
       await openSettings(window, "skills");
       await (await coreOf(window)).evaluate(

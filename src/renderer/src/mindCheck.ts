@@ -50,6 +50,7 @@ import { editorDoc } from "./editor/proposalReview";
 import { languageNow, translateNow } from "./i18n";
 import { frontTabOfMind, groupsMerged } from "./layoutSlice";
 import { modelInUseOf } from "./modelInUse";
+import { noModelSetUp } from "./noModelSetUp";
 import { useAppStore } from "./store";
 
 interface MindCheckState {
@@ -802,7 +803,7 @@ async function askOrCheck(
   // With no AI model set up no run can start, so a question about its price would only be
   // answered by the same line: say so now, where the User's own AI is offered to check (#3533).
   const readiness = useAppStore.getState().chatReadiness;
-  if (!plan.model && readiness?.ready === false && readiness.reason === "no-provider") {
+  if (!plan.model && noModelSetUp(readiness)) {
     clearAsk(mindId);
     dismissCheckProblem(mindId);
     setCheckProblem(mindId, { kind: "not-ready", readiness });

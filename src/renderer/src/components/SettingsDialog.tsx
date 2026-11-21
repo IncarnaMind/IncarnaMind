@@ -3,6 +3,7 @@ import type { LanguagePreference } from "../../../core/language";
 import type { MessageKey } from "../../../shared/i18n";
 import { core, files } from "../core";
 import { useT } from "../i18n";
+import { useSettingsPagesOffered } from "../settingsOffered";
 import { offeredSettingsPages, type SettingsPage, settingsPageLabels } from "../settingsPages";
 import { recordUsage, useAppStore } from "../store";
 import { AppearanceRow } from "./AppearanceSettings";
@@ -43,6 +44,10 @@ export function SettingsDialog() {
   const t = useT();
   const open = useAppStore((state) => state.settingsOpen);
   const page = useAppStore((state) => state.settingsPage);
+  // The page the User is on stays in the list until they leave it, whatever turned it off: the
+  // last Connector switched off on its own page, or the last model removed (#3537).
+  const offered = useSettingsPagesOffered();
+  const listed = offeredSettingsPages.filter((each) => offered.includes(each) || each === page);
   const showPage = useAppStore((state) => state.showSettingsPage);
   const close = useAppStore((state) => state.closeSettings);
   const dialog = useModal(open);
@@ -77,13 +82,15 @@ export function SettingsDialog() {
               {t("settings.title")}
             </h2>
           </div>
-          {offeredSettingsPages.map((each) => (
+          {listed.map((each) => (
             <button
               key={each}
               type="button"
               data-testid={`settings-nav-${each}`}
               aria-current={page === each ? "page" : undefined}
-              onClick={() => showPage(each)}
+              onClick={() => {
+                if (each !== page) showPage(each);
+              }}
               className={navRowClass(page === each)}
             >
               {t(settingsPageLabels[each])}
@@ -119,16 +126,18 @@ export function SettingsDialog() {
            * a Connector unfolded, are still there after a look at another page.
            */}
           <div className="relative min-h-0 flex-1">
-            {visited.map((each) => (
-              <div
-                key={each}
-                data-testid={`settings-page-${each}`}
-                hidden={each !== page}
-                className="absolute inset-0 overflow-y-auto px-8 pt-1 pb-8"
-              >
-                <PageContent page={each} />
-              </div>
-            ))}
+            {visited
+              .filter((each) => listed.includes(each))
+              .map((each) => (
+                <div
+                  key={each}
+                  data-testid={`settings-page-${each}`}
+                  hidden={each !== page}
+                  className="absolute inset-0 overflow-y-auto px-8 pt-1 pb-8"
+                >
+                  <PageContent page={each} />
+                </div>
+              ))}
           </div>
         </section>
       </div>

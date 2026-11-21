@@ -93,7 +93,8 @@ test("Add Documents ▾ → Find sources… asks each provider once, then adds a
     await listADocument(window);
     await window.getByTestId("open-library").click();
 
-    // The Library's Add Documents is a menu of the ways in, Find sources among them.
+    // The Library's Add Documents is a menu of the ways in, Find sources among them; with no
+    // model set up it offers no Connect an app… (#3537).
     const add = window.getByTestId("library-add-documents");
     await add.hover();
     await add.click();
@@ -104,7 +105,6 @@ test("Add Documents ▾ → Find sources… asks each provider once, then adds a
       /A folder on this computer…/,
       /A web page…/,
       /Find sources…/,
-      /Connect an app…/,
       /Import references…/,
     ]);
     await window.getByTestId("library-find-sources").click();
