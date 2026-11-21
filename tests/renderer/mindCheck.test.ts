@@ -431,12 +431,14 @@ describe("Check this note", () => {
     expect(bridge.cancelCheck).toHaveBeenCalledOnce();
   });
 
-  test("a Note with no claim says so, not that nothing changed", async () => {
+  // protects=a Check with nothing to check says so in the Note's card, opened, so a press again after a click elsewhere closed the card shows the line again; fails_when=it says nothing changed, or the line waits in a closed card
+  test("a Note with no claim says so in its card, opened, not that nothing changed", async () => {
     bridge.planMindCheck.mockResolvedValue({ kind: "nothing" });
     const { startCheck, useMindCheck } = await import("../../src/renderer/src/mindCheck");
-    const { setCheckProblem } = await import("../../src/renderer/src/checks");
+    const { setCheckCardOpen, setCheckProblem } = await import("../../src/renderer/src/checks");
     await startCheck("mind");
     expect(setCheckProblem).toHaveBeenCalledWith("mind", { kind: "no-claims" });
+    expect(setCheckCardOpen).toHaveBeenLastCalledWith("tab", true);
     expect(useMindCheck.getState().unchanged.mind).toBeUndefined();
     expect(bridge.checkMind).not.toHaveBeenCalled();
   });
@@ -851,7 +853,7 @@ describe("A Check another window runs or plans", () => {
     }
   });
 
-  // protects=#3533: every way into a Note's Check (the card's press with a price and without, the Note's pill and Home's next step, ⌘K's two Checks, the changed-since, the figures' and the assistant's write's) with no AI model set up leaves the one line that says so, where the User's own AI is offered, asks no question about a price no run will have, asks the core to estimate nothing, and throws nothing; fails_when=a route asks to check, estimates, runs, or ends with no line
+  // protects=#3533: every way into a Note's Check (the card's press with a price and without, the Note's pill and Home's next step, ⌘K's two Checks, the changed-since, the figures' and the assistant's write's) with no AI model set up leaves the one line that says so in the Note's card, opened as well when the line was already there, where the User's own AI is offered, asks no question about a price no run will have, asks the core to estimate nothing, and throws nothing; fails_when=a route asks to check, estimates, runs, ends with no line, or leaves the line in a closed card
   describe("with no AI model set up, every route into a Note's Check says so at once", () => {
     const routes: [
       string,
@@ -876,7 +878,7 @@ describe("A Check another window runs or plans", () => {
     ];
     test.each(routes)("%s", async (_route, press) => {
       store.chatReadiness = { ready: false, reason: "no-provider" };
-      const { setCheckProblem } = await import("../../src/renderer/src/checks");
+      const { setCheckCardOpen, setCheckProblem } = await import("../../src/renderer/src/checks");
       const checks = await import("../../src/renderer/src/mindCheck");
       try {
         await press(checks);
@@ -884,6 +886,7 @@ describe("A Check another window runs or plans", () => {
           "mind",
           { kind: "not-ready", readiness: { ready: false, reason: "no-provider" } },
         ]);
+        expect(setCheckCardOpen).toHaveBeenLastCalledWith("tab", true);
         expect(checks.useMindCheck.getState().asking.mind).toBeUndefined();
         expect(bridge.estimateRun).not.toHaveBeenCalled();
         expect(bridge.checkMind).not.toHaveBeenCalled();

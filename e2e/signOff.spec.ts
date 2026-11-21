@@ -308,16 +308,58 @@ for (const language of ["en", "zh-CN"] as const) {
         t("signOff.count.mine", { count: 3 }),
       );
 
-      // Tie out figures starts the Note's Check where figures need one, asking first as no model
-      // can price it here; Not now still brings the schedule back, as wide or as narrow.
+      // Tie out figures starts the Note's Check where figures need one. With no AI model set up
+      // none can run, so it asks no price and ends in the Note's card line that says why (#3533),
+      // in front as wide or as narrow: the schedule opens beside the Note, or behind it.
       await window.keyboard.press("Escape");
       const figuresTab = window.getByRole("tab", { name: new RegExp(`^${t("figures.title")}`) });
-      await pointAndClick(window, figuresTab.getByTestId("tab-close"));
-      await expect(schedule).toHaveCount(0);
-      await runCommand(window, "mind.tieOut", t("figures.command"));
-      await expect(ask).toBeVisible({ timeout: 30_000 });
-      await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
-      await expect(ask).toHaveCount(0);
+      const tieOut = async (line: Locator) => {
+        await pointAndClick(window, figuresTab);
+        await pointAndClick(window, figuresTab.getByTestId("tab-close"));
+        await expect(schedule).toHaveCount(0);
+        await runCommand(window, "mind.tieOut", t("figures.command"));
+        await expect(line).toBeVisible({ timeout: 30_000 });
+        await expect(ask).toHaveCount(0);
+        if (language === "en") await expect(schedule).toBeVisible();
+        else await expect(figuresTab).toHaveAttribute("aria-selected", "false");
+      };
+      const alone = window.getByTestId("checks-problem");
+      await tieOut(alone);
+      await expect(alone).toContainText(t("checks.problem.no-provider"));
+      await screenshot(window, `tie-out-no-model-${language}`);
+
+      // Filed with its Documents in a Folder the User's own AI is connected to, the line offers
+      // to ask that AI: an agent reads only the Notes in the Folders it is let into.
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const { mindId } = await bridge.getExamples();
+        if (!mindId) throw new Error("There is no example Note.");
+        const folder = await bridge.createLibraryGroup({ name: "Field work", description: "" });
+        await bridge.moveToFolder({
+          documentIds: (await bridge.listDocuments()).map((each) => each.id),
+          mindIds: [mindId],
+          folderId: folder.id,
+        });
+        await bridge.setAgentsEnabled(true);
+        await bridge.connectAgent({
+          name: "Claude Code",
+          client: "claude-code",
+          folderIds: [folder.id],
+        });
+      });
+      const asking = window.getByTestId("checks-ask-agent");
+      await tieOut(asking);
+      await expect(asking.getByTestId("checks-ask-agent-ask")).toHaveText(
+        t("agents.ask.action", { agent: "Claude Code" }),
+      );
+      await expect(asking.getByTestId("checks-ask-agent-set-up")).toHaveText(
+        t("agents.ask.setUpModel"),
+      );
+      await screenshot(window, `tie-out-own-ai-${language}`);
+
+      // The schedule is a click away in a narrow window.
+      if (language !== "en") await pointAndClick(window, figuresTab);
       await expect(schedule).toBeVisible();
       await expect(figuresTab).toHaveAttribute("aria-selected", "true");
     } finally {
