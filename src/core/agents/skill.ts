@@ -39,6 +39,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "8e6c025ae0b13c73505360d6021e345658eff91142e19c1ef5bf2c3387d41a64",
   "a6d7f8d9b93f0f3b8f6c74d35df74a9a0b53245a44c6b08f9797788581ef7459",
   "08c9b7d3b7aa2c87b460a2fe74750aded786e910adcc32dbdc09b34f4817b2e2",
+  "ad063db95ef1cc4131b85f762358c6b0b252e38b82a24a0578b78fd51160d445",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -77,7 +78,7 @@ Only when the User asks to organize Documents or suggest Tags (for example, “�
 
 \`show_citation\` opens a \`[cite:…]\` in IncarnaMind, at its quote, when the User wants to see a source. \`list_minds\` and \`read_mind\` read the User's Notes.
 
-When the User asks for a document of their own (a report, a summary, a draft), \`create_mind\` writes it as a new Note in IncarnaMind, with a token after each claim: they see it there at once, each Citation checked. It is refused unless they let you write.
+When the User asks for a document of their own (a report, a summary, a draft), \`create_mind\` writes it as a new Note in IncarnaMind, with a token after each claim: they see it there at once, each Citation checked. Lay it out for its reader, who reads compared figures faster in a table than in sentences, and a change over periods or a figure against its limit faster in a chart: compared figures in a table, its first column their labels and each other cell one figure with its token, and where that table holds such a change or limit, a chart drawn from it, as below. It is refused unless they let you write.
 
 A Note can hold pictures and charts. A picture is \`![alt](path)\` on a line of its own: the full path of a PNG, JPEG, GIF, WebP or SVG file on this computer, read only when you name it, at most 1 MB and 10 in a call; with no file here, a \`data:\` URL (an SVG you draw, say). A chart is a table of its figures, each cell a figure with its token, and right under it a \`\`\`chart block of JSON, \`{"kind": "bar", "title": "…"}\` (bar, line, pie or scatter), with \`"leaveOut": ["Total"]\` for rows not to draw, such as a total: IncarnaMind draws it from the table, each value keeping its Citation, and checks it as it checks a sentence; to chart a table already in the Note, add the block after its last cell (\`¶n+\`). What it can't add comes back in \`refused\`, and the Note has a line saying so.
 
