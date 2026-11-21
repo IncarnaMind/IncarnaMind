@@ -71,6 +71,16 @@ it("runs Claude Code with no tools or MCP, passes speech only on stdin and remov
   await expect(stat(options.cwd)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
+it("finishes and closes Claude Code when its successful turn leaves the process running", async ({
+  onTestFinished,
+}) => {
+  const stop = new AbortController();
+  onTestFinished(() => stop.abort());
+  useProgram(`${claudeServer(JSON.stringify(response))}\nsetInterval(() => {}, 1000);`);
+  await expect(summarize("claude-code", stop.signal)).resolves.toBe("Green pens.");
+  await expect(stat(invocation()[2].cwd)).rejects.toMatchObject({ code: "ENOENT" });
+});
+
 it.each([
   JSON.stringify({ ...response, is_error: true, result: "Private provider diagnostics" }),
   "Private malformed output",
