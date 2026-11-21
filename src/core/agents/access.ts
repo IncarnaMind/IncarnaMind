@@ -382,6 +382,11 @@ export interface AgentCheckMindInput {
   mindId: string;
 }
 
+export interface AgentCheckYourselfInput extends AgentCheckMindInput {
+  /** Every sentence, its result or not: the agent judges the Note again. */
+  again?: boolean;
+}
+
 /** A claim of a checked Note that needs a look, isn't checked or can be cited. */
 export interface AgentCheckedClaim {
   sentence: string;
@@ -549,7 +554,7 @@ export interface AgentAccess {
   /** Has a Note the agent wrote checked claim by claim against its Folder's Documents (#3317). */
   checkMind(input: AgentCheckMindInput): Promise<AgentMindCheck>;
   /** The sentences of a Note the agent wrote, for it to judge with its own model (#3342). */
-  checkMindYourself(input: AgentCheckMindInput): Promise<AgentCheckTask>;
+  checkMindYourself(input: AgentCheckYourselfInput): Promise<AgentCheckTask>;
   /** Marks the Note with the agent's results, each on the Citations IncarnaMind can confirm. */
   reportCheck(input: AgentReportInput): Promise<AgentReported>;
   /** Runs code over what the agent may read, in IncarnaMind's sandbox (#3363). */
@@ -744,8 +749,11 @@ export interface AgentAccessDeps {
    * searching none but `documentIds`, the Documents the agent may read.
    */
   checkNote(mindId: string, documentIds: readonly string[]): Promise<OutsideCheck>;
-  /** A Note's sentences that hold no result yet, when its Check searches none but `documentIds`. */
-  checkTask(mindId: string, documentIds: ReadonlySet<string>): Judged<CheckTask>;
+  /**
+   * A Note's sentences that hold no result yet, or with `every` all it judges, results or not, when
+   * its Check searches none but `documentIds`.
+   */
+  checkTask(mindId: string, documentIds: ReadonlySet<string>, every?: boolean): Judged<CheckTask>;
   /** Marks a task's sentences with what the agent `agent` judged of them. */
   landJudged(
     mindId: string,
@@ -2796,7 +2804,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
       return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
         const mind = ownNote(pairing, input?.mindId);
-        const found = deps.checkTask(mind.id, checkReach(pairing));
+        const found = deps.checkTask(mind.id, checkReach(pairing), input?.again === true);
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
         const { task, sentences } = found.value;

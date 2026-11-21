@@ -1013,7 +1013,7 @@ describe("an agent reads its Note as the User sees it, and its check and the Not
     const done = await task();
     expect(done.sentences).toEqual([]);
     expect(done.how).toBe(
-      "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those; there is nothing to hand to report_check.",
+      "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those. To judge the sentences again yourself, call check_mind_yourself with again: true and hand your results to report_check: a verdict only in your reply leaves the note’s marks as they are.",
     );
     const rows = await pageRows(core, made.mindId);
     expect(done.checked).toMatchObject({

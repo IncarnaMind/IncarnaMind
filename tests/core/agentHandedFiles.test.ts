@@ -129,7 +129,7 @@ describe("files an outside agent hands over", () => {
     expect(unchecked).toMatchObject({
       version: 1,
       status: "not-checked",
-      why: "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. With no model in IncarnaMind, check it yourself, as you check a note you wrote: check_mind_yourself with its mindId, then report_check.",
+      why: "Not checked yet: no AI model is set up in IncarnaMind. Check this file yourself now: check_mind_yourself with its mindId gives what to check in it, then report_check.",
       claims: [],
     });
     const task = structured<{ mindId: string; sentences: { text: string }[] }>(
