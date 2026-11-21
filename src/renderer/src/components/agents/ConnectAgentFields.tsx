@@ -2,12 +2,13 @@ import { type ReactNode, useEffect, useState } from "react";
 import {
   type AgentClient,
   type AgentSetupPreview,
+  ALL_SHARED_ID,
   NOT_IN_A_FOLDER_ID,
   type SecretStorageStatus,
 } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
 import { agentConnector } from "../../agentConnection";
-import { onlyNotInAFolder } from "../../agentFolders";
+import { leftOutOfAll, onlyNotInAFolder } from "../../agentFolders";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
@@ -17,11 +18,18 @@ import { ProblemMark } from "../ProblemLine";
 import { SecretStorageNotice } from "../providers/ProviderForm";
 import { SLOT, Slotted } from "../Slotted";
 import { dialogTextClass, errorTextClass, fieldLabelClass, hintClass, inputClass } from "../ui";
-import { AgentFolderList, useAgentFolderRows, useAnyOwnDocument } from "./AgentFolderList";
+import { useAgentFolderRows } from "./AgentFolderList";
 import type { JustSetUp } from "./AgentPairingRow";
+import { AgentShareChoice } from "./AgentShareChoice";
 import { ProposeChoice } from "./ProposeChoice";
 
 const ALL_UNFILED: ReadonlySet<string> = new Set([NOT_IN_A_FOLDER_ID]);
+/** The first line while the User has a Folder, by the Folders all leaves out (`leftOutOfAll`). */
+const READS_WITH = {
+  none: "agents.connect.reads",
+  projects: "agents.connect.reads.projects",
+  walled: "agents.connect.reads.walled",
+} as const;
 const NOTHING: ReadonlySet<string> = new Set();
 
 /** What the User chose before they allow: the Folders, Other agent's name, and whether it may write. */
@@ -75,12 +83,14 @@ export function useAgentConnection() {
 
 /**
  * What the User reads and chooses before an agent is connected (#351), which is also their
- * consent to its data flow, in three lines (#3487): the Folders it may read, with where that goes
- * (its own AI model), whether it may write notes (#352), and that it can be disconnected at any
- * time. Under Details: what else it can read and what is sent, what a write allows, and, for an
- * agent whose settings file IncarnaMind writes, exactly what it adds there. The Folders are none
- * chosen until the User picks, unless every Document is in none, which is said in words. The same
- * lines in the connect dialog and in the setup's step (#3362); `actions` draws the press that allows.
+ * consent to its data flow, in three lines (#3487): what it may read, with where that goes (its
+ * own AI model), whether it may write notes (#352), and that it can be disconnected at any time.
+ * Under Details: what else it can read and what is sent, what a write allows, and, for an agent
+ * whose settings file IncarnaMind writes, exactly what it adds there. What it reads is all of the
+ * User's Documents and Notes, those added later too, until they choose Folders instead (#3544),
+ * which is no choice while they have no Folder; the walled Folders all leaves out are said in the
+ * first line. The same lines in the connect dialog and in the setup's step (#3362); `actions`
+ * draws the press that allows.
  */
 export function ConnectAgentFields({
   client,
@@ -96,9 +106,11 @@ export function ConnectAgentFields({
   actions(allow: { choice: AgentChoice; disabled: boolean }): ReactNode;
 }) {
   const t = useT();
+  const [all, setAll] = useState(true);
   /** What the User has ticked; null until they tick or untick something. */
   const [picked, setPicked] = useState<ReadonlySet<string> | null>(null);
   const rows = useAgentFolderRows(true);
+  const leftOut = leftOutOfAll(useAppStore((state) => state.library?.groups) ?? []);
   /** The name the User gives "Other agent". */
   const [name, setName] = useState("");
   const [propose, setPropose] = useState(writes);
@@ -107,8 +119,9 @@ export function ConnectAgentFields({
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   const reportError = useAppStore((state) => state.reportError);
 
-  // A new agent starts with nothing picked, and its own preview.
+  // A new agent starts with all of it, and its own preview.
   useEffect(() => {
+    setAll(true);
     setPicked(null);
     setName("");
     setPropose(writes);
@@ -126,9 +139,9 @@ export function ConnectAgentFields({
   }, [client.id, writes, reportError]);
   const canKeepKey = storage?.canSave !== false;
 
-  const anyDocument = useAnyOwnDocument();
   const agent = name.trim() || clientInSentence(client, t);
-  // Not in a Folder alone is ticked: it is every Document, so there is nothing else to choose.
+  const anyFolder = rows.some((row) => row.id !== NOT_IN_A_FOLDER_ID);
+  const shared = all || !anyFolder;
   const chosen = picked ?? (onlyNotInAFolder(rows) ? ALL_UNFILED : NOTHING);
   const toggle = (folderId: string, on: boolean) => {
     const next = new Set(chosen);
@@ -136,20 +149,14 @@ export function ConnectAgentFields({
     else next.delete(folderId);
     setPicked(next);
   };
-  const allowed = rows.filter((row) => chosen.has(row.id)).map((row) => row.id);
-  const everyDocumentLoose = onlyNotInAFolder(rows);
+  const allowed = shared
+    ? [ALL_SHARED_ID]
+    : rows.filter((row) => chosen.has(row.id)).map((row) => row.id);
 
   return (
     <>
       <p data-testid="connect-agent-reads" className={dialogTextClass}>
-        {t(
-          everyDocumentLoose
-            ? anyDocument
-              ? "agents.connect.reads.all"
-              : "agents.connect.reads.none"
-            : "agents.connect.reads.folders",
-          { agent },
-        )}
+        {t(!anyFolder ? "agents.connect.reads.all" : READS_WITH[leftOut], { agent })}
       </p>
       {client.id === "other" && (
         <label className="flex flex-col gap-1">
@@ -164,18 +171,19 @@ export function ConnectAgentFields({
           />
         </label>
       )}
-      {!everyDocumentLoose && (
+      {anyFolder && (
         <fieldset className="flex min-w-0 flex-col gap-1">
           <legend className="sr-only">{t("agents.connect.folders")}</legend>
-          <AgentFolderList rows={rows} chosen={chosen} onToggle={toggle} />
+          <AgentShareChoice
+            all={all}
+            onAll={setAll}
+            rows={rows}
+            chosen={chosen}
+            onToggle={toggle}
+          />
         </fieldset>
       )}
-      <ProposeChoice
-        checked={propose}
-        onChange={setPropose}
-        hint={false}
-        noFolders={everyDocumentLoose}
-      />
+      <ProposeChoice checked={propose} onChange={setPropose} hint={false} noFolders={shared} />
       <p data-testid="connect-agent-disconnect" className={dialogTextClass}>
         {t("agents.connect.disconnect")}
       </p>
@@ -222,9 +230,7 @@ export function ConnectAgentFields({
           )}
         </div>
       </details>
-      {rows.length > 0 && allowed.length === 0 && (
-        <p className={hintClass}>{t("agents.connect.pickOne")}</p>
-      )}
+      {allowed.length === 0 && <p className={hintClass}>{t("agents.connect.pickOne")}</p>}
       {storage && !storage.canSave && (
         <SecretStorageNotice
           status={storage}

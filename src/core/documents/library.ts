@@ -1479,7 +1479,7 @@ export function createLibrary(options: LibraryOptions) {
 
   // --- The interface ----------------------------------------------------------
 
-  async function resolveFolder(input: unknown): Promise<string> {
+  async function resolveFolder(input: unknown, appsOwn = false): Promise<string> {
     if (typeof input !== "string" || !isAbsolute(input)) {
       throw new InvalidInputError("A Linked folder must be given as an absolute folder path.");
     }
@@ -1490,6 +1490,11 @@ export function createLibrary(options: LibraryOptions) {
       throw new NotFoundError({ key: "error.path.noFolder" });
     }
     if (!(await isFolder(real))) throw new InvalidInputError({ key: "error.path.notFolder" });
+    // The data folder is the app's: what it keeps there it rewrites and removes. The User links
+    // no folder in it (#3505); the app links its own examples there.
+    if (!appsOwn && dataFolders.some((folder) => isInside(folder, real))) {
+      throw new InvalidInputError({ key: "error.linkedFolder.inData" });
+    }
     return real;
   }
 
@@ -1621,10 +1626,11 @@ export function createLibrary(options: LibraryOptions) {
      * Links a folder (see `CoreApi.addLinkedFolder`). Nested Linked folders
      * are merged into the outer one: a folder inside one adds nothing, and
      * one around others takes their place. The Documents already inside it,
-     * theirs and files added on their own, are its at once, keeping their ids.
+     * theirs and files added on their own, are its at once, keeping their ids. `appsOwn`: a folder
+     * the app made in the data folder and links itself (the examples'), which the User can't link.
      */
-    async add(input: unknown): Promise<LinkedFolder> {
-      const path = await resolveFolder(input);
+    async add(input: unknown, appsOwn = false): Promise<LinkedFolder> {
+      const path = await resolveFolder(input, appsOwn);
       const linked = liveFolders();
       const outer = ownerOf(path, linked);
       if (outer) return toLinkedFolder(outer);

@@ -128,6 +128,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       .click();
     const dialog = window.getByTestId("connect-agent-dialog");
     await dialog.getByTestId("connect-agent-name").fill("Research assistant agent");
+    await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     const propose = dialog.getByTestId("agent-propose");
     await expect(propose).not.toBeChecked();
@@ -180,15 +181,21 @@ test("an agent the User lets propose changes: its change waits in the Note with 
         arguments: { title: "Tide report", markdown: `${NEAP} ${RANGE}` },
       });
       expect(created.isError ?? false).toBe(false);
-      // Having it checked (#3317) runs on the User's AI model: with none set up it says so.
-      const checked = await agent.callTool({
-        name: "check_mind",
+      // IncarnaMind's own check of it (#3317) runs on the User's AI model: with none set up it isn't
+      // offered (#3533), and the agent checks the Note itself.
+      const offered = (await agent.listTools()).tools.map((tool) => tool.name);
+      expect(offered).not.toContain("check_mind");
+      expect(offered).toContain("check_mind_yourself");
+      const own = await agent.callTool({
+        name: "check_mind_yourself",
         arguments: { mindId: (created.structuredContent as { mindId: string }).mindId },
       });
-      expect(checked.isError).toBe(true);
-      expect((checked.content as { text: string }[])[0]?.text).toBe(
-        "No AI model is ready in IncarnaMind for its own check. Check the note with check_mind_yourself instead; for IncarnaMind’s own check, the User sets up a model in Settings › AI.",
-      );
+      expect(own.isError ?? false).toBe(false);
+      expect(
+        (own.structuredContent as { sentences: { text: string }[] }).sentences.map(
+          (sentence) => sentence.text,
+        ),
+      ).toContain(NEAP);
     } finally {
       await agent.close();
     }

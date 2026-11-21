@@ -81,10 +81,12 @@ const ERROR =
  */
 const CONSENT_FACTS = [
   "agents.connect.allUnfiled",
-  // What it may read and where that goes, in the line the User reads before they allow (#3487).
+  // What it may read and where that goes, in the line the User reads before they allow (#3487),
+  // with the Folders all leaves out (#3544), and what a connected agent reads, in those words.
   "agents.connect.reads.all",
-  "agents.connect.reads.folders",
-  "agents.connect.reads.none",
+  "agents.connect.reads.projects",
+  "agents.connect.reads.walled",
+  "agents.pairing.readsAll",
   "agents.connect.backup",
   "agents.connect.body",
   // What the leave to write allows: a check of its notes goes to the User's AI model (#3317), and

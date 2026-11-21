@@ -2,7 +2,18 @@ import type { ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdir, open, readdir, readFile, rename, rm, utimes } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  utimes,
+} from "node:fs/promises";
 import { basename, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
@@ -494,6 +505,38 @@ describe("Linking a folder", { timeout: 30_000 }, () => {
     second.close();
 
     expect(await snapshot(library)).toEqual(before);
+  });
+});
+
+describe("A folder in IncarnaMind's own data folder", { timeout: 30_000 }, () => {
+  const refused = { wording: { key: "error.linkedFolder.inData" } };
+
+  // protects=the data folder is the app's own, so it, the folders in it and a link to one of them can't be linked or previewed, while a folder beside it links as before (#3505); fails_when=a folder in the data folder is linked, or a folder beside it is refused
+  test("is refused, whether named or reached through a link, and one beside it links as before", async () => {
+    const parent = await createSourceFolder();
+    const dataDir = join(parent, "data");
+    const item = join(dataDir, "Handed files", "an-item");
+    await writeSourceFile(item, "v1/Deck.md", "# Deck\n\nThe east quay holds 31 boats.");
+    const beside = join(parent, "beside");
+    await writeSourceFile(beside, "Tides.md", `# Tides\n\n${TIDES}`);
+    await symlink(join(dataDir, "Handed files"), join(parent, "alias"), "dir");
+    const core = startCore(dataDir);
+
+    for (const path of [
+      dataDir,
+      join(dataDir, "Handed files"),
+      item,
+      join(item, "v1"),
+      join(parent, "alias"),
+    ]) {
+      await expect(core.previewLinkedFolder(path)).rejects.toMatchObject(refused);
+      await expect(core.addLinkedFolder(path)).rejects.toMatchObject(refused);
+    }
+    expect(await core.listLinkedFolders()).toEqual([]);
+
+    const linked = await core.addLinkedFolder(beside);
+    expect(linked).toMatchObject({ path: beside });
+    expect((await core.listLinkedFolders()).map((each) => each.path)).toEqual([beside]);
   });
 });
 

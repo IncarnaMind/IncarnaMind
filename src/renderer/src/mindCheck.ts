@@ -798,6 +798,9 @@ async function askOrCheck(
             checkAllDocuments(mindId, run.mode, run.figureIds, run.blockIds),
           ),
     );
+    // The card opens by itself only as a line first lands: pressed again after a click elsewhere
+    // closed it, the same line would wait out of sight.
+    showCheckCard(mindId);
     return null;
   }
   // With no AI model set up no run can start, so a question about its price would only be
@@ -807,6 +810,7 @@ async function askOrCheck(
     clearAsk(mindId);
     dismissCheckProblem(mindId);
     setCheckProblem(mindId, { kind: "not-ready", readiness });
+    showCheckCard(mindId);
     return null;
   }
   // No price arrived at the card's press: the question asks with the couldn't-estimate line.

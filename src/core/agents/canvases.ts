@@ -20,7 +20,7 @@ import {
 import { tokensOutsideText } from "../canvases/markers";
 import { networkReferences } from "../canvases/references";
 import type { AdmittedPairing } from "./access";
-import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
+import { AgentRefusedError, MAX_PATH_CHARS, NotReachedError, text, whole } from "./refusals";
 
 /** The most versions, first publishes and updates together, one pairing publishes in an hour. */
 export const MAX_CANVAS_VERSIONS_AN_HOUR = 60;
@@ -171,7 +171,7 @@ export function createCanvasTools(context: CanvasToolContext) {
     const id = text(canvasId, "canvasId", 200);
     const canvas = deps.canvases.get(id);
     if (!canvas || !canvasReached(canvas, pairing, context.reached(pairing))) {
-      throw new AgentRefusedError("not-found", t("agents.canvas.notFound"));
+      throw new NotReachedError(t("agents.canvas.notFound"));
     }
     return canvas;
   };
