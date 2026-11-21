@@ -476,6 +476,7 @@ describe("which sentences and Citations the quick model may look at", () => {
     contentHash: "v2",
     documentDeleted: false,
     notCited: false,
+    citedBy: null,
     yourNoteAt: null,
   };
   const CITATION = {

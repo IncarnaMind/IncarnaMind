@@ -54,6 +54,9 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     },
     libraryVersion: () => "",
     citing: { citeQuote: () => null, locate: () => null },
+    citeFile: vi.fn(),
+    citedOutside: () => false,
+    citedFiles: () => [],
     notCited: () => false,
     recheck: () => {
       throw new Error("Not called.");

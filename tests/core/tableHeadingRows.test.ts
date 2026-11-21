@@ -65,6 +65,7 @@ describe("a table of labels and values with no heading row (#3318)", () => {
         charts: [],
         images: [],
         notes: [],
+        boxes: [],
       },
     ]);
     const table = blocks.find((block) => block.node.type === "table");

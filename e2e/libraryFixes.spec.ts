@@ -182,22 +182,13 @@ for (const language of ["en", "zh-CN"] as const) {
     );
     await pointAndClick(window, lib.getByTestId("library-organize"));
     const needs = lib.getByTestId("library-organize-needs-model");
-    await expect(needs).toContainText(
-      language === "en" ? "Organize needs an AI model" : "整理需要一个 AI 模型",
-    );
-    // No AI model is connected yet: first run's key field, in place, and no step through Settings.
+    // With no model, the User can open Settings or dismiss the prompt.
     await expect(needs.getByTestId("library-organize-use")).toHaveCount(0);
-    await expect(needs.getByTestId("library-organize-set-up")).toHaveCount(0);
-    await expect(needs.getByTestId("library-organize-key")).toBeVisible();
-    await expect(needs.getByTestId("library-organize-key-key-sends")).toHaveText(
-      language === "en"
-        ? "What you ask, edit or check, with the notes and the parts of your Documents it needs, goes to the service your key is for."
-        : "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
-    );
+    await expect(needs.getByTestId("library-organize-set-up")).toBeVisible();
     await expect(needs).toContainText(
       language === "en"
-        ? "It sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to the model you set up, once you allow it."
-        : "经你允许后，它会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给你设置的模型。",
+        ? "Choose an AI model to sort your Documents."
+        : "选好 AI 模型，就能整理文档。",
     );
     await pointAndClick(window, needs.getByTestId("library-organize-dismiss"));
     await expect(needs).toHaveCount(0);

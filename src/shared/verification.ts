@@ -81,6 +81,8 @@ export interface Verification {
    * check didn't make them again (#3412); none after a check of every line.
    */
   kept?: number;
+  /** A deck's slides as the file holds them, by slide number, for what its lines are read with (#3455). */
+  slides?: Readonly<Record<string, string>>;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -117,6 +119,13 @@ function pagesOf(value: unknown): Record<string, number> {
 
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((each): each is string => typeof each === "string") : [];
+
+const textsOf = (value: Record<string, unknown>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 
 const count = (value: unknown): number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
@@ -163,6 +172,7 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     ...(workbook && { workbook }),
     ...(count(value.pictures) > 0 && { pictures: count(value.pictures) }),
     ...(count(value.kept) > 0 && { kept: count(value.kept) }),
+    ...(isRecord(value.slides) && { slides: textsOf(value.slides) }),
   };
 }
 
@@ -198,6 +208,7 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
     }),
     ...(verification.pictures !== undefined && { pictures: verification.pictures }),
     ...(verification.kept !== undefined && { kept: verification.kept }),
+    ...(verification.slides !== undefined && { slides: { ...verification.slides } }),
   });
 }
 

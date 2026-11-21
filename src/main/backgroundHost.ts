@@ -6,7 +6,8 @@
  */
 import { Notification } from "electron";
 import type { Core } from "../core";
-import type { CallEnding, CallOffer, Meeting, MeetingOffers, Settings } from "../core/api";
+import type { CallEnding, Meeting, MeetingOffer, MeetingOffers, Settings } from "../core/api";
+import { TranslatableError } from "../core/errors";
 import type { Language } from "../core/language";
 import { translate } from "../shared/i18n";
 import type { MessageKey, MessageParams } from "../shared/i18n/types";
@@ -30,6 +31,7 @@ export interface BackgroundHostOptions {
   showSettings(): void;
   /** Shows the window on Home, which holds the offer. */
   showOffer(): void;
+  showOfferLinkFailure(): void;
   quit(): void;
   /** A test build: the tray's menu and the notifications are reached through `globalThis`. */
   testHooks: boolean;
@@ -70,7 +72,11 @@ export function serveBackground(options: BackgroundHostOptions): BackgroundHost 
     stopRecording: (meetingId) => void core.stopMeeting(meetingId).catch(failed("stop")),
     takeOffer: (offerId) => {
       options.showWindow();
-      core.takeMeetingOffer(offerId).catch(failed("takeOffer"));
+      void core.takeMeetingOffer(offerId).catch((error: unknown) => {
+        if (error instanceof TranslatableError && error.wording?.key === "error.meetingOffer.link")
+          options.showOfferLinkFailure();
+        failed("takeOffer")(error);
+      });
     },
     declineOffer: (offerId, always) =>
       void core.declineMeetingOffer({ offerId, always }).catch(failed("declineOffer")),
@@ -140,16 +146,19 @@ export function serveBackground(options: BackgroundHostOptions): BackgroundHost 
     shown.delete(kind);
   };
 
-  const offerShown = (offer: CallOffer) => {
-    const app = meetingAppName(offer.app, language);
+  const offerShown = (offer: MeetingOffer) => {
+    const app = offer.kind === "call" ? meetingAppName(offer.app, language) : null;
     notify(
       "offer",
       offer.id,
       {
         kind: "offer",
-        title: t("offers.call.title"),
-        body: t("offers.call.body", { app }),
-        actions: [t("offers.take"), t("offers.dontAsk", { app })],
+        title:
+          offer.kind === "calendar"
+            ? t("offers.calendar.title", { title: offer.title })
+            : t("offers.call.title"),
+        body: app === null ? "" : t("offers.call.body", { app }),
+        actions: [t("offers.take"), ...(app === null ? [] : [t("offers.dontAsk", { app })])],
       },
       // Linux may show no buttons: a click on the notification only brings up where Take notes is,
       // the menu bar's menu or Home. A smoke test never opens a system menu, which would hold it.
@@ -157,7 +166,10 @@ export function serveBackground(options: BackgroundHostOptions): BackgroundHost 
         if (!options.testHooks && tray?.openMenu()) return;
         options.showOffer();
       },
-      (index) => (index === 0 ? actions.takeOffer(offer.id) : actions.declineOffer(offer.id, true)),
+      (index) => {
+        if (index === 0) actions.takeOffer(offer.id);
+        else if (offer.kind === "call" && index === 1) actions.declineOffer(offer.id, true);
+      },
     );
   };
 

@@ -47,6 +47,7 @@ const documentOf = (linkedFolderId: string, name: string): Document => ({
   found: null,
   importedAs: null,
   handedBy: null,
+  citedBy: null,
   createdAt: "2026-10-16T09:00:00.000Z",
   updatedAt: "2026-10-16T09:00:00.000Z",
 });

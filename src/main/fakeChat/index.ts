@@ -162,6 +162,19 @@ const SUMMARY_FIXTURES = [
   }[];
 }[];
 
+function fakeMeetingReview({ prompt }: GenerateOptions): string | null {
+  if (!systemOf(prompt).startsWith("Review the complete finished meeting transcript")) return null;
+  const { utterances }: { utterances: { text: string }[] } = JSON.parse(lastUserText(prompt));
+  const candidate = [
+    [
+      "Could each department report how many packing crates it needs?",
+      "We would have to count them first.",
+    ],
+    ["各部门能报一下需要多少个周转箱吗？", "这个要先回去统计一下。"],
+  ].find((exchange) => exchange.every((text) => utterances.some((cue) => cue.text === text)));
+  return JSON.stringify(candidate ? [candidate] : []);
+}
+
 function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
   const instructions = systemOf(prompt);
   if (!instructions.startsWith("Write a concise, standalone summary of the meeting")) return null;
@@ -220,6 +233,7 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
   fakeMeetingSummary,
+  fakeMeetingReview,
   fakeSentenceBatch,
   fakeRestate,
   fakePlan,

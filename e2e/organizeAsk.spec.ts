@@ -1,7 +1,7 @@
 /**
  * The first time Organize would send Documents to a cloud service, the Library asks in its own
- * words (#1569, ADR-0022): the card names the service and what goes there, never "Organize needs
- * an AI model" while one is set up. Not now sends nothing and records nothing; Allow and organize
+ * words (#1569, ADR-0022): the card names the service and what goes there when a model is
+ * already set up. Not now sends nothing and records nothing; Allow and organize
  * records the consent and runs at once, opening the Review; a second press asks nothing.
  */
 import { writeFile } from "node:fs/promises";
@@ -28,7 +28,7 @@ const CASES = {
       "Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to Anthropic, each time you organize.",
     allow: "Allow and organize",
     notNow: "Not now",
-    needsModel: "Organize needs an AI model",
+    needsModel: "Choose an AI model to sort your Documents.",
   },
   "zh-CN": {
     title: "允许 Anthropic 读取你的文档？",
@@ -36,7 +36,7 @@ const CASES = {
       "允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 Anthropic。",
     allow: "允许并整理",
     notNow: "以后再说",
-    needsModel: "“整理”需要 AI 模型",
+    needsModel: "选好 AI 模型，就能整理文档。",
   },
 } as const;
 

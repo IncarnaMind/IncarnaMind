@@ -94,6 +94,56 @@ test("a confirmed room review uses retained microphone audio and changes only th
   }
 });
 
+test("a silent computer track keeps the shared microphone available for local review after reopening", async () => {
+  const dataDir = await createTempDataFolder();
+  const separate = vi.fn<RoomSpeakerReviewer["separate"]>(async () => []);
+  const request = vi.fn<typeof fetch>();
+  const options = {
+    capture: { system: "silent" as const },
+    roomSpeakerReviewer: { downloadBytes: () => 0, separate },
+    transcriptionReviewFetch: request,
+  };
+  const { core, record } = await transcribingCore(dataDir, options);
+  const { id } = await core.createMeeting();
+  await core.startMeeting({ meetingId: id });
+  record(12_000);
+  await until(core, id, (tr) => tr.lines >= 2);
+  await stoppedMeeting(core, dataDir, id);
+  const system = await core.readMeetingAudio({
+    meetingId: id,
+    source: "system",
+    fromMs: 0,
+    toMs: 1000,
+  });
+  expect(system.samples.length).toBeGreaterThan(0);
+  expect(system.samples.every((value) => value === 0)).toBe(true);
+  core.close();
+
+  const { core: reopened } = await transcribingCore(dataDir, options);
+  await reopened.setLocalOnly(true);
+  expect(await reopened.getMeetingSpeakerReview(id)).toMatchObject({
+    available: true,
+    estimatedUsd: 0,
+    roomDownloadBytes: 0,
+  });
+  await reopened.setLocalOnly(false);
+  await reopened.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key-0123456789" });
+  await reopened.updateSettings({ device: { transcriptionRoute: "soniox" } });
+  const input = { meetingId: id, confirmed: true } as const;
+  await expect(reopened.reviewMeetingSpeakers(input)).rejects.toMatchObject({
+    wording: { key: "error.meeting.reviewChanged" },
+  });
+  expect(separate).not.toHaveBeenCalled();
+  const result = await reopened.reviewMeetingSpeakers({ ...input, onDevice: true });
+  expect(result.source).toBe("microphone");
+  const audio = separate.mock.calls[0]?.[1];
+  if (!audio) throw new Error("Missing shared microphone recording.");
+  expect(wavSamples(new Uint8Array(await audio.arrayBuffer())).some((value) => value !== 0)).toBe(
+    true,
+  );
+  expect(request).not.toHaveBeenCalled();
+});
+
 test("deleting a room recording cancels the check and prevents another one", async () => {
   const started = Promise.withResolvers<void>();
   const { core, id } = await recordRoom({

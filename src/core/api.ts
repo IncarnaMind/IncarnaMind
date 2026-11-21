@@ -3815,12 +3815,23 @@ export type CallWatchProblem = "no-pactl" | "not-on-windows" | "unavailable";
 
 /** An offer to take notes in a call that isn't on the calendar (#208): a call app took the microphone. */
 export interface CallOffer {
+  kind: "call";
   id: string;
   /** The call app's id (src/shared/meetingApps.ts). */
   app: string;
   /** When the app took the microphone (ISO 8601). */
   at: string;
 }
+
+export interface CalendarOffer {
+  kind: "calendar";
+  id: string;
+  eventId: string;
+  title: string;
+  startsAt: string;
+}
+
+export type MeetingOffer = CallOffer | CalendarOffer;
 
 /** A Meeting taken from a call offer whose call app let go of the microphone: it stops at `stopsAt` (ISO 8601) unless kept. */
 export interface CallEnding {
@@ -3831,7 +3842,7 @@ export interface CallEnding {
 
 /** The offers to take notes as they are now (#208). */
 export interface MeetingOffers {
-  offer: CallOffer | null;
+  offer: MeetingOffer | null;
   ending: CallEnding | null;
   /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
   problem: CallWatchProblem | null;
@@ -4756,6 +4767,12 @@ export interface Document {
    * User cites it, and no source until then (#3492).
    */
   handedBy: string | null;
+  /**
+   * The agent that cited this file by its path, from outside the Library (#3509), as the User had
+   * named its pairing then; null for every other Document. Such a Document is in no Folder and no
+   * source: it is evidence only for the sentences that cite it.
+   */
+  citedBy: string | null;
   /** When the Document was added to IncarnaMind. ISO 8601, UTC. */
   createdAt: string;
   /** ISO 8601, UTC. */
@@ -8229,6 +8246,18 @@ export interface FigureSchedule {
  * A Figure schedule as a change to one the caller holds (`since`, that one's `token`): its rows
  * `from` to `to` give way to `rows`. With no `since`, `rows` are all of them.
  */
+/**
+ * What each result of a Note that keeps what it was judged with (`ClaimCheckBasis.judgedWith`)
+ * would be judged with now, by the result's id, read at the Note's fingerprint `basis`
+ * (`fingerprintOfMind`). The core works it out from the Note, a deck's slides and a table's
+ * headings, and the window reads each result with it, as the core does (#3455).
+ */
+export interface JudgedWithNow {
+  mindId: string;
+  basis: string;
+  lines: Record<string, string>;
+}
+
 export interface FigureScheduleChange extends Omit<FigureSchedule, "rows"> {
   /** Names this schedule, for asking for the next as a change to it. */
   token: string;
@@ -12070,9 +12099,22 @@ export interface MeetingSummaryItem {
   corrected?: true;
 }
 
+export interface MeetingSummarySource {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+export interface MeetingSummaryCandidate {
+  id: number;
+  sources: MeetingSummarySource[];
+}
+
 export interface MeetingSummary {
   text: string;
   items?: MeetingSummaryItem[];
+  candidateCount?: number;
+  candidatesReviewed?: true;
   problem?: "codex-input-limit";
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
@@ -14511,6 +14553,8 @@ export interface CoreApi {
    * schedule crossing over. The whole schedule once the core no longer keeps that one.
    */
   getFigureScheduleChange(mindId: string, since: string | null): Promise<FigureScheduleChange>;
+  /** See `JudgedWithNow`: one source of it for the window, so its page reads each result as the core does. */
+  judgedWithNow(mindId: string): Promise<JudgedWithNow>;
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
@@ -15286,12 +15330,18 @@ export interface CoreApi {
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
+  /** Whether the selected AI route can start a new quote review for this saved Meeting. */
+  canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
+  reviewMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  getMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  undoAddMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
+  addMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
   getMeetingSummaryItemSources(
     meetingId: string,
     itemId: number,
   ): Promise<{
     documentId: string;
-    sources: { startMs: number; endMs: number; text: string }[];
+    sources: MeetingSummarySource[];
   } | null>;
   correctMeetingSummaryItem(
     meetingId: string,
@@ -15353,11 +15403,11 @@ export interface CoreApi {
   addQuickNoteDraft(meetingId: string): Promise<AddedToNote | null>;
   /** The live Meeting's kept unsent line, for a panel that opens again to show it; null with none. */
   getQuickNoteDraft(meetingId: string): Promise<{ text: string; atMs: number | null } | null>;
-  /** The offer to take notes in a call, and a call's end waiting to stop its Meeting (#208). */
+  /** The offer to take notes in a calendar meeting or call, and a call's end waiting to stop its Meeting (#208). */
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
-   * Take notes: records the call offered in a new Note, opened in the main window. The click is
-   * what records: nothing else starts a Meeting from an offer. NotFoundError once the offer is gone.
+   * Take notes opens the event’s Note (a new Note for an ad-hoc call) and starts recording.
+   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers.
    */
   takeMeetingOffer(offerId: string): Promise<Meeting>;
   /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
@@ -15708,6 +15758,7 @@ export interface CoreEvents {
    * show it (#208). Home, which holds the offer with Take notes, comes in front.
    */
   "meetings.offerShown": null;
+  "meetings.offerLinkFailed": null;
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.
@@ -15958,6 +16009,7 @@ const methods: Record<CoreApiMethod, true> = {
   libraryListsVersion: true,
   getFigureSchedule: true,
   getFigureScheduleChange: true,
+  judgedWithNow: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
   getSecretStorage: true,
@@ -16176,6 +16228,11 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   retryMeetingSummary: true,
+  canReviewMeetingSummaryCandidates: true,
+  reviewMeetingSummaryCandidates: true,
+  getMeetingSummaryCandidates: true,
+  undoAddMeetingSummaryCandidate: true,
+  addMeetingSummaryCandidate: true,
   getMeetingSummaryItemSources: true,
   correctMeetingSummaryItem: true,
   undoMeetingFill: true,

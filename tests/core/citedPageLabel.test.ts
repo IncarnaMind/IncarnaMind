@@ -47,6 +47,7 @@ function cited(
         documentKind,
         documentDeleted: false,
         notCited: false,
+        citedBy: null,
         yourNoteAt: null,
       }),
       pageTexts: (_id, _hash, from, to) =>

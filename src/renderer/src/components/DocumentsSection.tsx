@@ -439,6 +439,7 @@ const DocumentRow = memo(function DocumentRow({
             </span>
             <YourNoteLabel item={item} />
             <NotCitedLabel item={item} />
+            <CitedByLabel item={item} />
             <TagMarks
               chips={chips}
               reserved={item.tagging === "pending" || item.tagging === "tagging"}
@@ -479,6 +480,21 @@ export function NotCitedLabel({ item }: { item: Pick<Document, "notCited" | "han
       className="shrink-0 text-label font-semibold text-ink-meta"
     >
       {t("evidence.notCited.label")}
+    </span>
+  );
+}
+
+/** Which agent cited a file from outside the Library by its path (#3509), beside it. */
+export function CitedByLabel({ item }: { item: Pick<Document, "citedBy"> }) {
+  const t = useT();
+  if (item.citedBy === null) return null;
+  return (
+    <span
+      data-testid="document-cited-by"
+      title={t("library.citedBy.hint", { agent: item.citedBy })}
+      className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+    >
+      {t("library.citedBy.label", { agent: item.citedBy })}
     </span>
   );
 }
