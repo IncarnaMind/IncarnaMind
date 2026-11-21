@@ -104,8 +104,9 @@ export function parseCalendars(answer: unknown): SystemCalendarInfo[] {
   });
 }
 
-function parsePerson(value: unknown): SystemCalendarPerson {
+function parsePerson(value: unknown): SystemCalendarPerson | null {
   const person = record(value, "a person");
+  if (person.resource === true) return null;
   if (typeof person.self !== "boolean")
     throw new MalformedAnswer("a person's self isn't true or false");
   return {
@@ -131,7 +132,9 @@ export function parseEvents(answer: unknown): SystemCalendarEvent[] {
       end: time(event.end, "an event's end"),
       allDay: event.allDay,
       status: oneOf<SystemCalendarEvent["status"]>(STATUSES, event.status, "an event's status"),
-      attendees: list(event.attendees, "an event's attendees").map(parsePerson),
+      attendees: list(event.attendees, "an event's attendees")
+        .map(parsePerson)
+        .filter((person) => person !== null),
       organizer: event.organizer === null ? null : parsePerson(event.organizer),
       url: textOrNull(event.url, "an event's url"),
       location: textOrNull(event.location, "an event's location"),
