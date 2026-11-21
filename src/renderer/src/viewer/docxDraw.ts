@@ -1,64 +1,43 @@
-import { type Options, parseAsync, renderDocument } from "docx-preview";
+import { type Options, renderAsync } from "docx-preview";
 import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../../../core/pageDefaults";
-
-/** A section's page setup as docx-preview parses it: CSS lengths ("612.00pt"), null where the file gives none. */
-interface SectionProps {
-  pageSize?: { width?: string | null; height?: string | null };
-  pageMargins?: {
-    top?: string | null;
-    right?: string | null;
-    bottom?: string | null;
-    left?: string | null;
-    header?: string | null;
-    footer?: string | null;
-  };
-}
-
-interface ParsedWord {
-  documentPart: {
-    /** `props` is the last section's; a paragraph that ends an earlier section carries its own. */
-    body: { props: SectionProps; children: { sectionProps?: SectionProps }[] };
-  };
-}
 
 const points = (twips: number) => `${(twips / 20).toFixed(2)}pt`;
 
 /**
- * docx-preview gives a page a width, a minimum height and padding only from what the file sets, so
- * a file that sets none is drawn as one sheet as wide as the window (#3522): what it leaves unset
- * takes the default paper and margins, and what it sets stays.
+ * docx-preview gives a page a width, a minimum height and padding only from the section properties
+ * the file carries, so a file with none is drawn as one sheet as wide as the window (#3522). The
+ * defaults go on the pages as drawn, not on the parsed sections: docx-preview starts a new page
+ * where two sections' sizes differ, and a default equal to a size the next section sets would
+ * remove that page, and with it that section's own header and margins.
  */
-function withPageDefaults(props: SectionProps): void {
-  const size = props.pageSize ?? {};
-  size.width ??= points(PAPER.letter.width);
-  size.height ??= points(PAPER.letter.height);
-  const margins = props.pageMargins ?? {};
-  margins.top ??= points(MARGIN);
-  margins.right ??= points(MARGIN);
-  margins.bottom ??= points(MARGIN);
-  margins.left ??= points(MARGIN);
-  margins.header ??= points(HEADER_AND_FOOTER_DISTANCE);
-  margins.footer ??= points(HEADER_AND_FOOTER_DISTANCE);
-  props.pageSize = size;
-  props.pageMargins = margins;
+function withPageDefaults(page: HTMLElement): void {
+  const { style } = page;
+  style.width ||= points(PAPER.letter.width);
+  style.minHeight ||= points(PAPER.letter.height);
+  style.paddingTop ||= points(MARGIN);
+  style.paddingRight ||= points(MARGIN);
+  style.paddingBottom ||= points(MARGIN);
+  style.paddingLeft ||= points(MARGIN);
+  const distance = points(HEADER_AND_FOOTER_DISTANCE);
+  for (const header of page.querySelectorAll<HTMLElement>(":scope > header")) {
+    header.style.marginTop ||= `calc(${distance} - ${style.paddingTop})`;
+    header.style.minHeight ||= `calc(${style.paddingTop} - ${distance})`;
+  }
+  for (const footer of page.querySelectorAll<HTMLElement>(":scope > footer")) {
+    footer.style.marginBottom ||= `calc(${distance} - ${style.paddingBottom})`;
+    footer.style.minHeight ||= `calc(${style.paddingBottom} - ${distance})`;
+  }
 }
 
-/**
- * Draws as docx-preview's `renderAsync` does, with the defaults put on the parsed sections first:
- * the page sizes decide where pages break and where their headers and footers sit (#3522).
- */
+/** Draws as docx-preview's `renderAsync` does, then gives each page what its section leaves unset. */
 export async function renderWord(
   bytes: Uint8Array,
   body: HTMLElement,
   styles: HTMLElement,
   options: Partial<Options>,
 ): Promise<void> {
-  const parsed: ParsedWord = await parseAsync(bytes, options);
-  const { props, children } = parsed.documentPart.body;
-  withPageDefaults(props);
-  for (const child of children) if (child.sectionProps) withPageDefaults(child.sectionProps);
-  const nodes = await renderDocument(parsed, options);
-  styles.replaceChildren();
-  body.replaceChildren();
-  for (const node of nodes) (node.nodeName === "STYLE" ? styles : body).appendChild(node);
+  await renderAsync(bytes, body, styles, options);
+  for (const page of body.querySelectorAll<HTMLElement>(`section.${options.className ?? "docx"}`)) {
+    withPageDefaults(page);
+  }
 }

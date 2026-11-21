@@ -200,3 +200,53 @@ describe("a Word Document with its own page setup", () => {
     ]);
   });
 });
+
+describe("sections that set the page beside sections that leave it unset", () => {
+  const LETTER_PAGE = '<w:pgSz w:w="12240" w:h="15840"/>';
+  const ONE_INCH =
+    '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>';
+  const OWN_MARGINS =
+    '<w:pgMar w:top="1134" w:right="1021" w:bottom="1247" w:left="1304" w:header="567" w:footer="624" w:gutter="0"/>';
+  const UNSET = '<w:sectPr><w:cols w:space="720"/></w:sectPr>';
+
+  /** A Letter section with a header, a section with no paper, and a Letter section with its own header and margins. */
+  const threeSections = wordFile({
+    body: [
+      paragraph("One.", {
+        sectPr: `<w:sectPr><w:headerReference w:type="default" r:id="rIdH1"/>${LETTER_PAGE}${ONE_INCH}</w:sectPr>`,
+      }),
+      paragraph("Two.", { sectPr: UNSET }),
+      paragraph("Three."),
+    ].join(""),
+    headers: { rIdH1: paragraph("Header one"), rIdH2: paragraph("Header three") },
+    sectPr: `<w:headerReference w:type="default" r:id="rIdH2"/>${LETTER_PAGE}${OWN_MARGINS}`,
+  });
+
+  test("a section that sets Letter still starts its own page after one that sets nothing, with its own header and margins", async () => {
+    await renderAsync(threeSections, dom.body, dom.styles, OPTIONS);
+    const before = { body: dom.body.innerHTML, styles: dom.styles.innerHTML };
+    const pages = await draw(threeSections);
+    expect(pages.map((page) => page.querySelector("header")?.textContent)).toEqual([
+      "Header one",
+      "Header three",
+    ]);
+    expect(pages.map((page) => sheet(page).padding)).toEqual([
+      [INCH, INCH, INCH, INCH],
+      ["56.70pt", "51.05pt", "62.35pt", "65.20pt"],
+    ]);
+    expect({ body: dom.body.innerHTML, styles: dom.styles.innerHTML }).toEqual(before);
+  });
+
+  test("two sections in a row that set nothing stay on one page, as before", async () => {
+    const file = wordFile({
+      body: [paragraph("One.", { sectPr: UNSET }), paragraph("Two.")].join(""),
+      sectPr: null,
+    });
+    await renderAsync(file, dom.body, dom.styles, OPTIONS);
+    const pagesBefore = dom.body.querySelectorAll("section.docx").length;
+    const pages = await draw(file);
+    expect(pagesBefore).toBe(1);
+    expect(pages.map(sheet)).toEqual([DEFAULT]);
+    expect(pages[0]?.textContent).toBe("One.Two.");
+  });
+});
