@@ -26,7 +26,7 @@ import {
  * as the Answer ends. The scripted model holds each sentence's check until the test releases it.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  *
- * That is with "Check what the assistant writes" on. On a fresh profile it is off (#3154): no
+ * That is with "Check what the assistant and your own AI write" on. On a fresh profile it is off (#3154): no
  * check follows the write, the line under the card says how many sentences wait, and its Check
  * is Check this Note.
  */
@@ -69,7 +69,7 @@ const WORDS = {
     stopped: /^Stopped, 2 not checked yet · Check$/,
     userLeft: "1 sentence not checked yet",
     check: "Check",
-    setting: "Check what the assistant writes",
+    setting: "Check what the assistant and your own AI write",
   },
   "zh-CN": {
     ask: "添加核对用的收入表格，写完再引用",
@@ -82,7 +82,7 @@ const WORDS = {
     stopped: /^已停止，2 句待核对 · 核对$/,
     userLeft: "1 句待核对",
     check: "核对",
-    setting: "自动核对助手写入的内容",
+    setting: "自动核对助手和你自己的 AI 写入的内容",
   },
 } as const;
 

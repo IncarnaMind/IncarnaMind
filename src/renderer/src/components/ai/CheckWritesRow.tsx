@@ -3,8 +3,9 @@ import { useAppStore } from "../../store";
 import { SettingsSwitchRow } from "../settings/SettingsGroup";
 
 /**
- * Settings › AI › Check what the assistant writes (#3154): a switch, off by default. Off, the
- * sentences the assistant writes into a Note wait for the User's Check, as any sentence does.
+ * Settings › AI › Check what the assistant and your own AI write (#3154, #3576): a switch, off by
+ * default. Off, what the assistant writes into a Note, and what an outside agent writes or hands
+ * over, waits for the User's Check, as any sentence does.
  */
 export function CheckWritesRow() {
   const t = useT();

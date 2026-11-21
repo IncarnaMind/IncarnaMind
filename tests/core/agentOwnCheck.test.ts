@@ -297,6 +297,8 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
   // protects=a Note the agent changes after its check is checked again before the User reads it, and nothing checked is judged twice; fails_when=the change doesn't say what is left to check, or the task gives back sentences that hold a result
   it("after the agent changes the Note it checked, says what is left and gives only that", async () => {
     const { core, agent, mindId, coast } = await paired();
+    // Checking as it lands on: off, what is left waits for the User (agentCheckWaits, #3576).
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     const given = await task(agent, mindId);
     const twice = await cited(agent, "Spring tides happen twice a month");
     const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
