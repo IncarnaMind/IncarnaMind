@@ -7,6 +7,7 @@ import {
   type FakeSystemCalendar,
   type SystemCalendarFixture,
 } from "../../src/core/calendars/fakeSystem";
+import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { createTempDataFolder, manualClock, queryDatabase, startCore } from "../helpers/core";
 import {
   createFakeCalendarBrowser,
@@ -108,6 +109,45 @@ const accountOf = (state: CalendarsState, service: string) =>
   state.accounts.find((account) => account.service === service);
 
 describe("Calendars: Google and Microsoft (#190)", () => {
+  test("a reminder shared by Google and Microsoft takes the current invite link after one calendar disconnects", async () => {
+    const google = { ...standup, uid: "standup@example.test", start: "2026-11-09T08:00:45Z" };
+    const teams = {
+      ...google,
+      id: "ms-standup",
+      joinUrl: "https://teams.microsoft.com/l/meetup-join/test",
+    };
+    const capture = createFakeCapture();
+    const { core, browser } = await setUp({
+      google: googleAccount([google]),
+      microsoft: {
+        email: "priya@example.com",
+        name: "Priya Raman",
+        calendars: [{ id: "work", name: "Work", primary: true, events: [teams] }],
+      },
+      adapters: { audioCapture: capture },
+    });
+    const first = await core.connectCalendar("google");
+    if (!first) throw new Error("Missing Google calendar account.");
+    await core.connectCalendar("microsoft");
+    const open = vi.spyOn(browser, "open").mockResolvedValue(undefined);
+    await core.updateSettings({ device: { meetingNoticeAccepted: true, calendarOffers: true } });
+    const reminder = (await core.getMeetingOffers()).offer;
+    expect(reminder).toMatchObject({ kind: "calendar", title: standup.title });
+    if (!reminder) throw new Error("Missing meeting reminder.");
+
+    await core.disconnectCalendar(first.id);
+    expect((await core.getMeetingOffers()).offer?.id).toBe(reminder.id);
+    expect(open).not.toHaveBeenCalled();
+    expect(capture.started).toBe(0);
+    const recorded = await core.takeMeetingOffer(reminder.id);
+    expect(recorded.status).toBe("recording");
+    expect(open).toHaveBeenCalledExactlyOnceWith(teams.joinUrl);
+    expect(await core.getNoteEvent(recorded.mindId)).toMatchObject({
+      title: teams.title,
+      joinUrl: teams.joinUrl,
+    });
+  });
+
   test("connecting Google signs in in the browser with PKCE and the installed-app secret, allows the flow, and reads the day's Meetings", async () => {
     const { core, fake, browser } = await setUp({
       google: googleAccount([
@@ -583,6 +623,41 @@ describe("Calendars: the Mac's own calendar (#190)", () => {
       },
     ],
     ...fixture,
+  });
+
+  test("an ID local to another calendar cannot claim the original reminder or Note", async () => {
+    const fixture = mac();
+    const sample = fixture.events[0];
+    if (!sample) throw new Error("Missing calendar event.");
+    const original = { ...sample, externalId: null, start: "2026-11-09T08:00:30Z" };
+    fixture.events = [original];
+    const { core, system, browser } = await setUp({
+      mac: fixture,
+      adapters: { audioCapture: createFakeCapture() },
+    });
+    await core.connectCalendar("mac");
+    await core.updateSettings({ device: { meetingNoticeAccepted: true, calendarOffers: true } });
+    const first = (await core.getMeetingOffers()).offer;
+    if (first?.kind !== "calendar") throw new Error("Missing original reminder.");
+    const oldNote = await core.takeEventNotes(first.eventId);
+
+    const other = {
+      ...original,
+      calendarId: "feishu",
+      url: "https://meet.google.com/aaa-bbbb-ccc",
+    };
+    system.fixture.events = [other];
+    await core.syncCalendars();
+    await expect(core.takeMeetingOffer(first.id)).rejects.toThrow();
+    expect(await core.listMeetings()).toEqual([]);
+    const next = (await core.getMeetingOffers()).offer;
+    if (next?.kind !== "calendar") throw new Error("Missing second reminder.");
+    expect(next.id).not.toBe(first.id);
+    const open = vi.spyOn(browser, "open").mockResolvedValue(undefined);
+    const meeting = await core.takeMeetingOffer(next.id);
+    expect(meeting.mindId).not.toBe(oldNote.mindId);
+    expect(open).toHaveBeenCalledExactlyOnceWith(other.url);
+    expect(await core.getNoteEvent(oldNote.mindId)).toMatchObject({ eventId: null });
   });
 
   test("the system is asked for access only when the User connects it; refused, the account stays to say how to allow it", async () => {
