@@ -106,7 +106,8 @@ export async function dropPurgedHanded(options: {
     )
     .map((row) => pathIn(dataDir, row.relative_path));
   const linkedPaths = db
-    .all<{ path: string }>("SELECT path FROM linked_folders WHERE deleted_at IS NULL")
+    // Unlinked ones too: Undo can bring a Linked folder back.
+    .all<{ path: string }>("SELECT path FROM linked_folders")
     .map((row) => row.path);
   const root = join(dataDir, HANDED_FOLDER);
   const listing = (folder: string) =>

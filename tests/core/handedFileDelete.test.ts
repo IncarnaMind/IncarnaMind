@@ -433,6 +433,23 @@ describe("deleting a handed-over file for good", () => {
     reported.mockRestore();
   });
 
+  // protects=a Linked folder the User unlinked can come back by Undo, so its files stay too: an item's folder that was linked and unlinked keeps every file when its Document is deleted for good, and the failure is reported (#3505, ADR-0010); fails_when=the cleanup removes a file in a folder that was a Linked folder
+  it("never removes a file in a folder that was a Linked folder and was unlinked", async () => {
+    const { core, dataDir, document, first, copies } = await handedTwo();
+    const folder = await core.addLinkedFolder(join(dataDir, "Handed files", first.fileId));
+    await core.reconcileDocuments();
+    await core.removeLinkedFolder(folder.id);
+    const reported = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await forGood(core, document.id);
+
+    expect(await kept(dataDir)).toEqual(together(copies.quay, copies.slip));
+    expect(reported).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("Linked folder") }),
+    );
+    reported.mockRestore();
+  });
+
   // protects=a Linked folder somewhere else changes nothing: the copies go, nothing is reported, and its own files stay (#3505); fails_when=a Linked folder elsewhere stops the removal, or is reported as if a file in it were in the way
   it("a Linked folder elsewhere changes nothing", async () => {
     const { core, dataDir, document, copies } = await handedTwo();
