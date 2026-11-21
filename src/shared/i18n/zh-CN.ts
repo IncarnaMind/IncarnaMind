@@ -6645,7 +6645,7 @@ export const zhCN = {
   "firstOpen.step.agentAsk.title": "让你的 AI 写一份文档",
   "firstOpen.step.agentAsk.done": "你的 AI 写好了一篇笔记",
   "firstOpen.agent.line": "在 IncarnaMind 里把文档{document}简要总结成一篇新笔记。",
-  "firstOpen.agent.noDocument": "还没有文档。添加一份，你的 AI 就能把它总结成笔记。",
+  "firstOpen.agent.noDocument": "还没有文档。添加一份，你的 AI 就能为它写一篇笔记。",
   "firstOpen.agent.unshared": "已连接的 AI 都还读不了你的文档。请在智能体设置里共享给它们。",
   "firstOpen.step.agentLook.title": "查看需要留意的地方",
   "firstOpen.step.agentLook.done": "已查看需要留意的地方",

@@ -306,7 +306,7 @@ describe("the step when there is nothing it can name (#3572)", () => {
   test("with no Document, one sentence and the card's own Add files", async () => {
     const { part } = await card([["Claude Code", "claude-code"]], [], { ready: LACKING });
     expect(part(LACKING)?.textContent).toBe(
-      "No Documents yet. Add one, and your AI can summarize it.",
+      "No Documents yet. Add one, and your AI can write a note about it.",
     );
     expect(part("first-open-agent-line")).toBeNull();
     expect(part("first-open-agent-ask")).toBeNull();
@@ -348,7 +348,7 @@ describe("the step when there is nothing it can name (#3572)", () => {
       ready: LACKING,
     });
     expect(none.part(LACKING)?.textContent).toBe(
-      "还没有文档。添加一份，你的 AI 就能把它总结成笔记。",
+      "还没有文档。添加一份，你的 AI 就能为它写一篇笔记。",
     );
     expect(none.part("first-open-agent-add")?.textContent).toBe("添加文件…");
     await unmount?.();
