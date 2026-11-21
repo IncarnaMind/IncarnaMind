@@ -11,7 +11,8 @@ import { SetupPanel, type StepPlace } from "./SetupPanel";
  * The setup's last step (#3296): where meeting audio is turned into text, as
  * `useFirstTranscriptionChoice` says. Finish keeps the choice; "Set up when I record" leaves it to the
  * first recording, and so does Finish while the cloud service's key is still to be typed, so a User
- * with no key isn't stopped at the main button (#3536).
+ * with no key isn't stopped at the main button (#3536). Until the services are read it waits: a key
+ * already added may be the one to use.
  */
 export function TranscriptionStep({ place }: { place: StepPlace }) {
   const t = useT();
@@ -53,7 +54,7 @@ export function TranscriptionStep({ place }: { place: StepPlace }) {
           <button
             type="button"
             data-testid="setup-next"
-            disabled={setup.busy}
+            disabled={setup.busy || setup.read.state === "loading"}
             onClick={() => void next()}
             className={buttonStyle("primary", "lg")}
           >
