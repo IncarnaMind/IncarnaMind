@@ -59,8 +59,8 @@ import { matchingTerms } from "../answers/citing";
 import {
   type AgentActivity,
   type AgentCitationShown,
-  type AgentOpened,
   type AgentNoteChange,
+  type AgentOpened,
   type AgentToolName,
   BLOCK_ID_ATTRIBUTE,
   type Citation,
@@ -1216,8 +1216,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const t: Say = (key, params) => deps.say(key, params);
   /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
   let askedFromIncarnaMind = false;
-  const opened = (item: AgentOpened["item"]) =>
-    deps.opened({ item, front: askedFromIncarnaMind });
+  const opened = (item: AgentOpened["item"]) => deps.opened({ item, front: askedFromIncarnaMind });
   const pictureLimit = { max: NOTE_PICTURE_LIMITS.bytes / (1024 * 1024) };
   const reasonOf = (left: VisualRefused) =>
     left.kind === "picture"
