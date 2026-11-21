@@ -7,7 +7,12 @@
  * Note.
  */
 import { describe, expect, it } from "vitest";
-import type { AgentAsk, AgentClientId } from "../../src/core/api";
+import {
+  type AgentAsk,
+  type AgentClientId,
+  NOT_IN_A_FOLDER_ID,
+  type OrganizeTarget,
+} from "../../src/core/api";
 import { activityWords } from "../../src/renderer/src/components/agents/agentWords";
 import { translate } from "../../src/shared/i18n";
 import { agentsAdapter, connectLegacyAgent, resultText } from "../helpers/agents";
@@ -435,6 +440,89 @@ async function withDocuments() {
   const agent = await connectLegacyAgent(pairing.launch);
   return { ...base, fares, secret, summary, tariffs, diary, pairing, agent };
 }
+
+describe("asking a connected AI to organize", () => {
+  it("offers only agents that can read the whole target, and rechecks it before handing it over", async () => {
+    const { core, ferries, fares, summary, tariffs, diary, pairing, agent } = await withDocuments();
+    const target = { ids: [summary.id, tariffs.id] };
+    const available = await core.agentsForOrganize(target);
+    expect(available.eligible.map((each) => each.id)).toEqual([pairing.id]);
+    expect(await core.agentsForOrganize({ ids: [summary.id, diary.id] })).toEqual({
+      connected: true,
+      eligible: [],
+    });
+    expect(await core.agentsForOrganize({ ids: null })).toEqual({ connected: true, eligible: [] });
+    await expect(core.agentsForOrganize({ ids: [] })).rejects.toThrow();
+    expect(
+      await core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "organize", target },
+      }),
+    ).toEqual({
+      kind: "copy",
+      text: translate("en", "agents.ask.line.organize"),
+    });
+    const details = await requestRead(agent);
+    expect(details).toMatchObject({
+      mindId: null,
+      title: translate("en", "library.classify"),
+      request: expect.stringContaining(JSON.stringify(target.ids)),
+    });
+    expect(JSON.stringify(details)).not.toContain(diary.id);
+    const ask = { kind: "organize", target } as const;
+    await core.askAgent({ pairingId: pairing.id, mindId: null, ask });
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id] });
+    await expect(core.askAgent({ pairingId: pairing.id, mindId: null, ask })).rejects.toThrow();
+    const withheld = await requestRead(agent);
+    expect(withheld).toHaveProperty("refused");
+    expect(JSON.stringify(withheld)).not.toContain(tariffs.id);
+    expect((await core.agentsForOrganize({ folderId: fares.id })).eligible).toEqual([]);
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id, fares.id] });
+    expect(await requestRead(agent)).toEqual(details);
+    expect(await requestRead(agent)).toEqual(NONE);
+  });
+
+  it("keeps a Folder's source and its subfolders distinct, and the unfiled request distinct from both", async () => {
+    const { core, ferries, connect } = await started();
+    const child = await core.createLibraryGroup({
+      name: "Contracts",
+      description: "",
+      parentId: ferries.id,
+    });
+    const other = await core.createLibraryGroup({ name: "Receipts", description: "" });
+    const pairing = await connect("Claude Code", "claude-code", [
+      ferries.id,
+      other.id,
+      NOT_IN_A_FOLDER_ID,
+    ]);
+    const agent = await connectLegacyAgent(pairing.launch);
+    const send = async (target: OrganizeTarget) => {
+      expect((await core.agentsForOrganize(target)).eligible.map((each) => each.id)).toContain(
+        pairing.id,
+      );
+      await core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "organize", target },
+      });
+      return requestRead(agent);
+    };
+    expect(await send({ folderId: ferries.id })).toMatchObject({
+      request: translate("en", "agents.ask.request.organize", {
+        scope: translate("en", "agents.ask.organize.folder", {
+          folder: ferries.id,
+          folders: JSON.stringify([child.id]),
+        }),
+      }),
+    });
+    expect(await send({ ids: null })).toMatchObject({
+      request: translate("en", "agents.ask.request.organize", {
+        scope: translate("en", "agents.ask.organize.loose"),
+      }),
+    });
+  });
+});
 
 const SUMMARISE = "Summarise this document";
 

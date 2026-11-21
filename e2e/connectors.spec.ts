@@ -6,6 +6,7 @@ import { startFakeRegistry } from "../tests/helpers/fakeRegistry";
 import { type FakeRemote, startFakeRemote } from "../tests/helpers/remoteMcp";
 import {
   acceptPlainTextKeys,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -52,6 +53,7 @@ test.afterEach(async () => {
 test("a local Connector added in Settings starts and reaches ready, and turning it off stops it", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
+  await connectLocalChatModel(window);
 
   await openSettings(window, "connectors");
   const page = window.getByTestId("settings-page-connectors");
@@ -139,10 +141,49 @@ test("a local Connector added in Settings starts and reaches ready, and turning 
   await app.close();
 });
 
+test("with no model set up, a Connector that is on keeps its page and is turned off there; Skills stay out of the list (#3537)", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  const settings = await openSettings(window, "ai");
+  await expect(settings.getByTestId("settings-nav-connectors")).toHaveCount(0);
+  await expect(settings.getByTestId("settings-nav-skills")).toHaveCount(0);
+
+  // Connected before the last model went: its page is the one place that disconnects it.
+  await window.evaluate(
+    async ({ node, server }) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.addConnector({ name: "Tides", command: node, args: [server] });
+    },
+    { node: process.execPath, server: TIDE_SERVER },
+  );
+  await expect(settings.getByTestId("settings-nav-connectors")).toBeVisible();
+  await expect(settings.getByTestId("settings-nav-skills")).toHaveCount(0);
+  await showSettingsPage(window, "connectors");
+  const page = window.getByTestId("settings-page-connectors");
+  const row = page.getByTestId("connected-connector");
+  await expect(row).toContainText("Tides");
+  await expect(row.getByTestId("connected-connector-state")).toHaveText("Connected", {
+    timeout: 30_000,
+  });
+  // Its consent is where it was: Privacy lists the service, with no model.
+  await showSettingsPage(window, "privacy");
+  await expect(window.getByTestId("data-service").filter({ hasText: "Tides" })).toBeVisible();
+  await showSettingsPage(window, "connectors");
+  await row.getByTestId("connector-manage").click();
+  await page.getByRole("switch", { name: "Use Tides" }).uncheck();
+  await expect(page.getByTestId("connector")).toHaveAttribute("data-state", "off");
+  // Off was the last one, and it was shown: it stays until they leave the page.
+  await expect(settings.getByTestId("settings-nav-connectors")).toBeVisible();
+  await showSettingsPage(window, "ai");
+  await expect(settings.getByTestId("settings-nav-connectors")).toHaveCount(0);
+  await app.close();
+});
+
 test("in Local mode a Connector on another computer is paused and says why, in English and Chinese; its page offers no sign-in", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     // Added in Local mode, it is never connected to: the address need not exist.
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -183,6 +224,7 @@ test("in Local mode a Connector on this computer whose sign-in is on another wai
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     await window.evaluate(async (url) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.setLocalOnly(true);
@@ -235,6 +277,7 @@ test("a remote Connector added by URL needs a sign-in, which goes through the br
   try {
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     // The system browser opens nothing: the test plays the User on the sign-in page.
     await interceptOpenExternal(app);
 
@@ -313,6 +356,7 @@ test("an empty or wrong field of a custom Connector says why under it in the int
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     await openSettings(window, "connectors");
     const page = window.getByTestId("settings-page-connectors");
     await page.getByTestId("connector-add-custom").click();
@@ -372,6 +416,7 @@ test("a long address in a Connector's URL problem is cut in the middle, and the 
   try {
     await setWindowSize(app, window, 900, 760);
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     await openSettings(window, "connectors");
     const page = window.getByTestId("settings-page-connectors");
     await page.getByTestId("connector-add-custom").click();
@@ -438,6 +483,7 @@ test("a reviewed Connector in the directory connects in one click, signing in in
   try {
     const { app, window } = await launchApp(dataDir, { connectorDirectory: directory });
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     await interceptOpenExternal(app);
 
     await openSettings(window, "connectors");
@@ -509,6 +555,7 @@ test("the search asks the MCP Registry only once the User types and agrees, and 
   try {
     const { app, window } = await launchApp(dataDir, { connectorRegistry: registry.url });
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     await openSettings(window, "connectors");
     const page = window.getByTestId("settings-page-connectors");
     const search = page.getByTestId("connectors-search");
@@ -561,6 +608,7 @@ test("the search asks the MCP Registry only once the User types and agrees, and 
 test("a whole command line pasted as the command is split into its arguments, and a broken Connector is fixed by changing it", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  await connectLocalChatModel(window);
   await openSettings(window, "connectors");
   const page = window.getByTestId("settings-page-connectors");
 

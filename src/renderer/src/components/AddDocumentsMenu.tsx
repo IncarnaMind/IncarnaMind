@@ -3,6 +3,7 @@ import { commands } from "../commands/registry";
 import { useFindSources } from "../findSources";
 import { useT } from "../i18n";
 import { importReferences, useReferenceImport } from "../referenceImport";
+import { useSettingsPageOffered } from "../settingsOffered";
 import { useAppStore } from "../store";
 import { PlugIcon } from "./icons";
 import {
@@ -27,6 +28,7 @@ export function AddDocumentsMenu({ secondary = false }: { secondary?: boolean })
   const menu = usePopoverMenu();
   const picking = useAppStore((state) => state.pickingDocuments);
   const importing = useReferenceImport((state) => state.phase === "running");
+  const connectors = useSettingsPageOffered("connectors");
 
   /** Closes the menu, then does it. */
   const choose = (action: () => void) => () => {
@@ -96,16 +98,18 @@ export function AddDocumentsMenu({ secondary = false }: { secondary?: boolean })
           <FindSourcesLineIcon className="size-4 shrink-0 text-ink-meta" />
           <span className="flex-1">{t("documents.add.findSources")}</span>
         </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="library-connect-app"
-          onClick={choose(() => useAppStore.getState().openSettings("connectors"))}
-          className={`${menuItemClass} pl-2`}
-        >
-          <PlugIcon className="size-4 shrink-0 text-ink-meta" />
-          <span className="flex-1">{t("documents.add.connect")}</span>
-        </button>
+        {connectors && (
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="library-connect-app"
+            onClick={choose(() => useAppStore.getState().openSettings("connectors"))}
+            className={`${menuItemClass} pl-2`}
+          >
+            <PlugIcon className="size-4 shrink-0 text-ink-meta" />
+            <span className="flex-1">{t("documents.add.connect")}</span>
+          </button>
+        )}
         <div className={menuRuleClass} />
         <button
           type="button"

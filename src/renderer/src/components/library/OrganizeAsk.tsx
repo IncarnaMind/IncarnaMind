@@ -1,7 +1,15 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef } from "react";
+import type { OrganizeAgents, OrganizeTarget } from "../../../../core/api";
 import { useT } from "../../i18n";
-import { allowAndOrganize, type OrganizeNeeds, useOrganizeAsk } from "../../organizeDocuments";
+import {
+  allowAndOrganize,
+  askToOrganize,
+  type OrganizeNeeds,
+  useOrganizeAsk,
+} from "../../organizeDocuments";
 import { useAppStore } from "../../store";
+import { useOrganizeAgents } from "../../useOrganizeAgents";
+import { AskAgentLine } from "../AskAgentLine";
 import { buttonStyle } from "../ui";
 
 const report = (error: unknown) => useAppStore.getState().reportError(error);
@@ -17,7 +25,21 @@ export function OrganizeAsk() {
   const asked = useOrganizeAsk((state) => state.asked);
   if (!asked) return null;
   const { needs } = asked;
-  return needs.needs === "consent" ? <ConsentCard needs={needs} /> : <NeedsModel />;
+  return needs.needs === "consent" ? (
+    <ConsentCard needs={needs} />
+  ) : (
+    <ChooseOrganizer target={asked.target} />
+  );
+}
+
+function ChooseOrganizer({ target }: { target: OrganizeTarget }) {
+  const choice = useOrganizeAgents(target);
+  if (!choice) return null;
+  return choice.connected ? (
+    <AskOwnAgent agents={choice.eligible} target={target} />
+  ) : (
+    <NeedsModel />
+  );
 }
 
 function Card({
@@ -92,6 +114,43 @@ function ConsentCard({ needs }: { needs: Extract<OrganizeNeeds, { needs: "consen
           {t("library.organize.allow")}
         </button>
       </div>
+    </Card>
+  );
+}
+
+function AskOwnAgent({
+  agents,
+  target,
+}: {
+  agents: OrganizeAgents["eligible"];
+  target: OrganizeTarget;
+}) {
+  const t = useT();
+  const title = useId();
+  const settings = () => {
+    close();
+    useAppStore.getState().openSettings("agents");
+  };
+  return (
+    <Card testId="library-organize-agent" labelledBy={title}>
+      <p id={title}>{t(agents.length ? "library.organize.askAgent" : "library.organize.share")}</p>
+      {agents.length > 0 ? (
+        <AskAgentLine
+          agents={agents}
+          label={(agent) => t("library.organize.withAgent", { agent })}
+          onAsk={(agent) => void askToOrganize(agent, target)}
+          setUp={{ label: t("library.organize.dismiss"), onClick: close }}
+          testId="library-organize-choice"
+          focusAsk
+        />
+      ) : (
+        <div className="mt-2 flex justify-end gap-2">
+          <NotNow />
+          <button type="button" onClick={settings} className={buttonStyle("secondary", "sm")}>
+            {t("meetings.notesAgent.settings")}
+          </button>
+        </div>
+      )}
     </Card>
   );
 }

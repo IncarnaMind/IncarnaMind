@@ -31,6 +31,7 @@ interface RequestRow {
  * reads it, and only for those it still reads.
  */
 export interface RequestNamed {
+  organize?: "loose" | "selected" | "folder";
   open: string[];
   folders: string[];
   documents: string[];
@@ -55,6 +56,9 @@ function namedOf(json: string | null): RequestNamed | null {
     const value: unknown = JSON.parse(json);
     return isRecord(value)
       ? {
+          ...((value.organize === "loose" ||
+            value.organize === "selected" ||
+            value.organize === "folder") && { organize: value.organize }),
           open: idsOf(value.open),
           folders: idsOf(value.folders),
           documents: idsOf(value.documents),

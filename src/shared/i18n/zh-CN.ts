@@ -26,6 +26,16 @@ export const zhCN = {
   "library.organize.failed": "“整理”未能处理 {count} 个文档",
   "library.organize.retry": "重试",
   "library.organize.explain": "为每个文档建议文件夹和标签，由你决定。",
+  "agents.ask.line.organize": "帮我整理 IncarnaMind 里的文档。请先读取我在里面留的整理要求。",
+  "agents.ask.request.organize":
+    "{scope} 从 list_sorting 的同一条文档记录复制 id 和 version。用 propose_sorting 提建议时，只填列表里合适的文件夹和标签 ID，把建议留给我确认。",
+  "agents.ask.organize.folder":
+    "只整理直接放在文件夹 {folder} 里的文档。如果建议移动，只能移入这些子文件夹：{folders}。没有合适的就留在原处。",
+  "agents.ask.organize.loose": "只整理还没放进文件夹的文档（folderId 为 null）。",
+  "agents.ask.organize.selected": "只整理这些 ID 对应的文档：{ids}。",
+  "library.organize.withAgent": "请{agent}整理",
+  "library.organize.askAgent": "你的 AI 会建议文件夹和标签，由你确认。",
+  "library.organize.share": "要用自己的 AI 整理这些文档，请在智能体设置里共享它们所在的位置。",
   "library.organize.needsModel": "选好 AI 模型，就能整理文档。",
   "library.toSort.one": "1 个待整理",
   "library.toSort.other": "{count} 个待整理",
@@ -3996,6 +4006,8 @@ export const zhCN = {
   "models.directory.noMatch": "没有与“{query}”匹配的服务。",
   "models.directory.added": "已添加",
   "ai.lede": "AI 的来源，以及每项任务使用的模型",
+  "ai.ownAi.line":
+    "在 IncarnaMind 里设置模型是可选的。设置后可使用助手、连接器、技能、自动整理和会后笔记。",
   "ai.jobs.title": "各项任务使用的模型",
   "ai.jobs.answers": "回答和写作",
   "ai.jobs.answers.line": "助手、提问、对比、编辑和核对",
@@ -6091,6 +6103,8 @@ export const zhCN = {
   "error.linkedFolder.taken": "“{file}”已在 IncarnaMind 中。先删除它，再定位文件夹。",
   "error.agent.notConnected": "这个智能体尚未连接。",
   "error.agent.cantAsk": "这个智能体现在无法读取这篇笔记。",
+  "error.agent.cantOrganize":
+    "这个智能体目前没有权限整理这些文档。请在智能体设置里查看共享的文件夹。",
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
   "error.agent.nameEmpty": "输入智能体的名称。",
