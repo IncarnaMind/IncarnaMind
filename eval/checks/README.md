@@ -66,12 +66,23 @@ Each sentence and claim keeps, beside its outcome, every request the app's check
 
 - `report.json` holds them as `outcome.judge`, with each sentence's words and label, so a run reads without the set.
 - `replies.md` has a section for each sentence and claim, headed by its id: what the check made of it, then each request with its calls and its reply.
+- Each request also keeps `handed`: the Passages the searches before it handed the model, in order, with their text, so a question about what the check was shown (the same sentence in two runs, or two arms) is answered from the saved record, not a rerun (#3512).
 
 A Not checked has the core's own reason in `outcome.code`. The report and the summary count them by cause:
 
 - **Quote not found:** the core's "no evidence", a verdict with no quote the Citation check found: the app turned the judge's `cite` away, or it recorded none. Its replies say which.
 - **Malformed reply:** the core's "malformed", a reply with no verdict that could be read.
 - **Other:** every other reason the core gives, such as a refusal, a failed request or a limit.
+
+## Dropped conditions
+
+`conditions.eval.ts` runs a second, small set (#3512, `conditions/set.json`, frozen: `tests/eval/conditionsSet.test.ts` holds its hash) through the app's claim check against the Folder and two small invented agreements (`conditions/documents/`): 25 sentences that state what a Document states but leave out a condition, limit, exception or qualifier it attaches (17 English, 8 Chinese; some say part of the conditions in their own "if" and leave out another), each beside a faithful twin worded another way, and five controls that say less without claiming more. A dropped condition should read Needs a look, ideally Overstated; a twin or a control should not. The labels were made by construction and checked blind by a model that saw the Documents and the sentences and no verdict.
+
+```sh
+npx vitest run --config eval/vitest.config.ts eval/checks/conditions.eval.ts
+```
+
+It writes `conditions.json` (each sentence's verdict, the word an unsupported one was given, the check's replies, the Passages it was handed) and prints the counts. On main at the time it was written, the check flagged 25 of 25 dropped conditions and no twin or control in three draws, so the set guards a change to the check's wording against losing that, and it is not a measure of progress.
 
 ## Comparing two arms
 

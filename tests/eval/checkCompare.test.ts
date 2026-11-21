@@ -34,6 +34,7 @@ const request = (reply: string, calls: JudgeRequest["calls"] = []): JudgeRequest
   kind: "check",
   reply,
   calls,
+  handed: [],
 });
 
 const SUPPORTED = "Verdict: supported\nExplanation: The update gives net debt. [^1]\nEvidence: [1]";

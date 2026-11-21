@@ -364,7 +364,7 @@ async function onKey(
   const timeline: string[] = [];
   const { core, run } = await start((call, planned) => {
     const answer = scripted.send(clock.now(), call.results.length);
-    const request = `${numberOf(call)}:${call.results.length}`;
+    const request = `${numberOf(call)}:${call.step}`;
     order.push(request);
     timeline.push(`${clock.now() - started} ${request}${answer.fits ? "" : " refused"}`);
     if (!answer.fits) {

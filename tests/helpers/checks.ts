@@ -78,6 +78,15 @@ export const sentenceOf = (call: ModelCall) => {
 export const isCheckRun = (call: ModelCall) => call.system.startsWith("You check one sentence");
 
 /**
+ * A reply that goes on to a request of its own, as a model's does when the Passages it was handed
+ * don't decide the sentence: it searches again (#3512). For a test that holds or cuts a check
+ * between its first request and its verdict.
+ */
+export const goesOn = (call: ModelCall): ScriptedReply => ({
+  calls: [{ tool: "search_documents", input: { query: `${sentenceOf(call)} again` } }],
+});
+
+/**
  * How a model checks as its plans say: it searches for the sentence, cites,
  * then gives its verdict.
  */

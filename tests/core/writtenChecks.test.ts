@@ -23,6 +23,7 @@ import { askAssistant, changesIn, lastResult } from "../helpers/assistant";
 import {
   checkGenerate,
   checkReply,
+  goesOn,
   isCheckRun,
   type Plan,
   sentenceOf,
@@ -184,9 +185,12 @@ function writingModel(
       if (isCheckRun(call)) {
         const core = coreOf();
         const reply = (check && core && check(call, core)) || checkReply(call, PLANS);
-        if (!during || waited || "error" in reply) return reply;
+        if (!during || "error" in reply) return reply;
+        // With something to do meanwhile, each check's first request goes on to another, so what the test does reaches every check.
+        const held = call.fresh ? goesOn(call) : reply;
+        if (waited) return held;
         waited = during();
-        return { ...reply, pause: { after: 0, until: waited } };
+        return { ...held, pause: { after: 0, until: waited } };
       }
       const { results } = call;
       const search = results.find((result) => result.tool === "search_documents");
@@ -539,9 +543,12 @@ async function checkRequestsOf(
       cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
       generated: (call) => generated.push(call),
       check: (call, core) => {
-        const reply = writing.check?.(call, core) ?? checkReply(call, PLANS);
+        // Its first request is held, and it goes on after the hold to cite and give its verdict.
+        const reply = call.fresh
+          ? goesOn(call)
+          : (writing.check?.(call, core) ?? checkReply(call, PLANS));
         if (endsCheck(reply)) verdicts.push(sentenceOf(call));
-        if (call.results.length > 0) return reply;
+        if (!call.fresh) return reply;
         const sentence = sentenceOf(call);
         const until = reversed
           ? sentence === first &&
@@ -631,9 +638,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       into: true,
       cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
       check: (call) =>
-        call.results.length === 0
-          ? { ...checkReply(call, PLANS), pause: { after: 0, until: slow } }
-          : null,
+        call.fresh ? { ...checkReply(call, PLANS), pause: { after: 0, until: slow } } : null,
     });
 
     await client.settled();
@@ -765,9 +770,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
               started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } }),
             )
             .then(() => undefined);
-          return call.results.length === 0
-            ? { ...checkReply(call, PLANS), pause: { after: 0, until: capped } }
-            : null;
+          return call.fresh ? { ...goesOn(call), pause: { after: 0, until: capped } } : null;
         },
       },
       ({ core: started }) => {
@@ -836,7 +839,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     const checks = calls.filter(isCheckRun);
     expect(sentBefore).toBeGreaterThan(0);
     expect(checks).toHaveLength(sentBefore);
-    expect(checks.every((call) => call.results.length === 0)).toBe(true);
+    expect(checks.every((call) => call.fresh)).toBe(true);
     const marks = await marksIn(core, client);
     expect(marks.map(({ check }) => [check.state, check.reason])).toEqual([
       ["not-checked", "consent-revoked"],
@@ -952,7 +955,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       content: `## Tides\n\n${sentences.join(" ")}`,
     });
 
-    expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(40);
+    expect(calls.filter((call) => isCheckRun(call) && call.fresh)).toHaveLength(40);
     const marks = await marksIn(core, client);
     expect(marks).toHaveLength(40);
     expect(marks.every(({ check }) => check.state === "unsupported")).toBe(true);
@@ -1120,9 +1123,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
               started.updateSettings({ user: { monthlyCap: { amount: 0, currency: "USD" } } }),
             )
             .then(() => undefined);
-          return call.results.length === 0
-            ? { ...checkReply(call, PLANS), pause: { after: 0, until: capped } }
-            : null;
+          return call.fresh ? { ...goesOn(call), pause: { after: 0, until: capped } } : null;
         },
         generate: (call) => {
           if (isSort(call) && call.prompt.includes(QUAY)) sorted.push(call.prompt);
@@ -1163,7 +1164,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         into: true,
         cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
         check: (call) => {
-          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+          if (sentenceOf(call) !== `${UNBACKED} .` || !call.fresh) return null;
           const landed = vi
             .waitFor(() => expect(moonMarked()).toBe(true), { timeout: 20_000, interval: 5 })
             .then(
@@ -1202,7 +1203,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
           cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
           check: (call) => {
             const client = page;
-            if (call.results.length > 0 || !client) return null;
+            if (!call.fresh || !client) return null;
             if (!newer) {
               client.doc
                 .getMap(MIND_SETTINGS_FIELD)
@@ -1218,7 +1219,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       );
       const said = (spy: typeof errors) => spy.mock.calls.map((args) => String(args[0]));
 
-      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(2);
+      expect(calls.filter((call) => isCheckRun(call) && call.fresh)).toHaveLength(2);
       expect(said(errors).filter((line) => line.includes("marks couldn't land"))).toHaveLength(1);
       expect(said(warnings).filter((line) => line.includes("couldn't be checked"))).toEqual([]);
       expect(said(errors).filter((line) => line.includes("couldn't be checked:"))).toHaveLength(1);
@@ -1278,7 +1279,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
         check: (call, started) => {
           const connected = page;
-          if (call.results.length > 0 || !connected || taken) return null;
+          if (!call.fresh || !connected || taken) return null;
           taken = true;
           const before = readMind(connected).toJSON().content ?? [];
           connected.doc.transact(() => connected.blocks.delete(connected.blocks.length - 1, 1));
@@ -1323,7 +1324,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       into: true,
       cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
       check: (call) => {
-        if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0) return null;
+        if (sentenceOf(call) !== `${UNBACKED} .` || !call.fresh) return null;
         const stopped = vi
           .waitFor(() => expect(stop).not.toBeNull(), { timeout: 20_000, interval: 5 })
           .then(() => stop?.());
@@ -1360,7 +1361,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         // One claim at a time, as a local model checks: the second check starting proves the first ended.
         check: (call, core) => {
           if (!sentenceOf(call).includes("Neap tides are twice as strong")) return null;
-          if (call.results.length > 0) return null;
+          if (!call.fresh) return null;
           const request = progress[0]?.request ?? "";
           const stopped = Promise.resolve().then(() => core.cancelCheck(request));
           return { ...checkReply(call, PLANS), pause: { after: 0, until: stopped } };
@@ -1582,7 +1583,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       into: true,
       cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
       check: (call) => {
-        if (call.results.length > 0) return null;
+        if (!call.fresh) return null;
         const undone = vi
           .waitFor(() => expect(undo).not.toBeNull(), { timeout: 20_000, interval: 5 })
           .then(() => undo?.());
@@ -1591,7 +1592,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     });
     await client.settled();
     expect(statesIn(client)).toEqual(sentences.map(() => "checking"));
-    const started = () => calls.filter((call) => isCheckRun(call) && call.results.length === 0);
+    const started = () => calls.filter((call) => isCheckRun(call) && call.fresh);
     await vi.waitFor(() => expect(started().length).toBeGreaterThan(0), { timeout: 20_000 });
     const sent = started().length;
     expect(sent).toBeLessThan(sentences.length);
@@ -1640,7 +1641,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
           first: `## Tides\n\n${MOON.slice(0, -1)} [^1].`,
           longer: `## Tides\n\n${MOON.slice(0, -1)} [^1]. ${longer.join(" ")}`,
           check: (call) =>
-            /^Neap tide \d/.test(sentenceOf(call)) && call.results.length === 0
+            /^Neap tide \d/.test(sentenceOf(call)) && call.fresh
               ? { ...checkReply(call, PLANS), pause: { after: 0, until: held } }
               : null,
         },
@@ -1677,8 +1678,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       });
       const started = () =>
         calls.filter(
-          (call) =>
-            isCheckRun(call) && call.results.length === 0 && /^Neap tide/.test(sentenceOf(call)),
+          (call) => isCheckRun(call) && call.fresh && /^Neap tide/.test(sentenceOf(call)),
         );
       await vi.waitFor(() => expect(started().length).toBeGreaterThan(0), { timeout: 20_000 });
       const sent = started().length;
@@ -1811,8 +1811,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         longer: `## Tides\n\n${MOON.slice(0, -1)} [^1]. ${UNBACKED} [^1]. Neap tide 1 is twice as strong [^1].`,
         // Only the first write's check of the neap sentence waits: the newer write's goes on.
         check: (call) => {
-          if (paused || sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0)
-            return null;
+          if (paused || sentenceOf(call) !== `${UNBACKED} .` || !call.fresh) return null;
           paused = true;
           return { ...checkReply(call, PLANS), pause: { after: 0, until: held } };
         },
@@ -1868,7 +1867,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
     const model = scriptedModel(
       (call): ScriptedReply => {
         if (isCheckRun(call))
-          return call.results.length === 0
+          return call.fresh
             ? { ...checkReply(call, PLANS), pause: { after: 0, until: held } }
             : checkReply(call, PLANS);
         const { results } = call;
@@ -1934,7 +1933,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
       // Only the first write's two sentences wait: the next Answer writes again.
       check: (call) =>
-        call.results.length === 0 && held++ < 2
+        call.fresh && held++ < 2
           ? { ...checkReply(call, PLANS), pause: { after: 0, until: slow } }
           : null,
     });
@@ -1991,7 +1990,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       (call): ScriptedReply => {
         if (isCheckRun(call)) {
           const reply = checkReply(call, PLANS);
-          if (call.results.length > 0 || "error" in reply) return reply;
+          if (!call.fresh || "error" in reply) return reply;
           started.push(sentenceOf(call));
           inFlight++;
           most = Math.max(most, inFlight);
@@ -2207,7 +2206,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
           longer: `## Tides\n\n${MOON.slice(0, -1)} [^1]. Neap tide 1 is twice as strong [^1]. Neap tide 2 is twice as strong [^1]. Neap tide 3 is twice as strong [^1].`,
           // A model on this computer checks one sentence at a time: the first one's check waits.
           check: (call) => {
-            if (paused || call.results.length > 0) return null;
+            if (paused || !call.fresh) return null;
             paused = true;
             return { ...checkReply(call, PLANS), pause: { after: 0, until: held } };
           },
@@ -2225,10 +2224,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       await client.settled();
       const neapChecks = () =>
         calls.filter(
-          (call) =>
-            isCheckRun(call) &&
-            call.results.length === 0 &&
-            /^Neap tide [12] /.test(sentenceOf(call)),
+          (call) => isCheckRun(call) && call.fresh && /^Neap tide [12] /.test(sentenceOf(call)),
         ).length;
       expect(neapChecks()).toBe(0);
 
@@ -2262,7 +2258,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         longer: `## Tides\n\n${MOON.slice(0, -1)} [^1]. Neap tide 1 is twice as strong [^1].`,
         // The first write's cited sentence is checked first, and waits: its sort comes after.
         check: (call) => {
-          if (paused || call.results.length > 0) return null;
+          if (paused || !call.fresh) return null;
           paused = true;
           return { ...checkReply(call, PLANS), pause: { after: 0, until: held } };
         },
@@ -2315,7 +2311,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
         check: (call, started) => {
           const connected = page;
-          if (call.results.length > 0 || !connected) return null;
+          if (!call.fresh || !connected) return null;
           // The table's cell waits until the paragraph is back, so the one verdict in between is the paragraph's.
           if (sentenceOf(call).includes("Neap tides")) {
             return { ...checkReply(call, PLANS), pause: { after: 0, until: back } };
@@ -2424,8 +2420,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         longer: "",
         // One sentence at a time on this computer: the second one's check never comes back.
         check: (call) => {
-          if (sentenceOf(call) !== `${UNBACKED} .` || call.results.length > 0 || paused)
-            return null;
+          if (sentenceOf(call) !== `${UNBACKED} .` || !call.fresh || paused) return null;
           paused = true;
           return {
             ...checkReply(call, PLANS),
@@ -2484,9 +2479,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
         into: true,
         cloud: { kind: "anthropic", modelId: "claude-haiku-5-5" },
         check: (call) =>
-          call.results.length === 0
-            ? { ...checkReply(call, PLANS), pause: { after: 0, until: slow } }
-            : null,
+          call.fresh ? { ...checkReply(call, PLANS), pause: { after: 0, until: slow } } : null,
       },
       calls,
       () => started,
@@ -2536,7 +2529,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
           into: true,
           check: (call) => {
             const client = page;
-            if (call.results.length > 0 || !client) return null;
+            if (!call.fresh || !client) return null;
             edits.arm();
             if (sentenceOf(call) !== `${UNBACKED} .` || newer) return null;
             // A newer version writes the Note once the first mark has failed for another reason.
@@ -2553,7 +2546,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       );
       edits.restore();
 
-      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(3);
+      expect(calls.filter((call) => isCheckRun(call) && call.fresh)).toHaveLength(3);
       const refused = errors.mock.calls.filter(([line]) =>
         String(line).includes("marks couldn't land"),
       );
@@ -2850,7 +2843,7 @@ describe("What the assistant writes is checked once it lands, the reply not wait
       ]);
       expect(change).toMatchObject({ created: true, proposals: 3, cited: 2 });
       expect(change?.selfCheck).toMatchObject({ cited: 2, sent: 2, checked: 2, failed: 0 });
-      expect(calls.filter((call) => isCheckRun(call) && call.results.length === 0)).toHaveLength(2);
+      expect(calls.filter((call) => isCheckRun(call) && call.fresh)).toHaveLength(2);
     },
   );
 
@@ -3071,7 +3064,7 @@ describe("A write's check waits behind a reply on its provider", () => {
     let first = true;
     const model = repliesModel(calls, {
       check: (call) => {
-        if (!first || call.results.length > 0) return null;
+        if (!first || !call.fresh) return null;
         first = false;
         return { ...checkReply(call, PLANS), pause: { after: 0, until: check.closed } };
       },
@@ -3209,11 +3202,11 @@ describe("A write's check waits behind a reply on its provider", () => {
     let first = true;
     const model = repliesModel(calls, {
       check: (call) => {
-        if (first && call.results.length === 0) {
+        if (first && call.fresh) {
           first = false;
           return { ...checkReply(call, PLANS), pause: { after: 0, until: check.closed } };
         }
-        if (!refused && call.results.length > 0) {
+        if (!refused && !call.fresh) {
           refused = true;
           return { error: { status: 429, message: "Too many requests." } };
         }

@@ -352,7 +352,7 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
     answered = resolve;
   });
   const afterTheReply = (call: ModelCall, reply: ScriptedReply): ScriptedReply => {
-    if (flow.asksFirst !== "write" || call.results.length > 0 || "error" in reply) return reply;
+    if (flow.asksFirst !== "write" || !call.fresh || "error" in reply) return reply;
     // A reply's own pause keeps where it stops and what it says when it gets there.
     if ("pause" in reply && reply.pause) {
       const until = Promise.all([replied, reply.pause.until]).then(() => undefined);
@@ -365,7 +365,7 @@ async function worldOf(example: Example, flow: Flow, kind: Model = "cloud") {
     const reply = checkReply(call, plans);
     const index = example.claims.indexOf(sentenceOf(call));
     if (!script || index < 0) return reply;
-    const first = call.results.length === 0;
+    const first = call.fresh;
     if (first) {
       runs[index as 0 | 1 | 2]++;
       order.push(`${index}:${runs[index]}`);
@@ -861,9 +861,7 @@ describe.each([EN, ZH])("two background watches of one Note ($language)", (examp
       reply: (claim, run, call, planned) => {
         if (claim !== 0) return null;
         if (run > 1) return checkReply(call, { [example.claims[0]]: { verdict: "unsupported" } });
-        return call.results.length === 0
-          ? { ...planned, pause: { after: 0, until: firstHeld } }
-          : null;
+        return call.fresh ? { ...planned, pause: { after: 0, until: firstHeld } } : null;
       },
     });
 
@@ -944,7 +942,7 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
           const reply = (released ? after : meanwhile)
             ? planned
             : checkReply(call, { [first]: { verdict: "unsupported" } });
-          return run === 1 && call.results.length === 0
+          return run === 1 && call.fresh
             ? { ...reply, pause: { after: 0, until: gate.promise } }
             : reply;
         },
@@ -1035,9 +1033,7 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
         if (claim !== 1) return null;
         // The check on demand finds nothing against the second claim, but its reply waits.
         const reply = checkReply(call, { [second]: { verdict: "unsupported" } });
-        return call.results.length === 0
-          ? { ...reply, pause: { after: 0, until: gate.promise } }
-          : reply;
+        return call.fresh ? { ...reply, pause: { after: 0, until: gate.promise } } : reply;
       },
     });
 
@@ -1069,7 +1065,7 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
     await made.begin({
       reply: (claim, run, call, planned) =>
         // The background watch's first request for the first claim waits: the cap is reached while it does.
-        claim === 0 && run === 1 && call.results.length === 0
+        claim === 0 && run === 1 && call.fresh
           ? { ...planned, pause: { after: 0, until: gate.promise } }
           : null,
     });
@@ -1168,7 +1164,7 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
         if (claim !== 0) return null;
         if (limited) return TOO_MANY;
         // The background watch's first request for the first claim: its model replies, then waits.
-        return run === 1 && call.results.length === 0
+        return run === 1 && call.fresh
           ? {
               ...planned,
               text: "Looking.",
@@ -1222,7 +1218,7 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
       reply: (claim, run, call, planned) => {
         if (claim !== 0) return null;
         if (limited) return TOO_MANY;
-        return run === 1 && call.results.length === 0
+        return run === 1 && call.fresh
           ? {
               ...planned,
               text: "Looking.",
@@ -1263,12 +1259,10 @@ describe.each([EN, ZH])("a Check for contradictions beside a watch ($language)",
         // The check on demand finds nothing against the first claim, but its reply waits.
         if (run === 1) {
           const reply = checkReply(call, { [first]: { verdict: "unsupported" } });
-          return call.results.length === 0
-            ? { ...reply, pause: { after: 0, until: gate.promise } }
-            : reply;
+          return call.fresh ? { ...reply, pause: { after: 0, until: gate.promise } } : reply;
         }
         // The background watch's tries: its model replies to each, and its next request is refused.
-        return call.results.length === 0 ? planned : TOO_MANY;
+        return call.fresh ? planned : TOO_MANY;
       },
     });
 
