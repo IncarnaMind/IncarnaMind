@@ -26,6 +26,16 @@ export const zhCN = {
   "library.organize.failed": "“整理”未能处理 {count} 个文档",
   "library.organize.retry": "重试",
   "library.organize.explain": "为每个文档建议文件夹和标签，由你决定。",
+  "agents.ask.line.organize": "帮我整理 IncarnaMind 里的文档。请先读取我在里面留的整理要求。",
+  "agents.ask.request.organize":
+    "{scope} 从 list_sorting 的同一条文档记录复制 id 和 version。用 propose_sorting 提建议时，只填列表里合适的文件夹和标签 ID，把建议留给我确认。",
+  "agents.ask.organize.folder":
+    "只整理直接放在文件夹 {folder} 里的文档。如果建议移动，只能移入这些子文件夹：{folders}。没有合适的就留在原处。",
+  "agents.ask.organize.loose": "只整理还没放进文件夹的文档（folderId 为 null）。",
+  "agents.ask.organize.selected": "只整理这些 ID 对应的文档：{ids}。",
+  "library.organize.withAgent": "请{agent}整理",
+  "library.organize.askAgent": "你的 AI 会建议文件夹和标签，由你确认。",
+  "library.organize.share": "要用自己的 AI 整理这些文档，请在智能体设置里共享它们所在的位置。",
   "library.organize.needsModel": "选好 AI 模型，就能整理文档。",
   "library.toSort.one": "1 个待整理",
   "library.toSort.other": "{count} 个待整理",
@@ -1692,6 +1702,7 @@ export const zhCN = {
   "checks.acceptAndCheck": "全部接受并核对",
   "checks.problem.local-mode": "未核对：已开启“所有内容都留在这台电脑上”。",
   "checks.problem.chooseModel": "选择模型",
+  "checks.problem.no-provider": "核对需要 AI 模型",
   "checks.tryAgain": "重试",
   "checks.problem.failed": "没能核对",
   "checks.problem.no-folder": "没有可对照的文档：这篇笔记不在文件夹中。",
@@ -6090,6 +6101,8 @@ export const zhCN = {
   "error.linkedFolder.taken": "“{file}”已在 IncarnaMind 中。先删除它，再定位文件夹。",
   "error.agent.notConnected": "这个智能体尚未连接。",
   "error.agent.cantAsk": "这个智能体现在无法读取这篇笔记。",
+  "error.agent.cantOrganize":
+    "这个智能体目前没有权限整理这些文档。请在智能体设置里查看共享的文件夹。",
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
   "error.agent.nameEmpty": "输入智能体的名称。",
@@ -7970,12 +7983,12 @@ export const zhCN = {
   "agents.problem.chat-consent":
     "IncarnaMind 的 AI 模型尚未获得允许。在 IncarnaMind 中提一个问题即可允许。",
   "agents.problem.answer-failed": "IncarnaMind 无法回答：{message}",
-  "agents.problem.noRequest":
-    "IncarnaMind 中没有等你读取的请求：每条请求只能读取一次。请按用户写的内容处理，或请用户在 IncarnaMind 中重新发送。",
+  "agents.request.none":
+    "IncarnaMind 中没有等你读取的请求：每条请求只能读取一次。请按用户写的内容处理。",
   "agents.problem.requestNoteDeleted":
-    "这条请求涉及的笔记已在 IncarnaMind 中删除，没有可改的内容。请告诉用户；用户恢复这篇笔记后，可以再问一次。",
+    "这条请求涉及的内容已在 IncarnaMind 中删除，没有可继续处理的内容。请告诉用户；用户恢复后，可以再问一次。",
   "agents.problem.requestOutOfReach":
-    "这条请求涉及的笔记你现在无法读取。请告诉用户在“设置 → 智能体”中与你共享它所在的文件夹，然后再问一次。",
+    "这条请求涉及的内容你现在无法读取。请告诉用户在“设置 → 智能体”中与你共享它所在的文件夹，然后再问一次。",
   "agents.problem.invalid": "IncarnaMind 无法读取这个请求。",
   "agents.problem.failed": "IncarnaMind 出了点问题。再试一次。",
   "agents.answer.notFound": "[未找到引文]",
@@ -8420,6 +8433,11 @@ export const zhCN = {
   "agents.ask.line.note": "关于我在 IncarnaMind 中的笔记{title}：",
   "agents.ask.line.question": "关于我在 IncarnaMind 中的笔记{title}：\n\n{question}",
   "agents.ask.line.questionAlone": "请根据我在 IncarnaMind 中的文档回答：\n\n{question}",
+  "agents.ask.line.questionDocument": "关于我在 IncarnaMind 中的文档{document}：\n\n{question}",
+  "agents.ask.line.questionNoteDocument":
+    "关于我在 IncarnaMind 中的笔记{title}和文档{document}：\n\n{question}",
+  "agents.ask.line.questionScope": "请根据我在 IncarnaMind 中搜索范围内的文档回答：\n\n{question}",
+  "agents.ask.line.check": "对照我在 IncarnaMind 中的文档，核对笔记{title}。",
   "agents.ask.line.meeting": "整理我在 IncarnaMind 中的会议笔记{title}。",
   "agents.ask.request.fix":
     "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，这句话{verdict}：\n\n{sentence}{quote}\n\n请根据我的文档改正这句话，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
@@ -8440,6 +8458,14 @@ export const zhCN = {
     "我这条消息说的是你提交给 IncarnaMind 的文件{title}（第 {version} 版，来自 {path}）。",
   "agents.ask.request.note":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
+  "agents.ask.request.document": "我这条消息说的是我在 IncarnaMind 中打开的文档：{documents}。",
+  "agents.ask.request.documents":
+    "我这条消息说的是我在 IncarnaMind 中打开的几个文档，最前面的排第一：{documents}。",
+  "agents.ask.request.scope":
+    "我把这个问题限定在 IncarnaMind 的这些文件夹和文档里：{items}。只在这些范围内查找。",
+  "agents.ask.request.item": "{name}（{idName}：{id}）",
+  "agents.ask.request.check":
+    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。如果这篇笔记不是你写的，就用 read_mind 读取，自己核对。最后告诉我哪些句子需要留意。",
   "agents.ask.verdict.unsupported": "没有依据",
   "agents.ask.verdict.contradicted": "与我的文档矛盾",
   "agents.ask.verdict.not-found": "在我的文档中找不到",

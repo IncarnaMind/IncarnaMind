@@ -128,6 +128,5 @@ core.on("agents.noteChanged", (change) => {
   useAgentNotes.setState(({ lines }) => ({
     lines: [...lines.filter((line) => line.mindId !== change.mindId), change],
   }));
-  if (change.kind === "wrote") useAppStore.getState().openMind(change.mindId, { behind: true });
-  else if (change.step !== null) offerUndo(change, change.step);
+  if (change.kind === "changed" && change.step !== null) offerUndo(change, change.step);
 });

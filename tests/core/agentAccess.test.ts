@@ -77,6 +77,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     checkpoint: () => undefined,
     noteChanged: () => undefined,
     show: () => undefined,
+    opened: () => undefined,
     mindMarkdown: () => "",
     createMind: () => {
       throw new Error("Not called.");

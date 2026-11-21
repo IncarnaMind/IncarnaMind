@@ -28,6 +28,18 @@ export const en = {
   "library.organize.failed": "Couldn’t organize {count} Documents",
   "library.organize.retry": "Try again",
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
+  "agents.ask.line.organize": "Organize my Documents in IncarnaMind. Read my request there first.",
+  "agents.ask.request.organize":
+    "{scope} From list_sorting, copy the selected Document’s id and version together. Use only matching Folder and Tag IDs from that list in propose_sorting. Leave the Suggestions for me to review.",
+  "agents.ask.organize.folder":
+    "Only organize Documents directly in Folder {folder}. Suggest moves only into these subfolders: {folders}. Otherwise leave the Document in place.",
+  "agents.ask.organize.loose":
+    "Only organize Documents that are not in a Folder (folderId is null).",
+  "agents.ask.organize.selected": "Only organize these Document IDs: {ids}.",
+  "library.organize.withAgent": "Ask {agent} to organize",
+  "library.organize.askAgent": "Your AI can suggest Folders and Tags for you to review.",
+  "library.organize.share":
+    "To organize these Documents with your AI, share their location in the agent settings.",
   "library.organize.needsModel": "Choose an AI model to sort your Documents.",
   "library.toSort.one": "1 to organize",
   "library.toSort.other": "{count} to organize",
@@ -1762,6 +1774,7 @@ export const en = {
   "checks.acceptAndCheck": "Accept all and check",
   "checks.problem.local-mode": "Not checked: “Keep everything on this computer” is on.",
   "checks.problem.chooseModel": "Choose a model",
+  "checks.problem.no-provider": "Checking needs an AI model",
   "checks.tryAgain": "Try again",
   "checks.problem.failed": "Couldn’t check",
   "checks.problem.no-folder": "Nothing to check against: this note isn’t in a Folder.",
@@ -6414,6 +6427,8 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.cantAsk": "That agent can’t read this note now.",
+  "error.agent.cantOrganize":
+    "This agent can’t organize these Documents with its current access. Check its shared Folders in agent settings.",
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.agent.nameEmpty": "Give the agent a name.",
@@ -8439,12 +8454,12 @@ export const en = {
   "agents.problem.chat-consent":
     "IncarnaMind’s AI model isn’t allowed yet. Ask a Question in IncarnaMind to allow it.",
   "agents.problem.answer-failed": "IncarnaMind couldn’t answer: {message}",
-  "agents.problem.noRequest":
-    "No request from the User is waiting in IncarnaMind: each is read once. Go by what they wrote, or ask them to send it again from IncarnaMind.",
+  "agents.request.none":
+    "No request from the User is waiting in IncarnaMind: each is read once. Go by what they wrote.",
   "agents.problem.requestNoteDeleted":
-    "The note this request is about was deleted in IncarnaMind, so there is nothing to change. Tell the User; if they restore it, they can ask again.",
+    "What this request is about was deleted in IncarnaMind, so there is nothing to go on. Tell the User; if they restore it, they can ask again.",
   "agents.problem.requestOutOfReach":
-    "This request is about a note this agent can’t read now. Tell the User to share its Folder with you in Settings → Agents, then ask again.",
+    "This request is about something this agent can’t read now. Tell the User to share its Folder with you in Settings → Agents, then ask again.",
   "agents.problem.invalid": "IncarnaMind couldn’t read that request.",
   "agents.problem.failed": "Something went wrong in IncarnaMind. Try again.",
   "agents.answer.notFound": "[quote not found]",
@@ -8940,6 +8955,12 @@ export const en = {
   "agents.ask.line.note": "About my note {title} in IncarnaMind:",
   "agents.ask.line.question": "About my note {title} in IncarnaMind:\n\n{question}",
   "agents.ask.line.questionAlone": "From my Documents in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionDocument": "About my document {document} in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionNoteDocument":
+    "About my note {title} and my document {document} in IncarnaMind:\n\n{question}",
+  "agents.ask.line.questionScope":
+    "From the Documents in my search scope in IncarnaMind:\n\n{question}",
+  "agents.ask.line.check": "Check my note {title} in IncarnaMind against my Documents.",
   "agents.ask.line.meeting": "Prepare the notes of my meeting {title} in IncarnaMind.",
   // What waits for the agent's read_request (#3419): the rest of what the User asked.
   "agents.ask.request.fix":
@@ -8961,6 +8982,15 @@ export const en = {
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
   "agents.ask.request.note":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
+  "agents.ask.request.document":
+    "My message is about the document I have open in IncarnaMind: {documents}.",
+  "agents.ask.request.documents":
+    "My message is about the documents I have open in IncarnaMind, the one in front first: {documents}.",
+  "agents.ask.request.scope":
+    "I limited this question to these folders and documents in IncarnaMind: {items}. Look only there.",
+  "agents.ask.request.item": "{name} ({idName}: {id})",
+  "agents.ask.request.check":
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. If you didn’t write the note, read it with read_mind and check it yourself instead. Then tell me which sentences need a look.",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
   "agents.ask.verdict.contradicted": "is contradicted by my Documents",
   "agents.ask.verdict.not-found": "isn’t found in my Documents",

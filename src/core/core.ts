@@ -1501,6 +1501,7 @@ export function createCore(adapters: CoreAdapters): Core {
   if (documents.searchableCount() > 0) rerank.prepare();
   /** Set once outside agents exist: Local mode pauses them. */
   let agentsLocalModeChanged = () => {};
+  let agentsModelChanged = (_ready: boolean) => {};
   /**
    * Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141).
    * Resolves once the transcription process has dropped it (#2702).
@@ -4646,7 +4647,10 @@ export function createCore(adapters: CoreAdapters): Core {
         () => chat.readiness(),
         () => lifetime.signal.aborted,
       );
-      if (!lifetime.signal.aborted && newest()) events.emit("chatReadiness.changed", readiness);
+      if (!lifetime.signal.aborted && newest()) {
+        events.emit("chatReadiness.changed", readiness);
+        agentsModelChanged(readiness.ready);
+      }
     } catch (error) {
       // Reading the keychain is async, so the core may have closed meanwhile: nobody is listening.
       if (!lifetime.signal.aborted) throw error;
@@ -6058,6 +6062,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readValue: (key) => settings.readDeviceValue(key),
     writeValue: (key, value) => settings.writeDeviceValue(key, value),
     localOnly: () => embedding.localOnly(),
+    modelReady: async () => (await chat.readiness()).ready,
     socketPath: adapters.agents?.socketPath ?? agentSocketPath(dataDir),
     // Without a host's launcher there is no shim to start; tests and the evaluation give theirs.
     launcher: adapters.agents?.launcher ?? { command: process.execPath, args: [] },
@@ -6183,6 +6188,7 @@ export function createCore(adapters: CoreAdapters): Core {
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),
       show: (place) => events.emit("agents.citationShown", place),
+      opened: (opened) => events.emit("agents.opened", opened),
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
@@ -6196,6 +6202,7 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (error) => console.error(error),
   });
   agentsLocalModeChanged = () => agents.localModeChanged();
+  agentsModelChanged = (ready) => agents.modelChanged(ready);
   agents.start().catch((error: unknown) => console.error(error));
   // Setting IncarnaMind up in the User's agent, from Settings → Agents.
   const agentSetup = createAgentSetup({
@@ -6313,6 +6320,8 @@ export function createCore(adapters: CoreAdapters): Core {
       }
     },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
+    reads: (pairingId, ids) => agents.reads(pairingId, ids),
+    nameOf: (kind, id) => scopeItemName(kind, id),
     handedFile(mindId) {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;
@@ -8668,6 +8677,13 @@ export function createCore(adapters: CoreAdapters): Core {
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),
     copyAgentSetup: (pairingId) => agentSetup.settingsFor(pairingId),
     openAgentInstallAgain: (pairingId) => agentSetup.openInstallAgain(pairingId),
+    agentsForOrganize: async (target) => {
+      if (organizeModelOf(library.settings())) return { eligible: [], connected: false };
+      const available = agentAsk.forOrganize(target);
+      return available.connected && (await tagging.resolve())
+        ? { eligible: [], connected: false }
+        : available;
+    },
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),
