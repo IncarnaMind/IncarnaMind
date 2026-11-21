@@ -24,7 +24,6 @@ const SPRING = "Spring tides happen at new moon and at full moon";
 const SAYS = "Tides says spring tides happen at new and full moon.";
 const CONTRADICTED = "Harbours publish the times of high water every week.";
 const HARBOUR = "Harbours publish the times of high water every year.";
-const SEARCH_FIRST = "You gave a verdict without reading any Passage.";
 
 type Step = (call: ModelCall, passage: (quote: string) => string) => ScriptedReply;
 
@@ -309,29 +308,20 @@ describe("A verdict handed over in cite (#3381)", () => {
     expect(result).toMatchObject({ verdict: "supported", says: SAYS });
   });
 
-  test("handed over before any search, the verdict is sent back to search first", async () => {
-    const { result, runs } = await check(
-      SUPPORTED,
-      () => ({
-        calls: [
-          { tool: "cite", input: { citations: [], verdict: "supported", explanation: SAYS } },
-        ],
-      }),
-      (call) => search(sentenceOf(call)),
-      (_call, passage) => ({
-        calls: [cite(passage, [SPRING], { verdict: "supported", explanation: SAYS })],
-      }),
-    );
+  // The search is made for the model before its first request (#3512), so a verdict handed over in the first request has read Passages.
+  test("handed over in the first request, the verdict stands on the search made for the model", async () => {
+    const { result, runs } = await check(SUPPORTED, (_call, passage) => ({
+      calls: [cite(passage, [SPRING], { verdict: "supported", explanation: SAYS })],
+    }));
 
-    expect(runs[1]?.prompt).toContain(SEARCH_FIRST);
-    expect(runs).toHaveLength(3);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.results.map((each) => each.tool)).toEqual(["search_documents"]);
     expect(result).toMatchObject({ verdict: "supported", evidence: { quote: SPRING } });
   });
 
   test("a not-found verdict handed over on no quote still gets its one more search", async () => {
     const { result, runs } = await check(
       SUPPORTED,
-      (call) => search(sentenceOf(call)),
       () => ({
         calls: [
           {
@@ -346,8 +336,8 @@ describe("A verdict handed over in cite (#3381)", () => {
       }),
     );
 
-    expect(runs[2]?.prompt).toContain(SEARCH_AGAIN);
-    expect(runs).toHaveLength(4);
+    expect(runs[1]?.prompt).toContain(SEARCH_AGAIN);
+    expect(runs).toHaveLength(3);
     expect(result).toMatchObject({ verdict: "supported", evidence: { quote: SPRING } });
   });
 });

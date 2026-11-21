@@ -71,12 +71,9 @@ describe("A check's outcome keeps what the judge said", () => {
 
     expect(outcome).toMatchObject({ verdict: "not-checked", code: "no-evidence" });
     expect(causeOf(outcome.code)).toBe("quote-not-found");
-    const [search, cite] = callsOf(outcome);
-    expect(search).toMatchObject({
-      tool: "search_documents",
-      input: JSON.stringify({ query: SPRING }),
-      result: null,
-    });
+    // The search for the sentence was made for the model: its Passages are kept with its first request.
+    const [cite] = callsOf(outcome);
+    expect(outcome.judge?.[0]?.handed.map((passage) => passage.document)).toEqual(["Tides"]);
     expect(cite?.tool).toBe("cite");
     expect(cite?.input).toContain("Spring tides happen twice a year");
     expect(cite?.result).toContain("the quote isn't word for word");

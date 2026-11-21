@@ -546,7 +546,7 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
       const model = scriptedModel(
         (call) => {
           calls.push(call);
-          if (!isCheckRun(call) || call.results.length > 0 || !page) return checkReply(call, PLANS);
+          if (!isCheckRun(call) || !call.fresh || !page) return checkReply(call, PLANS);
           // A newer version writes the Note while the first claim's check is under way.
           if (!newer) {
             page.doc
@@ -582,9 +582,10 @@ describe("A new version of a Document in the Folder", { timeout: 30_000 }, () =>
       );
 
       // Both cited sentences were checked, the one after the first refused mark among them.
-      expect(
-        calls.filter((call) => isCheckRun(call) && call.results.length === 0).map(sentenceOf),
-      ).toEqual([YEARLY, MOON]);
+      expect(calls.filter((call) => isCheckRun(call) && call.fresh).map(sentenceOf)).toEqual([
+        YEARLY,
+        MOON,
+      ]);
       // One line, with the Note it happened in; its job never throws into the queue.
       const failed = logged.filter(({ event }) => event === "contradictions.markFailed");
       expect(failed.map(({ fields }) => [fields?.mindId, fields?.error])).toEqual([

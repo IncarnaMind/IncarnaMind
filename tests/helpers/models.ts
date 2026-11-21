@@ -2,6 +2,7 @@ import { APICallError } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ChatModelFactory, ChatModelSpec, ClaimedChange } from "../../src/core";
 import { restateInstructions } from "../../src/core/answers/checks/explanations";
+import { FIRST_SEARCH_ID } from "../../src/core/answers/engine";
 import { type JudgeQuestion, questionOf } from "../../src/core/answers/judge";
 import { sortReply } from "./claimSentences";
 
@@ -327,6 +328,13 @@ export interface ModelCall {
   prompt: string;
   /** The results of the Tool calls so far, oldest first: their Tool's name and text. */
   results: { tool: string; text: string }[];
+  /**
+   * The first request of a Run: the model has written nothing yet, and holds no result but the
+   * search made for it before it began (#3512), which `results` lists as the first of its searches.
+   */
+  fresh: boolean;
+  /** How many results of the model's own Tool calls it holds so far, the search made for it not among them. */
+  step: number;
   options: CallOptions;
 }
 
@@ -423,9 +431,23 @@ export function promptText(prompt: CallOptions["prompt"]): string {
     .join("\n\n");
 }
 
-function resultsOf(options: CallOptions): ModelCall["results"] {
+function resultsOf(options: CallOptions): {
+  results: ModelCall["results"];
+  fresh: boolean;
+  step: number;
+} {
   const results: ModelCall["results"] = [];
+  let turns = 0;
+  let step = 0;
   for (const message of options.prompt) {
+    if (message.role === "assistant") {
+      const searched =
+        typeof message.content !== "string" &&
+        message.content.every(
+          (part) => part.type === "tool-call" && part.toolCallId === FIRST_SEARCH_ID,
+        );
+      if (!searched) turns++;
+    }
     if (message.role !== "tool") continue;
     for (const part of message.content) {
       if (part.type !== "tool-result") continue;
@@ -437,9 +459,10 @@ function resultsOf(options: CallOptions): ModelCall["results"] {
             ? JSON.stringify(output.value)
             : "";
       results.push({ tool: part.toolName, text });
+      if (part.toolCallId !== FIRST_SEARCH_ID) step++;
     }
   }
-  return results;
+  return { results, fresh: turns === 0, step };
 }
 
 type Prompt = CallOptions["prompt"];
@@ -601,7 +624,7 @@ export function scriptedModel(
         },
         system: systemOf(options.prompt),
         prompt: promptText(options.prompt),
-        results: resultsOf(options),
+        ...resultsOf(options),
         options,
       };
       const scripted = script(call);

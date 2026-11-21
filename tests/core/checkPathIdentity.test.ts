@@ -2,7 +2,8 @@
  * A turn with no overlap and no refusal sends the same requests as before waiting on a rate limit
  * and behind replies were added (#2944): the same, in the same order, at the same times. The
  * expected requests were recorded on `main` at 9182cdc7, before this change, on a key that never
- * refuses: six sentences at once, each sentence's three requests one after another.
+ * refuses: six sentences at once, each sentence's requests one after another (two, now that its
+ * first search is made for the model, #3512).
  */
 import { expect, test } from "vitest";
 import { keyWrites } from "../helpers/writeChecked";
@@ -17,7 +18,7 @@ function recordedOnMain(count: number) {
       { length: Math.min(6, count - first + 1) },
       (_, index) => first + index,
     );
-    for (let turn = 0; turn < 3; turn++) {
+    for (let turn = 0; turn < 2; turn++) {
       for (const sentence of group) {
         order.push(`${sentence}:${turn}`);
         timeline.push(`${at} ${sentence}:${turn}`);

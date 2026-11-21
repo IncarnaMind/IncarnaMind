@@ -156,8 +156,7 @@ function writingModel(
   return scriptedModel(
     (call: ModelCall) => {
       if (isCheckRun(call)) {
-        if (!call.results.some((result) => result.tool === "search_documents"))
-          sent.push(sentenceOf(call));
+        if (call.fresh) sent.push(sentenceOf(call));
         const planned = plan(sentenceOf(call));
         return checkReply(call, planned ? { [sentenceOf(call)]: planned } : {});
       }

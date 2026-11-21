@@ -178,7 +178,7 @@ async function checkedNote(
   const sorts: GenerateCall[] = [];
   const model = scriptedModel(
     (call) => {
-      if (!isCheckRun(call) || call.results.length > 0) return checkReply(call, pack.plans);
+      if (!isCheckRun(call) || !call.fresh) return checkReply(call, pack.plans);
       runs.push(call);
       // A Run searches with the words it will quote: a bare cell's own words find nothing.
       const sentence = sentenceOf(call);
