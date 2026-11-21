@@ -7990,6 +7990,10 @@ export const zhCN = {
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
   "agents.problem.citeNotFound":
     "没有引用任何内容：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
+  "agents.read.left.one":
+    "这不是整篇文档：其 {total} 个段落中还有最后 1 个未读，摘要或引文需要每个段落的全文，所以请先把 from 设为 next 接着读，再写关于它的内容。",
+  "agents.read.left.other":
+    "这不是整篇文档：其 {total} 个段落中还有 {count} 个未读，摘要或引文需要每个段落的全文，所以请先把 from 设为 next 接着读，再写关于它的内容。",
   "agents.problem.documentChanged": "你开始读取后，“{document}”有了改动。请从开头重新读取。",
   "agents.notShared":
     "用户在 IncarnaMind 中还有未共享给你的内容。如果用户问的内容不在这里，请告诉用户可以在“设置 → 智能体”中共享更多内容给你。",
