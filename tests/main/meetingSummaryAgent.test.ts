@@ -76,7 +76,7 @@ it("finishes and closes Claude Code when its successful turn leaves the process 
 }) => {
   const stop = new AbortController();
   onTestFinished(() => stop.abort());
-  useProgram(claudeServer(JSON.stringify(response)) + "\nsetInterval(() => {}, 1000);");
+  useProgram(`${claudeServer(JSON.stringify(response))}\nsetInterval(() => {}, 1000);`);
   await expect(summarize("claude-code", stop.signal)).resolves.toBe("Green pens.");
   await expect(stat(invocation()[2].cwd)).rejects.toMatchObject({ code: "ENOENT" });
 });
