@@ -7972,11 +7972,11 @@ export const zhCN = {
     "IncarnaMind 的 AI 模型尚未获得允许。在 IncarnaMind 中提一个问题即可允许。",
   "agents.problem.answer-failed": "IncarnaMind 无法回答：{message}",
   "agents.request.none":
-    "IncarnaMind 中没有等你读取的请求：每条请求只能读取一次。请按用户写的内容处理，或请用户在 IncarnaMind 中重新发送。",
+    "IncarnaMind 中没有等你读取的请求：每条请求只能读取一次。请按用户写的内容处理。",
   "agents.problem.requestNoteDeleted":
-    "这条请求涉及的笔记已在 IncarnaMind 中删除，没有可改的内容。请告诉用户；用户恢复这篇笔记后，可以再问一次。",
+    "这条请求涉及的内容已在 IncarnaMind 中删除，没有可继续处理的内容。请告诉用户；用户恢复后，可以再问一次。",
   "agents.problem.requestOutOfReach":
-    "这条请求涉及的笔记你现在无法读取。请告诉用户在“设置 → 智能体”中与你共享它所在的文件夹，然后再问一次。",
+    "这条请求涉及的内容你现在无法读取。请告诉用户在“设置 → 智能体”中与你共享它所在的文件夹，然后再问一次。",
   "agents.problem.invalid": "IncarnaMind 无法读取这个请求。",
   "agents.problem.failed": "IncarnaMind 出了点问题。再试一次。",
   "agents.answer.notFound": "[未找到引文]",

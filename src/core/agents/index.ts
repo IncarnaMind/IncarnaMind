@@ -511,8 +511,8 @@ export function createAgents(options: AgentsOptions) {
     citations,
     requests: {
       ofPairing: requests.ofPairing,
-      markRead: (id) => {
-        const read = requests.markRead(id);
+      markRead: (id, text) => {
+        const read = requests.markRead(id, text);
         if (read) options.requested(shownRequest(read));
         return read;
       },

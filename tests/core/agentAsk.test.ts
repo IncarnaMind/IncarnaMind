@@ -614,6 +614,119 @@ describe("asking the User's own AI about what they are looking at (#3533)", () =
   });
 });
 
+describe("a request that names Documents and Folders, read after a wait (#3533)", () => {
+  const ask = (
+    core: Awaited<ReturnType<typeof withDocuments>>["core"],
+    id: string,
+    input: object,
+  ) =>
+    core.askAgent({
+      pairingId: id,
+      mindId: null,
+      ask: { kind: "question", text: SUMMARISE },
+      ...input,
+    });
+  const calls = async (core: Awaited<ReturnType<typeof withDocuments>>["core"], id: string) =>
+    (await core.listAgentActivity(id)).map((each) => ({
+      outcome: each.outcome,
+      problem: each.problem,
+      summary: each.summary,
+      request: each.request,
+    }));
+
+  // protects=a request made while the agent could read a Document, and read after the Folder was unshared, is refused as a Note's is, tells the agent none of its names, and waits; fails_when=the agent is handed the Document's name, its activity line or request text carries it, or the request is lost for good
+  it("is refused with no name when its Folder was unshared since, and waits for it to be shared again", async () => {
+    const { core, fares, ferries, tariffs, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, { onScreen: [tariffs.id] });
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id] });
+    const refused = await requestRead(agent);
+    expect(refused).toEqual({ refused: translate("en", "agents.problem.requestOutOfReach") });
+    expect(JSON.stringify(refused)).not.toContain("Tariffs");
+    expect(JSON.stringify(refused)).not.toContain(tariffs.id);
+    const [call] = await calls(core, pairing.id);
+    expect(call).toMatchObject({
+      outcome: "refused",
+      problem: "outside-scope",
+      summary: "",
+      request: null,
+    });
+    expect(JSON.stringify(await calls(core, pairing.id))).not.toContain("Tariffs");
+
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id, fares.id] });
+    expect(await requestRead(agent)).toMatchObject({
+      title: "Tariffs",
+      request: `My message is about the document I have open in IncarnaMind: “Tariffs” (documentId: ${tariffs.id}).`,
+    });
+  });
+
+  // protects=a Folder of the scope is read again too; fails_when=an unshared Folder's name goes to the agent
+  it("is refused when a Folder it named is no longer shared", async () => {
+    const { core, fares, ferries, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, {
+      scope: { folderIds: [fares.id], tagIds: [], documentIds: [] },
+    });
+    await core.updateAgent(pairing.id, { folderIds: [ferries.id] });
+    const refused = await requestRead(agent);
+    expect(refused).toEqual({ refused: translate("en", "agents.problem.requestOutOfReach") });
+    expect(JSON.stringify(refused)).not.toContain("Fares");
+  });
+
+  // protects=a Document renamed since is named as it is now, in the text the agent reads and in its activity; fails_when=the old name comes back
+  it("names a Document as it is when read, not as when asked", async () => {
+    const { core, tariffs, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, { onScreen: [tariffs.id] });
+    await core.renameDocument(tariffs.id, "Tariffs 2026");
+    const read = await requestRead(agent);
+    expect(read).toEqual({
+      mindId: null,
+      title: "Tariffs 2026",
+      request: `My message is about the document I have open in IncarnaMind: “Tariffs 2026” (documentId: ${tariffs.id}).`,
+    });
+    const [call] = await calls(core, pairing.id);
+    expect(call).toMatchObject({ outcome: "done", summary: "Tariffs 2026" });
+    expect(JSON.stringify(call)).not.toContain("“Tariffs”");
+  });
+
+  // protects=a Document deleted since is left out of what the agent reads; a request left with nothing it named goes, as one about a deleted Note does; fails_when=a deleted Document is named, or the request stays in front of the next
+  it("leaves out what was deleted, and goes when nothing is left", async () => {
+    const { core, summary, tariffs, pairing, agent } = await withDocuments();
+    await ask(core, pairing.id, { onScreen: [tariffs.id, summary.id] });
+    await core.deleteDocument(tariffs.id);
+    const read = await requestRead(agent);
+    expect(read).toEqual({
+      mindId: null,
+      title: "Annual summary 2025",
+      request: `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`,
+    });
+    expect(JSON.stringify(read)).not.toContain("Tariffs");
+
+    await ask(core, pairing.id, { onScreen: [summary.id] });
+    await core.deleteDocument(summary.id);
+    const gone = await requestRead(agent);
+    expect(gone).toEqual({ refused: translate("en", "agents.problem.requestNoteDeleted") });
+    expect(JSON.stringify(gone)).not.toContain("Annual summary");
+    expect(await requestRead(agent)).toEqual(NONE);
+  });
+
+  // protects=a request with a Note keeps the Note's sentence, and the Documents it named come after it, named now; a Note's own reach is read again as before; fails_when=the Document is lost from a Note's request, or a Document the agent can no longer read is named
+  it("keeps a Note's sentence and names the Documents beside it when read", async () => {
+    const { core, mind, summary, tariffs, pairing, agent } = await withDocuments();
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: mind.id,
+      ask: { kind: "question", text: SUMMARISE },
+      onScreen: [summary.id],
+    });
+    await core.renameDocument(summary.id, "Annual summary");
+    expect(await requestRead(agent)).toEqual({
+      mindId: mind.id,
+      title: TITLE,
+      request: `My message is about my note “${TITLE}” in IncarnaMind (mindId: ${mind.id}).\n\nMy message is about the document I have open in IncarnaMind: “Annual summary” (documentId: ${summary.id}).`,
+    });
+    expect(tariffs.id).toBeTruthy();
+  });
+});
+
 describe("asking the User's own AI to check a Note, with no model set up in IncarnaMind (#3533)", () => {
   // protects=the line asks for a check of the Note by its name, with no id, and the request names the Tools to check it with; fails_when=the id is in the line, or the request doesn't name check_mind_yourself and report_check
   it("asks for a check of the Note by name, and keeps the Tools to do it with", async () => {

@@ -20,17 +20,50 @@ interface RequestRow {
   title: string;
   sentences: string;
   text: string;
+  named: string | null;
   read_at: string | null;
   created_at: string;
+}
+
+/**
+ * What a question named of what the User looks at, by id: the Documents open, and the Folders and
+ * Documents of the chat box's Search scope (#3533). Their names are put in the text when the agent
+ * reads it, and only for those it still reads.
+ */
+export interface RequestNamed {
+  open: string[];
+  folders: string[];
+  documents: string[];
 }
 
 /** A request as IncarnaMind keeps it, with the name its line gave (a Note's, else a Document's) and the text the agent reads. */
 export interface KeptRequest extends AgentRequest {
   title: string;
+  /** What waits besides what the request names, which is put in when it is read. */
   text: string;
+  named: RequestNamed | null;
 }
 
-const COLUMNS = "id, pairing_id, mind_id, title, sentences, text, read_at, created_at";
+const COLUMNS = "id, pairing_id, mind_id, title, sentences, text, named, read_at, created_at";
+
+const idsOf = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+
+function namedOf(json: string | null): RequestNamed | null {
+  if (json === null) return null;
+  try {
+    const value: unknown = JSON.parse(json);
+    return isRecord(value)
+      ? {
+          open: idsOf(value.open),
+          folders: idsOf(value.folders),
+          documents: idsOf(value.documents),
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 function sentencesOf(json: string): AgentRequest["sentences"] {
   try {
@@ -62,6 +95,7 @@ const toRequest = (row: RequestRow): KeptRequest => ({
   title: row.title,
   sentences: sentencesOf(row.sentences),
   text: row.text,
+  named: namedOf(row.named),
   createdAt: row.created_at,
   readAt: row.read_at,
 });
@@ -73,9 +107,9 @@ export function createAgentRequests(db: Database, now: () => string, newId: () =
       const at = now();
       db.transaction(() => {
         db.run(
-          `INSERT INTO agent_requests (id, pairing_id, mind_id, title, sentences, text, created_at,
-             updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO agent_requests (id, pairing_id, mind_id, title, sentences, text, named,
+             created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             request.pairingId,
@@ -83,6 +117,7 @@ export function createAgentRequests(db: Database, now: () => string, newId: () =
             request.title,
             JSON.stringify(request.sentences),
             request.text,
+            request.named === null ? null : JSON.stringify(request.named),
             at,
             at,
           ],
@@ -110,8 +145,11 @@ export function createAgentRequests(db: Database, now: () => string, newId: () =
         .map(toRequest);
     },
 
-    /** Marks a request read, as it is now; null when it was read or let go already. */
-    markRead(id: string): KeptRequest | null {
+    /**
+     * Marks a request read, as it is now; null when it was read or let go already. `text` is what the
+     * agent was given, with the names put in, which its activity shows.
+     */
+    markRead(id: string, text?: string): KeptRequest | null {
       return db.transaction(() => {
         const row = db.get<RequestRow>(
           `SELECT ${COLUMNS} FROM agent_requests
@@ -120,8 +158,14 @@ export function createAgentRequests(db: Database, now: () => string, newId: () =
         );
         if (!row) return null;
         const at = now();
-        db.run("UPDATE agent_requests SET read_at = ?, updated_at = ? WHERE id = ?", [at, at, id]);
-        return toRequest({ ...row, read_at: at });
+        const given = text ?? row.text;
+        db.run("UPDATE agent_requests SET read_at = ?, text = ?, updated_at = ? WHERE id = ?", [
+          at,
+          given,
+          at,
+          id,
+        ]);
+        return toRequest({ ...row, text: given, read_at: at });
       });
     },
 
