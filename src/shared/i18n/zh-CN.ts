@@ -8033,7 +8033,7 @@ export const zhCN = {
     "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
   "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
   "agents.check.nothingLeft":
-    "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户；没有要交给 report_check 的结果。",
+    "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户。如果要自己重新核对这些句子，用 again: true 调用 check_mind_yourself，再把结果交给 report_check：只写在回复里的结论不会改变笔记上的标记。",
   "agents.check.reportAgain":
     "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用、这次核对中 run_analysis 的结果，或一份计算过程（其中每个数都出自所引原文，算式能得出所给结果），且不能来自用户自己的工作文件。",
   "agents.note.writtenBy": "{name} 写入，{when}",
@@ -8247,7 +8247,7 @@ export const zhCN = {
   "agents.handOver.unread.range": "这个工作簿没有这个名字的工作表。",
   "agents.handOver.unread.word": "IncarnaMind 已保留文件，但无法作为 Word 文件读取。",
   "agents.handOver.notChecked.not-ready":
-    "IncarnaMind 还没有设置用于核对的 AI 模型，所以没有核对。IncarnaMind 里没有模型时，请你自己核对，就像核对你写的笔记一样：用它的 mindId 调用 check_mind_yourself，再用 report_check 交回结果。",
+    "还没有核对：IncarnaMind 里没有设置 AI 模型。请你现在自己核对这个文件：用它的 mindId 调用 check_mind_yourself，取得要核对的内容，再用 report_check 交回结果。",
   "agents.handOver.notChecked.consent-needed":
     "用户还没有允许把 IncarnaMind 的核对发送到其 AI 模型服务，所以没有核对。用户可以在它的笔记里核对。",
   "agents.handOver.notChecked.local-mode":
