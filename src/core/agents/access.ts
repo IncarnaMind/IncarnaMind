@@ -2423,6 +2423,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             if (!fits(answer, at)) break;
             continue;
           }
+          if (typeof record.passageId !== "string") {
+            throw new AgentRefusedError("invalid", t("agents.problem.citeWithoutPassage"));
+          }
           // One quote of many names a Passage it doesn't have: the agent is told which (#3573).
           const passage = passageInScope(pairing, inScope, record.passageId, (id) =>
             t("agents.problem.citeNotFound", { passageId: id }),

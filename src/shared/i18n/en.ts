@@ -8462,6 +8462,8 @@ export const en = {
     "The last of your {total} quotes wasn’t checked, to keep this answer short: send it again in another call.",
   "agents.cite.left.other":
     "The last {count} of your {total} quotes weren’t checked, to keep this answer short: send them again in another call.",
+  "agents.problem.citeWithoutPassage":
+    "Nothing was cited: each quote needs the passageId that search or read_passages gave its passage, or a file’s full path as path.",
   "agents.problem.citeNotFound":
     "Nothing was cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
   "agents.problem.documentChanged":

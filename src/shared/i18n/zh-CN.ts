@@ -7991,6 +7991,8 @@ export const zhCN = {
     "为免结果过长，你的 {total} 条引文中最后 1 条没有核对：请在下一次调用中重新发送。",
   "agents.cite.left.other":
     "为免结果过长，你的 {total} 条引文中最后 {count} 条没有核对：请在下一次调用中重新发送这 {count} 条。",
+  "agents.problem.citeWithoutPassage":
+    "没有引用任何内容：每条引文都要填写 search 或 read_passages 给出的 passageId，或在 path 中填写文件的完整路径。",
   "agents.problem.citeNotFound":
     "没有引用任何内容：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
   "agents.problem.documentChanged": "你开始读取后，“{document}”有了改动。请从开头重新读取。",

@@ -127,4 +127,12 @@ describe("an agent citing a whole Note's quotes", () => {
     expect(again.cited.left).toBeUndefined();
     expect(estimateTokens(again.text)).toBeLessThanOrEqual(READ_PART_TOKENS);
   });
+
+  // protects=a quote sent without its passageId is refused with words that say what each quote needs; fails_when=the refusal names only a field that must be text
+  it("says what each quote needs when one comes without its passageId", async () => {
+    const { cite, quotes } = await readInterview();
+    const missing = await cite([quotes[0], { quote: quotes[1]?.quote }]);
+    expect(missing.result.isError).toBe(true);
+    expect(missing.text).toBe(translate("en", "agents.problem.citeWithoutPassage"));
+  });
 });
