@@ -45,16 +45,15 @@ const filed = (documentId: string, groupId: string): DocumentGroupAssignment => 
 });
 const library = {
   groups,
-  assignments: [filed("lease", "sub"), filed("notice", "other")],
-  documents: [],
-  minds: [],
+  documentWalls: { lease: { wallId: "wall", byUser: true } },
 } satisfies WallLibrary;
 const scopeLibrary: ScopeLibrary = {
   folders: [],
   groups,
   tags: [],
   documents: [],
-  assignments: library.assignments,
+  assignments: [filed("lease", "sub"), filed("notice", "other")],
+  documentWalls: library.documentWalls,
 };
 const scope = (folderIds: string[], documentIds: string[] = []): SearchScope => ({
   folderIds,
@@ -113,21 +112,25 @@ describe("a wall inside a wall", () => {
   ];
   const walls = {
     groups: nested,
-    assignments: [
-      filed("lease", "outer"),
-      filed("memo", "inner"),
-      filed("draft", "drafts"),
-      { ...filed("guess", "inner"), source: "automatic" },
-    ],
-    documents: [],
-    minds: [],
+    documentWalls: {
+      lease: { wallId: "outer", byUser: true },
+      memo: { wallId: "inner", byUser: true },
+      draft: { wallId: "inner", byUser: true },
+      guess: { wallId: "inner", byUser: false },
+    },
   } satisfies WallLibrary;
   const pickerLibrary: ScopeLibrary = {
     folders: [],
     groups: nested,
     tags: [],
     documents: [],
-    assignments: walls.assignments,
+    assignments: [
+      filed("lease", "outer"),
+      filed("memo", "inner"),
+      filed("draft", "drafts"),
+      { ...filed("guess", "inner"), source: "automatic" },
+    ],
+    documentWalls: walls.documentWalls,
   };
   const choice = (kind: "folder" | "document", id: string) => ({ kind, id });
 

@@ -19,6 +19,7 @@ vi.mock("../../src/renderer/src/core", () => ({
 const library = {
   groups: [{ id: "a", name: "Client A", parentId: null, keepInside: true }],
   assignments: [{ documentId: "lease-a", groupId: "a", source: "user" as const }],
+  documentWalls: { "lease-a": { wallId: "a", byUser: true } },
 };
 const reportError = vi.fn();
 const minds = [
@@ -97,8 +98,8 @@ describe("Add to note across a Folder wall", () => {
     );
     expect(pushed[0]?.said(en)).toBe("Added to “General note” · copied out of “Client A”");
     // Its Citation, in the Note outside, says where its Document is kept.
-    expect(keptInsideName({ ...library, documents: [], minds }, "lease-a", null)).toBe("Client A");
-    expect(keptInsideName({ ...library, documents: [], minds }, "lease-a", "a")).toBeNull();
+    expect(keptInsideName(library, "lease-a", null)).toBe("Client A");
+    expect(keptInsideName(library, "lease-a", "a")).toBeNull();
   });
 
   test("inside the wall, or with no walled Citation, the line is as before", async () => {

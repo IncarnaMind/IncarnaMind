@@ -14,6 +14,7 @@ export const libraryOf = (state: AppState): ScopeLibrary => ({
   tags: state.tags,
   documents: state.documents,
   assignments: state.library?.assignments,
+  documentWalls: state.library?.documentWalls,
   minds: state.minds,
 });
 
