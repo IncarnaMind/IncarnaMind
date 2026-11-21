@@ -265,12 +265,13 @@ describe("an agent reading a Document", () => {
     );
   });
 
-  // protects=a Transcript read whole, in parts, keeps every turn's time and speaker as reading around a Passage gives them; fails_when=a part leaves out a turn's speaker mark where it leaves out the overlap
-  it("reads a long Transcript in parts with every turn's time and speaker", async () => {
+  // protects=a Transcript read whole, in parts, keeps every turn's time and speaker, in the interface's words as reading around a Passage gives them (#3582); fails_when=a part leaves out a turn's speaker mark where it leaves out the overlap, or names its speaker as the file does
+  it("reads a long Transcript in parts with every turn's time and speaker, in the User's language", async () => {
     const { core } = await startAgentsCore(replyingModel());
-    const speakers = ["Alice Moreton", "Bob Treloar"];
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const speakers = ["Me", "Them", "Bob Treloar"];
     const turns = Array.from({ length: 400 }, (_, at) => ({
-      speaker: speakers[at % 2] ?? "",
+      speaker: speakers[at % 3] ?? "",
       text: `Turn ${at + 1}: the ferry to ${PLACES[at % PLACES.length]} leaves at ${(at % 12) + 1} o'clock.`,
     }));
     const clock = (seconds: number) =>
@@ -305,9 +306,13 @@ describe("an agent reading a Document", () => {
     const said = parts
       .flatMap((part) => part.read.passages.map((each) => each.timedText ?? ""))
       .join("\n");
+    const shown: Record<string, string> = {
+      Me: translate("zh-CN", "transcript.speaker.me"),
+      Them: translate("zh-CN", "transcript.speaker.them"),
+    };
     for (const [at, turn] of turns.entries()) {
       const time = `${Math.floor((at * 5) / 60)}:${String((at * 5) % 60).padStart(2, "0")}`;
-      expect(said).toContain(`[${time} ${turn.speaker}] ${turn.text}`);
+      expect(said).toContain(`[${time} ${shown[turn.speaker] ?? turn.speaker}] ${turn.text}`);
     }
   });
 });
