@@ -126,6 +126,7 @@ interface ViewerActions {
   selection: ViewerAskActions;
   range: ViewerAskActions;
   slide: { ask?: () => void };
+  transcriptActions: { hasLine(): boolean; add(): Promise<void> };
   area: {
     select?: () => void;
     /** Starts a pick whose release highlights the region (#327); absent where areas aren't picked. */
@@ -137,6 +138,7 @@ const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]>
   selection: new Map(),
   range: new Map(),
   slide: new Map(),
+  transcriptActions: new Map(),
   area: new Map(),
 };
 

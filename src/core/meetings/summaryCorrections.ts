@@ -3,7 +3,13 @@ import type { MeetingSummary, MeetingSummaryCandidate, MeetingSummaryItem } from
 import { InvalidInputError } from "../errors";
 import type { StoredMeetingSummary } from "./liveSummary";
 import { sameCandidateSource } from "./summaryCandidates";
-import { type StoredSummaryQuote, storeSummaryQuote, summaryEvidenceCue } from "./summaryEvidence";
+import {
+  type StoredSummaryQuote,
+  sameSummaryQuote,
+  storeSummaryQuote,
+  summaryEvidenceCue,
+} from "./summaryEvidence";
+import type { TranscriptActionLine } from "./summarySources";
 
 const fields = z.strictObject({
   kind: z.enum(["decision", "action"]),
@@ -19,6 +25,7 @@ const expected = fields.extend({
 interface ItemEvidence {
   documentId: string;
   quotes: readonly StoredSummaryQuote[];
+  line?: TranscriptActionLine;
 }
 
 export interface StoredCandidateReview {
@@ -69,9 +76,16 @@ export function availableSummaryCandidates(
   const seen = corrections.flatMap(({ promotion }) =>
     promotion && promotion.documentId === review.documentId ? [promotion.candidate] : [],
   );
+  const manual = corrections.flatMap(({ source }) =>
+    source?.line?.transcriptCue && source.documentId === review.documentId
+      ? [source.line.transcriptCue]
+      : [],
+  );
   const available: MeetingSummaryCandidate[] = [];
   for (const candidate of review.candidates) {
+    const [only, second] = candidate.sources;
     if (
+      (only && !second && manual.some((cue) => sameCandidateSource(cue, only))) ||
       seen.some(
         (other) =>
           other.id === candidate.id ||
@@ -101,7 +115,14 @@ export function withReviewedCandidates(
   if (!review) return stored;
   return {
     ...stored,
-    candidateReview: { ...review, candidates: availableSummaryCandidates(stored, corrections) },
+    candidateReview: {
+      ...review,
+      // Keep manually hidden suggestions in the cache so Undo can reveal them.
+      candidates: availableSummaryCandidates(
+        stored,
+        corrections.filter((entry) => entry.promotion),
+      ),
+    },
   };
 }
 
@@ -133,22 +154,88 @@ export function promoteSummaryCandidate(
   )
     throw summaryCandidateUnavailable();
 
-  const itemId =
-    Math.max(
-      0,
-      stored.lastItemId ?? 0,
-      ...corrections.map(({ item }) => item.id),
-      ...(stored.summary.items?.map(({ id }) => id) ?? []),
-    ) + 1;
-  if (!Number.isSafeInteger(itemId)) throw summaryCandidateUnavailable();
-  const source = {
-    documentId,
-    quotes: candidate.sources.map((cue) => storeSummaryQuote(cue.text, [summaryEvidenceCue(cue)])),
-  };
+  const id = nextItemId(stored, corrections, 0);
   return [
     ...corrections,
-    { item: { id: itemId, ...promotedFields(candidate) }, source, promotion: checked },
+    {
+      item: { id, ...promotedFields(candidate) },
+      source: {
+        documentId,
+        quotes: candidate.sources.map((cue) =>
+          storeSummaryQuote(cue.text, [summaryEvidenceCue(cue)]),
+        ),
+      },
+      promotion: checked,
+    },
   ];
+}
+
+function nextItemId(
+  stored: StoredSummaryWithReview | null,
+  corrections: Correction[],
+  reserved: number,
+) {
+  const id =
+    Math.max(
+      reserved,
+      stored?.lastItemId ?? 0,
+      ...corrections.map(({ item }) => item.id),
+      ...(stored?.summary.items?.map((item) => item.id) ?? []),
+    ) + 1;
+  if (!Number.isSafeInteger(id)) throw summaryCandidateUnavailable();
+  return id;
+}
+
+export function addTranscriptAction(
+  stored: StoredSummaryWithReview | null,
+  corrections: Correction[],
+  reserved: number,
+  documentId: string,
+  line: TranscriptActionLine,
+) {
+  const cue = line.transcriptCue;
+  const existing = corrections.find((entry) => {
+    if (entry.source?.documentId !== documentId) return false;
+    const sources = entry.source.line?.transcriptCue
+      ? [entry.source.line.transcriptCue]
+      : entry.promotion?.candidate.sources;
+    return sources?.length === 1 && sources.some((source) => sameCandidateSource(source, cue));
+  });
+  if (existing) return { itemId: existing.item.id, corrections };
+  const quote = storeSummaryQuote(cue.text, [summaryEvidenceCue(line.parentCue ?? cue)]);
+  const generated =
+    !line.parentCue &&
+    visibleSummary(stored, corrections)?.items?.find((item) => {
+      if (item.kind !== "action" || item.text !== cue.text || item.status !== "active")
+        return false;
+      const evidence = itemEvidence(stored, corrections, item.id);
+      return (
+        evidence?.documentId === documentId &&
+        evidence.quotes.some((other) => sameSummaryQuote(other, quote))
+      );
+    });
+  if (generated) return { itemId: generated.id, corrections };
+  const id = nextItemId(stored, corrections, reserved);
+  const action: Correction = {
+    item: { id, kind: "action", status: "active", text: cue.text },
+    source: { documentId, quotes: [quote], line },
+  };
+  return { itemId: id, corrections: [...corrections, action] };
+}
+
+export function undoTranscriptAction(corrections: Correction[], itemId: number) {
+  const record = corrections.find(({ item }) => item.id === itemId);
+  if (!record) return corrections;
+  if (
+    !record.source?.line?.transcriptCue ||
+    !sameWords(record.item, {
+      kind: "action",
+      status: "active",
+      text: record.source.line.transcriptCue.text,
+    })
+  )
+    throw new InvalidInputError({ key: "error.meeting.summaryItemChanged" });
+  return corrections.filter((entry) => entry !== record);
 }
 
 export function undoSummaryCandidate(
@@ -186,9 +273,11 @@ export function visibleSummary(
   corrections: readonly Correction[],
   reviewed = false,
 ): MeetingSummary | undefined {
-  if (!stored) return undefined;
-  const { candidateCount: _count, candidatesReviewed: _reviewed, ...summary } = stored.summary;
-  const candidateCount = reviewed ? availableSummaryCandidates(stored, corrections).length : 0;
+  if (!stored && !corrections.length) return undefined;
+  const base: MeetingSummary = stored?.summary ?? { state: "ready", text: "", throughMs: 0 };
+  const { candidateCount: _count, candidatesReviewed: _reviewed, ...summary } = base;
+  const candidateCount =
+    reviewed && stored ? availableSummaryCandidates(stored, corrections).length : 0;
   const items = new Map(summary.items?.map((item) => [item.id, item]));
   for (const { item } of corrections) items.set(item.id, { ...item, corrected: true });
   return {
@@ -220,7 +309,7 @@ const sameWords = (
 ) => a.text === b.text && a.kind === b.kind && a.status === b.status;
 
 export function correctItem(
-  stored: StoredSummaryWithReview,
+  stored: StoredSummaryWithReview | null,
   corrections: Correction[],
   was: unknown,
   next: unknown,
@@ -237,7 +326,7 @@ export function correctItem(
   const prior = corrections.find((entry) => entry.item.id === id);
   const rest = corrections.filter((entry) => entry !== prior);
   if (restoreGenerated) {
-    const ai = stored.summary.items?.find((item) => item.id === id);
+    const ai = stored?.summary.items?.find((item) => item.id === id);
     if (ai && sameWords(ai, fieldsToSave)) return current.corrected ? rest : corrections;
   }
   if (current.corrected && sameWords(current, fieldsToSave)) return corrections;
