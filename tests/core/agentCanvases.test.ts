@@ -284,8 +284,9 @@ describe("Canvases an outside agent publishes", () => {
     expect(listed.folders.flatMap((folder) => folder.canvases ?? [])).toEqual([]);
     const unknown = "00000000-0000-4000-8000-000000000000";
     for (const canvasId of [inCoast.canvasId, unfiled.canvasId, unknown]) {
+      // What it names is no Canvas it reaches, and the User has more than it was given (#3544).
       expect(refusal(await other.callTool({ name: "read_canvas", arguments: { canvasId } }))).toBe(
-        "No such Canvas in the Folders shared with this agent.",
+        `No such Canvas in the Folders shared with this agent. ${translate("en", "agents.notShared")}`,
       );
     }
     // It may only read, so it publishes nowhere and updates nothing.
@@ -522,7 +523,9 @@ describe("a Canvas call that waits while the User changes what the agent may do 
     await core.updateAgent(writer.pairing.id, { folderIds: [NOT_IN_A_FOLDER_ID] });
     holding = false;
     held.open();
-    expect(refusal(await asked)).toBe(translate("en", "agents.canvas.notFound"));
+    expect(refusal(await asked)).toBe(
+      `${translate("en", "agents.canvas.notFound")} ${translate("en", "agents.notShared")}`,
+    );
     expect((await core.listCanvases()).map((each) => each.version)).toEqual([1]);
   });
 

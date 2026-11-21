@@ -6420,6 +6420,8 @@ export const en = {
     "The Library holds up to 100 Folders. Delete one, then restore this one.",
   "error.restore.notDeleted": "“{name}” isn’t deleted, so it can’t be deleted permanently.",
   "error.history.gone": "That version is no longer kept.",
+  "error.linkedFolder.inData":
+    "That folder is IncarnaMind’s own data folder, or inside it, so it can’t be linked. Choose a folder of your own.",
   "error.linkedFolder.keep": "IncarnaMind couldn’t tell which Documents to keep.",
   "error.linkedFolder.notThis":
     "That folder doesn’t hold “{name}”’s files. Choose the folder that does.",
@@ -8451,6 +8453,9 @@ export const en = {
     "{folder} keeps its work inside it, so it can’t share an agent with other Folders.",
   "agents.problem.not-found":
     "No such passage, Document, note or Citation in the Folders shared with this agent.",
+  // Told with a result that can read as "nothing is there" (#3544): it names nothing outside.
+  "agents.notShared":
+    "The User has more in IncarnaMind than is shared with you. If what they asked about isn’t here, tell them they can share more with you in Settings → Agents.",
   "agents.problem.chat-not-ready":
     "No AI model is ready in IncarnaMind. Set one up in Settings › AI, or search and cite.",
   "agents.problem.chat-consent":
@@ -8632,10 +8637,10 @@ export const en = {
   "settings.pages.agents": "Agents",
   "agents.settings.experimental": "Experimental",
   "agents.settings.lead": "Ask Claude, Codex or Cursor about your Documents.",
-  "agents.settings.intro": "Let the AI tool you use read chosen Folders.",
+  "agents.settings.intro": "Let the AI tool you use read your Documents.",
   "agents.settings.switch": "Connect AI agents",
   "agents.settings.switch.off": "Off: no agent can reach your Documents.",
-  "agents.settings.switch.on": "On: each agent reads its Folders while IncarnaMind is open.",
+  "agents.settings.switch.on": "On: agents read what you share while IncarnaMind is open.",
   "agents.settings.paused": "Agents paused: “Keep everything on this computer” is on.",
   "agents.settings.paused.open": "Settings › AI",
   "agents.settings.connected": "Connected agents",
@@ -8662,6 +8667,7 @@ export const en = {
   "agents.sentence.other": "your agent",
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
+  "agents.pairing.readsAll": "Reads all your Documents and notes, and what you add later",
   "agents.pairing.proposes": "Writes notes, Canvases and files there; proposes changes to yours",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
@@ -8670,7 +8676,7 @@ export const en = {
   "agents.pairing.installAgain": "Open the install in Claude again",
   "agents.pairing.renameLabel": "Name of {agent}",
   "agents.pairing.folders": "Folders…",
-  "agents.pairing.foldersTitle": "Folders {agent} may read",
+  "agents.pairing.foldersTitle": "What {agent} may read",
   "agents.pairing.activity": "Activity",
   "agents.pairing.disconnect": "Disconnect",
   "agents.pairing.details": "Details for technical users",
@@ -8790,10 +8796,10 @@ export const en = {
   "agents.reason.no-python": "this computer can’t run code for it",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read your chosen Folders, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. A Folder that keeps its work inside it is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it. When you ask it to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
+    "It can read the Folders you share, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. All your Documents and notes means every Folder, those you make later too, and what is in no Folder, your notes there included, but never the examples. A Folder that keeps its work inside it is never part of that, and is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it. When you ask it to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
-  "agents.connect.folders": "Folders it may read",
+  "agents.connect.folders": "What it may read",
   "agents.connect.allUnfiled":
     "Your Documents aren’t in Folders yet, so these are all of them. To share some, put them in a Folder first.",
   "agents.connect.noneYet": "No Documents yet: it reads those added outside a Folder.",
@@ -8802,12 +8808,16 @@ export const en = {
   "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
     "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. It can also hand over a deck, workbook or other file it made: IncarnaMind reads that one file, keeps each version and checks it. Its changes to your notes wait for you.",
-  "agents.connect.reads.folders":
-    "It may read the Folders you tick below. What it reads goes to the AI model {agent} uses.",
+  // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
-    "It may read all your Documents, including any you add later. What it reads goes to the AI model {agent} uses.",
-  "agents.connect.reads.none":
-    "You haven’t added a Document yet. It may read the ones you add. What it reads goes to the AI model {agent} uses.",
+    "It may read all your Documents and notes, including those you add later. What it reads goes to the AI model {agent} uses.",
+  "agents.connect.reads": "What it reads goes to the AI model {agent} uses.",
+  "agents.connect.reads.projects":
+    "What it reads goes to the AI model {agent} uses. A Project is shared only on its own.",
+  "agents.connect.reads.walled":
+    "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
+  "agents.share.all": "All my Documents and notes, and what I add later",
+  "agents.share.folders": "Choose Folders",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",

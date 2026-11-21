@@ -113,9 +113,13 @@ test("off by default; Connect asks once, writes Codex's settings as shown, and U
     const skillFile = join(home, ".agents", "skills", "incarnamind", "SKILL.md");
     await expect(dialog.getByTestId("connect-agent-skill")).toContainText(skillFile);
     const allow = dialog.getByTestId("connect-agent-allow");
-    await expect(allow).toBeDisabled();
     // Linux with no keyring running (CI): the dialog asks to keep the key as plain text first.
     await acceptPlainTextKeys(window, dialog);
+    // All of the User's Documents and notes is chosen already (#3544); Choose Folders waits for one.
+    await expect(dialog.getByTestId("agent-share-all")).toBeChecked();
+    await expect(allow).toBeEnabled();
+    await dialog.getByTestId("agent-share-folders").check();
+    await expect(allow).toBeDisabled();
     await dialog.getByTestId("agent-folder").check();
     // The three lines are in view; what it adds to the file is under Details.
     const allowBox = await allow.boundingBox();
@@ -233,6 +237,7 @@ test("an agent set up by pasting its settings searches, its activity shows each 
       "My agent",
     );
     await shot(window, "agents-connect-other-en");
+    await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     await dialog.getByTestId("connect-agent-allow").click();
 
@@ -303,6 +308,7 @@ test("an Other agent's Details show the command, arguments and environment, each
       .getByTestId("agent-connect")
       .click();
     const dialog = window.getByTestId("connect-agent-dialog");
+    await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     await dialog.getByTestId("connect-agent-allow").click();
 
@@ -401,6 +407,7 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
     await shot(window, "agents-codex-name-zh-dialog");
     await expect(dialog).toContainText("允许 ChatGPT 应用或 Codex 读取你的文档？");
     await acceptPlainTextKeys(window, dialog);
+    await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     await dialog.getByTestId("connect-agent-allow").click();
     await expect(dialog).toBeHidden();
@@ -440,6 +447,7 @@ test("Disconnect takes away the settings file Connect made, and the agent stays 
     await list.locator('[data-client="workbuddy"]').getByTestId("agent-connect").click();
     const dialog = window.getByTestId("connect-agent-dialog");
     await acceptPlainTextKeys(window, dialog);
+    await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     await dialog.getByTestId("connect-agent-allow").click();
     await expect(dialog).toBeHidden();

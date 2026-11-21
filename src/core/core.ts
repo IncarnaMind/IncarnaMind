@@ -4958,7 +4958,7 @@ export function createCore(adapters: CoreAdapters): Core {
     restoreMind: (mindId) =>
       recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
     editMind: (mindId, change) => content.edit(mindId, change),
-    linkFolder: (path) => documents.linkedFolders.add(path),
+    linkFolder: (path) => documents.linkedFolders.add(path, true),
     unlinkFolder,
     restoreFolder: (linkedFolderId) => {
       db.transaction(() => {
@@ -5864,6 +5864,7 @@ export function createCore(adapters: CoreAdapters): Core {
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
+    dropPurged: () => documents.dropPurged(),
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
@@ -6128,6 +6129,7 @@ export function createCore(adapters: CoreAdapters): Core {
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
       minds: () => listedMinds().filter((mind) => isKnownKind(mind.kind)),
+      exampleNotes: () => examples.made().mindIds,
       duplicatedFrom: (mindId) => minds.duplicatedFrom(mindId),
       documentsNamed: (documentIds) =>
         documents
