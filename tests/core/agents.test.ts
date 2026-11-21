@@ -753,8 +753,9 @@ describe("outside agents", () => {
     // with a table and a chart (#3510); 3,351 before hand_over_file said a file made from the User's
     // Documents is handed over unasked, and check_mind_yourself took again (#3541); 3,379 before
     // read_passages read a whole Document, or a long one in parts (#3573); 3,383 before
-    // check_mind_yourself and hand_over_file said a check waits for the User unless asked (#3576).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_391);
+    // check_mind_yourself and hand_over_file said a check waits for the User unless asked (#3576);
+    // 3,391 before read_passages took any before and after, answering at most three (#3586).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_399);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
