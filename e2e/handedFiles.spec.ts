@@ -10,6 +10,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
+  frontMind,
   frontMindName,
   launchApp,
   motionSettled,
@@ -76,6 +77,7 @@ for (const language of ["en", "zh-CN"] as const) {
       ? {
           name: "Checking: Harbour review",
           firstName: "Checking version 1: Harbour review",
+          alone: "From Claude Code · version 1 of 1",
           second: "From Claude Code · version 2 of 2",
           first: "From Claude Code · version 1 of 2",
           kept: "1 claim kept its result from version 1",
@@ -85,6 +87,7 @@ for (const language of ["en", "zh-CN"] as const) {
       : {
           name: "核对：Harbour review",
           firstName: "核对第 1 版：Harbour review",
+          alone: "来自 Claude Code · 第 1 版，共 1 版",
           second: "来自 Claude Code · 第 2 版，共 2 版",
           first: "来自 Claude Code · 第 1 版，共 2 版",
           kept: "1 条说法沿用第 1 版的结果",
@@ -121,6 +124,20 @@ for (const language of ["en", "zh-CN"] as const) {
         { path: deck },
       );
       expect(first).toMatchObject({ version: 1, needLook: 1 });
+      // The User reads version 1's check, which opened in a tab (#3534); version 2's check then
+      // takes that tab, so the file stays one tab (#3493).
+      await pointAndClick(
+        window,
+        window
+          .locator(`[data-testid="mind-row"][data-mind-id="${first.mindId}"]`)
+          .locator("button")
+          .first(),
+      );
+      await expect(frontMindName(window)).toHaveText(words.name);
+      await expect((await checkCard(window)).getByTestId("verify-handed")).toContainText(
+        words.alone,
+      );
+      await window.keyboard.press("Escape");
       await writeFile(
         deck,
         plainDeck([{ title: "Harbour review" }, { lines: [RIGHT] }, { lines: [SPRING] }]),
@@ -132,6 +149,8 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       expect(second).toMatchObject({ version: 2, needLook: 0 });
       await agent.close();
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", second.mindId);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(1);
 
       // The file is one Note in the sidebar, its newest version's check; the first version's opens
       // from the card.
