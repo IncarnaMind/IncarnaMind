@@ -405,7 +405,17 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
     if (!fromPanel(event) || !isRecord(at)) return;
     const { conversationId, answerId } = at;
     if (typeof conversationId !== "string" || typeof answerId !== "string") return;
-    toFront(FILES_CHANNELS.openConversation, { conversationId, answerId });
+    const sourceMarker =
+      typeof at.sourceMarker === "number" &&
+      Number.isSafeInteger(at.sourceMarker) &&
+      at.sourceMarker > 0
+        ? at.sourceMarker
+        : undefined;
+    toFront(FILES_CHANNELS.openConversation, {
+      conversationId,
+      answerId,
+      ...(sourceMarker && { sourceMarker }),
+    });
   });
   handle(MEETING_PANEL_CHANNELS.keys, (event) => {
     if (!fromPanel(event)) throw new Error("Refused a call from an unknown page.");

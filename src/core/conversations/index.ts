@@ -287,6 +287,17 @@ function storedSteps(value: string | null): AnswerSteps | null {
   const unrun = claimedTools(unrunTools);
   const askedAbout = claimedTools(askedAgainFor);
   return {
+    ...(isRecord(parsed.meetingHelpAgent) &&
+      (parsed.meetingHelpAgent.client === "codex" ||
+        parsed.meetingHelpAgent.client === "claude-code") &&
+      typeof parsed.meetingHelpAgent.meetingId === "string" &&
+      typeof parsed.meetingHelpAgent.pairingId === "string" && {
+        meetingHelpAgent: {
+          meetingId: parsed.meetingHelpAgent.meetingId,
+          pairingId: parsed.meetingHelpAgent.pairingId,
+          client: parsed.meetingHelpAgent.client,
+        },
+      }),
     sentAt: timeOrNull(parsed.sentAt),
     finishedAt: timeOrNull(parsed.finishedAt),
     phases: phases.flatMap((each) => {

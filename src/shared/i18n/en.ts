@@ -8920,6 +8920,24 @@ export const en = {
     "To use {agent}, move this meeting note to a folder shared with it.",
   "meetings.notesAgent.unavailable": "Reconnect your AI or resume its access in Settings.",
   "meetings.notesAgent.settings": "Agent settings",
+  "meetings.help.agent.used": "{agent} · Recent meeting transcript",
+  "meetings.help.agent.setting": "AI for Call Help",
+  "meetings.help.agent.disclosure":
+    "Choosing Claude Code or Codex lets it receive your question and relevant confirmed speech from the last ten minutes of this transcript when you ask. Share the meeting folder with it first.",
+  "meetings.help.agent.builtin": "Use the app’s answer model",
+  "meetings.help.agent.missing": "Selected AI unavailable",
+  "error.meeting.callHelpAgentDenied":
+    "Share the meeting folder with your selected AI or choose another in Meetings settings.",
+  "error.meeting.callHelpQuestionTooLong": "Shorten the question and ask again.",
+  "error.meeting.callHelpAgentFailed":
+    "The selected AI could not answer. Try again from Call Help.",
+  "meetings.help.agent.insufficient":
+    "The meeting transcript so far does not contain enough information to answer.",
+  "error.meeting.callHelpAgentRetry": "Ask again from Call Help while the meeting is open.",
+  "meetings.help.agent.sourceMissing":
+    "These original words are no longer available in the meeting transcript.",
+  "meetings.help.agent.openTranscript": "Open in transcript",
+  "meetings.help.agent.original": "Source {number} · {location}",
   "meetings.summary.setting": "Automatic meeting summary",
   "meetings.summary.disclosure":
     "The selected AI receives newly confirmed transcript lines, the previous overview, and its decisions and action items about once a minute and after you stop. Cloud requests count toward your AI’s usage.",

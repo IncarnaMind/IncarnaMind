@@ -21,7 +21,7 @@ import { estimateTokens } from "./context";
 import type { AnswerMessage } from "./engine";
 import { languageSpoken, questionLanguage } from "./prompt";
 
-const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
+export const TASKS: Readonly<Record<MeetingHelpKind, string>> = {
   say: "What could the User say next, given the last thing said?",
   answer: "Answer the newest question the other side asked, from the User's Documents.",
   want: "What does the other side want? Read it from what they said in the last few minutes.",

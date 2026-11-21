@@ -9,6 +9,7 @@ import {
   isGlobalKeys,
 } from "../../../../shared/meetingHelp";
 import { SAYS_HIDDEN_FROM_SHARES } from "../../../../shared/meetingPanel";
+import { useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
 import { loadCallHelpOffer, useCallHelpOffer } from "../../callHelpOffer";
 import { keysHere } from "../../commands/keymap";
 import { files } from "../../core";
@@ -18,7 +19,7 @@ import { useModelInUse } from "../../modelInUse";
 import { useModelNames } from "../../modelNames";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
-import { PopUpButton } from "../settings/PopUpButton";
+import { PopUpButton, PopUpSelect } from "../settings/PopUpButton";
 import {
   SettingsGroup,
   SettingsRow,
@@ -189,6 +190,49 @@ function ShortcutRow({ kind, device }: { kind: HelpShortcut; device: Settings["d
   );
 }
 
+function CallHelpAgentRow({ selected }: { selected: string | null }) {
+  const t = useT();
+  const id = useId();
+  const detailId = useId();
+  const update = useAppStore((state) => state.updateSettings);
+  useReadAgentsToAsk(null);
+  const clients =
+    useAgentsToAskRead(null)?.filter(
+      (pair) => pair.client === "claude-code" || pair.client === "codex",
+    ) ?? [];
+  return (
+    <SettingsRow
+      label={t("meetings.help.agent.setting")}
+      htmlFor={id}
+      detail={t("meetings.help.agent.disclosure")}
+      detailId={detailId}
+      control={
+        <PopUpSelect
+          id={id}
+          aria-describedby={detailId}
+          data-testid="call-help-agent-route"
+          value={selected ?? ""}
+          onChange={(event) =>
+            void update({ device: { meetingCallHelpAgentId: event.target.value || null } })
+          }
+        >
+          <option value="">{t("meetings.help.agent.builtin")}</option>
+          {selected && !clients.some((pair) => pair.id === selected) && (
+            <option value={selected} disabled>
+              {t("meetings.help.agent.missing")}
+            </option>
+          )}
+          {clients.map((pair) => (
+            <option key={pair.id} value={pair.id}>
+              {pair.name}
+            </option>
+          ))}
+        </PopUpSelect>
+      }
+    />
+  );
+}
+
 const MODEL_TARGET = ["call-help-model"] as const;
 
 /**
@@ -286,7 +330,8 @@ export function HelpSettings() {
               switchTestId="help-hidden-setting"
             />
           )}
-          <CallHelpModelRow />
+          <CallHelpAgentRow selected={device.meetingCallHelpAgentId} />
+          {!device.meetingCallHelpAgentId && <CallHelpModelRow />}
         </SettingsGroup>
       </SettingsSection>
       <SettingsSection
