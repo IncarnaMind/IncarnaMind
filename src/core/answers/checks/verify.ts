@@ -816,9 +816,8 @@ export function createVerify(options: VerifyOptions) {
    * read as what the result stands on, as the result keeps it (`standsOn`): a table row with its
    * headings, caption and section label, a deck's line with its slide, a line with what frames it
    * in the Note. One whose heading changed ("2025" to "2026") since, in either Note, is checked
-   * again. Whether each result still
-   * stands is the check's to decide (`readingOf`), as it decides for Check this Note. Returns how
-   * many took one.
+   * again. Whether each result still stands is the check's to decide (`readingOf`), as it decides
+   * for Check this Note. Returns how many took one.
    */
   function carryChecks(fromMindId: string, toMindId: string): number {
     const landed = content.read(fromMindId, (blocks) => {
