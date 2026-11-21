@@ -165,8 +165,8 @@ export async function started(
   });
   const reader = await core.connectAgent({ name: "Codex", folderIds: [coast.id] });
   const agentFiles = await createSourceFolder();
-  /** The same data folder opened again, as after a quit. */
-  const restart = async () => {
+  /** The same data folder opened again, as after a quit, on `now` when the test moves the clock. */
+  const restart = async (now?: () => Date) => {
     await core.close();
     return startCore(started.dataDir, {
       createChatModel: started.models.createChatModel,
@@ -174,9 +174,20 @@ export async function started(
       agents: await agentsAdapter(started.dataDir),
       canvasFiles,
       keychain,
+      ...(now && { now }),
     });
   };
-  return { core, coast, writer, reader, files: agentFiles, added, more, restart };
+  return {
+    core,
+    dataDir: started.dataDir,
+    coast,
+    writer,
+    reader,
+    files: agentFiles,
+    added,
+    more,
+    restart,
+  };
 }
 
 export const handOver = (agent: Agent, args: Record<string, unknown>) =>
