@@ -34,6 +34,7 @@ import {
   subclusters,
   wordVectors,
 } from "../../src/core/library/plan";
+import { sortedFolders } from "../../src/core/library/planModel";
 import { createOrganizeReviewStore } from "../../src/core/organizeReview";
 import { CutShortError, outputTokens } from "../../src/core/providers/outputLimits";
 import { openDatabase } from "../../src/core/storage";
@@ -317,12 +318,23 @@ describe("The plan's requests and places", () => {
   });
 
   test("3 or more Documents left out of every Folder get a second look, which may find their own", async () => {
-    const { model, asked } = letterModel({ missesAtFirst: "Delta" });
+    const { model } = letterModel({ missesAtFirst: "Delta" });
     const { vectors } = groups(4, 20);
-    const result = await plan(namedGroups(vectors, 20, ["A", "B", "G", "D"]), model);
-    expect(asked.sorted).toHaveLength(2);
-    expect(asked.sorted[1]?.every((doc) => doc.name.startsWith("D"))).toBe(true);
+    const sort = vi.fn<PlanModel["sort"]>(async (request, signal) => {
+      if (request.folders.length === 0) return model.sort(request, signal);
+      expect(request.documents.every((doc) => doc.name.startsWith("D"))).toBe(true);
+      return sortedFolders(
+        {
+          folders: [{ key: "N1", name: "Delta", description: "About Delta" }],
+          documents: request.documents.map(({ ref }) => ({ ref, folder: "N1" })),
+        },
+        request.folders,
+      );
+    });
+    const result = await plan(namedGroups(vectors, 20, ["A", "B", "G", "D"]), { ...model, sort });
+    expect(sort).toHaveBeenCalledTimes(2);
     const delta = result.folders.find((folder) => folder.name === "Delta");
+    expect(delta).toBeDefined();
     for (let at = 60; at < 80; at++)
       expect(result.places.get(`doc${at}`)).toEqual({ kind: "new", key: delta?.key });
   });
