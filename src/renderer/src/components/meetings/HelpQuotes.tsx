@@ -232,6 +232,7 @@ export function LineQuotes({
   markers: readonly number[];
   ended?: Pick<EndedLine, "rows"> | undefined;
 }) {
+  if (shown.answer.steps?.meetingHelpAgent) return null;
   const rows =
     ended?.rows ??
     quoteLines(

@@ -536,7 +536,7 @@ function Sources({
             <li key={citation.marker} className="help-source" data-testid="help-source">
               <details className="min-w-0">
                 <summary className="cursor-pointer break-words">
-                  {t("meetings.help.agent.original", { time: where ?? "" })} · {number}
+                  {t("meetings.help.agent.original", { number, location: where ?? "" })}
                 </summary>
                 <blockquote className="my-1 whitespace-pre-wrap break-words text-ink">
                   {citation.quote}

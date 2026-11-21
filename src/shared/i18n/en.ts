@@ -8930,7 +8930,7 @@ export const en = {
   "meetings.help.agent.sourceMissing":
     "These original words are no longer available in the meeting transcript.",
   "meetings.help.agent.openTranscript": "Open in transcript",
-  "meetings.help.agent.original": "Show original speech at {time}",
+  "meetings.help.agent.original": "Source {number} · {location}",
   "meetings.summary.setting": "Automatic meeting summary",
   "meetings.summary.disclosure":
     "The selected AI receives newly confirmed transcript lines, the previous overview, and its decisions and action items about once a minute and after you stop. Cloud requests count toward your AI’s usage.",

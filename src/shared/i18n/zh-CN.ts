@@ -8411,7 +8411,7 @@ export const zhCN = {
   "error.meeting.callHelpAgentRetry": "请在会议进行时回到通话助手重新提问。",
   "meetings.help.agent.sourceMissing": "会议转写中已找不到这句原话。",
   "meetings.help.agent.openTranscript": "在转写中打开",
-  "meetings.help.agent.original": "查看 {time} 的原话",
+  "meetings.help.agent.original": "原话 {number} · {location}",
   "meetings.summary.setting": "自动生成会议摘要",
   "meetings.summary.disclosure":
     "录音期间大约每分钟以及结束录音后，所选 AI 会收到新确认的转写内容，以及上一版概览、决定和待办事项。云端请求计入所选服务的用量。",
