@@ -31,9 +31,9 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/check-card-en.png" width="880" alt="A credit memo Claude Code wrote into IncarnaMind, checked against its files. One sentence is marked Partly supported: it works out covenant headroom against a 3.25:1 limit, and the card says that limit applies only from 31 December 2026, so the September test had a different one."></p>
+<p align="center"><img src="docs/images/demo-agent-en.gif" width="880" alt="Claude Code is asked for a credit memo on Northwind Retail with a chart of its leverage against the covenant limit. It writes the memo into IncarnaMind from the files and checks it sentence by sentence. The note opens with its table and chart, and one sentence is marked Partly supported. Ask Claude Code on the mark's card hands the sentence back, Claude Code rewrites it from the files, and the mark is gone."></p>
 
-<p align="center"><sub>A real memo in the app, from test documents: Claude Code wrote it on Claude Haiku 5.5, and the check ran on Claude Sonnet 5.5.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
+<p align="center"><sub>A real session in the app, from test documents: Claude Code wrote, checked and fixed the memo on Claude Haiku 5.5, with no AI model set up in IncarnaMind. Waits are cut, and the Claude Code pane is drawn from the session's log.<br>Alpha: free test builds, not yet signed. The public alpha opens in early 2027.</sub></p>
 
 ## Download
 

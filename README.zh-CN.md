@@ -31,9 +31,9 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub 星标" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/check-card-zh-CN.png" width="880" alt="Claude Code 写进 IncarnaMind 的一份信贷备忘录，对照文件核对。有一句被标为“部分有依据”：它说利息覆盖率是“最主要的信息缺口”，卡片指出“最主要”是撰写者自己的判断，文件并未说明。"></p>
+<p align="center"><img src="docs/images/demo-agent-zh-CN.gif" width="880" alt="请 Claude Code 写一份 Northwind Retail 的信贷备忘录，并配一张杠杆率对照契约上限的图表。它根据文件把备忘录写进 IncarnaMind，再逐句核对。笔记打开后有表格和图表，其中一句标为“部分有依据”。在这句的卡片上点“交给 Claude Code”，Claude Code 按文件原文改写，标记随之消失。"></p>
 
-<p align="center"><sub>应用里的一份真实备忘录，用的是测试文档：由 Claude Code 使用 Claude Haiku 5.5 撰写，核对用 Claude Sonnet 5.5。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
+<p align="center"><sub>应用里的一次真实操作，用的是测试文档：Claude Code 使用 Claude Haiku 5.5 撰写、核对并修改这份备忘录，IncarnaMind 里没有设置 AI 模型。等待的部分已剪掉，Claude Code 一栏按这次运行的记录重绘。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
 
 ## 下载
 
