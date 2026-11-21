@@ -1314,6 +1314,15 @@ export async function openServiceList(
 }
 
 /**
+ * In the setup's Your AI step, a model in IncarnaMind is one quiet line until it is pressed
+ * (#3537): opens it, as a person who wants a key or a model of their own here does.
+ */
+export async function openInAppModel(step: Locator): Promise<void> {
+  await step.getByTestId("setup-in-app-open").click();
+  await expect(step.getByTestId("setup-in-app-open")).toHaveCount(0);
+}
+
+/**
  * The setup card's way in with this test id, in view: in Chinese the ChatGPT and Claude plans
  * sit under Other ways (#2865), which a person opens first.
  */

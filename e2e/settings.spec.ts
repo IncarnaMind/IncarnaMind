@@ -7,6 +7,7 @@ import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
   addDocuments,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -94,6 +95,8 @@ test("Settings lists its pages, and each holds its settings", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    // Connectors and Skills are listed once a model is set up (#3537).
+    await connectLocalChatModel(window);
     await window.getByRole("button", { name: "Settings" }).click();
     const settings = window.getByTestId("settings");
     const nav = settings.getByTestId("settings-nav");
@@ -109,6 +112,46 @@ test("Settings lists its pages, and each holds its settings", async () => {
       }
       await shot(window, `settings-${page}`);
     }
+  } finally {
+    await app.close();
+  }
+});
+
+test("with no model set up Settings lists no Connectors or Skills, and a model brings them back (#3537)", async () => {
+  const { app, window } = await launchApp(dataDir);
+  try {
+    await dismissChatSetup(window);
+    await window.getByRole("button", { name: "Settings" }).click();
+    const settings = window.getByTestId("settings");
+    const nav = settings.getByTestId("settings-nav");
+    const names = (pages: readonly string[]) =>
+      PAGES.filter((each) => pages.includes(each.page)).map((each) => each.name);
+    const held = ["connectors", "skills"];
+    const kept = PAGES.map((each) => each.page).filter((each) => !held.includes(each));
+    await expect(nav.getByRole("button")).toHaveText(names(kept));
+    await expect(settings.getByTestId("settings-nav-connectors")).toHaveCount(0);
+    await expect(settings.getByTestId("settings-nav-skills")).toHaveCount(0);
+
+    // A model is set up: both are there, as they were, in their place in the list.
+    await connectLocalChatModel(window);
+    await expect(nav.getByRole("button")).toHaveText(PAGES.map((each) => each.name));
+    await settings.getByTestId("settings-nav-skills").click();
+    await expect(settings).toHaveAttribute("data-page", "skills");
+
+    // The last model goes while Skills is shown: it stays until they leave it, then it is gone.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      for (const provider of await bridge.listChatProviders()) {
+        await bridge.deleteChatProvider(provider.id);
+      }
+    });
+    await expect(settings.getByTestId("settings-nav-connectors")).toHaveCount(0);
+    await expect(settings.getByTestId("settings-nav-skills")).toBeVisible();
+    await settings.getByTestId("settings-nav-ai").click();
+    await expect(nav.getByRole("button")).toHaveText(names(kept));
+    // Its settings are not gone: they come back with a model.
+    await connectLocalChatModel(window);
+    await expect(nav.getByRole("button")).toHaveText(PAGES.map((each) => each.name));
   } finally {
     await app.close();
   }
@@ -199,6 +242,7 @@ test("the pages are named in Chinese too", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     await window.evaluate(async () =>
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
         user: { language: "zh-CN" },

@@ -7,6 +7,7 @@ import type {
   RerankSettings,
   TranscriptionServiceStatus,
 } from "../../../../core/api";
+import { useAgentPairings } from "../../agentNote";
 import { useAnswers } from "../../answers";
 import { useCheckDecision } from "../../checkDecision";
 import { core } from "../../core";
@@ -85,6 +86,8 @@ export function AiSettings() {
   const { rerank, setRerank, answered: rerankAnswered } = useRerank();
   const sorting = useSorting();
   const checkDecision = useCheckDecision();
+  // Read with the rest, so the card at the top says once whose AI is connected (#3537).
+  const pairings = useAgentPairings();
   // One read for the page: the Meeting transcription row and the transcription keys. The page
   // waits for its first answer only: a Try again after a failure keeps the page on screen.
   const services = useTranscriptionServicesRead();
@@ -98,6 +101,7 @@ export function AiSettings() {
     rerankAnswered &&
     sortingAnswered &&
     checkDecision !== undefined &&
+    pairings !== null &&
     (servicesAnswered || services.state !== "loading");
 
   const refresh = useCallback(() => {
@@ -163,7 +167,7 @@ export function AiSettings() {
   const offered = usePlansOffered();
   const entryName = useEntryName();
 
-  if (!providers || !hosts || !laidOut) return null;
+  if (!providers || !hosts || !laidOut || !pairings) return null;
 
   const open = (next: View, from: string) => {
     opener.current = from;
@@ -287,7 +291,9 @@ export function AiSettings() {
           <p data-testid="ai-lede" className="px-4 text-[13px] leading-5 text-ink-meta">
             {t("ai.lede")}
           </p>
-          {providers.length === 0 && <NoAiYet onAdd={add} />}
+          {providers.length === 0 && (
+            <NoAiYet agents={pairings.map((pairing) => pairing.name)} onAdd={add} />
+          )}
           <ReadinessNote />
           {removed && <RemovedLine removed={removed} providers={providers} />}
           <JobsSection
