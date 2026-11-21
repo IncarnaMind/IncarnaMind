@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: 45
     # The inputs reach the steps only as environment variables, never inside a script's text.
     env:
+      INCARNAMIND_SCREENSHOTS: ${{ github.workspace }}/meeting-ux
       SPECS: ${{ inputs.specs }}
       REPEAT: ${{ inputs.repeat }}
       GREP: ${{ inputs.grep }}
@@ -103,6 +104,12 @@ jobs:
           packages: ffmpeg
       # On Linux the app needs a display: two virtual ones, one for each of the two workers, as in
       # ci.yml. The word split of $SPECS is safe: the check above allowed only e2e paths.
+      - name: Prepare the interaction checks
+        shell: bash
+        run: |
+          mkdir -p meeting-ux "$RUNNER_TEMP/meeting-qa-axe"
+          npm pack axe-core@4.14.1 --ignore-scripts --silent --pack-destination "$RUNNER_TEMP/meeting-qa-axe"
+          tar -xzf "$RUNNER_TEMP/meeting-qa-axe/axe-core-4.14.1.tgz" -C "$RUNNER_TEMP/meeting-qa-axe"
       - name: Run the specs
         shell: bash
         run: |
@@ -137,3 +144,12 @@ jobs:
           path: test-results/report.json
           retention-days: 7
           if-no-files-found: ignore
+      - name: Save interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: meeting-ux-${{ inputs.os }}-${{ github.run_id }}
+          path: |
+            meeting-ux/*.png
+            meeting-ux/*.json
+          retention-days: 7
