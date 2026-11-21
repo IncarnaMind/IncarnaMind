@@ -3,6 +3,12 @@ import type { CoreAdapters } from "../adapters";
 import type { ChatModelChoice, Meeting } from "../api";
 import { InvalidInputError } from "../errors";
 import type { createChat } from "../providers/chat";
+import {
+  type MeetingCandidateReviewInput,
+  meetingCandidateReviewPrompt,
+  readMeetingCandidateReview,
+  reviewCandidatesWithChat,
+} from "./candidateReview";
 import { type MeetingSummaryInput, meetingSummaryPrompt, summarizeWithChat } from "./summaryModel";
 
 interface Options {
@@ -49,6 +55,38 @@ export function meetingSummaryRoute(options: Options) {
   }
 
   const denied = () => new InvalidInputError({ key: "error.meeting.summaryUnavailable" });
+  function selectedAgent(meeting: Meeting, route: string) {
+    if (selected(meeting) !== route || !allowed(meeting, route)) throw denied();
+    if (!options.settings().meetingNotesAgentId) return null;
+    const id = client(meeting, route);
+    if (!id || !options.agent) throw denied();
+    return { id, run: options.agent } as const;
+  }
+
+  function guardedChat(meeting: Meeting, route: string, signal: AbortSignal) {
+    return {
+      describeModel: options.chat.describeModel,
+      async prepareModel(...args: Parameters<typeof options.chat.prepareModel>) {
+        const prepared = await options.chat.prepareModel(...args);
+        signal.throwIfAborted();
+        const current = options.get(meeting.id);
+        const actual = meetingSummaryModelRoute(
+          { providerId: prepared.provider.id, modelId: prepared.modelId },
+          prepared.provider.service?.id,
+        );
+        // Local servers can discover during preparation that a model forwards to a cloud service.
+        if (
+          actual !== route ||
+          current.transcript?.documentId !== meeting.transcript?.documentId ||
+          selected(current) !== route ||
+          !allowed(current, route)
+        )
+          throw denied();
+        return prepared;
+      },
+    };
+  }
+
   return {
     selected,
     allowed,
@@ -58,35 +96,45 @@ export function meetingSummaryRoute(options: Options) {
       input: MeetingSummaryInput,
       signal: AbortSignal,
     ) {
-      if (selected(meeting) !== route || !allowed(meeting, route)) throw denied();
-      if (options.settings().meetingNotesAgentId) {
-        const id = client(meeting, route);
-        if (!id || !options.agent) throw denied();
-        const { instructions, prompt } = meetingSummaryPrompt(input);
-        return options.agent({ client: id, instructions, prompt, signal });
-      }
-      const guardedChat = {
-        describeModel: options.chat.describeModel,
-        async prepareModel(...args: Parameters<typeof options.chat.prepareModel>) {
-          const prepared = await options.chat.prepareModel(...args);
-          signal.throwIfAborted();
-          const current = options.get(meeting.id);
-          const actual = meetingSummaryModelRoute(
-            { providerId: prepared.provider.id, modelId: prepared.modelId },
-            prepared.provider.service?.id,
+      const agent = selectedAgent(meeting, route);
+      if (agent) return agent.run({ client: agent.id, ...meetingSummaryPrompt(input), signal });
+      return summarizeWithChat(
+        guardedChat(meeting, route, signal),
+        options.model(meeting.mindId),
+        input,
+        signal,
+      );
+    },
+    async reviewCandidates(
+      meeting: Meeting,
+      route: string,
+      input: MeetingCandidateReviewInput,
+      signal: AbortSignal,
+    ) {
+      signal.throwIfAborted();
+      const agent = selectedAgent(meeting, route);
+      const reply = agent
+        ? await agent.run({
+            client: agent.id,
+            purpose: "candidate-review",
+            ...meetingCandidateReviewPrompt(input),
+            signal,
+          })
+        : await reviewCandidatesWithChat(
+            guardedChat(meeting, route, signal),
+            options.model(meeting.mindId),
+            input,
+            signal,
           );
-          // Local servers can discover during preparation that a model forwards to a cloud service.
-          if (
-            actual !== route ||
-            current.transcript?.documentId !== meeting.transcript?.documentId ||
-            selected(current) !== route ||
-            !allowed(current, route)
-          )
-            throw denied();
-          return prepared;
-        },
-      };
-      return summarizeWithChat(guardedChat, options.model(meeting.mindId), input, signal);
+      signal.throwIfAborted();
+      const current = options.get(meeting.id);
+      if (
+        current.transcript?.documentId !== meeting.transcript?.documentId ||
+        selected(current) !== route ||
+        !allowed(current, route)
+      )
+        throw denied();
+      return readMeetingCandidateReview(reply, input);
     },
   };
 }

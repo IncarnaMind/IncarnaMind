@@ -12082,9 +12082,22 @@ export interface MeetingSummaryItem {
   corrected?: true;
 }
 
+export interface MeetingSummarySource {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+export interface MeetingSummaryCandidate {
+  id: number;
+  sources: MeetingSummarySource[];
+}
+
 export interface MeetingSummary {
   text: string;
   items?: MeetingSummaryItem[];
+  candidateCount?: number;
+  candidatesReviewed?: true;
   problem?: "codex-input-limit";
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
@@ -15300,12 +15313,18 @@ export interface CoreApi {
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
+  /** Whether the selected AI route can start a new quote review for this saved Meeting. */
+  canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
+  reviewMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  getMeetingSummaryCandidates(meetingId: string): Promise<MeetingSummaryCandidate[]>;
+  undoAddMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
+  addMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
   getMeetingSummaryItemSources(
     meetingId: string,
     itemId: number,
   ): Promise<{
     documentId: string;
-    sources: { startMs: number; endMs: number; text: string }[];
+    sources: MeetingSummarySource[];
   } | null>;
   correctMeetingSummaryItem(
     meetingId: string,
@@ -16191,6 +16210,11 @@ const methods: Record<CoreApiMethod, true> = {
   retryTranscript: true,
   fillMeetingNotes: true,
   retryMeetingSummary: true,
+  canReviewMeetingSummaryCandidates: true,
+  reviewMeetingSummaryCandidates: true,
+  getMeetingSummaryCandidates: true,
+  undoAddMeetingSummaryCandidate: true,
+  addMeetingSummaryCandidate: true,
   getMeetingSummaryItemSources: true,
   correctMeetingSummaryItem: true,
   undoMeetingFill: true,
