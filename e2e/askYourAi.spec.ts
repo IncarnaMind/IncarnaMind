@@ -486,3 +486,75 @@ test("with no model, Check asks the User's own AI to check the Note; with no age
     await app.close();
   }
 });
+
+test("what their own AI makes opens in a tab, and the app comes to the front with it only after the User asked from IncarnaMind", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    const launch = await connected(window);
+    // The shell's own step to the front is counted, since a window can't be seen to come forward
+    // on every machine the spec runs on.
+    await app.evaluate(({ app: electron }) => {
+      const kept = globalThis as { fronted?: number };
+      kept.fronted = 0;
+      electron.focus = () => {
+        kept.fronted = (kept.fronted ?? 0) + 1;
+      };
+    });
+    const fronted = () => app.evaluate(() => (globalThis as { fronted?: number }).fronted ?? 0);
+    const agent = await claudeCode(launch);
+    try {
+      const write = async (title: string) => {
+        const made = await agent.callTool({
+          name: "create_mind",
+          arguments: { title, markdown: `${CROSSINGS}` },
+        });
+        return (made.structuredContent as { mindId: string }).mindId;
+      };
+      const tab = (mindId: string) =>
+        window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`);
+
+      // A first Note is the only tab, so it is the one in front.
+      const first = await write("The tab in front");
+      await expect(tab(first)).toHaveAttribute("aria-selected", "true");
+
+      // An agent the User works with on its own: its Note opens in a tab behind the one in front,
+      // and the app stays where it is.
+      const alone = await write("Written on its own");
+      await expect(tab(alone)).toBeVisible();
+      await expect(tab(alone)).toHaveAttribute("aria-selected", "false");
+      expect(await fronted()).toBe(0);
+
+      // Asked from IncarnaMind and read by the agent: what it writes next opens in front, and the
+      // app comes forward with it.
+      const asking = await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const [claude] = (await bridge.getAgents()).pairings.filter(
+          (each) => each.name === "Claude Code",
+        );
+        const [mind] = await bridge.listMinds();
+        if (!claude || !mind) throw new Error("No agent or Note to ask about.");
+        await bridge.askAgent({ pairingId: claude.id, mindId: mind.id, ask: { kind: "note" } });
+        return true;
+      });
+      expect(asking).toBe(true);
+      await agent.callTool({ name: "read_request", arguments: {} });
+      const asked = await write("Written for my request");
+      await expect(tab(asked)).toHaveAttribute("aria-selected", "true");
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", asked);
+      expect(await fronted()).toBeGreaterThan(0);
+      await shot(window, "agent-made-opens-en");
+
+      // In Chinese, the same.
+      await setLanguage(window, "zh-CN");
+      const again = await write("为我的请求写的笔记");
+      await expect(tab(again)).toHaveAttribute("aria-selected", "true");
+      await shot(window, "agent-made-opens-zh-CN");
+    } finally {
+      await agent.close();
+    }
+  } finally {
+    await app.close();
+  }
+});

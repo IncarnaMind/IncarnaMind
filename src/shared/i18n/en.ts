@@ -28,6 +28,18 @@ export const en = {
   "library.organize.failed": "Couldn’t organize {count} Documents",
   "library.organize.retry": "Try again",
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
+  "agents.ask.line.organize": "Organize my Documents in IncarnaMind. Read my request there first.",
+  "agents.ask.request.organize":
+    "{scope} From list_sorting, copy the selected Document’s id and version together. Use only matching Folder and Tag IDs from that list in propose_sorting. Leave the Suggestions for me to review.",
+  "agents.ask.organize.folder":
+    "Only organize Documents directly in Folder {folder}. Suggest moves only into these subfolders: {folders}. Otherwise leave the Document in place.",
+  "agents.ask.organize.loose":
+    "Only organize Documents that are not in a Folder (folderId is null).",
+  "agents.ask.organize.selected": "Only organize these Document IDs: {ids}.",
+  "library.organize.withAgent": "Ask {agent} to organize",
+  "library.organize.askAgent": "Your AI can suggest Folders and Tags for you to review.",
+  "library.organize.share":
+    "To organize these Documents with your AI, share their location in the agent settings.",
   "library.organize.needsModel": "Choose an AI model to sort your Documents.",
   "library.toSort.one": "1 to organize",
   "library.toSort.other": "{count} to organize",
@@ -6417,6 +6429,8 @@ export const en = {
     "“{file}” is already in IncarnaMind. Delete it, then locate the folder again.",
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.cantAsk": "That agent can’t read this note now.",
+  "error.agent.cantOrganize":
+    "This agent can’t organize these Documents with its current access. Check its shared Folders in agent settings.",
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
   "error.agent.nameEmpty": "Give the agent a name.",

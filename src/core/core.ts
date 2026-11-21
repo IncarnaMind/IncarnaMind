@@ -6187,6 +6187,7 @@ export function createCore(adapters: CoreAdapters): Core {
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),
       show: (place) => events.emit("agents.citationShown", place),
+      opened: (opened) => events.emit("agents.opened", opened),
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
@@ -8675,6 +8676,13 @@ export function createCore(adapters: CoreAdapters): Core {
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),
     copyAgentSetup: (pairingId) => agentSetup.settingsFor(pairingId),
     openAgentInstallAgain: (pairingId) => agentSetup.openInstallAgain(pairingId),
+    agentsForOrganize: async (target) => {
+      if (organizeModelOf(library.settings())) return { eligible: [], connected: false };
+      const available = agentAsk.forOrganize(target);
+      return available.connected && (await tagging.resolve())
+        ? { eligible: [], connected: false }
+        : available;
+    },
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
     askAgent: (input) => agentAsk.ask(input),

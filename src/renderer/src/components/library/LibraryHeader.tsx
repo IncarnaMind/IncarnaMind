@@ -6,6 +6,9 @@ import { AddDocumentsMenu } from "../AddDocumentsMenu";
 import { SearchIcon } from "../icons";
 import { CloseLineIcon } from "../lineIcons";
 import { buttonStyle } from "../ui";
+import { OrganizeButton } from "./OrganizeButton";
+
+const looseDocuments = { ids: null };
 
 /**
  * The page's head: "Library" and how many Documents it holds, as the
@@ -19,7 +22,7 @@ export function LibraryHeader({
   count,
   sorted,
   organizeCount,
-  onSortIntoFolders,
+  sortIntoFolders = false,
   sorting = false,
   canAdd = true,
   search,
@@ -37,7 +40,7 @@ export function LibraryHeader({
    * Sorting loose Documents into Folders, when there are enough of them and no Folder yet
    * (#1942): then it is the page's one primary action and Add Documents steps back.
    */
-  onSortIntoFolders?: (() => void) | null;
+  sortIntoFolders?: boolean;
   /** Organize is already reading or sorting them: the action waits. */
   sorting?: boolean;
   /** Whether the header offers "Add Documents": not while the empty page holds the one place to add. */
@@ -87,19 +90,17 @@ export function LibraryHeader({
           </span>
         )}
         <span className="min-w-0 flex-1" />
-        {onSortIntoFolders && (
-          <button
-            type="button"
-            data-testid="library-sort-into-folders"
-            title={t("library.organize.explain")}
-            onClick={onSortIntoFolders}
+        {sortIntoFolders && (
+          <OrganizeButton
+            target={looseDocuments}
+            testId="library-sort-into-folders"
             disabled={sorting}
             className={buttonStyle("primary")}
           >
             {t("library.organizeCount", { count: formatCount(organizeCount, language) })}
-          </button>
+          </OrganizeButton>
         )}
-        {canAdd && <AddDocumentsMenu secondary={!!onSortIntoFolders} />}
+        {canAdd && <AddDocumentsMenu secondary={sortIntoFolders} />}
       </div>
       <label
         title={t("library.search.hint")}
