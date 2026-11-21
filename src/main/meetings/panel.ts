@@ -187,6 +187,7 @@ export function serveMeetingPanel(core: Core, options: MeetingPanelOptions): voi
   function giveKeyboardBack(window: BrowserWindow): void {
     if (!window.isFocusable()) return;
     const focused = window.isFocused();
+    if (process.platform === "win32" && focused) window.blur();
     window.setFocusable(false);
     if (mac && focused) window.blur();
   }

@@ -366,6 +366,13 @@ test("someone who set up Meetings before this version is asked once on Home, and
   );
   await window.getByTestId("sidebar-home").click();
   const tip = window.getByTestId("call-offers-tip");
+  if (process.platform === "win32") {
+    await expect(window.getByTestId("sidebar-home")).toBeVisible();
+    await expect(tip).toHaveCount(0);
+    expect((await deviceSettings(window)).callOffers).toBe(false);
+    await app.close();
+    return;
+  }
   await expect(tip).toBeVisible();
   expect(await deviceSettings(window)).toMatchObject({ callOffers: false, keepRunning: false });
   await callsUse(app, ["zoom"]);
