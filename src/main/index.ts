@@ -40,7 +40,7 @@ import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { closingLastWindowQuits, keptRunning, startsWithoutWindow } from "./background";
 import { serveBackground } from "./backgroundHost";
 import { createFakeCallWatcher, type FakeCalls } from "./calls/fakeWatcher";
-import { macWatcherPath } from "./calls/macWatcher";
+import { callWatcherPath } from "./calls/helper";
 import { createCallWatcher } from "./calls/watcher";
 import { allowCanvases, CANVAS_SCHEME_PRIVILEGES, serveCanvases } from "./canvases";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
@@ -282,7 +282,7 @@ function callWatching(): { callWatcher?: CallWatcher } {
     (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls = fake;
     return { callWatcher: fake };
   }
-  const program = macWatcherPath();
+  const program = callWatcherPath();
   return {
     callWatcher: createCallWatcher({
       log: logger,
@@ -291,7 +291,7 @@ function callWatching(): { callWatcher?: CallWatcher } {
         pids: () => new Set(app.getAppMetrics().map((each) => each.pid)),
         bundles: ["com.incarnamind.app", "com.github.electron"],
       },
-      macWatcher: existsSync(program) ? program : null,
+      helper: program && existsSync(program) ? program : null,
     }),
   };
 }

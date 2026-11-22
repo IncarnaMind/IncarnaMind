@@ -1,18 +1,39 @@
 /**
  * The desktop app's `CallWatcher` (#208): which call apps use the microphone, from a program that
- * waits on the system and prints a line each time that changes. macOS runs the app's own watcher
- * (native/callWatcher/mac.m), Linux PulseAudio's `pactl`. Windows has none yet: its helper waits
- * to be signed (#2843). IncarnaMind's own processes never count: it records the microphone too.
+ * waits on the system and prints a line each time that changes. macOS and Windows run the app's
+ * own watcher. Linux runs PulseAudio's `pactl`. IncarnaMind's own processes never count.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { CallWatcher, Logger } from "../../core";
 import type { CallWatchProblem } from "../../core/api";
-import { appOfBundle, appOfLinuxStream } from "../../shared/meetingApps";
+import { appOfBundle, appOfLinuxStream, appOfWindowsMicrophone } from "../../shared/meetingApps";
 import { isRecordingEvent, type RecordingStream, streamsOfJson, streamsOfText } from "./pactl";
 
 /** The macOS watcher's file beside app.asar, where the packager builds it (scripts/callWatcher.mjs). */
 export const MAC_WATCHER = "call-watcher";
+export const WINDOWS_WATCHER = "call-watcher.exe";
+
+export function readWindowsLine(line: string): string[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    throw new Error("Invalid Windows microphone snapshot");
+  }
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("exact" in value) ||
+    value.exact !== true ||
+    !("apps" in value) ||
+    !Array.isArray(value.apps) ||
+    value.apps.some((app) => typeof app !== "string")
+  ) {
+    throw new Error("Invalid Windows microphone snapshot");
+  }
+  return [...new Set(value.apps.flatMap((name: string) => appOfWindowsMicrophone(name) ?? []))];
+}
 
 /** `pactl subscribe` says each stream change; a call opens several at once, so they are read once after this. */
 const PACTL_SETTLE_MS = 300;
@@ -97,7 +118,7 @@ export const RESTARTS: Restarts = {
 /**
  * Runs `start` and reads its lines with `read`. One that stops by itself says nothing about the
  * microphone: it is started again, after a wait that doubles each time it stops again soon, until
- * it has stopped `giveUpAfter` times in a row, when the problem is said. Stopping kills it.
+ * it has stopped `giveUpAfter` times in a row, when the problem is said.
  */
 export function watchLines(options: {
   log: Logger;
@@ -105,6 +126,7 @@ export function watchLines(options: {
   start: () => ChildProcess;
   read: (line: string) => void;
   missing: CallWatchProblem;
+  closeInput?: boolean;
   restarts?: Restarts;
   now?: () => number;
 }): () => void {
@@ -133,7 +155,7 @@ export function watchLines(options: {
     running.stdout?.setEncoding("utf8");
     if (running.stdout) {
       createInterface({ input: running.stdout }).on("line", (line) => {
-        if (line.trim() === "") return;
+        if (stopped || line.trim() === "") return;
         try {
           read(line);
         } catch (error) {
@@ -149,9 +171,11 @@ export function watchLines(options: {
     );
     running.on("error", (error: NodeJS.ErrnoException) => {
       log.warn("calls.watcherDidntStart", { code: error.code ?? "unknown" });
-      if (error.code === "ENOENT") {
+      if (stopped) return;
+      if (options.closeInput || error.code === "ENOENT") {
         stopped = true;
-        listener.problem(missing);
+        if (child === running) child = null;
+        listener.problem(error.code === "ENOENT" ? missing : "unavailable");
       }
     });
     running.on("exit", (code, signal) => {
@@ -171,7 +195,8 @@ export function watchLines(options: {
   return () => {
     stopped = true;
     if (timer) clearTimeout(timer);
-    child?.kill();
+    if (options.closeInput) child?.stdin?.end();
+    else child?.kill();
     child = null;
   };
 }
@@ -180,8 +205,8 @@ export interface CallWatcherOptions {
   log: Logger;
   platform: NodeJS.Platform;
   own: OwnProcesses;
-  /** The macOS watcher program; absent where the build has none. */
-  macWatcher: string | null;
+  /** The packaged or development watcher program, if it is available on this platform. */
+  helper: string | null;
 }
 
 export function createCallWatcher(options: CallWatcherOptions): CallWatcher {
@@ -197,26 +222,32 @@ export function createCallWatcher(options: CallWatcherOptions): CallWatcher {
         last = key;
         listener.apps(apps, exact);
       };
-      if (platform === "darwin") {
-        const program = options.macWatcher;
+      if (platform === "linux") return watchPulseAudio(log, listener, own, report);
+      if (platform === "darwin" || platform === "win32") {
+        const program = options.helper;
+        const windows = platform === "win32";
+        const missing = windows ? "not-on-windows" : "unavailable";
         if (!program) {
           log.warn("calls.noWatcherInThisBuild");
-          listener.problem("unavailable");
+          listener.problem(missing);
           return () => undefined;
         }
         return watchLines({
           log,
           listener,
-          start: () => spawn(program, [], { stdio: ["pipe", "pipe", "pipe"] }),
+          start: () => spawn(program, [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true }),
           read: (line) => {
-            const read = readMacLine(line, own);
-            report(macCallApps(apps, read), read.exact);
+            if (windows) report(readWindowsLine(line), true);
+            else {
+              const read = readMacLine(line, own);
+              report(macCallApps(apps, read), read.exact);
+            }
           },
-          missing: "unavailable",
+          missing,
+          closeInput: windows,
         });
       }
-      if (platform === "linux") return watchPulseAudio(log, listener, own, report);
-      listener.problem(platform === "win32" ? "not-on-windows" : "unavailable");
+      listener.problem("unavailable");
       return () => undefined;
     },
   };
