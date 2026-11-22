@@ -371,6 +371,8 @@ export function passagesBySeq(db: Database, seqs: readonly number[]): PassageSea
 
 /** A live Passage as the document-search Tool sees it: with its sliding window and its Document. */
 export interface WindowedPassage extends PassageSearchResult {
+  /** The exact range read from the laid-out cue Units of a live Transcript. */
+  liveCueWindow?: { start: number; end: number };
   seq: number;
   documentKind: DocumentKind;
   /** The version of the Document the Passage was built from. */

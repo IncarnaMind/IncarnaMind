@@ -147,6 +147,7 @@ interface SkillRow {
   enabled: number;
   built_in: number;
   meeting_template: number;
+  meeting_fill_uncovered: number;
   built_in_digest: string | null;
   created_at: string;
   updated_at: string;
@@ -159,7 +160,7 @@ interface Staged {
 }
 
 const COLUMNS =
-  "id, name, description, license, compatibility, files, enabled, built_in, meeting_template, built_in_digest, created_at, updated_at";
+  "id, name, description, license, compatibility, files, enabled, built_in, meeting_template, meeting_fill_uncovered, built_in_digest, created_at, updated_at";
 const LIVE = "deleted_at IS NULL";
 const ORDER = "ORDER BY name, created_at, rowid";
 
@@ -181,6 +182,7 @@ const toSkill = (row: SkillRow): Skill => ({
   enabled: row.enabled !== 0,
   builtIn: row.built_in !== 0,
   meetingTemplate: row.meeting_template !== 0,
+  ...(row.meeting_template !== 0 && { meetingFillUncovered: row.meeting_fill_uncovered !== 0 }),
   files: filesOf(row),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -716,6 +718,21 @@ export function createSkills(options: SkillsOptions) {
       return toSkill(rowOf(row.id));
     },
 
+    setMeetingFillUncovered(skillId: unknown, fill: unknown): Skill {
+      const row = rowOf(skillId);
+      if (typeof fill !== "boolean" || row.meeting_template === 0) {
+        throw new InvalidInputError({ key: "error.meeting.template" });
+      }
+      if ((row.meeting_fill_uncovered !== 0) !== fill) {
+        db.run("UPDATE skills SET meeting_fill_uncovered = ?, updated_at = ? WHERE id = ?", [
+          fill ? 1 : 0,
+          now(),
+          row.id,
+        ]);
+      }
+      return toSkill(rowOf(row.id));
+    },
+
     remove(skillId: unknown): Promise<void> {
       const id = parseId(skillId, "A Skill id");
       return serially(async () => {
@@ -757,8 +774,8 @@ export function createSkills(options: SkillsOptions) {
         const at = now();
         try {
           db.run(
-            `INSERT INTO skills (id, name, description, license, compatibility, files, enabled, meeting_template, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+            `INSERT INTO skills (id, name, description, license, compatibility, files, enabled, meeting_template, meeting_fill_uncovered, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
             [
               skillId,
               name,
@@ -767,6 +784,7 @@ export function createSkills(options: SkillsOptions) {
               row.compatibility,
               JSON.stringify(inSkillOrder(describe(files))),
               row.meeting_template,
+              row.meeting_fill_uncovered,
               at,
               at,
             ],

@@ -656,6 +656,28 @@ function SkillRow({
               <>
                 {!skill.builtIn &&
                   item("skill-edit", t("skills.settings.edit"), () => onEdit(skill))}
+                {skill.meetingTemplate && (
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={skill.meetingFillUncovered !== false}
+                    data-testid="meeting-template-fill-uncovered"
+                    className={`${menuItemClass} pl-2`}
+                    onClick={choose(() => {
+                      void core
+                        .setMeetingTemplateFillUncovered(
+                          skill.id,
+                          skill.meetingFillUncovered === false,
+                        )
+                        .catch(useAppStore.getState().reportError);
+                    })}
+                  >
+                    <span aria-hidden="true" className="w-4 shrink-0">
+                      {skill.meetingFillUncovered !== false ? "✓" : ""}
+                    </span>
+                    {t("skills.settings.meetingFillUncovered")}
+                  </button>
+                )}
                 {item("skill-export", t("skills.settings.export"), () => onExport(skill))}
                 {skill.builtIn &&
                   item("skill-duplicate", t("skills.settings.duplicate"), () => {

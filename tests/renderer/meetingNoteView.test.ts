@@ -27,6 +27,7 @@ vi.mock("../../src/renderer/src/store", async () => {
         ({
           minds: [],
           documents: [],
+          skills: [],
           layout: null,
           status: { kind: "ready" },
           settings: null,
