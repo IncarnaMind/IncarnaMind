@@ -1,4 +1,4 @@
-import { type Ref, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { type Ref, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
 import { commands } from "../commands/registry";
 import { useDismissOnEscape } from "../escapeDismiss";
@@ -34,11 +34,17 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   const starting = useMeetings((state) => !!meeting && state.starting[meeting.id] === true);
   const tabId = useTabPlace()?.tabId;
   const view = useMeetingNoteView(tabId, mindId);
-  const bar = useRef<HTMLElement>(null);
   const barHeight = useRef(0);
-  useLayoutEffect(() => {
-    if (bar.current) barHeight.current = bar.current.offsetHeight;
-  });
+  const rememberBarHeight = useCallback((bar: HTMLElement | null) => {
+    if (!bar) return;
+    barHeight.current = bar.offsetHeight;
+    const resized = new ResizeObserver(([entry]) => {
+      const size = entry?.borderBoxSize[0];
+      if (size) barHeight.current = Math.round(size.blockSize);
+    });
+    resized.observe(bar, { box: "border-box" });
+    return () => resized.disconnect();
+  }, []);
   if (!meeting) return null;
   if (meeting.status === "ready" && starting) {
     return <MeetingBarRoom meeting={meeting} />;
@@ -46,7 +52,7 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   if (meeting.status === "ready") return <MeetingStart meeting={meeting} />;
   if (isLive(meeting)) {
     if (view === "notes" || meeting.kind === "memo") {
-      return <LiveMeetingBar meeting={meeting} ref={bar} />;
+      return <LiveMeetingBar meeting={meeting} ref={rememberBarHeight} />;
     }
     // The Transcript view draws the bar over the Transcript; the hidden notes keep its room, so
     // they come back where the User left them.
