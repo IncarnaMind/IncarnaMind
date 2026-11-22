@@ -11,7 +11,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import type { AgentAsk, AgentPairing, AgentRequest, SearchScope } from "../../core/api";
 import { TranslatableError } from "../../core/errors";
-import { type AskedFor, rememberAsked } from "./askedAgent";
+import { type AskedFor, checkInBackground, rememberAsked } from "./askedAgent";
 import { core } from "./core";
 import { documentsOnScreen } from "./documentsOnScreen";
 import { noModelSetUp } from "./noModelSetUp";
@@ -230,9 +230,19 @@ export async function askFirstAgent(
   }
 }
 
-/** A Check with no model set up asks the User's own AI at once (#3587): whether one was asked. */
-export const askToCheck = async (mindId: string): Promise<boolean> =>
-  (await askFirstAgent(mindId, { kind: "check" })) === "asked";
+/**
+ * A Check with no model set up goes to the User's own AI at once (#3587): in the background where
+ * their command-line AI can run it (#3606), else by the link. Whether it went.
+ */
+export async function askToCheck(mindId: string): Promise<boolean> {
+  try {
+    if (await checkInBackground(mindId)) return true;
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+    return false;
+  }
+  return (await askFirstAgent(mindId, { kind: "check" })) === "asked";
+}
 
 /**
  * What the Ask pill and ⌘J hand over (#3612): the Note the User is in, or else the Document in

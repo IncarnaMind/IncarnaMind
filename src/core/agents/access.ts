@@ -101,7 +101,7 @@ import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
-import type { AskedChecks } from "./askedChecks";
+import type { AskedChecks, CheckRun } from "./askedChecks";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -1344,8 +1344,16 @@ export function holdsMore(
 // ---------------------------------------------------------------------------
 // The implementation
 
-/** The core interface for one pairing's calls. */
-export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): AgentAccess {
+/**
+ * The core interface for one pairing's calls. `checkRun`: the connection is a check the User
+ * pressed, started by IncarnaMind (./askedChecks): it takes only the check's Tools, for that Note
+ * alone, and reads only the pairing's Folders, never a file by its path.
+ */
+export function createAgentAccess(
+  deps: AgentAccessDeps,
+  pairingId: string,
+  checkRun?: CheckRun,
+): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
   /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
   let askedFromIncarnaMind = false;
@@ -1438,6 +1446,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     };
     let pairing: AdmittedPairing;
     try {
+      if (checkRun && !checkRun.tools.includes(tool)) {
+        throw new AgentRefusedError("invalid", t("agents.problem.checkRun"));
+      }
       pairing = deps.admit(pairingId);
     } catch (error) {
       // A pairing that no longer exists has no activity list to keep this in.
@@ -1699,10 +1710,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
 
   /**
    * Whether a Citation the pairing was given may be used: of a Document it reaches, or of a file it
-   * cited by its path (#3509), whose tokens only it was given.
+   * cited by its path (#3509), whose tokens only it was given; a check run, which cites no path,
+   * rests on its Folders alone.
    */
   const usable = (inScope: ReadonlySet<string>, documentId: string) =>
-    inScope.has(documentId) || deps.citedOutside(documentId);
+    inScope.has(documentId) || (!checkRun && deps.citedOutside(documentId));
 
   /**
    * The Documents a check's results may rest on for the pairing: those it reaches, and files cited
@@ -1940,10 +1952,17 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   };
 
   /** The Note a check by the agent's own model takes: one it wrote, or one the User asked it to check. */
-  const noteToCheck = (pairing: AdmittedPairing, mindId: unknown): Mind =>
-    typeof mindId === "string" && deps.askedChecks.holds(pairing.id, mindId)
+  const noteToCheck = (pairing: AdmittedPairing, mindId: unknown): Mind => {
+    if (checkRun) {
+      if (mindId !== checkRun.mindId) {
+        throw new AgentRefusedError("invalid", t("agents.problem.checkRun"));
+      }
+      return mindInScope(pairing, checkRun.mindId);
+    }
+    return typeof mindId === "string" && deps.askedChecks.holds(pairing.id, mindId)
       ? mindInScope(pairing, text(mindId, "mindId", 200))
       : ownNote(pairing, mindId);
+  };
 
   const notJudged = (reason: NotJudgedReason, mind: Mind): AgentRefusedError => {
     switch (reason) {
@@ -2448,6 +2467,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             "invalid",
             "citations must list at least one quote, with its passageId or path.",
           );
+        }
+        if (checkRun && list.some((each) => isRecord(each) && each.path !== undefined)) {
+          throw new AgentRefusedError("invalid", t("agents.problem.checkRunPath"));
         }
         const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
         let inScope = new Set(scopeOf(pairing, undefined));

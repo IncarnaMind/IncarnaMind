@@ -10282,6 +10282,7 @@ export const dataFlowIds = [
   "scan-images",
   "calendars",
   "decision-checks",
+  "hosted-agents",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -13177,6 +13178,51 @@ export interface AskAgentInput {
 export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string };
 
 /**
+ * Why a check IncarnaMind started on the User's own command-line AI (ADR-0032) didn't land: not
+ * signed in, older than IncarnaMind needs, no answer to whether it is signed in, the plan's or
+ * key's limit or the account's billing as the agent says, out of time, finished with no marks, a
+ * hook or plugin an organization set, the Note out of its reach since, Local mode turned on or the
+ * consent taken back since, or anything else.
+ */
+export type OwnAiCheckProblem =
+  | "signed-out"
+  | "too-old"
+  | "no-answer"
+  | "plan-limit"
+  | "billing"
+  | "timeout"
+  | "no-marks"
+  | "isolation"
+  | "access"
+  | "local-mode"
+  | "taken-back"
+  | "failed";
+
+/**
+ * How a Check pressed with no model set up went to the User's own AI (ADR-0032): "started", in the
+ * background on that agent, its end told by "agents.ownCheck"; "link", no agent can run it so, and
+ * the User's AI is asked by its link as before; "problem", the agent that would run it can't now.
+ */
+export type OwnAiCheckStart =
+  | { kind: "started"; pairing: AgentPairing }
+  | { kind: "link" }
+  | {
+      kind: "problem";
+      pairing: AgentPairing;
+      problem: OwnAiCheckProblem;
+      /** For "too-old": the version found and the lowest IncarnaMind needs. */
+      versions?: { found: string; lowest: string };
+    };
+
+/** A check on the User's own AI ended: its marks landed, the User stopped it, or it failed. */
+export interface OwnAiCheckEnd {
+  mindId: string;
+  pairingId: string;
+  outcome: "landed" | "stopped" | "failed";
+  problem: OwnAiCheckProblem | null;
+}
+
+/**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that
  * agent: the line typed in the agent's app says what they want, and the agent reads the rest with
  * `read_request`, once.
@@ -15786,6 +15832,14 @@ export interface CoreApi {
    */
   frontAgent(pairingId: string): Promise<boolean>;
   /**
+   * Checks the Note on the User's own command-line AI, in the background, with nothing opened in
+   * its app (ADR-0032): on `pairingId`, or on the first agent the User can ask that can run it.
+   * Asks once for the consent of a connection made before this existed.
+   */
+  checkWithOwnAi(mindId: string, pairingId?: string): Promise<OwnAiCheckStart>;
+  /** Stops the check running on the User's own AI for the Note, if one is: nothing of it lands. */
+  stopOwnAiCheck(mindId: string): Promise<void>;
+  /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
    */
@@ -16082,6 +16136,8 @@ export interface CoreEvents {
   "agents.activity": AgentActivity;
   /** A request to the User's own AI was made or read (see `listAgentRequests`). */
   "agents.request": AgentRequest;
+  /** A check on the User's own AI ended (see `checkWithOwnAi`). */
+  "agents.ownCheck": OwnAiCheckEnd;
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
@@ -16604,6 +16660,8 @@ const methods: Record<CoreApiMethod, true> = {
   listDocumentsToAsk: true,
   askAgent: true,
   frontAgent: true,
+  checkWithOwnAi: true,
+  stopOwnAiCheck: true,
   handedFileOf: true,
   listCanvases: true,
   showCanvas: true,

@@ -49,6 +49,7 @@ import type { FakeTranscriberOptions } from "../core/transcription/fake";
 import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
 import { PLOT_FONT } from "../shared/analysisWindow";
+import { agentLauncher } from "./agentLauncher";
 import { createAgentSkillFiles } from "./agentSkillFiles";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCanvasFiles } from "./canvasFiles";
@@ -64,6 +65,7 @@ import { createElectronScreenCapture } from "./meetings/screen";
 import { createModelRuntimeFolder } from "./modelRuntimeFolder";
 import { createOfficeConverter } from "./officeConverter";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
+import { createOwnAi } from "./ownAi";
 import { createPageLook } from "./pageLook";
 import { decodePictureToPng } from "./pictureDecode";
 import { createElectronPictures } from "./pictures";
@@ -174,6 +176,12 @@ const fileShell: FileShell = {
  */
 const testOllamaApp =
   import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_OLLAMA_APP : undefined;
+
+/**
+ * Test-only launch flag: the command that stands in for the User's Claude Code in a check run in the
+ * background. Without it a test build runs none, so no test starts the computer's own `claude`.
+ */
+const testOwnAi = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_OWN_AI : undefined;
 
 function ollamaApp(): OllamaApp {
   if (import.meta.env.MODE === "test") {
@@ -1080,11 +1088,12 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     // running the shim built beside this file (inside app.asar, which Node mode reads).
     agents: {
       offered: SHOW_AGENT_CONNECTION,
-      launcher: {
-        command: process.execPath,
-        args: [join(__dirname, "agentShim.js")],
-        env: { ELECTRON_RUN_AS_NODE: "1" },
-      },
+      launcher: agentLauncher({
+        execPath: process.execPath,
+        shim: join(__dirname, "agentShim.js"),
+        appImage: process.env.APPIMAGE,
+        dataFolder: app.getPath("userData"),
+      }),
       shimScript: join(__dirname, "agentShim.js"),
       version: app.getVersion(),
       openLink: openAgentLink,
@@ -1092,6 +1101,11 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     },
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
     summarizeWithMeetingAgent,
+    ...(import.meta.env.MODE !== "test"
+      ? { ownAi: createOwnAi() }
+      : testOwnAi
+        ? { ownAi: createOwnAi({ command: testOwnAi }) }
+        : {}),
     transcriber: fakeTranscriber
       ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))
       : createUtilityProcessTranscriber(),

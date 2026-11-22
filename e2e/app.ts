@@ -323,6 +323,11 @@ export interface LaunchOptions {
   /** How often calendars are read while the app runs, in milliseconds, instead of 5 minutes. */
   calendarSyncMs?: number;
   /**
+   * The command that stands in for the User's Claude Code when a Check runs in the background
+   * (#3606). Without it a test build runs none, and a Check asks by the link.
+   */
+  ownAi?: string;
+  /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
    * a trace keeps all of it, so never a real key.
@@ -427,6 +432,7 @@ export async function launchApp(
     calendars,
     systemCalendar,
     calendarSyncMs,
+    ownAi,
     extraEnv,
     extraArgs = [],
     trace = false,
@@ -488,6 +494,7 @@ export async function launchApp(
     INCARNAMIND_TEST_CONTRADICTION_DELAY_MS:
       contradictionWatchDelayMs === undefined ? undefined : String(contradictionWatchDelayMs),
     INCARNAMIND_TEST_AGENT_APPS: JSON.stringify(agentApps),
+    INCARNAMIND_TEST_OWN_AI: ownAi,
     ...extraEnv,
   });
 

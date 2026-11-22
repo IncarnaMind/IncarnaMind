@@ -1,9 +1,10 @@
 import type { AgentPairing, ChatReadiness } from "../../../core/api";
-import { useAskedAgent } from "../askedAgent";
+import { checkInBackground, stopBackgroundCheck, useAskedAgent } from "../askedAgent";
 import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
 import { dismissCheckProblem } from "../checks";
 import { AskAgentLine } from "../components/AskAgentLine";
-import { ProblemLine } from "../components/ProblemLine";
+import { MetaLine } from "../components/MetaLine";
+import { LineAction, ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
   readinessAction,
@@ -81,20 +82,50 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAskRead(mindId);
   if (!asked || !noModelSetUp(readiness)) return null;
-  const { agent } = asked.asked;
+  const { agent, background, state } = asked.asked;
   const others = (agents ?? []).filter((each) => each.id !== agent.id);
   const setUp = readinessAction(readiness, t, openSettings, t("agents.ask.setUpModel"));
+  // While it runs in the background, the one thing to do is stop it (#3606).
+  if (background && state === "working") {
+    return (
+      <div className="mind-health-line">
+        <MetaLine
+          as="div"
+          parts={[
+            <span key="words" role="status" data-testid="checks-asked" data-state={state}>
+              {asked.words}
+            </span>,
+            <LineAction
+              key="stop"
+              action={{
+                label: t("agents.asked.stop"),
+                testId: "checks-asked-stop",
+                onClick: () => void stopBackgroundCheck(mindId),
+              }}
+            />,
+          ]}
+        />
+      </div>
+    );
+  }
+  // An agent that can run it in the background does so again; any other is asked by its link.
+  const ask = async (each: AgentPairing) => {
+    if (!(await checkInBackground(mindId, each.id)))
+      await askAgent(each, mindId, { kind: "check" });
+  };
   return (
     <div className="mind-health-line">
-      <p role="status" data-testid="checks-asked" data-state={asked.asked.state}>
+      <p role="status" data-testid="checks-asked" data-state={state}>
         {asked.words}
       </p>
       <AskAgentLine
         agents={[agent, ...others]}
         label={(name) =>
-          name === agent.name ? t("agents.asked.again") : t("agents.ask.action", { agent: name })
+          name !== agent.name
+            ? t("agents.ask.action", { agent: name })
+            : t(background ? "agents.asked.checkAgain" : "agents.asked.again")
         }
-        onAsk={(each) => void askAgent(each, mindId, { kind: "check" })}
+        onAsk={(each) => void ask(each)}
         onContinue={(each) =>
           void askAgent(each, mindId, { kind: "check" }, undefined, { openChat: true })
         }

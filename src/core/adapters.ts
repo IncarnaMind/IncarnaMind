@@ -19,6 +19,7 @@ import type { PrintDocument } from "../shared/printDocument";
 import type { AgentLauncher } from "./agents";
 import type { AnswerEngine } from "./answers/engine";
 import type {
+  AgentLaunch,
   AudioSource,
   CallWatchProblem,
   CopilotProfileId,
@@ -1597,6 +1598,11 @@ export interface CoreAdapters {
    */
   speakerSeparator?: SpeakerSeparator;
   roomSpeakerReviewer?: RoomSpeakerReviewer;
+  /**
+   * Runs the User's own command-line AI for a check they pressed (ADR-0032, see `OwnAiRunner`).
+   * Absent (a host that can't start programs, tests that aren't about it): a check asks by the link.
+   */
+  ownAi?: OwnAiRunner;
   summarizeWithMeetingAgent?(request: {
     purpose?: "candidate-review" | "call-help" | "meeting-brief";
     client: "claude-code" | "codex";
@@ -1640,4 +1646,51 @@ export interface CoreAdapters {
   calendarSync?: { intervalMs?: number; retryMs?: readonly number[] };
   /** Where the core logs what happens (see `Logger`). None by default. */
   log?: Logger;
+}
+
+/** The command-line AIs IncarnaMind can start for a check, by the client their pairing was set up for. */
+export type OwnAiClient = "claude-code";
+
+/**
+ * Whether the agent's command is on this computer, as its login shell finds it: missing, older than
+ * IncarnaMind needs, not signed in, ready, or unknown when it couldn't be started or didn't answer
+ * in time. Read without any model call.
+ */
+export type OwnAiStatus =
+  | { kind: "ready" }
+  | { kind: "missing" }
+  | { kind: "signed-out" }
+  | { kind: "too-old"; found: string; lowest: string }
+  | { kind: "unknown" };
+
+/** Why a run of the User's own AI ended before it finished. */
+export type OwnAiFailure =
+  | "signed-out"
+  | "plan-limit"
+  | "billing"
+  | "timeout"
+  | "isolation"
+  | "other";
+
+/**
+ * The User's own command-line AI, started once for a job the User pressed, with no window and no
+ * chat kept (ADR-0032). The desktop app runs Claude Code (src/main/ownAi.ts).
+ */
+export interface OwnAiRunner {
+  /** Whether the agent's command is on this computer, found without starting anything of it. */
+  installed(client: OwnAiClient): Promise<boolean>;
+  status(client: OwnAiClient): Promise<OwnAiStatus>;
+  /**
+   * One run, resolved when it ends. `server`: IncarnaMind's server as the agent starts it, with a
+   * grant; `tools`: the only ones of it the agent may call; `instructions`: IncarnaMind's own;
+   * `prompt`: what the run is asked. Aborting `signal` stops it, and every process it started.
+   */
+  run(request: {
+    client: OwnAiClient;
+    server: AgentLaunch;
+    tools: readonly string[];
+    instructions: string;
+    prompt: string;
+    signal: AbortSignal;
+  }): Promise<{ kind: "finished" } | { kind: "failed"; reason: OwnAiFailure }>;
 }

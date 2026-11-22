@@ -8607,6 +8607,9 @@ export const en = {
   // tells an agent when a call can't be done, which the agent passes on to the User.
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
+  "consent.flow.hosted-agents": "Your AI, run in the background",
+  "consent.flow.hosted-agents.purpose":
+    "start your own AI on this computer to check a note when you press Check",
   "consent.data.scoped-passages":
     "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
@@ -8667,6 +8670,10 @@ export const en = {
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
   "agents.problem.callMarkup":
     "{argument} holds the markup of the call itself, {markup}, not words for the note: nothing was written. Send the call again with each argument in its own field.",
+  "agents.problem.checkRun":
+    "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
+  "agents.problem.checkRunPath":
+    "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":
@@ -9026,6 +9033,9 @@ export const en = {
     "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
   "agents.share.all": "All my Documents and notes, and what I add later",
   "agents.share.folders": "Choose Folders",
+  // The consent to start the agent for a check in the background (#3606).
+  "agents.connect.background":
+    "With no AI model set up here, pressing Check starts your {agent} in the background to check the note. Nothing opens and no chat is added. It reads only what IncarnaMind gives it, and uses your own Claude plan or API key.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
@@ -9092,6 +9102,32 @@ export const en = {
   "agents.asked.short.asked": "Asked your AI",
   "agents.asked.short.working": "Your AI is checking",
   "agents.asked.short.quiet": "No word from your AI",
+  // A check run on the User's own command-line AI in the background (#3606).
+  "agents.asked.stop": "Stop",
+  "agents.asked.checkAgain": "Check again",
+  "agents.asked.short.failed": "Your AI stopped",
+  "agents.ownCheck.problem.signed-out":
+    "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
+  "agents.ownCheck.problem.too-old":
+    "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then press Check again.",
+  "agents.ownCheck.problem.no-answer":
+    "{agent} didn’t answer on this computer, so the check didn’t start. Try again.",
+  "agents.ownCheck.problem.plan-limit":
+    "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
+  "agents.ownCheck.problem.billing":
+    "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
+  "agents.ownCheck.problem.timeout":
+    "{agent} took longer than 15 minutes, so the check stopped. Try again.",
+  "agents.ownCheck.problem.no-marks":
+    "{agent} finished without marking this note. Try again, or ask it in {agent}.",
+  "agents.ownCheck.problem.isolation":
+    "{agent} can’t run here beside a hook or plugin your organization set. Ask it in {agent} instead.",
+  "agents.ownCheck.problem.access": "{agent} can no longer read this note, so the check stopped.",
+  "agents.ownCheck.problem.local-mode":
+    "{agent} stopped: “Keep everything on this computer” is on.",
+  "agents.ownCheck.problem.taken-back":
+    "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
+  "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",
