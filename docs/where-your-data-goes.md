@@ -33,6 +33,8 @@ With `Keep everything on this computer` on, every cloud flow above stops or uses
 
 Usage data goes only from a build with an analytics project and only if you choose Send (a test build sends until you turn it off); while it is on, one event a week also says roughly what that week's model calls cost, as a range, the kind of route that paid, the kind of provider most of that spend went to, and how many Answers and checks there were; [privacy.md](privacy.md) lists every field. Crash reports only if you turn them on; sign-ins to ChatGPT, a Claude account or GitHub go only to that service.
 
+IncarnaMind registers links of its own on this computer (incarnamind://): one names a Note, file or Canvas by its id only, and opening it shows that item if it is here. It sends, writes and asks nothing, and uninstalling takes the registration out.
+
 An export you send yourself carries quotes from your Documents with their names; a web page to share also holds the passage around each quote and a picture of part of its page.
 
 An AI agent you let write can have IncarnaMind read picture files on this computer for a Note or a Canvas it writes: only the files it names in that call, each where it is, never through a link. IncarnaMind keeps them in that Note or Canvas and sends them nowhere. It can also hand over a deck, workbook, Word file or PDF it made: IncarnaMind reads that one file from the path the agent names, the same way, keeps a copy of each version in its data folder, and checks it as "Check someone else's file" does, when you press Check on its note or, with "Check what the assistant and your own AI write" on in Settings → AI, as it lands: on the AI model you chose for checks and only when you allowed checks to go to its service.

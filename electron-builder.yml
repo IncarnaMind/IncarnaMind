@@ -7,6 +7,13 @@
 # updates to it, and macOS ties the app's keychain entries to it.
 appId: com.incarnamind.app
 productName: IncarnaMind
+# The app's own links, incarnamind://note|file|canvas/<id> (ADR-0033): macOS's Info.plist and the
+# Linux .desktop file name the scheme; Windows registers it at start (src/main/index.ts) and the
+# uninstaller takes it out (build/installer.nsh).
+protocols:
+  - name: IncarnaMind
+    schemes:
+      - incarnamind
 
 directories:
   output: dist
