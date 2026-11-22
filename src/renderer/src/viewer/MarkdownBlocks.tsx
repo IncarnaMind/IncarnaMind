@@ -6,6 +6,7 @@ import type { AnnotationRange } from "./annotationMarks";
 import { loadDocumentPicture } from "./documentPicture";
 import { type Block, type Inline, type ListItem, sectionHeadings } from "./markdown";
 import { NoteMark } from "./NoteMark";
+import { type QuoteRange, QuoteStepContext, quoteClass, quoteIndexProps } from "./quoteSteps";
 
 /** The Markdown Document shown, whose pictures beside it its images load. */
 export const MarkdownDocumentContext = createContext<string | null>(null);
@@ -31,9 +32,10 @@ export function Slice({
   source: string;
   start: number;
   end: number;
-  highlight: readonly TextRange[];
+  highlight: readonly QuoteRange[];
   annotations?: readonly AnnotationRange[];
 }) {
+  const step = useContext(QuoteStepContext);
   const quotes = highlight.filter((range) => range.end > start && range.start < end);
   const marks = annotations.filter((range) => range.end > start && range.start < end);
   // Where it starts in the file, so a selection reads the file's own characters (`sourceSelection`).
@@ -49,7 +51,9 @@ export function Slice({
   for (let index = 0; index < sorted.length - 1; index++) {
     const from = sorted[index] as number;
     const to = sorted[index + 1] as number;
-    const quote = quotes.find((range) => range.start <= from && range.end >= to);
+    const covering = quotes.filter((range) => range.start <= from && range.end >= to);
+    // Two quotes of one chip may share words: they show as the one the viewer is on.
+    const quote = covering.find((range) => range.quote === step) ?? covering[0];
     const annotation = marks.find((range) => range.start <= from && range.end >= to);
     if (!quote && !annotation) {
       parts.push(source.slice(from, to));
@@ -62,7 +66,7 @@ export function Slice({
         }`
       : "";
     const classes = [
-      quote ? `quote-highlight${joins}` : null,
+      quote ? `quote-highlight${joins}${quoteClass(quote.quote, step)}` : null,
       annotation ? `annotation-highlight annotation-highlight--${annotation.colour}` : null,
     ]
       .filter(Boolean)
@@ -70,7 +74,7 @@ export function Slice({
     parts.push(
       <mark
         key={from}
-        {...(quote ? { "data-quote-highlight": "" } : {})}
+        {...(quote ? { "data-quote-highlight": "", ...quoteIndexProps(quote.quote) } : {})}
         {...(annotation ? { "data-annotation-id": annotation.id } : {})}
         className={classes}
       >

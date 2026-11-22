@@ -679,7 +679,7 @@ const UNCITED = {
     stop: "。",
     why: "这句话没有引用，这条回答读过的段落中也没有依据。",
     says: "文档没有写这里的潮水涨多高。",
-    toCheck: "2 句待核对",
+    toCheck: "2 句未核对",
   },
 } as const;
 

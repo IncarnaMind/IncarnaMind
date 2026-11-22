@@ -523,7 +523,7 @@ test("Export options remembers the format and its options; Export and ⇧⌘E us
   await expect(exportMenu.getByRole("menuitem")).toHaveText([
     /^PDF(⇧⌘E|Ctrl\+Shift\+E)$/,
     "Word（.docx）",
-    "1 句待核对 · 先核对",
+    "1 句未核对 · 先核对",
     "更多格式",
     /^引用格式/,
     "导出选项…",

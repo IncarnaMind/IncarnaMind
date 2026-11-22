@@ -43,7 +43,7 @@ export const en = {
   "library.organize.withAgent": "Ask {agent} to organize",
   "library.organize.askAgent": "Your AI can suggest Folders and Tags for you to review.",
   "library.organize.share":
-    "To organize these Documents with your AI, share their location in the agent settings.",
+    "To organize these Documents with your AI, share their location in Settings › AI.",
   "library.organize.needsModel": "Choose an AI model to sort your Documents.",
   "library.toSort.one": "1 to organize",
   "library.toSort.other": "{count} to organize",
@@ -484,7 +484,8 @@ export const en = {
   "home.active": "Active {time}",
   "command.palette.open": "Search…",
   "command.settings.page": "Settings: {page}",
-  "command.settings.ai.keywords": "settings models providers keys accounts plans search embeddings",
+  "command.settings.ai.keywords":
+    "settings models providers keys accounts plans search embeddings agents agent your own AI",
   "command.settings.addProvider": "Add an account or key…",
   "command.settings.transcription": "Set up meeting transcription…",
   "command.settings.transcription.keywords":
@@ -3033,10 +3034,9 @@ export const en = {
   "embeddingProviders.confirm.off": "Search matches words again. What it read is kept.",
   "embeddingProviders.confirm.turnOff": "Turn off",
   "embeddingProviders.localOnly.label": "Keep everything on this computer",
-  "embeddingProviders.localOnly.body":
-    "Nothing of yours leaves this computer: only local models answer.",
+  "embeddingProviders.localOnly.body": "Only local models answer, and your own AI is paused.",
   "embeddingProviders.localOnly.body.details":
-    "Search by meaning uses the built-in model or Ollama, search results aren’t sent anywhere to be ordered, Questions are asked only of a model on this computer, and no usage data is sent. Turning it on switches a cloud search model back to the built-in one, and reads your Documents again.",
+    "Search by meaning uses the built-in model or Ollama, search results aren’t sent anywhere to be ordered, Questions are asked only of a model on this computer, your own AI can’t reach your Documents, and no usage data is sent. Turning it on switches a cloud search model back to the built-in one, and reads your Documents again.",
   "embeddingProviders.localOnly.cloudChat":
     "Questions aren’t sent to {service}. Choose a local model.",
   "embeddingProviders.rebuild.title": "Reading Documents for search: {done} of {total}",
@@ -3337,7 +3337,7 @@ export const en = {
   "setup.services.failed": "Couldn’t read the transcription services",
   "setup.sorting.failed": "Couldn’t read the models that can sort",
   "read.tryAgain": "Try again",
-  "models.sorting.chat": "Use your AI model",
+  "models.sorting.chat": "Use {model}",
   "setup.sorting.uses": "Tags, Folders and meeting hints use this model",
   "setup.sorting.here":
     "Tags, Folders and meeting hints run on this computer \u00b7 free \u00b7 nothing leaves",
@@ -3360,7 +3360,7 @@ export const en = {
   "setup.claude.copied": "Copied. Paste it into the Claude app, then ask your Documents there.",
   "setup.claude.connected": "Connected. Open the Claude app and ask your Documents there.",
   "setup.claude.noFolder": "Claude reads one Folder. Put this note in one first.",
-  "setup.claude.openAgents": "Open Agents settings",
+  "setup.claude.openAgents": "Open Settings › AI",
   "setupPage.progress": "Step {step} of {count}",
   "setupPage.progress.work": "Your work",
   "setupPage.progress.ai": "Your AI",
@@ -3434,9 +3434,6 @@ export const en = {
   "setupPage.meetings.later": "Set up when I record",
   "setupPage.meetings.needsModel":
     "Notes after a call and help during it need a model in IncarnaMind.",
-  "setupPage.empty.title": "No AI yet",
-  "setupPage.empty.line": "Add a key, sign in to a plan, or use a model on this computer.",
-  "setupPage.stepByStep": "Set up step by step",
   "setupPage.again": "Set up step by step again",
   "setupPage.again.command": "Set up step by step",
   "setupPage.again.keywords": "first run setup ai sorting transcription key",
@@ -4254,9 +4251,7 @@ export const en = {
   "models.providers.removeKey": "Remove key",
   "models.directory.noMatch": "No provider matches “{query}”.",
   "models.directory.added": "Added",
-  "ai.lede": "Where AI comes from and which model does each job",
-  "ai.ownAi.line":
-    "A model in IncarnaMind is optional. It adds the assistant, Connectors and Skills, sorting by itself, and notes after a call.",
+  "ai.useModel.line": "Optional: the assistant, sorting by itself, notes after calls",
   "ai.jobs.title": "What each job uses",
   "ai.jobs.answers": "Answers and writing",
   "ai.jobs.answers.line": "The assistant, Ask, Compare, edits and checks",
@@ -4293,6 +4288,7 @@ export const en = {
   "ai.jobs.search.line": "Finds passages by meaning, on this computer",
   "ai.jobs.search.server": "Another server…",
   "ai.jobs.checkWrites": "Check what the assistant and your own AI write",
+  "ai.jobs.checkWrites.ownAi": "Check what your own AI writes",
   "ai.jobs.checkWrites.line": "As it lands. Off, it waits for your Check.",
   "ai.jobs.web": "Search the web in Answers",
   "ai.jobs.web.line": "With the Answers model’s own search",
@@ -5033,6 +5029,8 @@ export const en = {
   "citation.more": "More for this Citation",
   "card.useKey": "to use",
   "command.citation.open": "Open cited page",
+  "command.citation.nextQuote": "Next quote of this Citation",
+  "command.citation.previousQuote": "Previous quote of this Citation",
   "command.viewer.openCurrentVersion": "Open the current version",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
@@ -5048,6 +5046,18 @@ export const en = {
     "The cited place ({location}) is no longer where it was in this Document.",
   "citation.changed.words": "The cited words changed in the new version:",
   "citation.badge.recheck": "Needs re-check",
+  "citation.group.label": "Citation {number}, {count} quotes: {document}. {badge}",
+  "citation.group.found.on": "{count} quotes found on {location}",
+  "citation.group.found.in": "{count} quotes found in {location}",
+  "citation.group.found.document": "{count} quotes found in {document}",
+  "citation.group.found.transcript": "{count} quotes found in the transcript at {location}",
+  "citation.group.some": "{badge} · {some} of {count} quotes",
+  "citation.group.openQuote": "Open at these words",
+  "citation.group.quoteMore": "More for this quote",
+  "citation.steps.label": "Quotes of Citation {number}",
+  "citation.steps.count": "Quote {at} of {total}",
+  "citation.steps.previous": "Previous quote",
+  "citation.steps.next": "Next quote",
   "citation.update": "Update the sentence",
   "citation.updated": "Now citing the new version",
   "citation.keepOld": "Keep citing the old version",
@@ -6054,6 +6064,7 @@ export const en = {
   "error.canvas.versionNotFound": "That version of the Canvas isn’t there.",
   "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
+  "error.layout.quotes": "Those quotes to mark in a Document aren’t a short list of text.",
   "error.layout.conversation": "The assistant shows a conversation, or a New chat.",
   "error.layout.foldedBy": "The assistant can be folded only by you, or for your own AI.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",
@@ -6524,7 +6535,7 @@ export const en = {
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.cantAsk": "That agent can’t read this note now.",
   "error.agent.cantOrganize":
-    "This agent can’t organize these Documents with its current access. Check its shared Folders in agent settings.",
+    "This agent can’t organize these Documents with its current access. Check its shared Folders in Settings › AI.",
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
@@ -7139,7 +7150,7 @@ export const en = {
   "firstOpen.agent.line": "Write a short summary of {document} as a new note in IncarnaMind.",
   "firstOpen.agent.noDocument": "No Documents yet. Add one, and your AI can write a note about it.",
   "firstOpen.agent.unshared":
-    "No connected AI can read your Documents yet. Share them in its agent settings.",
+    "No connected AI can read your Documents yet. Share them in Settings › AI.",
   "firstOpen.step.agentLook.title": "See what needs a look",
   "firstOpen.step.agentLook.done": "Saw what needs a look",
   "firstOpen.step.agentLook.waiting": "What needs a look shows here once the note is checked.",
@@ -8607,6 +8618,9 @@ export const en = {
   // tells an agent when a call can't be done, which the agent passes on to the User.
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
+  "consent.flow.hosted-agents": "Your AI, run in the background",
+  "consent.flow.hosted-agents.purpose":
+    "start your own AI on this computer to check a note when you press Check",
   "consent.data.scoped-passages":
     "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
@@ -8616,16 +8630,16 @@ export const en = {
   "consent.flow.web-search.purpose": "search the web for your Questions",
   "consent.data.web-searches": "What an Answer searches the web for, written from your Question",
   "agents.problem.unpaired":
-    "This agent is no longer connected. Connect it again in Settings → Agents.",
-  "agents.problem.off": "Connecting agents is off. Turn it on in Settings → Agents.",
+    "This agent is no longer connected. Connect it again in Settings → AI.",
+  "agents.problem.off": "Connecting agents is off. Turn it on in Settings → AI.",
   "agents.problem.local-mode":
     "Agents are paused: “Keep everything on this computer” is on. Turn it off in Settings → Privacy.",
   "agents.problem.consent":
     "This agent can’t read your Documents now. Allow it again in Settings → Privacy.",
   "agents.problem.no-folders":
-    "This agent can’t read any Documents yet. Choose its Folders in Settings → Agents.",
+    "This agent can’t read any Documents yet. Choose its Folders in Settings → AI.",
   "agents.problem.outside-scope":
-    "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
+    "That Folder isn’t shared with this agent. Share more in Settings → AI.",
   "agents.problem.reachChanged":
     "What this agent may read changed while it waited, so nothing was given back. Call again.",
   "agents.problem.wallShared":
@@ -8648,7 +8662,7 @@ export const en = {
     "“{document}” changed since you began reading it. Read it again from its start.",
   // Told with a result that can read as "nothing is there" (#3544): it names nothing outside.
   "agents.notShared":
-    "The User has more in IncarnaMind than is shared with you. If what they asked about isn’t here, tell them they can share more with you in Settings → Agents.",
+    "The User has more in IncarnaMind than is shared with you. If what they asked about isn’t here, tell them they can share more with you in Settings → AI.",
   "agents.problem.chat-not-ready":
     "No AI model is ready in IncarnaMind. Set one up in Settings › AI, or search and cite.",
   "agents.problem.chat-consent":
@@ -8659,7 +8673,7 @@ export const en = {
   "agents.problem.requestNoteDeleted":
     "What this request is about was deleted in IncarnaMind, so there is nothing to go on. Tell the User; if they restore it, they can ask again.",
   "agents.problem.requestOutOfReach":
-    "This request is about something this agent can’t read now. Tell the User to share its Folder with you in Settings → Agents, then ask again.",
+    "This request is about something this agent can’t read now. Tell the User to share its Folder with you in Settings → AI, then ask again.",
   "agents.problem.invalid": "IncarnaMind couldn’t read that request.",
   "agents.problem.failed": "Something went wrong in IncarnaMind. Try again.",
   "agents.answer.notFound": "[quote not found]",
@@ -8667,8 +8681,12 @@ export const en = {
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
   "agents.problem.callMarkup":
     "{argument} holds the markup of the call itself, {markup}, not words for the note: nothing was written. Send the call again with each argument in its own field.",
+  "agents.problem.checkRun":
+    "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
+  "agents.problem.checkRunPath":
+    "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
   "agents.problem.read-only":
-    "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
+    "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
   "agents.problem.changed":
     "This note changed after the agent read it. Read it again, then propose the changes again.",
   "agents.problem.waiting":
@@ -8835,18 +8853,17 @@ export const en = {
   "agents.read.unchecked":
     "{count} sentences of this note hold no check result yet: to tell the User whether they are right, check them with check_mind_yourself, which gives them.",
   "agents.mind.namedChoice": "named must be true or false.",
-  // Settings → Agents (#351): plain words for people who never edit a settings file.
-  "settings.pages.agents": "Agents",
-  "agents.settings.experimental": "Experimental",
-  "agents.settings.lead": "Ask Claude, Codex or Cursor about your Documents.",
+  // Settings → AI → Your AI (#351, #3645): plain words for people who never edit a settings file.
   "agents.settings.intro": "Let the AI tool you use read your Documents.",
   "agents.settings.switch": "Connect AI agents",
   "agents.settings.switch.off": "Off: no agent can reach your Documents.",
   "agents.settings.switch.on": "On: agents read what you share while IncarnaMind is open.",
-  "agents.settings.paused": "Agents paused: “Keep everything on this computer” is on.",
-  "agents.settings.paused.open": "Settings › AI",
-  "agents.settings.connected": "Connected agents",
-  "agents.settings.connect": "Connect an agent",
+  "agents.settings.paused": "Your AI paused: “Keep everything on this computer” is on.",
+  "agents.settings.paused.open": "Change in Limits ›",
+  "agents.settings.connectFirst": "Connect an agent\u2026",
+  "agents.settings.connectAnother": "Connect another agent\u2026",
+  "agents.settings.readFailed": "Couldn’t read your AI’s connections",
+  "agents.settings.listFailed": "Couldn’t list the agents to connect",
   "agents.settings.connect.note": "Agents found on this computer come first.",
   "agents.settings.web": "Online-only chat apps can’t reach IncarnaMind.",
   "agents.find": "Search {count} agents",
@@ -9024,6 +9041,9 @@ export const en = {
     "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
   "agents.share.all": "All my Documents and notes, and what I add later",
   "agents.share.folders": "Choose Folders",
+  // The consent to start the agent for a check in the background (#3606).
+  "agents.connect.background":
+    "With no AI model set up here, pressing Check starts your {agent} in the background to check the note. Nothing opens and no chat is added. It reads only what IncarnaMind gives it, and uses your own Claude plan or API key.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
@@ -9090,6 +9110,32 @@ export const en = {
   "agents.asked.short.asked": "Asked your AI",
   "agents.asked.short.working": "Your AI is checking",
   "agents.asked.short.quiet": "No word from your AI",
+  // A check run on the User's own command-line AI in the background (#3606).
+  "agents.asked.stop": "Stop",
+  "agents.asked.checkAgain": "Check again",
+  "agents.asked.short.failed": "Your AI stopped",
+  "agents.ownCheck.problem.signed-out":
+    "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
+  "agents.ownCheck.problem.too-old":
+    "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then press Check again.",
+  "agents.ownCheck.problem.no-answer":
+    "{agent} didn’t answer on this computer, so the check didn’t start. Try again.",
+  "agents.ownCheck.problem.plan-limit":
+    "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
+  "agents.ownCheck.problem.billing":
+    "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
+  "agents.ownCheck.problem.timeout":
+    "{agent} took longer than 15 minutes, so the check stopped. Try again.",
+  "agents.ownCheck.problem.no-marks":
+    "{agent} finished without marking this note. Try again, or ask it in {agent}.",
+  "agents.ownCheck.problem.isolation":
+    "{agent} can’t run here beside a hook or plugin your organization set. Ask it in {agent} instead.",
+  "agents.ownCheck.problem.access": "{agent} can no longer read this note, so the check stopped.",
+  "agents.ownCheck.problem.local-mode":
+    "{agent} stopped: “Keep everything on this computer” is on.",
+  "agents.ownCheck.problem.taken-back":
+    "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
+  "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",
@@ -9114,7 +9160,7 @@ export const en = {
   "meetings.notesAgent.unshared":
     "To use {agent}, move this meeting note to a folder shared with it.",
   "meetings.notesAgent.unavailable": "Reconnect your AI or resume its access in Settings.",
-  "meetings.notesAgent.settings": "Agent settings",
+  "meetings.notesAgent.settings": "Settings › AI",
   "meetings.help.agent.used": "{agent} · Recent meeting transcript",
   "meetings.help.agent.setting": "AI for Call Help",
   "meetings.help.agent.disclosure":

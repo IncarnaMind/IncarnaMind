@@ -8,6 +8,7 @@ import {
   acceptPlainTextKeys,
   assistantAnswers,
   closeSettings,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
@@ -79,6 +80,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launchApp(dataDir);
     try {
       await dismissChatSetup(window);
+      // A model set up, so the cap is listed (#3645).
+      await connectLocalChatModel(window);
       await setWindowSize(app, window, 1440, 660);
       const settings = await openSettings(window, "ai");
       await bridge(window).language(language);

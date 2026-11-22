@@ -6,6 +6,7 @@ import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   catchCopies,
   createDataFolder,
   dismissChatSetup,
@@ -17,10 +18,7 @@ import {
   showSettingsPage,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * What a new agent reads (#507, #3364, #3487, #3544): all of the User's Documents and notes, those
@@ -115,7 +113,7 @@ async function writeNote(name: string, sentence: string): Promise<string> {
   return path;
 }
 
-/** Connecting agents on, then Settings → Agents, then Claude Code's Connect: the dialog it opens. */
+/** Connecting agents on, then Settings → AI, then Claude Code's Connect: the dialog it opens. */
 async function openConnectDialog(window: Page, language: Language): Promise<Locator> {
   await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
@@ -123,9 +121,8 @@ async function openConnectDialog(window: Page, language: Language): Promise<Loca
   });
   await setLanguage(window, language);
   await window.getByRole("button", { name: WORDS[language].settings }).last().click();
-  const page = await showSettingsPage(window, "agents");
-  await page
-    .getByTestId("agents-list")
+  const page = await showSettingsPage(window, "ai");
+  await (await agentsToConnect(page))
     .locator('[data-client="claude-code"]')
     .getByTestId("agent-connect")
     .click();

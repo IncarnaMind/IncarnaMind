@@ -58,3 +58,6 @@ export interface DocumentLocation extends DocumentPlace {
 
 /** What the viewer knows of the Citation it was opened from. */
 export type ViewerCitation = TabCitation;
+
+/** The most quotes one opening of a Document marks: those of the Citations one chip stands for. */
+export const MOST_QUOTES_AT_ONCE = 50;

@@ -65,8 +65,8 @@ const WORDS = {
   "zh-CN": {
     request: "添加核对用的收入表格",
     line: "已核对 22 句",
-    badgeWords: "1 句待核对",
-    badgeName: "1 句待核对",
+    badgeWords: "1 句未核对",
+    badgeName: "1 句未核对",
     afterBadgeWords: "需要留意 1 处",
     afterBadgeName: "需要留意 1 处",
     toCheck: "1 句未核对",

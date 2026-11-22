@@ -4277,6 +4277,11 @@ export interface DocumentPlace {
    * TXT or Markdown file.
    */
   quote?: string;
+  /**
+   * Every quote to highlight when several Citations of one source and place open together,
+   * from the one chip they show as: `quote` among them, which the viewer goes to.
+   */
+  quotes?: string[];
   /** A saved web page's picture the quote was read from, numbered in the page from 1: it is outlined. */
   figure?: number;
   /** The region a figure's Citation points at (#118): the viewer outlines it on its Unit. */
@@ -10318,6 +10323,7 @@ export const dataFlowIds = [
   "scan-images",
   "calendars",
   "decision-checks",
+  "hosted-agents",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -12916,7 +12922,10 @@ export interface AgentPairing {
 }
 
 export interface AgentSettings {
-  /** Connecting agents is on (Settings → Agents, experimental). Off by default; off, nothing listens. */
+  /**
+   * Connecting agents is on. Off by default; Settings and first run turn it on as the User connects
+   * an agent (`agentConnector`); off, nothing listens.
+   */
   enabled: boolean;
   /**
    * "local-mode": Local mode pauses every pairing, because an agent sends what
@@ -13008,7 +13017,7 @@ export const AGENT_TOOLS = [
 ] as const;
 
 /**
- * The agents Settings → Agents sets IncarnaMind up in, and "other" for the
+ * The agents Settings → AI sets IncarnaMind up in, and "other" for the
  * rest (see src/core/agents/clients.ts). A pairing made before an agent
  * stopped being listed keeps its own id, so a pairing's `client` is any text.
  */
@@ -13211,6 +13220,51 @@ export interface AskAgentInput {
  * for the User to paste. The rest of the request waits in IncarnaMind for that agent (#3419).
  */
 export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string };
+
+/**
+ * Why a check IncarnaMind started on the User's own command-line AI (ADR-0032) didn't land: not
+ * signed in, older than IncarnaMind needs, no answer to whether it is signed in, the plan's or
+ * key's limit or the account's billing as the agent says, out of time, finished with no marks, a
+ * hook or plugin an organization set, the Note out of its reach since, Local mode turned on or the
+ * consent taken back since, or anything else.
+ */
+export type OwnAiCheckProblem =
+  | "signed-out"
+  | "too-old"
+  | "no-answer"
+  | "plan-limit"
+  | "billing"
+  | "timeout"
+  | "no-marks"
+  | "isolation"
+  | "access"
+  | "local-mode"
+  | "taken-back"
+  | "failed";
+
+/**
+ * How a Check pressed with no model set up went to the User's own AI (ADR-0032): "started", in the
+ * background on that agent, its end told by "agents.ownCheck"; "link", no agent can run it so, and
+ * the User's AI is asked by its link as before; "problem", the agent that would run it can't now.
+ */
+export type OwnAiCheckStart =
+  | { kind: "started"; pairing: AgentPairing }
+  | { kind: "link" }
+  | {
+      kind: "problem";
+      pairing: AgentPairing;
+      problem: OwnAiCheckProblem;
+      /** For "too-old": the version found and the lowest IncarnaMind needs. */
+      versions?: { found: string; lowest: string };
+    };
+
+/** A check on the User's own AI ended: its marks landed, the User stopped it, or it failed. */
+export interface OwnAiCheckEnd {
+  mindId: string;
+  pairingId: string;
+  outcome: "landed" | "stopped" | "failed";
+  problem: OwnAiCheckProblem | null;
+}
 
 /**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that
@@ -14852,6 +14906,12 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
+  /**
+   * What an app link handed to IncarnaMind before this window loaded names (ADR-0033), for the
+   * window to open in front in place of Home; null for none. Once a window has asked, links are
+   * shown as they come (`agents.opened`).
+   */
+  takeLinked(): Promise<AgentOpened["item"] | null>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -15823,6 +15883,14 @@ export interface CoreApi {
    */
   frontAgent(pairingId: string): Promise<boolean>;
   /**
+   * Checks the Note on the User's own command-line AI, in the background, with nothing opened in
+   * its app (ADR-0032): on `pairingId`, or on the first agent the User can ask that can run it.
+   * Asks once for the consent of a connection made before this existed.
+   */
+  checkWithOwnAi(mindId: string, pairingId?: string): Promise<OwnAiCheckStart>;
+  /** Stops the check running on the User's own AI for the Note, if one is: nothing of it lands. */
+  stopOwnAiCheck(mindId: string): Promise<void>;
+  /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
    */
@@ -16119,6 +16187,8 @@ export interface CoreEvents {
   "agents.activity": AgentActivity;
   /** A request to the User's own AI was made or read (see `listAgentRequests`). */
   "agents.request": AgentRequest;
+  /** A check on the User's own AI ended (see `checkWithOwnAi`). */
+  "agents.ownCheck": OwnAiCheckEnd;
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
@@ -16365,6 +16435,7 @@ const methods: Record<CoreApiMethod, true> = {
   judgedWithNow: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
+  takeLinked: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,
@@ -16641,6 +16712,8 @@ const methods: Record<CoreApiMethod, true> = {
   listDocumentsToAsk: true,
   askAgent: true,
   frontAgent: true,
+  checkWithOwnAi: true,
+  stopOwnAiCheck: true,
   handedFileOf: true,
   listCanvases: true,
   showCanvas: true,

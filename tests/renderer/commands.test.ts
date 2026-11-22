@@ -185,6 +185,9 @@ describe("Output location", () => {
 const TAKE_TURNS = new Set([
   "meeting.previousView table.columnLeft",
   "meeting.nextView table.columnRight",
+  // A find's matches while its bar is open, else the quotes of a chip (#3654).
+  "mind.findNext citation.nextQuote",
+  "mind.findPrevious citation.previousQuote",
 ]);
 
 /**

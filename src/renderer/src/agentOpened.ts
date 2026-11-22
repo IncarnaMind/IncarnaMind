@@ -61,7 +61,8 @@ async function openNote(mindId: string, front: boolean): Promise<void> {
   if (opened) await changeLayout({ type: "close", tabId: earlier.tabId });
 }
 
-function heardOpened({ item, front }: AgentOpened): void {
+/** Opens what an agent made, or an app link names, in front or behind as `heardOpened` says. */
+export function showOpened({ item, front }: AgentOpened): void {
   const state = useAppStore.getState();
   if (front && state.settingsOpen) state.closeSettings();
   const shown = front || !document.hasFocus();
@@ -78,5 +79,5 @@ function heardOpened({ item, front }: AgentOpened): void {
 }
 
 export function installAgentOpened(): void {
-  core.on("agents.opened", heardOpened);
+  core.on("agents.opened", showOpened);
 }

@@ -218,9 +218,12 @@ test("by keyboard alone, in Chinese: ⌘K opens Add an account or key, its group
     await expect(add.getByTestId("provider-page-title")).toHaveText("Kimi（月之暗面）");
     await expect(add.getByTestId("models-back")).toBeFocused();
     await window.keyboard.press("Enter");
+    // Still no model: a model is the quiet row, and there is no Accounts and keys (#3645).
     await expect(settings.getByTestId("provider-row")).toHaveCount(0);
-    await expect(settings.getByTestId("built-in-row")).toContainText("IncarnaMind 内置");
-    await expect(settings.getByTestId("model-default-chatModel")).toHaveText("还没有模型");
+    await expect(settings.getByTestId("ai-use-model-open")).toContainText(
+      "在 IncarnaMind 里用一个模型…",
+    );
+    await expect(settings.getByTestId("model-default-chatModel")).toHaveCount(0);
   } finally {
     await app.close();
   }

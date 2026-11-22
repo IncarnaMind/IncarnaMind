@@ -323,11 +323,18 @@ export interface LaunchOptions {
   /** How often calendars are read while the app runs, in milliseconds, instead of 5 minutes. */
   calendarSyncMs?: number;
   /**
+   * The command that stands in for the User's Claude Code when a Check runs in the background
+   * (#3606). Without it a test build runs none, and a Check asks by the link.
+   */
+  ownAi?: string;
+  /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
    * a trace keeps all of it, so never a real key.
    */
   extraEnv?: Record<string, string>;
+  /** More arguments for the app's start, after its own: a link a system passes on (#3534). */
+  extraArgs?: readonly string[];
   /** Keeps the app's trace at `tracePath` when it closes, as INCARNAMIND_KEEP_ARTIFACTS does, without the video. */
   trace?: boolean;
   /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
@@ -425,7 +432,9 @@ export async function launchApp(
     calendars,
     systemCalendar,
     calendarSyncMs,
+    ownAi,
     extraEnv,
+    extraArgs = [],
     trace = false,
     switches = [],
     systemColours = false,
@@ -485,6 +494,7 @@ export async function launchApp(
     INCARNAMIND_TEST_CONTRADICTION_DELAY_MS:
       contradictionWatchDelayMs === undefined ? undefined : String(contradictionWatchDelayMs),
     INCARNAMIND_TEST_AGENT_APPS: JSON.stringify(agentApps),
+    INCARNAMIND_TEST_OWN_AI: ownAi,
     ...extraEnv,
   });
 
@@ -498,6 +508,7 @@ export async function launchApp(
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
       ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
+      ...extraArgs,
     ],
     env,
     ...(systemColours && { colorScheme: null }),
@@ -1431,14 +1442,7 @@ export async function acceptPlainTextKeys(window: Page, form?: Locator): Promise
 }
 
 /** The pages in Settings' list. */
-export type SettingsPage =
-  | "general"
-  | "ai"
-  | "meetings"
-  | "connectors"
-  | "skills"
-  | "agents"
-  | "privacy";
+export type SettingsPage = "general" | "ai" | "meetings" | "connectors" | "skills" | "privacy";
 
 /** Opens Settings from the sidebar, then one of the pages in its list. Returns the dialog. */
 export async function openSettings(window: Page, page: SettingsPage): Promise<Locator> {
@@ -1458,13 +1462,49 @@ export async function showSettingsPage(window: Page, page: SettingsPage): Promis
 }
 
 /**
+ * In Settings › AI, the agents to connect: unfolded with "Connect an agent…" or "Connect another
+ * agent…" when anything is set up already, open as it is when nothing is.
+ */
+export async function agentsToConnect(settings: Locator): Promise<Locator> {
+  const list = settings.getByTestId("agents-list");
+  const unfold = settings.getByTestId("agents-connect-another");
+  await expect(list.or(unfold)).toBeVisible();
+  if (await unfold.isVisible()) await unfold.click();
+  await expect(list).toBeVisible();
+  return list;
+}
+
+/**
+ * From Settings › AI's list, opens "Add an account or key…" and returns its sheet: the button under
+ * Accounts and keys, or, with no model set up, where there is no Accounts and keys (#3645), the
+ * same entry in ⌘K, which opens Settings › AI with the sheet.
+ */
+export async function openAddSheet(settings: Locator): Promise<Locator> {
+  const add = settings.getByTestId("models-add-provider");
+  await expect(settings.getByTestId("ai-limits")).toBeVisible();
+  if ((await add.count()) > 0) await add.click();
+  else {
+    const window = settings.page();
+    await window.keyboard.press("Escape");
+    await expect(settings).toBeHidden();
+    const language = await window.evaluate(() => document.documentElement.lang);
+    await runCommand(
+      window,
+      "settings.addProvider",
+      translate(language === "zh-CN" ? "zh-CN" : "en", "command.settings.addProvider"),
+    );
+  }
+  const sheet = settings.getByTestId("ai-add-sheet");
+  await expect(sheet).toBeVisible();
+  return sheet;
+}
+
+/**
  * In Settings › AI, opens "Add an account or key…" and chooses `entry` (#2835): a catalog id, or
  * a directory key such as "plan:chatgpt" or "transcription:soniox". The sheet closes on the choice.
  */
 export async function openDirectoryEntry(settings: Locator, entry: string): Promise<void> {
-  await settings.getByTestId("models-add-provider").click();
-  const sheet = settings.getByTestId("ai-add-sheet");
-  await expect(sheet).toBeVisible();
+  const sheet = await openAddSheet(settings);
   await sheet
     .locator(entry.includes(":") ? `[data-entry="${entry}"]` : `[data-catalog-id="${entry}"]`)
     .first()

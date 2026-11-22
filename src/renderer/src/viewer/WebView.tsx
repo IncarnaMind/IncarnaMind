@@ -19,6 +19,7 @@ import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import { PdfView } from "./PdfView";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import { CURRENT_QUOTE, markEachQuote, QuoteStepsLine, useQuoteSteps } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
@@ -345,18 +346,18 @@ function WebPageContent({
       delete cited.dataset.cited;
     }
     const { first, range } = citedSections();
-    const quote = target.quote;
     // A picture's quote is its text read, which the page doesn't show: the picture is outlined.
     const picture = target.figure
       ? body.querySelector<HTMLElement>(`[data-figure="${target.figure}"]`)
       : null;
     if (picture) picture.dataset.cited = "";
-    const marks =
-      quote && !picture
-        ? target.pageFrom === undefined
-          ? markQuote(textNodes(body), quote)
-          : range && markQuote(textNodes(body, range), quote)
-        : null;
+    const marks = picture
+      ? null
+      : markEachQuote(target, (quote) =>
+          target.pageFrom === undefined
+            ? markQuote(textNodes(body), quote)
+            : range && markQuote(textNodes(body, range), quote),
+        );
     setHighlighted((count) => (marks ? count + 1 : 0));
     const anchor = marks?.[0] ?? picture ?? first ?? null;
     const top = anchor
@@ -365,7 +366,18 @@ function WebPageContent({
         container.scrollTop
       : 0;
     container.scrollTop = Math.max(0, top - (marks ? container.clientHeight / 3 : 24));
-  }, [page, t, target.request, target.quote, target.pageFrom, target.pageTo, target.figure]);
+  }, [
+    page,
+    t,
+    target.request,
+    target.quote,
+    target.quotes,
+    target.pageFrom,
+    target.pageTo,
+    target.figure,
+  ]);
+
+  const { step, stepper } = useQuoteSteps({ target, root: host, drawn: highlighted });
 
   // The Document's highlights (#327), drawn in the page.
   const stored = useDocumentAnnotations(document.id);
@@ -384,6 +396,7 @@ function WebPageContent({
     return () => unmarkAnnotationsInDom(body);
   }, [page, stored]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: placed again beside the quote each step goes to
   useLayoutEffect(() => {
     const element = column.current;
     if (!element || !mark || highlighted === 0) {
@@ -391,7 +404,7 @@ function WebPageContent({
       return;
     }
     const place = () => {
-      const first = element.querySelector("[data-quote-highlight]");
+      const first = element.querySelector(CURRENT_QUOTE);
       setMarkTop(first ? markTopFor(first, element) : null);
       setMarkRoom(marginRoom(element));
     };
@@ -399,7 +412,7 @@ function WebPageContent({
     const observer = new ResizeObserver(place);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [mark, highlighted]);
+  }, [mark, highlighted, step]);
 
   const goTo = (key: number) => {
     const container = scroller.current;
@@ -435,6 +448,7 @@ function WebPageContent({
         }
         placeGone={citedPlaceGone(target, page.units.length)}
       />
+      <QuoteStepsLine stepper={stepper} />
       <div className="flex min-h-0 flex-1">
         {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
         <div

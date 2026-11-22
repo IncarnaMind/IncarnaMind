@@ -13,6 +13,7 @@ const bridge = vi.hoisted(() => ({
   cancelCheck: vi.fn<CoreBridge["cancelCheck"]>(),
   listAgentsToAsk: vi.fn<CoreBridge["listAgentsToAsk"]>(),
   askAgent: vi.fn<CoreBridge["askAgent"]>(),
+  checkWithOwnAi: vi.fn<CoreBridge["checkWithOwnAi"]>(),
   on: vi.fn<CoreBridge["on"]>(() => () => undefined),
 }));
 const running = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
@@ -147,6 +148,8 @@ beforeEach(async () => {
   bridge.checkContradictions.mockResolvedValue({ kind: "cancelled" });
   bridge.listAgentsToAsk.mockResolvedValue([]);
   bridge.askAgent.mockResolvedValue({ kind: "opened" });
+  // No command-line AI runs it in the background: each press asks by the link, as these tests say.
+  bridge.checkWithOwnAi.mockResolvedValue({ kind: "link" });
   bridge.on.mockImplementation(() => () => undefined);
   watchRecord.current = { stop: null };
   running.current = {};

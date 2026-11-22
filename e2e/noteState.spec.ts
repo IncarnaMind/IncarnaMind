@@ -54,10 +54,10 @@ const WORDS = {
     checking: /\d+ being checked/,
   },
   "zh-CN": {
-    notChecked: "1 句待核对",
+    notChecked: "1 句未核对",
     look: "需要留意 1 处",
     checked: "已核对 ",
-    checkFirst: "1 句待核对 · 先核对",
+    checkFirst: "1 句未核对 · 先核对",
     see: "查看",
     running: "正在核对",
     checking: /\d+ 句正在核对/,

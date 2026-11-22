@@ -25,15 +25,12 @@ import {
 } from "./app";
 import { callTool } from "./canvases";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A new User's first walk with a linked folder's Folder (#3507, #3613, ADR-0030): linking a folder
  * makes a Folder bound to it, its files filed in it; File as one Folder turned off and back with
- * Undo and Redo; the agent given that Folder alone, its folder named under it in Settings › Agents;
+ * Undo and Redo; the agent given that Folder alone, its folder named under it in Settings › AI;
  * and a deck the agent made in the folder and a Note it wrote there, both checked. The scripted
  * model (src/main/fakeChat/) checks. Set INCARNAMIND_SCREENSHOTS to a folder to also save stills
  * there.
@@ -71,7 +68,7 @@ for (const language of ["en", "zh-CN"] as const) {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate(language, key, params);
 
-  // protects=linking a folder makes a Folder bound to it, its files filed in it; File as one Folder turned off and back is one step each for Undo and Redo; an agent given that Folder alone sees its folder named in Settings › Agents, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507, #3613); fails_when=the files stay in Not in a Folder, Undo leaves the file put in no Folder by the User or Redo doesn't file it again, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
+  // protects=linking a folder makes a Folder bound to it, its files filed in it; File as one Folder turned off and back is one step each for Undo and Redo; an agent given that Folder alone sees its folder named in Settings › AI, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507, #3613); fails_when=the files stay in Not in a Folder, Undo leaves the file put in no Folder by the User or Redo doesn't file it again, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
   test(`a linked folder's Folder: the agent's deck and Note there are checked (${language})`, async () => {
     test.setTimeout(150_000);
     const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
@@ -143,7 +140,7 @@ for (const language of ["en", "zh-CN"] as const) {
         .getByRole("button", { name: t("settings.title") })
         .last()
         .click();
-      const page = await showSettingsPage(window, "agents");
+      const page = await showSettingsPage(window, "ai");
       const pairing = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
       await pairing.getByTestId("agent-folders").click();
       const place = pairing.getByTestId("agent-folder-list").getByTestId("agent-folder-place");

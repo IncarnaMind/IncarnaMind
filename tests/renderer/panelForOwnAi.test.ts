@@ -530,13 +530,13 @@ describe("a Note's Ask", () => {
   });
 
   // protects=row 8: "Use a model in IncarnaMind…" opens Settings › AI and never the panel; fails_when=the panel is unfolded on its setup card
-  test("Use a model in IncarnaMind… opens Settings › AI", async () => {
+  test("Use a model in IncarnaMind… opens Settings › AI at the model (#3645)", async () => {
     user("own AI", { assistant: { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "agent" } });
     await shown();
     const openSettings = vi.fn();
     useAppStore.setState({ openSettings } as never);
     setUpModelInstead();
-    expect(openSettings).toHaveBeenCalledWith("ai");
+    expect(openSettings).toHaveBeenCalledWith("ai", "model");
     expect(useAppStore.getState().layout?.assistant.folded).toBe(true);
     expect(useModelSetup.getState().wanted).toBe(false);
   });

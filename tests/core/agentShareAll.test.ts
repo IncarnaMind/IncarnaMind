@@ -281,7 +281,7 @@ describe("an agent given all of the User's Documents and Notes", () => {
     ]);
   });
 
-  // protects=the User narrows all to Folders and widens it back in Settings › Agents, and the agent reaches exactly that at its next call (#3544); fails_when=the narrowed agent still finds what it was given before, or widening back doesn't reach what was added meanwhile
+  // protects=the User narrows all to Folders and widens it back in Settings › AI, and the agent reaches exactly that at its next call (#3544); fails_when=the narrowed agent still finds what it was given before, or widening back doesn't reach what was added meanwhile
   it("narrows to Folders and widens back to all", async () => {
     const { core, add, folder, connect } = await fresh();
     const coast = await folder("Coast");

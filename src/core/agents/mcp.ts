@@ -877,12 +877,13 @@ export interface ServedConnection {
 export function serveConnection(
   socket: Duplex,
   options: {
-    open(token: string): Promise<{ pairingId: string | null; access: AgentAccess }>;
+    /** `grant`: the key of the run grant the token is, if it is one. */
+    open(token: string): Promise<{ pairingId: string | null; access: AgentAccess; grant?: string }>;
     /** Whether IncarnaMind has an AI model of its own ready now, read at each connection. */
     modelReady(): Promise<boolean>;
     version: string;
-    /** Called once the connection's pairing is known (null for an unknown token). */
-    paired(pairingId: string | null, connection: ServedConnection): void;
+    /** Called once the connection's pairing is known (null for an unknown token), with `open`'s grant. */
+    paired(pairingId: string | null, connection: ServedConnection, grant?: string): void;
     reportError(error: unknown): void;
     handshakeTimeoutMs?: number;
   },
@@ -926,30 +927,38 @@ export function serveConnection(
         let modelNow = ready;
         let heard = false;
         let current: AgentServer | null = null;
+        const transport = new StdioServerTransport(input, socket);
         const handle = serveStdio(
           () => {
             current = createAgentServer(opened.access, options.version, modelNow);
             return current.server;
           },
           {
-            transport: new StdioServerTransport(input, socket),
+            transport,
             // By its kind only: the SDK's message can quote what the agent sent.
             onerror: (error) =>
               options.reportError(new Error(`An agent's connection failed (${error.name}).`)),
           },
         );
-        options.paired(opened.pairingId, {
-          close: async () => {
-            // The connection first: nothing more reaches the core once this is called.
-            socket.destroy();
-            await handle.close().catch(() => undefined);
+        options.paired(
+          opened.pairingId,
+          {
+            close: async () => {
+              // The wire first, as when the agent goes away: nothing more reaches the core, and
+              // the SDK writes nothing back, such as the end of a Tool-list subscription, which a
+              // destroyed socket would never settle.
+              await transport.close();
+              socket.destroy();
+              await handle.close().catch(() => undefined);
+            },
+            modelChanged: (now) => {
+              heard = true;
+              modelNow = now;
+              current?.modelChanged(now);
+            },
           },
-          modelChanged: (now) => {
-            heard = true;
-            modelNow = now;
-            current?.modelChanged(now);
-          },
-        });
+          opened.grant,
+        );
         // A change between the read above and the connection being registered reached nobody: read
         // again now that it would, and keep what an event said since if one came first.
         void options.modelReady().then((again) => {

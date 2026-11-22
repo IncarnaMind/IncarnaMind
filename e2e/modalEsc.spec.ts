@@ -4,6 +4,7 @@ import { type ElectronApplication, expect, type Page, test } from "@playwright/t
 import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
+  agentsToConnect,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -139,10 +140,7 @@ const CASES: readonly DialogCase[] = [
     name: "Connect an agent, over Settings",
     testId: "connect-agent-dialog",
     prepare: async (window) => {
-      await openSettings(window, "agents");
-      const enabled = window.getByTestId("agents-enabled");
-      await expect(enabled).toBeVisible();
-      if ((await enabled.getAttribute("aria-checked")) !== "true") await enabled.click();
+      await agentsToConnect(await openSettings(window, "ai"));
     },
     open: (window) => window.getByTestId("agent-connect").first().click(),
     ask: (window) => window.getByTestId("agent-connect").first().click(),

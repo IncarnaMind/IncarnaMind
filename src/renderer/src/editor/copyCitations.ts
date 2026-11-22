@@ -28,7 +28,7 @@ import { withoutInertBrackets } from "../../../shared/inertBrackets";
 import type { SourceContext } from "../../../shared/sources";
 import { languageNow } from "../i18n";
 import { useAppStore } from "../store";
-import { addFootnotes, citationsIn, copiedText, wordFootnoteHtml } from "./copyNotes";
+import { addFootnotes, copiedText, wordFootnoteHtml } from "./copyNotes";
 
 export function sourceContext(): SourceContext {
   const { documents, keptCitationTexts } = useAppStore.getState();
@@ -238,7 +238,7 @@ export const CopyCitations = Extension.create<CopyCitationsOptions>({
                   out.appendChild(marker);
                 }
               }
-              addFootnotes(out, citationsIn(fragment), sourceContext());
+              addFootnotes(out, fragment, sourceContext());
               return out;
             };
             return serializer;

@@ -1,6 +1,5 @@
 import { expect, type Locator, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   createDataFolder,
   dismissChatSetup,
@@ -31,9 +30,7 @@ test.afterEach(async () => {
 const INK_SECONDARY = "rgb(74, 79, 87)";
 const CHECK_GREEN = "rgb(22, 101, 52)";
 
-const PAGES: SettingsPage[] = (
-  ["general", "ai", "meetings", "connectors", "skills", "agents", "privacy"] as const
-).filter((page) => page !== "agents" || SHOW_AGENT_CONNECTION);
+const PAGES: SettingsPage[] = ["general", "ai", "meetings", "connectors", "skills", "privacy"];
 
 /** The text in a part of the page that is drawn in the check green. */
 function greenTexts(scope: Locator): Promise<string[]> {

@@ -266,13 +266,14 @@ for (const transcriptFails of [false, true]) {
         if (transcriptFails) {
           await expect(problem).toContainText("A saved transcript is needed");
           await expect(problem.getByRole("button", { name: "Retry transcription" })).toBeEnabled();
-          await expect(problem.getByRole("button", { name: "Agent settings" })).toHaveCount(0);
+          await expect(problem.getByRole("button", { name: "Settings › AI" })).toHaveCount(0);
           return;
         }
         await expect(problem).toContainText("access to the meeting note and transcript");
         await expect(problem.getByTestId("meeting-summary-retry")).toHaveCount(0);
-        await problem.getByRole("button", { name: "Agent settings" }).click();
-        await expect(settings).toHaveAttribute("data-page", "agents");
+        await problem.getByRole("button", { name: "Settings › AI" }).click();
+        await expect(settings).toHaveAttribute("data-page", "ai");
+        await expect(settings.getByTestId("agents-settings")).toBeInViewport();
         await closeSettings(window);
         await window.getByTestId("meeting-agent-unavailable").getByRole("button").click();
         await window

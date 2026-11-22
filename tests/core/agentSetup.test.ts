@@ -1,5 +1,5 @@
 /**
- * Setting IncarnaMind up in the User's agent from Settings → Agents (#351):
+ * Setting IncarnaMind up in the User's agent from Settings → AI (#351):
  * one click where the agent allows it, the key handed over behind the scenes,
  * the agent's settings file written only as shown, with Undo, and tidied when
  * the agent is disconnected. Every path is in a temporary home folder.

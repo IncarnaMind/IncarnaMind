@@ -14,6 +14,7 @@ import {
   interceptOpenExternal,
   launchApp,
   newMind,
+  openAddSheet,
   openServiceList,
   openSettings,
   pointAndClick,
@@ -1197,7 +1198,7 @@ test("Kimi is one entry in Add an account or key…, and opens its form on the l
     const settings = await openSettings(window, "ai");
     const form = settings.getByTestId("provider-add").getByTestId("provider-form");
     const open = async () => {
-      await settings.getByTestId("models-add-provider").click();
+      await openAddSheet(settings);
       await settings.getByTestId("provider-directory-search").fill("kimi");
       const entries = settings.getByTestId("provider-directory-entry");
       await expect(entries).toHaveCount(1);

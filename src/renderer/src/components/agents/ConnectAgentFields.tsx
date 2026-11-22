@@ -43,7 +43,7 @@ const connectAgent = agentConnector(core, (error) => {
   useAppStore.getState().reportError(error);
 });
 
-/** Connecting an agent (#351), in Settings › Agents and the setup's Your AI step (#3362). */
+/** Connecting an agent (#351), in Settings › AI and the setup's Your AI step (#3362). */
 export function useAgentConnection() {
   const t = useT();
   const reportError = useAppStore((state) => state.reportError);
@@ -157,6 +157,11 @@ export function ConnectAgentFields({
       <p data-testid="connect-agent-reads" className={dialogTextClass}>
         {t(!anyFolder ? "agents.connect.reads.all" : READS_WITH[leftOut], { agent })}
       </p>
+      {client.id === "claude-code" && (
+        <p data-testid="connect-agent-background" className={dialogTextClass}>
+          {t("agents.connect.background", { agent })}
+        </p>
+      )}
       {client.id === "other" && (
         <label className="flex flex-col gap-1">
           <span className={fieldLabelClass}>{t("agents.connect.name")}</span>

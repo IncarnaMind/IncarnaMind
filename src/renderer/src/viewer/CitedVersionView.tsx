@@ -3,7 +3,7 @@ import type { Document, DocumentVersionText } from "../../../core/api";
 import { type DrawnPage, quoteBoxes } from "../../../shared/citedPage";
 import { formatDate } from "../../../shared/dates";
 import { formatLocation, joinUnits, quoteInUnits, unitLocation } from "../../../shared/locations";
-import { lostLigatures, type TextRange } from "../../../shared/quoteMatch";
+import { lostLigatures } from "../../../shared/quoteMatch";
 import { citedVersionHandles } from "../commands/handles";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
@@ -11,9 +11,20 @@ import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
 import { openCurrentVersionOf } from "../openCited";
 import { useAppStore, type ViewerTarget } from "../store";
+import { quotesOf } from "./citedPlace";
 import { DocumentView } from "./DocumentView";
 import { HighlightedText } from "./highlightedText";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import {
+  CURRENT_QUOTE,
+  type QuoteRange,
+  QuoteStepContext,
+  QuoteStepsLine,
+  quoteClass,
+  quoteIndexProps,
+  quotesIn,
+  useQuoteSteps,
+} from "./quoteSteps";
 import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
 import { OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
@@ -238,23 +249,31 @@ function CitedVersionContent({
   const [markRoom, setMarkRoom] = useState(0);
   const mark = quoteMarkOf(target.citation);
 
-  const quote = target.quote ?? "";
+  const quotes = useMemo(
+    () => quotesOf({ quote: target.quote, quotes: target.quotes }),
+    [target.quote, target.quotes],
+  );
   const shown = useMemo(() => {
     const { starts } = joinUnits(units);
     // Matched as the Citation's check matches it: its own numbers, and a lost f-ligature forgiven.
-    const ranges = quote
-      ? (quoteInUnits(units, quote, {
-          lostLigatures: lostLigatures(units.map((unit) => unit.text).join("\n")),
-        }) ?? [])
-      : [];
+    const ligatures = lostLigatures(units.map((unit) => unit.text).join("\n"));
+    const several = quotes.length > 1;
+    const ranges = quotes
+      .flatMap((quote, index) =>
+        (quoteInUnits(units, quote, { lostLigatures: ligatures }) ?? []).map(
+          (range): QuoteRange => ({ ...range, ...(several && { quote: index }) }),
+        ),
+      )
+      .sort((a, b) => a.start - b.start);
     return units.map((unit, index) => {
       const start = starts[index] as number;
       const end = start + unit.text.length;
-      const inside: TextRange[] = ranges
+      const inside: QuoteRange[] = ranges
         .filter((range) => range.end > start && range.start < end)
         .map((range) => ({
           start: Math.max(range.start, start) - start,
           end: Math.min(range.end, end) - start,
+          ...(range.quote !== undefined && { quote: range.quote }),
         }));
       const place = unitLocation(unit);
       return {
@@ -263,7 +282,7 @@ function CitedVersionContent({
         ranges: inside,
       };
     });
-  }, [units, quote, t]);
+  }, [units, quotes, t]);
   // One Unit: the Citation's own place names it more narrowly ("Revenue, rows 12–14", "§ History, ¶ 3").
   const place =
     units.length === 1 && target.citation?.location
@@ -275,6 +294,8 @@ function CitedVersionContent({
     (units.length === 1 && shown[0]?.label ? shown[0].label : null);
 
   const highlighted = page !== null || shown.some((part) => part.ranges.length > 0);
+  const found = useMemo(() => quotesIn(shown.flatMap((part) => part.ranges)), [shown]);
+  const { step, stepper } = useQuoteSteps({ target, root: column, drawn: shown, found });
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-placed for each read of the version
   useLayoutEffect(() => {
     const element = column.current;
@@ -283,7 +304,7 @@ function CitedVersionContent({
       return;
     }
     const placeMark = () => {
-      const first = element.querySelector("[data-quote-highlight]");
+      const first = element.querySelector(CURRENT_QUOTE);
       setMarkTop(first ? markTopFor(first, element) : null);
       setMarkRoom(marginRoom(element));
     };
@@ -291,14 +312,14 @@ function CitedVersionContent({
     const observer = new ResizeObserver(placeMark);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [mark, highlighted, version, page]);
+  }, [mark, highlighted, version, page, step]);
 
   // Opening goes to the quote where it stood, else to the top of the cited place.
   // biome-ignore lint/correctness/useExhaustiveDependencies: each open request goes there again
   useLayoutEffect(() => {
     const container = scroller.current;
     if (!container) return;
-    const quoted = container.querySelector<HTMLElement>("[data-quote-highlight]");
+    const quoted = container.querySelector<HTMLElement>(CURRENT_QUOTE);
     if (!quoted) {
       container.scrollTop = 0;
       return;
@@ -313,12 +334,13 @@ function CitedVersionContent({
   }, [target.request, version, page]);
 
   return (
-    <>
+    <QuoteStepContext.Provider value={step}>
       <AsCitedBar
         versionAt={version.versionAt}
         textOnly={page === null}
         openCurrent={openCurrent}
       />
+      <QuoteStepsLine stepper={stepper} />
       <div
         ref={scroller}
         data-testid="viewer-cited"
@@ -370,7 +392,7 @@ function CitedVersionContent({
           </div>
         </article>
       </div>
-    </>
+    </QuoteStepContext.Provider>
   );
 }
 
@@ -389,10 +411,16 @@ function CitedPagePicture({
   name: string;
 }) {
   const t = useT();
-  const boxes = useMemo(
-    () => quoteBoxes(page, target.quote, target.citation?.location ?? null) ?? [],
-    [page, target.quote, target.citation?.location],
-  );
+  const step = useContext(QuoteStepContext);
+  const boxes = useMemo(() => {
+    const quotes = quotesOf({ quote: target.quote, quotes: target.quotes });
+    return quotes.flatMap((quote, index) =>
+      (quoteBoxes(page, quote, target.citation?.location ?? null) ?? []).map((box) => ({
+        ...box,
+        quote: quotes.length > 1 ? index : undefined,
+      })),
+    );
+  }, [page, target.quote, target.quotes, target.citation?.location]);
   const source = useMemo(() => dataUrlOf(page), [page]);
   return (
     <div
@@ -412,8 +440,9 @@ function CitedPagePicture({
           // biome-ignore lint/suspicious/noArrayIndexKey: one box for each line of the quote, in order.
           key={index}
           data-quote-highlight=""
+          {...quoteIndexProps(box.quote)}
           aria-hidden
-          className="quote-highlight quote-highlight--picture"
+          className={`quote-highlight quote-highlight--picture${quoteClass(box.quote, step)}`}
           style={{
             left: `${(box.x / page.width) * 100}%`,
             top: `${(box.y / page.height) * 100}%`,

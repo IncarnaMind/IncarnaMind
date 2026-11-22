@@ -101,13 +101,13 @@ export type Yours = (typeof YOURS)[number];
  * menu. The button is named after what it opens, so the two can't differ (#1741).
  */
 export type YoursOpens =
-  | { settings: "ai" | "privacy"; at?: "local-mode" | "spending-cap" }
+  | { settings: "ai" | "privacy"; at?: "model" | "local-mode" | "spending-cap" }
   | "recentlyDeleted"
   | "folderMenu";
 
 const YOURS_WORDS: Readonly<Record<Yours, { said: MessageKey; opens: YoursOpens | null }>> = {
   wall: { said: "commands.yours.wall", opens: null },
-  keys: { said: "commands.yours.keys", opens: { settings: "ai" } },
+  keys: { said: "commands.yours.keys", opens: { settings: "ai", at: "model" } },
   privacy: { said: "commands.yours.privacy", opens: { settings: "ai", at: "local-mode" } },
   approvals: { said: "commands.yours.approvals", opens: { settings: "privacy" } },
   spending: { said: "commands.yours.spending", opens: { settings: "ai", at: "spending-cap" } },

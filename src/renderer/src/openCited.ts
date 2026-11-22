@@ -53,6 +53,8 @@ export function openCited(
     /** Why it can't be checked, when `check` is "cant-check" (#535). */
     checkReason?: CitationCheckReason;
     withQuote: boolean;
+    /** The quotes of every Citation the one chip stands for, to mark them all (see `withQuote`). */
+    quotes?: readonly string[];
     number?: number;
     label?: string | null;
     from?: string;
@@ -80,6 +82,7 @@ export function openCited(
       pageFrom: (how.place ? how.place.pageFrom : citation.pageFrom) ?? undefined,
       pageTo: (how.place ? how.place.pageTo : citation.pageTo) ?? undefined,
       quote: how.withQuote && citation.quote ? citation.quote : undefined,
+      ...(how.withQuote && how.quotes && how.quotes.length > 1 && { quotes: [...how.quotes] }),
       ...(how.currentVersion && { currentVersion: true as const }),
       ...(citation.location?.kind === "section" && citation.location.figure
         ? { figure: citation.location.figure }

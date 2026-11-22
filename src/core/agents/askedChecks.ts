@@ -7,6 +7,31 @@
  * this device for as long as IncarnaMind runs.
  */
 
+import type { AgentToolName } from "../api";
+
+/**
+ * The Tools a check the User asked may use when IncarnaMind starts the agent for it (ADR-0032):
+ * what `check_mind_yourself`'s rules send it to, and nothing that changes words or reads other Notes.
+ */
+export const CHECK_RUN_TOOLS = [
+  "check_mind_yourself",
+  "search",
+  "read_passages",
+  "cite",
+  "run_analysis",
+  "report_check",
+] as const satisfies readonly AgentToolName[];
+
+/**
+ * A connection IncarnaMind started for one check the User pressed (./ownRun): its Note, and the
+ * Tools it may call. The grant is the run's only hold on the Note: the run records no ask, so the
+ * agent's own connections gain nothing from it, and nothing of it stands once the run ends.
+ */
+export interface CheckRun {
+  mindId: string;
+  tools: readonly AgentToolName[];
+}
+
 /**
  * How long an ask stands. #3587's six real checks took 30 to 97 seconds from the press to the
  * marks; this leaves room for a Note many times longer, and for a User who sends the request a
@@ -34,6 +59,10 @@ export function createAskedChecks(now: () => string) {
     /** The check landed whole: the ask is over. */
     end(pairingId: string, mindId: string): void {
       if (asked.get(mindId)?.pairingId === pairingId) asked.delete(mindId);
+    },
+    /** IncarnaMind started an agent for the Note's check (./ownRun): an agent asked before no longer may. */
+    withdraw(mindId: string): void {
+      asked.delete(mindId);
     },
   };
 }

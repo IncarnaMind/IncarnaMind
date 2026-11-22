@@ -151,7 +151,7 @@ Before each release tag, also try the Copilot plan's sign-in through IncarnaMind
 
 ### Outside agents before a release
 
-Settings → Agents sets IncarnaMind up in the agents in wide use (`src/core/agents/clients.ts`, ADR-0019). `tests/core/agentClients.test.ts` checks the exact line, file entry or pasted settings each is given against its documentation, cited beside each agent. Before a release, try these by hand with a temporary HOME and a test Folder: connect it, ask it something the Folder answers, and check the answer carries Citations that IncarnaMind finds. Disconnect afterwards.
+Settings → AI sets IncarnaMind up in the agents in wide use (`src/core/agents/clients.ts`, ADR-0019). `tests/core/agentClients.test.ts` checks the exact line, file entry or pasted settings each is given against its documentation, cited beside each agent. Before a release, try these by hand with a temporary HOME and a test Folder: connect it, ask it something the Folder answers, and check the answer carries Citations that IncarnaMind finds. Disconnect afterwards.
 
 - the Claude desktop app (one click; a Free plan is enough), and Claude Code;
 - the ChatGPT desktop app and Codex, which share one configuration;

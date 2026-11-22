@@ -33,7 +33,7 @@ const LARGEST = "The range of a spring tide is the largest of the month.";
 const NOT_YOURS =
   "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.";
 const READ_ONLY =
-  "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.";
+  "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
 

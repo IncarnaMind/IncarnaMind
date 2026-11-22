@@ -464,7 +464,7 @@ describe("the writer's notes", () => {
   test("6,000 sources each cited twice each get one note and one reference", () => {
     const sources = Array.from({ length: 6_000 }, (_, index) => `Source ${index + 1}, p. 1`);
     const { document, footnotes } = render(
-      sources.map((source) => paragraph(cited(source), cited(source))),
+      sources.map((source) => paragraph(cited(source), words(" and "), cited(source))),
     );
     expect(Object.keys(footnotes)).toHaveLength(6_000);
     const found = crossReferences(document);
@@ -540,6 +540,7 @@ describe("the writer's notes", () => {
       paragraph(
         cited("Tides, p. 2"),
         cited("Tides, p. 2", true),
+        words(" and "),
         cited("Tides, p. 2", true),
         cited("Page", false, {
           footnote: { source: "Page", unverified: false, link: "https://a" },
@@ -622,7 +623,7 @@ describe("the writer's notes", () => {
     const { footnotes, document } = render([
       { ...paragraph(cited("Tides, p. 2")), inserted: change },
       { ...paragraph(cited("Tides, p. 2")), deleted: change },
-      paragraph(cited("Tides, p. 2"), cited("Tides, p. 2")),
+      paragraph(cited("Tides, p. 2"), words(" and "), cited("Tides, p. 2")),
     ]);
     expect(Object.values(footnotes)).toEqual(["Tides, p. 2", "Tides, p. 2", "Tides, p. 2"]);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([3]);
@@ -651,6 +652,7 @@ describe("the writer's notes", () => {
     const { footnotes, document } = render([
       paragraph(
         cited("Tides, p. 2", false, { work: first }),
+        words(" and "),
         cited("Tides, p. 2", false, { work: first }),
         cited("Tides, p. 2", false, { work: later }),
         cited("Tides, p. 2", false, { work: first }),
@@ -695,6 +697,102 @@ describe("the writer's notes", () => {
     ]);
     expect(count).toBe(6);
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1, 4]);
+  });
+
+  test("Citations side by side with one note show one mark in Word and the PDF; apart, each shows its own (#3654)", () => {
+    const blocks = [
+      paragraph(
+        words("Slow"),
+        cited("Tides, p. 1"),
+        cited("Tides, p. 2"),
+        cited("Tides, p. 2"),
+        cited("Tides, p. 2"),
+        words("."),
+      ),
+      paragraph(words("Fast"), cited("Tides, p. 2"), words(" and slow"), cited("Tides, p. 2")),
+      paragraph(
+        words("Also"),
+        cited("Tides, p. 2"),
+        words(" "),
+        cited("Tides, p. 2"),
+        cited("Moon, p. 1"),
+      ),
+    ];
+    const { document, footnotes, count } = render(blocks);
+    expect(Object.values(footnotes)).toEqual(["Tides, p. 1", "Tides, p. 2", "Moon, p. 1"]);
+    expect(count).toBe(3);
+    expect(shownMarks(document).map((each) => each.shows)).toEqual([1, 2, 2, 2, 2, 3]);
+    const printed = renderPrintHtml(blocks, exportLabels("en"));
+    expect(
+      [...printed.body.matchAll(/<sup class="note-ref" data-note="(\d+)"/g)].map((found) =>
+        Number(found[1]),
+      ),
+    ).toEqual([1, 2, 2, 2, 2, 3]);
+    expect(printed.notes).toHaveLength(3);
+  });
+
+  test("the one mark of Citations side by side carries the failed check of each in its Word comment", () => {
+    const failed = (source: string, quote: string): Footnote => ({
+      source,
+      unverified: true,
+      failed: { check: "not-found", quote, verdict: null },
+    });
+    const written = (...between: Inline[]) => {
+      const { data } = renderDocx(
+        [
+          paragraph(
+            words("Slow"),
+            cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "first words") }),
+            ...between,
+            cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "second words") }),
+          ),
+        ],
+        {
+          title: "",
+          labels: exportLabels("en"),
+          language: "en-US",
+          paper: "a4",
+          created: "2026-10-22T00:00:00Z",
+          font: null,
+          lineSpacing: null,
+          review: {
+            trackAs: null,
+            markAiText: false,
+            commentFailedChecks: true,
+            now: "2026-10-22T00:00:00Z",
+            authorName: "Test User",
+          },
+        },
+      );
+      const files = unzip(data);
+      return {
+        marks: part(files, "word/document.xml").match(/<w:footnoteReference /g)?.length ?? 0,
+        comments: part(files, "word/comments.xml"),
+      };
+    };
+    // Side by side, and with spaces two waiting changes add between them: a change's edge falls there.
+    const waitingSpace = (id: string): Inline => ({
+      ...words(" "),
+      inserted: { id, at: null },
+    });
+    for (const between of [[], [waitingSpace("p1"), waitingSpace("p2")]]) {
+      const { marks, comments } = written(...between);
+      expect(marks).toBe(1);
+      expect(comments).toContain("first words");
+      expect(comments).toContain("second words");
+    }
+  });
+
+  test("a Citation a change still waiting adds keeps its own mark beside one of its place", () => {
+    const change = { id: "p1", at: null };
+    const blocks = [
+      paragraph(
+        words("Slow"),
+        cited("Tides, p. 2"),
+        cited("Tides, p. 2", false, { inserted: change }),
+      ),
+    ];
+    expect(crossReferences(render(blocks).document).marks).toEqual([1, 2]);
   });
 });
 

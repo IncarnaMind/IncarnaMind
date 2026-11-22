@@ -57,6 +57,39 @@ export function noteNumbers(citations: readonly Cited[], context: SourceContext)
   });
 }
 
+/**
+ * The Citations (by their place in `citationsIn`) side by side with the one before them, nothing
+ * but spaces between, that have its number: one marker stands for them all (#3654), as the Note
+ * shows one chip.
+ */
+export function besideRepeats(fragment: Fragment, numbers: readonly number[]): Set<number> {
+  const repeats = new Set<number>();
+  let index = 0;
+  // A run of inline content: a text block's, or the copy's own when it is part of one paragraph.
+  const run = (content: Fragment) => {
+    let previous: number | null = null;
+    content.forEach((child) => {
+      if (child.type.name === CITATION_NODE) {
+        const number = numbers[index] ?? null;
+        if (number !== null && number === previous) repeats.add(index);
+        previous = number;
+        index++;
+        return;
+      }
+      if (child.isText && (child.text ?? "").trim() === "") return;
+      previous = null;
+      if (!child.isInline) block(child);
+    });
+  };
+  const block = (node: ProseMirrorNode) => {
+    if (node.type.name === FOOTNOTE_NODE) return;
+    if (node.isTextblock) run(node.content);
+    else node.forEach(block);
+  };
+  run(fragment);
+  return repeats;
+}
+
 /** What marks the visible "[n]" to other apps, as comments until `wordFootnoteHtml` writes Word's own. */
 const FALLBACK_START = "[if !supportFootnotes]";
 const FALLBACK_END = "[endif]";
@@ -135,13 +168,10 @@ function noteText(document: Document, text: string, link: string | null): Node[]
 /**
  * Turns the Citations in serialized HTML into numbered footnote markers and adds the footnote
  * list after it. Each Citation keeps its own element and its data, so it pastes back as one.
- * `citations` are the fragment's own, in the same order as the elements.
+ * `root` is `fragment` serialized.
  */
-export function addFootnotes(
-  root: ParentNode,
-  citations: readonly Cited[],
-  context: SourceContext,
-): void {
+export function addFootnotes(root: ParentNode, fragment: Fragment, context: SourceContext): void {
+  const citations = citationsIn(fragment);
   const spans = [
     ...root.querySelectorAll<HTMLElement>(`span[data-type="${CITATION_NODE}"]`),
   ].filter((span) => !span.closest(`[data-type="${FOOTNOTE_NODE}"]`));
@@ -151,10 +181,16 @@ export function addFootnotes(
   list.setAttribute("style", "mso-element:footnote-list");
   list.setAttribute(NOTES_ATTRIBUTE, "");
   const numbers = noteNumbers(citations, context);
+  const repeats = besideRepeats(fragment, numbers);
   let listed = 0;
   spans.forEach((span, index) => {
     const number = numbers[index];
     if (number === undefined) return;
+    // Its own element, empty, so it still pastes back as a Citation.
+    if (repeats.has(index)) {
+      span.replaceChildren();
+      return;
+    }
     if (number <= listed) {
       span.replaceChildren(repeatMarker(document, number));
       return;
@@ -212,10 +248,14 @@ export function copiedText(copy: Fragment, schema: Schema, context: SourceContex
   const tables = tablesIn(fragment);
   if (citations.length === 0 && tables.size === 0) return "";
   const numbers = noteNumbers(citations, context);
+  const repeats = besideRepeats(fragment, numbers);
   let next = 0;
   const textSerializers: Record<string, TextSerializer> = {
     ...getTextSerializersFromSchema(schema),
-    [CITATION_NODE]: () => `[${numbers[next++]}]`,
+    [CITATION_NODE]: () => {
+      const at = next++;
+      return repeats.has(at) ? "" : `[${numbers[at]}]`;
+    },
   };
   textSerializers[TABLE_NODE] = ({ node }) => tableText(node, textSerializers);
   const copied = schema.topNodeType.create(null, withoutChartsOf(fragment, tables));

@@ -28,7 +28,7 @@ import { translateNow, useT } from "../i18n";
 import { useAppStore, type ViewerTarget } from "../store";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { noteMarkElement } from "./annotationMarks";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import {
   ExpandIcon,
   FitWidthIcon,
@@ -43,6 +43,13 @@ import { loadOutline, type OutlineItem } from "./outline";
 import { isMissingDocumentError, isPasswordError, loadPdfJs, openPdf, type PdfJs } from "./pdfjs";
 import { PlaceMemoryContext } from "./place";
 import { CitationMark, type QuoteMark, quoteMarkOf, quoteTone } from "./quoteMark";
+import {
+  OTHER_QUOTE,
+  QuoteStepContext,
+  QuoteStepsLine,
+  startOf,
+  useQuoteSteps,
+} from "./quoteSteps";
 import { type ScannedPage, scannedTextLayer, useScannedPages } from "./scannedText";
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
@@ -85,6 +92,8 @@ interface RunHighlight {
   item: number;
   start: number;
   end: number;
+  /** Its place among the quotes opened together (`useQuoteSteps`). */
+  quote?: number;
 }
 
 /** Part of a highlight's quote, in one of a page's text runs (#327): found across the pages it covers. */
@@ -659,10 +668,10 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
 
   // Finds the quote on the pages of the range, for each page's text layer to highlight.
   useEffect(() => {
-    const quote = target.quote;
+    const quotes = quotesOf({ quote: target.quote, quotes: target.quotes });
     setHighlights(new Map());
     pendingHighlight.current = null;
-    if (!quote || placeGone) return;
+    if (quotes.length === 0 || placeGone) return;
     let cancelled = false;
     const from = clamp(target.pageFrom ?? 1, 1, pageCount);
     const to = clamp(target.pageTo ?? from, from, Math.min(pageCount, from + MAX_QUOTE_PAGES - 1));
@@ -687,21 +696,29 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
         pages.push(pieces);
       }
       if (cancelled) return;
-      // Across a page break, running headers and footers may sit inside the quote. A PDF whose
-      // text lost its f-ligatures is matched as the check matched it, only when needed.
-      const found =
-        findQuoteInPages(pages, quote) ??
-        ((await lostLigaturesOf(pdf))
-          ? findQuoteInPages(pages, quote, undefined, { lostLigatures: true })
-          : null);
-      if (cancelled || !found) return;
       const byPage = new Map<number, RunHighlight[]>();
-      for (const part of found) {
-        const page = from + part.page;
-        const list = byPage.get(page) ?? [];
-        list.push({ item: part.piece, start: part.start, end: part.end });
-        byPage.set(page, list);
+      for (const [index, quote] of quotes.entries()) {
+        // Across a page break, running headers and footers may sit inside the quote. A PDF whose
+        // text lost its f-ligatures is matched as the check matched it, only when needed.
+        const found =
+          findQuoteInPages(pages, quote) ??
+          ((await lostLigaturesOf(pdf))
+            ? findQuoteInPages(pages, quote, undefined, { lostLigatures: true })
+            : null);
+        if (cancelled) return;
+        for (const part of found ?? []) {
+          const page = from + part.page;
+          const list = byPage.get(page) ?? [];
+          list.push({
+            item: part.piece,
+            start: part.start,
+            end: part.end,
+            ...(quotes.length > 1 && { quote: index }),
+          });
+          byPage.set(page, list);
+        }
       }
+      if (byPage.size === 0) return;
       if (shownHighlight.current !== target.request) pendingHighlight.current = target.request;
       setHighlights(byPage);
     })().catch((error: unknown) => {
@@ -717,6 +734,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     placeGone,
     target.request,
     target.quote,
+    target.quotes,
     target.pageFrom,
     target.pageTo,
   ]);
@@ -769,10 +787,32 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   }, []);
 
   const firstHighlightPage = highlights.size > 0 ? Math.min(...highlights.keys()) : null;
+  /** The first page a quote of those opened together is on, when there are several. */
+  const pageOfQuote = useCallback(
+    (quote: number) => {
+      const pages = [...highlights]
+        .filter(([, runs]) => runs.some((run) => run.quote === quote))
+        .map(([page]) => page);
+      return pages.length > 0 ? Math.min(...pages) : firstHighlightPage;
+    },
+    [highlights, firstHighlightPage],
+  );
+  const openingPage = pageOfQuote(startOf(target));
+  /** The quote a step went to on a page not drawn yet: shown once its text layer is. */
+  const steppingTo = useRef<number | null>(null);
   const onHighlightShown = useCallback(
     (page: number, element: HTMLElement) => {
       const container = scroller.current;
-      if (!container || page !== firstHighlightPage) return;
+      if (!container) return;
+      if (
+        steppingTo.current !== null &&
+        element.dataset.quoteIndex === String(steppingTo.current)
+      ) {
+        steppingTo.current = null;
+        element.scrollIntoView({ block: "center", inline: "nearest" });
+        return;
+      }
+      if (page !== openingPage) return;
       if (pendingHighlight.current !== target.request) return;
       pendingHighlight.current = null;
       shownHighlight.current = target.request;
@@ -783,7 +823,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       placed.current = { page, scrollTop: container.scrollTop };
       setCurrentPage(page);
     },
-    [firstHighlightPage, target.request],
+    [openingPage, target.request],
   );
 
   const setPageElement = useCallback((page: number, element: HTMLElement | null) => {
@@ -800,9 +840,34 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   const hasOutline = outline.length > 0;
   const zoomPercent = Math.round(currentZoom * 100);
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  const foundQuotes = useMemo(
+    () =>
+      [...new Set([...highlights.values()].flat().flatMap((run) => run.quote ?? []))].sort(
+        (a, b) => a - b,
+      ),
+    [highlights],
+  );
+  // A page's text layer is drawn when it comes near: the quotes found count, not those drawn yet.
+  const reachQuote = useCallback(
+    (quote: number) => {
+      const page = pageOfQuote(quote);
+      if (page === null) return;
+      steppingTo.current = quote;
+      goToPage(page);
+    },
+    [pageOfQuote, goToPage],
+  );
+  const { step, stepper } = useQuoteSteps({
+    target,
+    root: scroller,
+    drawn: highlights,
+    found: foundQuotes,
+    reach: reachQuote,
+  });
+  const markPage = pageOfQuote(step);
 
   return (
-    <>
+    <QuoteStepContext.Provider value={step}>
       <ViewerHeader
         placeGone={placeGone}
         leading={
@@ -832,6 +897,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       </ViewerHeader>
       {banner}
       <UnreadPagesLine document={document} />
+      <QuoteStepsLine stepper={stepper} />
       <div className="flex min-h-0 flex-1">
         {hasOutline && outlineOpen && (
           <OutlinePanel items={outline} currentPage={currentPage} onGoToPage={goToPageAsked} />
@@ -864,7 +930,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
                   scanned={scanned.get(page)}
                   highlights={highlights.get(page)}
                   annotationRuns={pageRuns(page)}
-                  mark={page === firstHighlightPage ? mark : null}
+                  mark={page === markPage ? mark : null}
                   onSize={onPageSize}
                   onHighlightShown={onHighlightShown}
                   setElement={setPageElement}
@@ -879,7 +945,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
           />
         </div>
       </div>
-    </>
+    </QuoteStepContext.Provider>
   );
 }
 
@@ -1265,6 +1331,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
   );
   /** The quote's first highlighted part on this page, once marked. */
   const firstHighlight = useRef<HTMLElement | null>(null);
+  const step = useContext(QuoteStepContext);
   const [drawn, setDrawn] = useState(false);
   const [textLayerVersion, setTextLayerVersion] = useState(0);
   /** The scale the text layer was made at, if there is one. */
@@ -1372,7 +1439,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
     const noteAnchors = new Map<string, HTMLElement>();
     const byItem = new Map<
       number,
-      { start: number; end: number; quote: boolean; annotation?: Annotation }[]
+      { start: number; end: number; quote: boolean; index?: number; annotation?: Annotation }[]
     >();
     const add = (
       item: number,
@@ -1380,9 +1447,12 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
       end: number,
       quote: boolean,
       annotation?: Annotation,
-    ) => byItem.set(item, [...(byItem.get(item) ?? []), { start, end, quote, annotation }]);
+      index?: number,
+    ) => byItem.set(item, [...(byItem.get(item) ?? []), { start, end, quote, index, annotation }]);
     // A run can hold two parts of a quote with an ellipsis: its ranges, in order.
-    for (const { item, start, end } of highlights ?? []) add(item, start, end, true);
+    for (const { item, start, end, quote } of highlights ?? []) {
+      add(item, start, end, true, undefined, quote);
+    }
     // The highlights' words on this page, found across the pages they cover (see `PdfPages`).
     const highlightRuns = annotationRuns ?? NO_RUNS;
     const pageHighlights = new Map<string, Annotation>();
@@ -1406,7 +1476,12 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         const from = sorted[index] as number;
         const to = sorted[index + 1] as number;
         if (from === to) continue;
-        const quote = ranges.some((range) => range.quote && range.start <= from && range.end >= to);
+        const covering = ranges.filter(
+          (range) => range.quote && range.start <= from && range.end >= to,
+        );
+        // Two quotes of one chip may share words: they show as the one the viewer is on.
+        const quoted = covering.find((range) => range.index === step) ?? covering[0];
+        const quote = quoted !== undefined;
         const annotation = ranges.find(
           (range) => range.annotation && range.start <= from && range.end >= to,
         )?.annotation;
@@ -1422,13 +1497,17 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
           .filter(Boolean)
           .join(" ");
         if (quote) mark.dataset.quoteHighlight = "";
+        if (quoted?.index !== undefined) {
+          mark.dataset.quoteIndex = String(quoted.index);
+          if (quoted.index !== step) mark.classList.add(OTHER_QUOTE);
+        }
         if (annotation) {
           mark.dataset.annotationId = annotation.id;
           noteAnchors.set(annotation.id, mark);
         }
         mark.textContent = text.slice(from, to);
         children.push(mark);
-        if (quote) first ??= mark;
+        if (quote && (quoted?.index === undefined || quoted.index === step)) first ??= mark;
       }
       div.replaceChildren(...children);
     }
@@ -1472,7 +1551,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         div.textContent = strings[item] ?? "";
       }
     };
-  }, [textLayerVersion, highlights, annotationRuns, page, onHighlightShown]);
+  }, [textLayerVersion, highlights, annotationRuns, page, onHighlightShown, step]);
 
   // Places the Citation's mark beside the quote's first line, once the quote is marked.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-placed for each new text layer
@@ -1481,7 +1560,7 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
     const first = firstHighlight.current;
     const runs = textRuns.current?.divs;
     setPlace(mark && element && first && runs ? markPlace(first, element, runs) : null);
-  }, [textLayerVersion, highlights, mark]);
+  }, [textLayerVersion, highlights, mark, step]);
 
   // The margin past the text: the mark shows its label only if the label fits there.
   const pageWidth = Math.floor(size.width * scale);

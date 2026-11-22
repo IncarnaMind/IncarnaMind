@@ -212,6 +212,7 @@ export function setUpRun(
 ) {
   const { scope } = request;
   let searches = 0;
+  let citedByTool = false;
   const decisions = caseCitations(request.claim);
   const scoped: AnswerDocuments = {
     searchableCount: () => deps.documents.searchableCount(scope.documentIds),
@@ -323,7 +324,10 @@ export function setUpRun(
       searches++;
       return session.tools.searchDocuments(query, searchSignal, options);
     },
-    cite: (records, options) => session.tools.cite(records, options),
+    cite: (records, options) => {
+      if (!options?.structured) citedByTool = true;
+      return session.tools.cite(records, options);
+    },
     citeReply: CITE_REPLY,
     hasRecord: (marker) => session.tools.hasRecord?.(marker) ?? false,
     unfoundQuotes: () => session.tools.unfoundQuotes?.() ?? [],
@@ -338,6 +342,7 @@ export function setUpRun(
     session,
     decisions,
     citedShown,
+    citedByTool: () => citedByTool,
     searches: () => searches,
     // The Passages a Citation quotes are shown from the scope, so a verdict on them has looked;
     // so has one whose code counted the Library's own lists.

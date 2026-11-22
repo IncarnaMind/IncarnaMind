@@ -19,9 +19,11 @@ import { logCaught } from "../errorLog";
 import { useT } from "../i18n";
 import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
+import { quotesOf } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { FitWidthIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 import { CitationMark, quoteMarkOf } from "./quoteMark";
+import { OTHER_QUOTE, QuoteStepsLine, quotesIn, useQuoteSteps } from "./quoteSteps";
 import { scannedTextLayer, useScannedPages } from "./scannedText";
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
@@ -66,6 +68,8 @@ interface RunHighlight {
   item: number;
   start: number;
   end: number;
+  /** Its place among the quotes opened together (`useQuoteSteps`). */
+  quote?: number;
 }
 
 export function ImageView({ document, target }: { document: Document; target: ViewerTarget }) {
@@ -171,11 +175,21 @@ export function ImageView({ document, target }: { document: Document; target: Vi
   const height = Math.floor(natural.height * scale);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: found again for each open request
-  const highlights = useMemo(() => {
-    if (!page || !target.quote) return [] as RunHighlight[];
-    const found = findQuoteInPages([page.pieces], target.quote);
-    return found?.map((part) => ({ item: part.piece, start: part.start, end: part.end })) ?? [];
-  }, [page, target.quote, target.request]);
+  const highlights = useMemo((): RunHighlight[] => {
+    const quotes = quotesOf({ quote: target.quote, quotes: target.quotes });
+    if (!page) return [];
+    return quotes.flatMap(
+      (quote, index) =>
+        findQuoteInPages([page.pieces], quote)?.map((part) => ({
+          item: part.piece,
+          start: part.start,
+          end: part.end,
+          ...(quotes.length > 1 && { quote: index }),
+        })) ?? [],
+    );
+  }, [page, target.quote, target.quotes, target.request]);
+  const found = useMemo(() => quotesIn(highlights), [highlights]);
+  const { step, stepper } = useQuoteSteps({ target, root: section, drawn: marked, found });
 
   // Lays the text read from the picture over it, then washes the quote in it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: laid again once the picture's size is known
@@ -187,10 +201,16 @@ export function ImageView({ document, target }: { document: Document; target: Vi
     textRuns.current = layer;
     const { divs, strings } = layer;
     let first: HTMLElement | null = null;
-    const byItem = new Map<number, { start: number; end: number }[]>();
-    for (const { item, start, end } of highlights) {
-      byItem.set(item, [...(byItem.get(item) ?? []), { start, end }]);
+    const byItem = new Map<number, { start: number; end: number; quote?: number }[]>();
+    for (const { item, start, end, quote } of highlights) {
+      byItem.set(item, [...(byItem.get(item) ?? []), { start, end, quote }]);
     }
+    const tag = (element: HTMLElement, quote: number | undefined) => {
+      if (quote === undefined) return true;
+      element.dataset.quoteIndex = String(quote);
+      element.classList.toggle(OTHER_QUOTE, quote !== step);
+      return quote === step;
+    };
     for (const [item, ranges] of byItem) {
       const div = divs[item];
       const text = strings[item];
@@ -199,25 +219,36 @@ export function ImageView({ document, target }: { document: Document; target: Vi
       if (ranges.length === 1 && only && only.start === 0 && only.end === text.length) {
         div.classList.add("highlight");
         div.dataset.quoteHighlight = "";
-        first ??= div;
+        if (tag(div, only.quote)) first ??= div;
         continue;
       }
+      // Quotes of one chip may overlap: the run is cut at every edge and each piece written once,
+      // a piece two quotes share shown as the one the viewer is on.
+      const points = [
+        ...new Set([0, text.length, ...ranges.flatMap(({ start, end }) => [start, end])]),
+      ].sort((a, b) => a - b);
       const children: (string | HTMLElement)[] = [];
-      let at = 0;
-      for (const { start, end } of ranges) {
+      for (let at = 0; at < points.length - 1; at++) {
+        const from = points[at] as number;
+        const to = points[at + 1] as number;
+        const covering = ranges.filter(({ start, end }) => start <= from && end >= to);
+        if (covering.length === 0) {
+          children.push(text.slice(from, to));
+          continue;
+        }
+        const quote = (covering.find((range) => range.quote === step) ?? covering[0])?.quote;
         const mark = window.document.createElement("span");
         mark.className = "highlight appended";
-        mark.textContent = text.slice(start, end);
+        mark.textContent = text.slice(from, to);
         mark.dataset.quoteHighlight = "";
-        children.push(text.slice(at, start), mark);
-        at = end;
-        first ??= mark;
+        children.push(mark);
+        if (tag(mark, quote)) first ??= mark;
       }
-      div.replaceChildren(...children, text.slice(at));
+      div.replaceChildren(...children);
     }
     firstHighlight.current = first;
     setMarked((count) => count + 1);
-  }, [page, natural.width, natural.height, highlights, loaded.kind]);
+  }, [page, natural.width, natural.height, highlights, loaded.kind, step]);
 
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
   const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
@@ -341,6 +372,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
         </button>
       </ViewerHeader>
       <UnreadPagesLine document={document} />
+      <QuoteStepsLine stepper={stepper} />
       {loaded.kind === "loading" ? (
         <OpeningDocument key={attempt} retry={reload} />
       ) : loaded.kind === "missing" ? (

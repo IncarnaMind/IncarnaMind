@@ -5,6 +5,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, sep } from "nod
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
+import { readAppLink } from "../shared/appLinks";
 import { meetingTimeAt } from "../shared/blockTimes";
 import { canvasHostOf } from "../shared/canvases";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
@@ -75,11 +76,12 @@ import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
-import { agentSocketPath, createAgents } from "./agents";
+import { agentSocketPath, createAgents, serviceOf } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
+import { createOwnAiChecks } from "./agents/ownRun";
 import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import { createAgentSorting } from "./agents/sorting";
@@ -125,6 +127,7 @@ import type { LiveTranscript } from "./answers/liveTranscript";
 import {
   type AddDocumentsResult,
   type AddedToNote,
+  type AgentOpened,
   type AnnotationColour,
   type AnswerPlace,
   BLOCK_ID_ATTRIBUTE,
@@ -552,6 +555,12 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   openDocumentInApp(documentId: string): Promise<void>;
   /**
+   * Shows the item an app link names in front (#3534, ADR-0033), as what an agent makes opens, or,
+   * before the first window has loaded, keeps it for that window (`takeLinked`): true when it is
+   * there, false for any other link or an item that isn't, which shows nothing.
+   */
+  showLinked(link: string): boolean;
+  /**
    * Shows a live Document's file selected in the system's file manager,
    * through the `shell` adapter. Throws NotFoundError as `openDocumentFile` does.
    */
@@ -915,6 +924,19 @@ export function createCore(adapters: CoreAdapters): Core {
       return false;
     }
   };
+  // A link that comes before the first window has loaded waits for it: shown at once, it would
+  // open under the tabs the window then restores (ADR-0033).
+  let windowTookLinked = false;
+  let heldLinked: AgentOpened["item"] | null = null;
+  /** What an app link names, if it is there now (ADR-0033); null for any other link. */
+  const linkedItem = (link: string): AgentOpened["item"] | null => {
+    const linked = readAppLink(link);
+    if (linked?.kind === "canvas") {
+      return canvases.get(linked.id) ? { kind: "canvas", canvasId: linked.id } : null;
+    }
+    const mindId = linked?.kind === "file" ? newestHandedNote(linked.id) : linked?.id;
+    return mindId && mindExists(mindId) ? { kind: "mind", mindId } : null;
+  };
   /** A Mind's name while the User can read it now; null once it is deleted or newer than this version. */
   const readableMindName = (mindId: string): string | null => {
     const found = minds.locate(mindId);
@@ -923,6 +945,14 @@ export function createCore(adapters: CoreAdapters): Core {
     return found.name || translate(settings.get().language, "mind.untitled");
   };
   const handedFiles = createAgentFiles({ db, now, newId: () => crypto.randomUUID() });
+  /** The Note of a handed-over file's newest version that has one; null for none (#3534). */
+  const newestHandedNote = (fileId: string): string | null =>
+    handedFiles.get(fileId)
+      ? (handedFiles
+          .versions(fileId)
+          .filter((version) => version.mindId !== null)
+          .at(-1)?.mindId ?? null)
+      : null;
   /**
    * The Notes as the window lists them: the check of an earlier version of a file an outside agent
    * handed over names the Note of its newest version still kept, where it opens (#3412).
@@ -6705,13 +6735,7 @@ export function createCore(adapters: CoreAdapters): Core {
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
-      handedNote: (fileId) =>
-        handedFiles.get(fileId)
-          ? (handedFiles
-              .versions(fileId)
-              .filter((version) => version.mindId !== null)
-              .at(-1)?.mindId ?? null)
-          : null,
+      handedNote: newestHandedNote,
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
       checksWritten: () => settings.get().user.checkAssistantWrites,
@@ -6725,7 +6749,7 @@ export function createCore(adapters: CoreAdapters): Core {
   agentsLocalModeChanged = () => agents.localModeChanged();
   agentsModelChanged = (ready) => agents.modelChanged(ready);
   agents.start().catch((error: unknown) => console.error(error));
-  // Setting IncarnaMind up in the User's agent, from Settings → Agents.
+  // Setting IncarnaMind up in the User's agent, from Settings → AI.
   const agentSetup = createAgentSetup({
     agents,
     skills: skillFiles,
@@ -7006,6 +7030,55 @@ export function createCore(adapters: CoreAdapters): Core {
   ] as const)
     events.on(event, summaryAccessChanged);
   liveSummaries.changed(meetings.list());
+  const ownAiChecks = createOwnAiChecks({
+    runner: adapters.ownAi,
+    askable: (mindId) => agents.askable(mindId),
+    checkGrant: (pairingId, mindId) => agents.checkGrant(pairingId, mindId),
+    async consented(pairing) {
+      const service = serviceOf(pairing);
+      // Taken back in Settings › Privacy: Check goes by the link until the User allows it again.
+      if (consent.takenBack("hosted-agents", service)) return false;
+      try {
+        await consent.ensure("hosted-agents", service);
+        return true;
+      } catch (error) {
+        if (error instanceof ConsentDeclinedError) return false;
+        throw error;
+      }
+    },
+    heldBack(pairing, mindId) {
+      // Local mode pauses every pairing, so it comes before the reach it takes away.
+      if (embedding.localOnly()) return "local-mode";
+      if (!agents.askable(mindId).some((each) => each.id === pairing.id)) return "access";
+      return consent.status("hosted-agents", serviceOf(pairing)) === "accepted"
+        ? null
+        : "taken-back";
+    },
+    onReachChange(listener) {
+      const off = (
+        [
+          "agents.changed",
+          "privacy.changed",
+          "settings.changed",
+          "dataFlows.changed",
+          "minds.changed",
+          "library.changed",
+          "library.assignments",
+        ] as const
+      ).map((event) => events.on(event, listener));
+      return () => {
+        for (const each of off) each();
+      };
+    },
+    onActivity: (listener) => events.on("agents.activity", listener),
+    ended: (end) => events.emit("agents.ownCheck", end),
+    titleOf(mindId) {
+      const mind = minds.list().find((each) => each.id === mindId);
+      return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
+    },
+    lifetime: lifetime.signal,
+    log: adapters.log ?? silentLogger,
+  });
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
@@ -8257,6 +8330,12 @@ export function createCore(adapters: CoreAdapters): Core {
       }));
     },
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
+    takeLinked: async () => {
+      windowTookLinked = true;
+      const item = heldLinked;
+      heldLinked = null;
+      return item;
+    },
 
     getSecretStorage: async () => secrets.status(),
     acceptPlainTextSecretStorage: async () => secrets.acceptPlainText(),
@@ -9470,6 +9549,12 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     openDocumentImage: (documentId, path) => documents.openImage(documentId, path),
     readCellNumber: (documentId, sheet, ref) => documents.cellNumber(documentId, sheet, ref),
+    showLinked: (link) => {
+      const item = linkedItem(link);
+      if (item && windowTookLinked) events.emit("agents.opened", { item, front: true });
+      else if (item) heldLinked = item;
+      return item !== null;
+    },
     openDocumentInApp: async (documentId) => {
       const address = documents.get(documentId).web?.address;
       if (address) return adapters.browser.open(address);
@@ -9534,6 +9619,16 @@ export function createCore(adapters: CoreAdapters): Core {
       return wanted.filter((id) => readable.has(id));
     },
     askAgent: (input) => agentAsk.ask(input),
+    checkWithOwnAi(mindId, pairingId) {
+      if (
+        typeof mindId !== "string" ||
+        (pairingId !== undefined && typeof pairingId !== "string")
+      ) {
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      }
+      return ownAiChecks.check(mindId, pairingId);
+    },
+    stopOwnAiCheck: async (mindId) => ownAiChecks.stop(mindId),
     frontAgent: (pairingId) => agentAsk.front(pairingId),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);

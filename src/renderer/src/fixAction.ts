@@ -41,7 +41,9 @@ export function fixAction(
     return {
       label: t(fix.label),
       onClick: () =>
-        chooseModel && failed.chooseHere ? requestModelMenu() : onOpenSettings(fix.page, fix.at),
+        chooseModel && failed.chooseHere
+          ? requestModelMenu()
+          : onOpenSettings(fix.page, fix.at ?? (chooseModel ? "model" : undefined)),
     };
   }
   if (fix.kind === "sign-in") {

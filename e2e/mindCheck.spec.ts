@@ -699,7 +699,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const plainFoot = plain.getByTestId("check-card-foot");
     await expect(plainPress).toHaveAttribute(
       "title",
-      language === "en" ? "1 sentence not checked yet" : "1 句待核对",
+      language === "en" ? "1 sentence not checked yet" : "1 句未核对",
     );
     await expect(plainPrice).toHaveCount(0);
     // Its content has settled: the estimate is none, not still on its way, so the press runs.
@@ -858,7 +858,7 @@ test("In Chinese and a narrow window, from the Mind's tab menu: a model on this 
   await expect(last).toContainText("timetable out. The harbour office opens");
   const all = (await checkCard(window)).getByTestId("badge-check-mind");
   await expect(all).toHaveText("核对");
-  await expect(all).toHaveAttribute("title", "1 句待核对");
+  await expect(all).toHaveAttribute("title", "1 句未核对");
   await pointAndClick(window, all);
   await expect(marks(window)).toHaveCount(16);
   await expect(health.getByTestId("health-toCheck")).toHaveCount(0);

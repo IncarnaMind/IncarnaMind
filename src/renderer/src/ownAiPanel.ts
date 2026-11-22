@@ -47,7 +47,7 @@ export const hiddenForOwnAiNow = (): boolean => ownAiOnlyNow() && !useReading.ge
 
 /** IncarnaMind's own model, from the pill's ⌄: set up in Settings › AI, where the panel comes back once it works. */
 export function setUpModelInstead(): void {
-  useAppStore.getState().openSettings("ai");
+  useAppStore.getState().openSettings("ai", "model");
 }
 
 /**

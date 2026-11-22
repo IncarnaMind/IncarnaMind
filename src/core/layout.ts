@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MOST_QUOTES_AT_ONCE } from "../shared/documentViewer";
 import { parseCitedArea, parseLocation } from "../shared/locations";
 import {
   type AssistantCorner,
@@ -185,6 +186,17 @@ function parsePlace(value: unknown): DocumentPlace {
       throw new InvalidInputError("A quote is text.");
     }
     place.quote = value.quote;
+  }
+  if (value.quotes !== undefined) {
+    const quotes = value.quotes;
+    if (
+      !Array.isArray(quotes) ||
+      quotes.length > MOST_QUOTES_AT_ONCE ||
+      !quotes.every((each) => typeof each === "string" && each.length <= MAX_TEXT)
+    ) {
+      throw new InvalidInputError({ key: "error.layout.quotes" });
+    }
+    place.quotes = quotes;
   }
   if (value.area !== undefined) {
     const area = parseCitedArea(value.area);

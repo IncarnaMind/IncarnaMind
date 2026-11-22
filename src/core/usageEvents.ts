@@ -95,7 +95,6 @@ export const SETTINGS_PAGES = [
   "meetings",
   "connectors",
   "skills",
-  "agents",
   "privacy",
 ] as const;
 

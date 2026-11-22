@@ -243,6 +243,14 @@ describe("Tabs and groups", () => {
     expect(tabOf(layout, notes).tab.place).toEqual({ quote: "field" });
     expect(tabOf(layout, notes).tab.opened).toBe(openedBefore + 1);
 
+    // The quotes of a chip that stands for several Citations open together, at the first (#3654).
+    const quotes = ["field", "the second quote", "the third"];
+    layout = await change({ type: "open", item: notes, place: { quote: "field", quotes } });
+    expect(tabOf(layout, notes).tab.place).toEqual({ quote: "field", quotes });
+    await expect(
+      change({ type: "open", item: notes, place: { quotes: [1, 2] as unknown as string[] } }),
+    ).rejects.toThrow(InvalidInputError);
+
     const transcriptCue = { startMs: 0, endMs: 2400 };
     layout = await change({ type: "open", item: notes, place: { transcriptCue, quote: "Friday" } });
     expect(tabOf(layout, notes).tab.place).toEqual({ transcriptCue, quote: "Friday" });
