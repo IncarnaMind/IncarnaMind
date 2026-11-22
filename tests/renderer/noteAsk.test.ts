@@ -57,6 +57,7 @@ const { allowAndAskAgain, askFromSelection, askInNote, selectedForRequest, useNo
   await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
+const { firstWordsOf } = await import("../../src/renderer/src/components/noteAsk/NoteAskPill");
 
 const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   mindId: "m1",
@@ -161,6 +162,16 @@ describe("the input at a Note's foot (#3627)", () => {
       message: "noteAsk.busy",
       params: { agent: "Claude Code" },
     });
+  });
+
+  // protects=the pill shows a reply's first words as the User reads them: no Markdown marks, no Citation tokens, the first line that has words; fails_when=the pill shows "**", "# " or "[cite:…]"
+  test("shows a reply's first words, its marks and Citation tokens left out", () => {
+    expect(
+      firstWordsOf("## Summary\n\n**Ten interviews** [cite:ab12cd34] say the boat is fine."),
+    ).toBe("Summary");
+    expect(firstWordsOf("- **Kofi** says the ramp is hard [cite:x9y8z7w6].\n- Mei agrees.")).toBe(
+      "Kofi says the ramp is hard.",
+    );
   });
 
   // protects=the selection a request carries: its words, and for each top-level Block the text before and after them, which the core holds a change inside to; fails_when=the core gets offsets or text it can't compare with the Note's
