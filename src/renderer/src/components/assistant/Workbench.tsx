@@ -130,7 +130,7 @@ export function Workbench({
     liveNote &&
     viewport.height <= 640 &&
     shown.height === DEFAULT_ASSISTANT.height &&
-    !resized &&
+    !shown.heightChosen &&
     !trayWaiting &&
     !folded
       ? Math.min(wantedHeight, Math.max(BOTTOM_MIN, Math.round(room.height * 0.4)))
@@ -179,6 +179,8 @@ export function Workbench({
     setPreview(null);
     void placeAssistant(next);
   };
+  const dockSize = (px: number): Partial<AssistantPlace> =>
+    side ? { width: px } : { height: px, heightChosen: true };
   const restore = () => keep(restoredSize(shown, dock));
 
   return (
@@ -223,8 +225,8 @@ export function Workbench({
           max={side ? sideMax(room.width) : tallest}
           // The assistant is after the line, except on the left, where it is before it.
           direction={dock === "left" ? 1 : -1}
-          onPreview={(px) => resize(side ? { width: px } : { height: px })}
-          onCommit={(px) => keep(side ? { width: px } : { height: px })}
+          onPreview={(px) => resize(dockSize(px))}
+          onCommit={(px) => keep(dockSize(px))}
           onReset={restore}
         />
       )}

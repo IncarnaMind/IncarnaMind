@@ -330,6 +330,17 @@ test("a zoomed live Transcript shows spoken lines above assistant setup and the 
     const height = Number(await divider.getAttribute("aria-valuenow"));
     await divider.press("ArrowUp");
     await expect(divider).toHaveAttribute("aria-valuenow", String(height + 10));
+    const bridge = await coreOf(window);
+    await bridge.evaluate((api) =>
+      api.changeLayout("main", { type: "assistant", place: { height: 290, heightChosen: true } }),
+    );
+    await expect(divider).toHaveAttribute("aria-valuenow", "290");
+    await divider.press("ArrowUp");
+    await expect(divider).toHaveAttribute("aria-valuenow", "300");
+    await divider.press("ArrowDown");
+    await expect(divider).toHaveAttribute("aria-valuenow", "290");
+    await divider.dblclick();
+    await expect(divider).toHaveAttribute("aria-valuenow", String(height));
   } finally {
     await app.close();
   }
