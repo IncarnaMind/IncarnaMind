@@ -18,6 +18,7 @@ import type {
   NoteTurnEvent,
   NoteTurnProblem,
 } from "../api";
+import { plainText } from "../conversations/search";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
 import type { ConversationRun, SelectedInBlock } from "./askedChecks";
@@ -395,7 +396,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     offReach();
     await grant.end();
     running.delete(mindId);
-    const reply = end.kind === "finished" ? end.reply.trim() : "";
+    // Shown as plain words, under the input and in the conversation (ADR-0034).
+    const reply = end.kind === "finished" ? plainText(end.reply) : "";
     const outcome: Pick<NoteTurnEvent, "state" | "problem"> = lost
       ? { state: "failed", problem: lost }
       : signal.aborted

@@ -368,11 +368,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await expect.poll(() => back.purged).toEqual([back.runs[0]?.conversation?.key]);
   });
 
-  // protects=a connection that may only read ends a request that would change something with the line that offers to let it propose, and a request that only reads still answers; fails_when=the read-only refusal shows as a generic failure, or an explanation is refused
+  // protects=a connection that may only read ends a request that would change something with the line that offers to let it propose, and a request that only reads still answers, in plain words where the agent wrote Markdown; fails_when=the read-only refusal shows as a generic failure, an explanation is refused, or its answer shows Markdown's marks
   it("says a read-only connection may only read, and still answers what only reads", async () => {
     let explain = false;
     const run = runner(async (agent, request) => {
-      if (explain) return { kind: "finished", reply: "It counts each crossing." };
+      if (explain) {
+        return { kind: "finished", reply: "It counts **each crossing**:\n- out\n- and back" };
+      }
       refusal(
         await agent.callTool({
           name: "propose_changes",
@@ -390,7 +392,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await ended(1)).toMatchObject({ state: "failed", problem: "read-only" });
     explain = true;
     await core.askInNote({ mindId, words: "explain this" });
-    expect(await ended(2)).toMatchObject({ state: "landed", reply: "It counts each crossing." });
+    expect(await ended(2)).toMatchObject({
+      state: "landed",
+      reply: "It counts each crossing: out and back",
+    });
+    expect((await core.noteConversation(mindId)).at(-1)?.reply).toBe(
+      "It counts each crossing: out and back",
+    );
   });
 
   // protects=the run has the connection's Tools but no file by its path: cite's path, a hand-over and a Canvas's files are refused; fails_when=a request at a Note's foot opens a file the User never gave it
