@@ -202,7 +202,9 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
       "run_analysis",
       "report_check",
     ]);
-    expect(request?.prompt).toBe(`Check my note “Tide notes” in IncarnaMind (mindId: ${mindId}).`);
+    expect(request?.prompt).toBe(
+      `The User pressed Check on their note “Tide notes” (mindId: ${mindId}). Check it.`,
+    );
     expect(request?.prompt).not.toContain(SPRING);
   });
 

@@ -30,6 +30,14 @@ const FAILURE_OF: Record<string, OwnAiFailure> = {
   billing_error: "billing",
 };
 
+/** The run showed a tool or a server that isn't IncarnaMind's: a flag didn't hold. */
+class StrayRunError extends Error {
+  constructor(what: string) {
+    super(`A check run on Claude Code showed ${what}, so it was stopped.`);
+    this.name = "StrayRunError";
+  }
+}
+
 const older = (found: string, lowest: string) => {
   const [a, b] = [found, lowest].map((each) => each.split(".").map(Number));
   for (let at = 0; at < 3; at++) {
@@ -75,7 +83,8 @@ export function createOwnAi({ command = "claude" }: { command?: string } = {}): 
     async run(request) {
       const signal = AbortSignal.any([request.signal, AbortSignal.timeout(RUN_MS)]);
       const cwd = await mkdtemp(join(tmpdir(), "incarnamind-check-"));
-      const allowed = new Set(request.tools.map((tool) => `mcp__${SERVER}__${tool}`));
+      const ours = (tool: unknown) =>
+        typeof tool === "string" && tool.startsWith(`mcp__${SERVER}__`);
       let failure: OwnAiFailure | null = null;
       try {
         const configFile = join(cwd, "mcp.json");
@@ -101,15 +110,13 @@ export function createOwnAi({ command = "claude" }: { command?: string } = {}): 
               const tools = Array.isArray(message.tools) ? message.tools : [];
               const servers = Array.isArray(message.mcp_servers) ? message.mcp_servers : [];
               // Only IncarnaMind's server, connected, and its Tools: anything else, a flag didn't hold.
+              if (!tools.every(ours)) throw new StrayRunError("a tool of its own");
               if (
-                tools.some(
-                  (tool) => typeof tool !== "string" || !tool.startsWith(`mcp__${SERVER}__`),
-                ) ||
                 servers.length !== 1 ||
                 object(servers[0]).name !== SERVER ||
                 object(servers[0]).status !== "connected"
               ) {
-                throw new ClaudeCodeIsolationError();
+                throw new StrayRunError("another server, or IncarnaMind's not connected");
               }
             }
             if (message.type === "system" && message.subtype === "api_retry") {
@@ -117,9 +124,10 @@ export function createOwnAi({ command = "claude" }: { command?: string } = {}): 
             }
             const content = object(message.message).content;
             if (message.type === "assistant" && Array.isArray(content)) {
+              // One of IncarnaMind's other Tools is denied by Claude Code and refused by the server.
               for (const part of content.map(object)) {
-                if (part.type === "tool_use" && !allowed.has(String(part.name))) {
-                  throw new ClaudeCodeIsolationError();
+                if (part.type === "tool_use" && !ours(part.name)) {
+                  throw new StrayRunError("a call to a tool of its own");
                 }
               }
             }
@@ -132,6 +140,7 @@ export function createOwnAi({ command = "claude" }: { command?: string } = {}): 
         if (request.signal.aborted) throw error;
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
+        if (error instanceof StrayRunError) console.warn(error.message);
         if (signal.aborted) return { kind: "failed", reason: "timeout" };
         return { kind: "failed", reason: failure ?? "other" };
       } finally {

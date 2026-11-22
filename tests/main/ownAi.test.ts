@@ -71,14 +71,18 @@ function useClaude({
   });
 }
 
-/** A stand-in for the stream-json session: settings first, then `after` once the prompt comes. */
-const session = (after: unknown[]) => `
+/**
+ * A stand-in for the stream-json session: settings first, then `after` once the prompt comes. `plugin`: a
+ * managed plugin is on, as an organization's settings can turn one on.
+ */
+const session = (after: unknown[], plugin = false) => `
   const lines = require("node:readline").createInterface({ input: process.stdin });
   lines.on("line", (line) => {
     const v = JSON.parse(line);
     if (v.type === "control_request") {
       console.log(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: v.request_id,
-        response: { effective: { disableAllHooks: true }, sources: [{ source: "flagSettings", settings: {} }] } } }));
+        response: { effective: { disableAllHooks: true }, sources: [{ source: "flagSettings", settings: {} },
+          { source: "policySettings", settings: ${plugin ? "{ enabledPlugins: { audit: true } }" : "{}"} }] } } }));
     } else if (v.type === "user") {
       for (const each of ${JSON.stringify(after)}) console.log(JSON.stringify(each));
     }
@@ -146,16 +150,27 @@ describe("a check run on the User's own Claude Code", () => {
     await expect(stat(options.cwd)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  // protects=the run stops at the first sign that a flag didn't hold: another tool or server at the start, a call outside the six; fails_when=Claude Code's own tools, another server, or another of IncarnaMind's Tools go unnoticed
+  // protects=the run stops at the first sign that a flag didn't hold: a tool of Claude Code's own or another server at the start, or a call to a tool of its own; a call to another of IncarnaMind's Tools is left to Claude Code, which denies it, and the server, which refuses it, so the check goes on; fails_when=Claude Code's own tools or another server go unnoticed, or a denied call ends a check that would have landed
   it.each([
     [
-      "a tool of its own",
+      "a tool of its own at the start",
       [init(["Bash", ...TOOLS.map((tool) => `mcp__incarnamind__${tool}`)]), done],
     ],
     ["IncarnaMind's server not connected", [init(undefined, "failed"), done]],
-    ["a call to a Tool outside the check's", [init(), call("mcp__incarnamind__create_mind"), done]],
+    ["a call to a tool of its own", [init(), call("Bash"), done]],
   ])("stops a run that shows %s", async (_name, after) => {
     useClaude({ run: session(after) });
+    await expect(run()).resolves.toEqual({ kind: "failed", reason: "other" });
+  });
+
+  it("goes on past a call to another of IncarnaMind's Tools, which is denied", async () => {
+    useClaude({ run: session([init(), call("mcp__incarnamind__read_request"), done]) });
+    await expect(run()).resolves.toEqual({ kind: "finished" });
+  });
+
+  // protects=a hook or plugin an organization set, which could receive what is sent, stops the run before the prompt goes, and says so; fails_when=the prompt goes beside a managed plugin
+  it("sends nothing beside a managed plugin, and says why", async () => {
+    useClaude({ run: session([init(), done], true) });
     await expect(run()).resolves.toEqual({ kind: "failed", reason: "isolation" });
   });
 

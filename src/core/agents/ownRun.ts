@@ -109,7 +109,7 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
         server: grant.launch,
         tools: CHECK_RUN_TOOLS,
         instructions: INSTRUCTIONS,
-        prompt: `Check my note “${options.titleOf(mindId)}” in IncarnaMind (mindId: ${mindId}).`,
+        prompt: `The User pressed Check on their note “${options.titleOf(mindId)}” (mindId: ${mindId}). Check it.`,
         signal,
       })
       .catch((error: unknown) => {
