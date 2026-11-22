@@ -59,6 +59,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(steps).toHaveValue(/- \*\*Decisions\*\*\n- \*\*Open questions\*\*$/);
       await expect(steps).not.toHaveValue(/supplier|528/);
       const expectedSteps = await steps.inputValue();
+      await card.getByTestId("make-skill-editor-name").fill("Work in progress");
+      await pageMenuButton(window).click();
+      await expect(
+        window.getByTestId("page-actions").getByTestId("meeting.saveTemplate"),
+      ).toHaveCount(0);
+      await window.keyboard.press("Escape");
+      await expect(card.getByTestId("make-skill-editor-name")).toHaveValue("work-in-progress");
       await card.getByTestId("make-skill-editor-cancel").click();
       await expect(card).toHaveCount(0);
       await openDraft();

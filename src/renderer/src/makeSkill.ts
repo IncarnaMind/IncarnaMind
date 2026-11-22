@@ -28,6 +28,11 @@ interface MakeSkillStore {
 
 export const useMakeSkill = create<MakeSkillStore>()(() => ({ byMind: {} }));
 
+export function canStartSkillDraft(mindId: string) {
+  const phase = useMakeSkill.getState().byMind[mindId]?.phase;
+  return phase !== "editing" && phase !== "drafting";
+}
+
 const set = (mindId: string, state: MakeSkillState | null) =>
   useMakeSkill.setState((store) => {
     const next = { ...store.byMind };
