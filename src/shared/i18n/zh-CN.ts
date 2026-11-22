@@ -8142,7 +8142,7 @@ export const zhCN = {
   "agents.problem.citeWithoutPassage":
     "没有引用任何内容：每条引文都要填写 search 或 read_passages 给出的 passageId，或在 path 中填写文件的完整路径。",
   "agents.problem.citeNotFound":
-    "没有引用任何内容：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
+    "未引用：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
   "agents.read.left.one":
     "这不是整篇文档：其 {total} 个段落中还有最后 1 个未读，摘要或引文需要每个段落的全文，所以请先把 from 设为 next 接着读，再写关于它的内容。",
   "agents.read.left.other":

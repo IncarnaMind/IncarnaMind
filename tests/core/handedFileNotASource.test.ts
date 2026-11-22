@@ -80,13 +80,34 @@ describe("a file an outside agent handed over", () => {
         );
       }
       expect(
-        refusal(
+        structured<{
+          citations: {
+            passageId: string | null;
+            check: string;
+            cite: string | null;
+            document: string | null;
+            location: string | null;
+            text: string | null;
+          }[];
+        }>(
           await each.callTool({
             name: "cite",
             arguments: { citations: [{ passageId: own.passageId, quote: EAST }] },
           }),
         ),
-      ).toBe(translate("en", "agents.problem.citeNotFound", { passageId: own.passageId }));
+      ).toEqual({
+        citations: [
+          {
+            passageId: own.passageId,
+            quote: EAST,
+            check: "not-found",
+            cite: null,
+            document: null,
+            location: null,
+            text: translate("en", "agents.problem.citeNotFound", { passageId: own.passageId }),
+          },
+        ],
+      });
       const row = await coastRow(each);
       expect(row?.documents).toBe(2);
       expect(row?.documentList.map((listed) => listed.id)).not.toContain(document.id);

@@ -1536,6 +1536,19 @@ export function createAgentAccess(
     return granted;
   };
 
+  /** A live Passage of these Documents, or null when it doesn't exist or isn't in scope. */
+  const findPassageInScope = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    id: string,
+  ): WindowedPassage | null => {
+    // A Citation's token stands for its Passage too: agents give one where a passageId goes (#3465).
+    const token = [...id.matchAll(CITATION_TOKEN)][0]?.[1] ?? id;
+    const passage =
+      deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
+    return passage && inScope.has(passage.documentId) ? passage : null;
+  };
+
   /** A live Passage of these Documents, or a refusal that tells nothing of the others. */
   const passageInScope = (
     pairing: AdmittedPairing,
@@ -1544,11 +1557,8 @@ export function createAgentAccess(
     notFound = (_id: string) => t("agents.problem.not-found"),
   ): WindowedPassage => {
     const id = text(passageId, "passageId", 200);
-    // A Citation's token stands for its Passage too: agents give one where a passageId goes (#3465).
-    const token = [...id.matchAll(CITATION_TOKEN)][0]?.[1] ?? id;
-    const passage =
-      deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
-    if (!passage || !inScope.has(passage.documentId)) throw new NotReachedError(notFound(id));
+    const passage = findPassageInScope(pairing, inScope, id);
+    if (!passage) throw new NotReachedError(notFound(id));
     return passage;
   };
 
@@ -2424,6 +2434,11 @@ export function createAgentAccess(
         }
         const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
         let inScope = new Set(scopeOf(pairing, undefined));
+        let cachedNotShared: string | null | undefined;
+        const extraNotShared = () => {
+          if (cachedNotShared === undefined) cachedNotShared = notShared();
+          return cachedNotShared;
+        };
         const read: string[] = [];
         const citations: AgentCited[] = [];
         // Each answer gives back its quote, and a quote not found up to `PASSAGE_CHARS` of its
@@ -2465,6 +2480,7 @@ export function createAgentAccess(
             );
             // What the User shares may have changed while the file was read (#3458).
             inScope = reachNow();
+            cachedNotShared = undefined;
             read.push(filed.documentId);
             const found = filed.citation;
             if (found && deps.notCited(found.passageId)) {
@@ -2492,20 +2508,35 @@ export function createAgentAccess(
           if (typeof record.passageId !== "string") {
             throw new AgentRefusedError("invalid", t("agents.problem.citeWithoutPassage"));
           }
-          // One quote of many names a Passage it doesn't have: the agent is told which (#3573).
-          const passage = passageInScope(pairing, inScope, record.passageId, (id) =>
-            t("agents.problem.citeNotFound", { passageId: id }),
-          );
-          if (deps.notCited(passage.passageId)) {
+          const id = text(record.passageId, "passageId", 200);
+          const quote = text(record.quote, "quote", MAX_QUOTE_CHARS);
+          const passage = findPassageInScope(pairing, inScope, id);
+          if (passage && deps.notCited(passage.passageId)) {
             throw new AgentRefusedError(
               "invalid",
               "That Passage is from the User's own working file, which is read but never cited.",
             );
           }
+          const citation = passage ? deps.citing.citeQuote(passage.passageId, quote) : null;
+          // Each quote is answered on its own so one unknown passageId never loses the rest (#3597).
+          if (!passage || !citation) {
+            const extra = extraNotShared();
+            const answer: AgentCited = {
+              passageId: id,
+              quote,
+              check: "not-found",
+              cite: null,
+              document: null,
+              location: null,
+              text: [
+                t("agents.problem.citeNotFound", { passageId: id }),
+                ...(extra ? [extra] : []),
+              ].join(" "),
+            };
+            if (!fits(answer, at)) break;
+            continue;
+          }
           read.push(passage.documentId);
-          const quote = text(record.quote, "quote", MAX_QUOTE_CHARS);
-          const citation = deps.citing.citeQuote(passage.passageId, quote);
-          if (!citation) throw new NotReachedError(t("agents.problem.not-found"));
           const check =
             citation.check === "found" || citation.check === "cant-check"
               ? citation.check

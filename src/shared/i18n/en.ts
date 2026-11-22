@@ -8638,7 +8638,7 @@ export const en = {
   "agents.problem.citeWithoutPassage":
     "Nothing was cited: each quote needs the passageId that search or read_passages gave its passage, or a file’s full path as path.",
   "agents.problem.citeNotFound":
-    "Nothing was cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
+    "Not cited: there is no passage “{passageId}” in the Folders shared with this agent. Give each quote a passageId exactly as search or read_passages gave it.",
   "agents.read.left.one":
     "Not the whole Document: its last passage of {total} is still to read, and a summary or a quote needs each passage’s full text, so read on with from set to next before you write about it.",
   "agents.read.left.other":

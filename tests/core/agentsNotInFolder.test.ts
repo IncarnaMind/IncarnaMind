@@ -121,7 +121,13 @@ describe("an agent that may read Not in a Folder", () => {
       );
     }
     await refused("read_passages", { passageId: elsewhere.passageId });
-    await refused("cite", { citations: [{ passageId: elsewhere.passageId, quote: "harbour" }] });
+    const cited = structured<{ citations: { check: string; cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: { citations: [{ passageId: elsewhere.passageId, quote: "harbour" }] },
+      }),
+    );
+    expect(cited.citations).toEqual([expect.objectContaining({ check: "not-found", cite: null })]);
     await refused("show_citation", { cite: elsewhere.cite });
     expect(await refused("search", { query: "harbour", folderIds: [coast.id] })).toMatch(
       /isn’t shared with this agent/,
