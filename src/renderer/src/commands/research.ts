@@ -1,5 +1,5 @@
 import { NO_MIND, useComposer } from "../composer";
-import { hiddenForOwnAiNow } from "../ownAiPanel";
+import { ownAiOnlyNow } from "../ownAiPanel";
 import { togglePlanView } from "../research";
 import { taskNow } from "../taskFocus";
 import { aimAt, tellable, tellableIn } from "../taskTell";
@@ -31,7 +31,7 @@ export const researchCommands: readonly Command[] = [
     // when no Mind is in focus.
     reversible: true,
     // The panel's, which a User with only their own AI never sees (#3612).
-    when: () => !hiddenForOwnAiNow(),
+    when: () => !ownAiOnlyNow(),
     run: () => {
       const { seat, update } = useComposer.getState();
       update(seat?.mindId ?? NO_MIND, { research: true, skill: null, analyse: false });

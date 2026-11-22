@@ -656,6 +656,28 @@ describe("asking from elsewhere", () => {
     expect(offered("assistant.fold")).toBe(false);
   });
 
+  // protects=row 14: while a Conversation is read in the panel, the selection menu's actions still go to their AI and the panel's own features stay unoffered: the reading only shows the panel; fails_when=an action asks the model that isn't set up, or Research or Analysis is offered
+  test("reading a Conversation changes where nothing goes", async () => {
+    user("own AI", { assistant: { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "agent" } });
+    await shown();
+    await openConversation("conversation-old");
+    await act(async () => undefined);
+    expect(state.hidden).toBe(false);
+    const { editor, doc } = selectedNote();
+    await requestEdit(editor, MIND, doc, "shorten", undefined, undefined, "menu");
+    expect(bridge.asked).toEqual([
+      {
+        pairingId: CLAUDE.id,
+        mindId: MIND,
+        ask: { kind: "selection", action: "shorten", text: SELECTED },
+      },
+    ]);
+    expect(bridge.editWithAi).not.toHaveBeenCalled();
+    expect(offered("research.start")).toBe(false);
+    expect(offered("analysis.start")).toBe(false);
+    await act(async () => useAppStore.getState().placeAssistant({ folded: true }));
+  });
+
   // protects=row 15: call help asked with only their own AI is read in the floating panel, which shows, and the assistant opens no Conversation for it; fails_when=the help opens the panel, or its answer has nowhere to show
   test("call help stays in the floating panel", async () => {
     user("own AI");

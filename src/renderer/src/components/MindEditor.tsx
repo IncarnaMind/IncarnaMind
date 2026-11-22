@@ -197,7 +197,7 @@ import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPartOf, writingPlaceOf } from "../mindWriting";
 import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
-import { hiddenForOwnAiNow, useHiddenForOwnAi } from "../ownAiPanel";
+import { hiddenForOwnAiNow, ownAiOnlyNow, useHiddenForOwnAi } from "../ownAiPanel";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
 import { skillDescription, skillTitle } from "../skills";
@@ -747,7 +747,7 @@ function MindEditorView({
               (current, range) => setCite({ editor: current, from: range.from, to: range.to }),
             );
             // A Skill is the panel's, which a User with only their own AI never sees (#3612).
-            const offered = hiddenForOwnAiNow() ? [] : skills;
+            const offered = ownAiOnlyNow() ? [] : skills;
             if (place === "question") return offered;
             const meeting = useMeetings.getState().meetings.find((item) => item.mindId === mindId);
             const templates = meetingTemplateSlashItems(meeting, all, language);

@@ -17,12 +17,12 @@ export const handedSelectionIn = (mindId: string) => handed.get(mindId) ?? null;
  * Asks the User's own AI to do `action` with `selection`, in the Note `mindId`: "none" when no AI
  * of theirs can read the Note.
  */
-export function handSelectionToOwnAi(
+export async function handSelectionToOwnAi(
   selection: EditSelection,
   mindId: string,
   action: Exclude<SelectionAction, "ask">,
   { language, instruction }: { language?: string; instruction?: string } = {},
-): ReturnType<typeof askFirstAgent> {
+): Promise<Awaited<ReturnType<typeof askFirstAgent>>> {
   const ask: AskedSelection = {
     kind: "selection",
     action,
@@ -30,8 +30,15 @@ export function handSelectionToOwnAi(
     ...(language && { language }),
     ...(instruction?.trim() && { instruction: instruction.trim() }),
   };
+  // The line shows the request last asked: one that didn't go leaves it, and its words, as they were.
+  const before = handed.get(mindId);
   handed.set(mindId, { blockId: selection.from.blockId, ask });
-  return askFirstAgent(mindId, ask);
+  const asked = await askFirstAgent(mindId, ask);
+  if (asked !== "asked") {
+    if (before) handed.set(mindId, before);
+    else handed.delete(mindId);
+  }
+  return asked;
 }
 
 /** The line's Continue in the open chat: the same words, copied for the chat the User has open (#3588). */

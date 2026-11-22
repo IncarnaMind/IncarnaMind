@@ -47,7 +47,7 @@ import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { modelInUseOf } from "./modelInUse";
 import { shownModelNow } from "./modelNames";
-import { hiddenForOwnAiNow } from "./ownAiPanel";
+import { ownAiOnlyNow } from "./ownAiPanel";
 import { useAppStore } from "./store";
 
 /** The languages Translate… offers: each in its own name, and as the model is told it. */
@@ -314,7 +314,8 @@ export async function requestEdit(
   again?: () => Promise<unknown>,
 ): Promise<boolean> {
   const ownAi = OWN_AI_ACTIONS[action];
-  if (ownAi && hiddenForOwnAiNow()) {
+  // By the User's setup, not by whether the panel shows: one read in it still edits through their AI.
+  if (ownAi && ownAiOnlyNow()) {
     return handOver(editor, mindId, ownAi, instruction, range);
   }
   const selection = selectionForEdit(editor.state, range);

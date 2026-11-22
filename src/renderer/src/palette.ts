@@ -17,6 +17,7 @@ import type {
   TabItem,
   TextRange,
 } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import type { Language } from "../../core/language";
 import type { CommandId } from "../../shared/commands";
 import { displayName } from "../../shared/documentNames";
@@ -701,7 +702,10 @@ export async function runItem(
       return;
     case "ask":
       if (hiddenForOwnAiNow()) {
-        await askFirstAgent(ownAiNoteNow(), { kind: "question", text: item.text });
+        const asked = await askFirstAgent(ownAiNoteNow(), { kind: "question", text: item.text });
+        if (asked === "none") {
+          store.reportError(new TranslatableError({ key: "error.agent.cantAsk" }));
+        }
         return;
       }
       focusComposer();

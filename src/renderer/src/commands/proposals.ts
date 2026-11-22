@@ -32,7 +32,7 @@ import {
   useEdits,
 } from "../editWithAi";
 import { markSelectionAsMine } from "../markAsMine";
-import { hiddenForOwnAiNow } from "../ownAiPanel";
+import { ownAiOnlyNow } from "../ownAiPanel";
 import { useAppStore } from "../store";
 import { noteHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
@@ -294,7 +294,7 @@ export const proposalCommands: readonly Command[] = [
       const note = withSelection();
       if (!note || requestEditField(note.editor, true)) return;
       // With only their own AI, the words go to it, and they say there what to change (#3612).
-      if (hiddenForOwnAiNow()) void requestEdit(note.editor, note.mindId, note.doc, "instruction");
+      if (ownAiOnlyNow()) void requestEdit(note.editor, note.mindId, note.doc, "instruction");
       else if (startEditing(note.editor, note.mindId)) useComposer.getState().requestFocus();
     },
   },
@@ -312,7 +312,7 @@ export const proposalCommands: readonly Command[] = [
       const note = withSelection();
       if (!note) return;
       // With only their own AI, they name the language there (#3612).
-      if (hiddenForOwnAiNow()) {
+      if (ownAiOnlyNow()) {
         void requestEdit(note.editor, note.mindId, note.doc, "translate");
         return;
       }
