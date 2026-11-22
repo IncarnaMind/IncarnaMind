@@ -7,6 +7,15 @@ name: Run named specs
 on:
   workflow_dispatch:
     inputs:
+      product_sha:
+        description: Exact main commit for the release candidate
+        required: true
+        type: string
+      packaged:
+        description: Exercise the macOS release build
+        required: false
+        type: boolean
+        default: false
       specs:
         description: 'Spec files, separated by spaces: each e2e/<name>.spec.ts or e2e/<name>.spec.ts:<line>'
         required: true
@@ -36,11 +45,12 @@ env:
 concurrency:
   # One run per branch and machine: a new dispatch replaces the one still going. macOS runners
   # are few, and the Nightly shares them.
-  group: specs-${{ github.ref }}-${{ inputs.os }}
+  group: meeting-main-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
   specs:
+    if: ${{ !inputs.packaged }}
     name: Specs on ${{ inputs.os }}
     runs-on: ${{ fromJSON('{"linux":"ubuntu-latest","macos":"macos-latest","windows":"windows-latest"}')[inputs.os] }}
     timeout-minutes: 45
@@ -54,6 +64,22 @@ jobs:
       INCARNAMIND_KEEP_ARTIFACTS: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.product_sha }}
+          persist-credentials: false
+      - name: Verify product revision
+        shell: bash
+        env:
+          PRODUCT_SHA: ${{ inputs.product_sha }}
+        run: test "$(git rev-parse HEAD)" = "$PRODUCT_SHA" && git log -1 --oneline
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .qa-recorder
+          persist-credentials: false
+      - name: Supply the interaction audit spec
+        shell: bash
+        run: cp .qa-recorder/e2e/meetingInteractionAudit.spec.ts e2e/ && mv .qa-recorder "${RUNNER_TEMP}/meeting-qa-recorder"
       # The same check the helper makes before it dispatches: the specs must exist under e2e/, and
       # nothing else is let near a shell.
       - name: Check the inputs
@@ -153,3 +179,28 @@ jobs:
             meeting-ux/*.png
             meeting-ux/*.json
           retention-days: 7
+
+  packaged-macos:
+    if: ${{ inputs.packaged }}
+    name: Packaged app (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.product_sha }}
+          persist-credentials: false
+      - name: Verify product revision
+        shell: bash
+        env:
+          PRODUCT_SHA: ${{ inputs.product_sha }}
+        run: test "$(git rev-parse HEAD)" = "$PRODUCT_SHA" && git log -1 --oneline
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:dir -- -c.mac.identity=- -c.mac.notarize=false
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: ./.github/actions/packaged-transcription
