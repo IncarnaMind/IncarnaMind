@@ -429,4 +429,82 @@ describe("Verify a workbook", () => {
     ]);
     expect(verificationOf(client.doc)?.workbook).toMatchObject({ unsaved: 3, unchecked: 0 });
   });
+
+  // protects=a workbook whose cells are all inline strings with figures written as text is listed, turned into a check Note, and its rows read as claims, while an empty or notes-only sheet still says there is nothing to check (#3575); fails_when=a text-only workbook returns no-text, a headerless row with a text figure is swallowed as a header, or a notes-only / headers-only sheet is checked
+  test("a sheet whose figures are written as text is checked as table rows; empty, header-only and single-column notes sheets still say nothing to check (#3575)", async () => {
+    const CAP = "Liability cap — Clause: Clause 12.1; Amount: GBP 500,000";
+    const NOTICE = "Notice period — Clause: Clause 15.2; Amount: 14 days";
+    const { core, sorted, sources } = await setUp({
+      [CAP]: { verdict: "supported" },
+      [NOTICE]: { verdict: "contradicted" },
+    });
+    const inline = (ref: string, words: string) =>
+      `<c r="${ref}" t="inlineStr"><is><t>${words}</t></is></c>`;
+    const book = xlsxPackage({
+      sheets: [
+        {
+          name: "Schedule",
+          xml: `<sheetData><row r="1">${inline("A1", "Term")}${inline("B1", "Clause")}${inline("C1", "Amount")}</row><row r="2">${inline("A2", "Liability cap")}${inline("B2", "Clause 12.1")}${inline("C2", "GBP 500,000")}</row><row r="3">${inline("A3", "Notice period")}${inline("B3", "Clause 15.2")}${inline("C3", "14 days")}</row></sheetData>`,
+        },
+        {
+          name: "Headerless",
+          xml: `<sheetData><row r="1">${inline("A1", "Revenue")}${inline("B1", "USD 1 million")}</row><row r="2">${inline("A2", "Liability cap")}${inline("B2", "GBP 500,000")}</row></sheetData>`,
+        },
+        {
+          name: "HeadersOnly",
+          xml: `<sheetData><row r="1">${inline("A1", "Term")}${inline("B1", "Amount")}</row></sheetData>`,
+        },
+        {
+          name: "SingleColumnNotes",
+          xml: `<sheetData><row r="1">${inline("A1", "Notes")}</row><row r="2">${inline("A2", "Prepared for internal review.")}</row></sheetData>`,
+        },
+      ],
+    });
+    const path = await writeSourceFile(sources, "Terms.xlsx", book);
+
+    expect(await core.verifyDocument({ path })).toMatchObject({
+      ok: false,
+      reason: "choose-sheet",
+      sheets: [
+        { name: "Schedule", rows: 3, typed: 0, formulas: 0, textRows: 2 },
+        { name: "Headerless", rows: 2, typed: 0, formulas: 0, textRows: 2 },
+        { name: "HeadersOnly", rows: 1, typed: 0, formulas: 0 },
+        { name: "SingleColumnNotes", rows: 2, typed: 0, formulas: 0 },
+      ],
+    });
+
+    expect(await core.verifyDocument({ path, sheet: "HeadersOnly" })).toEqual({
+      ok: false,
+      reason: "no-text",
+    });
+    expect(await core.verifyDocument({ path, sheet: "SingleColumnNotes" })).toEqual({
+      ok: false,
+      reason: "no-text",
+    });
+
+    const verified = await core.verifyDocument({ path, sheet: "Schedule" });
+    if (!verified.ok) throw new Error(`Not verified: ${verified.reason}`);
+    expect(
+      (await core.findClaims({ requestId: crypto.randomUUID(), mindId: verified.mind.id })).kind,
+    ).toBe("found");
+    expect(sorted.flat()).toEqual(["Schedule", CAP, NOTICE]);
+
+    const headerless = await core.verifyDocument({ path, sheet: "Headerless" });
+    if (!headerless.ok) throw new Error(`Not verified: ${headerless.reason}`);
+    const { blocks } = await tableOf(core, headerless.mind.id);
+    expect(
+      (blocks[1]?.content ?? []).map((row) =>
+        row.content?.map((cell) => [cell.type, cell.content?.[0]?.content?.[0]?.text]),
+      ),
+    ).toEqual([
+      [
+        ["tableCell", "Revenue"],
+        ["tableCell", "USD 1 million"],
+      ],
+      [
+        ["tableCell", "Liability cap"],
+        ["tableCell", "GBP 500,000"],
+      ],
+    ]);
+  });
 });
