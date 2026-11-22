@@ -259,6 +259,115 @@ describe("a Citation an agent writes after the stop", () => {
   );
 });
 
+/** A Folder that holds a file, its byte-for-byte copy ("(1)") and a copy with one character changed ("(2)"). */
+async function pairedCopies(language: Language) {
+  const started = await startAgentsCore(checkingModel({}, []));
+  const { core } = started;
+  const sources = await createSourceFolder();
+  const text = language === "en" ? ENGLISH : CHINESE;
+  const changed =
+    language === "en"
+      ? text.replace("intelligence", "intelligent")
+      : text.replace("人工智能", "人工智慧");
+  const name = language === "en" ? "Interview" : "访谈";
+  const documents = await addAndProcess(core, [
+    await writeSourceFile(sources, `${name}.md`, text),
+    await writeSourceFile(sources, `${name} (1).md`, text),
+    await writeSourceFile(sources, `${name} (2).md`, changed),
+  ]);
+  const [original, copy, other] = documents;
+  if (!original || !copy || !other) throw new Error("The Documents weren't added.");
+  expect([
+    copy.contentHash === original.contentHash,
+    other.contentHash === original.contentHash,
+  ]).toEqual([true, false]);
+  const folder = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
+  for (const document of documents) await core.assignDocumentGroup(document.id, folder.id);
+  await core.setAgentsEnabled(true);
+  const { launch } = await core.connectAgent({
+    name: "Claude Code",
+    folderIds: [folder.id],
+    propose: true,
+  });
+  const agent = await connectLegacyAgent(launch);
+  /** A Citation of the first quote, from the Passage of one Document that holds it. */
+  const citeIn = async (documentId: string): Promise<string> => {
+    const { passages } = structured<{ passages: { passageId: string }[] }>(
+      await agent.callTool({ name: "read_passages", arguments: { documentId } }),
+    );
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: {
+          citations: passages.map(({ passageId }) => ({ passageId, quote: QUOTES[language][0] })),
+        },
+      }),
+    );
+    const found = citations.find((each) => each.cite !== null)?.cite;
+    if (!found) throw new Error("No Passage holds the quote.");
+    return found;
+  };
+  const letters = new Map([
+    [original.id, "A"],
+    [copy.id, "B"],
+    [other.id, "C"],
+  ]);
+  const reads = async (client: MindClient) => {
+    await client.settled();
+    const lines: string[] = [];
+    readMind(client).forEach((block, _offset, index) => {
+      if (index === 0) return;
+      let line = "";
+      block.forEach((node) => {
+        line +=
+          node.type.name === CITATION_NODE
+            ? `[${letters.get(String(node.attrs.documentId))}]`
+            : (node.text ?? "");
+      });
+      lines.push(line);
+    });
+    return lines;
+  };
+  return {
+    core,
+    agent,
+    reads,
+    cites: { a: await citeIn(original.id), b: await citeIn(copy.id), c: await citeIn(other.id) },
+  };
+}
+
+describe("a Passage the sentence cites from a Document is cited again from its copy", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=a Citation an agent adds from a byte-for-byte copy of a Document the sentence already cites, after the stop or next to the original before it, is not added, while one from a copy with a character changed is another Document and stays, in English and Chinese; fails_when=a file's copy is cited a second time, or a changed copy is taken for the same one.
+  it.each(["en", "zh-CN"] as const)(
+    "in %s",
+    async (language) => {
+      const { core, agent, reads, cites } = await pairedCopies(language);
+      const { first, stop, space } = WORDS[language];
+      const start = `${first}${space}${cites.a}${stop}`;
+      const made = await createNote(core, agent, start);
+      expect(await reads(made.client)).toEqual([`${first}${space}[A]${stop}`]);
+
+      expect(await rewrite(agent, made.mindId, `${start}${space}${cites.b}`)).toBe("applied");
+      expect(await reads(made.client)).toEqual([`${first}${space}[A]${stop}`]);
+
+      const before = await createNote(core, agent, start);
+      expect(
+        await rewrite(agent, before.mindId, `${first}${space}${cites.a}${cites.b}${stop}`),
+      ).toBe("applied");
+      expect(await reads(before.client)).toEqual([`${first}${space}[A]${stop}`]);
+
+      const changed = await createNote(core, agent, start);
+      expect(await rewrite(agent, changed.mindId, `${start}${space}${cites.c}`)).toBe("applied");
+      expect(await reads(changed.client)).toEqual([`${first}${space}[A][C]${stop}`]);
+    },
+    120_000,
+  );
+});
+
 /** A second sentence of the Note, in the language. */
 const second = (language: Language) =>
   language === "en" ? "They did not use AI" : "他们没有使用人工智能";

@@ -30,7 +30,7 @@ import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
 import { REFUSAL_WORDS } from "../../shared/changeRefusals";
 import { gridOfTable, readChart, redrawnData } from "../../shared/charts";
 import { type CitedPlace, overlapsCitation } from "../../shared/citationOverlap";
-import { citationsBeforeTheStop } from "../../shared/citationPlace";
+import { citationsBeforeTheStop } from "../../shared/citationStop";
 import { citationAttributesOf } from "../../shared/citations";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import { hasMarkIn, markValueOf } from "../../shared/markKeys";

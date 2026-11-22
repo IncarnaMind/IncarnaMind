@@ -32,7 +32,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { citationBackstep } from "../../../shared/citationPlace";
+import { citationBackstep } from "../../../shared/citationStop";
 import { citationAttributesOf } from "../../../shared/citations";
 import { passageToAdd } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";

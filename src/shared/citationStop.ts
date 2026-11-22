@@ -61,10 +61,11 @@ export interface CitationPlacing {
 
 /**
  * A Block's inline content with the Citations that stand after a sentence's stop put before it,
- * after those there, and those that repeat one the sentence holds taken out (`dropped`). A
- * Citation right after the stop, with spaces between, is that sentence's, as `sentenceSpans`
- * reads it. One inside the next sentence is the next sentence's, and isn't touched; nor is a
- * Citation `moves` doesn't name, the words, or anything past a line break.
+ * after those there, and each Citation that repeats one its sentence already holds taken out
+ * (`dropped`): the sentence cites that Passage once, as the card's own adds count it. A Citation
+ * right after the stop, with spaces between, is that sentence's, as `sentenceSpans` reads it. One
+ * inside the next sentence is the next sentence's, and isn't touched; nor is a Citation `moves`
+ * doesn't name, the words, or anything past a line break.
  */
 export function citationsBeforeTheStop(
   content: readonly NodeJSON[],
@@ -96,41 +97,49 @@ export function citationsBeforeTheStop(
   // The last sentence first, so what is taken out and put in leaves the places of the earlier ones.
   for (const span of sentenceSpans(text).reverse()) {
     const found = stopOf(text.slice(span.from, span.to));
-    if (!found) continue;
-    const run = span.from + found.after;
+    const run = found ? span.from + found.after : span.to;
+    const held: NodeJSON[] = [];
     const candidates: number[] = [];
-    for (let at = run; at < span.to && text.charAt(at) !== "\n"; at++) {
+    for (let at = span.from; at < span.to; at++) {
       const unit = units[at];
-      if (isCitation(unit) && moves(unit.node)) candidates.push(at);
+      if (!isCitation(unit)) continue;
+      if (moves(unit.node)) candidates.push(at);
+      else held.push(unit.node);
     }
     if (candidates.length === 0) continue;
 
-    const standing = units
-      .slice(span.from, span.to)
-      .filter((unit, offset) => isCitation(unit) && !candidates.includes(span.from + offset))
-      .flatMap((unit) => (isNode(unit) ? [unit.node] : []));
     const put: NodeJSON[] = [];
     const gone = new Set<number>();
+    const takeOut = (at: number) => {
+      gone.add(at);
+      // The spaces before it go with it, or the stop, or the words after it, would be set apart.
+      for (let before = at - 1; before >= (at >= run ? run : span.from); before--) {
+        if (isNode(units[before]) || !/\s/u.test(text.charAt(before))) break;
+        gone.add(before);
+      }
+    };
     for (const at of candidates) {
       const unit = units[at];
       if (!isNode(unit)) continue;
-      const repeated = [...standing, ...put].some((held) => placing.repeats?.(unit.node, held));
-      if (repeated) dropped.push(unit.node);
-      else put.push(unit.node);
-      gone.add(at);
-      // The spaces before it go with it, or the stop would be followed by a gap.
-      for (let before = at - 1; before >= run && !isNode(units[before]); before--) {
-        if (!/\s/u.test(text.charAt(before))) break;
-        gone.add(before);
+      if (held.some((each) => placing.repeats?.(unit.node, each))) {
+        dropped.push(unit.node);
+        takeOut(at);
+        continue;
       }
+      held.push(unit.node);
+      const afterStop = found !== null && at >= run && !text.slice(run, at).includes("\n");
+      if (!afterStop) continue;
+      put.push(unit.node);
+      takeOut(at);
     }
-    const stop = span.from + found.stop;
-    units.splice(
-      stop,
-      units.length - stop,
-      ...put.map((node): Unit => ({ node })),
-      ...units.slice(stop).filter((_, offset) => !gone.has(stop + offset)),
-    );
+    const stop = found ? span.from + found.stop : -1;
+    const rest: Unit[] = [];
+    for (let at = span.from; at < units.length; at++) {
+      if (at === stop) rest.push(...put.map((node): Unit => ({ node })));
+      const unit = units[at];
+      if (unit && !gone.has(at)) rest.push(unit);
+    }
+    units.splice(span.from, units.length - span.from, ...rest);
   }
 
   const merged: NodeJSON[] = [];

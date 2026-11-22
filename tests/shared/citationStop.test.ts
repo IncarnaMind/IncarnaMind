@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { CITATION_NODE } from "../../src/core/api";
 import type { NodeJSON } from "../../src/shared/blockJson";
-import { citationBackstep, citationsBeforeTheStop } from "../../src/shared/citationPlace";
+import { citationBackstep, citationsBeforeTheStop } from "../../src/shared/citationStop";
 import { INLINE_NODE } from "../../src/shared/sentences";
 
 const cite = (id: string): NodeJSON => ({ type: CITATION_NODE, attrs: { id } });
@@ -132,6 +132,41 @@ describe("Citations after a sentence's stop", () => {
     );
     expect(read(next.content)).toBe("Revenue rose [a]. Costs fell[a].");
     expect(next.dropped).toEqual([]);
+  });
+
+  // protects=a Citation that repeats one already in its sentence, before or after the stop, is taken out and the first of two repeats stays; a Citation the Note already had is never taken out, even where a new one repeats it; fails_when=a Passage is cited twice in one sentence, a Citation of the Note is removed, or the words around a removed one are left with a gap.
+  test("a repeat anywhere in the sentence goes, the Note's own Citation never", () => {
+    const repeats = (a: NodeJSON, b: NodeJSON) => a.attrs?.id === b.attrs?.id;
+    const added = (id: string): NodeJSON => ({ type: CITATION_NODE, attrs: { id, added: true } });
+    const moves = (node: NodeJSON) => node.attrs?.added === true;
+    const placed = (content: NodeJSON[], placing = { repeats }) =>
+      citationsBeforeTheStop(content, placing);
+
+    const together = placed([text("Revenue rose "), cite("a"), cite("a"), text(".")]);
+    expect(read(together.content)).toBe("Revenue rose [a].");
+    expect(together.dropped).toHaveLength(1);
+
+    expect(
+      read(
+        placed([text("Revenue rose "), cite("a"), text(" and costs fell "), cite("a"), text(".")])
+          .content,
+      ),
+    ).toBe("Revenue rose [a] and costs fell.");
+
+    // A new Citation that repeats the Note's own, before it, after it or past the stop, goes.
+    for (const content of [
+      [text("Revenue rose "), added("a"), cite("a"), text(".")],
+      [text("Revenue rose "), cite("a"), text(" and costs fell "), added("a"), text(".")],
+      [text("Revenue rose "), cite("a"), text(". "), added("a")],
+    ]) {
+      const result = citationsBeforeTheStop(content, { repeats, moves });
+      expect(result.dropped).toHaveLength(1);
+      expect(result.content.filter((node) => node.type === CITATION_NODE)).toHaveLength(1);
+    }
+
+    // The Note's own Citations stand where they are, repeats or not.
+    const own = [text("Revenue rose "), cite("a"), text(" and costs fell "), cite("a"), text(".")];
+    expect(citationsBeforeTheStop(own, { repeats, moves }).content).toEqual(own);
   });
 
   // protects=the words around a moved Citation keep their marks, and a sentence of code is no sentence; fails_when=a mark is lost, or a stop inside code moves a Citation.

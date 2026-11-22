@@ -1,5 +1,5 @@
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { citationBackstep } from "../../../shared/citationPlace";
+import { citationBackstep } from "../../../shared/citationStop";
 import { INLINE_NODE } from "../../../shared/sentences";
 
 /**

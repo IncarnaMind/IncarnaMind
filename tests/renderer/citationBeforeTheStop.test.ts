@@ -74,6 +74,8 @@ function noteOf(
   before: number,
   after: number,
   partEndsAt: "sentence" | "words",
+  /** The sentence cites the Passage the check found from this Document, and the check found it in `copy`. */
+  copy?: Partial<CitationAttributes>,
 ) {
   const document = new DOMParser().parseFromString(
     "<html><head></head><body></body></html>",
@@ -99,7 +101,7 @@ function noteOf(
     fontFamily: "",
   }));
   const sentence = `${example.words}${example.stop}`;
-  const found = { ...source("new", example.found), id: "new" };
+  const found = { ...source("new", example.found), id: "new", ...copy };
   const part: ClaimCheckPart = {
     span: { start: 0, end: partEndsAt === "sentence" ? sentence.length : example.words.length },
     kind: "fact",
@@ -149,6 +151,9 @@ function noteOf(
   const content: JSONContent[] = [
     marked(example.words),
     ...Array.from({ length: before }, (_, at) => cite(`before${at + 1}`)),
+    ...(copy
+      ? [{ type: CITATION_NODE, attrs: { ...source("original", example.found), id: "original" } }]
+      : []),
     marked(example.stop),
     ...(after > 0 && example.gap ? [{ type: "text", text: example.gap }] : []),
     ...Array.from({ length: after }, (_, at) => cite(`after${at + 1}`)),
@@ -216,6 +221,26 @@ const readsAs = (
     ? `${example.words}${added}${standing("before", before)}${stopped}`
     : `${example.words}${standing("before", before)}${added}${stopped}`;
 };
+
+for (const example of EXAMPLES)
+  describe(`${example.language}, a copy of the cited Document`, () => {
+    // protects=a Passage the sentence cites from a Document is already cited when the check finds it in a copy of that Document, one with the same content hash, and no second Citation is added by the card, a part's Add or Add all; a copy that differs by a character is another Document and stays a separate Citation; fails_when=the copy is cited a second time, or a changed copy is taken for the same; no_claim=none beyond protects.
+    test.each([
+      ["a copy of the same content", { documentId: "results (1)" }, "nothing"],
+      [
+        "a copy with one character changed",
+        { documentId: "results (2)", contentHash: "v2" },
+        "added",
+      ],
+    ] as const)("%s", (_name, copy, added) => {
+      const single = noteOf(example, 0, 0, "sentence", copy);
+      expect(addPartCitations(single.editor, single.claim(), [single.part])).toBe(added);
+      const whole = noteOf(example, 1, 2, "sentence", copy);
+      expect(addAsCitation(whole.editor, whole.claim())).toBe(added === "added");
+      expect(whole.written().includes("[new]")).toBe(added === "added");
+      expect(whole.written().match(/\[original\]/g)).toHaveLength(1);
+    });
+  });
 
 for (const example of EXAMPLES)
   describe(example.language, () => {
