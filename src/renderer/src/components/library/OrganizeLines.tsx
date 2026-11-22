@@ -39,11 +39,13 @@ function Line({
   testId,
   parts,
   role = "status",
+  state,
   children,
 }: {
   testId: string;
   parts: readonly ReactNode[];
   role?: "status" | "alert";
+  state?: string;
   children?: ReactNode;
 }) {
   return (
@@ -51,6 +53,7 @@ function Line({
       as="div"
       role={role}
       data-testid={testId}
+      data-state={state}
       parts={parts}
       className="mt-2 min-h-6 items-center text-[13px] leading-5 text-ink-secondary"
     >
@@ -91,42 +94,32 @@ function AskedLine() {
   useEffect(() => {
     if (landed && review === null) void refreshReview().catch(report);
   }, [landed, review]);
-  if (!organize || (!asked && !review)) return null;
-  const words = (text: string) => (
-    <span key="words" data-testid="organize-asked-words" data-state={organize.state}>
-      {text}
-    </span>
+  if (!organize) return null;
+  const line = (parts: readonly ReactNode[]) => (
+    <Line testId="organize-asked" state={organize.state} parts={parts} />
   );
-  if (asked) return <Line testId="organize-asked" parts={[words(asked.words)]} />;
+  if (asked) return line([asked.words]);
   if (!review) return null;
   const agent = organize.agent.name;
-  if (!fromAgent(review, organize))
-    return (
-      <Line testId="organize-asked" parts={[words(t("organizeReview.nothingFrom", { agent }))]} />
-    );
+  if (!fromAgent(review, organize)) return line([t("organizeReview.nothingFrom", { agent })]);
   const what = willMoveText(reviewLayout(review, groups, assignments), t);
-  return (
-    <Line
-      testId="organize-asked"
-      parts={[
-        words(t("organizeReview.suggestedBy", { agent, what })),
-        ...actionParts([
-          <Action
-            key="review"
-            label={t("library.review")}
-            testId="organize-asked-review"
-            onClick={openReview}
-          />,
-          <Action
-            key="confirm"
-            label={t("organizeReview.confirmAll")}
-            testId="organize-asked-confirm"
-            onClick={() => void confirmReview().then(organizeSeen, report)}
-          />,
-        ]),
-      ]}
-    />
-  );
+  return line([
+    t("organizeReview.suggestedBy", { agent, what }),
+    ...actionParts([
+      <Action
+        key="review"
+        label={t("library.review")}
+        testId="organize-asked-review"
+        onClick={openReview}
+      />,
+      <Action
+        key="confirm"
+        label={t("organizeReview.confirmAll")}
+        testId="organize-asked-confirm"
+        onClick={() => void confirmReview().then(organizeSeen, report)}
+      />,
+    ]),
+  ]);
 }
 
 /**

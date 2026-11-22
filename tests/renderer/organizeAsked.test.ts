@@ -182,6 +182,9 @@ async function library(language: "en" | "zh-CN" = "en") {
   };
   const part = (testId: string) =>
     container.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+  /** The line's words, before its actions. */
+  const words = () =>
+    part("organize-asked")?.querySelector(".meta-part")?.textContent?.replace(/^ · /, "");
   const row = (name: string) => container.querySelector(`[data-row="${name}"]`)?.textContent ?? "";
   const settle = async (check: () => void) =>
     vi.waitFor(async () => {
@@ -203,7 +206,7 @@ async function library(language: "en" | "zh-CN" = "en") {
   };
   const propose = (proposals: object[]) =>
     agent.callTool({ name: "propose_sorting", arguments: { proposals } });
-  return { part, row, settle, listed, propose };
+  return { part, words, row, settle, listed, propose };
 }
 
 beforeAll(async () => {
@@ -226,7 +229,7 @@ afterEach(async () => {
 describe("Organize asked of the User's own AI", () => {
   // protects=after the press the Library's top says the AI was asked, then that it is organizing once it reads the waiting Documents, then what its Suggestions would do with Review and Confirm all, and each row with a Suggestion names its new Folder while nothing is made; Confirm all files them through the Review's own Confirm (#3610); fails_when=the Library looks as before the press, the Suggestions land with only a count, a row doesn't say it waits, or anything is made before Confirm
   test("says it was asked, that it works, then what it suggests, with Review and Confirm all", async () => {
-    const { part, row, settle, listed, propose } = await library();
+    const { part, words, row, settle, listed, propose } = await library();
     expect(part("library-sort-into-folders")?.textContent).toBe("Ask Claude Code to organize");
     await act(async () => part("library-sort-into-folders")?.click());
     await settle(() => expect(links).toHaveLength(1));
@@ -235,13 +238,13 @@ describe("Organize asked of the User's own AI", () => {
         "Asked Claude Code: send the request there.",
       ),
     );
-    expect(part("organize-asked-words")?.dataset.state).toBe("asked");
+    expect(part("organize-asked")?.dataset.state).toBe("asked");
 
     const of = await listed();
     await settle(() =>
       expect(part("organize-asked")?.textContent).toBe("Organizing your Documents in Claude Code."),
     );
-    expect(part("organize-asked-words")?.dataset.state).toBe("working");
+    expect(part("organize-asked")?.dataset.state).toBe("working");
 
     await propose([
       { ...of("Quay repair"), newFolder: "Harbour works", newTags: ["Quays"] },
@@ -250,11 +253,11 @@ describe("Organize asked of the User's own AI", () => {
       of("Holiday list"),
     ]);
     await settle(() =>
-      expect(part("organize-asked-words")?.textContent).toBe(
+      expect(words()).toBe(
         "Suggested by Claude Code: 3 Documents will move into 1 new Folder. Nothing has moved yet.",
       ),
     );
-    expect(part("organize-asked-words")?.dataset.state).toBe("landed");
+    expect(part("organize-asked")?.dataset.state).toBe("landed");
     expect(part("organize-asked-review")?.textContent).toBe("Review");
     expect(part("organize-asked-confirm")?.textContent).toBe("Confirm all");
     expect(part("organize-waiting")).toBeNull();
@@ -295,13 +298,13 @@ describe("Organize asked of the User's own AI", () => {
     const of = await listed();
     await propose(Object.keys(DOCUMENTS).map((name) => of(name)));
     await settle(() => expect(part("organize-asked")?.textContent).toBe(words));
-    expect(part("organize-asked-words")?.dataset.state).toBe("landed");
+    expect(part("organize-asked")?.dataset.state).toBe("landed");
     expect(part("organize-asked-confirm")).toBeNull();
   });
 
   // protects=the Chinese Library's top says the AI is organizing and then what it suggests, in the Review's own words (#3610); fails_when=a Chinese User sees English, or the line counts differently from the Review
   test("says it in Chinese", async () => {
-    const { part, row, settle, listed, propose } = await library("zh-CN");
+    const { part, words, row, settle, listed, propose } = await library("zh-CN");
     await act(async () => part("library-sort-into-folders")?.click());
     const of = await listed();
     await settle(() =>
@@ -314,9 +317,7 @@ describe("Organize asked of the User's own AI", () => {
       { ...of("Dredging plan"), newFolder: "港口工程" },
     ]);
     await settle(() =>
-      expect(part("organize-asked-words")?.textContent).toBe(
-        "Claude Code 建议：2 个文档将放入 1 个新文件夹。还没有移动任何文档。",
-      ),
+      expect(words()).toBe("Claude Code 建议：2 个文档将放入 1 个新文件夹。还没有移动任何文档。"),
     );
     expect(part("organize-asked-confirm")?.textContent).toBe("全部确认");
     expect(row("Quay repair")).toBe("建议放入“港口工程”");

@@ -49,7 +49,7 @@ export function SuggestionMark({ documentId }: { documentId: string }) {
       data-testid="library-suggested"
       title={t("library.review.open")}
       onClick={openReview}
-      className="inline-flex max-w-60 shrink-0 items-center rounded-sm text-label font-semibold text-ink-meta underline-offset-2 hover:text-ink hover:underline"
+      className="inline-flex min-w-0 max-w-60 shrink-[100] items-center rounded-sm text-label font-semibold text-ink-meta underline-offset-2 hover:text-ink hover:underline"
     >
       <span className="truncate">
         {folder === undefined

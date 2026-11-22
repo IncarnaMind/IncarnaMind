@@ -79,7 +79,8 @@ for (const [language, width] of [
       );
       await pointAndClick(window, organize);
       await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-      const words = window.getByTestId("organize-asked-words");
+      const line = window.getByTestId("organize-asked");
+      const words = line.locator(".meta-part").first();
       await expect(words).toHaveText(
         translate(language, "agents.asked.opened", { agent: "Claude Code" }),
       );
@@ -117,15 +118,15 @@ for (const [language, width] of [
       await expect(words).toHaveText(
         translate(language, "organizeReview.suggestedBy", { agent: "Claude Code", what }),
       );
+      await expect(line).toHaveAttribute("data-state", "landed");
+      // Each row shown says it waits: the section shows its first rows, then Show all.
       const marks = window.getByTestId("library-suggested");
-      await expect(marks).toHaveCount(10);
-      await expect(
-        window
-          .getByTestId("library-document")
-          .filter({ hasText: "Quay repair" })
-          .getByTestId("library-suggested"),
-      ).toHaveText(
-        translate(language, "library.row.suggested", { folder: AREAS[0].folder[language] }),
+      await expect(marks).toHaveCount(await window.getByTestId("library-document").count());
+      const first = window.getByTestId("library-document").first();
+      const name = await first.getByTestId("library-document-name").textContent();
+      const area = AREAS.find((each) => (each.documents as readonly string[]).includes(name ?? ""));
+      await expect(first.getByTestId("library-suggested")).toHaveText(
+        translate(language, "library.row.suggested", { folder: area?.folder[language] ?? "" }),
       );
       const groups = () =>
         window.evaluate(async () => {
