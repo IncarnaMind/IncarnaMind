@@ -997,10 +997,64 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
       }),
     );
     expect(reported).toMatchObject({ marked: 2, unconfirmed: [] });
+    // The quote that gives the written number is recorded with what the mark read.
     expect(await marks(core, mindId, coast.id)).toMatchObject([
-      { text: PASSENGERS, state: "supported", workedOut: "Passengers = 350" },
-      { text: FARES, state: "supported", workedOut: "1,250,000 + 750000 = £2,000,000" },
+      {
+        text: PASSENGERS,
+        state: "supported",
+        workedOut: "Passengers = 350",
+        quotes: ["Date\tRoute\tPassengers", AUTUMN],
+      },
+      {
+        text: FARES,
+        state: "supported",
+        workedOut: "1,250,000 + 750000 = £2,000,000",
+        quotes: [SPRING, AUTUMN],
+      },
     ]);
+  });
+
+  // protects=a run whose code wrote a number no cited quote gives backs nothing when any of its figures wasn't worked out again from the cells, whichever figure the verdict rests on (#3661); fails_when=the figures IncarnaMind did work out again back a Supported mark while another figure the same run gave may carry the uncited number
+  it("backs nothing from a run with an uncited written number and a figure not worked out again", async () => {
+    const right = summed({ passengers: "right" });
+    const { core, agent, mindId, coast } = await paired((job) => {
+      const answer = right(job);
+      if (answer === "hang") return answer;
+      return {
+        output: {
+          ...answer.output,
+          literals: [{ value: 1.03, line: 2, text: "1.03" }],
+          results: [
+            ...(answer.output?.results ?? []),
+            {
+              kind: "figure",
+              name: "grown",
+              label: "Grown",
+              unit: null,
+              value: 360.5,
+            },
+          ],
+        },
+      };
+    });
+    const given = await task(agent, mindId);
+    const crossings = await passageOf(agent, "passengers crossings", "Crossings");
+    const id = runId(await run(agent, [{ name: "crossings", passageId: crossings }]));
+    expect(
+      structured<Reported>(
+        await agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId,
+            task: given.task,
+            results: [{ n: 1, verdict: "supported", run: id, explanation: "The rows give 350." }],
+          },
+        }),
+      ),
+    ).toMatchObject({ unconfirmed: [1] });
+    expect((await marks(core, mindId, coast.id)).map((each) => each.state)).not.toContain(
+      "supported",
+    );
   });
 });
 

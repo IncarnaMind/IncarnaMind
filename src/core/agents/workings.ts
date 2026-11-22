@@ -223,8 +223,9 @@ export function createWorkOut(deps: WorkOutDeps) {
 
   /**
    * A calculation or run this pairing had made while it checked `mindId`, as a verdict rests on it;
-   * null when it is no such thing, or read what the pairing may no longer. `quotes`: those cited
-   * with the verdict, where a number the run's code wrote must stand.
+   * null when it is no such thing, or read what the pairing may no longer. `cited`: the quotes cited
+   * with the verdict, where a number the run's code wrote must stand; those that give one are read
+   * as its rows are.
    */
   function confirmed(
     id: string,
@@ -235,7 +236,7 @@ export function createWorkOut(deps: WorkOutDeps) {
       folderIds: ReadonlySet<string>;
       mindIds: ReadonlySet<string>;
     },
-    quotes: readonly string[] = [],
+    cited: readonly Citation[] = [],
   ): Worked | null {
     const working = workings.made.get(id.trim());
     if (!working || working.pairingId !== pairingId || working.mindId !== mindId) return null;
@@ -245,8 +246,25 @@ export function createWorkOut(deps: WorkOutDeps) {
       read.folderIds.every((each) => reach.folderIds.has(each)) &&
       read.mindIds.every((each) => reach.mindIds.has(each));
     if (!within) return null;
+    const quotes = cited.map((each) => each.quote);
     const unbacked = working.wrote.filter((each) => !quoted(each.value, quotes));
-    if (unbacked.length === 0) return working.worked;
+    if (unbacked.length === 0) {
+      const backers = cited.filter((citation) =>
+        working.wrote.some((each) => quoted(each.value, [citation.quote])),
+      );
+      const { worked } = working;
+      if (!worked.ok || backers.length === 0) return worked;
+      const evidence = [...worked.backing.evidence, ...backers];
+      return {
+        ok: true,
+        backing: {
+          ...worked.backing,
+          evidence,
+          versions: [...worked.backing.versions, ...versionsOf(backers)],
+          documentIds: [...new Set(evidence.map((each) => each.documentId))],
+        },
+      };
+    }
     const texts = [...new Set(unbacked.map((each) => each.text))].join(", ");
     return working.unbacked.ok ? working.unbacked : { ...working.unbacked, detail: texts };
   }
@@ -279,20 +297,15 @@ function workedRun(
   // A figure IncarnaMind worked out again from the cells and found different has no marker: the
   // run's report says it can't be used, and no verdict rests on it.
   const usable = new Set(run.markers.figures.map((each) => each.result));
-  // Where the code wrote a number no cited quote gives, only a figure worked out again from the
-  // cells is backed: any other may rest on that number (#3661).
-  const recalculated = new Set((run.recalculations ?? []).map((each) => each.result));
   const figures = run.output.results.flatMap((each) =>
-    each.kind === "figure" &&
-    usable.has(each.name) &&
-    (!recalculatedOnly || recalculated.has(each.name))
-      ? [each]
-      : [],
+    each.kind === "figure" && usable.has(each.name) ? [each] : [],
   );
-  if (figures.length === 0) {
-    return recalculatedOnly
-      ? { ok: false, reason: "number-not-worked-out", detail: null }
-      : { ok: false, reason: "no-evidence", detail: null };
+  if (figures.length === 0) return { ok: false, reason: "no-evidence", detail: null };
+  // Where the code wrote a number no cited quote gives, any figure IncarnaMind didn't work out again
+  // from the cells may rest on it, and which one can't be told: the run backs nothing (#3661).
+  const recalculated = new Set((run.recalculations ?? []).map((each) => each.result));
+  if (recalculatedOnly && figures.some((each) => !recalculated.has(each.name))) {
+    return { ok: false, reason: "number-not-worked-out", detail: null };
   }
   const library = lists ? libraryRead(lists.lists, lists.listed.filter(isLibraryList)) : null;
   // A mark is compared with the lists as the Note's own check counts them, which the window knows.
@@ -376,6 +389,12 @@ export function workedFrom(
   });
   if ("problems" in worked) return { ok: false, problem: worked.problems.join("; ") };
   const quotes = [...withVerdict, ...cited.map((each) => each.citation)].map((each) => each.quote);
+  const wrote = worked.literals.filter((each) => !NOT_DATA.includes(each.value));
+  // A quote cited with the verdict that gives a written number is read as the inputs' are: its
+  // Document's version is recorded, and must be one the check may read.
+  const backers = withVerdict.filter((citation) =>
+    wrote.some((each) => quoted(each.value, [citation.quote])),
+  );
   const written = [
     ...new Set(
       worked.literals.flatMap((each) =>
@@ -390,7 +409,7 @@ export function workedFrom(
       problem: `${written.join(", ")} ${one ? "is" : "are"} written into the expression, and no quote gives ${one ? "it" : "them"}: give ${one ? "it" : "each"} as an input with the [cite:…] of a quote that holds ${one ? "it" : "its number"}; for a scale or a unit, give the input's value in it instead (the quote's digits moved by a power of ten); if no Document states ${one ? "it" : "them"}, report the sentence as not found`,
     };
   }
-  const evidence = cited.map((each) => each.citation);
+  const evidence = [...cited.map((each) => each.citation), ...backers];
   return {
     ok: true,
     worked: {

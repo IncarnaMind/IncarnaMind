@@ -3486,13 +3486,7 @@ export function createAgentAccess(
               ? working.worked
               : null
             : typeof each.run === "string" && each.run.trim() !== ""
-              ? workOut.confirmed(
-                  each.run,
-                  pairing.id,
-                  mind.id,
-                  reach,
-                  cited.map((citation) => citation.quote),
-                )
+              ? workOut.confirmed(each.run, pairing.id, mind.id, reach, cited)
               : undefined;
           if (run?.ok) for (const id of run.backing.documentIds) worked.add(id);
           // The run's report named it too; told here beside the sentence, the agent can cite its quote.
