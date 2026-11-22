@@ -135,4 +135,66 @@ describe("an agent citing a whole Note's quotes", () => {
     expect(missing.result.isError).toBe(true);
     expect(missing.text).toBe(translate("en", "agents.problem.citeWithoutPassage"));
   });
+
+  // protects=one unknown passageId in a cite call never refuses the good quotes around it, and a call of only unknown passageIds cites nothing and says which ones weren't found (#3597); fails_when=one bad passageId fails the whole cite call or cites anything for an unknown id
+  it("answers each quote on its own when a call includes or consists only of unknown passageIds (#3597)", async () => {
+    const { cite, quotes } = await readInterview();
+    const badOne = "0001da17-5c2f-463f-a18d-5ee8be66219e";
+    const badTwo = "placeholder-passage-id";
+
+    const mixed = await cite([
+      quotes[0],
+      { passageId: badOne, quote: quotes[1]?.quote },
+      quotes[2],
+    ]);
+    expect(mixed.result.isError ?? false).toBe(false);
+    expect(mixed.cited.citations).toHaveLength(3);
+    expect(mixed.cited.citations[0]).toMatchObject({
+      passageId: quotes[0]?.passageId,
+      check: "found",
+      text: null,
+    });
+    expect(mixed.cited.citations[0]?.cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
+    expect(mixed.cited.citations[1]).toEqual({
+      passageId: badOne,
+      quote: quotes[1]?.quote,
+      check: "not-found",
+      cite: null,
+      document: null,
+      location: null,
+      text: translate("en", "agents.problem.citeNotFound", { passageId: badOne }),
+    });
+    expect(mixed.cited.citations[2]).toMatchObject({
+      passageId: quotes[2]?.passageId,
+      check: "found",
+      text: null,
+    });
+    expect(mixed.cited.citations[2]?.cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
+
+    const allBad = await cite([
+      { passageId: badOne, quote: quotes[0]?.quote },
+      { passageId: badTwo, quote: quotes[1]?.quote },
+    ]);
+    expect(allBad.result.isError ?? false).toBe(false);
+    expect(allBad.cited.citations).toEqual([
+      {
+        passageId: badOne,
+        quote: quotes[0]?.quote,
+        check: "not-found",
+        cite: null,
+        document: null,
+        location: null,
+        text: translate("en", "agents.problem.citeNotFound", { passageId: badOne }),
+      },
+      {
+        passageId: badTwo,
+        quote: quotes[1]?.quote,
+        check: "not-found",
+        cite: null,
+        document: null,
+        location: null,
+        text: translate("en", "agents.problem.citeNotFound", { passageId: badTwo }),
+      },
+    ]);
+  });
 });
