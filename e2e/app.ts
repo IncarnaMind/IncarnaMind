@@ -2006,6 +2006,17 @@ export const linkedFolderRow = (window: Page, name: string) =>
     has: window.getByTestId("row-text").getByText(name, { exact: true }),
   });
 
+/**
+ * Opens a linked folder's Folder in the sidebar, as a click on its row does, when it is closed: a
+ * folder linked through the bridge, not the link dialog, makes its Folder closed (#3613).
+ */
+export async function openLinkedFolder(window: Page, name: string): Promise<void> {
+  const row = linkedFolderRow(window, name).getByTestId("folder-row");
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  if ((await row.getAttribute("aria-expanded")) !== "true") await row.click();
+  await expect(row).toHaveAttribute("aria-expanded", "true");
+}
+
 /** Opens a Linked folder's "More" menu from its row, its Folder's or its own. Returns the menu. */
 export async function openLinkedFolderMenu(row: Locator): Promise<Locator> {
   await row.hover();

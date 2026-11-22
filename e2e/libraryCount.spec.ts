@@ -363,7 +363,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the example's Documents leave the tree and the page together when its Note is deleted (${language})`, async () => {
+  test(`the example's Documents stay under Examples and leave the page when its Note is deleted (${language})`, async () => {
     test.setTimeout(240_000);
     const words = WORDS[language];
     const ownPath = join(sources, "Tides.pdf");
@@ -404,7 +404,9 @@ for (const language of ["en", "zh-CN"] as const) {
         const { mindId } = await core.getExamples();
         if (mindId) await core.deleteMind(mindId);
       });
-      await expect(window.getByTestId("example-section")).toHaveCount(0);
+      await expect(window.getByTestId("example-section").getByTestId("mind-list-item")).toHaveCount(
+        0,
+      );
 
       const sidebar = window.getByTestId("sidebar");
       await expect(sidebar.getByTestId("library-row-count")).toHaveText("1");

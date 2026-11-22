@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, DocumentStatus } from "../src/core/api";
 import { MAX_ROWS } from "../src/core/documents/formats/grid";
@@ -24,6 +24,7 @@ import {
   newMind,
   openExportMore,
   openExportOptions,
+  openLinkedFolder,
   pointAndClick,
   removeDataFolder,
   savedLine,
@@ -107,6 +108,8 @@ async function start(
       { timeout: 60_000 },
     )
     .toBe(true);
+  // Its files are in its Folder, open to their rows (#3613).
+  await openLinkedFolder(window, basename(library));
   await newMind(window);
   return { app, window };
 }

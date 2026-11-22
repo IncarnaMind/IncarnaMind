@@ -26,6 +26,7 @@ import {
   nameMind,
   newMind,
   openDocumentMenu,
+  openLinkedFolder,
   openSettings,
   pathsOpened,
   pathsShown,
@@ -600,6 +601,7 @@ test("an export saved into a Linked folder is IncarnaMind's file: its viewer say
 
   // The Linked folder picks the export up, beside the User's own file, both in its Folder.
   await showSourceLocations(window);
+  await openLinkedFolder(window, "Papers");
   const items = window.getByTestId("library-folders").getByTestId("document-list-item");
   const exported = items.filter({ hasText: "Tides" });
   const moon = items.filter({ hasText: "Moon" });

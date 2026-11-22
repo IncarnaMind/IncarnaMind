@@ -812,8 +812,7 @@ export const linkedFolderCommands: readonly Command[] = [
     label: "linkedFolders.locateAction",
     group: "file",
     appliesTo: ["linkedFolder", "folder"],
-    // On a Folder only while its folder can't be reached: moved, renamed or unplugged.
-    when: (ctx) => idsOf(ctx, "linkedFolder").length > 0 || linkedOf(ctx)?.status === "unavailable",
+    when: (ctx) => linkedOf(ctx) !== undefined,
     // Locating it again, where it was, puts it back.
     reversible: true,
     run: async (ctx) => {

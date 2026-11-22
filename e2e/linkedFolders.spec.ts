@@ -59,9 +59,15 @@ test.afterEach(async () => {
 const linkedRows = (window: Page) =>
   window.getByTestId("library-folders").getByTestId("document-list-item");
 
-/** Opens the Library on a Linked folder's Folder, from its menu. */
-async function openInLibrary(row: Locator) {
+/** Opens the Library on a Linked folder's Folder, from its menu. Returns its section there. */
+async function openInLibrary(window: Page, row: Locator) {
+  const folderId = await row
+    .locator("xpath=ancestor::*[@data-testid='library-folder'][1]")
+    .getAttribute("data-folder-id");
   await (await openLinkedFolderMenu(row)).getByTestId("folder.open").click();
+  return window
+    .getByTestId("library")
+    .locator(`[data-testid="library-section"][data-section="${folderId}"]`);
 }
 
 async function screenshot(target: Page | Locator, name: string): Promise<void> {
@@ -342,8 +348,8 @@ test("two files with one name show where each is, and a Linked folder's row open
   ).toHaveCount(0);
   await screenshot(window.getByTestId("sidebar"), "same-name-rows");
 
-  await openInLibrary(linkedFolderRow(window, "awkward"));
-  const library = window.getByTestId("library-document");
+  const section = await openInLibrary(window, linkedFolderRow(window, "awkward"));
+  const library = section.getByTestId("library-document");
   await expect(library).toHaveCount(4);
   await expect(library.filter({ hasText: "Budget" })).toHaveCount(0);
   await expect
@@ -434,8 +440,8 @@ test("a long place gives way before the name, in the sidebar and the Library", a
   await setWindowSize(app, window, 1100, 760);
   await screenshot(window.getByTestId("sidebar"), "long-place-rows");
 
-  await openInLibrary(linkedFolderRow(window, "纪要"));
-  const library = window.getByTestId("library-document");
+  const section = await openInLibrary(window, linkedFolderRow(window, "纪要"));
+  const library = section.getByTestId("library-document");
   await expect(library).toHaveCount(2);
   for (const width of [900, 1100, 1600]) {
     await setWindowSize(app, window, width, 760);

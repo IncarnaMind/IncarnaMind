@@ -406,6 +406,7 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "linkedFolder.reveal",
     "file.copyPath",
     "file.info",
+    "linkedFolder.locate",
     "—",
     "linkedFolder.unlink",
   ]);
