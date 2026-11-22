@@ -30,7 +30,7 @@ const QUESTION = "What is the project budget for the harbour survey, and has it 
 /** The Chinese label is wider: its line ends earlier, so the label fits at some widths tried. */
 const BUDGET_LINES = {
   en: "The project budget is 2.4 million pounds, approved by the steering group on 3 February 2026.",
-  "zh-CN": "The project budget is 2.4 million pounds, approved by the board on 3 February 2026.",
+  "zh-CN": "The project budget is 2.4 million pounds, approved by the board in February 2026.",
 } as const;
 
 const brief = (budget: string) =>
