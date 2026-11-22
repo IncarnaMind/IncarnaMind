@@ -15945,6 +15945,11 @@ export interface CoreApi {
   /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
   noteConversation(mindId: string): Promise<NoteTurn[]>;
   /**
+   * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
+   * is on this computer's path (ADR-0034). Looking starts nothing.
+   */
+  ownAiRunsHere(): Promise<boolean>;
+  /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
    */
@@ -16772,6 +16777,7 @@ const methods: Record<CoreApiMethod, true> = {
   askInNote: true,
   stopInNote: true,
   noteConversation: true,
+  ownAiRunsHere: true,
   handedFileOf: true,
   listCanvases: true,
   showCanvas: true,

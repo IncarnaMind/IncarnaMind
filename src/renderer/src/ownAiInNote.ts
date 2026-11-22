@@ -13,7 +13,7 @@ import type {
   NoteTurnEvent,
   NoteTurnProblem,
 } from "../../core/api";
-import { agentsToAsk, useAgentsToAsk } from "./askYourAi";
+import { agentsToAsk, ownAiRunsHereNow, useAgentsToAsk, useOwnAiRunsHere } from "./askYourAi";
 import type { ChangedMind } from "./changedMinds";
 import { core } from "./core";
 import { currentTabOf } from "./layoutSlice";
@@ -57,11 +57,13 @@ const askedHere = new Set<string>();
 export function useNoteAskShown(mindId: string): boolean {
   const hidden = useHiddenForOwnAi();
   const agents = useAgentsToAsk(mindId);
-  return hidden && agents.some(runsInBackground);
+  const runsHere = useOwnAiRunsHere();
+  return hidden && agents.some((each) => runsInBackground(each, runsHere));
 }
 
 export const noteAskShownNow = (mindId: string): boolean =>
-  hiddenForOwnAiNow() && agentsToAsk(mindId).some(runsInBackground);
+  hiddenForOwnAiNow() &&
+  agentsToAsk(mindId).some((each) => runsInBackground(each, ownAiRunsHereNow()));
 
 const put = (mindId: string, ask: NoteAsk | null) =>
   useNoteAsks.setState((state) => {

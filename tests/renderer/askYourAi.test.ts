@@ -55,6 +55,9 @@ const bridge = {
   stopOwnAiCheck: async (mindId: string) => {
     bridge.stopped.push(mindId);
   },
+  /** Whether the User's command line is on this computer, as the core finds it (#3627). */
+  runsHere: false,
+  ownAiRunsHere: async () => bridge.runsHere,
   listAgentsToAsk: async () => bridge.agents,
   listConversations: async () => [],
   askAgent: async (input: AskAgentInput) => {
@@ -267,6 +270,7 @@ beforeEach(() => {
   bridge.stopped = [];
   bridge.opens = false;
   bridge.fronts = false;
+  bridge.runsHere = false;
   bridge.frontedAfter = [];
   useAgentAsked.setState({ byKey: {} });
   copied.length = 0;
@@ -313,10 +317,20 @@ describe("the assistant and its pill", () => {
     expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
   });
 
-  // protects=a Note whose agent IncarnaMind runs in the background asks from its own input at its foot, so the pill gives way there (#3627); fails_when=the pill and the Note's input both offer to ask
+  // protects=a Note whose agent IncarnaMind runs in the background asks from its own input at its foot, so the pill gives way there; where its command line isn't on this computer, the pill still asks it by its link (#3627); fails_when=the pill and the Note's input both offer to ask, or a Note offers an input that can only open the link
   test("a Note whose agent runs in the background has its own input, not the pill", async () => {
+    bridge.runsHere = true;
     user(NO_MODEL, agents);
     expect(await windowShown()).toEqual({ folded: true, rail: false, quiet: true, pill: null });
+    await unmount?.();
+    bridge.runsHere = false;
+    user(NO_MODEL, agents);
+    expect(await windowShown()).toEqual({
+      folded: true,
+      rail: false,
+      quiet: true,
+      pill: { mindId: MIND, documentId: null, agents },
+    });
   });
 
   // protects=with only their own AI the panel is never shown, even where they opened or folded it themselves before (#3612): no panel, no rail, and the pill asks; one they had open is folded for their AI, so a window opened again shows nothing of it before their AI is known; fails_when=a place they kept brings the panel or its rail back

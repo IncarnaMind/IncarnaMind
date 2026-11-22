@@ -11,9 +11,11 @@ import type { AgentPairing } from "../../core/api";
 import {
   agentsToAsk,
   noModel,
+  ownAiRunsHereNow,
   useAgentsToAsk,
   useAgentsToAskRead,
   useNoModel,
+  useOwnAiRunsHere,
   useReadAgentsToAsk,
 } from "./askYourAi";
 import { assistantTabOf, documentsOnScreenOf, groupsMerged } from "./layoutSlice";
@@ -100,16 +102,24 @@ const askedOnOf = (merged: boolean): AskedOn => {
   return documentId ? { mindId: null, documentId } : NOTHING;
 };
 
-/** An agent IncarnaMind can run in the background: a Note it can read has its own input (#3627). */
-export const runsInBackground = (pairing: AgentPairing): boolean =>
-  pairing.client === "claude-code";
+/**
+ * An agent IncarnaMind can run in the background, its command line on this computer: a Note it can
+ * read has its own input (#3627).
+ */
+export const runsInBackground = (pairing: AgentPairing, runsHere: boolean): boolean =>
+  runsHere && pairing.client === "claude-code";
 
-const pillOf = (hidden: boolean, on: AskedOn, agents: readonly AgentPairing[]): OwnAiPill | null =>
+const pillOf = (
+  hidden: boolean,
+  on: AskedOn,
+  agents: readonly AgentPairing[],
+  runsHere: boolean,
+): OwnAiPill | null =>
   hidden &&
   (on.mindId !== null || on.documentId !== null) &&
   agents.length > 0 &&
   // The Note's own input asks in its place.
-  !(on.mindId !== null && agents.some(runsInBackground))
+  !(on.mindId !== null && agents.some((each) => runsInBackground(each, runsHere)))
     ? { ...on, agents }
     : null;
 
@@ -130,7 +140,10 @@ function useAskedOn(): AskedOn {
 export function useOwnAiPillShown(): boolean {
   const hidden = useHiddenForOwnAi();
   const on = useAskedOn();
-  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined)) !== null;
+  const runsHere = useOwnAiRunsHere();
+  return (
+    pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere) !== null
+  );
 }
 
 /** The pill's Note or Document and agents, with the panel out of sight for a User with only their own AI; null otherwise. */
@@ -138,13 +151,19 @@ export function useOwnAiPill(): OwnAiPill | null {
   const hidden = useHiddenForOwnAi();
   const on = useAskedOn();
   useReadAgentsToAsk(on.mindId, on.documentId ?? undefined);
-  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined));
+  const runsHere = useOwnAiRunsHere();
+  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere);
 }
 
 /** The same, read once: what ⌘J asks while the pill shows. */
 export function ownAiPillNow(): OwnAiPill | null {
   const on = askedOnOf(groupsMerged());
-  return pillOf(hiddenForOwnAiNow(), on, agentsToAsk(on.mindId, on.documentId ?? undefined));
+  return pillOf(
+    hiddenForOwnAiNow(),
+    on,
+    agentsToAsk(on.mindId, on.documentId ?? undefined),
+    ownAiRunsHereNow(),
+  );
 }
 
 /** The Note a question typed elsewhere (⌘K, the Library) is about: the one the assistant reads. */

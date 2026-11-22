@@ -219,6 +219,18 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=the window shows a Note's input only where the command line is on this computer, and asks by the link elsewhere; fails_when=a Note offers an input that can only open the link, or hides it where the command line is
+  it("says whether the command line can run here", async () => {
+    const run = runner(async () => ({ kind: "finished", reply: "" }));
+    const here = await written(run.adapter);
+    expect(await here.core.ownAiRunsHere()).toBe(true);
+    const away = await written({ ...run.adapter, installed: async () => false });
+    expect(await away.core.ownAiRunsHere()).toBe(false);
+    expect(await away.core.askInNote({ mindId: away.mindId, words: "shorter" })).toEqual({
+      kind: "link",
+    });
+  });
+
   // protects=a turn ends when its run does, though the command line's connection is still open and listening for the Tool list to change, as Claude Code's can be then; fails_when=closing that connection waits on a message to a socket already gone, and the request stays working for good
   it("ends a turn whose command line hasn't let go of its connection yet", async () => {
     const run = runner(

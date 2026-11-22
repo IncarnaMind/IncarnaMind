@@ -139,7 +139,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 
 - **The input:**
   - It sits at the Note's foot, under the text, in the Note's column.
-  - It shows only where the Note's AI is the User's own command-line AI; otherwise the Note's foot is as today.
+  - It shows only where the Note's AI is the User's own command-line AI and its command is on this computer's path (looked for as the Note opens, starting nothing); otherwise the Note's foot is as today, and the Ask pill asks by the link.
   - Its placeholder says what it is for ("Describe a change…" / "描述要做的修改…").
   - With text selected, a chip above it quotes the selection's start ("“The harbour handled…”") with ✕ to drop it.
   - Return sends, and Shift+Return makes a new line.
