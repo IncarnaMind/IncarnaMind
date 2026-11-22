@@ -58,11 +58,11 @@ import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
 import type { ServedConnection } from "./mcp";
 import { createAgentRequests, type KeptRequest } from "./requests";
-import { type AgentListener, listenForAgents } from "./socket";
+import { type AgentListener, isSocketPathUsable, listenForAgents } from "./socket";
 import { createAgentWorkings } from "./workings";
 
 export { type AgentAccess, AgentRefusedError } from "./access";
-export { agentSocketPath } from "./socket";
+export { agentSocketPath, isSocketPathUsable, MAX_SOCKET_PATH_BYTES } from "./socket";
 
 /** What the "agents" flow sends to a paired agent. */
 export const AGENT_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds", "answers"];
@@ -242,6 +242,7 @@ export function createAgents(options: AgentsOptions) {
   /** When each pairing's "last used" time was last written. */
   const lastWritten = new Map<string, number>();
   let listener: AgentListener | null = null;
+  let listenProblem: "too-long" | "unavailable" | null = null;
   /** Starting and stopping the listener, one after another, so two quick toggles can't race. */
   let listening: Promise<void> = Promise.resolve();
   let closed = false;
@@ -646,6 +647,27 @@ export function createAgents(options: AgentsOptions) {
     );
   };
 
+  const socketError = () =>
+    new InvalidInputError({
+      key:
+        listenProblem === "too-long" || !isSocketPathUsable(options.socketPath)
+          ? "error.agent.socketTooLong"
+          : "error.agent.socketUnavailable",
+    });
+
+  const ensureReachable = async (): Promise<void> => {
+    if (!isSocketPathUsable(options.socketPath)) {
+      listenProblem = "too-long";
+      throw socketError();
+    }
+    if (enabled() && !listener) {
+      await syncListening();
+      if (!listener) throw socketError();
+    } else if (!enabled() && listenProblem !== null) {
+      throw socketError();
+    }
+  };
+
   /** Listens while connecting agents is on; stops when it is turned off. */
   const syncListening = (): Promise<void> => {
     listening = listening.then(async () => {
@@ -653,11 +675,18 @@ export function createAgents(options: AgentsOptions) {
       if (enabled() && !listener) {
         try {
           listener = await listenForAgents(options.socketPath, serve);
+          listenProblem = null;
         } catch (error) {
-          // Another copy of IncarnaMind on this data folder is listening already.
+          const code = (error as NodeJS.ErrnoException).code;
+          listenProblem =
+            !isSocketPathUsable(options.socketPath) || code === "ENAMETOOLONG"
+              ? "too-long"
+              : "unavailable";
+          // Another copy of IncarnaMind on this data folder is listening already, or the socket can't open.
           options.reportError(error);
         }
       } else if (!enabled() && listener) {
+        listenProblem = null;
         await stopListening();
       }
     });
@@ -694,12 +723,16 @@ export function createAgents(options: AgentsOptions) {
     /** How the server starts with this token (see `AgentLaunch`). */
     launchFor,
 
+    /** Rejects unless IncarnaMind's local agent socket can be reached (#3598). */
+    ensureReachable,
+
     /**
      * The agents the User can ask about this Note now (#3373): each would be let in, and reads it
      * as `read_mind` does; with no Note, each that would be let in. The one connected or used
      * last comes first.
      */
     askable(mindId: string | null, documentId?: string): AgentPairing[] {
+      if (listenProblem !== null) return [];
       const mind =
         mindId === null ? null : options.access.minds().find((each) => each.id === mindId);
       if (mind === undefined) return [];
@@ -747,8 +780,17 @@ export function createAgents(options: AgentsOptions) {
 
     async setEnabled(value: unknown): Promise<AgentSettings> {
       if (typeof value !== "boolean") throw new InvalidInputError("enabled must be true or false.");
+      if (value && !isSocketPathUsable(options.socketPath)) {
+        listenProblem = "too-long";
+        throw socketError();
+      }
       options.writeValue(ENABLED_KEY, value);
       await syncListening();
+      if (value && !listener) {
+        options.writeValue(ENABLED_KEY, false);
+        changed();
+        throw socketError();
+      }
       changed();
       return settings();
     },
@@ -759,6 +801,7 @@ export function createAgents(options: AgentsOptions) {
       const folderIds = parseFolders(input.folderIds);
       const client = parseClient(input.client);
       const propose = parsePropose(input.propose, false);
+      await ensureReachable();
       const id = randomUUID();
       const token = `im_${randomBytes(32).toString("base64url")}`;
       // The token is stored first: a pairing without one could never be used.

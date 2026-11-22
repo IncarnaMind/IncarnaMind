@@ -90,6 +90,7 @@ export interface AgentSetupOptions {
     launch(pairingId: unknown): Promise<AgentLaunch>;
     /** How the server starts with this token, for showing settings before there is one. */
     launchFor(token: string): AgentLaunch;
+    ensureReachable?(): Promise<void>;
     /** The files and folders setting this pairing's agent up created, shallowest first. */
     created(pairingId: string): string[];
     recordCreated(pairingId: string, paths: readonly string[]): void;
@@ -599,6 +600,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
       if (!Array.isArray(input.folderIds) || input.folderIds.length === 0) {
         throw new InvalidInputError({ key: "error.agent.noFolders" });
       }
+      await options.agents.ensureReachable?.();
       // Before pairing, so the settings the pairing announces already show it.
       // The agent still works without it, from the server's instructions.
       await refreshSkills(skillPathsFor(options.home, client.id));
