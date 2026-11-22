@@ -78,7 +78,17 @@ export const AGENT_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped
  * check they pressed (ADR-0032): what that agent may read already, the Note's sentences and the
  * Passages its Tools give.
  */
-export const HOSTED_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds"];
+export const HOSTED_CHECK_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds"];
+
+/**
+ * And for a request typed at a Note's foot (ADR-0034): its words and the words selected. A User
+ * who allowed only the check's kinds is asked once more, at their first request.
+ */
+export const HOSTED_FLOW_SENDS: readonly DataKind[] = [
+  ...HOSTED_CHECK_SENDS,
+  "note-requests",
+  "selection",
+];
 
 /** The agents IncarnaMind can start for a check, by the client their pairing was set up for. */
 export const HOSTED_CLIENTS: readonly string[] = ["claude-code"];
@@ -969,8 +979,14 @@ export function createAgents(options: AgentsOptions) {
     conversationGrant(
       pairingId: string,
       front: ConversationRun["front"],
+      asked?: ConversationRun["asked"],
     ): { launch: AgentLaunch; end(): Promise<void> } {
-      return grantFor(pairingId, { kind: "conversation", tools: CONVERSATION_TOOLS, front });
+      return grantFor(pairingId, {
+        kind: "conversation",
+        tools: CONVERSATION_TOOLS,
+        front,
+        ...(asked && { asked }),
+      });
     },
 
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */

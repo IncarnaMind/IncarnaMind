@@ -10190,6 +10190,7 @@ export const dataKinds = [
   "checked-sentences",
   "worked-figures",
   "library-counts",
+  "note-requests",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -13228,6 +13229,92 @@ export interface OwnAiCheckEnd {
 }
 
 /**
+ * The words selected in one top-level Block of a Note, for a request typed at its foot (#3627):
+ * the Block's plain text before the selection and after it, which a change inside leaves as they
+ * were.
+ */
+export interface NoteSelectionBlock {
+  blockId: string;
+  before: string;
+  after: string;
+}
+
+/** A request the User typed at the foot of a Note, for their own command-line AI (ADR-0034). */
+export interface NoteRequestInput {
+  mindId: string;
+  /** What they typed. */
+  words: string;
+  /** The words selected, as they read: the request's context. Absent: the whole Note. */
+  quote?: string;
+  selection?: NoteSelectionBlock[];
+  /** The agent to ask; absent: the first that can run in the background. */
+  pairingId?: string;
+}
+
+/**
+ * Why a request at a Note's foot didn't go or didn't finish: the check's reasons, and "read-only",
+ * the connection may only read and the request would change something.
+ */
+export type NoteTurnProblem = OwnAiCheckProblem | "read-only";
+
+/**
+ * How a request at a Note's foot went to the User's own AI: "started", in the background; "link",
+ * no agent can run it so and it goes by the link; "problem", one can't run now, with why.
+ */
+export type NoteRequestStart =
+  | { kind: "started"; pairing: AgentPairing; turnId: string }
+  | { kind: "link" }
+  | {
+      kind: "problem";
+      pairing: AgentPairing;
+      problem: NoteTurnProblem;
+      versions?: { found: string; lowest: string };
+    };
+
+/** A change in the Note asked from that applied at once: its request, and what it changed (#3627). */
+export interface NoteChangeApplied {
+  mindId: string;
+  request: string;
+  changed: number;
+  added: number;
+  tables: number;
+}
+
+/** One request at a Note's foot and how it went, as the Note's conversation shows it (ADR-0034). */
+export interface NoteTurn {
+  id: string;
+  /** What the User typed, and the words selected then ("" for none). */
+  request: string;
+  quote: string;
+  /** The agent's last words. */
+  reply: string;
+  outcome: "working" | "landed" | "stopped" | "failed";
+  problem: NoteTurnProblem | null;
+  /** ISO 8601, UTC. */
+  at: string;
+}
+
+/**
+ * A request at a Note's foot, as it goes: what the agent is doing (`doing`, from IncarnaMind's
+ * record of its Tool calls), then how it ended. `applied`: the changes in the Note asked from that
+ * apply at once, for the window that asked to apply with Undo; `waiting`: changes elsewhere that
+ * wait; `made`: Notes it wrote; `fresh`: the Note's earlier conversation was gone and this one is new.
+ */
+export interface NoteTurnEvent {
+  mindId: string;
+  turnId: string;
+  pairingId: string;
+  state: "working" | "landed" | "stopped" | "failed";
+  doing: { tool: AgentToolName; summary: string } | null;
+  problem: NoteTurnProblem | null;
+  reply: string;
+  applied: NoteChangeApplied[];
+  waiting: { mindId: string; title: string; count: number }[];
+  made: { title: string }[];
+  fresh: boolean;
+}
+
+/**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that
  * agent: the line typed in the agent's app says what they want, and the agent reads the rest with
  * `read_request`, once.
@@ -15839,6 +15926,16 @@ export interface CoreApi {
   /** Stops the check running on the User's own AI for the Note, if one is: nothing of it lands. */
   stopOwnAiCheck(mindId: string): Promise<void>;
   /**
+   * Sends a request typed at a Note's foot to the User's own command-line AI, in the background, in
+   * the Note's one conversation (ADR-0034): on `pairingId`, or the first agent that can run it.
+   * Asks once for the consent to send it. Its progress and end are told by "agents.noteTurn".
+   */
+  askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
+  /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
+  stopInNote(mindId: string): Promise<void>;
+  /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
+  noteConversation(mindId: string): Promise<NoteTurn[]>;
+  /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
    */
@@ -16137,6 +16234,8 @@ export interface CoreEvents {
   "agents.request": AgentRequest;
   /** A check on the User's own AI ended (see `checkWithOwnAi`). */
   "agents.ownCheck": OwnAiCheckEnd;
+  /** A request at a Note's foot is working, or ended (see `askInNote`). */
+  "agents.noteTurn": NoteTurnEvent;
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
@@ -16660,6 +16759,9 @@ const methods: Record<CoreApiMethod, true> = {
   frontAgent: true,
   checkWithOwnAi: true,
   stopOwnAiCheck: true,
+  askInNote: true,
+  stopInNote: true,
+  noteConversation: true,
   handedFileOf: true,
   listCanvases: true,
   showCanvas: true,

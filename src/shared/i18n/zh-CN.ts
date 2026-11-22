@@ -3664,6 +3664,7 @@ export const zhCN = {
   "consent.flow.edits": "用 AI 编辑",
   "consent.flow.edits.purpose": "按你的要求修改选中的文字",
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
+  "consent.data.note-requests": "你在笔记底部输入框里输入的内容，每次发送时",
   "consent.data.source-quotes":
     "选中文字中引用所指的文档引文，在修改会改写或删除带引用的文字时发送",
 

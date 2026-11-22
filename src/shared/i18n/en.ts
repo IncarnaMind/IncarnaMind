@@ -3854,6 +3854,8 @@ export const en = {
   "consent.flow.edits": "Edit with AI",
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
+  "consent.data.note-requests":
+    "What you type in the box at the bottom of a note, each time you send it",
   "consent.data.source-quotes":
     "The quotes from your Documents that the selected text’s Citations name, when a change rewrites or removes cited text",
 

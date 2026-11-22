@@ -7,7 +7,12 @@
  * this device for as long as IncarnaMind runs.
  */
 
-import { AGENT_TOOLS, type AgentToolName } from "../api";
+import {
+  AGENT_TOOLS,
+  type AgentToolName,
+  type NoteChangeApplied,
+  type NoteSelectionBlock,
+} from "../api";
 
 /**
  * The Tools a check the User asked may use when IncarnaMind starts the agent for it (ADR-0032):
@@ -41,12 +46,7 @@ export interface CheckRun {
 export const CONVERSATION_TOOLS = AGENT_TOOLS.filter((tool) => tool !== "hand_over_file");
 
 /** The words selected in one top-level Block of the Note, by the plain text kept around them. */
-export interface SelectedInBlock {
-  blockId: string;
-  /** The Block's plain text before the selection, and after it: a change inside leaves both. */
-  before: string;
-  after: string;
-}
+export type SelectedInBlock = NoteSelectionBlock;
 
 /**
  * A connection IncarnaMind started for one request typed at a Note's foot (./noteConversations):
@@ -62,13 +62,7 @@ export interface ConversationRun {
 }
 
 /** A request of changes in the front Note that applies at once, and what it changed, as its line counts. */
-export interface AskedInFront {
-  mindId: string;
-  request: string;
-  changed: number;
-  added: number;
-  tables: number;
-}
+export type AskedInFront = NoteChangeApplied;
 
 export type RunGrant = CheckRun | ConversationRun;
 
