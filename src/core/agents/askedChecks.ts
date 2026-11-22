@@ -7,7 +7,7 @@
  * this device for as long as IncarnaMind runs.
  */
 
-import type { AgentToolName } from "../api";
+import { AGENT_TOOLS, type AgentToolName } from "../api";
 
 /**
  * The Tools a check the User asked may use when IncarnaMind starts the agent for it (ADR-0032):
@@ -28,9 +28,49 @@ export const CHECK_RUN_TOOLS = [
  * agent's own connections gain nothing from it, and nothing of it stands once the run ends.
  */
 export interface CheckRun {
+  kind: "check";
   mindId: string;
   tools: readonly AgentToolName[];
 }
+
+/**
+ * Every Tool of the connection but the one that only takes a file by its path: a Note's
+ * conversation runs with none of the command line's own tools, so a path could only reach a file
+ * the User never gave it (ADR-0034).
+ */
+export const CONVERSATION_TOOLS = AGENT_TOOLS.filter((tool) => tool !== "hand_over_file");
+
+/** The words selected in one top-level Block of the Note, by the plain text kept around them. */
+export interface SelectedInBlock {
+  blockId: string;
+  /** The Block's plain text before the selection, and after it: a change inside leaves both. */
+  before: string;
+  after: string;
+}
+
+/**
+ * A connection IncarnaMind started for one request typed at a Note's foot (./noteConversations):
+ * it stands for the pairing, with its reach and write switch, and every Tool but a file by its
+ * path. `front`: the Note the request was made from, and the words selected in it, if any.
+ */
+export interface ConversationRun {
+  kind: "conversation";
+  tools: readonly AgentToolName[];
+  front: { mindId: string; selection: readonly SelectedInBlock[] | null };
+  /** Hears each request of changes made in the front Note that applies at once, with what it changed. */
+  asked?(made: AskedInFront): void;
+}
+
+/** A request of changes in the front Note that applies at once, and what it changed, as its line counts. */
+export interface AskedInFront {
+  mindId: string;
+  request: string;
+  changed: number;
+  added: number;
+  tables: number;
+}
+
+export type RunGrant = CheckRun | ConversationRun;
 
 /**
  * How long an ask stands. #3587's six real checks took 30 to 97 seconds from the press to the

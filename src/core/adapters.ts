@@ -1670,6 +1670,8 @@ export type OwnAiFailure =
   | "billing"
   | "timeout"
   | "isolation"
+  /** A kept conversation Claude Code no longer has: its own sweep or the User removed it. */
+  | "lost-conversation"
   | "other";
 
 /**
@@ -1682,15 +1684,26 @@ export interface OwnAiRunner {
   status(client: OwnAiClient): Promise<OwnAiStatus>;
   /**
    * One run, resolved when it ends. `server`: IncarnaMind's server as the agent starts it, with a
-   * grant; `tools`: the only ones of it the agent may call; `instructions`: IncarnaMind's own;
-   * `prompt`: what the run is asked. Aborting `signal` stops it, and every process it started.
+   * grant; `tools`: the only ones of it the agent may call, or all of them; `permissionMode`: how
+   * the agent answers its own permission prompts (none of its own tools is given, so nothing is
+   * asked); `instructions`: IncarnaMind's own, the same for every run of a conversation;
+   * `prompt`: what the run is asked; `conversation`: the conversation the agent keeps, by the key
+   * of its working folder and the agent's own id for it, started or continued. Aborting `signal`
+   * stops it, and every process it started. `reply`: the agent's last words.
    */
   run(request: {
     client: OwnAiClient;
     server: AgentLaunch;
-    tools: readonly string[];
+    tools: readonly string[] | "all";
+    permissionMode?: "dontAsk";
     instructions: string;
     prompt: string;
+    conversation?: { key: string; sessionId: string; resume: boolean };
     signal: AbortSignal;
-  }): Promise<{ kind: "finished" } | { kind: "failed"; reason: OwnAiFailure }>;
+  }): Promise<{ kind: "finished"; reply: string } | { kind: "failed"; reason: OwnAiFailure }>;
+  /**
+   * Deletes a kept conversation: the agent's transcript of it and its working folder. False when
+   * the agent couldn't be asked, so its own sweep deletes the transcript later.
+   */
+  purge(key: string): Promise<boolean>;
 }

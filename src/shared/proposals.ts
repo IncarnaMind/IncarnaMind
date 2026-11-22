@@ -732,7 +732,13 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
   }
   if (source === "outside-agent") {
     return isText(record.agent) && isText(record.pairingId) && isText(createdAt)
-      ? { source, agent: record.agent, pairingId: record.pairingId, createdAt }
+      ? {
+          source,
+          agent: record.agent,
+          pairingId: record.pairingId,
+          createdAt,
+          ...(record.requested === "edit" && { requested: "edit" as const }),
+        }
       : null;
   }
   if (!isText(providerId) || !isText(modelId) || !isText(createdAt)) return null;

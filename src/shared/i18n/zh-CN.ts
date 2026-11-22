@@ -8176,6 +8176,8 @@ export const zhCN = {
     "这次核对只能核对它自己的笔记，只能用 check_mind_yourself、search、read_passages、cite、run_analysis 和 report_check。",
   "agents.problem.checkRunPath":
     "这次核对只能引用共享给这个智能体的文件夹里的段落，不能按路径引用文件：请为每条引文填写 search 或 read_passages 给出的 passageId。",
+  "agents.problem.runNoPath":
+    "这次运行的 AI 没有自己的文件，所以 IncarnaMind 在这里不会按路径打开任何文件。请使用共享给这个智能体的文档和笔记。",
   "agents.problem.read-only":
     "这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → 智能体”中允许。",
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",
@@ -8274,6 +8276,8 @@ export const zhCN = {
   "agents.propose.text": "给出 {name} 的文字。",
   "agents.propose.textTooLong": "{name} 的文字超过 {max} 个字符。",
   "agents.propose.version": "给出 read_mind 加 named 时返回的 version。",
+  "agents.propose.outsideSelection":
+    "它在笔记里等用户确认：改动超出了用户选中的文字。只改这些文字的修改单独调用一次，就会直接生效。",
   "agents.propose.firstAdd": "¶+ 会添加在上一处修改之后，先写明一个段落。",
   "agents.propose.firstWaiting": "首批段落已在等待确认。请等用户处理后再建议添加。",
   "agents.propose.noParagraphs": "笔记中没有 {name}：这篇笔记没有可命名的段落。",

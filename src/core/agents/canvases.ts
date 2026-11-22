@@ -95,6 +95,8 @@ interface Done<T> {
 }
 
 export interface CanvasToolContext {
+  /** Whether a Canvas may name files by their paths: not for a run IncarnaMind started (ADR-0034). */
+  filesByPath: boolean;
   deps: CanvasToolDeps;
   t(key: MessageKey, params?: MessageParams): string;
   call<T>(
@@ -153,7 +155,8 @@ export function createCanvasTools(context: CanvasToolContext) {
   };
 
   const pathsOf = (value: unknown): string[] => {
-    if (value === undefined) return [];
+    if (value === undefined || (Array.isArray(value) && value.length === 0)) return [];
+    if (!context.filesByPath) throw new AgentRefusedError("invalid", t("agents.problem.runNoPath"));
     if (
       !Array.isArray(value) ||
       value.length > CANVAS_LIMITS.files * 2 ||

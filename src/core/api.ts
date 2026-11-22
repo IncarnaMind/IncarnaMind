@@ -817,6 +817,11 @@ export interface OutsideAgentRequest {
   pairingId: string;
   /** ISO 8601, UTC. */
   createdAt: string;
+  /**
+   * The User asked for it at the foot of the Note it changes (#3627): it applies at once, with
+   * Undo, as an edit asked of the assistant does. Absent: it waits for the User.
+   */
+  requested?: "edit";
 }
 
 /**

@@ -8674,6 +8674,8 @@ export const en = {
     "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
   "agents.problem.checkRunPath":
     "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
+  "agents.problem.runNoPath":
+    "This run of the User’s AI has no files of its own, so IncarnaMind opens no file by its path here. Use the Documents and Notes shared with this agent.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":
@@ -8796,6 +8798,8 @@ export const en = {
   "agents.propose.text": "Give the text for {name}.",
   "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
   "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.outsideSelection":
+    "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
   "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
   "agents.propose.firstWaiting":
     "The first paragraphs are already waiting for review. Let the user review them before proposing more.",

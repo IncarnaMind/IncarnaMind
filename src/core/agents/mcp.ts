@@ -505,6 +505,7 @@ export function createAgentServer(
         uncited: z.array(z.string()),
         refused: leftOut,
         next: z.string().nullable(),
+        why: z.string().optional().describe("Why it waits for the User."),
       }),
       // In a Note the agent wrote it changes the Note, one step the User's Undo takes back; in any
       // other it writes only Proposals, which change the Note once the User accepts them.

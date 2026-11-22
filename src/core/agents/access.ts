@@ -101,7 +101,8 @@ import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
-import type { AskedChecks, CheckRun } from "./askedChecks";
+import { plainText } from "../conversations/search";
+import type { AskedChecks, RunGrant, SelectedInBlock } from "./askedChecks";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -380,6 +381,8 @@ export interface AgentProposed {
    * `check_mind_yourself` gives them (#3378); null when none do, and in any other Note.
    */
   next: string | null;
+  /** In the Note the User asked from at its foot, why a change waits for them: it goes beyond their selection. */
+  why?: string;
 }
 
 export interface AgentCreateInput {
@@ -1145,6 +1148,39 @@ function parseChanges(value: unknown, t: Say): AskedChange[] {
   });
 }
 
+/** A paragraph's words as plain text, as the window reads a Block: no Markdown, no Citation token. */
+const plainWords = (markdown: string) =>
+  plainText(markdown.replace(CITATION_TOKEN, "")).replace(/\s+/g, " ");
+
+/**
+ * Whether every change stays inside the words the User selected (ADR-0034): each one rewrites a
+ * paragraph the selection is in and leaves its words outside the selection as they were, as plain
+ * text, so bold or shorter is inside. A new paragraph, a removed one not selected whole, or words
+ * read differently from the window's (`before` and `after` not found where they were) is not.
+ */
+function insideSelection(
+  placed: readonly NamedChange[],
+  note: NamedNote,
+  selection: readonly SelectedInBlock[],
+): boolean {
+  const selected = new Map(selection.map((each) => [each.blockId, each]));
+  return placed.every((change) => {
+    if (change.kind === "add") return false;
+    const paragraph = note.paragraphs[change.at];
+    const kept = paragraph && selected.get(paragraph.blockId);
+    if (!paragraph || !kept) return false;
+    const before = kept.before.replace(/\s+/g, " ").trimStart();
+    const after = kept.after.replace(/\s+/g, " ").trimEnd();
+    const was = plainWords(paragraph.text);
+    if (!was.startsWith(before) || !was.endsWith(after)) return false;
+    if (change.kind === "remove") return before === "" && after === "";
+    const now = plainWords(change.text);
+    return (
+      now.length >= before.length + after.length && now.startsWith(before) && now.endsWith(after)
+    );
+  });
+}
+
 /** The changes, each for the named paragraph it is for, by its place in `note`. */
 function placeChanges(asked: readonly AskedChange[], note: NamedNote, t: Say): NamedChange[] {
   const titled = note.paragraphs[0]?.name === "¶0";
@@ -1352,7 +1388,7 @@ export function holdsMore(
 export function createAgentAccess(
   deps: AgentAccessDeps,
   pairingId: string,
-  checkRun?: CheckRun,
+  grant?: RunGrant,
 ): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
   /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
@@ -1446,8 +1482,11 @@ export function createAgentAccess(
     };
     let pairing: AdmittedPairing;
     try {
-      if (checkRun && !checkRun.tools.includes(tool)) {
-        throw new AgentRefusedError("invalid", t("agents.problem.checkRun"));
+      if (grant && !grant.tools.includes(tool)) {
+        throw new AgentRefusedError(
+          "invalid",
+          t(grant.kind === "check" ? "agents.problem.checkRun" : "agents.problem.runNoPath"),
+        );
       }
       pairing = deps.admit(pairingId);
     } catch (error) {
@@ -1714,7 +1753,7 @@ export function createAgentAccess(
    * rests on its Folders alone.
    */
   const usable = (inScope: ReadonlySet<string>, documentId: string) =>
-    inScope.has(documentId) || (!checkRun && deps.citedOutside(documentId));
+    inScope.has(documentId) || (!grant && deps.citedOutside(documentId));
 
   /**
    * The Documents a check's results may rest on for the pairing: those it reaches, and files cited
@@ -1953,11 +1992,11 @@ export function createAgentAccess(
 
   /** The Note a check by the agent's own model takes: one it wrote, or one the User asked it to check. */
   const noteToCheck = (pairing: AdmittedPairing, mindId: unknown): Mind => {
-    if (checkRun) {
-      if (mindId !== checkRun.mindId) {
+    if (grant?.kind === "check") {
+      if (mindId !== grant.mindId) {
         throw new AgentRefusedError("invalid", t("agents.problem.checkRun"));
       }
-      return mindInScope(pairing, checkRun.mindId);
+      return mindInScope(pairing, grant.mindId);
     }
     return typeof mindId === "string" && deps.askedChecks.holds(pairing.id, mindId)
       ? mindInScope(pairing, text(mindId, "mindId", 200))
@@ -2144,6 +2183,7 @@ export function createAgentAccess(
   });
 
   const canvasTools = createCanvasTools({
+    filesByPath: grant === undefined,
     deps: {
       ...deps,
       canvasChanged: (change) => {
@@ -2468,8 +2508,11 @@ export function createAgentAccess(
             "citations must list at least one quote, with its passageId or path.",
           );
         }
-        if (checkRun && list.some((each) => isRecord(each) && each.path !== undefined)) {
-          throw new AgentRefusedError("invalid", t("agents.problem.checkRunPath"));
+        if (grant && list.some((each) => isRecord(each) && each.path !== undefined)) {
+          throw new AgentRefusedError(
+            "invalid",
+            t(grant.kind === "check" ? "agents.problem.checkRunPath" : "agents.problem.runNoPath"),
+          );
         }
         const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
         let inScope = new Set(scopeOf(pairing, undefined));
@@ -3047,6 +3090,13 @@ export function createAgentAccess(
         }
         // A copy of a Note the agent wrote is the User's: its changes wait there (#3371).
         const own = wrote(pairing, mind.id);
+        // The Note the User asked from at its foot takes the change at once, as an edit asked of
+        // the assistant does; with words selected, only a change inside them (ADR-0034).
+        const front =
+          grant?.kind === "conversation" && grant.front.mindId === mind.id && !own
+            ? grant.front
+            : null;
+        let askedHere = false;
         const naming = namingOf(own);
         const key = versionKey(pairing, mind.id);
         const request = deps.newId();
@@ -3062,13 +3112,18 @@ export function createAgentAccess(
           if (note.paragraphs.length === 0 && waitingChanges(blocks) > 0) {
             throw new AgentRefusedError("waiting", t("agents.propose.firstWaiting"));
           }
-          const proposed = proposeNamed(blocks, note, placeChanges(asked, note, t), {
+          const placed = placeChanges(asked, note, t);
+          askedHere =
+            front !== null &&
+            (front.selection === null || insideSelection(placed, note, front.selection));
+          const proposed = proposeNamed(blocks, note, placed, {
             request,
             made: {
               source: "outside-agent",
               agent: pairing.name,
               pairingId: pairing.id,
               createdAt: deps.now(),
+              ...(askedHere && { requested: "edit" as const }),
             },
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
@@ -3100,6 +3155,16 @@ export function createAgentAccess(
           );
         }
         deps.versions.set(key, written.now.version);
+        if (askedHere && grant?.kind === "conversation") {
+          const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
+          grant.asked?.({
+            mindId: mind.id,
+            request,
+            changed: added > 0 ? 0 : countChanged(written.kinds),
+            added,
+            tables: written.kinds.filter((kind) => kind === "table-added").length,
+          });
+        }
         if (own && step !== null) {
           const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
           deps.noteChanged({
@@ -3119,8 +3184,9 @@ export function createAgentAccess(
         return {
           result: {
             mindId: mind.id,
-            status: own ? "applied" : "waiting",
-            waiting: own ? 0 : written.waiting,
+            status: own || askedHere ? "applied" : "waiting",
+            waiting: own || askedHere ? 0 : written.waiting,
+            ...(front !== null && !askedHere && { why: t("agents.propose.outsideSelection") }),
             waitingInNote: written.waitingInNote,
             markdown,
             nextOffset,
@@ -3132,7 +3198,7 @@ export function createAgentAccess(
             next: leftToCheck(unchecked, false),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
-          count: own ? null : written.waiting,
+          count: own || askedHere ? null : written.waiting,
           documentIds: [...tokens.values()].flatMap((each) =>
             each.cited ? [each.cited.minted.documentId] : [],
           ),
