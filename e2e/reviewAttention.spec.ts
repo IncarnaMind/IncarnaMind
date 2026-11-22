@@ -1,4 +1,6 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { SourceMap } from "node:module";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -190,6 +192,54 @@ async function pressReview(
   });
 }
 
+async function profileReview(window: Page, expected: string) {
+  const cdp = await window.context().newCDPSession(window);
+  try {
+    await cdp.send("Performance.enable");
+    await cdp.send("Profiler.enable");
+    const metrics = await cdp.send("Performance.getMetrics");
+    const origin = metrics.metrics.find(metric => metric.name === "NavigationStart");
+    if (!origin) throw new Error("Missing navigation clock");
+    await cdp.send("Profiler.start");
+    const result = await pressReview(window, expected);
+    const {profile} = await cdp.send("Profiler.stop");
+    const bounds = await window.evaluate(() => (window as unknown as {__reviewPress: Press}).__reviewPress);
+    const start = origin.value * 1e6 + (bounds.clicked ?? 0) * 1e3;
+    const stop = origin.value * 1e6 + (bounds.shown ?? 0) * 1e3;
+    const sources = new Map<string, SourceMap>();
+    const frames = new Map<number, string>();
+    const parents = new Map<number, number>();
+    for (const node of profile.nodes) {
+      const frame = node.callFrame;
+      if (frame.url.startsWith("file:") && frame.url.endsWith(".js") && !sources.has(frame.url)) {
+        const contents = await readFile(fileURLToPath(frame.url) + ".map","utf8").catch(() => null);
+        if (contents) sources.set(frame.url, new SourceMap(JSON.parse(contents)));
+      }
+      const source = sources.get(frame.url)?.findEntry(frame.lineNumber, frame.columnNumber);
+      frames.set(node.id, source && "originalSource" in source ? source.originalSource.split("/").slice(-2).join("/") + ":" + (source.originalLine + 1) : frame.functionName || frame.url.split("/").pop() || "(anonymous)");
+      for (const child of node.children ?? []) parents.set(child,node.id);
+    }
+    let time = profile.startTime;
+    const totals = new Map<string,number>();
+    for (const [index, delta] of (profile.timeDeltas ?? []).entries()) {
+      time += delta;
+      if (time < start || time > stop) continue;
+      let node = profile.samples?.[index];
+      const path = [];
+      while (node !== undefined && path.length < 12) {
+        path.push(frames.get(node));
+        node = parents.get(node);
+      }
+      const key = path.join(" ← ");
+      totals.set(key, (totals.get(key) ?? 0) + delta);
+    }
+    console.log("[2586-cpu]", JSON.stringify({ms:result.ms,sampledMs:[...totals.values()].reduce((a,b)=>a+b,0)/1000,hot:[...totals].sort((a,b)=>b[1]-a[1]).slice(0,15)}));
+    return result;
+  } finally {
+    await cdp.detach();
+  }
+}
+
 /** Confirms what waits in the Review, from the Library's top, so nothing waits any more. */
 async function confirmWaiting(window: Page): Promise<void> {
   await pointAndClick(window, window.getByTestId("organize-waiting-review"));
@@ -314,7 +364,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     expect(await nameCut()).toBe(true);
     await screenshot(window, "review-attention-en-900-status");
     await newMind(window);
-    const third = await pressReview(window, thirdId);
+    const third = await profileReview(window, thirdId);
     expect(third.selected).toBe(thirdId);
     expect(third.ms).toBeGreaterThanOrEqual(0);
     expect(third.ms).toBeLessThan(100);
@@ -326,7 +376,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await expect(header).toHaveText("4 个文档未整理：额度已用完 · 充值");
     await screenshot(window, "review-attention-zh-900-status");
     await newMind(window);
-    const fourth = await pressReview(window, fourthId);
+    const fourth = await profileReview(window, fourthId);
     expect(fourth.selected).toBe(fourthId);
     expect(fourth.ms).toBeGreaterThanOrEqual(0);
     expect(fourth.ms).toBeLessThan(100);

@@ -172,6 +172,7 @@ export default defineConfig({
     // to load and parse at every launch.
     build: {
       minify: true,
+      sourcemap: "hidden",
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
