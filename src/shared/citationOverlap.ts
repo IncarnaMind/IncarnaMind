@@ -77,15 +77,27 @@ function samePlace(a: CitedPlace, b: CitedPlace): boolean {
 }
 
 /**
+ * Whether two Citations are of one Document's content: the same Document, or two Documents that
+ * hold the same version of a file, as a file and its copy do (the same content hash). A copy that
+ * differs by one character has another hash and is another Document.
+ */
+export function sameContent(a: CitedPlace, b: CitedPlace): boolean {
+  if (!a.documentId || !b.documentId) return false;
+  return (
+    a.documentId === b.documentId || (a.contentHash !== null && a.contentHash === b.contentHash)
+  );
+}
+
+/**
  * Whether a Citation and the Passage a check found are the same words in the
- * same place of the same Document: their pages meet where both are known, and
- * every figure of the shorter quote is in the longer, with at least 80% of its
- * content words in order, so one quote inside the other, or a different span of
- * the same clause. It compares place and words, never meaning. Where it can't
- * tell, the Citation counts as already cited.
+ * same place of the same content (see `sameContent`): their pages meet where
+ * both are known, and every figure of the shorter quote is in the longer, with
+ * at least 80% of its content words in order, so one quote inside the other, or
+ * a different span of the same clause. It compares place and words, never
+ * meaning. Where it can't tell, the Citation counts as already cited.
  */
 export function overlapsCitation(cited: CitedPlace, found: CitedPlace): boolean {
-  if (!cited.documentId || cited.documentId !== found.documentId) return false;
+  if (!sameContent(cited, found)) return false;
   if (!samePlace(cited, found)) return false;
   const a = { quote: cited.quote ?? "", words: wordsOf(cited.quote ?? "") };
   const b = { quote: found.quote ?? "", words: wordsOf(found.quote ?? "") };

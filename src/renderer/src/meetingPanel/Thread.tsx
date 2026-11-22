@@ -175,7 +175,8 @@ export function Thread({
   }, [empty, pointed]);
 
   const last = pending || blocked ? undefined : helps.at(-1);
-  const earlier = last ? helps.slice(0, -1) : helps;
+  // The new help may arrive before its press resolves. Its outline already occupies its row.
+  const earlier = pending?.earlier ?? (last ? helps.slice(0, -1) : helps);
   const isOpen = (help: MeetingHelp) =>
     pinned.includes(help.answerId) || (opened === null ? help === last : opened === help.answerId);
   const kept = everything ? earlier : earlier.slice(-EARLIER_SHOWN);
