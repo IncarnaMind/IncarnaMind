@@ -306,10 +306,14 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
       [3, "Harbours publish the times of high water every year."],
     ] as const) {
       const passages = await core.findPassages({ text, mindId: null, scope: null });
-      const passage = passages.find((item) => item.pageFrom === page);
-      if (!passage) throw new Error(`Missing Passage on page ${page}.`);
+      const passage = passages.find((item) => item.text.includes(text));
+      if (!passage) throw new Error(`Missing text from page ${page}.`);
       const citation = await core.citePassage({ passageId: passage.passageId, text });
-      if (!citation) throw new Error(`Could not cite page ${page}.`);
+      if (citation?.pageFrom !== page || citation.pageTo !== page) {
+        throw new Error(
+          `Expected a Citation to page ${page}, got ${citation?.pageFrom}–${citation?.pageTo}.`,
+        );
+      }
       citations.push({ type: "citation", attrs: { ...citation } });
     }
     commands.insertContentAt(view.state.doc.content.size, {
@@ -319,7 +323,7 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   });
   const adjacent = editor
     .locator(":scope > p")
-    .last()
+    .filter({ hasText: "Tide tables:" })
     .getByTestId("citation-chip")
     .filter({ visible: true });
   await expect(adjacent).toHaveCount(2);
