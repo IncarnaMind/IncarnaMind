@@ -353,8 +353,8 @@ function showFrontAndSend(channel: string, ...message: unknown[]): void {
   else send();
 }
 
-// An app link the system hands over (ADR-0033) shows its item once the app is up, else only
-// brings it forward: macOS sends it as an event, Windows and Linux start the app again with it.
+// An app link the system hands over (ADR-0033) goes to the core, which shows its item or keeps it
+// for the first window: macOS sends it as an event, Windows and Linux start the app again with it.
 const appLinks = createAppLinkInbox({
   show: (link) => core?.showLinked(link) ?? false,
   front: () => void showFront(),
@@ -389,7 +389,7 @@ function finishStartup(): void {
     return;
   instanceReady = true;
   if (instance.kind === "owner") instance.owner.ready((start) => secondLaunch(start.args));
-  appLinks.ready();
+  appLinks.windowUp();
   // Once the window has been shown: the keyword index an older version built is rewritten
   // off this thread (#2042), and the text fingerprints it didn't keep are filled in (#2216).
   setImmediate(() => {
@@ -662,6 +662,7 @@ app.whenReady().then(async () => {
       ...(taskKinds.length > 0 && { taskKinds }),
     });
     logger.info("app.startup.coreReady");
+    appLinks.coreUp();
   } catch (error) {
     for (const window of BrowserWindow.getAllWindows()) window.hide();
     await showStartupError(error);

@@ -14809,6 +14809,12 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
+  /**
+   * What an app link handed to IncarnaMind before this window loaded names (ADR-0033), for the
+   * window to open in front in place of Home; null for none. Once a window has asked, links are
+   * shown as they come (`agents.opened`).
+   */
+  takeLinked(): Promise<AgentOpened["item"] | null>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -16322,6 +16328,7 @@ const methods: Record<CoreApiMethod, true> = {
   judgedWithNow: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
+  takeLinked: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,

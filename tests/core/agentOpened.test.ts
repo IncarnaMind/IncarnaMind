@@ -173,7 +173,7 @@ describe("what an outside agent makes, opened in IncarnaMind", () => {
     expect(opened).toEqual([]);
   });
 
-  // protects=an app link shows in front the Note, the handed-over file's newest version or the Canvas it names, through the same event what an agent makes opens by; any other link, or an item that isn't there, shows nothing (#3534, ADR-0033); fails_when=a link shows something else, a file's link shows an older version, or a bad link opens anything
+  // protects=an app link shows in front the Note, the handed-over file's newest version or the Canvas it names, through the same event what an agent makes opens by, and one that comes before a window has loaded waits for that window; any other link, or an item that isn't there, shows nothing (#3534, ADR-0033); fails_when=a link shows something else, a file's link shows an older version, a link at start is shown before the window can keep it, or a bad link opens anything
   it("shows in front what an app link names, and nothing for any other link", async () => {
     const { core, coast, writer, files } = await started();
     const agent = await connectLegacyAgent(writer.launch);
@@ -199,6 +199,13 @@ describe("what an outside agent makes, opened in IncarnaMind", () => {
     await core.deleteMind(gone.id);
     const opened: AgentOpened[] = [];
     core.on("agents.opened", (each) => opened.push(each));
+
+    // Before a window has loaded, the newest link waits for it, to open in Home's place.
+    expect(core.showLinked(appLink({ kind: "canvas", id: canvas.canvasId }))).toBe(true);
+    expect(core.showLinked(appLink({ kind: "note", id: note.id }))).toBe(true);
+    expect(opened).toEqual([]);
+    expect(await core.takeLinked()).toEqual({ kind: "mind", mindId: note.id });
+    expect(await core.takeLinked()).toBeNull();
 
     expect(core.showLinked(appLink({ kind: "note", id: note.id }))).toBe(true);
     expect(core.showLinked(appLink({ kind: "file", id: first.fileId }))).toBe(true);

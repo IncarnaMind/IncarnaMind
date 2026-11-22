@@ -549,8 +549,9 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   openDocumentInApp(documentId: string): Promise<void>;
   /**
-   * Shows the item an app link names in front (#3534, ADR-0033), as what an agent makes opens:
-   * true when it is there, false for any other link or an item that isn't, which shows nothing.
+   * Shows the item an app link names in front (#3534, ADR-0033), as what an agent makes opens, or,
+   * before the first window has loaded, keeps it for that window (`takeLinked`): true when it is
+   * there, false for any other link or an item that isn't, which shows nothing.
    */
   showLinked(link: string): boolean;
   /**
@@ -866,6 +867,10 @@ export function createCore(adapters: CoreAdapters): Core {
       return false;
     }
   };
+  // A link that comes before the first window has loaded waits for it: shown at once, it would
+  // open under the tabs the window then restores (ADR-0033).
+  let windowTookLinked = false;
+  let heldLinked: AgentOpened["item"] | null = null;
   /** What an app link names, if it is there now (ADR-0033); null for any other link. */
   const linkedItem = (link: string): AgentOpened["item"] | null => {
     const linked = readAppLink(link);
@@ -8023,6 +8028,12 @@ export function createCore(adapters: CoreAdapters): Core {
       }));
     },
     documentsAddedSinceChecks: async (mindId) => checks.documentsAddedSinceChecks(mindId),
+    takeLinked: async () => {
+      windowTookLinked = true;
+      const item = heldLinked;
+      heldLinked = null;
+      return item;
+    },
 
     getSecretStorage: async () => secrets.status(),
     acceptPlainTextSecretStorage: async () => secrets.acceptPlainText(),
@@ -9263,7 +9274,8 @@ export function createCore(adapters: CoreAdapters): Core {
     readCellNumber: (documentId, sheet, ref) => documents.cellNumber(documentId, sheet, ref),
     showLinked: (link) => {
       const item = linkedItem(link);
-      if (item) events.emit("agents.opened", { item, front: true });
+      if (item && windowTookLinked) events.emit("agents.opened", { item, front: true });
+      else if (item) heldLinked = item;
       return item !== null;
     },
     openDocumentInApp: async (documentId) => {
