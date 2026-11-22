@@ -1,8 +1,8 @@
 name: Probe 3643 (throwaway)
 
 # Removed before the pull request: what an AI app's config would be given as IncarnaMind's
-# launcher from the published AppImage and .deb, and whether the AppImage itself can start the
-# agent shim in Node mode.
+# launcher from the published AppImage and .deb, and whether the program inside an AppImage's
+# mount starts the agent shim in Node mode.
 on:
   push:
     branches: [fix/3643-appimage-launcher]
@@ -21,44 +21,38 @@ jobs:
         run: |
           gh release download v0.1.0-alpha.7 --repo "$GITHUB_REPOSITORY" -p '*.AppImage' -p '*.deb'
           ls -la
-          cat /etc/os-release | head -3
+          head -3 /etc/os-release
           sysctl kernel.apparmor_restrict_unprivileged_userns || true
       - name: FUSE for the AppImage
         run: sudo apt-get update -q && sudo apt-get install -y -q libfuse2t64
-      - name: AppRun, as the AppImage starts its program
+      - name: The AppImage's own program in Node mode, as the launcher runs it today
         run: |
           chmod +x ./*.AppImage
-          ./*.AppImage --appimage-extract AppRun >/dev/null
-          cat squashfs-root/AppRun
-      - name: The AppImage in Node mode, as the launcher runs it today
-        run: |
           IMG="$PWD/$(ls *.AppImage)"
           cat > probe.js <<'EOF'
           const { join, dirname } = require("node:path");
           const { existsSync } = require("node:fs");
           const shim = join(dirname(process.execPath), "resources", "app.asar", "out", "main", "agentShim.js");
-          console.log(JSON.stringify({ execPath: process.execPath, APPIMAGE: process.env.APPIMAGE ?? null, APPDIR: process.env.APPDIR ?? null, argv: process.argv, shim, shimThere: existsSync(shim) }));
+          console.log(JSON.stringify({ execPath: process.execPath, argv: process.argv, shim, shimThere: existsSync(shim) }));
           EOF
-          ELECTRON_RUN_AS_NODE=1 "$IMG" "$PWD/probe.js" | tee run1.json
-          ELECTRON_RUN_AS_NODE=1 "$IMG" "$PWD/probe.js" | tee run2.json
-          node -e '
-            const fs = require("node:fs");
-            const [a, b] = ["run1.json", "run2.json"].map((f) => JSON.parse(fs.readFileSync(f, "utf8").trim().split("\n").pop()));
-            console.log("same execPath both runs:", a.execPath === b.execPath);
-            console.log("run 1 execPath still there after it ended:", fs.existsSync(a.execPath));
-            console.log("run 1 shim still there after it ended:", fs.existsSync(a.shim));
-          '
-      - name: The AppImage file as the command, with the shim found from its own program
-        run: |
-          IMG="$PWD/$(ls *.AppImage)"
-          SCRIPT='const p=require("node:path");const s=p.join(p.dirname(process.execPath),"resources","app.asar","out","main","agentShim.js");console.log(JSON.stringify({execPath:process.execPath,shim:s,there:require("node:fs").existsSync(s),argv:process.argv}))'
-          ELECTRON_RUN_AS_NODE=1 "$IMG" -e "$SCRIPT"
-          echo "--- the real shim, with no app running (it should say it can't reach IncarnaMind and end):"
-          ELECTRON_RUN_AS_NODE=1 timeout 15 "$IMG" -e 'const p=require("node:path");require(p.join(p.dirname(process.execPath),"resources","app.asar","out","main","agentShim.js"))' </dev/null; echo "exit $?"
-      - name: The .deb in Node mode
+          for run in 1 2; do
+            "$IMG" --appimage-mount > mount.txt &
+            MOUNTER=$!
+            for i in $(seq 1 50); do [ -s mount.txt ] && break; sleep 0.2; done
+            MNT=$(head -1 mount.txt)
+            echo "run $run mount: $MNT"
+            ELECTRON_RUN_AS_NODE=1 "$MNT/incarnamind" "$PWD/probe.js" | tee "run$run.json"
+            echo "--- the shim from that mount, stdin closed, no app running:"
+            ELECTRON_RUN_AS_NODE=1 timeout 15 "$MNT/incarnamind" "$MNT/resources/app.asar/out/main/agentShim.js" < /dev/null; echo "shim exit $?"
+            kill "$MOUNTER"; wait "$MOUNTER" 2>/dev/null || true
+            sleep 1
+            if [ -e "$MNT/incarnamind" ]; then echo "run $run: program still there after the AppImage ended"; else echo "run $run: program gone after the AppImage ended"; fi
+          done
+          node -e 'const f=require("node:fs");const [a,b]=["run1.json","run2.json"].map(x=>JSON.parse(f.readFileSync(x,"utf8").trim().split("\n").pop()));console.log("same program path both runs:",a.execPath===b.execPath)'
+      - name: The .deb's program in Node mode
         run: |
           sudo apt-get install -y -q ./*.deb >/dev/null
           ls -la /usr/bin/incarnamind || true
-          dpkg -L incarnamind | grep -E 'agentShim.js$|/incarnamind$' | head -5 || true
           BIN=$(readlink -f /usr/bin/incarnamind || echo /opt/IncarnaMind/incarnamind)
+          echo "deb program: $BIN"
           ELECTRON_RUN_AS_NODE=1 "$BIN" "$PWD/probe.js"
