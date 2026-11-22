@@ -1,3 +1,4 @@
+import type { NodeJSON } from "../shared/blockJson";
 import type {
   AssignmentChange,
   AssignmentState,
@@ -12221,8 +12222,14 @@ export interface MeetingSummaryCandidate {
   sources: MeetingSummarySource[];
 }
 
+export interface MeetingSummaryContent {
+  type: "doc";
+  content: NodeJSON[];
+}
+
 export interface MeetingSummary {
   text: string;
+  editedContent?: MeetingSummaryContent;
   items?: MeetingSummaryItem[];
   candidateCount?: number;
   candidatesReviewed?: true;
@@ -15771,6 +15778,11 @@ export interface CoreApi {
       parentCue?: { startMs: number; endMs: number };
     })[];
   } | null>;
+  updateMeetingSummaryContent(
+    meetingId: string,
+    expected: MeetingSummaryContent | null,
+    content: MeetingSummaryContent,
+  ): Promise<Meeting>;
   correctMeetingSummaryItem(
     meetingId: string,
     expected: MeetingSummaryItem,
@@ -16740,6 +16752,7 @@ const methods: Record<CoreApiMethod, true> = {
   undoAddMeetingSummaryCandidate: true,
   addMeetingSummaryCandidate: true,
   getMeetingSummaryItemSources: true,
+  updateMeetingSummaryContent: true,
   correctMeetingSummaryItem: true,
   undoMeetingFill: true,
   followMeetingFillUndo: true,

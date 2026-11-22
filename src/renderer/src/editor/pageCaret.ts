@@ -1,5 +1,5 @@
 import { Extension } from "@tiptap/core";
-import { Plugin, TextSelection } from "@tiptap/pm/state";
+import { AllSelection, Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 /**
@@ -10,7 +10,12 @@ import type { EditorView } from "@tiptap/pm/view";
  */
 export function caretFromPage(view: EditorView): void {
   const { selection } = view.state;
-  if (view.composing || selection.empty || !(selection instanceof TextSelection)) return;
+  if (
+    view.composing ||
+    selection.empty ||
+    !(selection instanceof TextSelection || selection instanceof AllSelection)
+  )
+    return;
   const shown = view.dom.ownerDocument.getSelection();
   const node = shown?.focusNode;
   if (!shown?.isCollapsed || !node || !view.dom.contains(node) || !view.hasFocus()) return;

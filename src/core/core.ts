@@ -9180,6 +9180,8 @@ export function createCore(adapters: CoreAdapters): Core {
       meetings.undoAddTranscriptAction(meetingId, itemId),
     addMeetingSummaryCandidate: candidateReviews.add,
     undoAddMeetingSummaryCandidate: candidateReviews.undo,
+    updateMeetingSummaryContent: async (meetingId, expected, content) =>
+      meetings.updateSummaryContent(meetingId, expected, content),
     correctMeetingSummaryItem: async (meetingId, expected, replacement) =>
       meetings.correctSummaryItem(meetingId, expected, replacement),
     retryMeetingSummary: async (meetingId) => {
