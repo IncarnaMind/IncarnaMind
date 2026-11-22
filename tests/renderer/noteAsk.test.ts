@@ -14,6 +14,7 @@ import type {
   NoteRequestStart,
   NoteTurnEvent,
 } from "../../src/core/api";
+import { NODE_CHARACTER } from "../../src/shared/proposals";
 
 const page = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
 const view = page.defaultView;
@@ -190,6 +191,28 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(selectedForRequest(across)?.selection).toEqual([
       { blockId: "a", before: "The ferry carried ", after: "" },
       { blockId: "b", before: "", after: "." },
+    ]);
+
+    // A Citation after the words reads as one mark, as the core reads it, so dropping it is a change.
+    const cited = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "c" },
+          content: [
+            { type: "text", text: "Fares rose." },
+            { type: "citation", attrs: { passageId: "p1", quote: "Fares rose." } },
+          ],
+        },
+      ],
+    });
+    const withCitation = EditorState.create({
+      doc: cited,
+      selection: TextSelection.create(cited, 1, 1 + "Fares".length),
+    });
+    expect(selectedForRequest(withCitation)?.selection).toEqual([
+      { blockId: "c", before: "", after: ` rose.${NODE_CHARACTER}` },
     ]);
   });
 });

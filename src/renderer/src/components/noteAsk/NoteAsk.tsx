@@ -41,6 +41,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const [quote, setQuote] = useState(() => selectedForRequest(editor.state)?.quote ?? "");
   const [whole, setWhole] = useState(false);
   const [open, setOpen] = useState(false);
+  const kept = useKeptConversation(mindId);
   const working = ask?.state === "working";
 
   useEffect(() => {
@@ -91,13 +92,21 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   return (
     <div data-testid="note-ask" data-mind-id={mindId} className="note-ask">
       {open && <NoteConversation mindId={mindId} onClose={() => setOpen(false)} />}
-      {ask && (
+      {ask ? (
         <NoteAskLine
           ask={ask}
           mindId={mindId}
           open={open}
           onToggle={() => setOpen((was) => !was)}
         />
+      ) : (
+        // A conversation kept from before (another day, a reopened window) opens on request too.
+        kept && (
+          <div className="note-ask-line-row">
+            <span />
+            <ConversationToggle open={open} onToggle={() => setOpen((was) => !was)} />
+          </div>
+        )
       )}
       <div className="composer">
         {quote !== "" && !whole && (
@@ -178,17 +187,6 @@ function NoteAskLine({
   onToggle(): void;
 }) {
   const t = useT();
-  const toggle = (
-    <button
-      type="button"
-      data-testid="note-ask-conversation-toggle"
-      aria-expanded={open}
-      onClick={onToggle}
-      className="note-ask-toggle"
-    >
-      {t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
-    </button>
-  );
   if (ask.state === "failed" && ask.problem === "read-only") {
     return (
       <ProblemLine
@@ -207,10 +205,40 @@ function NoteAskLine({
   }
   return (
     <div className="note-ask-line-row">
-      <NoteAskLabel ask={ask} />
-      {toggle}
+      <NoteAskLabel ask={ask} mindId={mindId} />
+      <ConversationToggle open={open} onToggle={onToggle} />
     </div>
   );
+}
+
+function ConversationToggle({ open, onToggle }: { open: boolean; onToggle(): void }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-testid="note-ask-conversation-toggle"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="note-ask-toggle"
+    >
+      {t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
+    </button>
+  );
+}
+
+/** Whether the Note has a conversation kept from before, as it opens. */
+function useKeptConversation(mindId: string): boolean {
+  const [kept, setKept] = useState(false);
+  useEffect(() => {
+    let current = true;
+    core.noteConversation(mindId).then((turns) => {
+      if (current) setKept(turns.length > 0);
+    }, useAppStore.getState().reportError);
+    return () => {
+      current = false;
+    };
+  }, [mindId]);
+  return kept;
 }
 
 /** The Note's conversation, as IncarnaMind keeps it: each request and its reply, oldest first. */

@@ -9,6 +9,7 @@
 
 import {
   AGENT_TOOLS,
+  type AgentActivity,
   type AgentToolName,
   type NoteChangeApplied,
   type NoteSelectionBlock,
@@ -53,13 +54,26 @@ export type SelectedInBlock = NoteSelectionBlock;
  * it stands for the pairing, with its reach and write switch, and every Tool but a file by its
  * path. `front`: the Note the request was made from, and the words selected in it, if any.
  */
-export interface ConversationRun {
+export interface ConversationRun extends ConversationHears {
   kind: "conversation";
   tools: readonly AgentToolName[];
-  front: { mindId: string; selection: readonly SelectedInBlock[] | null };
-  /** Hears each request of changes made in the front Note that applies at once, with what it changed. */
-  asked?(made: AskedInFront): void;
+  /** The Note asked from, the words selected in it, and what the User typed. */
+  front: { mindId: string; selection: readonly SelectedInBlock[] | null; words: string };
 }
+
+/** What a conversation's run hears of its own calls, and only its own (#3627). */
+export interface ConversationHears {
+  /** Each request of changes made in the front Note that applies at once, with what it changed. */
+  asked?(made: AskedInFront): void;
+  /** Each call of the run, as its activity row records it. */
+  called?(call: RunCall): void;
+}
+
+/** A call of a run, as its activity row records it. */
+export type RunCall = Pick<
+  AgentActivity,
+  "tool" | "summary" | "outcome" | "problem" | "count" | "effects"
+>;
 
 /** A request of changes in the front Note that applies at once, and what it changed, as its line counts. */
 export type AskedInFront = NoteChangeApplied;

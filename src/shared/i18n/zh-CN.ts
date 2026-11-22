@@ -3662,7 +3662,8 @@ export const zhCN = {
   "consent.flow.edits": "用 AI 编辑",
   "consent.flow.edits.purpose": "按你的要求修改选中的文字",
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
-  "consent.data.note-requests": "你在笔记底部输入框里输入的内容，每次发送时",
+  "consent.data.note-requests":
+    "你每次在笔记底部输入框里发送的内容。Claude Code 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回；闲置 30 天的对话它也会删除",
   "consent.data.source-quotes":
     "选中文字中引用所指的文档引文，在修改会改写或删除带引用的文字时发送",
 
@@ -8607,6 +8608,8 @@ export const zhCN = {
   "noteAsk.done.waiting.other": "“{title}”中有 {count} 处修改等你确认。",
   "noteAsk.done.wrote": "写了“{title}”。",
   "noteAsk.done.nothing": "{agent} 没有做任何修改。",
+  "noteAsk.done.held.one": "这篇笔记中有 1 处修改等你确认。",
+  "noteAsk.done.held.other": "这篇笔记中有 {count} 处修改等你确认。",
   "noteAsk.busy": "{agent} 还在处理上一个请求。先停止它，再提新的请求。",
   "noteAsk.readOnly": "{agent} 只能读取。允许它提出修改吗？",
   "noteAsk.allow": "允许",

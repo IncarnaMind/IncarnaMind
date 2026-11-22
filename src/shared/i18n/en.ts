@@ -3852,7 +3852,7 @@ export const en = {
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
   "consent.data.note-requests":
-    "What you type in the box at the bottom of a note, each time you send it",
+    "What you type in the box at the bottom of a note, each time you send it. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
   "consent.data.source-quotes":
     "The quotes from your Documents that the selected text’s Citations name, when a change rewrites or removes cited text",
 
@@ -9153,6 +9153,8 @@ export const en = {
   "noteAsk.done.waiting.other": "{count} changes wait for you in “{title}”.",
   "noteAsk.done.wrote": "Wrote “{title}”.",
   "noteAsk.done.nothing": "{agent} changed nothing.",
+  "noteAsk.done.held.one": "1 change waits for you in this note.",
+  "noteAsk.done.held.other": "{count} changes wait for you in this note.",
   "noteAsk.busy": "{agent} is still working on your last request. Stop it to ask something else.",
   "noteAsk.readOnly": "{agent} may only read. Let it propose changes?",
   "noteAsk.allow": "Allow",

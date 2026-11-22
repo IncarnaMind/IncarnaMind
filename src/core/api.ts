@@ -822,6 +822,8 @@ export interface OutsideAgentRequest {
    * Undo, as an edit asked of the assistant does. Absent: it waits for the User.
    */
   requested?: "edit";
+  /** What the User typed there, which says whether they asked for a translation. */
+  instruction?: string;
 }
 
 /**
@@ -13281,6 +13283,11 @@ export interface NoteChangeApplied {
   changed: number;
   added: number;
   tables: number;
+  /**
+   * In a Note the agent wrote: applied already, with its own Undo there (#3371), so nothing is left
+   * for the window to apply; the line still counts it.
+   */
+  own?: true;
 }
 
 /** One request at a Note's foot and how it went, as the Note's conversation shows it (ADR-0034). */

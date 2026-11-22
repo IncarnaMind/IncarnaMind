@@ -6869,12 +6869,11 @@ export function createCore(adapters: CoreAdapters): Core {
     runner: adapters.ownAi,
     db,
     askable: (mindId) => agents.askable(mindId),
-    conversationGrant: (pairingId, front, asked) =>
-      agents.conversationGrant(pairingId, front, asked),
+    conversationGrant: (pairingId, front, hears) =>
+      agents.conversationGrant(pairingId, front, hears),
     consented: (pairing) => hostedConsent(pairing, HOSTED_FLOW_SENDS),
     heldBack: hostedHeldBack,
     onReachChange: onHostedReachChange,
-    onActivity: (listener) => events.on("agents.activity", listener),
     turned: (turn) => events.emit("agents.noteTurn", turn),
     titleOf: hostedTitleOf,
     newId: () => crypto.randomUUID(),

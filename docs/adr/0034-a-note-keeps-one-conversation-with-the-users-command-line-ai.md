@@ -40,7 +40,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 - **A change to any other Note waits for the User,** as any agent's change does (#352): a Proposal, shown in the text, accepted or rejected with the one key for each.
 - **With words selected,** a change applies at once only if it stays inside them.
   - Code confirms it, call by call: every change of one `propose_changes` call must be to a paragraph that holds the selection.
-  - Each such paragraph's words outside the selection must read the same after the change as before (as plain text, so making the words bold or shorter is inside). The spacing right next to the selection may change with it: a figure written out in Chinese characters drops the spaces around it.
+  - Each such paragraph's words outside the selection must read the same after the change as before (as plain text, so making the words bold or shorter is inside). The spacing right next to the selection may change with it: a figure written out in Chinese characters drops the spaces around it. A Citation or footnote there counts as one mark in those words, in the window and the core alike, so a change that drops one outside the selection waits.
   - A call that changes anything else in the Note waits for the User, whole, and its result says why, so the agent can send the change outside the selection as its own call.
   - The User pointed at those words; a change elsewhere is theirs to accept.
 - **The label says what is happening.** Working, then what it is doing in plain words, then one line on what it did. Send becomes Stop while it runs, and Stop ends it. A failure says what went wrong in one line, with what to do.
@@ -118,7 +118,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
   - the connection is removed;
   - the consent is taken back.
 
-  IncarnaMind deletes its record and runs `claude purge <the Note's working folder> --yes`, which deletes that folder's transcripts on this computer, and then the working folder goes. A Note in Recently deleted keeps its conversation, so a restore brings it back whole.
+  IncarnaMind deletes its record (what was typed, selected and replied goes; the rows stay only as deletions to sync) and, once a run of that conversation has stopped, runs `claude purge <the Note's working folder> --yes`, which deletes that folder's transcripts on this computer, and then the working folder goes. A Note in Recently deleted keeps its conversation, so a restore brings it back whole.
   - If `claude` can't be run then, the record still goes, and the transcript goes in Claude Code's own sweep after 30 days. Settings › Privacy says so.
   - Claude Code's own sweep may delete a transcript sooner, if the User set it shorter. Then the next request starts a new conversation (decision 3).
 - **In Settings › Privacy and `docs/privacy.md`,** in the flow's line: "Claude Code keeps each Note's conversation on this computer, in its own folder, until you delete the Note for good, disconnect it or take this back; then IncarnaMind deletes it. Claude Code also deletes one left unused for 30 days."
@@ -152,7 +152,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 - **Stop:**
   - While a run goes, Send is Stop (Esc too, from the input). Stop ends the run at once.
   - A change that applied before Stop stays, with its Undo; a change that waits stays waiting; nothing else lands.
-  - While a run goes, Return does nothing new: only Stop, and Esc, act (the owner, 2026-11-22).
+  - While a run goes, Return does nothing new: only Stop, and Esc, act (the owner, 2026-11-22). A selection toolbar action then sends nothing either, and a line says the AI is still working and Stop comes first.
 - **A failure,** one line with one action, as for the check:
   - not signed in;
   - too old;

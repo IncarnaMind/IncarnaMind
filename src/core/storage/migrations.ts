@@ -3381,6 +3381,9 @@ export const migrations: readonly Migration[] = [
     version: 160,
     description: "A Note's conversation with the User's own command-line AI (#3627)",
     sql: `
+      -- Each Note's conversation with the User's own command-line AI (ADR-0034), and each request
+      -- in it: on this device only, as agent_requests is, since the agent's own copy is on this
+      -- computer. A deleted one keeps no words: its row stays only as the deletion.
       CREATE TABLE own_ai_conversations (
         id TEXT PRIMARY KEY,
         mind_id TEXT NOT NULL,

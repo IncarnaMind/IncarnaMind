@@ -1,5 +1,6 @@
 import type { AgentToolName } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
+import { useAskedChanges } from "../../askedChanges";
 import { useT } from "../../i18n";
 import type { NoteAsk } from "../../ownAiInNote";
 import { ProblemLine } from "../ProblemLine";
@@ -25,8 +26,13 @@ const DOING: Partial<Record<AgentToolName, MessageKey>> = {
  * then one line on what it did, or why it didn't. An answer that changed nothing, such as an
  * explanation, shows whole, where the User asked.
  */
-export function NoteAskLabel({ ask }: { ask: NoteAsk }) {
+export function NoteAskLabel({ ask, mindId }: { ask: NoteAsk; mindId: string }) {
   const t = useT();
+  // The window that asked may hold a change back (most of the User's words gone, or a paragraph
+  // they were typing in): the line says what the Note shows, not what was sent.
+  const held = useAskedChanges(
+    (state) => ask.turnId !== null && state.outcomes[ask.turnId]?.[mindId] === "held",
+  );
   if (ask.state === "working") {
     const key = ask.doing ? DOING[ask.doing.tool] : undefined;
     return (
@@ -64,9 +70,13 @@ export function NoteAskLabel({ ask }: { ask: NoteAsk }) {
     ...(ask.fresh ? [t("noteAsk.fresh")] : []),
     ...(ask.changed > 0
       ? [
-          t(ask.changed === 1 ? "noteAsk.done.changed.one" : "noteAsk.done.changed.other", {
-            count: ask.changed,
-          }),
+          held
+            ? t(ask.changed === 1 ? "noteAsk.done.held.one" : "noteAsk.done.held.other", {
+                count: ask.changed,
+              })
+            : t(ask.changed === 1 ? "noteAsk.done.changed.one" : "noteAsk.done.changed.other", {
+                count: ask.changed,
+              }),
         ]
       : []),
     ...ask.waiting.map((each) =>

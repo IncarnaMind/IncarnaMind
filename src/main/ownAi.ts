@@ -25,6 +25,9 @@ const MAX_RUN_BYTES = 8 * 1024 * 1024;
 /** As much of the agent's last reply as the Note's label and its conversation show. */
 const MAX_REPLY_CHARS = 4000;
 const STATUS_MS = 15_000;
+
+/** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
+const NOTHING_TO_PURGE = /No Claude Code project data found/;
 const SERVER = "incarnamind";
 
 /**
@@ -80,10 +83,11 @@ async function short(command: string, args: string[]): Promise<Short> {
     return code === "ENOENT" ? { kind: "absent" } : { kind: "no-answer" };
   }
   let out = "";
-  child.stdout?.on("data", (chunk: Buffer) => {
-    if (out.length < 4096) out += chunk.toString("utf8");
-  });
-  child.stderr?.resume();
+  for (const stream of [child.stdout, child.stderr]) {
+    stream?.on("data", (chunk: Buffer) => {
+      if (out.length < 4096) out += chunk.toString("utf8");
+    });
+  }
   const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
   let timer: NodeJS.Timeout | undefined;
   const deadline = new Promise<"late">((resolve) => {
@@ -145,12 +149,10 @@ export function createOwnAi({
     async purge(key) {
       const folder = folderOf(key);
       const purged = await short(command, ["purge", folder, "--yes"]);
-      // No transcript for the folder is an error to `claude purge`, and nothing to delete.
-      if (purged.kind !== "exited") {
-        console.warn("Claude Code didn't answer when a Note's conversation was deleted.");
-      }
       await rm(folder, { recursive: true, force: true, maxRetries: 3 });
-      return purged.kind === "exited";
+      if (purged.kind !== "exited") return false;
+      // No transcript for the folder is an error to `claude purge`, and nothing to delete.
+      return purged.code === 0 || (purged.code === 1 && NOTHING_TO_PURGE.test(purged.out));
     },
 
     async status(): Promise<OwnAiStatus> {

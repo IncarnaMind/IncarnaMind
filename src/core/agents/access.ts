@@ -49,6 +49,7 @@ import {
   changeKinds,
   countChanged,
   decideProposals,
+  NODE_CHARACTER,
   waitingChanges,
 } from "../../shared/proposals";
 import { shownSpeaker } from "../../shared/speakers";
@@ -125,6 +126,7 @@ import {
 import {
   ChangeRefused,
   type CitedToken,
+  HANDLE,
   HeldParagraph,
   type NamedChange,
   type NamedNote,
@@ -1148,9 +1150,18 @@ function parseChanges(value: unknown, t: Say): AskedChange[] {
   });
 }
 
-/** A paragraph's words as plain text, as the window reads a Block: no Markdown, no Citation token. */
+/**
+ * A paragraph's words as plain text, as the window reads a Block for a selection
+ * (src/renderer/src/ownAiInNote.ts): no Markdown, a line break as a space, and each Citation or
+ * footnote as one mark, so a change that drops one is a change there.
+ */
 const plainWords = (markdown: string) =>
-  plainText(markdown.replace(CITATION_TOKEN, "")).replace(/\s+/g, " ");
+  plainText(
+    markdown
+      .replace(/\\\n/g, "\n")
+      .replace(CITATION_TOKEN, NODE_CHARACTER)
+      .replace(HANDLE, NODE_CHARACTER),
+  ).replace(/\s+/g, " ");
 
 /**
  * Whether every change stays inside the words the User selected (ADR-0034): each one rewrites a
@@ -1465,25 +1476,24 @@ export function createAgentAccess(
       rest: Partial<AgentActivity>,
       requestId?: string,
     ) => {
+      const activity = {
+        pairingId,
+        tool,
+        summary: clip(summary, SUMMARY_CHARS),
+        outcome,
+        problem: null,
+        count: null,
+        documentIds: [],
+        effects,
+        durationMs: Math.max(0, Math.round(deps.clock() - started)),
+        ...rest,
+      };
       try {
-        deps.record(
-          {
-            pairingId,
-            tool,
-            summary: clip(summary, SUMMARY_CHARS),
-            outcome,
-            problem: null,
-            count: null,
-            documentIds: [],
-            effects,
-            durationMs: Math.max(0, Math.round(deps.clock() - started)),
-            ...rest,
-          },
-          requestId,
-        );
+        deps.record(activity, requestId);
       } catch (error) {
         deps.reportError(error);
       }
+      if (grant?.kind === "conversation") grant.called?.(activity);
     };
     let pairing: AdmittedPairing;
     try {
@@ -3128,7 +3138,7 @@ export function createAgentAccess(
               agent: pairing.name,
               pairingId: pairing.id,
               createdAt: deps.now(),
-              ...(askedHere && { requested: "edit" as const }),
+              ...(askedHere && front && { requested: "edit" as const, instruction: front.words }),
             },
             cited: (token) => tokens.get(token)?.cited ?? null,
             notFound: t("agents.answer.notFound"),
@@ -3160,7 +3170,10 @@ export function createAgentAccess(
           );
         }
         deps.versions.set(key, written.now.version);
-        if (askedHere && grant?.kind === "conversation") {
+        // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.
+        const ownFront =
+          own && grant?.kind === "conversation" && grant.front.mindId === mind.id && step !== null;
+        if ((askedHere || ownFront) && grant?.kind === "conversation") {
           const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
           grant.asked?.({
             mindId: mind.id,
@@ -3168,6 +3181,7 @@ export function createAgentAccess(
             changed: added > 0 ? 0 : countChanged(written.kinds),
             added,
             tables: written.kinds.filter((kind) => kind === "table-added").length,
+            ...(ownFront && { own: true as const }),
           });
         }
         if (own && step !== null) {

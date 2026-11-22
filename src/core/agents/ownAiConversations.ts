@@ -8,7 +8,6 @@
  */
 import type { Logger, OwnAiFailure, OwnAiRunner } from "../adapters";
 import type {
-  AgentActivity,
   AgentLaunch,
   AgentPairing,
   NoteChangeApplied,
@@ -21,7 +20,7 @@ import type {
 import { plainText } from "../conversations/search";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
-import type { ConversationRun, SelectedInBlock } from "./askedChecks";
+import type { ConversationHears, ConversationRun, SelectedInBlock } from "./askedChecks";
 
 /** IncarnaMind's instructions, the same for every request of a conversation: Claude Code keeps the first. */
 const INSTRUCTIONS = [
@@ -51,10 +50,11 @@ export interface OwnAiConversationsOptions {
   db: Database;
   /** The agents the User can ask about this Note now, the one connected or used last first. */
   askable(mindId: string): AgentPairing[];
+  /** A grant for one run, which tells it of its own calls and changes, and of no one else's. */
   conversationGrant(
     pairingId: string,
     front: ConversationRun["front"],
-    asked: (made: NoteChangeApplied) => void,
+    hears: ConversationHears,
   ): { launch: AgentLaunch; end(): Promise<void> };
   /**
    * Asks once for what a request sends, of a connection whose consent doesn't cover it; false:
@@ -65,7 +65,6 @@ export interface OwnAiConversationsOptions {
   heldBack(pairing: AgentPairing, mindId: string): "access" | "local-mode" | "taken-back" | null;
   /** Calls `listener` at each change that can end what `heldBack` allows; returns its end. */
   onReachChange(listener: () => void): () => void;
-  onActivity(listener: (activity: AgentActivity) => void): () => void;
   turned(event: NoteTurnEvent): void;
   titleOf(mindId: string): string;
   newId(): string;
@@ -132,8 +131,19 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   const { db } = options;
   const running = new Map<
     string,
-    { pairing: AgentPairing; turnId: string; stop: AbortController }
+    {
+      pairing: AgentPairing;
+      turnId: string;
+      conversationId: string;
+      stop: AbortController;
+      ended: Promise<void>;
+    }
   >();
+
+  // A request left working when IncarnaMind last quit ended then.
+  db.run("UPDATE own_ai_turns SET outcome = 'stopped', updated_at = ? WHERE outcome = 'working'", [
+    options.now(),
+  ]);
 
   const conversationOf = (mindId: string, pairingId: string) =>
     db.get<ConversationRow>(
@@ -184,11 +194,52 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   };
 
   /**
+   * Ends a turn: its record, and every window told. Not while IncarnaMind quits, when the database
+   * may be closing: its next start settles the turn.
+   */
+  const endTurn = (
+    turn: { mindId: string; pairingId: string; turnId: string },
+    outcome: Pick<NoteTurnEvent, "state" | "problem">,
+    rest: Partial<Omit<NoteTurnEvent, "state" | "problem">> = {},
+  ) => {
+    if (options.lifetime.aborted) return;
+    const reply = rest.reply ?? "";
+    try {
+      finishTurn(
+        turn.turnId,
+        outcome.state === "failed" ? "failed" : outcome.state === "stopped" ? "stopped" : "landed",
+        outcome.problem,
+        reply,
+      );
+      options.turned({
+        ...turn,
+        doing: null,
+        applied: [],
+        waiting: [],
+        made: [],
+        fresh: false,
+        ...rest,
+        ...outcome,
+        reply,
+      });
+    } catch (error) {
+      options.log.warn("agents.ownAiConversation.endFailed", {
+        error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  };
+
+  /**
    * Deletes conversations, IncarnaMind's record and the agent's transcript alike: the agent is
    * asked to purge each one's working folder; one it can't be asked about goes in its own sweep.
    */
   async function forget(rows: readonly Pick<ConversationRow, "id">[]): Promise<void> {
     if (rows.length === 0) return;
+    // A run of one of them is stopped first: a process on its way out can still write its transcript.
+    const ids = new Set(rows.map((row) => row.id));
+    const going = [...running.values()].filter((each) => ids.has(each.conversationId));
+    for (const each of going) each.stop.abort();
+    await Promise.all(going.map((each) => each.ended));
     const at = options.now();
     db.transaction(() => {
       for (const { id } of rows) {
@@ -196,8 +247,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           "UPDATE own_ai_conversations SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
           [at, at, id],
         );
+        // What the User typed and selected, and each reply, go; the row stays as a deletion to sync.
         db.run(
-          `UPDATE own_ai_turns SET deleted_at = ?, updated_at = ?
+          `UPDATE own_ai_turns SET request = '', selection = '', reply = '', deleted_at = ?, updated_at = ?
            WHERE conversation_id = ? AND deleted_at IS NULL`,
           [at, at, id],
         );
@@ -261,30 +313,24 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       [turnId, conversation.id, request, quote, at, at],
     );
     const stop = new AbortController();
-    running.set(mindId, { pairing, turnId, stop });
-    converse({ mindId, pairing, turnId, conversation, request, quote, selection, stop }).catch(
-      (error: unknown) => {
-        // Whatever went wrong, the request doesn't stay working: the User can send it again.
-        options.log.warn("agents.ownAiConversation.broke", {
-          error: error instanceof Error ? error.name : "unknown",
-        });
-        if (running.get(mindId)?.turnId === turnId) running.delete(mindId);
-        finishTurn(turnId, "failed", "failed", "");
-        options.turned({
-          mindId,
-          turnId,
-          pairingId: pairing.id,
-          state: "failed",
-          doing: null,
-          problem: "failed",
-          reply: "",
-          applied: [],
-          waiting: [],
-          made: [],
-          fresh: false,
-        });
-      },
-    );
+    const ended = converse({
+      mindId,
+      pairing,
+      turnId,
+      conversation,
+      request,
+      quote,
+      selection,
+      stop,
+    }).catch((error: unknown) => {
+      // Whatever went wrong, the request doesn't stay working: the User can send it again.
+      options.log.warn("agents.ownAiConversation.broke", {
+        error: error instanceof Error ? error.name : "unknown",
+      });
+      if (running.get(mindId)?.turnId === turnId) running.delete(mindId);
+      endTurn({ mindId, pairingId: pairing.id, turnId }, { state: "failed", problem: "failed" });
+    });
+    running.set(mindId, { pairing, turnId, conversationId: conversation.id, stop, ended });
     return { kind: "started", pairing, turnId };
   }
 
@@ -318,38 +364,44 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       fresh: false,
       ...rest,
     });
-    const grant = options.conversationGrant(
-      pairing.id,
-      { mindId, selection: turn.selection },
-      (change) => applied.push(change),
-    );
-    const offActivity = options.onActivity((activity) => {
-      if (activity.pairingId !== pairing.id || signal.aborted) return;
-      if (activity.outcome === "refused" && activity.problem === "read-only") readOnly = true;
-      if (activity.outcome === "done" && activity.tool === "create_mind") {
-        made.push({ title: activity.summary });
-      }
-      if (activity.outcome === "done" && activity.tool === "propose_changes" && activity.count) {
-        for (const { scope } of activity.effects) {
-          if (scope.kind !== "mind") continue;
-          const was = waiting.get(scope.mindId);
-          waiting.set(scope.mindId, {
-            mindId: scope.mindId,
-            title: activity.summary,
-            count: (was?.count ?? 0) + activity.count,
-          });
-        }
-      }
+    const tell = (each: NoteTurnEvent) => {
       try {
-        options.turned(
-          event({ state: "working", doing: { tool: activity.tool, summary: activity.summary } }),
-        );
+        options.turned(each);
       } catch (error) {
         options.log.warn("agents.ownAiConversation.eventFailed", {
           error: error instanceof Error ? error.name : "unknown",
         });
       }
-    });
+    };
+    // Only this run's own calls and changes: another run of the connection, or the User's own
+    // session of it, tells nothing here.
+    const grant = options.conversationGrant(
+      pairing.id,
+      { mindId, selection: turn.selection, words: turn.request },
+      {
+        asked: (change) => applied.push(change),
+        called: (call) => {
+          if (signal.aborted) return;
+          if (call.outcome === "refused" && call.problem === "read-only") readOnly = true;
+          if (call.outcome === "done" && call.tool === "create_mind")
+            made.push({ title: call.summary });
+          if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
+            for (const { scope } of call.effects) {
+              if (scope.kind !== "mind") continue;
+              const was = waiting.get(scope.mindId);
+              waiting.set(scope.mindId, {
+                mindId: scope.mindId,
+                title: call.summary,
+                count: (was?.count ?? 0) + call.count,
+              });
+            }
+          }
+          tell(event({ state: "working", doing: { tool: call.tool, summary: call.summary } }));
+        },
+      },
+    );
+    // Every window hears it started, so none sends another meanwhile.
+    tell(event({ state: "working" }));
     const offReach = options.onReachChange(() => {
       lost ??= options.heldBack(pairing, mindId);
       if (lost) stop.abort();
@@ -378,23 +430,25 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         : Promise.resolve({ kind: "failed" as const, reason: "other" as const });
 
     let fresh = false;
-    let end = await runOnce(hasEarlierTurns(conversation.id, turnId), conversation.session_id);
-    if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
-      // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.
-      fresh = true;
-      const sessionId = options.newId();
-      db.run("UPDATE own_ai_conversations SET session_id = ?, updated_at = ? WHERE id = ?", [
-        sessionId,
-        options.now(),
-        conversation.id,
-      ]);
-      end = await runOnce(false, sessionId);
+    let end: Awaited<ReturnType<typeof runOnce>>;
+    try {
+      end = await runOnce(hasEarlierTurns(conversation.id, turnId), conversation.session_id);
+      if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
+        // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.
+        fresh = true;
+        const sessionId = options.newId();
+        db.run("UPDATE own_ai_conversations SET session_id = ?, updated_at = ? WHERE id = ?", [
+          sessionId,
+          options.now(),
+          conversation.id,
+        ]);
+        end = await runOnce(false, sessionId);
+      }
+    } finally {
+      offReach();
+      await grant.end();
+      running.delete(mindId);
     }
-
-    offActivity();
-    offReach();
-    await grant.end();
-    running.delete(mindId);
     // Shown as plain words, under the input and in the conversation (ADR-0034).
     const reply = end.kind === "finished" ? plainText(end.reply) : "";
     const outcome: Pick<NoteTurnEvent, "state" | "problem"> = lost
@@ -409,16 +463,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           : readOnly && applied.length === 0 && waiting.size === 0 && made.length === 0
             ? { state: "failed", problem: "read-only" }
             : { state: "landed", problem: null };
-    finishTurn(
-      turnId,
-      outcome.state === "failed" ? "failed" : outcome.state === "stopped" ? "stopped" : "landed",
-      outcome.problem,
-      reply,
-    );
     if (outcome.state === "failed") {
       options.log.warn("agents.ownAiConversation.ended", { problem: outcome.problem ?? "failed" });
     }
-    options.turned(event({ ...outcome, reply, fresh }));
+    endTurn({ mindId, pairingId: pairing.id, turnId }, outcome, {
+      reply,
+      fresh,
+      applied,
+      waiting: [...waiting.values()],
+      made,
+    });
   }
 
   return {

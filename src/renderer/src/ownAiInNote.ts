@@ -5,6 +5,7 @@
  * the window that asked, with the applied-edit line and its Undo, as the assistant's are
  * (`applyTurn`).
  */
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import { create } from "zustand";
 import type {
@@ -13,6 +14,7 @@ import type {
   NoteTurnEvent,
   NoteTurnProblem,
 } from "../../core/api";
+import { NODE_CHARACTER } from "../../shared/proposals";
 import { agentsToAsk, ownAiRunsHereNow, useAgentsToAsk, useOwnAiRunsHere } from "./askYourAi";
 import type { ChangedMind } from "./changedMinds";
 import { core } from "./core";
@@ -114,7 +116,8 @@ function heard(event: NoteTurnEvent): void {
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
   const byNote = new Map<string, NoteChangeApplied[]>();
-  for (const each of event.applied)
+  // A change in a Note the agent wrote applied already, with its own Undo there.
+  for (const each of event.applied.filter((change) => !change.own))
     byNote.set(each.mindId, [...(byNote.get(each.mindId) ?? []), each]);
   const askedFrom = currentTabOf(useAppStore.getState().layout)?.item ?? null;
   // Loaded when a turn ends: the selection menu's edits load this module, and the assistant's
@@ -229,6 +232,13 @@ export const clearNoteAsk = (mindId: string): void => {
 };
 
 /**
+ * An inline node in the text around a selection, as the core reads it there
+ * (src/core/agents/access.ts): a line break as a space, anything else (a Citation, a footnote) as
+ * one mark, so a change that drops it is a change outside the selection.
+ */
+const leafOf = (node: ProseMirrorNode) => (node.type.name === "hardBreak" ? " " : NODE_CHARACTER);
+
+/**
  * The words selected in the Note, as a request's context: their text, and for each top-level
  * Block they are in its plain text before and after them, which a change inside leaves alone.
  * Null when nothing is selected.
@@ -247,8 +257,8 @@ export function selectedForRequest(
     if (typeof blockId !== "string" || blockId === "") return;
     selection.push({
       blockId,
-      before: state.doc.textBetween(start, Math.max(start, from), " ", ""),
-      after: state.doc.textBetween(Math.min(end, to), end, " ", ""),
+      before: state.doc.textBetween(start, Math.max(start, from), " ", leafOf),
+      after: state.doc.textBetween(Math.min(end, to), end, " ", leafOf),
     });
   });
   const quote = state.doc.textBetween(from, to, " ", "").trim();

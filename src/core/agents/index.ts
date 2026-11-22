@@ -56,6 +56,7 @@ import {
 import {
   CHECK_RUN_TOOLS,
   CONVERSATION_TOOLS,
+  type ConversationHears,
   type ConversationRun,
   createAskedChecks,
   type RunGrant,
@@ -979,13 +980,13 @@ export function createAgents(options: AgentsOptions) {
     conversationGrant(
       pairingId: string,
       front: ConversationRun["front"],
-      asked?: ConversationRun["asked"],
+      hears: ConversationHears = {},
     ): { launch: AgentLaunch; end(): Promise<void> } {
       return grantFor(pairingId, {
         kind: "conversation",
         tools: CONVERSATION_TOOLS,
         front,
-        ...(asked && { asked }),
+        ...hears,
       });
     },
 

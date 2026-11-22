@@ -738,6 +738,8 @@ export function proposalRequestOf(doc: Y.Doc, request: string): ProposalRequest 
           pairingId: record.pairingId,
           createdAt,
           ...(record.requested === "edit" && { requested: "edit" as const }),
+          ...(record.requested === "edit" &&
+            isText(record.instruction) && { instruction: record.instruction }),
         }
       : null;
   }

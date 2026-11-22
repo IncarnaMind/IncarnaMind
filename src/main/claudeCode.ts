@@ -187,7 +187,10 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
         continue;
       }
       if (msg.type === "result") {
-        if (!sent || bytes > turn.maxResponseBytes) {
+        // Before the prompt went, Claude Code ended at its start (a conversation it doesn't have,
+        // say): nothing of the request was sent, and its result says why.
+        if (!sent) return msg;
+        if (bytes > turn.maxResponseBytes) {
           throw new Error("Claude Code could not complete the request.");
         }
         // A result ends this turn even when the CLI keeps its stream open.

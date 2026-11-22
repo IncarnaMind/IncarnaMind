@@ -15,6 +15,7 @@ import type { AgentLaunch, NoteSelectionBlock, NoteTurnEvent } from "../../src/c
 import { openDatabase } from "../../src/core/storage";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { translate } from "../../src/shared/i18n";
+import { NODE_CHARACTER } from "../../src/shared/proposals";
 import {
   buildAgentShim,
   connectLegacyAgent,
@@ -109,9 +110,10 @@ function runner(
 
 /**
  * A User with no model set up, a Document in "Harbour", a Note they wrote there and another, and
- * Claude Code connected, allowed to propose changes unless `readOnly`.
+ * Claude Code connected, allowed to propose changes unless `readOnly`. `cited`: the Note's first
+ * sentence rests on the report with a Citation after it.
  */
-async function written(ownAi: OwnAiRunner, { readOnly = false } = {}) {
+async function written(ownAi: OwnAiRunner, { readOnly = false, cited = false } = {}) {
   const canvasFiles = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
   const started = await startAgentsCore(
     checkingModel({}, []),
@@ -135,7 +137,29 @@ async function written(ownAi: OwnAiRunner, { readOnly = false } = {}) {
   });
   const mind = await core.createMind({ title: "Ferry notes", folderId: harbour.id });
   const client = await connectToMind(core, mind.id);
-  writeMind(client, [note(FERRY), note(FARES)]);
+  const first = note(FERRY);
+  if (cited) {
+    const agent = await connectLegacyAgent(claude.launch);
+    const found = structured<{ passages: { passageId: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+    ).passages[0];
+    if (!found) throw new Error("The report wasn't found.");
+    first.content = [
+      ...(first.content ?? []),
+      {
+        type: "citation",
+        attrs: {
+          passageId: found.passageId,
+          documentId: report.id,
+          documentName: "Report",
+          contentHash: report.contentHash,
+          quote: FERRY,
+          check: "found",
+        },
+      },
+    ];
+  }
+  writeMind(client, [first, note(FARES)]);
   await client.settled();
   const other = await core.createMind({ title: "Fares", folderId: harbour.id });
   const otherClient = await connectToMind(core, other.id);
@@ -277,6 +301,76 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       ],
     });
     expect((await ended())?.applied).toHaveLength(1);
+  });
+
+  // protects=a request's line and end tell only its own run's calls: the same connection's other work, such as the User's own session changing another Note meanwhile, tells nothing there; fails_when=a request reports a change or a refusal it didn't make
+  it("tells only its own run's calls", async () => {
+    let elsewhere: () => Promise<void> = async () => undefined;
+    const run = runner(async () => {
+      await elsewhere();
+      return { kind: "finished", reply: "Nothing to change." };
+    });
+    const started = await written(run.adapter);
+    const { core, mindId, otherId, claude, ended } = started;
+    const own = await connectLegacyAgent(claude.launch);
+    elsewhere = async () => {
+      await rewrite(own, otherId, [[FARES, "Fares rose by a tenth."]]);
+    };
+    await core.askInNote({ mindId, words: "anything to fix?" });
+    expect(await ended()).toMatchObject({
+      state: "landed",
+      applied: [],
+      waiting: [],
+      made: [],
+      reply: "Nothing to change.",
+    });
+  });
+
+  // protects=the window and the core read a Citation next to the selection as one mark: a change inside the selection that keeps it applies at once, one that drops it waits, though its words read the same; fails_when=a Citation the User didn't point at goes without them, or one kept makes the change wait
+  it("lets a change that drops a Citation outside the selection wait", async () => {
+    const asked = async (keep: boolean) => {
+      let status = "";
+      const run = runner(async (agent, request) => {
+        const mindId = mindIdOf(request);
+        const read = structured<{ markdown: string; version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        );
+        const line = read.markdown.split("\n").find((each) => each.includes("212,000")) ?? "";
+        const token = line.match(/\[cite:[a-z0-9]+\]/)?.[0] ?? "";
+        expect(token).not.toBe("");
+        const done = structured<{ status: string }>(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: {
+              mindId,
+              version: read.version,
+              changes: [
+                {
+                  paragraph: line.match(/¶\d+/)?.[0] ?? "¶9",
+                  text: `The ferry carried 212,000 PASSENGERS in 2025.${keep ? token : ""}`,
+                },
+              ],
+            },
+          }),
+        );
+        status = done.status;
+        return { kind: "finished", reply: "" };
+      });
+      const { core, mindId, ended, selectionOf } = await written(run.adapter, { cited: true });
+      const [block] = selectionOf(0, "passengers");
+      if (!block) throw new Error("No selection.");
+      // As the window reads the text after the words: the Citation after the sentence as one mark.
+      await core.askInNote({
+        mindId,
+        words: "capitals",
+        quote: "passengers",
+        selection: [{ ...block, after: `${block.after}${NODE_CHARACTER}` }],
+      });
+      const applied = (await ended())?.applied.length;
+      return { status, applied };
+    };
+    expect(await asked(true)).toEqual({ status: "applied", applied: 1 });
+    expect(await asked(false)).toEqual({ status: "waiting", applied: 0 });
   });
 
   // protects=with words selected, a call that changes more of the Note asked from waits for the User, and says why; a change to another Note always waits; fails_when=a change beyond what the User pointed at applies without them
@@ -475,13 +569,22 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   // protects=the Note deleted for good deletes its conversation, IncarnaMind's record and the agent's copy; Recently deleted keeps it; fails_when=a conversation outlives its Note
   it("deletes the conversation with its Note", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "Done." }));
-    const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "shorter" });
+    const { core, mindId, dataDir, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "shorter", quote: "212,000 passengers" });
     await ended();
     await core.deleteMind(mindId);
     expect(run.purged).toEqual([]);
     await core.deletePermanently([{ kind: "mind", id: mindId }]);
     expect(run.purged).toEqual([run.runs[0]?.conversation?.key]);
     expect(await core.noteConversation(mindId)).toEqual([]);
+    // What the User typed and selected, and the reply, are gone from IncarnaMind's record too.
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      expect(db.all("SELECT request, selection, reply FROM own_ai_turns")).toEqual([
+        { request: "", selection: "", reply: "" },
+      ]);
+    } finally {
+      db.close();
+    }
   });
 });
