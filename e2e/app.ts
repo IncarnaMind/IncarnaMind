@@ -1434,14 +1434,7 @@ export async function acceptPlainTextKeys(window: Page, form?: Locator): Promise
 }
 
 /** The pages in Settings' list. */
-export type SettingsPage =
-  | "general"
-  | "ai"
-  | "meetings"
-  | "connectors"
-  | "skills"
-  | "agents"
-  | "privacy";
+export type SettingsPage = "general" | "ai" | "meetings" | "connectors" | "skills" | "privacy";
 
 /** Opens Settings from the sidebar, then one of the pages in its list. Returns the dialog. */
 export async function openSettings(window: Page, page: SettingsPage): Promise<Locator> {
@@ -1461,11 +1454,38 @@ export async function showSettingsPage(window: Page, page: SettingsPage): Promis
 }
 
 /**
+ * In Settings › AI, the agents to connect: unfolded with "Connect an agent…" or "Connect another
+ * agent…" when anything is set up already, open as it is when nothing is.
+ */
+export async function agentsToConnect(settings: Locator): Promise<Locator> {
+  const list = settings.getByTestId("agents-list");
+  const unfold = settings.getByTestId("agents-connect-another");
+  await expect(list.or(unfold)).toBeVisible();
+  if (await unfold.isVisible()) await unfold.click();
+  await expect(list).toBeVisible();
+  return list;
+}
+
+/**
  * In Settings › AI, opens "Add an account or key…" and chooses `entry` (#2835): a catalog id, or
  * a directory key such as "plan:chatgpt" or "transcription:soniox". The sheet closes on the choice.
  */
 export async function openDirectoryEntry(settings: Locator, entry: string): Promise<void> {
-  await settings.getByTestId("models-add-provider").click();
+  const add = settings.getByTestId("models-add-provider");
+  await expect(settings.getByTestId("ai-limits")).toBeVisible();
+  if ((await add.count()) > 0) await add.click();
+  else {
+    // With no model set up there is no Accounts and keys (#3645): ⌘K's entry opens the sheet.
+    const window = settings.page();
+    await window.keyboard.press("Escape");
+    await expect(settings).toBeHidden();
+    const language = await window.evaluate(() => document.documentElement.lang);
+    await runCommand(
+      window,
+      "settings.addProvider",
+      translate(language === "zh-CN" ? "zh-CN" : "en", "command.settings.addProvider"),
+    );
+  }
   const sheet = settings.getByTestId("ai-add-sheet");
   await expect(sheet).toBeVisible();
   await sheet

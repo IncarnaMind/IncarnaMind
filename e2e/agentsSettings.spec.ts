@@ -9,6 +9,7 @@ import { openDatabase } from "../src/core/storage";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   catchCopies,
   copied,
   createDataFolder,
@@ -22,13 +23,10 @@ import {
   showSettingsPage,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
- * Settings → Agents (#351): turned on, an agent is connected after one plain
+ * Settings → AI (#351): turned on, an agent is connected after one plain
  * confirmation that names what it may read and where that goes; Codex's
  * settings file is written as shown, with Undo; an agent set up by pasting
  * its settings searches, and its activity lists each call; Disconnect stops
@@ -76,7 +74,7 @@ async function withCoast(window: Page) {
   await expectReadyDocuments(window, 1);
 }
 
-test("off by default; Connect asks once, writes Codex's settings as shown, and Undo takes them back", async () => {
+test("off by default with no switch to find; Connect asks once, turns connecting on, writes Codex's settings as shown, and Undo takes them back", async () => {
   await mkdir(join(home, ".codex"));
   const codexSettings = join(home, ".codex", "config.toml");
   await writeFile(codexSettings, CODEX_SETTINGS);
@@ -84,19 +82,23 @@ test("off by default; Connect asks once, writes Codex's settings as shown, and U
   try {
     await dismissChatSetup(window);
     await withCoast(window);
-    const page = await openSettings(window, "agents");
-    const enabled = page.getByTestId("agents-enabled");
-    await expect(enabled).not.toBeChecked();
-    await expect(page).toContainText("Off: no agent can reach your Documents.");
-    await expect(page.getByTestId("agents-clients")).toBeHidden();
-    await shot(window, "agents-off");
-
-    await enabled.click();
-    await expect(enabled).toBeChecked();
+    const enabled = () =>
+      window.evaluate(
+        async () =>
+          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getAgents())
+            .enabled,
+      );
+    expect(await enabled()).toBe(false);
+    // Nothing set up: Your AI leads Settings › AI with the agents to connect, and no switch (#3645).
+    const page = await openSettings(window, "ai");
+    await expect(page.getByTestId("agents-enabled")).toHaveCount(0);
+    await expect(page.getByTestId("ai-lede")).toHaveText(
+      "Let the AI tool you use read your Documents.",
+    );
     const list = page.getByTestId("agents-list");
     // Those found here and the most used, and "Other agent"; the rest are found by typing.
     await expect(list.getByTestId("agent-client")).toHaveCount(8);
-    await expect(page.getByTestId("agents-clients")).toContainText("can’t reach IncarnaMind");
+    await expect(page.getByTestId("agents-connected")).toContainText("can’t reach IncarnaMind");
     const codex = list.locator('[data-client="codex"]');
     await expect(codex).toContainText("ChatGPT app and Codex");
     await expect(codex).toContainText("Works in the ChatGPT desktop app, not on the web.");
@@ -131,6 +133,8 @@ test("off by default; Connect asks once, writes Codex's settings as shown, and U
     await shot(window, "agents-connect-dialog");
     await allow.click();
     await expect(dialog).toBeHidden();
+    expect(await enabled()).toBe(true);
+    await expect(page.getByTestId("agents-enabled")).toHaveCount(0);
 
     const connected = page
       .getByTestId("agent-pairing")
@@ -163,9 +167,11 @@ test("in the connect dialog a long path breaks at its slashes and no word breaks
   try {
     await dismissChatSetup(window);
     await withCoast(window);
-    const page = await openSettings(window, "agents");
-    await page.getByTestId("agents-enabled").click();
-    await page.locator('[data-client="codex"]').getByTestId("agent-connect").click();
+    const page = await openSettings(window, "ai");
+    await (await agentsToConnect(page))
+      .locator('[data-client="codex"]')
+      .getByTestId("agent-connect")
+      .click();
     const dialog = window.getByTestId("connect-agent-dialog");
     await dialog.getByTestId("connect-agent-details").locator("summary").first().click();
     await expect(dialog.getByTestId("connect-agent-skill")).toBeVisible();
@@ -223,10 +229,8 @@ test("an agent set up by pasting its settings searches, its activity shows each 
     await withCoast(window);
     await catchCopies(window);
     await acceptPlainTextKeys(window);
-    const page = await openSettings(window, "agents");
-    await page.getByTestId("agents-enabled").click();
-    await page
-      .getByTestId("agents-list")
+    const page = await openSettings(window, "ai");
+    await (await agentsToConnect(page))
       .locator('[data-client="other"]')
       .getByTestId("agent-connect")
       .click();
@@ -300,10 +304,8 @@ test("an Other agent's Details show the command, arguments and environment, each
     await withCoast(window);
     await catchCopies(window);
     await acceptPlainTextKeys(window);
-    const page = await openSettings(window, "agents");
-    await page.getByTestId("agents-enabled").click();
-    await page
-      .getByTestId("agents-list")
+    const page = await openSettings(window, "ai");
+    await (await agentsToConnect(page))
       .locator('[data-client="other"]')
       .getByTestId("agent-connect")
       .click();
@@ -383,9 +385,8 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
       await bridge.updateSettings({ user: { language: "zh-CN" } });
     });
     await window.getByRole("button", { name: "设置" }).click();
-    const page = await showSettingsPage(window, "agents");
-    await page
-      .getByTestId("agents-list")
+    const page = await showSettingsPage(window, "ai");
+    await (await agentsToConnect(page))
       .locator('[data-client="other"]')
       .getByTestId("agent-connect")
       .click();
@@ -434,10 +435,8 @@ test("Disconnect takes away the settings file Connect made, and the agent stays 
     await dismissChatSetup(window);
     await withCoast(window);
     await acceptPlainTextKeys(window);
-    const page = await openSettings(window, "agents");
-    await page.getByTestId("agents-enabled").click();
-    const list = page.getByTestId("agents-list");
-    // The list is drawn when the core answers, not with the click.
+    const page = await openSettings(window, "ai");
+    const list = await agentsToConnect(page);
     await expect(list.getByTestId("agent-client").first()).toBeVisible();
     const order = () =>
       list
@@ -499,7 +498,7 @@ test("a Skill the User changed is left out of date, Replace asks first, and Disc
   const { app, window } = await launchApp(dataDir, { home });
   try {
     await dismissChatSetup(window);
-    const page = await openSettings(window, "agents");
+    const page = await openSettings(window, "ai");
     const row = page.getByTestId("agent-pairing");
     await expect(row.getByTestId("agent-pairing-skill-old")).toContainText(
       "Skill out of date: you changed it",
@@ -554,25 +553,28 @@ test("Local mode pauses agents, and the page reads in Chinese at a narrow window
       await bridge.updateSettings({ user: { language: "zh-CN" } });
     });
     await window.getByRole("button", { name: "设置" }).click();
-    const page = await showSettingsPage(window, "agents");
-    await expect(window.getByTestId("settings-page-title")).toHaveText("智能体");
+    const page = await showSettingsPage(window, "ai");
+    await expect(window.getByTestId("settings-page-title")).toHaveText("AI");
     await expect(page.getByTestId("agents-paused")).toContainText(
-      "智能体已暂停：已开启“所有内容都留在这台电脑上”",
+      "你的 AI 已暂停：已开启“所有内容都留在这台电脑上”",
+    );
+    // The switch says so too, where it is.
+    await expect(page.getByTestId("embedding-local-only-description")).toContainText(
+      "你自己的 AI 也会暂停",
     );
     await shot(window, "agents-paused-zh-narrow");
-    // Its link goes to where the switch is.
-    await page.getByTestId("agents-paused").getByRole("button", { name: "设置 › AI" }).click();
+    // Its link goes to where the switch is, on the same page.
+    await page.getByTestId("agents-paused-open").click();
     await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
     await expect(window.getByTestId("local-only")).toBeFocused();
-    await showSettingsPage(window, "agents");
     // The agents listed first and "Other agent" (其他智能体), and nothing spills out at either width.
-    const list = page.getByTestId("agents-list");
+    const list = await agentsToConnect(page);
     await expect(list.getByTestId("agent-client")).toHaveCount(8);
     await expect(list.locator('[data-client="other"]')).toContainText("其他智能体");
     await expect(list.locator('[data-client="codex"]')).toContainText("不适用于网页版");
     const fitsPage = () =>
       page
-        .getByTestId("settings-page-agents")
+        .getByTestId("settings-page-ai")
         .evaluate((element) => element.scrollWidth <= element.clientWidth + 1);
     expect(await fitsPage()).toBe(true);
     await setWindowSize(app, window, 1440, 900);

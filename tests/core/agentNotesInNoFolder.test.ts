@@ -392,7 +392,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
           arguments: { title: "Money", markdown: "Money.", folderId: finance.id },
         }),
       ),
-    ).toBe("That Folder isn’t shared with this agent. Share more in Settings → Agents.");
+    ).toBe("That Folder isn’t shared with this agent. Share more in Settings → AI.");
   });
 
   // protects=an agent sees which Documents it may read, by name and kind, as IncarnaMind's own check does (#3363), and never one outside its reach; fails_when=a list names a Document of a Folder it wasn't given, or none of those it may read
@@ -524,7 +524,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
           arguments: { title: "Loose", markdown: "Loose.", folderId: NOT_IN_A_FOLDER_ID },
         }),
       ),
-    ).toBe("That Folder isn’t shared with this agent. Share more in Settings → Agents.");
+    ).toBe("That Folder isn’t shared with this agent. Share more in Settings → AI.");
     expect((await list(agent)).map((each) => each.id)).toEqual([coast.id]);
     // Its own Note, moved out of its Folder by the User, is out of its reach.
     await core.moveToFolder({ mindIds: [made.mindId], folderId: null });
@@ -579,8 +579,8 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
       const { agent: nothing } = await connect([], "Cursor");
       expect(refusal(await nothing.callTool({ name: "list_minds", arguments: {} }))).toBe(
         language === "en"
-          ? "This agent can’t read any Documents yet. Choose its Folders in Settings → Agents."
-          : "这个智能体还不能读取任何文档。在“设置 → 智能体”中为它选择文件夹。",
+          ? "This agent can’t read any Documents yet. Choose its Folders in Settings → AI."
+          : "这个智能体还不能读取任何文档。在“设置 → AI”中为它选择文件夹。",
       );
       const { agent } = await connect([NOT_IN_A_FOLDER_ID]);
       const made = await write(agent);
@@ -602,7 +602,7 @@ describe("an agent given Not in a Folder writes and checks its own Note there (#
             arguments: { title: "Summary", markdown: NOTE },
           }),
         ),
-      ).toMatch(language === "en" ? /may only read.*Settings → Agents/ : /只能读取.*设置 → 智能体/);
+      ).toMatch(language === "en" ? /may only read.*Settings → AI/ : /只能读取.*设置 → AI/);
     }
   });
 });

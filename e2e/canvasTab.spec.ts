@@ -28,10 +28,7 @@ import {
   showCanvasTab,
 } from "./canvases";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A Canvas in its tab (#3406), with Chromium's sandbox on: a Citation's marker opens its Passage

@@ -25,7 +25,7 @@ export interface AgentNote {
 let pairingsRead: AgentPairing[] | null = null;
 let clientsRead: AgentClient[] | null = null;
 
-/** The pairings there are, as Settings › Agents lists them, kept as they change. */
+/** The pairings there are, as Settings › AI lists them, kept as they change. */
 export function useAgentPairings(): AgentPairing[] | null {
   const reportError = useAppStore((state) => state.reportError);
   const [pairings, setPairings] = useState<AgentPairing[] | null>(pairingsRead);

@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   catchCopies,
   createDataFolder,
   dismissChatSetup,
@@ -69,10 +70,9 @@ test("a launched app records what it would open, and finds only the agents the t
       await core.setAgentsEnabled(true);
     }, tides);
     await expectReadyDocuments(window, 1);
-    const page = await openSettings(window, "agents");
+    const page = await openSettings(window, "ai");
     for (const client of ["claude-desktop", "cursor"]) {
-      await page
-        .getByTestId("agents-list")
+      await (await agentsToConnect(page))
         .locator(`[data-client="${client}"]`)
         .getByTestId("agent-connect")
         .click();

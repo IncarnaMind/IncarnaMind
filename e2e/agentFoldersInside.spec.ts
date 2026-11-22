@@ -7,6 +7,7 @@ import { type MessageKey, type MessageParams, translate } from "../src/shared/i1
 import { unitsOf } from "../src/shared/i18n/join";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
@@ -19,10 +20,7 @@ import {
   showSettingsPage,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A Folder shared with an agent shares the Folders inside it (#3394): in a connected agent's
@@ -137,7 +135,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await setLanguage(window, language);
       await library(window);
       await window.getByRole("button", { name: SETTINGS[language] }).last().click();
-      const page = await showSettingsPage(window, "agents");
+      const page = await showSettingsPage(window, "ai");
       const pairing = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
       await expect(pairing.getByTestId("agent-pairing-reads")).toHaveText(
         t(language, "agents.pairing.reads", { folders: "Coast" }),
@@ -217,10 +215,9 @@ for (const language of ["en", "zh-CN"] as const) {
         )
         .toEqual([1]);
 
-      // The connect dialog's list behaves the same.
-      await page
-        .getByTestId("agents-list")
-        .locator('[data-client="claude-code"]')
+      // The connect dialog's list behaves the same, for another agent: one connected isn't listed again.
+      await (await agentsToConnect(page))
+        .locator('[data-client="codex"]')
         .getByTestId("agent-connect")
         .click();
       const dialog = window.getByTestId("connect-agent-dialog");

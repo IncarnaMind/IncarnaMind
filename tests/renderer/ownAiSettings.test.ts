@@ -1,12 +1,13 @@
 /**
  * With only the User's own AI connected and no model set up in IncarnaMind (#3537): Settings lists
- * no Connectors and no Skills, and AI says which AI of theirs is connected; with a model set up
- * nothing differs. A Connector that is on keeps its page, the one place that disconnects it.
+ * no Connectors and no Skills, and AI leads with Your AI, a model being one quiet row (#3645); with
+ * a model set up nothing is held back. A Connector that is on keeps its page, the one place that
+ * disconnects it.
  */
 import { DOMParser } from "linkedom";
 import type { ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { AgentPairing, ChatReadiness } from "../../src/core/api";
+import type { AgentClient, AgentPairing, AgentSettings, ChatReadiness } from "../../src/core/api";
 
 const page = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
 Object.defineProperty(page, "styleSheets", { value: [] });
@@ -53,9 +54,18 @@ const { useSettingsPagesOffered } = await import("../../src/renderer/src/setting
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
 const settingsPath = "../../src/renderer/src/components/SettingsDialog.tsx";
 const { SettingsDialog }: { SettingsDialog: ComponentType } = await import(settingsPath);
-const noAiPath = "../../src/renderer/src/components/firstRun/NoAiYet.tsx";
-const { NoAiYet }: { NoAiYet: ComponentType<{ agents: readonly string[]; onAdd(): void }> } =
-  await import(noAiPath);
+const yourAiPath = "../../src/renderer/src/components/agents/YourAiSection.tsx";
+const {
+  YourAiSection,
+}: {
+  YourAiSection: ComponentType<{
+    settings: AgentSettings | null;
+    clients: readonly AgentClient[] | null;
+    setSettings(settings: AgentSettings): void;
+  }>;
+} = await import(yourAiPath);
+const useModelPath = "../../src/renderer/src/components/ai/UseModelRow.tsx";
+const { UseModelRow }: { UseModelRow: ComponentType } = await import(useModelPath);
 const menuPath = "../../src/renderer/src/components/AddDocumentsMenu.tsx";
 const { AddDocumentsMenu }: { AddDocumentsMenu: ComponentType } = await import(menuPath);
 
@@ -130,7 +140,6 @@ describe("which Settings pages are listed", () => {
       "general",
       "ai",
       "meetings",
-      "agents",
       "privacy",
     ]);
   });
@@ -146,7 +155,6 @@ describe("which Settings pages are listed", () => {
       "ai",
       "meetings",
       "connectors",
-      "agents",
       "privacy",
     ]);
   });
@@ -176,7 +184,7 @@ describe("which Settings pages are listed", () => {
     for (const language of ["en", "zh-CN"]) {
       user(NO_MODEL, false, language);
       const container = await shown(createElement(SettingsDialog));
-      expect(nav(container), language).toEqual(["general", "ai", "meetings", "agents", "privacy"]);
+      expect(nav(container), language).toEqual(["general", "ai", "meetings", "privacy"]);
       await act(async () => user(MODEL, false, language));
       expect(nav(container), language).toEqual(ALL);
       await unmount?.();
@@ -212,10 +220,10 @@ describe("every route to a page that is held back", () => {
     expect(nav(container)).toEqual(ALL);
     // The last model is removed on Skills: Skills is where they are, so it stays for now.
     await act(async () => user(NO_MODEL));
-    expect(nav(container)).toEqual(["general", "ai", "meetings", "skills", "agents", "privacy"]);
+    expect(nav(container)).toEqual(["general", "ai", "meetings", "skills", "privacy"]);
     // They go to AI: it is gone from the list.
     await act(async () => useAppStore.getState().showSettingsPage("ai"));
-    expect(nav(container)).toEqual(["general", "ai", "meetings", "agents", "privacy"]);
+    expect(nav(container)).toEqual(["general", "ai", "meetings", "privacy"]);
     // Nothing brings them back to a page that is held back.
     await act(async () => useAppStore.getState().showSettingsPage("skills"));
     expect(useAppStore.getState().settingsPage).toBe("ai");
@@ -241,7 +249,7 @@ describe("every route to a page that is held back", () => {
     };
     user(NO_MODEL);
     for (const held of HELD_BACK) expect(offered(command(held), context), held).toBe(false);
-    for (const kept of ["ai", "meetings", "agents", "privacy"]) {
+    for (const kept of ["ai", "meetings", "privacy"]) {
       expect(offered(command(kept), context), kept).toBe(true);
     }
     user(NO_MODEL, true);
@@ -265,43 +273,108 @@ describe("every route to a page that is held back", () => {
   });
 });
 
-describe("Settings › AI says whose AI is connected", () => {
-  const card = async (agents: readonly string[], language = "en") => {
-    user(NO_MODEL, false, language);
-    const container = await shown(createElement(NoAiYet, { agents, onAdd: () => undefined }));
-    const section = container.querySelector('[data-testid="ai-none"]');
-    return {
-      text: section?.textContent ?? "",
-      addIsPrimary: (
-        container.querySelector('[data-testid="ai-none-add"]')?.className ?? ""
-      ).includes("bg-ink"),
-    };
+const client = (id: string, name: string, installed = false): AgentClient =>
+  ({ id, name, otherNames: [], chat: false, installed, setup: "file", skillPath: null }) as never;
+const CLIENTS = [
+  client("claude-code", "Claude Code", true),
+  client("codex", "ChatGPT app and Codex"),
+  client("cursor", "Cursor"),
+  client("other", ""),
+];
+const CLAUDE_CODE: AgentPairing = {
+  id: "pairing-1",
+  name: "Claude Code",
+  folderIds: ["all"],
+  client: "claude-code",
+  propose: true,
+  lastUsedAt: null,
+  createdAt: "2026-11-22T00:00:00.000Z",
+} as never;
+const agents = (pairings: AgentPairing[], enabled = true): AgentSettings =>
+  ({
+    enabled,
+    paused: null,
+    pairings,
+    skills: [],
+    skillsOutOfDate: [],
+    awaitingInstall: [],
+  }) as never;
+
+describe("Settings › AI leads with Your AI (#3645)", () => {
+  const yourAi = async (
+    settings: AgentSettings,
+    readiness: ChatReadiness = NO_MODEL,
+    language = "en",
+  ) => {
+    user(readiness, false, language);
+    const container = await shown(
+      createElement(YourAiSection, { settings, clients: CLIENTS, setSettings: () => undefined }),
+    );
+    const part = (id: string) => container.querySelector(`[data-testid="${id}"]`);
+    const listed = () =>
+      [...container.querySelectorAll('[data-testid="agent-client"]')].map((each) =>
+        each.getAttribute("data-client"),
+      );
+    return { container, part, listed };
   };
 
-  test("with one AI connected: its name first, a model as optional, and no primary button for it", async () => {
-    const own = await card(["Claude Code"]);
-    expect(own.text).toContain("Your AI: Claude Code");
-    expect(own.text).toContain("A model in IncarnaMind is optional.");
-    expect(own.text).not.toContain("No AI yet");
-    expect(own.addIsPrimary).toBe(false);
+  test("nothing set up: its line and the agents to connect, open, with no switch", async () => {
+    const { part, listed } = await yourAi(agents([], false));
+    expect(part("ai-lede")?.textContent).toBe("Let the AI tool you use read your Documents.");
+    expect(listed()).toEqual(["claude-code", "codex", "cursor", "other"]);
+    expect(part("agents-enabled")).toBeNull();
+    expect(part("agents-connect-another")).toBeNull();
   });
 
-  test("with two, both are named, and in Chinese the words are Chinese", async () => {
-    expect((await card(["Claude Code", "Cursor"])).text).toContain(
-      "Your AI: Claude Code and Cursor",
-    );
+  test("one connected: its row and Connect another agent…, which lists the rest but not it", async () => {
+    const { part, listed } = await yourAi(agents([CLAUDE_CODE]));
+    expect(part("ai-lede")).toBeNull();
+    expect(part("agent-pairing")?.getAttribute("data-name")).toBe("Claude Code");
+    expect(part("agents-enabled")).toBeNull();
+    expect(listed()).toEqual([]);
+    const another = part("agents-connect-another");
+    expect(another?.textContent).toBe("Connect another agent…");
+    await act(async () => (another as unknown as { click(): void }).click());
+    expect(listed()).not.toContain("claude-code");
+    expect(listed()).toContain("other");
+    expect(part("agents-connect-another")).toBeNull();
+  });
+
+  test("a model only: its line and Connect an agent…, folded", async () => {
+    const { part, listed } = await yourAi(agents([]), MODEL);
+    expect(part("ai-lede")).not.toBeNull();
+    expect(listed()).toEqual([]);
+    expect(part("agents-connect-another")?.textContent).toBe("Connect an agent…");
+  });
+
+  test("connecting turned off: the switch shows, off, beside the agent it holds back", async () => {
+    const { part, container } = await yourAi(agents([CLAUDE_CODE], false));
+    const toggle = part("agents-enabled") as unknown as { checked: boolean } | null;
+    expect(toggle?.checked).toBe(false);
+    expect(container.textContent).toContain("Off: no agent can reach your Documents.");
+    expect(part("agent-pairing")).not.toBeNull();
+  });
+
+  test("in Chinese, in Chinese words", async () => {
+    const none = await yourAi(agents([]), NO_MODEL, "zh-CN");
+    expect(none.part("ai-lede")?.textContent).toBe("让你常用的 AI 工具读取你的文档。");
     await unmount?.();
     unmount = null;
-    const chinese = await card(["Claude Code"], "zh-CN");
-    expect(chinese.text).toContain("你的 AI：Claude Code");
-    expect(chinese.text).toContain("在 IncarnaMind 里设置模型是可选的");
+    const one = await yourAi(agents([CLAUDE_CODE]), NO_MODEL, "zh-CN");
+    expect(one.part("agents-connect-another")?.textContent).toBe("连接其他智能体…");
   });
 
-  test("with none connected it is as it was: No AI yet, and adding a key is the primary button", async () => {
-    const none = await card([]);
-    expect(none.text).toContain("No AI yet");
-    expect(none.text).toContain("Add a key, sign in to a plan, or use a model on this computer.");
-    expect(none.text).not.toContain("optional");
-    expect(none.addIsPrimary).toBe(true);
+  test("a model in IncarnaMind, with none set up, is one quiet row that says it is optional", async () => {
+    for (const [language, words] of [
+      ["en", ["Use a model in IncarnaMind…", "Optional: the assistant"]],
+      ["zh-CN", ["在 IncarnaMind 里用一个模型…", "可选：助手、自动整理、会后笔记"]],
+    ] as const) {
+      user(NO_MODEL, false, language);
+      const container = await shown(createElement(UseModelRow));
+      const row = container.querySelector('[data-testid="ai-use-model-open"]');
+      for (const word of words) expect(row?.textContent, language).toContain(word);
+      await unmount?.();
+      unmount = null;
+    }
   });
 });

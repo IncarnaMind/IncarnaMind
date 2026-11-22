@@ -1,5 +1,5 @@
 /**
- * Setting IncarnaMind up in the User's agent from Settings → Agents (#351),
+ * Setting IncarnaMind up in the User's agent from Settings → AI (#351),
  * in one click wherever the agent allows it (see ./clients for how each one
  * takes it). Every way pairs the agent first (./index) and gives it its
  * token behind the scenes: inside a bundle or a link the agent's app

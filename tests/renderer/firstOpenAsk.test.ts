@@ -395,12 +395,12 @@ describe("the step when there is nothing it can name (#3572)", () => {
       ready: LACKING,
     });
     expect(part(LACKING)?.textContent).toBe(
-      "No connected AI can read your Documents yet. Share them in its agent settings.",
+      "No connected AI can read your Documents yet. Share them in Settings › AI.",
     );
     expect(part("first-open-agent-line")).toBeNull();
-    expect(part("first-open-agent-settings")?.textContent).toBe("Agent settings");
+    expect(part("first-open-agent-settings")?.textContent).toBe("Settings › AI");
     await act(async () => part("first-open-agent-settings")?.click());
-    expect(openSettings).toHaveBeenCalledWith("agents");
+    expect(openSettings).toHaveBeenCalledWith("ai");
   });
 
   // protects=with every agent paused the step says to reconnect or resume, not to share; fails_when=Local mode is told to share Documents
@@ -410,7 +410,7 @@ describe("the step when there is nothing it can name (#3572)", () => {
       ready: LACKING,
     });
     expect(part(LACKING)?.textContent).toBe("Reconnect your AI or resume its access in Settings.");
-    expect(part("first-open-agent-settings")?.textContent).toBe("Agent settings");
+    expect(part("first-open-agent-settings")?.textContent).toBe("Settings › AI");
   });
 
   // protects=the two sentences read in Chinese; fails_when=Chinese gets English words
@@ -431,9 +431,9 @@ describe("the step when there is nothing it can name (#3572)", () => {
       ready: LACKING,
     });
     expect(unshared.part(LACKING)?.textContent).toBe(
-      "已连接的 AI 都还读不了你的文档。请在智能体设置里共享给它们。",
+      "已连接的 AI 都还读不了你的文档。请在“设置 › AI”里共享给它们。",
     );
-    expect(unshared.part("first-open-agent-settings")?.textContent).toBe("智能体设置");
+    expect(unshared.part("first-open-agent-settings")?.textContent).toBe("设置 › AI");
   });
 });
 

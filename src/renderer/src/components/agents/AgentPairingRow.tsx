@@ -37,7 +37,7 @@ export interface JustSetUp {
 }
 
 /**
- * One connected agent in Settings → Agents (#351): its name, what it may read
+ * One connected agent in Settings → AI (#351): its name, what it may read
  * (all of the User's Documents and Notes, or its Folders, #3544) and whether it
  * may propose changes to their notes (#352), both
  * changed in place, when it was last used, its activity (every

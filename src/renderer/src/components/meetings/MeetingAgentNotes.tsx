@@ -52,7 +52,7 @@ export function MeetingAgentNotes({
     !readsNote && connected?.folderIds.some((id) => id !== NOT_IN_A_FOLDER_ID) && mind;
   const settings: ProblemAction = {
     label: t("meetings.notesAgent.settings"),
-    onClick: () => openSettings("agents"),
+    onClick: () => openSettings("ai"),
   };
   const fix: ProblemAction = canMove
     ? {

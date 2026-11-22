@@ -44,7 +44,7 @@ const connectAgent = agentConnector(core, (error) => {
   useAppStore.getState().reportError(error);
 });
 
-/** Connecting an agent (#351), in Settings › Agents and the setup's Your AI step (#3362). */
+/** Connecting an agent (#351), in Settings › AI and the setup's Your AI step (#3362). */
 export function useAgentConnection() {
   const t = useT();
   const reportError = useAppStore((state) => state.reportError);

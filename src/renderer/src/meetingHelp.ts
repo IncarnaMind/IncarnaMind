@@ -327,7 +327,7 @@ export function useMeetingHelpInWindow(): void {
   useEffect(() => {
     const stops = [
       files.onMeetingHelp((kind) => void askHelpInAssistant(kind)),
-      files.onSetUpModel(() => useAppStore.getState().openSettings("ai")),
+      files.onSetUpModel(() => useAppStore.getState().openSettings("ai", "model")),
       files.onOpenConversation(
         (at) =>
           void (at.sourceMarker

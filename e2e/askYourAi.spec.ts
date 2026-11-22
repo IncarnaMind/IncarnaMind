@@ -27,10 +27,7 @@ import {
   writeNote,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * Ask your AI (#3373, #3419): a User who connected their own AI and set up no model finds the page
@@ -251,7 +248,7 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     );
 
     // What Claude Code read can be read again in its Activity.
-    const settings = await openSettings(window, "agents");
+    const settings = await openSettings(window, "ai");
     const row = settings.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
     await pointAndClick(window, row.getByTestId("agent-activity-toggle"));
     const call = row.getByTestId("agent-activity-call").filter({ hasText: "Read your request" });

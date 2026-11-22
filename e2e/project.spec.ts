@@ -25,15 +25,12 @@ import {
 } from "./app";
 import { callTool } from "./canvases";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A new User's first walk with a Project (#3507, ADR-0030): a Linked folder made a Project from its
  * menu, with Undo; the folder's files filed in it; the agent given the Project alone, its folder
- * named under it in Settings › Agents; and a deck the agent made in the folder and a Note it wrote
+ * named under it in Settings › AI; and a deck the agent made in the folder and a Note it wrote
  * there, both checked. The scripted model (src/main/fakeChat/) checks. Set INCARNAMIND_SCREENSHOTS to
  * a folder to also save stills there.
  */
@@ -70,7 +67,7 @@ for (const language of ["en", "zh-CN"] as const) {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate(language, key, params);
 
-  // protects=a new User makes a Linked folder a Project from its menu, with Undo; its files are filed in it; an agent given it alone sees its folder named in Settings › Agents, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507); fails_when=the menu has no such item, the files stay in Not in a Folder, Undo leaves the file put in no Folder by the User or Redo doesn't file it again, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
+  // protects=a new User makes a Linked folder a Project from its menu, with Undo; its files are filed in it; an agent given it alone sees its folder named in Settings › AI, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507); fails_when=the menu has no such item, the files stay in Not in a Folder, Undo leaves the file put in no Folder by the User or Redo doesn't file it again, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
   test(`a Linked folder made a Project: the agent's deck and Note there are checked (${language})`, async () => {
     test.setTimeout(150_000);
     const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
@@ -145,7 +142,7 @@ for (const language of ["en", "zh-CN"] as const) {
         .getByRole("button", { name: t("settings.title") })
         .last()
         .click();
-      const page = await showSettingsPage(window, "agents");
+      const page = await showSettingsPage(window, "ai");
       const pairing = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
       await pairing.getByTestId("agent-folders").click();
       const place = pairing.getByTestId("agent-folder-list").getByTestId("agent-folder-place");

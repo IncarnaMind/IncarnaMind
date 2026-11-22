@@ -23,10 +23,7 @@ import {
 } from "./app";
 import { callTool, connectCanvasAgent } from "./canvases";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A deck an agent made and handed over (#3412): each version's check is a Note of its own, and its

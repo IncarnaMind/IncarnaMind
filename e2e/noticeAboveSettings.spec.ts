@@ -17,13 +17,13 @@ import {
 
 test.skip(
   !SHOW_AGENT_CONNECTION,
-  "Its notice comes from renaming an agent in Settings › Agents, hidden while SHOW_AGENT_CONNECTION is false.",
+  "Its notice comes from renaming an agent in Settings › AI, hidden while SHOW_AGENT_CONNECTION is false.",
 );
 
 /*
  * A notice raised while Settings is open is drawn above it, readable and dismissable (#754).
  * Settings is a native modal dialog: it makes everything outside it inert, so the corner notices
- * are drawn inside the dialog while one is open. A failed rename in Settings → Agents raises one.
+ * are drawn inside the dialog while one is open. A failed rename in Settings → AI raises one.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots there.
  */
 
@@ -45,7 +45,7 @@ test.afterEach(async () => {
 /** Longer than the 80 characters an agent's name can have. */
 const TOO_LONG = "Research agent ".repeat(6);
 
-/** Settings → Agents with one agent connected, then that agent renamed to a name the core refuses. */
+/** Settings → AI with one agent connected, then that agent renamed to a name the core refuses. */
 async function failToRename(window: Page, language: "en" | "zh-CN"): Promise<Locator> {
   await dismissChatSetup(window);
   await acceptPlainTextKeys(window);
@@ -54,7 +54,7 @@ async function failToRename(window: Page, language: "en" | "zh-CN"): Promise<Loc
     await bridge.setAgentsEnabled(true);
     await bridge.connectAgent({ name: "Other agent", client: "other" });
   });
-  const settings = await openSettings(window, "agents");
+  const settings = await openSettings(window, "ai");
   await setLanguage(window, language);
   const row = settings.getByTestId("agent-pairing");
   await row.getByTestId("agent-pairing-name").dblclick();
@@ -73,7 +73,7 @@ const drawsAtItsMiddle = (target: Locator) =>
 
 for (const width of [900, 1600]) {
   for (const language of ["en", "zh-CN"] as const) {
-    test(`a failed rename in Settings → Agents shows its notice above Settings, readable and dismissable, at ${width} px in ${language === "en" ? "English" : "Chinese"}`, async () => {
+    test(`a failed rename in Settings → AI shows its notice above Settings, readable and dismissable, at ${width} px in ${language === "en" ? "English" : "Chinese"}`, async () => {
       const { app, window } = await launchApp(dataDir);
       try {
         await setWindowSize(app, window, width, 700);

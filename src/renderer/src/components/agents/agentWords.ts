@@ -1,5 +1,5 @@
 /**
- * Words for Settings → Agents (#351), shared by its parts: an agent's name, how
+ * Words for Settings → AI (#351), shared by its parts: an agent's name, how
  * it is set up, what came of setting it up, and a call in its activity list,
  * all in plain words (no "MCP", "stdio" or "token" outside the details).
  */

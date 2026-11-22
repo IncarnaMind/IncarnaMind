@@ -64,14 +64,15 @@ export function useSorting() {
   const models = read.state === "ready" ? read.data : null;
   const chatModel = useAppStore((state) => state.settings?.user.chatModel ?? null);
   const localMode = useAppStore((state) => state.embedding?.localOnly === true);
+  const chatName = chatModel ? nameOf(chatModel.modelId, chatModel.providerId).name : "";
   const options = models
     ? sortingOptions(models, {
         chatModel,
         language,
         localMode,
         jev,
-        chatLabel: t("models.sorting.chat"),
-        chatName: chatModel ? nameOf(chatModel.modelId, chatModel.providerId).name : "",
+        chatLabel: t("models.sorting.chat", { model: chatName }),
+        chatName,
       })
     : [];
   if (saved && saved.kind !== "automatic") {

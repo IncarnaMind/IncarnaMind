@@ -1,5 +1,5 @@
 /**
- * Connecting an agent, wherever the User does it (#351, #3362): Settings › Agents and the setup's
+ * Connecting an agent, wherever the User does it (#351, #3362): Settings › AI and the setup's
  * Your AI step call the same core setup, so the agent is the one Settings lists. Pure: the bridge
  * is passed in, so the tests drive it.
  */
