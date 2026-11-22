@@ -1,8 +1,7 @@
 name: Probe 3643 (throwaway)
 
-# Removed before the pull request: what an AI app's config would be given as IncarnaMind's
-# launcher from the published AppImage and .deb, and whether the program inside an AppImage's
-# mount starts the agent shim in Node mode.
+# Removed before the pull request: this branch's AppImage, built and started twice, keeps the agent
+# connection's command working from one start to the next.
 on:
   push:
     branches: [fix/3643-appimage-launcher]
@@ -10,49 +9,54 @@ on:
 permissions:
   contents: read
 
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 45
     steps:
-      - name: Download 0.1.0-alpha.7 for Linux
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Build this branch's AppImage
         run: |
-          gh release download v0.1.0-alpha.7 --repo "$GITHUB_REPOSITORY" -p '*.AppImage' -p '*.deb'
-          ls -la
-          head -3 /etc/os-release
-          sysctl kernel.apparmor_restrict_unprivileged_userns || true
-      - name: FUSE for the AppImage
-        run: sudo apt-get update -q && sudo apt-get install -y -q libfuse2t64
-      - name: The AppImage's own program in Node mode, as the launcher runs it today
+          npm run build
+          npx electron-builder --linux AppImage --x64 --publish never
+          ls -la dist/*.AppImage
+      - name: FUSE and a display
+        run: sudo apt-get update -q && sudo apt-get install -y -q libfuse2t64 xvfb
+      - name: Start it twice; the connection's command works each time
         run: |
-          chmod +x ./*.AppImage
-          IMG="$PWD/$(ls *.AppImage)"
-          cat > probe.js <<'EOF'
-          const { join, dirname } = require("node:path");
-          const { existsSync } = require("node:fs");
-          const shim = join(dirname(process.execPath), "resources", "app.asar", "out", "main", "agentShim.js");
-          console.log(JSON.stringify({ execPath: process.execPath, argv: process.argv, shim, shimThere: existsSync(shim) }));
-          EOF
-          for run in 1 2; do
-            "$IMG" --appimage-mount > mount.txt &
-            MOUNTER=$!
-            for i in $(seq 1 50); do [ -s mount.txt ] && break; sleep 0.2; done
-            MNT=$(head -1 mount.txt)
-            echo "run $run mount: $MNT"
-            ELECTRON_RUN_AS_NODE=1 "$MNT/incarnamind" "$PWD/probe.js" | tee "run$run.json"
-            echo "--- the shim from that mount, stdin closed, no app running:"
-            ELECTRON_RUN_AS_NODE=1 timeout 15 "$MNT/incarnamind" "$MNT/resources/app.asar/out/main/agentShim.js" < /dev/null; echo "shim exit $?"
-            kill "$MOUNTER"; wait "$MOUNTER" 2>/dev/null || true
-            sleep 1
-            if [ -e "$MNT/incarnamind" ]; then echo "run $run: program still there after the AppImage ended"; else echo "run $run: program gone after the AppImage ended"; fi
+          IMG="$(ls "$PWD"/dist/*.AppImage)"
+          export HOME="$RUNNER_TEMP/home"
+          mkdir -p "$HOME"
+          SCRIPT="$HOME/.config/IncarnaMind/agent-connection"
+          for start in 1 2; do
+            setsid xvfb-run -a "$IMG" > "app$start.log" 2>&1 &
+            APP=$!
+            for i in $(seq 1 90); do [ -f "$SCRIPT" ] && grep -q "mount_" "$SCRIPT" && break; sleep 1; done
+            sleep 5
+            echo "=== start $start: the script"
+            ls -la "$SCRIPT"
+            cat "$SCRIPT"
+            PROGRAM=$(sed -n "s/^program='\(.*\)'$/\1/p" "$SCRIPT")
+            echo "program there while it runs: $([ -x "$PROGRAM" ] && echo yes || echo no)"
+            echo "--- the script started as an AI app starts it, with no request:"
+            timeout 15 "$SCRIPT" < /dev/null; echo "script exit $?"
+            echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}' | timeout 15 "$SCRIPT" | head -c 600; echo
+            echo "script exit ${PIPESTATUS[1]}"
+            kill -- "-$APP" || true
+            wait "$APP" 2>/dev/null || true
+            sleep 5
+            echo "program there after it quit: $([ -e "$PROGRAM" ] && echo yes || echo no)"
+            echo "--- the script with IncarnaMind closed:"
+            timeout 15 "$SCRIPT" < /dev/null; echo "script exit $?"
+            echo "$PROGRAM" > "program$start.txt"
           done
-          node -e 'const f=require("node:fs");const [a,b]=["run1.json","run2.json"].map(x=>JSON.parse(f.readFileSync(x,"utf8").trim().split("\n").pop()));console.log("same program path both runs:",a.execPath===b.execPath)'
-      - name: The .deb's program in Node mode
-        run: |
-          sudo apt-get install -y -q ./*.deb >/dev/null
-          ls -la /usr/bin/incarnamind || true
-          BIN=$(readlink -f /usr/bin/incarnamind || echo /opt/IncarnaMind/incarnamind)
-          echo "deb program: $BIN"
-          ELECTRON_RUN_AS_NODE=1 "$BIN" "$PWD/probe.js"
+          echo "same program both starts: $([ "$(cat program1.txt)" = "$(cat program2.txt)" ] && echo yes || echo no)"
+          tail -20 app1.log app2.log
