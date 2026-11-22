@@ -32,6 +32,8 @@ export interface AgentAsked {
   at: string;
   /** Whether a call about it came: from then on, any call of that connection says it is still at work. */
   seen: boolean;
+  /** An Organize's Documents the agent has read in list_sorting, and those it has answered for. */
+  sorting?: { read: readonly string[]; answered: readonly string[] };
 }
 
 /**
@@ -97,13 +99,52 @@ const landed = (activity: AgentActivity, asked: AgentAsked): boolean => {
   );
 };
 
+/** What an Organize's agent has read and answered for, with this call. */
+function sortedWith(asked: AgentAsked, activity: AgentActivity): AgentAsked {
+  if (asked.for.kind !== "organize" || activity.outcome !== "done") return asked;
+  const { read = [], answered = [] } = asked.sorting ?? {};
+  const add = (ids: readonly string[]) => [...new Set([...ids, ...activity.documentIds])];
+  if (activity.tool === "list_sorting") return { ...asked, sorting: { read: add(read), answered } };
+  if (activity.tool === "propose_sorting")
+    return { ...asked, sorting: { read, answered: add(answered) } };
+  return asked;
+}
+
+/**
+ * An Organize the agent has finished: it answered for every Document it read, a Suggestion or
+ * nothing, or what it read held none. The Library can't know when an agent's turn ends, and an
+ * agent proposes a page at a time.
+ */
+export const organizeEnded = (asked: AgentAsked): boolean => {
+  if (asked.for.kind !== "organize" || asked.state !== "landed") return false;
+  const { read = [], answered = [] } = asked.sorting ?? {};
+  return read.every((id) => answered.includes(id));
+};
+
+const endListeners = new Set<(asked: AgentAsked) => void>();
+
+/** Hears each Organize of the User's own AI as it ends (`organizeEnded`). */
+export function onOrganizeEnded(listener: (asked: AgentAsked) => void): () => void {
+  endListeners.add(listener);
+  return () => endListeners.delete(listener);
+}
+
 function heard(activity: AgentActivity): void {
-  for (const [key, asked] of Object.entries(useAgentAsked.getState().byKey)) {
-    if (activity.pairingId !== asked.agent.id || activity.at < asked.at) continue;
-    if (landed(activity, asked))
-      put(key, asked.for.kind === "organize" ? { ...asked, seen: true, state: "landed" } : null);
-    else if (asked.state !== "landed" && (asked.seen || about(activity, asked)))
+  for (const [key, before] of Object.entries(useAgentAsked.getState().byKey)) {
+    if (activity.pairingId !== before.agent.id || activity.at < before.at) continue;
+    const asked = sortedWith(before, activity);
+    if (landed(activity, asked)) {
+      if (asked.for.kind !== "organize") {
+        put(key, null);
+        continue;
+      }
+      const now: AgentAsked = { ...asked, seen: true, state: "landed" };
+      put(key, now);
+      if (!organizeEnded(before) && organizeEnded(now))
+        for (const listener of endListeners) listener(now);
+    } else if (asked.state !== "landed" && (asked.seen || about(activity, asked)))
       put(key, { ...asked, seen: true, state: "working" });
+    else if (asked !== before) put(key, asked);
   }
 }
 

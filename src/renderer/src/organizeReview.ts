@@ -10,12 +10,12 @@ import type {
   RunEstimate,
 } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
-import { organizeSeen } from "./askedAgent";
+import { onOrganizeEnded, organizeSeen } from "./askedAgent";
 import { core } from "./core";
 import { describeError } from "./errors";
 import { isShown } from "./layoutSlice";
 import { useNotices } from "./notices";
-import { reviewLayout } from "./organizeReviewView";
+import { reviewLayout, waitsToConfirm } from "./organizeReviewView";
 import { useAppStore } from "./store";
 import { makeInTurn, type Undoable, useUndo } from "./undo";
 
@@ -129,6 +129,21 @@ core.on("documents.removed", refreshSoon);
 core.on("library.changed", () => {
   const { review, count } = useOrganizeReview.getState();
   if (review !== null || (count ?? 0) > 0) refreshSoon();
+});
+
+// The User's own AI asked from the Library: its Review opens when it has finished, as the
+// Library's own Organize opens its Review when it ends, and only if the Library is in view (#3610).
+onOrganizeEnded((asked) => {
+  if (!libraryShown() || useOrganizeReview.getState().run) return;
+  void refreshReview()
+    .then((review) => {
+      const from = (item: OrganizeReviewItem) =>
+        item.origin === "agent" && item.agent === asked.agent.name && waitsToConfirm(item);
+      if (!review.items.some(from) || !libraryShown()) return;
+      useOrganizeReview.setState({ open: true, shownAll: new Set() });
+      organizeSeen();
+    })
+    .catch(report);
 });
 
 core.on("organize.progress", (progress) => {
