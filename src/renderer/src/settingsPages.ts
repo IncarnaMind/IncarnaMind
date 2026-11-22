@@ -28,6 +28,7 @@ export type SettingsTarget =
   | "add-provider"
   | "tagging"
   | "turn-on-tagging"
+  | "meeting-templates"
   | "meeting-words"
   | "call-help-model"
   | "calendars"

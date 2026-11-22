@@ -7905,6 +7905,13 @@ export const en = {
   "meetings.command.deleteAudio": "Delete audio",
   "meetings.command.keepAudio": "Keep audio",
   "meetings.command.audioKeptAlready": "This meeting’s audio is already kept",
+  "meetings.template.saveAs": "Save as meeting template…",
+  "meetings.template.reviewHeadings": "Review the section headings and give this template a name.",
+  "meetings.template.addHeadings":
+    "This write-up has no section headings yet. Enter the sections you want to reuse.",
+  "meetings.template.draftWhen": "Use these sections when writing up this kind of meeting.",
+  "meetings.template.sectionGuidance":
+    "Keep the sections in this order. Include a section when the meeting supports it and cite the words behind decisions and commitments.",
   "meetings.command.saveRecording": "Save recording…",
   "meetings.command.saveWhileRecording": "Stop the recording to save it",
   "meetings.recording.saveTitle": "Save recording",
