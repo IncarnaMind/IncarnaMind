@@ -40,7 +40,29 @@ jobs:
         run: |
           npx electron-builder --win nsis --x64 --publish never 2>&1 | tee build.log
           ls -la dist/*.exe
-          grep -i "installer.nsh\|include" build.log | head -5 || true
+      - name: Windows install, start, uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist -Filter "*.exe" | Where-Object { $_.Name -notmatch "uninstall" } | Select-Object -First 1
+          "installer: $($setup.Name)"
+          Start-Process -FilePath $setup.FullName -ArgumentList "/S" -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\IncarnaMind"
+          "installed: $(Test-Path "$dir\IncarnaMind.exe")"
+          "--- before the app starts:"
+          reg query "HKCU\Software\Classes\incarnamind" /s 2>&1
+          $app = Start-Process -FilePath "$dir\IncarnaMind.exe" -PassThru
+          Start-Sleep -Seconds 30
+          "--- with the app started:"
+          reg query "HKCU\Software\Classes\incarnamind" /s 2>&1
+          Get-Process IncarnaMind -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 5
+          Start-Process -FilePath "$dir\Uninstall IncarnaMind.exe" -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 15
+          "--- after uninstalling:"
+          reg query "HKCU\Software\Classes\incarnamind" /s 2>&1
+          if ($LASTEXITCODE -eq 0) { "still registered after uninstall"; exit 1 } else { "registration removed" }
+          exit 0
       - name: Linux .deb's .desktop file
         if: runner.os == 'Linux'
         run: |
