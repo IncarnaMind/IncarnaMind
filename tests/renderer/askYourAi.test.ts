@@ -562,7 +562,11 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
   const called = async (
     agent: AgentPairing,
     tool: AgentActivity["tool"],
-    { mindId, documentIds = [] }: { mindId?: string; documentIds?: string[] } = {},
+    {
+      mindId,
+      documentIds = [],
+      outcome = "done",
+    }: { mindId?: string; documentIds?: string[]; outcome?: AgentActivity["outcome"] } = {},
   ) => {
     calls += 1;
     const activity: AgentActivity = {
@@ -570,8 +574,8 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
       pairingId: agent.id,
       tool,
       summary: "",
-      outcome: "done",
-      problem: null,
+      outcome,
+      problem: outcome === "done" ? null : "invalid",
       count: null,
       request: null,
       documentIds,
@@ -647,6 +651,19 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     await called(codex, "report_check", { mindId: MIND });
     expect(part("checks-asked")).toBeNull();
     expect(container.textContent).toBe("");
+  });
+
+  // protects=on a Note the User wrote the line ends only once the asked AI's report lands, as on one the AI wrote: a report IncarnaMind refused (a Note the AI wasn't asked to check, or one changed since) leaves it checking (#3622); fails_when=a refused report ends the line with no marks, or one that lands leaves it
+  test("a refused report leaves the line checking, and the report that lands ends it", async () => {
+    user(NO_MODEL, [claude, codex], "en");
+    bridge.opens = true;
+    expect(await askAgent(claude, MIND, { kind: "check" })).toBe(true);
+    const { part } = await askedLine();
+    await called(claude, "check_mind_yourself", { mindId: MIND });
+    await called(claude, "report_check", { mindId: MIND, outcome: "refused" });
+    expect(part("checks-asked")?.textContent).toBe("Checking this note in Claude Code.");
+    await called(claude, "report_check", { mindId: MIND });
+    expect(part("checks-asked")).toBeNull();
   });
 
   // protects=an AI that never picks the request up leaves no line that waits for ever: after a few minutes the line says nothing came and how to ask again, and Ask again asks the same AI once more; a call that comes after all makes it checking; fails_when=the line keeps saying asked or checking with nothing heard, or Ask again asks another AI

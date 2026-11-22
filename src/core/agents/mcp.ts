@@ -574,9 +574,9 @@ export function createAgentServer(
   server.registerTool(
     tool("check_mind_yourself"),
     {
-      title: "Check a Note you wrote, with your own model",
+      title: "Check a Note with your own model",
       description:
-        "Check a Note list_minds marks yours (you wrote it, in any chat) when the User asks whether it's right or asks for a check, or when writing it says to: returns its sentences with no result yet and how to judge them. Hand your results to report_check.",
+        "Check a Note list_minds marks yours, or one the User asked you to check, when they ask if it's right or ask for a check, or when writing it says to: returns its sentences with no result yet and how to judge them. Hand your results to report_check.",
       inputSchema: z.object({
         mindId: z.string(),
         again: z.boolean().optional().describe("Every sentence, results or not, to judge again."),

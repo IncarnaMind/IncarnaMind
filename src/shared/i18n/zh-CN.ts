@@ -8590,7 +8590,7 @@ export const zhCN = {
     "我把这个问题限定在 IncarnaMind 的这些文件夹和文档里：{items}。只在这些范围内查找。",
   "agents.ask.request.item": "{name}（{idName}：{id}）",
   "agents.ask.request.check":
-    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。如果这篇笔记不是你写的，就用 read_mind 读取，自己核对。最后告诉我哪些句子需要留意。",
+    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。最后告诉我哪些句子需要留意。",
   "agents.ask.verdict.unsupported": "没有依据",
   "agents.ask.verdict.contradicted": "与我的文档矛盾",
   "agents.ask.verdict.not-found": "在我的文档中找不到",

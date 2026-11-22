@@ -3867,6 +3867,7 @@ export async function writeNote(
   window: Page,
   title: string,
   blocks: readonly NoteBlock[],
+  { folderId = null }: { folderId?: string | null } = {},
 ): Promise<string> {
   const doc = new Y.Doc();
   doc.getXmlFragment("blocks").push(
@@ -3883,14 +3884,14 @@ export async function writeNote(
   );
   const update = Array.from(Y.encodeStateAsUpdate(doc));
   return window.evaluate(
-    async ([name, change]) => {
+    async ([name, change, folder]) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const mind = await core.createMind({ title: name });
+      const mind = await core.createMind({ title: name, folderId: folder });
       await core.applyMindUpdate(mind.id, new Uint8Array(change));
       await core.closeMind(mind.id);
       return mind.id;
     },
-    [title, update] as const,
+    [title, update, folderId] as const,
   );
 }
 
