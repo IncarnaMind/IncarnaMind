@@ -121,6 +121,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window } = await launched(language);
     try {
       await window.keyboard.press("ControlOrMeta+Shift+n");
+      // The name field takes the focus a moment after the key: typed sooner, the first letter is lost.
+      await expect(window.getByTestId("folder-rename-field")).toBeFocused();
       await window.keyboard.type(words.folder);
       await window.keyboard.press("Enter");
       await expect.poll(() => folderNames(window)).toEqual([words.folder]);
