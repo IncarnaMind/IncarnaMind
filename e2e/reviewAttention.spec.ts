@@ -137,7 +137,7 @@ async function pressReview(
     const selected = () => document.querySelector(`[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`);
     const mutations = new MutationObserver(()=>{if(record.clicked!==null&&selectedDom===null&&selected())selectedDom=performance.now();});
     mutations.observe(document.body,{subtree:true,attributes:true,attributeFilter:["aria-selected"],childList:true});
-    Object.assign(record,{measure:()=>({frames,longTasks,selectedDom,clicked:record.clicked,shown:record.shown})});
+    Object.assign(record,{measure:()=>({frames,longTasks,selectedDom,clicked:record.clicked,shown:record.shown,stages:performance.getEntriesByType("mark").filter(m=>m.name.startsWith("review:") && m.startTime >= (record.clicked ?? Infinity) && m.startTime <= (record.shown ?? Infinity)).map(m=>[m.name.slice(7),Math.round(m.startTime)])})});
     document.addEventListener(
       "click",
       (event) => {

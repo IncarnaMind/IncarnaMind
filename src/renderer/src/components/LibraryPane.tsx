@@ -95,6 +95,7 @@ const SOURCE_REQUEST = /^source:(.+)$/;
  * its section into view; the page still shows every Folder.
  */
 export function LibraryPane() {
+  performance.mark("review:library-render");
   const t = useT();
   const language = useLanguage();
   const libraryDocuments = useLibraryDocuments();
@@ -320,6 +321,7 @@ export function LibraryPane() {
   // the reveal looks, which gives up after 120 frames (#2308).
   useEffect(() => {
     if (reviewTarget === null) return;
+    performance.mark("review:reveal-effect");
     useAppStore.setState({ reviewTarget: null });
     useOrganizeReview.setState({ open: false });
     setSearch("");
@@ -357,9 +359,13 @@ export function LibraryPane() {
     const reveal = () => {
       const row = page.current?.querySelector<HTMLElement>(within);
       if (row) {
+        performance.mark("review:row-found");
         row.scrollIntoView({ block: "center" });
+        performance.mark("review:scrolled");
         useSelection.getState().choose("library", { kind: "document", id });
+        performance.mark("review:chosen");
         row.querySelector<HTMLElement>("[data-row-main]")?.focus({ preventScroll: true });
+        performance.mark("review:focused");
         return;
       }
       if (frames++ < 120) requestAnimationFrame(reveal);

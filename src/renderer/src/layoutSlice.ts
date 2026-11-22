@@ -97,10 +97,14 @@ export function createLayoutSlice(
       set({ layout: keep(await core.getLayout(WINDOW_ID)) });
     },
     async changeLayout(change, options) {
+      const inspect = change.type === "open" && change.item.kind === "library";
+      if (inspect) performance.mark("review:layout-request");
       const keep = keepPlacingsSince();
       try {
         const layout = keep(await core.changeLayout(WINDOW_ID, change));
+        if (inspect) performance.mark("review:layout-response");
         set({ layout });
+        if (inspect) performance.mark("review:layout-applied");
         return layout;
       } catch (error) {
         if (!options?.quiet) report(error);
