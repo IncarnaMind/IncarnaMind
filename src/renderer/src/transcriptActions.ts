@@ -1,4 +1,4 @@
-import type { MeetingSummarySource } from "../../core/api";
+import type { MeetingSummarySource, TextRange } from "../../core/api";
 import { core } from "./core";
 import { useAppStore } from "./store";
 import { makeInTurn, type Undoable, useUndo } from "./undo";
@@ -7,10 +7,11 @@ export async function addTranscriptAction(
   meetingId: string,
   documentId: string,
   source: MeetingSummarySource,
+  excerpt?: TextRange,
 ): Promise<"added" | "already" | "failed"> {
   try {
     return await makeInTurn(async () => {
-      const add = () => core.addMeetingTranscriptAction(meetingId, documentId, source);
+      const add = () => core.addMeetingTranscriptAction(meetingId, documentId, source, excerpt);
       const result = await add();
       if (!result.added) return "already";
       let itemId = result.itemId;

@@ -9,7 +9,7 @@ import {
   storeSummaryQuote,
   summaryEvidenceCue,
 } from "./summaryEvidence";
-import type { TranscriptActionLine } from "./summarySources";
+import { actionWords, type TranscriptActionLine } from "./summarySources";
 
 const fields = z.strictObject({
   kind: z.enum(["decision", "action"]),
@@ -77,7 +77,7 @@ export function availableSummaryCandidates(
     promotion && promotion.documentId === review.documentId ? [promotion.candidate] : [],
   );
   const manual = corrections.flatMap(({ source }) =>
-    source?.line?.transcriptCue && source.documentId === review.documentId
+    source?.line?.transcriptCue && !source.line.excerpt && source.documentId === review.documentId
       ? [source.line.transcriptCue]
       : [],
   );
@@ -194,17 +194,25 @@ export function addTranscriptAction(
   line: TranscriptActionLine,
 ) {
   const cue = line.transcriptCue;
+  const text = actionWords(line);
   const existing = corrections.find((entry) => {
     if (entry.source?.documentId !== documentId) return false;
-    const sources = entry.source.line?.transcriptCue
-      ? [entry.source.line.transcriptCue]
-      : entry.promotion?.candidate.sources;
+    const prior = entry.source.line;
+    if (prior)
+      return (
+        sameCandidateSource(prior.transcriptCue, cue) &&
+        prior.excerpt?.start === line.excerpt?.start &&
+        prior.excerpt?.end === line.excerpt?.end
+      );
+    if (line.excerpt) return false;
+    const sources = entry.promotion?.candidate.sources;
     return sources?.length === 1 && sources.some((source) => sameCandidateSource(source, cue));
   });
   if (existing) return { itemId: existing.item.id, corrections };
-  const quote = storeSummaryQuote(cue.text, [summaryEvidenceCue(line.parentCue ?? cue)]);
+  const quote = storeSummaryQuote(text, [summaryEvidenceCue(line.parentCue ?? cue)]);
   const generated =
     !line.parentCue &&
+    !line.excerpt &&
     visibleSummary(stored, corrections)?.items?.find((item) => {
       if (item.kind !== "action" || item.text !== cue.text || item.status !== "active")
         return false;
@@ -217,7 +225,7 @@ export function addTranscriptAction(
   if (generated) return { itemId: generated.id, corrections };
   const id = nextItemId(stored, corrections, reserved);
   const action: Correction = {
-    item: { id, kind: "action", status: "active", text: cue.text },
+    item: { id, kind: "action", status: "active", text },
     source: { documentId, quotes: [quote], line },
   };
   return { itemId: id, corrections: [...corrections, action] };
@@ -231,7 +239,7 @@ export function undoTranscriptAction(corrections: Correction[], itemId: number) 
     !sameWords(record.item, {
       kind: "action",
       status: "active",
-      text: record.source.line.transcriptCue.text,
+      text: actionWords(record.source.line),
     })
   )
     throw new InvalidInputError({ key: "error.meeting.summaryItemChanged" });

@@ -857,3 +857,106 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+// protects=two work assignments spoken in a single turn can be kept or undone independently
+// fails_when=adding selected words saves the full turn or opens the wrong occurrence
+for (const language of ["en", "zh-CN"] as const) {
+  test(`two selected excerpts from one saved transcript line keep their own tasks (${language})`, async () => {
+    const first =
+      language === "en"
+        ? "as the industrial designer , you're gonna be working on you know the actual working design of it"
+        : "工业设计负责人研究实际设计";
+    const second =
+      language === "en" ? "for user interface , technical functions" : "界面负责人确定技术功能";
+    const text =
+      language === "en"
+        ? `Um ${first} so y you know what you're doing there . Um ${second} , I guess that's you know like what we've been talking about .`
+        : `先说分工，${first}，${second}，下一次再讨论。`;
+    const dir = await createDataFolder();
+    const app = await launchApp(dir, {
+      computerSound: "silent",
+      transcriber: { live: true, lines: [text] },
+    });
+    try {
+      const { window } = app;
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await firstTranscriptLine(window);
+      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+      const inline = window.getByTestId("meeting-note-transcript");
+      await pointAndClick(window, inline.getByTestId("meeting-stop"));
+      await transcriptSaved(window);
+      await settleFirstFill(window);
+      const line = inline.getByTestId("transcript-line").filter({ hasText: text }).first();
+      const addWords = async (quote: string) => {
+        await line.evaluate((element, quote) => {
+          const index = element.textContent?.indexOf(quote) ?? -1;
+          if (index < 0) throw new Error("The selected original words are missing.");
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          const range = document.createRange();
+          let at = 0;
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const end = at + (node.textContent?.length ?? 0);
+            if (at <= index && index < end) range.setStart(node, index - at);
+            if (at < index + quote.length && index + quote.length <= end) {
+              range.setEnd(node, index + quote.length - at);
+              break;
+            }
+            at = end;
+          }
+          const selection = document.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }, quote);
+        await pointAndClick(
+          window,
+          inline.getByRole("button", {
+            name: language === "en" ? "Add selected words to action items" : "将选中的原话加入待办",
+          }),
+        );
+      };
+      const bridge = await coreOf(window);
+      const read = () =>
+        bridge.evaluate(async (core) => {
+          const [meeting] = await core.listMeetings();
+          if (!meeting) throw new Error("The stopped meeting is missing.");
+          const items = meeting.summary?.items ?? [];
+          return Promise.all(
+            items.map(async (item) => ({
+              text: item.text,
+              sources: (await core.getMeetingSummaryItemSources(meeting.id, item.id))?.sources,
+            })),
+          );
+        });
+      await addWords(first);
+      await expect.poll(async () => (await read()).map((item) => item.text)).toEqual([first]);
+      await addWords(second);
+      await expect
+        .poll(async () => (await read()).map((item) => item.text))
+        .toEqual([first, second]);
+      const bounds = {
+        startMs: Number(await line.getAttribute("data-start")),
+        endMs: Number(await line.getAttribute("data-end")),
+      };
+      expect(await read()).toMatchObject(
+        [first, second].map((text) => ({ text, sources: [{ ...bounds, text }] })),
+      );
+      const items = inline.getByTestId("meeting-summary-items");
+      if ((await items.getAttribute("open")) === null)
+        await pointAndClick(window, items.locator("summary"));
+      const item = items.getByTestId("meeting-summary-item").filter({ hasText: second });
+      const speech = await showSpeech(window, item, second);
+      await pointAndClick(window, speech.getByTestId("meeting-summary-item-source"));
+      const highlight = window.locator(
+        `[data-testid="viewer-transcript"] [data-start="${bounds.startMs}"][data-end="${bounds.endMs}"] [data-quote-highlight]`,
+      );
+      await expect.poll(async () => (await highlight.allTextContents()).join("")).toBe(second);
+      await pointAndClick(window, window.getByTestId("undo-action"));
+      await expect.poll(async () => (await read()).map((row) => row.text)).toEqual([first]);
+    } finally {
+      await app.app.close();
+      await removeDataFolder(dir);
+    }
+  });
+}
