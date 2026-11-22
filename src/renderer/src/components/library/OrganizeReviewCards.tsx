@@ -77,6 +77,8 @@ export interface CardContext {
   cards: readonly ReviewCard[];
   /** Only Tags were asked for: a row has no ⋯ and doesn't drag, for it goes nowhere. */
   onlyTags: boolean;
+  /** The agent the Review's bar names, so its rows don't each say it. */
+  saidAgent?: string | null;
   /** The Library's Folders, in the sidebar's order, for Move to. */
   folders: readonly LibraryGroup[];
   /** Moves rows to another card, sliding them there. */
@@ -378,7 +380,7 @@ function OrganizeReviewRow({
       >
         {name}
       </button>
-      {item.agent && (
+      {item.agent && item.agent !== context.saidAgent && (
         <span className="max-w-[35%] truncate text-xs text-ink-meta" title={item.agent}>
           {t("organizeReview.agent", { agent: item.agent })}
         </span>

@@ -40,10 +40,11 @@ for (const [language, width] of [
   ["en", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`${language}: the Library says what the User's own AI suggests, and nothing is made before Confirm`, async () => {
+  test(`${language}: the Review opens once the User's own AI has answered for every Document, and nothing is made before Confirm`, async () => {
     const data = await createDataFolder();
     const source = await createDataFolder();
     const { app, window } = await launchApp(data);
+    const shots = process.env.INCARNAMIND_SCREENSHOTS;
     try {
       await dismissChatSetup(window);
       await acceptPlainTextKeys(window);
@@ -103,31 +104,69 @@ for (const [language, width] of [
           const area = AREAS.find((each) =>
             (each.documents as readonly string[]).includes(doc.name),
           );
-          return { documentId: doc.id, version: doc.version, newFolder: area?.folder[language] };
+          return {
+            documentId: doc.id,
+            version: doc.version,
+            newFolder: area?.folder[language] ?? "",
+          };
         });
-        for (const batch of [proposals.slice(0, 8), proposals.slice(8)])
-          await agent.callTool({ name: "propose_sorting", arguments: { proposals: batch } });
+        const harbour = AREAS[0].folder[language];
+        const propose = (batch: typeof proposals) =>
+          agent.callTool({ name: "propose_sorting", arguments: { proposals: batch } });
+
+        // A part answered: the Library's line says what came, and the rows wait; the Review stays shut.
+        await propose(proposals.filter((each) => each.newFolder === harbour));
+        await expect(words).toHaveText(
+          translate(language, "organizeReview.suggestedBy", {
+            agent: "Claude Code",
+            what: translate(language, "organizeReview.willMove", {
+              documents: translate(language, "organizeReview.documents", { count: 4 }),
+              into: translate(language, "organizeReview.into.new.one", { count: 1 }),
+            }),
+          }),
+        );
+        await expect(line).toHaveAttribute("data-state", "landed");
+        await expect(window.getByTestId("organize-asked-confirm")).toBeVisible();
+        const rows = await window.getByTestId("library-document").evaluateAll((each) =>
+          each.map((row) => ({
+            name: row.querySelector('[data-testid="library-document-name"]')?.textContent ?? "",
+            mark: row.querySelector('[data-testid="library-suggested"]')?.textContent ?? null,
+          })),
+        );
+        for (const row of rows)
+          expect(row.mark).toBe(
+            (AREAS[0].documents as readonly string[]).includes(row.name)
+              ? translate(language, "library.row.suggested", { folder: harbour })
+              : null,
+          );
+        await expect(window.getByTestId("organize-review")).toHaveCount(0);
+        if (shots) {
+          await mkdir(shots, { recursive: true });
+          await motionSettled(window);
+          await window.screenshot({ path: join(shots, `part-${language}-${width}.png`) });
+        }
+
+        // Every Document answered: the Review opens by itself, naming the AI once.
+        await propose(proposals.filter((each) => each.newFolder !== harbour));
       } finally {
         await agent.close();
       }
-
-      const what = translate(language, "organizeReview.willMove", {
-        documents: translate(language, "organizeReview.documents", { count: 10 }),
-        into: translate(language, "organizeReview.into.new", { count: 3 }),
-      });
-      await expect(words).toHaveText(
-        translate(language, "organizeReview.suggestedBy", { agent: "Claude Code", what }),
+      await expect(window.getByTestId("organize-review")).toBeVisible();
+      await expect(window.getByTestId("organize-review-will-move")).toHaveText(
+        translate(language, "organizeReview.suggestedBy", {
+          agent: "Claude Code",
+          what: translate(language, "organizeReview.willMove", {
+            documents: translate(language, "organizeReview.documents", { count: 10 }),
+            into: translate(language, "organizeReview.into.new", { count: 3 }),
+          }),
+        }),
       );
-      await expect(line).toHaveAttribute("data-state", "landed");
-      // Each row shown says it waits: the section shows its first rows, then Show all.
-      const marks = window.getByTestId("library-suggested");
-      await expect(marks).toHaveCount(await window.getByTestId("library-document").count());
-      const first = window.getByTestId("library-document").first();
-      const name = await first.getByTestId("library-document-name").textContent();
-      const area = AREAS.find((each) => (each.documents as readonly string[]).includes(name ?? ""));
-      await expect(first.getByTestId("library-suggested")).toHaveText(
-        translate(language, "library.row.suggested", { folder: area?.folder[language] ?? "" }),
-      );
+      await expect(window.getByTestId("organize-review-row")).toHaveCount(10);
+      await expect(
+        window.getByTestId("organize-review-row").filter({
+          hasText: translate(language, "organizeReview.agent", { agent: "Claude Code" }),
+        }),
+      ).toHaveCount(0);
       const groups = () =>
         window.evaluate(async () => {
           const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -138,27 +177,30 @@ for (const [language, width] of [
           };
         });
       expect(await groups()).toEqual({ folders: [], filed: 0 });
-
-      const shots = process.env.INCARNAMIND_SCREENSHOTS;
       if (shots) {
-        await mkdir(shots, { recursive: true });
         await motionSettled(window);
-        await window.screenshot({ path: join(shots, `suggested-${language}-${width}.png`) });
-        // The same page without the rows' marks, for the owner to choose between (#3610).
-        const hidden = await window.addStyleTag({
-          content: '[data-testid="library-suggested"] { display: none !important; }',
-        });
-        await window.screenshot({ path: join(shots, `unmarked-${language}-${width}.png`) });
-        await hidden.evaluate((style) => style.parentNode?.removeChild(style));
+        await window.screenshot({ path: join(shots, `review-${language}-${width}.png`) });
       }
 
-      await pointAndClick(window, window.getByTestId("organize-asked-confirm"));
+      // With no model set up, the ⋯ offers only what works.
+      await pointAndClick(window, window.getByTestId("organize-review-menu"));
+      await expect(window.getByTestId("organize-review-discard")).toBeVisible();
+      for (const replan of ["fewer", "more", "again"])
+        await expect(window.getByTestId(`organize-review-${replan}`)).toHaveCount(0);
+      if (shots) {
+        await motionSettled(window);
+        await window.screenshot({ path: join(shots, `menu-${language}-${width}.png`) });
+      }
+      await window.keyboard.press("Escape");
+
+      await pointAndClick(window, window.getByTestId("organize-review-confirm"));
       await expect.poll(groups).toEqual({
         folders: AREAS.map((each) => each.folder[language]).sort(),
         filed: 10,
       });
+      await expect(window.getByTestId("organize-review")).toHaveCount(0);
       await expect(window.getByTestId("organize-asked")).toHaveCount(0);
-      await expect(marks).toHaveCount(0);
+      await expect(window.getByTestId("library-suggested")).toHaveCount(0);
     } finally {
       await app.close();
       await removeDataFolder(data);

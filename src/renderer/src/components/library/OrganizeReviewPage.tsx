@@ -3,6 +3,7 @@ import type { Document, LibraryGroup } from "../../../../core/api";
 import { keysHere } from "../../commands/keymap";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
+import { noModelSetUp } from "../../noModelSetUp";
 import {
   closeReview,
   confirmReview,
@@ -80,6 +81,7 @@ export function OrganizeReviewPage() {
             newColours: newTagColours(tags, review.items),
             cards: [...layout.yours, ...layout.proposed],
             onlyTags: layout.onlyTags,
+            saidAgent: oneAgent(review),
             folders,
             moveRows: (itemIds, to) =>
               slideRows(itemIds, () => {
@@ -131,7 +133,7 @@ export function OrganizeReviewPage() {
       : null;
   return (
     <div data-testid="organize-review" className="flex flex-col">
-      <ReviewBar layout={layout} />
+      <ReviewBar layout={layout} agent={review ? oneAgent(review) : null} />
       {layout.onlyTags ? (
         // Only Tags were asked for: the cards of where the Documents are, with no section heads.
         <section
@@ -211,7 +213,14 @@ function Section({
   );
 }
 
-function ReviewBar({ layout }: { layout: ReviewLayout }) {
+/** The one agent every row came from, which the bar names once in place of every row. */
+function oneAgent(review: { items: readonly { agent?: string }[] }): string | null {
+  const agents = new Set(review.items.map((item) => item.agent ?? null));
+  const [only] = agents;
+  return agents.size === 1 && only ? only : null;
+}
+
+function ReviewBar({ layout, agent }: { layout: ReviewLayout; agent: string | null }) {
   const t = useT();
   const sentinel = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(false);
@@ -224,7 +233,9 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const willMove = willMoveText(layout, t);
+  const willMove = agent
+    ? t("organizeReview.suggestedBy", { agent, what: willMoveText(layout, t) })
+    : willMoveText(layout, t);
   const nothing = layout.yours
     .concat(layout.proposed, layout.tagsOnly)
     .every((card) => card.items.every((item) => !item.ticked));
@@ -252,7 +263,7 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
           <p
             id="organize-review-will-move"
             data-testid="organize-review-will-move"
-            className="m-0 mt-0.5 text-[13px] leading-5 text-balance text-ink-meta"
+            className="m-0 mt-0.5 text-[13px] leading-5 text-balance break-keep break-words text-ink-meta"
           >
             {willMove}
           </p>
@@ -286,10 +297,14 @@ function ReviewBar({ layout }: { layout: ReviewLayout }) {
   );
 }
 
-/** The Review's ⋯: Fewer and More Folders where Folders were asked for, Try Again, then Discard. */
+/**
+ * The Review's ⋯: Fewer and More Folders where Folders were asked for, Try Again, then Discard.
+ * The first three plan again on the model set up in IncarnaMind: with none, Discard alone (#3610).
+ */
 function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }) {
   const t = useT();
   const menu = usePopoverMenu({ align: "end", focus: "first" });
+  const replans = !useAppStore((state) => noModelSetUp(state.chatReadiness));
   const review = useOrganizeReview((state) => state.review);
   const count = review && menu.open ? proposedHere(review) : 0;
   const choose = (kind: Replan) => {
@@ -332,7 +347,8 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
       >
         {menu.open && (
           <>
-            {!scoped &&
+            {replans &&
+              !scoped &&
               !onlyTags &&
               item(
                 "fewer",
@@ -340,7 +356,8 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
                 count <= FEWEST ? t("organizeReview.fewer.fewest", { count: FEWEST }) : null,
                 "organize-review-fewer",
               )}
-            {!scoped &&
+            {replans &&
+              !scoped &&
               !onlyTags &&
               item(
                 "more",
@@ -348,8 +365,12 @@ function ReviewMenu({ scoped, onlyTags }: { scoped: boolean; onlyTags: boolean }
                 count >= MOST ? t("organizeReview.more.most", { count: MOST }) : null,
                 "organize-review-more",
               )}
-            {item("again", t("organizeReview.again"), null, "organize-review-again")}
-            <div className={menuRuleClass} />
+            {replans && (
+              <>
+                {item("again", t("organizeReview.again"), null, "organize-review-again")}
+                <div className={menuRuleClass} />
+              </>
+            )}
             <button
               type="button"
               role="menuitem"
