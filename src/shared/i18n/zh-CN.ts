@@ -8543,6 +8543,22 @@ export const zhCN = {
   "agents.asked.short.asked": "已交给你的 AI",
   "agents.asked.short.working": "你的 AI 正在核对",
   "agents.asked.short.quiet": "你的 AI 还没有动静",
+  "agents.asked.stop": "停止",
+  "agents.asked.checkAgain": "再次核对",
+  "agents.asked.short.failed": "你的 AI 已停止",
+  "agents.ownCheck.problem.signed-out":
+    "{agent} 尚未在这台电脑上登录。在终端中登录后，再点“核对”。",
+  "agents.ownCheck.problem.too-old":
+    "{agent} {found} 版本过旧，需要 {lowest} 或更高版本。更新后再点“核对”。",
+  "agents.ownCheck.problem.plan-limit": "{agent} 已停止：你的 Claude 订阅已达用量上限。稍后再试。",
+  "agents.ownCheck.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
+  "agents.ownCheck.problem.timeout": "{agent} 超过 15 分钟仍未完成，核对已停止。再试一次。",
+  "agents.ownCheck.problem.no-marks":
+    "{agent} 已结束，但没有标记这篇笔记。再试一次，或在 {agent} 中提问。",
+  "agents.ownCheck.problem.isolation":
+    "{agent} 带有你所在组织设置的钩子或插件，无法在这里运行。改为在 {agent} 中提问。",
+  "agents.ownCheck.problem.access": "{agent} 已无法读取这篇笔记，核对已停止。",
+  "agents.ownCheck.problem.failed": "{agent} 未完成就停止了。再试一次。",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
     "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",

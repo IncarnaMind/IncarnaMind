@@ -7,9 +7,20 @@
  * a later call makes it working again. It ends when what was asked for lands: the check's report,
  * or the Note the agent wrote; a check's ends too once a model is set up. An Organize's Suggestions
  * land instead (#3610): the Library's top says what came until the User opens the Review.
+ *
+ * A check IncarnaMind runs on the User's own command-line AI in the background (#3606) is working
+ * from the press, never quiet, and ends as the core says the run ended: its marks landed, the User
+ * stopped it, or it failed, which the line then says.
  */
 import { create } from "zustand";
-import type { AgentActivity, AgentPairing, ChatReadiness, OrganizeTarget } from "../../core/api";
+import type {
+  AgentActivity,
+  AgentPairing,
+  ChatReadiness,
+  OrganizeTarget,
+  OwnAiCheckEnd,
+  OwnAiCheckProblem,
+} from "../../core/api";
 import { core } from "./core";
 import { useT } from "./i18n";
 import { noModelSetUp } from "./noModelSetUp";
@@ -20,7 +31,7 @@ export type AskedFor =
   | { kind: "summary"; documentId: string }
   | { kind: "organize"; target: OrganizeTarget };
 
-export type AskedState = "asked" | "working" | "quiet" | "landed";
+export type AskedState = "asked" | "working" | "quiet" | "landed" | "failed";
 
 export interface AgentAsked {
   agent: AgentPairing;
@@ -32,6 +43,10 @@ export interface AgentAsked {
   at: string;
   /** Whether a call about it came: from then on, any call of that connection says it is still at work. */
   seen: boolean;
+  /** IncarnaMind runs it on the agent in the background, and says when it ends (#3606). */
+  background?: true;
+  /** Why the background run didn't land, with the versions for one too old. */
+  problem?: { problem: OwnAiCheckProblem; versions?: { found: string; lowest: string } };
 }
 
 /**
@@ -66,7 +81,8 @@ function put(key: string, asked: AgentAsked | null): void {
     else delete next[key];
     return { byKey: next };
   });
-  if (!asked || asked.state === "quiet" || asked.state === "landed") return;
+  // A run in the background says itself when it ends: it never reads as quiet.
+  if (!asked || asked.background || ["quiet", "landed", "failed"].includes(asked.state)) return;
   timers.set(
     key,
     setTimeout(() => {
@@ -99,7 +115,9 @@ const landed = (activity: AgentActivity, asked: AgentAsked): boolean => {
 
 function heard(activity: AgentActivity): void {
   for (const [key, asked] of Object.entries(useAgentAsked.getState().byKey)) {
-    if (activity.pairingId !== asked.agent.id || activity.at < asked.at) continue;
+    if (asked.background || activity.pairingId !== asked.agent.id || activity.at < asked.at) {
+      continue;
+    }
     if (landed(activity, asked))
       put(key, asked.for.kind === "organize" ? { ...asked, seen: true, state: "landed" } : null);
     else if (asked.state !== "landed" && (asked.seen || about(activity, asked)))
@@ -122,17 +140,66 @@ function forgetChecks({ chatReadiness }: { chatReadiness: ChatReadiness | null }
   }
 }
 
+/** A check run in the background ended: landed or stopped, the line goes; failed, it says why. */
+function ended(end: OwnAiCheckEnd): void {
+  const key = keyOf({ kind: "check", mindId: end.mindId });
+  const now = useAgentAsked.getState().byKey[key];
+  if (!now?.background || now.agent.id !== end.pairingId) return;
+  put(
+    key,
+    end.outcome === "failed"
+      ? { ...now, state: "failed", problem: { problem: end.problem ?? "failed" } }
+      : null,
+  );
+}
+
+function listen(): void {
+  if (listening) return;
+  listening = true;
+  core.on("agents.activity", heard);
+  core.on("agents.ownCheck", ended);
+  useAppStore.subscribe(forgetChecks);
+}
+
+/**
+ * Checks the Note on the User's own command-line AI in the background, on `pairingId` or the first
+ * that can (#3606): true when it started, or when that AI can't run it now and the line says why;
+ * false when none can, for the check to ask by the link.
+ */
+export async function checkInBackground(mindId: string, pairingId?: string): Promise<boolean> {
+  const at = new Date().toISOString();
+  const started = await core.checkWithOwnAi(mindId, pairingId);
+  if (started.kind === "link") return false;
+  listen();
+  const asked: AgentAsked = {
+    agent: started.pairing,
+    for: { kind: "check", mindId },
+    copied: false,
+    state: started.kind === "started" ? "working" : "failed",
+    at,
+    seen: true,
+    background: true,
+    ...(started.kind === "problem" && {
+      problem: {
+        problem: started.problem,
+        ...(started.versions && { versions: started.versions }),
+      },
+    }),
+  };
+  put(keyOf(asked.for), asked);
+  return true;
+}
+
+/** Stops the check running in the background on the Note, if one is: nothing of it lands. */
+export const stopBackgroundCheck = (mindId: string): Promise<void> => core.stopOwnAiCheck(mindId);
+
 /** The request went to `agent`: the place it is about says so from now. */
 export function rememberAsked(
   agent: AgentPairing,
   asked: AskedFor,
   { copied, at }: { copied: boolean; at: string },
 ): void {
-  if (!listening) {
-    listening = true;
-    core.on("agents.activity", heard);
-    useAppStore.subscribe(forgetChecks);
-  }
+  listen();
   if (asked.kind === "check" && modelSetUp(useAppStore.getState().chatReadiness)) return;
   put(keyOf(asked), { agent, for: asked, copied, state: "asked", at, seen: false });
 }
@@ -175,10 +242,16 @@ export function useAskedAgent(
   if (!now || now.state === "landed") return null;
   const agent = now.agent.name;
   const words =
-    now.state === "asked"
-      ? t(now.copied ? "agents.asked.copied" : "agents.asked.opened", { agent })
-      : now.state === "working"
-        ? t(WORKING[now.for.kind], { agent })
-        : t("agents.asked.quiet", { agent });
+    now.state === "failed"
+      ? t(`agents.ownCheck.problem.${now.problem?.problem ?? "failed"}`, {
+          agent,
+          found: now.problem?.versions?.found ?? "",
+          lowest: now.problem?.versions?.lowest ?? "",
+        })
+      : now.state === "asked"
+        ? t(now.copied ? "agents.asked.copied" : "agents.asked.opened", { agent })
+        : now.state === "working"
+          ? t(WORKING[now.for.kind], { agent })
+          : t("agents.asked.quiet", { agent });
   return { asked: now, words, short: t(`agents.asked.short.${now.state}`) };
 }

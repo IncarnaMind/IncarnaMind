@@ -10,7 +10,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import type { AgentAsk, AgentPairing, AgentRequest, SearchScope } from "../../core/api";
-import { type AskedFor, rememberAsked } from "./askedAgent";
+import { type AskedFor, checkInBackground, rememberAsked } from "./askedAgent";
 import { core } from "./core";
 import { documentsOnScreen } from "./documentsOnScreen";
 import { noModelSetUp } from "./noModelSetUp";
@@ -203,6 +203,8 @@ export async function askAgent(
  */
 export async function askToCheck(mindId: string): Promise<boolean> {
   try {
+    // Where the User's own command-line AI can run it, it does, in the background (#3606).
+    if (await checkInBackground(mindId)) return true;
     const [agent] = await core.listAgentsToAsk(mindId);
     return agent ? await askAgent(agent, mindId, { kind: "check" }) : false;
   } catch (error) {

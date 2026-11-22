@@ -14,6 +14,8 @@ import {
   type AssistantPlace,
   type ChatReadiness,
   DEFAULT_ASSISTANT,
+  type OwnAiCheckEnd,
+  type OwnAiCheckStart,
   type SearchScope,
   type WindowLayout,
 } from "../../src/core/api";
@@ -32,9 +34,26 @@ const bridge = {
   fronts: false,
   /** What the core tells the windows of each call an agent made. */
   calls: [] as ((activity: AgentActivity) => void)[],
+  /** What the core tells the windows when a check run in the background ends (#3606). */
+  ends: [] as ((end: OwnAiCheckEnd) => void)[],
   on: (event: string, listener: (activity: AgentActivity) => void) => {
     if (event === "agents.activity") bridge.calls.push(listener);
+    // Each event's listeners are kept by the type the core hands them.
+    if (event === "agents.ownCheck") {
+      bridge.ends.push(listener as unknown as (end: OwnAiCheckEnd) => void);
+    }
     return () => undefined;
+  },
+  /** How the core answers a Check with no model: by the link, unless a test runs it in the background. */
+  background: { kind: "link" } as OwnAiCheckStart,
+  inBackground: [] as { mindId: string; pairingId: string | undefined }[],
+  checkWithOwnAi: async (mindId: string, pairingId?: string) => {
+    bridge.inBackground.push({ mindId, pairingId });
+    return bridge.background;
+  },
+  stopped: [] as string[],
+  stopOwnAiCheck: async (mindId: string) => {
+    bridge.stopped.push(mindId);
   },
   listAgentsToAsk: async () => bridge.agents,
   listConversations: async () => [],
@@ -101,7 +120,7 @@ const { useNotices } = await import("../../src/renderer/src/notices");
 const { useAnswers } = await import("../../src/renderer/src/answers");
 const { useModelSetup } = await import("../../src/renderer/src/modelSetup");
 const { askInAssistant } = await import("../../src/renderer/src/conversations");
-const { askAgent, askedAbout } = await import("../../src/renderer/src/askYourAi");
+const { askAgent, askedAbout, askToCheck } = await import("../../src/renderer/src/askYourAi");
 const { composerKey } = await import("../../src/renderer/src/composer");
 const { useFoldForOwnAi, useOwnAiPill } = await import("../../src/renderer/src/ownAiPanel");
 const { useQuietAssistant } = await import("../../src/renderer/src/quietAssistant");
@@ -238,6 +257,9 @@ async function lineAbove(): Promise<HTMLElement> {
 
 beforeEach(() => {
   bridge.asked = [];
+  bridge.background = { kind: "link" };
+  bridge.inBackground = [];
+  bridge.stopped = [];
   bridge.opens = false;
   bridge.fronts = false;
   bridge.frontedAfter = [];
@@ -745,6 +767,83 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
       "Copied for Codex: paste the request there and send it.",
     );
   });
+
+  // protects=with Claude Code able to run it, one press checks in the background: no link opens and nothing is copied, the line says it is checking with Stop beside it, Stop stops it, and the line goes when the core says the marks landed (#3606); fails_when=the press opens Claude Code, the line waits for a request the User needn't send, or stays after the run ended
+  test.each([
+    ["en", "Checking this note in Claude Code.", "Stop"],
+    ["zh-CN", "Claude Code 正在核对这篇笔记。", "停止"],
+  ] as const)(
+    "a check run in the background says so, can be stopped, and goes when it lands (%s)",
+    async (language, checking, stop) => {
+      user(NO_MODEL, [claude, codex], language);
+      bridge.background = { kind: "started", pairing: claude };
+      expect(await askToCheck(MIND)).toBe(true);
+      expect(bridge.inBackground).toEqual([{ mindId: MIND, pairingId: undefined }]);
+      expect(bridge.asked).toEqual([]);
+      expect(copied).toEqual([]);
+      const { container, part } = await askedLine();
+      expect(part("checks-asked")?.textContent).toBe(checking);
+      expect(part("checks-asked")?.dataset.state).toBe("working");
+      expect(part("checks-asked-stop")?.textContent).toBe(stop);
+      expect(part("checks-asked-line-ask")).toBeNull();
+      // A call it makes on the way changes nothing: the run says itself when it ends.
+      await called(claude, "report_check", { mindId: MIND });
+      expect(part("checks-asked")?.textContent).toBe(checking);
+
+      await act(async () => part("checks-asked-stop")?.click());
+      expect(bridge.stopped).toEqual([MIND]);
+      await act(async () => {
+        for (const listener of bridge.ends)
+          listener({ mindId: MIND, pairingId: claude.id, outcome: "landed", problem: null });
+      });
+      expect(part("checks-asked")).toBeNull();
+      expect(container.textContent).toBe("");
+    },
+  );
+
+  // protects=a run that can't start or fails says why in plain words, in English and Chinese, with Check again, which runs it in the background again; fails_when=a failure leaves the line checking, says nothing of why, or Check again opens the link
+  test.each([
+    [
+      "en",
+      "Claude Code isn't signed in on this computer. Sign in to it in a terminal, then press Check again.",
+      "Claude Code stopped: your Claude plan's limit is reached. Try again later.",
+      "Check again",
+    ],
+    [
+      "zh-CN",
+      "Claude Code 尚未在这台电脑上登录。在终端中登录后，再点“核对”。",
+      "Claude Code 已停止：你的 Claude 订阅已达用量上限。稍后再试。",
+      "再次核对",
+    ],
+  ] as const)(
+    "a run that can't start or fails says why, with Check again (%s)",
+    async (language, signedOut, limit, again) => {
+      user(NO_MODEL, [claude], language);
+      bridge.background = { kind: "problem", pairing: claude, problem: "signed-out" };
+      expect(await askToCheck(MIND)).toBe(true);
+      const { part } = await askedLine();
+      expect(part("checks-asked")?.textContent).toBe(signedOut);
+      expect(part("checks-asked")?.dataset.state).toBe("failed");
+      expect(part("checks-asked-line-ask")?.textContent).toBe(again);
+
+      bridge.background = { kind: "started", pairing: claude };
+      await act(async () => part("checks-asked-line-ask")?.click());
+      await act(async () => undefined);
+      expect(bridge.inBackground.at(-1)).toEqual({ mindId: MIND, pairingId: claude.id });
+      expect(bridge.asked).toEqual([]);
+      expect(part("checks-asked")?.dataset.state).toBe("working");
+      await act(async () => {
+        for (const listener of bridge.ends)
+          listener({
+            mindId: MIND,
+            pairingId: claude.id,
+            outcome: "failed",
+            problem: "plan-limit",
+          });
+      });
+      expect(part("checks-asked")?.textContent).toBe(limit);
+    },
+  );
 
   // protects=the Chinese words for an AI that never came; fails_when=Chinese gets English words
   test("says it in Chinese too", async () => {

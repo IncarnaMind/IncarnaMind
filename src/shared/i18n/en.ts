@@ -9080,6 +9080,26 @@ export const en = {
   "agents.asked.short.asked": "Asked your AI",
   "agents.asked.short.working": "Your AI is checking",
   "agents.asked.short.quiet": "No word from your AI",
+  // A check run on the User's own command-line AI in the background (#3606).
+  "agents.asked.stop": "Stop",
+  "agents.asked.checkAgain": "Check again",
+  "agents.asked.short.failed": "Your AI stopped",
+  "agents.ownCheck.problem.signed-out":
+    "{agent} isn't signed in on this computer. Sign in to it in a terminal, then press Check again.",
+  "agents.ownCheck.problem.too-old":
+    "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then press Check again.",
+  "agents.ownCheck.problem.plan-limit":
+    "{agent} stopped: your Claude plan's limit is reached. Try again later.",
+  "agents.ownCheck.problem.billing":
+    "{agent} stopped: the account it signs in with can't be billed. Check its billing, then try again.",
+  "agents.ownCheck.problem.timeout":
+    "{agent} took longer than 15 minutes, so the check stopped. Try again.",
+  "agents.ownCheck.problem.no-marks":
+    "{agent} finished without marking this note. Try again, or ask it in {agent}.",
+  "agents.ownCheck.problem.isolation":
+    "{agent} can't run here beside a hook or plugin your organization set. Ask it in {agent} instead.",
+  "agents.ownCheck.problem.access": "{agent} can no longer read this note, so the check stopped.",
+  "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",
