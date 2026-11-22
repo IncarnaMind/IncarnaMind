@@ -87,6 +87,7 @@ import {
   rangeName,
   type SheetTable,
   sheetChoices,
+  sheetCounts,
   sheetTable,
   type TableRow,
   workbookOf,
@@ -714,11 +715,11 @@ export function createVerify(options: VerifyOptions) {
     const rangeWanted =
       !chosen.allSheets && typeof chosen.range === "string" && chosen.range.trim() !== "";
     if (sheets.length === 0 || (rangeWanted && !range)) return { ok: false, reason: "range" };
-    // The limit is on the typed-in numbers the whole check reads, every sheet's together.
+    // The limit is on the typed-in numbers and text rows the whole check reads, every sheet's together.
     const shapes = sheets
-      .map((sheet) => ({ sheet, shape: sheetTable(sheet, range) }))
-      .filter(({ shape }) => shape.typed + shape.formulas > 0);
-    const typed = shapes.reduce((total, { shape }) => total + shape.typed, 0);
+      .map((sheet) => ({ sheet, counts: sheetCounts(sheet, range) }))
+      .filter(({ counts }) => counts.typed + counts.formulas + counts.textRows > 0);
+    const typed = shapes.reduce((total, { counts }) => total + counts.typed + counts.textRows, 0);
     if (typed > MOST_TYPED_NUMBERS) {
       return { ok: false, reason: "too-many", typed, most: MOST_TYPED_NUMBERS };
     }

@@ -22,7 +22,8 @@ import {
 } from "./ui";
 import { useModal } from "./useModal";
 
-const hasContent = (sheet: WorkbookSheetChoice) => sheet.typed + sheet.formulas > 0;
+const hasContent = (sheet: WorkbookSheetChoice) =>
+  sheet.typed + sheet.formulas + (sheet.textRows ?? 0) > 0;
 
 /**
  * "Check someone else's file…" on a workbook (#3278): which sheet to check, and, if the User
@@ -51,8 +52,9 @@ export function WorkbookSheetDialog() {
   }, [path, sheets]);
 
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  const detail = (each: WorkbookSheetChoice) =>
-    hasContent(each)
+  const detail = (each: WorkbookSheetChoice) => {
+    const textRows = each.textRows ?? 0;
+    return hasContent(each)
       ? [
           each.typed > 0 &&
             t(each.typed === 1 ? "verify.workbook.typed.one" : "verify.workbook.typed", {
@@ -62,10 +64,15 @@ export function WorkbookSheetDialog() {
             t(each.formulas === 1 ? "verify.workbook.formulas.one" : "verify.workbook.formulas", {
               count: format(each.formulas),
             }),
+          textRows > 0 &&
+            t(textRows === 1 ? "verify.workbook.rows.one" : "verify.workbook.rows", {
+              count: format(textRows),
+            }),
         ]
           .filter((part) => part !== false)
           .join(" · ")
       : t("verify.workbook.empty");
+  };
   const problemText = (problem: WorkbookProblem) =>
     problem.kind === "too-many"
       ? t("verify.refused.tooMany", { typed: format(problem.typed), most: format(problem.most) })
@@ -76,11 +83,13 @@ export function WorkbookSheetDialog() {
     if (all) void checkWorkbook("", "", true);
     else if (sheet !== "") void checkWorkbook(sheet, range);
   };
+  const wholeTextRows = withContent.reduce((total, each) => total + (each.textRows ?? 0), 0);
   const whole: WorkbookSheetChoice = {
     name: "",
     rows: 0,
     typed: withContent.reduce((total, each) => total + each.typed, 0),
     formulas: withContent.reduce((total, each) => total + each.formulas, 0),
+    ...(wholeTextRows > 0 && { textRows: wholeTextRows }),
   };
   const reading = choosing?.reading === true;
 

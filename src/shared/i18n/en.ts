@@ -1881,6 +1881,8 @@ export const en = {
   "verify.workbook.typed": "{count} typed-in numbers",
   "verify.workbook.formulas.one": "1 formula",
   "verify.workbook.formulas": "{count} formulas",
+  "verify.workbook.rows.one": "1 row",
+  "verify.workbook.rows": "{count} rows",
   "verify.workbook.empty": "nothing to check",
   "verify.workbook.range": "Range (optional)",
   "verify.workbook.range.hint":

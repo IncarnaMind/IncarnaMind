@@ -1798,6 +1798,8 @@ export const zhCN = {
   "verify.workbook.typed": "{count} 个手动输入的数字",
   "verify.workbook.formulas.one": "1 个公式",
   "verify.workbook.formulas": "{count} 个公式",
+  "verify.workbook.rows.one": "1 行",
+  "verify.workbook.rows": "{count} 行",
   "verify.workbook.empty": "没有可核对的内容",
   "verify.workbook.range": "区域（可选）",
   "verify.workbook.range.hint": "留空则核对整个工作表。区域写成 B2:M40 这样。",
