@@ -32,7 +32,6 @@ import {
   READ_PART_TOKENS,
 } from "./access";
 import { OWN_VERDICT_WORDS } from "./ownCheck";
-import { SORTING_BATCH } from "./sorting";
 
 /** How the server names itself to agents. */
 export const SERVER_NAME = "incarnamind";
@@ -370,10 +369,9 @@ export function createAgentServer(
               newTags: z.array(z.string()).max(20).optional(),
             }),
           )
-          .min(1)
-          .max(SORTING_BATCH),
+          .min(1),
       }),
-      outputSchema: z.object({ waiting: z.number() }),
+      outputSchema: z.object({ waiting: z.number(), left: z.string().optional() }),
       annotations: { ...READ_ONLY, readOnlyHint: false },
     },
     ({ proposals }) => answer(() => access.proposeSorting(proposals)),

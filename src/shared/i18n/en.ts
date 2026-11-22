@@ -8884,6 +8884,10 @@ export const en = {
   "ai.jobs.organize.agent": "Ask your connected AI to suggest Folders and Tags.",
   "agents.sorting.tagConsent": "Share these Documents’ Tag names with the model {agent} uses?",
   "agents.sorting.shareTags": "Allow sharing Tag names",
+  "agents.sorting.left.one":
+    "The last of your {total} Suggestions wasn’t taken, to keep this call short: send it again in another call.",
+  "agents.sorting.left.other":
+    "The last {count} of your {total} Suggestions weren’t taken, to keep this call short: send them again in another call.",
   "agents.sorting.invalid":
     "The Documents or choices have changed. List the waiting Documents again and use their current Folders and Tags.",
   "agents.activity.list_sorting": "Read Documents waiting to be organized",
