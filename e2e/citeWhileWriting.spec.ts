@@ -532,8 +532,9 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       const label = language === "en" ? "Link a Document" : "链接文档";
       const picker = window.getByTestId("scope-picker");
-      const open = async () => {
-        await window.keyboard.press("ControlOrMeta+k");
+      const open = async (from: "shortcut" | "sidebar" = "shortcut") => {
+        if (from === "sidebar") await pointAndClick(window, window.getByTestId("sidebar-search"));
+        else await window.keyboard.press("ControlOrMeta+k");
         await window.getByTestId("palette-search").fill(`>${label}`);
         await expect(
           window.getByTestId("palette-item").filter({ hasText: label }).first(),
@@ -554,7 +555,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides");
 
       await window.keyboard.press("Shift+ArrowLeft");
-      await open();
+      await expect.poll(() => window.evaluate(() => getSelection()?.toString())).toBe("s");
+      // With words selected, the shortcut opens the URL editor. Sidebar Search opens the palette.
+      await open("sidebar");
       await window.keyboard.press("Escape");
       await expect(picker).toHaveCount(0);
       expect(await window.evaluate(() => getSelection()?.toString())).toBe("s");
