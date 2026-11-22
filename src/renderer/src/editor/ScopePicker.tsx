@@ -32,7 +32,7 @@ import { useT } from "../i18n";
 import { useTextSearch } from "../libraryTextSearch";
 import { blockedFrom, meetingChoices, type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
-import { listenForDocumentPickerKeys, takeTypedTrigger } from "./documentPicker";
+import { inNoteText, listenForDocumentPickerKeys, takeTypedTrigger } from "./documentPicker";
 import { asOneStep } from "./editorUndo";
 
 const DOCUMENTS_ONLY: readonly ScopeKind[] = ["document"];
@@ -148,7 +148,7 @@ export const ScopePicker = Extension.create({
             onStart(props) {
               renderer = new ReactRenderer(ScopePickerList, { editor: props.editor, props });
               unmount = props.mount(renderer.element);
-              if (inNote(props.editor.state, props.range.from)) {
+              if (inNoteText(props.editor)) {
                 const view = props.editor.view;
                 stopKeys = listenForDocumentPickerKeys(props.editor, (event) => {
                   const plugin = key.get(view.state);

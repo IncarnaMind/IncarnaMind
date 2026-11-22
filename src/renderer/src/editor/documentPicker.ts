@@ -53,7 +53,8 @@ export function listenForDocumentPickerKeys(
   const onKey = (event: KeyboardEvent) => {
     if (view.composing || event.isComposing || event.keyCode === 229 || event.key === "Process") {
       if (
-        view.dom.contains(event.target as Node) &&
+        event.target instanceof Node &&
+        view.dom.contains(event.target) &&
         (event.key === "Escape" || event.key === "Enter")
       )
         event.stopPropagation();
