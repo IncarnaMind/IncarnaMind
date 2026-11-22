@@ -1,5 +1,5 @@
 import { spawn as spawnNode } from "node:child_process";
-import { rm, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { afterEach, expect, it, vi } from "vitest";
 import { summarizeWithMeetingAgent } from "../../src/main/meetingSummaryAgent";
 
@@ -28,8 +28,13 @@ function invocation() {
   return call;
 }
 
+/** The system prompt Claude Code was given, read from its file while the turn ran. */
+let systemPrompt = "";
+
 function useProgram(program: string, observe?: (output: string) => void) {
-  launch.mockImplementation(async (_command, _args, options) => {
+  launch.mockImplementation(async (_command, args: string[], options) => {
+    const at = args.indexOf("--system-prompt-file");
+    if (at >= 0) systemPrompt = await readFile(args[at + 1] ?? "", "utf8");
     const child = spawnNode(process.execPath, ["-e", program], {
       cwd: options.cwd,
       detached: process.platform !== "win32",
@@ -286,8 +291,8 @@ it("requests only a JSON array for an explicit quote review in a connected agent
   await expect(summarizeWithMeetingAgent({ ...options, client: "claude-code" })).resolves.toBe(
     "[]",
   );
-  const args = invocation()[1];
-  expect(args[args.indexOf("--system-prompt") + 1]).toContain("only the requested JSON array");
+  expect(invocation()[1]).not.toContain("--system-prompt");
+  expect(systemPrompt).toContain("only the requested JSON array");
   useProgram(codexServer("text", prompt, "only the requested JSON array"));
   await expect(summarizeWithMeetingAgent({ ...options, client: "codex" })).resolves.toBe(
     "Green pens.",
