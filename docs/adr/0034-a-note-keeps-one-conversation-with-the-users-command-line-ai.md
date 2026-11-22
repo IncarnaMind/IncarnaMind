@@ -38,6 +38,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 - **What is selected is the context.** With words selected, the request is about them ("make this bold", "shorter") and changes nothing outside them. With nothing selected, it is about the whole Note. The Note in front is the context, not the limit: "use what my other note says about the ferry" reads that Note, within the connection's Folders (decision 4).
 - **A change to the Note the request was made from applies at once, with Undo,** as an edit the User asks of the assistant does (#880): the same applied-edit line over what changed, and one step of the Note's Undo. The owner decided this on 2026-11-22.
 - **A change to any other Note waits for the User,** as any agent's change does (#352): a Proposal, shown in the text, accepted or rejected with the one key for each.
+- **Where it writes** (#3677): with words selected, there; in an empty Note, the whole Note; otherwise at the cursor, which the request carries as the opening words of the cursor's paragraph, else at the end. A question is answered in the reply and changes nothing; the AI decides which a request is.
 - **With words selected,** a change applies at once only if it stays inside them.
   - Code confirms it, call by call: every change of one `propose_changes` call must be to a paragraph that holds the selection.
   - Each such paragraph's words outside the selection must read the same after the change as before (as plain text, so making the words bold or shorter is inside). The spacing right next to the selection may change with it: a figure written out in Chinese characters drops the spaces around it. A Citation or footnote there counts as one mark in those words, in the window and the core alike, so a change that drops one outside the selection waits.
@@ -143,17 +144,17 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
   - Its placeholder says what it is for ("Describe a change…" / "描述要做的修改…").
   - With text selected, a chip above it quotes the selection's start ("“The harbour handled…”") with ✕ to drop it.
   - Return sends, and Shift+Return makes a new line.
-- **The label above it, one line in `ink-meta`:**
-  - "Claude Code is working…";
-  - then what it is doing, from the run's own Tool calls in plain words ("Reading “Harbour notes”", "Searching your Documents for “ferry passengers”", "Proposing a change to the third paragraph");
-  - then its one line: what IncarnaMind saw it do ("Changed 1 paragraph" with the applied-edit line in the Note; "1 change waits in “Ferry notes”"), else the agent's own one line, shown as plain text with no link.
+- **One pill above it, centred, one line** (#3677), as the User's AI app shows its own:
+  - while the request runs: a small moving mark, "Working", then what the AI is doing, in its own words where it wrote some (it is asked to say in a few words what it is about to do before each step), else what it is reading and where ("Reading “Interview 3” · 4 read"), else "Thinking"; and the seconds since the request, from the third;
+  - when it ends: the first words of the AI's reply, cut to one line, with "Accept all" at its right end while changes wait in the Note, in place of the line across the top of the Note. Pressed, the pill opens into a card in its place: the whole reply, formatted, a close, and "Accept all" and "Open in chat" under it. The reply is in one place at a time: the pill, its card or the conversation.
+  - the run's thinking itself arrives empty in Claude Code's stream, so the pill can't show it; the words come from the lines the AI writes between its steps, and from its reply as it writes it.
 
-  The line keeps its height through every state (Feel, rule 2). It goes when the User types the next request.
+  The pill goes when the User types the next request. An applied change stays marked in the Note with its Undo, unlike the User's AI app, where a direct change leaves no mark.
 - **Stop:**
-  - While a run goes, Send is Stop (Esc too, from the input). Stop ends the run at once.
+  - While a run goes, Send is Stop (Esc too, from the input). Stop ends the run at once: the pill goes, the input is idle, and nothing is added in its place.
   - A change that applied before Stop stays, with its Undo; a change that waits stays waiting; nothing else lands.
   - While a run goes, Return does nothing new: only Stop, and Esc, act (the owner, 2026-11-22). A selection toolbar action then sends nothing either, and a line says the AI is still working and Stop comes first.
-- **A failure,** one line with one action, as for the check:
+- **A failure,** in the pill, one line with one action, as for the check:
   - not signed in;
   - too old;
   - the plan's or key's limit;
@@ -166,10 +167,11 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 
   It stays until the next request or ✕.
 - **The conversation:**
-  - It is hidden; a quiet "Show conversation" (显示对话) at the label's end opens it above the input, in the Note's column.
-  - It lists each request (the User's words, the selection's quote) and its reply line, newest last, from IncarnaMind's record.
+  - It is hidden; a quiet "Show conversation" (显示对话) beside the pill, or "Open in chat" in its card, opens it above the input, in the Note's column, never higher than a third of the window, so the Note stays in view.
+  - It lists each request (the User's words, the selection's quote) and its reply as the AI wrote it, formatted, newest last, from IncarnaMind's record.
   - Esc or "Hide conversation" closes it. It never opens by itself.
-- **Explain, Improve writing, Shorten and Translate** in the selection toolbar fill the input with their request and send it. Explain's answer shows in the label's place, as an explanation card under the input, and changes nothing.
+- **Explain, Improve writing, Shorten and Translate** in the selection toolbar fill the input with their request and send it. Explain's answer shows in the pill, and its card, and changes nothing.
+- **A run that sends nothing for two minutes is stopped,** with a plain line ("{agent} stopped answering for two minutes, so it stopped. Send it again."). While it works, Claude Code sends a tick about every second as it thinks, and its words as it writes them (partial messages), so two minutes of silence means nothing is coming. Before #3677 the only way out was the 15 minutes of the run's own limit.
 - **What this changes in `DESIGN.md`,** by the owner's decision: "A Mind has no composer of its own" gives way, since a Note now has this one input. A change the User asked for still applies at once with Undo, as there, in the Note it was asked from. The design entry is the owner's to change.
 
 ### 8. Time

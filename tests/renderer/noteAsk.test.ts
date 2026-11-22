@@ -64,6 +64,7 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   pairingId: "p1",
   state: "working",
   doing: null,
+  startedAt: "2026-11-22T10:00:00.000Z",
   problem: null,
   reply: "",
   applied: [],
@@ -91,8 +92,9 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(await askInNote("m1", { words: "shorter", quote: "", selection: null })).toBe("started");
     expect(bridge.asked).toEqual([{ mindId: "m1", words: "shorter" }]);
     expect(ask()).toMatchObject({ state: "working", agent: "Claude Code" });
-    tell(event({ doing: { tool: "read_mind", summary: "Ferry notes" } }));
-    expect(ask()?.doing).toEqual({ tool: "read_mind", summary: "Ferry notes" });
+    const reading = { kind: "call", tool: "read_mind", summary: "Ferry notes", count: 1 } as const;
+    tell(event({ doing: reading }));
+    expect(ask()?.doing).toEqual(reading);
     const applied = [{ mindId: "m1", request: "r1", changed: 1, added: 0, tables: 0 }];
     tell(event({ state: "landed", applied, reply: "Shorter." }));
     expect(ask()).toMatchObject({ state: "landed", changed: 1, reply: "Shorter." });

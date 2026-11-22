@@ -12,7 +12,13 @@ import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { stopProcessTree } from "../core/execution";
-import { ClaudeCodeIsolationError, drained, object, runClaudeCodeTurn } from "./claudeCode";
+import {
+  ClaudeCodeIsolationError,
+  ClaudeCodeStalledError,
+  drained,
+  object,
+  runClaudeCodeTurn,
+} from "./claudeCode";
 import { createLoginShellProcesses } from "./processes";
 
 const processes = createLoginShellProcesses();
@@ -25,6 +31,12 @@ const MAX_RUN_BYTES = 8 * 1024 * 1024;
 /** As much of the agent's last reply as the Note's label and its conversation show. */
 const MAX_REPLY_CHARS = 4000;
 const STATUS_MS = 15_000;
+/**
+ * How long a run may send nothing before it is stopped as stalled. While it works it sends a tick
+ * about every second as it thinks, and its words as it writes; the longest quiet in #3677's real
+ * runs was a Tool call of a second or two.
+ */
+const STALL_MS = 120_000;
 
 /** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
 const NOTHING_TO_PURGE = /No Claude Code project data found/;
@@ -133,9 +145,12 @@ async function onPath(command: string): Promise<boolean> {
 export function createOwnAi({
   command = "claude",
   conversations,
+  stallMs = STALL_MS,
 }: {
   command?: string;
   conversations?: string;
+  /** How long a run may send nothing before it is stopped as stalled. */
+  stallMs?: number;
 } = {}): OwnAiRunner {
   const folderOf = (key: string) => {
     if (!conversations || !/^[A-Za-z0-9-]{1,64}$/.test(key)) {
@@ -180,6 +195,25 @@ export function createOwnAi({
       // The category of the request that failed last, if Claude Code named one IncarnaMind words.
       let failure: OwnAiFailure | null = null;
       let begun = false;
+      // The words of the text block being written, as its pieces come.
+      let written = "";
+      const heardPart = (event: Record<string, unknown>) => {
+        const block = object(event.content_block);
+        const delta = object(event.delta);
+        if (event.type === "content_block_start" && block.type === "tool_use" && ours(block.name)) {
+          request.progress?.({
+            kind: "tool",
+            name: String(block.name).slice(`mcp__${SERVER}__`.length),
+          });
+        } else if (event.type === "content_block_start" && block.type === "text") {
+          written = "";
+        } else if (event.type === "content_block_start" && block.type === "thinking") {
+          request.progress?.({ kind: "thinking" });
+        } else if (delta.type === "text_delta" && typeof delta.text === "string") {
+          written = `${written}${delta.text}`.slice(0, MAX_REPLY_CHARS);
+          request.progress?.({ kind: "said", text: written });
+        }
+      };
       try {
         if (conversation) await mkdir(cwd, { recursive: true, mode: 0o700 });
         const configFile = join(scratch, "mcp.json");
@@ -204,7 +238,17 @@ export function createOwnAi({
             session: { id: conversation.sessionId, resume: conversation.resume },
           }),
           permissionMode: request.permissionMode,
+          partial: true,
+          stallMs,
           onMessage(message) {
+            if (message.type === "stream_event") {
+              if (begun) heardPart(object(message.event));
+              return;
+            }
+            if (message.type === "system" && message.subtype === "thinking_tokens") {
+              request.progress?.({ kind: "thinking" });
+              return;
+            }
             if (message.type === "system" && message.subtype === "init") {
               const { tools, mcp_servers: servers } = message;
               // Only IncarnaMind's server, connected, and its Tools: anything else, a flag didn't hold.
@@ -230,10 +274,18 @@ export function createOwnAi({
             if (!begun) throw new StrayRunError("a reply before its start");
             // A reply that came back ends whatever an earlier retry was about.
             failure = failureOf(message.error);
+            written = "";
             const content = object(message.message).content;
             for (const part of Array.isArray(content) ? content.map(object) : []) {
               // A call to one of IncarnaMind's other Tools is denied by Claude Code and refused by
               // the server; any other call, of a tool of its own or one its servers run, stops it.
+              if (
+                part.type === "text" &&
+                typeof part.text === "string" &&
+                part.text.trim() !== ""
+              ) {
+                request.progress?.({ kind: "said", text: part.text.slice(0, MAX_REPLY_CHARS) });
+              }
               const call = typeof part.type === "string" && part.type.endsWith("tool_use");
               if (call && !(part.type === "tool_use" && ours(part.name))) {
                 throw new StrayRunError("a call to a tool of its own");
@@ -253,6 +305,7 @@ export function createOwnAi({
         if (request.signal.aborted) throw error;
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
+        if (error instanceof ClaudeCodeStalledError) return { kind: "failed", reason: "stalled" };
         if (error instanceof StrayRunError) console.warn(error.message);
         if (signal.aborted) return { kind: "failed", reason: "timeout" };
         return { kind: "failed", reason: failure ?? "other" };

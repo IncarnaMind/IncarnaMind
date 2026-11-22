@@ -12,6 +12,7 @@ import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/lineIcons";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
+import { useNoteAsks } from "../ownAiInNote";
 import { useReviewPanes } from "../reviewPane";
 import { useAppStore } from "../store";
 import {
@@ -195,8 +196,11 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       return { theirs, assistant, agents };
     },
   });
+  // The pill above the Note's input says it, with its Accept all, once a request there ends (#3677).
+  const pillSaysIt = useNoteAsks((state) => state.byMind[mindId]?.state === "landed");
   const theirLine = theirs.count > 0 && !reviewing;
-  if (!theirLine && assistant.ids.length === 0) return null;
+  const aiLine = assistant.ids.length > 0 && !pillSaysIt;
+  if (!theirLine && !aiLine) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a region of the Mind, not a page landmark.
     <div
@@ -206,7 +210,7 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       className="proposals-bar"
     >
       {theirLine && <TheirChangesLine theirs={theirs} mindId={mindId} />}
-      {assistant.ids.length > 0 && (
+      {aiLine && (
         <GroupLine
           group={assistant}
           agents={agents.only ? agents.names : []}

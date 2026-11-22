@@ -32,6 +32,7 @@ const PROBLEM_OF: Record<OwnAiFailure, OwnAiCheckProblem> = {
   timeout: "timeout",
   isolation: "isolation",
   "lost-conversation": "failed",
+  stalled: "stalled",
   other: "failed",
 };
 

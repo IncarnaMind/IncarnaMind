@@ -40,6 +40,22 @@ export interface ClaudeCodeTurn {
   permissionMode?: "dontAsk";
   /** Each message before the result, from the first; one that throws stops the turn. */
   onMessage?(message: Record<string, unknown>): void;
+  /** The stream carries the words and each Tool call as they come (`stream_event` messages). */
+  partial?: boolean;
+  /**
+   * How long Claude Code may send nothing before the turn is stopped as stalled. A turn that
+   * still works never stays quiet that long: it sends a tick while it thinks, and with `partial`
+   * its words as it writes them.
+   */
+  stallMs?: number;
+}
+
+/** The turn sent nothing for as long as `stallMs`, and was stopped. */
+export class ClaudeCodeStalledError extends Error {
+  constructor() {
+    super("Claude Code stopped sending anything, so the request was stopped.");
+    this.name = "ClaudeCodeStalledError";
+  }
 }
 
 const SYSTEM_PROMPT_FILE = "system-prompt.txt";
@@ -89,6 +105,7 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
     "--output-format",
     "stream-json",
     "--verbose",
+    ...(turn.partial ? ["--include-partial-messages"] : []),
     "--settings",
     '{"disableAllHooks":true,"disableClaudeAiConnectors":true}',
     // On Windows an npm-installed `claude.cmd` runs through cmd.exe, where a line break in an
@@ -148,10 +165,26 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     lines.close();
   };
   let bytes = 0;
+  let heard = Date.now();
+  let stalled = false;
   child.stdout.on("data", (chunk: Buffer) => {
+    heard = Date.now();
     bytes += chunk.length;
     if (bytes > turn.maxResponseBytes) stop();
   });
+  const { stallMs } = turn;
+  const watch =
+    stallMs === undefined
+      ? undefined
+      : setInterval(
+          () => {
+            if (Date.now() - heard <= stallMs) return;
+            stalled = true;
+            stop();
+          },
+          Math.min(5_000, stallMs / 4),
+        );
+  watch?.unref?.();
   signal.addEventListener("abort", stop, { once: true });
   try {
     signal.throwIfAborted();
@@ -199,8 +232,10 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
       turn.onMessage?.(msg);
     }
     signal.throwIfAborted();
+    if (stalled) throw new ClaudeCodeStalledError();
     throw new Error("Claude Code could not complete the request.");
   } finally {
+    clearInterval(watch);
     signal.removeEventListener("abort", stop);
     stop();
     await drained(child, closed);

@@ -176,7 +176,7 @@ async function written(ownAi: OwnAiRunner, { readOnly = false, cited = false } =
   core.on("agents.noteTurn", (turn) => turns.push(turn));
   const ended = (count = 1) =>
     expect
-      .poll(() => turns.filter((turn) => turn.state !== "working").length)
+      .poll(() => turns.filter((turn) => turn.state !== "working").length, { timeout: 5_000 })
       .toBeGreaterThanOrEqual(count)
       .then(() => turns.filter((turn) => turn.state !== "working")[count - 1]);
   const blockIdOf = (index: number) => String(readMind(client).child(index).attrs.id);
@@ -260,6 +260,36 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await away.core.askInNote({ mindId: away.mindId, words: "shorter" })).toEqual({
       kind: "link",
     });
+  });
+
+  // protects=while a request runs, every window hears when it started and what it is doing: the AI's own words as it writes them, and each call with what it names (the Document a reading read); fails_when=the line can only show the last Tool's name, or no Document's name
+  it("tells what the run is doing as it goes", async () => {
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+    const run = runner(async (agent, request) => {
+      request.progress?.({ kind: "said", text: "Reading the report" });
+      await pause();
+      const found = structured<{ passages: { documentId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers" } }),
+      ).passages[0];
+      await agent.callTool({ name: "read_passages", arguments: { documentId: found?.documentId } });
+      await pause();
+      request.progress?.({ kind: "thinking" });
+      await pause();
+      return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    await ended();
+    const working = turns.filter((turn) => turn.state === "working");
+    expect(working[0]?.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(working.map((turn) => turn.doing)).toEqual(
+      expect.arrayContaining([
+        { kind: "said", text: "Reading the report" },
+        { kind: "call", tool: "read_passages", summary: "Report", count: 1 },
+      ]),
+    );
+    // After a call, thinking is what it is doing: its words, when it writes some, come next.
+    expect(working.at(-1)?.doing).toEqual({ kind: "thinking" });
   });
 
   // protects=a turn ends when its run does, though the command line's connection is still open and listening for the Tool list to change, as Claude Code's can be then; fails_when=closing that connection waits on a message to a socket already gone, and the request stays working for good
@@ -481,7 +511,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await expect.poll(() => back.purged).toEqual([back.runs[0]?.conversation?.key]);
   });
 
-  // protects=a connection that may only read ends a request that would change something with the line that offers to let it propose, and a request that only reads still answers, in plain words where the agent wrote Markdown; fails_when=the read-only refusal shows as a generic failure, an explanation is refused, or its answer shows Markdown's marks
+  // protects=a connection that may only read ends a request that would change something with the line that offers to let it propose, and a request that only reads still answers, its Markdown kept for the conversation to show; fails_when=the read-only refusal shows as a generic failure, an explanation is refused, or its answer loses its structure
   it("says a read-only connection may only read, and still answers what only reads", async () => {
     let explain = false;
     const run = runner(async (agent, request) => {
@@ -505,13 +535,10 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await ended(1)).toMatchObject({ state: "failed", problem: "read-only" });
     explain = true;
     await core.askInNote({ mindId, words: "explain this" });
-    expect(await ended(2)).toMatchObject({
-      state: "landed",
-      reply: "It counts each crossing: out and back",
-    });
-    expect((await core.noteConversation(mindId)).at(-1)?.reply).toBe(
-      "It counts each crossing: out and back",
-    );
+    // Kept as the AI wrote it: the conversation shows its Markdown, the line its first words.
+    const answer = "It counts **each crossing**:\n- out\n- and back";
+    expect(await ended(2)).toMatchObject({ state: "landed", reply: answer });
+    expect((await core.noteConversation(mindId)).at(-1)?.reply).toBe(answer);
   });
 
   // protects=a Folder linking made and the User gave the connection is read in a Note's conversation as by any other call of that connection, and one it wasn't given isn't (#3613); fails_when=the conversation finds the linked folder's file where a call doesn't, or misses it where a call finds it

@@ -2573,23 +2573,98 @@
     flex-direction: column;
     gap: 6px;
   }
-  .note-ask-line-row {
+  /* The row above the input: the pill in the middle, the conversation's toggle at the right. */
+  .note-ask-over {
+    position: relative;
     display: flex;
-    align-items: baseline;
-    gap: 12px;
+    justify-content: center;
+    min-height: 28px;
   }
-  .note-ask-line {
-    min-height: 20px;
-    margin: 0;
+  .note-ask-over > .note-ask-toggle {
+    position: absolute;
+    right: 0;
+    bottom: 4px;
+  }
+  .note-ask-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(100%, 560px);
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: 999px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 20px;
     color: var(--color-ink-meta);
-    overflow-wrap: break-word;
   }
-  .note-ask-line-row > .note-ask-line {
-    flex: 1 1 auto;
+  .note-ask-over:has(> .note-ask-toggle) > .note-ask-pill {
+    max-width: min(calc(100% - 320px), 560px);
+  }
+  .note-ask-pill-text {
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .note-ask-pill-reply {
+    color: var(--color-ink);
+    text-align: left;
+    &:hover {
+      text-decoration: underline;
+      text-decoration-color: var(--color-rule-strong);
+      text-underline-offset: 3px;
+    }
+  }
+  .note-ask-pill-time {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .note-ask-pill-action {
+    flex: none;
+    font-weight: 600;
+    color: var(--color-accent);
+    &:hover {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+  }
+  /* The mark that says a request is running: three dots, in turn. */
+  .note-ask-dots {
+    display: inline-flex;
+    flex: none;
+    gap: 3px;
+    > span {
+      width: 4px;
+      height: 4px;
+      border-radius: 999px;
+      background: currentColor;
+      animation: note-ask-dot 1.2s ease-in-out infinite;
+    }
+    > span:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+    > span:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .note-ask-dots > span {
+      animation: none;
+    }
+  }
+  @keyframes note-ask-dot {
+    0%,
+    80%,
+    100% {
+      opacity: 0.25;
+    }
+    40% {
+      opacity: 1;
+    }
   }
   .note-ask-toggle {
     flex: none;
@@ -2604,19 +2679,64 @@
       color: var(--color-ink);
     }
   }
-  .note-ask-reply-card {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .note-ask-answer {
-    max-height: 12rem;
-    margin: 0;
+  /* The reply opened from the pill, in its place. */
+  .note-ask-card {
+    position: relative;
+    max-height: 40vh;
     overflow: auto;
+    padding: 12px 36px 12px 16px;
+    border: 1px solid var(--color-rule);
+    border-radius: 12px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+  }
+  .note-ask-card-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    color: var(--color-ink-meta);
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .note-ask-card-actions {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  /* A reply as the AI wrote it, at the size of the app's reading text in a narrow place. */
+  .note-ask-reply-text {
+    margin: 0;
     font-family: var(--font-sans);
     font-size: var(--text-ui);
     line-height: var(--text-ui--line-height);
     color: var(--color-ink);
-    white-space: pre-wrap;
+    .document-markdown {
+      font-family: var(--font-sans);
+      font-size: inherit;
+      line-height: inherit;
+      > * + * {
+        margin-top: 8px;
+      }
+      > :is(h1, h2, h3, h4, h5, h6):not(:first-child) {
+        margin-top: 12px;
+      }
+      :is(h1, h2, h3, h4, h5, h6) {
+        font-size: inherit;
+        line-height: inherit;
+        font-weight: 600;
+      }
+    }
   }
   .note-ask-quote {
     padding: 8px 12px 0 11px;
@@ -2625,7 +2745,7 @@
     max-width: 100%;
   }
   .note-ask-conversation {
-    max-height: 40vh;
+    max-height: 30vh;
     overflow: auto;
     padding-block: 8px;
     border-top: 1px solid var(--color-rule);

@@ -13250,6 +13250,8 @@ export type OwnAiCheckProblem =
   | "plan-limit"
   | "billing"
   | "timeout"
+  /** It sent nothing for two minutes, and was stopped. */
+  | "stalled"
   | "no-marks"
   | "isolation"
   | "access"
@@ -13300,6 +13302,8 @@ export interface NoteRequestInput {
   /** The words selected, as they read: the request's context. Absent: the whole Note. */
   quote?: string;
   selection?: NoteSelectionBlock[];
+  /** With nothing selected, the opening words of the paragraph the cursor is in: where to write. */
+  caret?: string;
   /** The agent to ask; absent: the first that can run in the background. */
   pairingId?: string;
 }
@@ -13363,14 +13367,28 @@ export interface NoteTurnEvent {
   turnId: string;
   pairingId: string;
   state: "working" | "landed" | "stopped" | "failed";
-  doing: { tool: AgentToolName; summary: string } | null;
+  /** What it is doing now, as the line above the input says it; null before its first step. */
+  doing: NoteDoing | null;
   problem: NoteTurnProblem | null;
+  /** The AI's reply, as Markdown: whole at the end, and as it is written while it writes. */
   reply: string;
+  /** When the request was sent, ISO 8601 UTC: the line counts the seconds from it. */
+  startedAt: string;
   applied: NoteChangeApplied[];
   waiting: { mindId: string; title: string; count: number }[];
   made: { title: string }[];
   fresh: boolean;
 }
+
+/**
+ * What a request at a Note's foot is doing, as its line says it (#3677): a Tool call, with what it
+ * names (a Note's or Document's title) and how many of that Tool's calls it has made so far; the
+ * AI's own words to the User, as it writes them; or thinking, whose words the run doesn't carry.
+ */
+export type NoteDoing =
+  | { kind: "call"; tool: AgentToolName; summary: string; count: number }
+  | { kind: "said"; text: string }
+  | { kind: "thinking" };
 
 /**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that

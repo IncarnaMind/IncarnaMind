@@ -54,7 +54,14 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     tools: tools.map((tool) => `mcp__incarnamind__${tool.name}`),
     mcp_servers: [{ name: "incarnamind", status: "connected" }],
   });
-  if (mode === "wait") return;
+  if (mode === "wait") {
+    // Says what it is about to do, as the instructions ask, then works on until it is stopped.
+    say({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Looking at your note" }] },
+    });
+    return;
+  }
   if (mode === "limit") {
     say({ type: "system", subtype: "api_retry", error: "rate_limit", attempt: 1 });
     say({ type: "result", subtype: "success", is_error: true, result: "Limit reached." });

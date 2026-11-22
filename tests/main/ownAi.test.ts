@@ -507,3 +507,64 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     }
   });
 });
+
+describe("a run that goes quiet, and one that says what it does (#3677)", () => {
+  const ask = (progress?: (step: unknown) => void, stallMs?: number) =>
+    createOwnAi(stallMs === undefined ? {} : { stallMs }).run({
+      client: "claude-code",
+      server: SERVER,
+      tools: TOOLS,
+      instructions: INSTRUCTIONS,
+      prompt: "Check my note “Tides” in IncarnaMind (mindId: m1).",
+      ...(progress && { progress }),
+      signal: new AbortController().signal,
+    });
+
+  // protects=a run whose Claude Code sends nothing for the stall limit ends by itself with a plain reason, well before the run's own limit; fails_when=a run that makes no progress waits out the 15 minutes
+  it("stops a run that sends nothing, as stalled", async () => {
+    useClaude({ run: `${session([init()])}; setInterval(() => undefined, 1000);` });
+    const started = Date.now();
+    await expect(ask(undefined, 500)).resolves.toEqual({ kind: "failed", reason: "stalled" });
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+
+  // protects=what the run says to the User between its calls, and each call as it starts, reach IncarnaMind as they come; fails_when=the line can only show a call once it has ended
+  it("says what the run is doing as its stream tells it", async () => {
+    const steps: unknown[] = [];
+    const part = (event: unknown) => ({ type: "stream_event", event });
+    useClaude({
+      run: session([
+        init(),
+        part({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+        part({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Reading " },
+        }),
+        part({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "the tides" },
+        }),
+        part({
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "tool_use", name: "mcp__incarnamind__search", input: {} },
+        }),
+        { type: "system", subtype: "thinking_tokens", estimated_tokens: 40 },
+        done,
+      ]),
+    });
+    await expect(ask((step) => steps.push(step))).resolves.toEqual({
+      kind: "finished",
+      reply: "Checked.",
+    });
+    expect(steps).toEqual([
+      { kind: "said", text: "Reading " },
+      { kind: "said", text: "Reading the tides" },
+      { kind: "tool", name: "search" },
+      { kind: "thinking" },
+    ]);
+    expect(launch.mock.calls.at(-1)?.[1]).toContain("--include-partial-messages");
+  });
+});

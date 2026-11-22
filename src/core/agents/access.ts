@@ -2473,7 +2473,13 @@ export function createAgentAccess(
             input?.from !== undefined
               ? readOn(reach, input.from)
               : await readStart(reach, input?.documentId);
-          return { result, count: result.passages.length, documentIds: [result.documentId] };
+          // The Document it read, by its name: what the Note's line says it is reading (#3677).
+          return {
+            result,
+            count: result.passages.length,
+            documentIds: [result.documentId],
+            summary: result.document,
+          };
         }
         // More than it reads is no reason to refuse: `previous` and `next` say how to read on (#3586).
         const around = (given: unknown, what: string) =>
@@ -2505,6 +2511,7 @@ export function createAgentAccess(
           },
           count: inRange.length,
           documentIds: [documentId],
+          summary: first.documentName,
         };
       });
     },

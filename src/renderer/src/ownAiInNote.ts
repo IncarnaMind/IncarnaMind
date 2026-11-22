@@ -28,6 +28,8 @@ export interface NoteAsked {
   words: string;
   quote: string;
   selection: NoteSelectionBlock[] | null;
+  /** With nothing selected, the opening words of the paragraph the cursor is in; "" for none. */
+  caret?: string;
 }
 
 /** A Note's latest request at its foot, as the input and its label show it. */
@@ -37,6 +39,8 @@ export interface NoteAsk {
   agent: string;
   state: NoteTurnEvent["state"];
   doing: NoteTurnEvent["doing"];
+  /** When it was sent, ISO 8601 UTC: the line counts the seconds from it while it runs. */
+  startedAt: string | null;
   problem: NoteTurnProblem | null;
   versions: { found: string; lowest: string } | null;
   reply: string;
@@ -99,12 +103,19 @@ const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMi
 function heard(event: NoteTurnEvent): void {
   const was = useNoteAsks.getState().byMind[event.mindId];
   if (was && was.turnId !== null && was.turnId !== event.turnId && was.state === "working") return;
+  // Stopped, the request leaves nothing behind: no line, no reply (#3677).
+  if (event.state === "stopped") {
+    askedHere.delete(event.turnId);
+    put(event.mindId, null);
+    return;
+  }
   put(event.mindId, {
     turnId: event.turnId,
     pairingId: event.pairingId,
     agent: was?.agent || nameOf(event.mindId, event.pairingId),
     state: event.state,
-    doing: event.doing ?? (event.state === "working" ? (was?.doing ?? null) : null),
+    doing: event.state === "working" ? event.doing : null,
+    startedAt: event.startedAt,
     problem: event.problem,
     versions: null,
     reply: event.reply,
@@ -159,6 +170,7 @@ export async function askInNote(
     words: asked.words,
     ...(asked.quote !== "" && { quote: asked.quote }),
     ...(asked.selection && { selection: asked.selection }),
+    ...(asked.caret && !asked.selection && { caret: asked.caret }),
   });
   if (start.kind === "link") return "link";
   const base: NoteAsk = {
@@ -167,6 +179,7 @@ export async function askInNote(
     agent: start.pairing.name,
     state: start.kind === "started" ? "working" : "failed",
     doing: null,
+    startedAt: start.kind === "started" ? new Date().toISOString() : null,
     problem: start.kind === "problem" ? start.problem : null,
     versions: start.kind === "problem" ? (start.versions ?? null) : null,
     reply: "",
@@ -230,6 +243,19 @@ export const clearNoteAsk = (mindId: string): void => {
   const ask = useNoteAsks.getState().byMind[mindId];
   if (ask && ask.state !== "working") put(mindId, null);
 };
+
+/** The opening words of the paragraph the cursor is in, with nothing selected: where to write. */
+export function caretOf(state: EditorState): string {
+  const { empty, $from } = state.selection;
+  if (!empty || $from.depth === 0) return "";
+  return state.doc
+    .child($from.index(0))
+    .textBetween(0, state.doc.child($from.index(0)).content.size, " ", "")
+    .trim()
+    .slice(0, CARET_WORDS);
+}
+
+const CARET_WORDS = 80;
 
 /**
  * An inline node in the text around a selection, as the core reads it there

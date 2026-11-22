@@ -1672,7 +1672,19 @@ export type OwnAiFailure =
   | "isolation"
   /** A kept conversation Claude Code no longer has: its own sweep or the User removed it. */
   | "lost-conversation"
+  /** Claude Code sent nothing for as long as a run that still works never stays quiet. */
+  | "stalled"
   | "other";
+
+/**
+ * What a run is doing, as its stream says while it goes: the words it writes to the User (between
+ * its Tool calls, or its reply as it comes), a Tool call it starts, or a moment of thinking, whose
+ * words the stream doesn't carry.
+ */
+export type OwnAiProgress =
+  | { kind: "said"; text: string }
+  | { kind: "tool"; name: string }
+  | { kind: "thinking" };
 
 /**
  * The User's own command-line AI, started once for a job the User pressed, with no window and no
@@ -1699,6 +1711,8 @@ export interface OwnAiRunner {
     instructions: string;
     prompt: string;
     conversation?: { key: string; sessionId: string; resume: boolean };
+    /** Hears what the run is doing as it goes; with it, the stream carries the words as they come. */
+    progress?(step: OwnAiProgress): void;
     signal: AbortSignal;
   }): Promise<{ kind: "finished"; reply: string } | { kind: "failed"; reason: OwnAiFailure }>;
   /**
