@@ -16,6 +16,9 @@ const STEPS: readonly string[] = [
 
 const NARROWEST = STEPS.indexOf("added format narrowest");
 
+// A newly opened Library usually has the same room. Start there and verify its actual rows.
+let lastFittedColumns = "";
+
 /** A name that would take more than this is asked for no more: one long name doesn't clear the columns. */
 const WORTH_ROOM = 320;
 
@@ -62,7 +65,7 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
     const fitColumns = () => {
       const names = namesOf(element);
       const settled = leastGivenUp(
-        Math.max(0, STEPS.indexOf(element.dataset.hide ?? "")),
+        Math.max(0, STEPS.indexOf(element.dataset.hide ?? lastFittedColumns)),
         STEPS.length - 1,
         (step) => {
           element.dataset.hide = STEPS[step] ?? "";
@@ -70,7 +73,8 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
           return !names.some((name) => isCut(name, step === NARROWEST ? A_FEW_LETTERS : 0));
         },
       );
-      element.dataset.hide = STEPS[settled] ?? "";
+      lastFittedColumns = STEPS[settled] ?? "";
+      element.dataset.hide = lastFittedColumns;
       widths = widthsOf(element);
       words = names.map((name) => name.textContent).join("\n");
     };
