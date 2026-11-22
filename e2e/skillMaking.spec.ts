@@ -292,6 +292,14 @@ test("in Chinese and in a narrow window: the Skills page, the draft and the pick
   await window.getByRole("button", { name: "设置" }).click();
   await window.getByTestId("settings-nav-skills").click();
   await expect(window.getByTestId("skills-yours")).toContainText("scripted-review");
+  const templates = window.getByTestId("skills-meetings");
+  await expect(templates.getByRole("heading", { name: "会议", exact: true })).toBeVisible();
+  const sales = templates.locator('[data-skill-name="meeting-sales"]');
+  await expect(sales).toContainText("销售通话");
+  await sales.scrollIntoViewIfNeeded();
+  const bounds = await sales.boundingBox();
+  expect(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 901).toBe(true);
+  await shot(window, "meeting-templates-zh-narrow");
   const saved = window.getByTestId("skills-yours").getByTestId("skill-item").first();
   await saved.getByTestId("skill-menu").click();
   await saved.getByTestId("skill-export").click();

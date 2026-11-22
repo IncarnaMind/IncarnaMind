@@ -54,7 +54,7 @@ import {
 import { usePopoverMenu } from "./usePopoverMenu";
 
 /** What the editor in Settings is for: a new Skill, or changing one of the User's. */
-type Editing = { kind: "new" } | { kind: "edit"; skill: Skill; draft: SkillDraft };
+type Editing = { kind: "new" | "new-meeting" } | { kind: "edit"; skill: Skill; draft: SkillDraft };
 
 /** How the last Export as zip went. */
 type Exported =
@@ -171,8 +171,9 @@ export function SkillsSettings() {
     }
   };
 
-  const yours = skills.filter((skill) => !skill.builtIn);
-  const builtIn = skills.filter((skill) => skill.builtIn);
+  const yours = skills.filter((skill) => !skill.builtIn && !skill.meetingTemplate);
+  const builtIn = skills.filter((skill) => skill.builtIn && !skill.meetingTemplate);
+  const meetings = skills.filter((skill) => skill.meetingTemplate);
   const row = (skill: Skill) =>
     editing?.kind === "edit" && editing.skill.id === skill.id ? (
       <div key={skill.id} className="p-3">
@@ -292,6 +293,32 @@ export function SkillsSettings() {
           </p>
         ) : (
           <SettingsGroup>{yours.map(row)}</SettingsGroup>
+        )}
+      </SettingsSection>
+
+      <SettingsSection testId="skills-meetings" title={t("skills.settings.meetings")}>
+        {meetings.length > 0 && <SettingsGroup>{meetings.map(row)}</SettingsGroup>}
+        {editing?.kind === "new-meeting" ? (
+          <SkillEditor
+            testId="meeting-template-editor"
+            initial={NEW_SKILL}
+            title={t("skills.settings.newMeeting")}
+            save={(draft) => core.createSkill({ ...draft, meetingTemplate: true })}
+            onSaved={() => close(editing)}
+            onCancel={() => close(editing)}
+          />
+        ) : (
+          <button
+            type="button"
+            data-testid="meeting-template-new"
+            className={buttonStyle("secondary", "sm")}
+            onClick={() => {
+              editorAsked();
+              setEditing({ kind: "new-meeting" });
+            }}
+          >
+            {t("skills.settings.newMeeting")}
+          </button>
         )}
       </SettingsSection>
 
