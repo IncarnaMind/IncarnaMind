@@ -3495,7 +3495,7 @@ export function createAgentAccess(
                 )
               : undefined;
           if (run?.ok) for (const id of run.backing.documentIds) worked.add(id);
-          // The run's report said so too; told again here, the agent can run it once more.
+          // The run's report named it too; told here beside the sentence, the agent can cite its quote.
           if (run && !run.ok && run.reason === "number-not-worked-out" && run.detail) {
             workings.push(
               `${each.n}: the run's code writes ${run.detail} itself, and no quote cited with this sentence gives it: cite the quote that states it with the sentence, or work the figure out without it`,
