@@ -355,10 +355,20 @@ describe("Canvases an outside agent publishes", () => {
   it("cite with the tokens IncarnaMind gave the agent: each a marker that opens its own Citation alone", async () => {
     const { core, coast, writer } = await twoAgents();
     const agent = await connectLegacyAgent(writer.launch);
-    const found = structured<{ passages: { cite: string | null }[] }>(
+    const found = structured<{ passages: { passageId: string }[] }>(
       await agent.callTool({ name: "search", arguments: { query: "spring tides twice a month" } }),
     );
-    const cite = found.passages.find((each) => each.cite)?.cite ?? "";
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: {
+          citations: [
+            { passageId: found.passages[0]?.passageId, quote: "Spring tides come twice a month." },
+          ],
+        },
+      }),
+    );
+    const cite = citations[0]?.cite ?? "";
     expect(cite).toMatch(/^\[cite:[a-z0-9]+\]$/);
     const token = cite.slice(6, -1);
     const html = `<p>Spring tides come twice a month ${cite}.</p><p>Made up [cite:zz999999].</p>`;

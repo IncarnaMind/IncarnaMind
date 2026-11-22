@@ -225,8 +225,20 @@ for (const [protocol, documents] of [
           name: "search",
           arguments: { query: "spring tides new moon" },
         });
-        const output = found.structuredContent as { passages: { cite: string | null }[] };
-        const cite = output.passages[0]?.cite;
+        const output = found.structuredContent as { passages: { passageId: string }[] };
+        const cited = await client.callTool({
+          name: "cite",
+          arguments: {
+            citations: [
+              {
+                passageId: output.passages[0]?.passageId,
+                quote: "Spring tides happen at new moon and full moon.",
+              },
+            ],
+          },
+        });
+        const cite = (cited.structuredContent as { citations: { cite: string | null }[] })
+          .citations[0]?.cite;
         expect(cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
         const checked = await client.callTool({
           name: "check_citations",

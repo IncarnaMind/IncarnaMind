@@ -162,7 +162,10 @@ export interface AgentSearchInput {
   page?: number;
 }
 
-/** A Passage as an agent gets it: compact, with a ready Citation. */
+/**
+ * A Passage as an agent gets it from a search: compact, and with no Citation, which `cite` makes
+ * of the words a claim rests on. A ready one of its best sentence went after claims on other words.
+ */
 export interface AgentPassage {
   passageId: string;
   documentId: string;
@@ -170,12 +173,8 @@ export interface AgentPassage {
   document: string;
   /** Where it is, e.g. "p. 12" or "slide 4"; null when the Document has no such units. */
   location: string | null;
-  /** Its sentence that best matches the search, checked as found; null if none could be. */
-  quote: string | null;
-  /** A ready Citation of `quote`, to write as it is; null with `quote`. */
-  cite: string | null;
   timedText?: string;
-  /** The Passage's text, at most `PASSAGE_CHARS` characters around `quote`. */
+  /** The Passage's text, at most `PASSAGE_CHARS` characters around its sentence that best matches. */
   text: string;
 }
 
@@ -679,7 +678,7 @@ export const CHECK_WAIT_MS = 45_000;
 const HOUR_MS = 3_600_000;
 /** The longest summary kept of a call for the activity list. */
 const SUMMARY_CHARS = 300;
-/** The longest quote a ready Citation of a search result has. */
+/** The longest sentence of a search result a result's text is centred on, and of a quote given back. */
 const READY_QUOTE_CHARS = 300;
 
 // ---------------------------------------------------------------------------
@@ -1796,19 +1795,17 @@ export function createAgentAccess(
     return t(unchecked === 1 ? one : more, { count: unchecked });
   };
 
-  /** A Passage as a search result: its best sentence cited, if the check finds it. */
-  const asResult = (
-    pairing: AdmittedPairing,
-    passage: WindowedPassage,
-    terms: readonly string[],
-  ): AgentPassage => {
+  /**
+   * A Passage as a search result: its text around the sentence that best matches the search, and
+   * that sentence's Location when the check finds it there. No Citation: `cite` makes each one.
+   */
+  const asResult = (passage: WindowedPassage, terms: readonly string[]): AgentPassage => {
     const sentence = bestSentence(passage.text, terms);
     const citation =
       sentence && !deps.notCited(passage.passageId)
         ? deps.citing.citeQuote(passage.passageId, sentence)
         : null;
     const found = citation?.check === "found" ? citation : null;
-    const minted = found ? mint(pairing, found) : null;
     const reading = passageReading(passage, excerptWindow(passage.text, found?.quote ?? null));
     return {
       passageId: passage.passageId,
@@ -1818,8 +1815,6 @@ export function createAgentAccess(
       location: found
         ? label(found.location, found.pageFrom, found.pageTo, passage.documentId, found.quote)
         : reading.location,
-      quote: found ? found.quote : null,
-      cite: minted ? citeTag(minted.token) : null,
       text: excerpt(passage.text, found?.quote ?? null),
     };
   };
@@ -2452,7 +2447,7 @@ export function createAgentAccess(
         );
         const shown = ranked.slice(SEARCH_PAGE_SIZE * (page - 1), SEARCH_PAGE_SIZE * page);
         const terms = keywordTerms(words);
-        const passages = shown.map((passage) => asResult(granted, passage, terms));
+        const passages = shown.map((passage) => asResult(passage, terms));
         // Told with every page: only the agent can tell whether its Passages answer the User.
         const line = holdsMore(deps, granted) ? t("agents.notShared") : null;
         return {
