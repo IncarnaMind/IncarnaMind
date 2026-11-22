@@ -4,6 +4,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  motionSettled,
   pageMenuButton,
   pointAndClick,
   recordMeeting,
@@ -58,16 +59,20 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(steps).toHaveValue(/- \*\*Decisions\*\*\n- \*\*Open questions\*\*$/);
       await expect(steps).not.toHaveValue(/supplier|528/);
       const expectedSteps = await steps.inputValue();
-      const pictures = process.env.INCARNAMIND_SCREENSHOTS;
-      if (pictures)
-        await window.screenshot({
-          path: join(pictures, `template-${language}.png`),
-          animations: "disabled",
-        });
       await card.getByTestId("make-skill-editor-cancel").click();
       await expect(card).toHaveCount(0);
       await openDraft();
       await card.getByTestId("make-skill-editor-name").fill("Team handover");
+      const pictures = process.env.INCARNAMIND_SCREENSHOTS;
+      if (pictures) {
+        await card.getByTestId("make-skill-editor-save").scrollIntoViewIfNeeded();
+        await expect(window.locator('[role="menu"]:visible')).toHaveCount(0);
+        await motionSettled(window);
+        await window.screenshot({
+          path: join(pictures, `template-${language}.png`),
+          animations: "disabled",
+        });
+      }
       await card.getByTestId("make-skill-editor-save").click();
       await window.getByTestId("make-skill-open-settings").click();
       const row = window
