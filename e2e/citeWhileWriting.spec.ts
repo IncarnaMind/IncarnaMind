@@ -576,6 +576,32 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Enter");
       await expect(editor.getByTestId("document-chip")).toHaveText("Tides");
       await expect(picker).toHaveCount(0);
+
+      await open();
+      const errors: string[] = [];
+      window.on("pageerror", (error) => errors.push(error.message));
+      await window.keyboard.press("ControlOrMeta+w");
+      await expect(picker).toHaveCount(0);
+      await expect(editor).toHaveCount(0);
+      await window.evaluate(() => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      });
+      await expect(window.locator("body")).toBeFocused();
+      const pageKey = await window.evaluate(() => {
+        const event = new KeyboardEvent("keydown", { key: "x", bubbles: true, cancelable: true });
+        let reached = false;
+        document.body.addEventListener(
+          "keydown",
+          () => {
+            reached = true;
+          },
+          { once: true },
+        );
+        document.body.dispatchEvent(event);
+        return { reached, prevented: event.defaultPrevented };
+      });
+      expect(pageKey).toEqual({ reached: true, prevented: false });
+      expect(errors).toEqual([]);
     } finally {
       await app.close();
     }
