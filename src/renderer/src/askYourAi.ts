@@ -181,9 +181,11 @@ export async function askAgent(
         ? { kind: "check", mindId }
         : ask.kind === "summary"
           ? { kind: "summary", documentId: ask.documentId }
-          : ask.kind === "selection" && mindId !== null
-            ? { kind: ask.action === "explain" ? "explain" : "change", mindId }
-            : null;
+          : ask.kind === "organize"
+            ? { kind: "organize", target: ask.target }
+            : ask.kind === "selection" && mindId !== null
+              ? { kind: ask.action === "explain" ? "explain" : "change", mindId }
+              : null;
     if (about) rememberAsked(agent, about, { copied: result.kind === "copy", at });
     useNotices
       .getState()

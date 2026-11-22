@@ -1785,12 +1785,13 @@ export function createTranscripts(options: TranscriptsOptions) {
      * (#144): what was said up to now can be found and cited. Resolves once its file is checked
      * (a changed one is then processed). Nothing for a Meeting with no lines or one saved.
      */
-    async refresh(meetingId: string): Promise<void> {
+    async refresh(meetingId: string, { waitForPassages = false } = {}): Promise<void> {
       const state = states.get(meetingId);
       if (closed || !state?.documentId || state.savedPath || state.cues.length === 0) return;
       stopWaiting(state);
       state.lastIndexed = timers.now();
-      await documents.check(vttPath(meetingId));
+      if (waitForPassages) await documents.checkNow(state.documentId, vttPath(meetingId));
+      else await documents.check(vttPath(meetingId));
     },
 
     /**

@@ -203,6 +203,7 @@ const skill = (name: string): Skill => ({
   compatibility: null,
   enabled: true,
   builtIn: false,
+  meetingTemplate: false,
   files: [{ path: "SKILL.md", size: 120, script: false }],
   createdAt: "2026-11-01T09:00:00.000Z",
   updatedAt: "2026-11-01T09:00:00.000Z",

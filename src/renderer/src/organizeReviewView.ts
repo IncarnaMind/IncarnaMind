@@ -52,6 +52,11 @@ export interface ReviewLayout {
   itemIds: string[];
 }
 
+/** A ticked row with something to confirm: a Folder to go into, or a Tag. */
+export const waitsToConfirm = (item: OrganizeReviewItem): boolean =>
+  item.ticked &&
+  (item.placement.kind === "folder" || item.placement.kind === "newFolder" || item.tags.length > 0);
+
 /** A Folder's reason to leave a Document out, which says Folders were asked for. */
 const FOLDER_REASONS = new Set(["doesntFit", "staysInFolder", "walled"]);
 

@@ -332,7 +332,7 @@ export function createAgentServer(
     {
       title: "List Documents to organize",
       description:
-        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Use next as after for more.",
+        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Read every page (next as after) before suggesting.",
       inputSchema: z.object({ after: z.string().optional() }),
       outputSchema: z.object({
         documents: z.array(
@@ -343,6 +343,7 @@ export function createAgentServer(
             text: z.string(),
           }),
         ),
+        total: z.number(),
         folders: z.array(choice),
         tags: z.array(choice),
         next: z.string().nullable(),
@@ -356,7 +357,7 @@ export function createAgentServer(
     {
       title: "Suggest Folders and Tags",
       description:
-        "For Documents from list_sorting, suggest a fitting Folder and relevant Tags by id. The User confirms in Suggestions.",
+        "For Documents from list_sorting, suggest a Folder and Tags by id, or new ones by name where none fits; neither if nothing does. The User confirms in Suggestions.",
       inputSchema: z.object({
         proposals: z
           .array(
@@ -364,7 +365,9 @@ export function createAgentServer(
               documentId: z.string(),
               version: z.string(),
               folderId: z.string().optional(),
+              newFolder: z.string().optional(),
               tagIds: z.array(z.string()).max(20).optional(),
+              newTags: z.array(z.string()).max(20).optional(),
             }),
           )
           .min(1)

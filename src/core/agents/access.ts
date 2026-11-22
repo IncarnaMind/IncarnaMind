@@ -705,6 +705,8 @@ export interface AgentAccessDeps {
   documentsIn(folderIds: readonly string[]): string[];
   /** Every live Transcript that belongs to a Note (#2528). */
   noteTranscripts(): readonly NoteTranscript[];
+  /** Indexes confirmed words in these live Meeting Transcripts; undefined when none are live. */
+  refreshLiveTranscripts(documentIds: readonly string[]): Promise<void> | undefined;
   /** The search Answers use, without reranking, over these Documents. */
   search(
     query: string,
@@ -1637,9 +1639,17 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   };
 
   /** The first part of a Document the pairing reaches. */
-  const readStart = (reach: ReadonlySet<string>, given: unknown): AgentReadResult => {
+  const readStart = async (
+    reach: ReadonlySet<string>,
+    given: unknown,
+  ): Promise<AgentReadResult> => {
     const documentId = text(given, "passageId or documentId", 200);
     if (!reach.has(documentId)) throw new NotReachedError(t("agents.problem.not-found"));
+    const refresh = deps.refreshLiveTranscripts([documentId]);
+    if (refresh) {
+      await refresh;
+      stillReaching([documentId]);
+    }
     return partOf(documentId, 0);
   };
 
@@ -2274,7 +2284,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       return call("search", query, [READ_DOCUMENTS], async (pairing) => {
         const words = text(input?.query, "query", MAX_QUERY_CHARS);
         const page = whole(input?.page, "page", 1, MAX_SEARCH_PAGE, 1);
-        const documentIds = scopeOf(pairing, input?.folderIds);
+        let documentIds = scopeOf(pairing, input?.folderIds);
+        const refresh = deps.refreshLiveTranscripts(documentIds);
+        if (refresh) {
+          await refresh;
+          const current = new Set(scopeOf(deps.admit(pairingId), input?.folderIds));
+          documentIds = documentIds.filter((id) => current.has(id));
+        }
         if (documentIds.length === 0) {
           const line = notShared();
           return {
@@ -2317,13 +2333,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
 
     readPassages(input) {
-      return call("read_passages", "", [READ_DOCUMENTS], (pairing) => {
+      return call("read_passages", "", [READ_DOCUMENTS], async (pairing) => {
         const reach = new Set(scopeOf(pairing, undefined));
         if (input?.passageId === undefined) {
           const result =
             input?.from !== undefined
               ? readOn(reach, input.from)
-              : readStart(reach, input?.documentId);
+              : await readStart(reach, input?.documentId);
           return { result, count: result.passages.length, documentIds: [result.documentId] };
         }
         // More than it reads is no reason to refuse: `previous` and `next` say how to read on (#3586).
