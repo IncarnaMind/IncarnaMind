@@ -262,7 +262,29 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     );
     const stop = new AbortController();
     running.set(mindId, { pairing, turnId, stop });
-    void converse({ mindId, pairing, turnId, conversation, request, quote, selection, stop });
+    converse({ mindId, pairing, turnId, conversation, request, quote, selection, stop }).catch(
+      (error: unknown) => {
+        // Whatever went wrong, the request doesn't stay working: the User can send it again.
+        options.log.warn("agents.ownAiConversation.broke", {
+          error: error instanceof Error ? error.name : "unknown",
+        });
+        if (running.get(mindId)?.turnId === turnId) running.delete(mindId);
+        finishTurn(turnId, "failed", "failed", "");
+        options.turned({
+          mindId,
+          turnId,
+          pairingId: pairing.id,
+          state: "failed",
+          doing: null,
+          problem: "failed",
+          reply: "",
+          applied: [],
+          waiting: [],
+          made: [],
+          fresh: false,
+        });
+      },
+    );
     return { kind: "started", pairing, turnId };
   }
 

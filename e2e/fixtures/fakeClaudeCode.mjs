@@ -84,17 +84,18 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     }
     const quote = prompt.match(/The words they selected in it: “([^”]*)”/)?.[1] ?? "";
     const read = await use("read_mind", { mindId, named: true });
+    // With nothing selected, the Note's second paragraph is the one changed.
     const line = (read?.markdown ?? "")
       .split("\n")
-      .find((each) => quote !== "" && each.includes(quote));
+      .find((each) => (quote === "" ? each.startsWith("¶2 ") : each.includes(quote)));
     const name = line?.match(/¶\d+/)?.[0];
     if (name && line) {
       // A paragraph the User wrote reads "(the User wrote this)" between its name and its words.
-      const text = line
+      const words = line
         .slice(line.indexOf(name) + name.length)
         .replace(/^\s*\(the User (?:wrote|changed) this\)/, "")
-        .trim()
-        .replace(quote, quote.toUpperCase());
+        .trim();
+      const text = quote === "" ? words.toUpperCase() : words.replace(quote, quote.toUpperCase());
       await use("propose_changes", {
         mindId,
         version: read.version,

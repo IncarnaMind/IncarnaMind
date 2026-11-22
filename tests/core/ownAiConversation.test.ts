@@ -11,11 +11,16 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import type { OwnAiRunner, OwnAiStatus } from "../../src/core/adapters";
-import type { NoteSelectionBlock, NoteTurnEvent } from "../../src/core/api";
+import type { AgentLaunch, NoteSelectionBlock, NoteTurnEvent } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { translate } from "../../src/shared/i18n";
-import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
+import {
+  buildAgentShim,
+  connectLegacyAgent,
+  connectModernAgent,
+  startAgentsCore,
+} from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -25,7 +30,10 @@ import { note, readMind, shownWithChanges, writeMind } from "../helpers/minds";
 const FERRY = "The ferry carried 212,000 passengers in 2025.";
 const FARES = "Fares rose by ten percent.";
 
-type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
+/** What the tests call of the command line's connection, on either protocol. */
+interface Agent {
+  callTool(params: { name: string; arguments: Record<string, unknown> }): Promise<unknown>;
+}
 type RunRequest = Parameters<OwnAiRunner["run"]>[0];
 type RunEnd = Awaited<ReturnType<OwnAiRunner["run"]>>;
 
@@ -76,10 +84,11 @@ const untilStopped = (_agent: Agent, request: RunRequest) =>
     request.signal.addEventListener("abort", end, { once: true });
   });
 
-/** A runner whose command line is `act`: it records each run and each purge. */
+/** A runner whose command line is `act`, connected by `connect`: it records each run and each purge. */
 function runner(
   act: (agent: Agent, request: RunRequest) => Promise<RunEnd>,
   status: OwnAiStatus = { kind: "ready" },
+  connect: (launch: AgentLaunch) => Promise<Agent> = connectLegacyAgent,
 ) {
   const runs: RunRequest[] = [];
   const purged: string[] = [];
@@ -92,7 +101,7 @@ function runner(
     },
     async run(request) {
       runs.push(request);
-      return act(await connectLegacyAgent(request.server), request);
+      return act(await connect(request.server), request);
     },
   };
   return { adapter, runs, purged };
@@ -208,6 +217,22 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       "The ferry carried about 212,000 people in 2025.",
       FARES,
     ]);
+  });
+
+  // protects=a turn ends when its run does, though the command line's connection is still open and listening for the Tool list to change, as Claude Code's can be then; fails_when=closing that connection waits on a message to a socket already gone, and the request stays working for good
+  it("ends a turn whose command line hasn't let go of its connection yet", async () => {
+    const run = runner(
+      async (agent, request) => {
+        await rewrite(agent, mindIdOf(request), [[FARES, "Fares rose by a tenth."]]);
+        return { kind: "finished", reply: "Rewrote the fares." };
+      },
+      { kind: "ready" },
+      (launch) => connectModernAgent(launch, () => undefined),
+    );
+    const { core, mindId, ended } = await written(run.adapter);
+
+    await core.askInNote({ mindId, words: "say a tenth" });
+    expect(await ended()).toMatchObject({ state: "landed", reply: "Rewrote the fares." });
   });
 
   // protects=with words selected, a call that changes more of the Note asked from waits for the User, and says why; a change to another Note always waits; fails_when=a change beyond what the User pointed at applies without them

@@ -130,7 +130,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
   - Its line says the conversation is kept, as decision 5 words it.
   - One flow keeps one answer to one question: may IncarnaMind start the User's own AI on this computer.
   - ADR-0026 names this flow for a hosted conversation too.
-- **Asked again once,** as ADR-0022 does when a flow sends a new kind: a User who allowed the check-only line is asked at their first request typed at a Note's foot. No keeps the link for that request.
+- **Asked again once,** as ADR-0022 does when a flow sends a new kind: a User who allowed the check-only line is asked at their first request typed at a Note's foot. No keeps the link for that request. One flow keeps one answer, so that No also sends Check by the link, until the User allows the flow in Settings › Privacy or connects the agent again.
 - **The connect sheet's sentence,** in the owner's words of 2026-11-22, replacing the check-only one: "With no AI model set up here, Check and the box at the bottom of a note run your Claude Code in the background. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own Claude plan or API key." (没设置 AI 模型时，“核对”和笔记底部的输入框会在后台运行你的 Claude Code，不打开窗口，也不新增对话。它只通过 IncarnaMind 工作，用的是你自己的 Claude 订阅或 API 密钥。)
 - **Taken back,** a run going stops at once, both copies of every conversation of that connection are deleted (decision 5), and requests go by the link, as for the check.
 - **A new flow was considered and rejected:** two consents for one act, IncarnaMind starting the User's AI, would be one question asked twice.

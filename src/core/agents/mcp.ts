@@ -928,13 +928,14 @@ export function serveConnection(
         let modelNow = ready;
         let heard = false;
         let current: AgentServer | null = null;
+        const transport = new StdioServerTransport(input, socket);
         const handle = serveStdio(
           () => {
             current = createAgentServer(opened.access, options.version, modelNow);
             return current.server;
           },
           {
-            transport: new StdioServerTransport(input, socket),
+            transport,
             // By its kind only: the SDK's message can quote what the agent sent.
             onerror: (error) =>
               options.reportError(new Error(`An agent's connection failed (${error.name}).`)),
@@ -944,7 +945,10 @@ export function serveConnection(
           opened.pairingId,
           {
             close: async () => {
-              // The connection first: nothing more reaches the core once this is called.
+              // The wire first, as when the agent goes away: nothing more reaches the core, and
+              // the SDK writes nothing back, such as the end of a Tool-list subscription, which a
+              // destroyed socket would never settle.
+              await transport.close();
               socket.destroy();
               await handle.close().catch(() => undefined);
             },
