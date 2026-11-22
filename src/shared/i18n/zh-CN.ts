@@ -3662,6 +3662,8 @@ export const zhCN = {
   "consent.flow.edits": "用 AI 编辑",
   "consent.flow.edits.purpose": "按你的要求修改选中的文字",
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
+  "consent.data.note-requests":
+    "你每次在笔记底部输入框里发送的内容。Claude Code 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回；闲置 30 天的对话它也会删除",
   "consent.data.source-quotes":
     "选中文字中引用所指的文档引文，在修改会改写或删除带引用的文字时发送",
 
@@ -6202,6 +6204,7 @@ export const zhCN = {
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
   "error.agent.cantAskDocument": "这个智能体现在无法读取这个文档。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
+  "error.noteAsk.tooLong": "一次请求最多 {max} 个字符。缩短后再发送一次。",
   "error.agent.selectionTooLong": "文字太多，无法一次交给你的 AI。少选一些再试。",
   "error.agent.nameEmpty": "输入智能体的名称。",
   "error.firstRun.work": "这些不是设置里可选的工作类型。",
@@ -8130,7 +8133,8 @@ export const zhCN = {
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
   "consent.flow.hosted-agents": "在后台运行你的 AI",
-  "consent.flow.hosted-agents.purpose": "在你点“核对”时，在这台电脑上启动你自己的 AI 核对笔记",
+  "consent.flow.hosted-agents.purpose":
+    "在你点“核对”或在笔记底部提问时，在这台电脑上启动你自己的 AI",
   "consent.data.scoped-passages":
     "整理时会读取待整理文档的名称、类型、开头的文字和版本，以及可选文件夹和标签的名称和内部 ID。所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多；以及 IncarnaMind 在这台电脑上为它推算的结果：根据它引用的数字推算，或用代码处理这些文件夹中的表格或 CSV 文件（代码给出的数字、表格和打印的文字）",
   "consent.data.scoped-minds":
@@ -8187,6 +8191,8 @@ export const zhCN = {
     "这次核对只能核对它自己的笔记，只能用 check_mind_yourself、search、read_passages、cite、run_analysis 和 report_check。",
   "agents.problem.checkRunPath":
     "这次核对只能引用共享给这个智能体的文件夹里的段落，不能按路径引用文件：请为每条引文填写 search 或 read_passages 给出的 passageId。",
+  "agents.problem.runNoPath":
+    "这次运行的 AI 没有自己的文件，所以 IncarnaMind 在这里不会按路径打开任何文件。请使用共享给这个智能体的文档和笔记。",
   "agents.problem.read-only":
     "这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → AI”中允许。",
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",
@@ -8285,6 +8291,8 @@ export const zhCN = {
   "agents.propose.text": "给出 {name} 的文字。",
   "agents.propose.textTooLong": "{name} 的文字超过 {max} 个字符。",
   "agents.propose.version": "给出 read_mind 加 named 时返回的 version。",
+  "agents.propose.outsideSelection":
+    "它在笔记里等用户确认：改动超出了用户选中的文字。只改这些文字的修改单独调用一次，就会直接生效。",
   "agents.propose.firstAdd": "¶+ 会添加在上一处修改之后，先写明一个段落。",
   "agents.propose.firstWaiting": "首批段落已在等待确认。请等用户处理后再建议添加。",
   "agents.propose.noParagraphs": "笔记中没有 {name}：这篇笔记没有可命名的段落。",
@@ -8509,7 +8517,7 @@ export const zhCN = {
   "agents.share.all": "我的全部文档和笔记，包括以后添加的",
   "agents.share.folders": "选择文件夹",
   "agents.connect.background":
-    "没设置 AI 模型时，点“核对”会在后台启动你的 {agent} 来核对笔记，不打开窗口，也不新增对话。它只读 IncarnaMind 交给它的内容，用的是你自己的 Claude 订阅或 API 密钥。",
+    "没设置 AI 模型时，“核对”和笔记底部的输入框会在后台运行你的 {agent}，不打开窗口，也不新增对话。它只通过 IncarnaMind 工作，用的是你自己的 Claude 订阅或 API 密钥。",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
@@ -8593,6 +8601,59 @@ export const zhCN = {
   "agents.ownCheck.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
   "agents.ownCheck.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
   "agents.ownCheck.problem.failed": "{agent} 未完成就停止了。再试一次。",
+  // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
+  "noteAsk.placeholder": "描述要做的修改…",
+  "noteAsk.send": "发送",
+  "noteAsk.stop": "停止",
+  "noteAsk.working": "{agent} 正在处理…",
+  "noteAsk.doing.read_mind": "正在读“{summary}”",
+  "noteAsk.doing.list_minds": "正在查看你的笔记",
+  "noteAsk.doing.search": "正在你的文档中搜索“{summary}”",
+  "noteAsk.doing.read_passages": "正在读你的文档",
+  "noteAsk.doing.cite": "正在核对引文",
+  "noteAsk.doing.propose_changes": "正在修改“{summary}”",
+  "noteAsk.doing.create_mind": "正在写“{summary}”",
+  "noteAsk.doing.run_analysis": "正在计算数字",
+  "noteAsk.doing.publish_canvas": "正在制作页面",
+  "noteAsk.stopped": "已停止。",
+  "noteAsk.fresh": "已开始新的对话：之前的对话已被清除。",
+  "noteAsk.done.changed.one": "在这篇笔记中修改了 1 段。",
+  "noteAsk.done.changed.other": "在这篇笔记中修改了 {count} 段。",
+  "noteAsk.done.waiting.one": "“{title}”中有 1 处修改等你确认。",
+  "noteAsk.done.waiting.other": "“{title}”中有 {count} 处修改等你确认。",
+  "noteAsk.done.wrote": "写了“{title}”。",
+  "noteAsk.done.nothing": "{agent} 没有做任何修改。",
+  "noteAsk.done.held.one": "这篇笔记中有 1 处修改等你确认。",
+  "noteAsk.done.held.other": "这篇笔记中有 {count} 处修改等你确认。",
+  "noteAsk.busy": "{agent} 还在处理上一个请求。先停止它，再提新的请求。",
+  "noteAsk.readOnly": "{agent} 只能读取。允许它提出修改吗？",
+  "noteAsk.allow": "允许",
+  "noteAsk.showConversation": "显示对话",
+  "noteAsk.hideConversation": "隐藏对话",
+  "noteAsk.conversation": "这篇笔记与你的 AI 的对话",
+  "noteAsk.conversationEmpty": "还没有提问。",
+  "noteAsk.wholeNote": "改为针对整篇笔记",
+  "noteAsk.command": "描述对这篇笔记的修改…",
+  "noteAsk.action.improve": "改进写法",
+  "noteAsk.action.shorten": "缩短",
+  "noteAsk.action.translate": "翻译成{language}",
+  "noteAsk.action.edit": "修改这段文字",
+  "noteAsk.action.explain": "解释这段文字",
+  "noteAsk.problem.signed-out": "{agent} 尚未在这台电脑上登录。在终端中登录后，再发送一次。",
+  "noteAsk.problem.too-old":
+    "{agent} {found} 版本过旧，需要 {lowest} 或更高版本。更新后再发送一次。",
+  "noteAsk.problem.no-answer": "{agent} 在这台电脑上没有响应，没有发送任何内容。再试一次。",
+  "noteAsk.problem.plan-limit":
+    "{agent} 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
+  "noteAsk.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
+  "noteAsk.problem.timeout": "{agent} 超过 15 分钟仍未完成，已停止。再试一次。",
+  "noteAsk.problem.no-marks": "{agent} 已结束，但没有做任何修改。",
+  "noteAsk.problem.isolation": "{agent} 带有你所在组织设置的钩子或插件，无法在这里运行。",
+  "noteAsk.problem.access": "{agent} 已无法读取这篇笔记，已停止。",
+  "noteAsk.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
+  "noteAsk.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
+  "noteAsk.problem.failed": "{agent} 未完成就停止了。再试一次。",
+  "noteAsk.problem.read-only": "{agent} 只能读取。允许它提出修改吗？",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
     "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",

@@ -5,7 +5,7 @@
  */
 import { spawn as spawnNode } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -155,7 +155,7 @@ describe("a check run on the User's own Claude Code", () => {
   // protects=the run starts Claude Code with none of its own tools, hooks, connectors, CLAUDE.md files, memory or saved session, IncarnaMind's server alone and its six Tools allowed, the grant only in a settings file only the User's account reads, the instructions in a file of their own, so no shell reads a line break of theirs (Windows' cmd.exe cuts a command at one), both going with the run's folder; fails_when=a flag that holds the agent to IncarnaMind's Tools is missing, safe mode drops the server, the grant or the instructions are on the command line, or either is left behind
   it("starts Claude Code held to IncarnaMind's Tools, the grant and instructions in private files that go with the run", async () => {
     useClaude({ run: session([init(), call("mcp__incarnamind__check_mind_yourself"), done]) });
-    await expect(run()).resolves.toEqual({ kind: "finished" });
+    await expect(run()).resolves.toEqual({ kind: "finished", reply: "Checked." });
     const [command, args, options] = launch.mock.calls[0] ?? [];
     expect(command).toBe("claude");
     expect(args).toEqual(
@@ -227,7 +227,7 @@ describe("a check run on the User's own Claude Code", () => {
 
   it("goes on past a call to another of IncarnaMind's Tools, which is denied", async () => {
     useClaude({ run: session([init(), call("mcp__incarnamind__read_request"), done]) });
-    await expect(run()).resolves.toEqual({ kind: "finished" });
+    await expect(run()).resolves.toEqual({ kind: "finished", reply: "Checked." });
   });
 
   // protects=a hook or plugin an organization set, which could receive what is sent, stops the run before the prompt goes, and says so; fails_when=the prompt goes beside a managed plugin
@@ -412,6 +412,98 @@ describe("whether Claude Code is on this computer", () => {
       expect(launch).not.toHaveBeenCalled();
     } finally {
       await rm(folder, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)", () => {
+  const KEY = "3f0b9a2e-6c1d-4e8f-9a7b-2c5d8e1f0a3b";
+  const SESSION = "8d2c4b6a-1e3f-4a5b-9c7d-0e2f4a6b8c1d";
+  const ask = (conversations: string, resume: boolean) =>
+    createOwnAi({ conversations }).run({
+      client: "claude-code",
+      server: SERVER,
+      tools: "all",
+      permissionMode: "dontAsk",
+      instructions: INSTRUCTIONS,
+      prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+      conversation: { key: KEY, sessionId: SESSION, resume },
+      signal: new AbortController().signal,
+    });
+
+  // protects=a request keeps its conversation in the Note's own working folder, started under IncarnaMind's id and continued with it, with every Tool of IncarnaMind's server and nothing of its own; fails_when=a follow-up starts a new conversation, runs in a shared folder, or keeps no session
+  it("starts the conversation in the Note's folder, then continues it", async () => {
+    useClaude({ run: session([init(["mcp__incarnamind__read_mind"]), done]) });
+    const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+    try {
+      await expect(ask(conversations, false)).resolves.toEqual({
+        kind: "finished",
+        reply: "Checked.",
+      });
+      const [command, args, options] = launch.mock.calls.at(-1) ?? [];
+      expect(command).toBe("claude");
+      expect(args).toEqual(expect.arrayContaining(["--session-id", SESSION]));
+      expect(args).toEqual(expect.arrayContaining(["--allowedTools", "mcp__incarnamind"]));
+      expect(args).not.toContain("--no-session-persistence");
+      expect(args).not.toContain("--resume");
+      expect(options.cwd).toBe(join(conversations, KEY));
+
+      await ask(conversations, true);
+      const [, again, againOptions] = launch.mock.calls.at(-1) ?? [];
+      expect(again).toEqual(expect.arrayContaining(["--resume", SESSION]));
+      expect(again).not.toContain("--session-id");
+      expect(againOptions.cwd).toBe(join(conversations, KEY));
+    } finally {
+      await rm(conversations, { recursive: true, force: true });
+    }
+  });
+
+  // protects=a conversation Claude Code no longer has (its own sweep, or the User's) is told apart from other failures, from what Claude Code 2.1.330 prints at once, before reading the request, so the core starts a new one; fails_when=it reads as a plain failure and every later request at that Note fails
+  it("says a conversation Claude Code no longer has is lost", async () => {
+    useClaude({
+      run: `
+        console.error("No conversation found with session ID: ${SESSION}");
+        console.log(JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 0 }));
+      `,
+    });
+    const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+    try {
+      await expect(ask(conversations, true)).resolves.toEqual({
+        kind: "failed",
+        reason: "lost-conversation",
+      });
+    } finally {
+      await rm(conversations, { recursive: true, force: true });
+    }
+  });
+
+  // protects=deleting a Note's conversation asks Claude Code to purge the Note's folder and removes the folder; one with nothing to purge counts as done, and a purge that failed says so; fails_when=a failed purge reads as done and the transcript stays without a word
+  it("purges the Note's folder, and says when it couldn't", async () => {
+    const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+    const purge = (program: string) => {
+      launch.mockImplementation(async (_command: string, args: string[]) => {
+        const child = spawnNode(process.execPath, ["-e", args[0] === "purge" ? program : ""], {
+          detached: process.platform !== "win32",
+          stdio: "pipe",
+        });
+        await new Promise<void>((resolve) => child.once("spawn", resolve));
+        return child;
+      });
+      return createOwnAi({ conversations }).purge(KEY);
+    };
+    try {
+      await mkdir(join(conversations, KEY), { recursive: true });
+      await expect(purge("process.exit(0)")).resolves.toBe(true);
+      expect(launch.mock.calls.at(-1)?.[1]).toEqual(["purge", join(conversations, KEY), "--yes"]);
+      expect(existsSync(join(conversations, KEY))).toBe(false);
+      await expect(
+        purge(`console.log("No Claude Code project data found for the folder."); process.exit(1)`),
+      ).resolves.toBe(true);
+      await expect(
+        purge(`console.error("error: unknown command 'purge'"); process.exit(1)`),
+      ).resolves.toBe(false);
+    } finally {
+      await rm(conversations, { recursive: true, force: true });
     }
   });
 });

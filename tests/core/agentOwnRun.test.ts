@@ -93,14 +93,16 @@ async function checks(agent: Agent, request: RunRequest): Promise<RunEnd> {
       },
     }),
   );
-  return { kind: "finished" };
+  return { kind: "finished", reply: "" };
 }
 
 /** A command line that works until it is stopped, as a long check does. */
 const untilStopped = (_agent: Agent, request: RunRequest) =>
   new Promise<RunEnd>((resolve) => {
-    if (request.signal.aborted) resolve({ kind: "finished" });
-    request.signal.addEventListener("abort", () => resolve({ kind: "finished" }), { once: true });
+    if (request.signal.aborted) resolve({ kind: "finished", reply: "" });
+    request.signal.addEventListener("abort", () => resolve({ kind: "finished", reply: "" }), {
+      once: true,
+    });
   });
 
 /** A runner whose command line is `act`, or `status` without one; `installed`: whether `claude` is found at all. */
@@ -114,6 +116,7 @@ function runner(
   const statuses: OwnAiClient[] = [];
   const adapter: OwnAiRunner = {
     installed: async () => installed,
+    purge: async () => true,
     async status(client) {
       statuses.push(client);
       return status;
@@ -387,7 +390,7 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
     expect((await stopped.ended())?.outcome).toBe("stopped");
     expect(await stopped.marks()).toEqual([]);
 
-    const silent = await written(runner(async () => ({ kind: "finished" })).adapter);
+    const silent = await written(runner(async () => ({ kind: "finished", reply: "" })).adapter);
     await silent.core.checkWithOwnAi(silent.mindId);
     expect(await silent.ended()).toMatchObject({ outcome: "failed", problem: "no-marks" });
 
@@ -437,7 +440,7 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
           },
         }),
       ));
-      return { kind: "finished" };
+      return { kind: "finished", reply: "" };
     });
     const { core, mindId, claude, ended, marks } = await written(run.adapter);
     const own = await connectLegacyAgent(claude.launch);
@@ -462,7 +465,7 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
     const { core, mindId, ended } = await written(
       runner(async (agent) => {
         kept.push(agent);
-        return { kind: "finished" };
+        return { kind: "finished", reply: "" };
       }).adapter,
     );
     await core.checkWithOwnAi(mindId);

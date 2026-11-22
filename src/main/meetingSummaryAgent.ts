@@ -44,11 +44,11 @@ async function runClaude(
 ): Promise<string> {
   const result = await runClaudeCodeTurn({
     cwd,
+    scratch: cwd,
     systemPrompt,
     prompt,
     signal,
     maxResponseBytes,
-    persist: false,
   });
   if (result.subtype !== "success" || result.is_error !== false) {
     throw new Error("Claude Code could not complete the meeting summary.");

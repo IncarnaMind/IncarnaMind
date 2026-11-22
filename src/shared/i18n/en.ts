@@ -3851,6 +3851,8 @@ export const en = {
   "consent.flow.edits": "Edit with AI",
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
+  "consent.data.note-requests":
+    "What you type in the box at the bottom of a note, each time you send it. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
   "consent.data.source-quotes":
     "The quotes from your Documents that the selected text’s Citations name, when a change rewrites or removes cited text",
 
@@ -6539,6 +6541,8 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.noteAsk.tooLong":
+    "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":
     "That’s more than your AI can be handed at once. Select fewer words and ask again.",
   "error.agent.nameEmpty": "Give the agent a name.",
@@ -8620,7 +8624,7 @@ export const en = {
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.flow.hosted-agents": "Your AI, run in the background",
   "consent.flow.hosted-agents.purpose":
-    "start your own AI on this computer to check a note when you press Check",
+    "start your own AI on this computer when you press Check or ask at the bottom of a note",
   "consent.data.scoped-passages":
     "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
@@ -8685,6 +8689,8 @@ export const en = {
     "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
   "agents.problem.checkRunPath":
     "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
+  "agents.problem.runNoPath":
+    "This run of the User’s AI has no files of its own, so IncarnaMind opens no file by its path here. Use the Documents and notes shared with this agent.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
   "agents.problem.changed":
@@ -8807,6 +8813,8 @@ export const en = {
   "agents.propose.text": "Give the text for {name}.",
   "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
   "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.outsideSelection":
+    "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
   "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
   "agents.propose.firstWaiting":
     "The first paragraphs are already waiting for review. Let the user review them before proposing more.",
@@ -9045,7 +9053,7 @@ export const en = {
   "agents.share.folders": "Choose Folders",
   // The consent to start the agent for a check in the background (#3606).
   "agents.connect.background":
-    "With no AI model set up here, pressing Check starts your {agent} in the background to check the note. Nothing opens and no chat is added. It reads only what IncarnaMind gives it, and uses your own Claude plan or API key.",
+    "With no AI model set up here, Check and the box at the bottom of a note run your {agent} in the background. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own Claude plan or API key.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
@@ -9138,6 +9146,64 @@ export const en = {
   "agents.ownCheck.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
   "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
+  // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
+  "noteAsk.placeholder": "Describe a change…",
+  "noteAsk.send": "Send",
+  "noteAsk.stop": "Stop",
+  "noteAsk.working": "{agent} is working…",
+  "noteAsk.doing.read_mind": "Reading “{summary}”",
+  "noteAsk.doing.list_minds": "Looking through your notes",
+  "noteAsk.doing.search": "Searching your Documents for “{summary}”",
+  "noteAsk.doing.read_passages": "Reading your Documents",
+  "noteAsk.doing.cite": "Checking quotes",
+  "noteAsk.doing.propose_changes": "Changing “{summary}”",
+  "noteAsk.doing.create_mind": "Writing “{summary}”",
+  "noteAsk.doing.run_analysis": "Working out figures",
+  "noteAsk.doing.publish_canvas": "Making a page",
+  "noteAsk.stopped": "Stopped.",
+  "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
+  "noteAsk.done.changed.one": "Changed 1 paragraph in this note.",
+  "noteAsk.done.changed.other": "Changed {count} paragraphs in this note.",
+  "noteAsk.done.waiting.one": "1 change waits for you in “{title}”.",
+  "noteAsk.done.waiting.other": "{count} changes wait for you in “{title}”.",
+  "noteAsk.done.wrote": "Wrote “{title}”.",
+  "noteAsk.done.nothing": "{agent} changed nothing.",
+  "noteAsk.done.held.one": "1 change waits for you in this note.",
+  "noteAsk.done.held.other": "{count} changes wait for you in this note.",
+  "noteAsk.busy": "{agent} is still working on your last request. Stop it to ask something else.",
+  "noteAsk.readOnly": "{agent} may only read. Let it propose changes?",
+  "noteAsk.allow": "Allow",
+  "noteAsk.showConversation": "Show conversation",
+  "noteAsk.hideConversation": "Hide conversation",
+  "noteAsk.conversation": "This note’s conversation with your AI",
+  "noteAsk.conversationEmpty": "Nothing asked yet.",
+  "noteAsk.wholeNote": "Ask about the whole note",
+  "noteAsk.command": "Describe a change to this note…",
+  "noteAsk.action.improve": "Improve the writing",
+  "noteAsk.action.shorten": "Make it shorter",
+  "noteAsk.action.translate": "Translate it into {language}",
+  "noteAsk.action.edit": "Change it",
+  "noteAsk.action.explain": "Explain this",
+  "noteAsk.problem.signed-out":
+    "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
+  "noteAsk.problem.too-old":
+    "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then send it again.",
+  "noteAsk.problem.no-answer":
+    "{agent} didn’t answer on this computer, so nothing was sent. Try again.",
+  "noteAsk.problem.plan-limit":
+    "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
+  "noteAsk.problem.billing":
+    "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
+  "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped. Try again.",
+  "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
+  "noteAsk.problem.isolation":
+    "{agent} can’t run here beside a hook or plugin your organization set.",
+  "noteAsk.problem.access": "{agent} can no longer read this note, so it stopped.",
+  "noteAsk.problem.local-mode": "{agent} stopped: “Keep everything on this computer” is on.",
+  "noteAsk.problem.taken-back":
+    "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
+  "noteAsk.problem.failed": "{agent} stopped before it finished. Try again.",
+  "noteAsk.problem.read-only": "{agent} may only read. Let it propose changes?",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",

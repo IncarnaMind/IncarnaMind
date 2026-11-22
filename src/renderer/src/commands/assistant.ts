@@ -27,6 +27,7 @@ import { billingUrlOfProvider, keyProviderOf, useKeyRefusals } from "../keyRefus
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
 import { removedModelNow } from "../modelInUse";
 import { requestModelMenu } from "../modelMenu";
+import { focusNoteAsk, noteAskShownNow } from "../ownAiInNote";
 import { hiddenForOwnAiNow, ownAiPillNow } from "../ownAiPanel";
 import { exampleMindIds, useAppStore } from "../store";
 import {
@@ -117,6 +118,10 @@ function ownAiAsk(): (() => void) | null {
   const viewer = viewerHandleInUse("selection", useAppStore.getState().layout);
   if (viewer?.ask) return viewer.ask;
   const note = noteHandle.current;
+  // A Note with its own input asks there, the words selected as its context (#3627).
+  if (note && !note.editor.isDestroyed && noteAskShownNow(note.mindId)) {
+    return () => focusNoteAsk(note.mindId);
+  }
   if (note && !note.editor.isDestroyed && selectionForEdit(note.editor.state)) {
     return () => {
       if (!requestEditField(note.editor)) {
