@@ -420,8 +420,8 @@ test("A3 a working session: a Linked folder, Answers with Citations, the viewer,
       record("walk.formats.states", states);
       await window.waitForTimeout(1500);
       await shot(window.getByTestId("sidebar"), "A22-sidebar-folders");
-      // The Linked folder has its own section ("Folders on disk") under the Library's Folders.
-      const sources = window.getByTestId("linked-folders-section");
+      // The Linked folder is a Folder of its own, with its mark, in the one list of Folders.
+      const sources = window.locator("[data-linked-folder-id]").first();
       await sources.scrollIntoViewIfNeeded();
       await expect(sources).toBeVisible();
       await window.waitForTimeout(300);

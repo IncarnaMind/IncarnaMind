@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
-import { basename, dirname, extname, isAbsolute, join } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
@@ -128,6 +128,7 @@ import {
   type AnnotationColour,
   type AnswerPlace,
   BLOCK_ID_ATTRIBUTE,
+  type BoundFolderChange,
   type CallHelpKind,
   type ChatModelChoice,
   type ChatProviderKind,
@@ -156,8 +157,10 @@ import {
   type FigureSchedule,
   type FirstOpenQuestion,
   type LibrarySource,
+  type LinkedFolder,
   type MarkAiTextChoice,
   type Meeting,
+  type MergedFolder,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   type Mind,
@@ -185,6 +188,7 @@ import {
   type TaggingRoute,
   type Task,
   type TurnPlace,
+  type UnboundFolder,
   type UnlockDocumentInput,
   type UnreadFile,
   type UnsavedAtEnd,
@@ -277,7 +281,7 @@ import { figureSchedule, noteFooting } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFirstRun } from "./firstRun";
-import { createFolders } from "./folders";
+import { createFolders, folderIdFor } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
 import { CLASSIFICATION_FLOW_SENDS, createLibrary, SCAN_IMAGES_FLOW_SENDS } from "./library";
@@ -683,6 +687,21 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
     throw new InvalidInputError({ key: "error.document.passwordMissing" });
   }
   return { documentId: parseDocumentId(input.documentId), password };
+}
+
+/** `rebindFolder`'s input, as `unbindFolder` gave it. */
+function parseUnboundFolder(input: unknown): UnboundFolder {
+  if (
+    !isRecord(input) ||
+    typeof input.groupId !== "string" ||
+    input.groupId === "" ||
+    (input.boundFolderId !== null && typeof input.boundFolderId !== "string") ||
+    typeof input.removed !== "boolean"
+  ) {
+    // Only Undo sends it, as `unbindFolder` gave it: anything else can't be put back.
+    throw new InvalidInputError({ key: "error.library.projectUndo" });
+  }
+  return { groupId: input.groupId, boundFolderId: input.boundFolderId, removed: input.removed };
 }
 
 /** `deleteAgain`'s input: each item, and the time it was deleted before its Restore. */
@@ -3731,9 +3750,11 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const unlinkFolder = (linkedFolderId: string, keep: readonly string[] = []) => {
     const own = documents.linkedFolders.list().find((each) => each.id === linkedFolderId)?.folderId;
-    if (own) library.unbindLinkedFolder(linkedFolderId, own);
+    const unbound = own ? library.unbindLinkedFolder(linkedFolderId, own) : [];
     documents.linkedFolders.remove(linkedFolderId, keep);
     outputs.forgetLinkedFolder(linkedFolderId);
+    // Its Folder keeps the User's Notes (ADR-0030); one that held only the folder's files goes.
+    for (const id of unbound) if (library.isEmpty(id)) library.removeQuietly(id);
   };
 
   // Automatic tagging: Jev when it is set up on this device, otherwise the
@@ -4181,6 +4202,65 @@ export function createCore(adapters: CoreAdapters): Core {
   const inFolderOnDisk = (documentId: string, folderId: string) => {
     const [document] = documents.getMany([documentId]);
     return !!document?.linkedFolderId && documents.foldersAbove(document.path).includes(folderId);
+  };
+  /** See `CoreApi.unbindFolder`. */
+  const unbindFolder = (groupId: string, filed: unknown): UnboundFolder => {
+    const { boundFolderId } = library.folder(groupId);
+    return db.transaction(() => {
+      const back =
+        boundFolderId === null
+          ? []
+          : library.unfileBound(groupId, filed, (id) => inFolderOnDisk(id, boundFolderId));
+      if (boundFolderId !== null) library.unbind(groupId);
+      const removed = library.isEmpty(groupId);
+      if (removed) library.removeQuietly(groupId);
+      // Each has no filing of its own again, so a Folder bound further up takes it (ADR-0030).
+      for (const id of back) fileInBoundFolder(id);
+      return { groupId, boundFolderId, removed };
+    });
+  };
+  /** See `CoreApi.rebindFolder`. */
+  const rebindFolder = (input: unknown): BoundFolderChange => {
+    const unbound = parseUnboundFolder(input);
+    return db.transaction(() => {
+      if (unbound.removed) library.restoreQuietly(unbound.groupId);
+      if (unbound.boundFolderId === null) {
+        return { folder: library.folder(unbound.groupId), filed: [] };
+      }
+      const folder = library.bind(unbound.groupId, unbound.boundFolderId);
+      return { folder, filed: fileUnder([unbound.boundFolderId]) };
+    });
+  };
+  /**
+   * Binds the Folders of the Linked folders a link around them merged to the same folders inside
+   * the new one (#3613), whose ids are its own, and says where each was.
+   */
+  const rebindMerged = (before: readonly LinkedFolder[], linked: LinkedFolder): MergedFolder[] => {
+    const live = new Set(documents.linkedFolders.list().map((each) => each.id));
+    return before.flatMap((inner) => {
+      const inside = relative(linked.path, inner.path);
+      if (live.has(inner.id) || inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
+        return [];
+      }
+      const folderId = folderIdFor(linked.id, inside.split(sep).join("/"));
+      return library.boundToLinkedFolder(inner.folderId).map(({ id }) => {
+        const { parentId } = library.folder(id);
+        library.bind(id, folderId);
+        return { path: inner.path, groupId: id, parentId };
+      });
+    });
+  };
+  /** Puts each merged Folder that was at the top level inside the new Folder, as on disk. */
+  const nestMerged = (merged: readonly MergedFolder[], outerId: string) => {
+    for (const each of merged) {
+      if (each.parentId !== null) continue;
+      try {
+        library.moveGroups([{ id: each.groupId, parentId: outerId }]);
+      } catch (error) {
+        // A Folder of the same name is there already: it stays where it was, still bound.
+        console.error(`A merged Folder couldn't move inside the new one (${each.groupId}).`, error);
+      }
+    }
   };
   const mindSources = createMindSources({
     dataDir,
@@ -7543,19 +7623,33 @@ export function createCore(adapters: CoreAdapters): Core {
     previewLinkedFolder: (path) => documents.linkedFolders.preview(path),
     addLinkedFolder: async (path, options) => {
       const dropped = library.target(options);
-      const known = new Set(documents.linkedFolders.list().map((each) => each.id));
+      const rebind =
+        isRecord(options) && typeof options.rebind === "string" ? options.rebind : null;
+      const before = documents.linkedFolders.list();
       const linked = await documents.linkedFolders.add(path);
+      const known = before.some((each) => each.id === linked.id);
       // Linking makes its Folder at once, inside the one it was dropped on (#3613).
-      const groupId = known.has(linked.id)
-        ? dropped
-        : bindFolderOnDisk(linked.folderId, dropped).folder.id;
+      const { bound, merged } = known
+        ? { bound: null, merged: [] }
+        : db.transaction(() => {
+            const regrouped = rebindMerged(before, linked);
+            const kept = rebind !== null && library.folders().some((each) => each.id === rebind);
+            const made = kept
+              ? {
+                  folder: library.bind(rebind, linked.folderId),
+                  filed: fileUnder([linked.folderId]),
+                }
+              : bindFolderOnDisk(linked.folderId, dropped);
+            nestMerged(regrouped, made.folder.id);
+            return { bound: made, merged: regrouped };
+          });
       // Its first scan only starts adding Documents once this has returned.
-      const batchId = batches.begin(groupId);
+      const batchId = batches.begin(bound?.folder.id ?? dropped);
       // A folder inside one already linked adds nothing: its scans aren't this batch.
-      if (known.has(linked.id)) batches.done(batchId);
+      if (known) batches.done(batchId);
       else batches.linking(batchId, linked);
       usageData.record({ event: "folder_linked", fields: {} });
-      return { ...linked, batchId };
+      return { ...linked, batchId, bound, merged };
     },
     listLinkedFolders: async () => documents.linkedFolders.list(),
     listUnreadFiles: async (scope) => unreadIn(parseSearchScope(scope)),
@@ -8215,18 +8309,8 @@ export function createCore(adapters: CoreAdapters): Core {
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
     createBoundFolder: async (folderId) => bindFolderOnDisk(folderId, null),
-    undoBoundFolder: async (groupId, filed) => {
-      const { boundFolderId } = library.folder(groupId);
-      db.transaction(() => {
-        const back =
-          boundFolderId === null
-            ? []
-            : library.unfileBound(groupId, filed, (id) => inFolderOnDisk(id, boundFolderId));
-        removeFolder(groupId);
-        // Each has no filing of its own again, so a Project still above it takes it (ADR-0030).
-        for (const id of back) fileInBoundFolder(id);
-      });
-    },
+    unbindFolder: async (groupId, filed) => unbindFolder(groupId, filed),
+    rebindFolder: async (unbound) => rebindFolder(unbound),
     updateLibraryGroup: async (id, input) => library.update(id, input),
     moveLibraryGroups: async (moves) => library.moveGroups(moves),
     deleteLibraryGroup: async (id) => removeFolder(id),

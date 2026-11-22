@@ -95,13 +95,17 @@ async function rowEdges(sidebar: Locator, rows: Locator) {
   );
 }
 
-/** Links a folder through the core's bridge, as "Add folder…" does once the User picked it. */
+/**
+ * Links a folder through the core's bridge, as "Add folder…" does once the User picked it, its
+ * filing as one Folder turned off (#3613): its row stays a Linked folder's, its files loose.
+ */
 const linkFolder = (page: Page, path: string) =>
-  page.evaluate(
-    async (wanted) =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addLinkedFolder(wanted),
-    path,
-  ) as Promise<LinkedFolder>;
+  page.evaluate(async (wanted) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const linked = await core.addLinkedFolder(wanted);
+    if (linked.bound) await core.unbindFolder(linked.bound.folder.id, linked.bound.filed);
+    return linked;
+  }, path) as Promise<LinkedFolder>;
 
 /** Writes `files` (relative paths) under `root`, each holding its own name. */
 async function writeTree(root: string, files: string[]): Promise<void> {
@@ -170,7 +174,7 @@ async function expectRowsAligned(window: Page): Promise<number> {
   return measured.length;
 }
 
-test("sidebar rows share one text edge, in Not in a Folder and in the Linked folders, and pane headers are 44px", async () => {
+test("sidebar rows share one text edge, in Not in a Folder and in the Linked folders filed as no Folder, and pane headers are 44px", async () => {
   // Two Linked folders, one with a folder inside, and a file added on its own.
   const papersPath = join(sources, "Papers");
   const reportsPath = join(sources, "Reports");
@@ -217,9 +221,9 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
     expect((await boxOf(row)).height).toBeCloseTo(28, 0);
   }
 
-  // The Linked folders: a row each, which doesn't unfold, at x 16 / 40.
+  // The Linked folders filed as no Folder: a row each in Folders, which doesn't unfold, at x 16 / 40.
   await showSourceLocations(window);
-  const linked = window.getByTestId("linked-folders-section");
+  const linked = window.getByTestId("linked-folder-rows");
   const rows = linked.getByTestId("folder-item");
   await expect(rows).toHaveCount(2);
   await expect(linked.getByTestId("document-list-item")).toHaveCount(0);
@@ -237,7 +241,7 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
   const settings = window.getByTestId("sidebar-footer").getByRole("button", { name: "Settings" });
   expect((await boxOf(settings.locator("svg"))).x - sidebarLeft).toBeCloseTo(16, 0);
   expect((await textLeft(settings.locator("span"))) - sidebarLeft).toBeCloseTo(40, 0);
-  for (const heading of ["not-in-a-folder-title", "linked-folders-section-heading"]) {
+  for (const heading of ["not-in-a-folder-title", "folders-section-heading"]) {
     expect((await textLeft(window.getByTestId(heading))) - sidebarLeft).toBeCloseTo(16, 0);
   }
   // The header starts the window's title bar: macOS's traffic lights there (e2e/titleBar.spec.ts),

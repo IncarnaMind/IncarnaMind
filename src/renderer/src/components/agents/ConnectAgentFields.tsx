@@ -27,7 +27,6 @@ const ALL_UNFILED: ReadonlySet<string> = new Set([NOT_IN_A_FOLDER_ID]);
 /** The first line while the User has a Folder, by the Folders all leaves out (`leftOutOfAll`). */
 const READS_WITH = {
   none: "agents.connect.reads",
-  projects: "agents.connect.reads.projects",
   walled: "agents.connect.reads.walled",
 } as const;
 const NOTHING: ReadonlySet<string> = new Set();

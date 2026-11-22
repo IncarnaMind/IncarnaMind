@@ -15,7 +15,7 @@ import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
 import { isListedDocument } from "../meetingTranscript";
 import { useOrganizeReview } from "../organizeReview";
-import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
+import { useExampleDocuments, useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -118,6 +118,10 @@ export function DocumentsSection() {
   );
   const foldExamples = hasOwnDocuments && exampleMindId !== null;
   const exampleDocuments = useExampleFoldDocuments();
+  // Its Note deleted, the examples' Documents stay under Examples until the User removes them:
+  // their own folder is never a Folder (#3613).
+  const leftExamples = useExampleDocuments();
+  const examplesWithoutNote = hasOwnDocuments && exampleMindId === null && leftExamples.length > 0;
   const exampleMinds = useMemo(() => (exampleMind ? [exampleMind] : NO_MINDS), [exampleMind]);
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
   const addDocuments = useAppStore((state) => state.addDocuments);
@@ -270,6 +274,23 @@ export function DocumentsSection() {
           </p>
         )}
         {!quiet && <SidebarTags />}
+        {examplesWithoutNote && (
+          <SidebarSection
+            testId="example-section"
+            title={t("sidebar.examples")}
+            headingTestId="example-title"
+            actions={<ExamplesMenu />}
+          >
+            <Contents
+              listKey="examples"
+              scope="sidebar"
+              depth={0}
+              minds={NO_MINDS}
+              documents={leftExamples}
+              renderDocument={renderDocument}
+            />
+          </SidebarSection>
+        )}
         {foldExamples && exampleMind && (
           <SidebarSection
             testId="example-section"

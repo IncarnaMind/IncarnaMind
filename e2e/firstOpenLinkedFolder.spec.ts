@@ -13,9 +13,9 @@ import {
 } from "./app";
 
 /**
- * A folder linked on the first open shows where it is at once (#763): linking one is using
- * Linked folders, so the sidebar's Folders on disk section and its new row come with it, empty
- * or still being read, the row washed like any new item. A folder with nothing IncarnaMind can
+ * A folder linked on the first open shows where it is at once (#763): linking one makes its
+ * Folder (#3613), so the sidebar's Folders and its new row come with it, empty or still being
+ * read, the row washed like any new item. A folder with nothing IncarnaMind can
  * read says so at its row's end, and a notice under the row says why; a file added to it later
  * is read, and both go.
  */
@@ -32,13 +32,13 @@ test.afterEach(async () => {
 
 const WORDS = {
   en: {
-    section: "Folders on disk",
+    section: "Folders",
     empty: "Nothing to read yet",
     notice: "No files IncarnaMind can read in “contracts” yet. New ones are read as they arrive.",
     scanNotice: "No files IncarnaMind can read in “scans” yet. New ones are read as they arrive.",
   },
   "zh-CN": {
-    section: "磁盘上的文件夹",
+    section: "文件夹",
     empty: "还没有可读取的文件",
     notice: "“contracts”里还没有 IncarnaMind 能读取的文件。之后放进去的文件会自动读取。",
     scanNotice: "“scans”里还没有 IncarnaMind 能读取的文件。之后放进去的文件会自动读取。",
@@ -52,11 +52,14 @@ const documentNames = (window: Page) =>
     return (await core.listDocuments()).map((each) => each.name);
   });
 
-/** A Linked folder's row in the sidebar, with the notice that can sit under it. */
+/** A Linked folder's Folder in the sidebar, with the notice that can sit under its row. */
 const linkedRow = (window: Page, name: string) =>
-  window.getByTestId("linked-folder-row").filter({
+  window.getByTestId("library-folder").filter({
     has: window.getByTestId("row-text").getByText(name, { exact: true }),
   });
+
+/** The row itself, which says the folder's state. */
+const rowOf = (row: ReturnType<typeof linkedRow>) => row.locator("[data-linked-folder-id]");
 
 /** Links `folder` from the first step, with the sidebar hidden first: the link opens it again. */
 async function linkFromFirstStep(app: ElectronApplication, window: Page, folder: string) {
@@ -87,13 +90,13 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // The section and its row came with the link, the row washed as any new item is.
     const row = linkedRow(window, "contracts");
-    const item = row.getByTestId("folder-item");
+    const item = rowOf(row);
     await expect(item).toHaveAttribute("data-just-linked", "true");
     await expect(item).toBeInViewport();
-    const section = window.getByTestId("linked-folders-section");
-    await expect(section.getByTestId("linked-folders-section-heading")).toHaveText(words.section);
+    const section = window.getByTestId("folders-section");
+    await expect(section.getByTestId("folders-title")).toHaveText(words.section);
     // Its own folder only: the example's stays with the example's Note.
-    await expect(section.getByTestId("folder-item")).toHaveCount(1);
+    await expect(section.locator("[data-linked-folder-id]")).toHaveCount(1);
 
     // Its end says its state, its tooltip names the kinds it reads, and the notice is under it.
     const status = item.getByTestId("folder-status");
@@ -125,7 +128,7 @@ test("a folder holding only files IncarnaMind can't read says so under its row, 
   await linkFromFirstStep(app, window, folder);
 
   const row = linkedRow(window, "scans");
-  const item = row.getByTestId("folder-item");
+  const item = rowOf(row);
   await expect(item).toHaveAttribute("data-just-linked", "true");
   await expect(item).toBeInViewport();
   const status = item.getByTestId("folder-status");
@@ -134,12 +137,10 @@ test("a folder holding only files IncarnaMind can't read says so under its row, 
   const notice = row.getByTestId("linked-folder-nothing-to-read");
   await expect(notice).toBeVisible();
   await expect(notice).toHaveText(WORDS.en.scanNotice);
-  await expect(window.getByTestId("linked-folders-section-heading")).toHaveText(WORDS.en.section);
+  await expect(window.getByTestId("folders-title")).toHaveText(WORDS.en.section);
 
   await setLanguage(window, "zh-CN");
-  await expect(window.getByTestId("linked-folders-section-heading")).toHaveText(
-    WORDS["zh-CN"].section,
-  );
+  await expect(window.getByTestId("folders-title")).toHaveText(WORDS["zh-CN"].section);
   await expect(status).toHaveText(new RegExp(`^${WORDS["zh-CN"].empty}`));
   await expect(notice).toHaveText(WORDS["zh-CN"].scanNotice);
   await expect(item).toBeVisible();

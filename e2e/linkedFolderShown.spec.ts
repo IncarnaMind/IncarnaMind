@@ -16,10 +16,9 @@ import {
 } from "./app";
 
 /**
- * After linking a folder, the sidebar shows where it is (#763): its row in
- * the Folders on disk section (磁盘上的文件夹), apart from the User's own Folders,
- * in sight and washed for a moment. The two sections never share a name. The
- * row doesn't unfold, and opens the Library.
+ * After linking a folder, the sidebar shows where it is (#763): linking makes its Folder (#3613),
+ * in the one list of Folders beside the User's own, in sight, open and washed for a moment, its
+ * files in it, sub-folders' too.
  */
 let dataDir: string;
 let sources: string;
@@ -33,12 +32,12 @@ test.afterEach(async () => {
 });
 
 const WORDS = {
-  en: { sections: ["Folders", "Folders on disk"], name: "contracts" },
-  "zh-CN": { sections: ["文件夹", "磁盘上的文件夹"], name: "contracts" },
+  en: { folders: "Folders", name: "contracts" },
+  "zh-CN": { folders: "文件夹", name: "contracts" },
 } as const;
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a folder just linked reveals the sidebar and is in sight in Folders on disk, its row washed; it doesn't unfold and opens the Library (${language})`, async () => {
+  test(`a folder just linked reveals the sidebar and is in sight in Folders, its row washed and open with its files (${language})`, async () => {
     test.setTimeout(120_000);
     const words = WORDS[language];
     const linked = join(sources, words.name);
@@ -55,7 +54,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await core.createLibraryGroup({ name: "Mine", description: "" });
     });
-    await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
+    await expect(window.locator("[data-linked-folder-id]")).toHaveCount(0);
     await window.getByTestId("sidebar-toggle").click();
     const panel = window.getByTestId("sidebar-panel");
     await expect(panel).toHaveAttribute("data-hidden", "true");
@@ -70,33 +69,31 @@ for (const language of ["en", "zh-CN"] as const) {
     await confirmLink(dialog);
 
     await expect(panel).not.toHaveAttribute("data-hidden", "true");
-    // Its section comes, after the Folders, and the two have two names.
-    const section = window.getByTestId("linked-folders-section");
-    await expect(section.getByTestId("linked-folders-section-heading")).toHaveText(
-      words.sections[1],
-    );
-    await expect(window.getByTestId("folders-title")).toHaveText(words.sections[0]);
+    // Its Folder comes in the one list of Folders, beside the User's own, with its mark.
+    await expect(window.getByTestId("folders-title")).toHaveText(words.folders);
     const row = linkedFolderRow(window, words.name);
     await expect(row).toBeInViewport();
     await expect(row).toHaveAttribute("data-just-linked", "true");
+    await expect(row.getByTestId("folder-bound")).toBeVisible();
+    await expect(window.getByTestId("folders-section").getByTestId("library-folder")).toHaveCount(
+      2,
+    );
     // A moment later the wash is gone, and the row stays where it was.
     await expect(row).not.toHaveAttribute("data-just-linked", "true", { timeout: 10_000 });
     await expect(row).toBeVisible();
 
-    // Its row doesn't unfold: its files, from its top and its folder, are in Not in a Folder.
-    const open = row.getByTestId("linked-folder-open");
-    await expect(open).not.toHaveAttribute("aria-expanded");
-    await expect(section.getByTestId("document-list-item")).toHaveCount(0);
+    // It is open, its files, from its top and its folder, in it; none in Not in a Folder.
+    const folder = window.getByTestId("library-folder").filter({ has: row });
+    await expect(row.getByTestId("folder-row")).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      folder.getByTestId("document-list-item").filter({ hasText: /^(Lease|Renewal)/ }),
+    ).toHaveCount(2);
     await expect(
       window
         .getByTestId("not-in-a-folder")
         .getByTestId("document-list-item")
         .filter({ hasText: /^(Lease|Renewal)/ }),
-    ).toHaveCount(2);
-    // A click opens the Library, and the row stays one row.
-    await open.click();
-    await expect(window.getByTestId("library")).toBeVisible();
-    await expect(section.getByTestId("folder-item")).toHaveCount(1);
+    ).toHaveCount(0);
     await app.close();
   });
 }

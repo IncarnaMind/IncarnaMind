@@ -598,9 +598,9 @@ test("an export saved into a Linked folder is IncarnaMind's file: its viewer say
   await exportFromMenu(window);
   await expect(window.getByTestId("export-done")).toContainText(savedLine("Tides.docx", papers));
 
-  // The Linked folder picks the export up, beside the User's own file, both in Not in a Folder.
+  // The Linked folder picks the export up, beside the User's own file, both in its Folder.
   await showSourceLocations(window);
-  const items = window.getByTestId("not-in-a-folder").getByTestId("document-list-item");
+  const items = window.getByTestId("library-folders").getByTestId("document-list-item");
   const exported = items.filter({ hasText: "Tides" });
   const moon = items.filter({ hasText: "Moon" });
   await expect(exported).toHaveAttribute("data-status", "ready", { timeout: 30_000 });

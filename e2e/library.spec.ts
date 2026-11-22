@@ -869,7 +869,9 @@ test("organized folders remain separate from source locations and follow changes
         automatic: true,
         turnOn: true,
       });
-      await core.addLinkedFolder(sources);
+      // Its filing as one Folder off, so Organize places its files (#3613).
+      const linked = await core.addLinkedFolder(sources);
+      if (linked.bound) await core.unbindFolder(linked.bound.folder.id, linked.bound.filed);
     }, sources);
     await window.getByTestId("open-library").click();
     const library = window.getByTestId("library");
@@ -890,9 +892,7 @@ test("organized folders remain separate from source locations and follow changes
     const row = rowOf(library, "Membrane separation");
     await moveRow(window, row, "Finance");
     await expect(rowOf(section(library, "Finance"), "Membrane separation")).toHaveCount(1);
-    await expect(
-      window.getByTestId("linked-folders-section").getByTestId("folder-item"),
-    ).toHaveCount(1);
+    await expect(window.getByTestId("linked-folder-row")).toHaveCount(1);
     await expect(window.getByTestId("library-folders")).toBeVisible();
     const path = join(sources, "Membrane separation.txt");
     const revised = "Research report: membrane invoice for laboratory services. Total GBP 250.";
@@ -970,7 +970,9 @@ test("a bulk Organize's Confirm leaves the Library's sections, filters and sideb
         },
         automatic: false,
       });
-      await core.addLinkedFolder(sources);
+      // Its filing as one Folder off, so Organize places its files (#3613).
+      const linked = await core.addLinkedFolder(sources);
+      if (linked.bound) await core.unbindFolder(linked.bound.folder.id, linked.bound.filed);
     }, sources);
     await expect
       .poll(

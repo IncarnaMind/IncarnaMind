@@ -658,7 +658,7 @@ test("a Document whose file is gone says Missing in its peek, and a press elsewh
     await showSourceLocations(window);
     await expectReadyDocuments(window, 2);
     const doomed = window
-      .getByTestId("not-in-a-folder")
+      .getByTestId("library-folders")
       .getByTestId("document-list-item")
       .filter({ hasText: "Deleted later" });
     await expect(doomed).toHaveAttribute("data-status", "ready");

@@ -249,7 +249,6 @@ export const zhCN = {
   "library.drop.stay": "文件保留在原处。",
   "library.review": "查看",
   "library.row.suggested": "建议放入“{folder}”",
-  "library.sources": "磁盘上的文件夹",
   "library.collapse": "收起 {name}",
   "library.expand": "展开 {name}",
   "library.needsAttention": "需要处理",
@@ -662,7 +661,6 @@ export const zhCN = {
   "undo.examplesShown": "已显示示例",
   "menu.showExamples": "重新显示示例",
   "undo.folderLinked": "已添加关联文件夹“{name}”",
-  "undo.projectMade": "已将“{name}”设为项目",
   "undo.fileAsFolder.on": "已将“{name}”归为一个文件夹",
   "undo.fileAsFolder.off": "已不再将“{name}”归为一个文件夹",
   "undo.name.fileAsFolder.on": "归为一个文件夹",
@@ -672,7 +670,6 @@ export const zhCN = {
   "undo.linkedFolderPaused": "已暂停读取“{name}”",
   "undo.linkedFolderResumed": "已继续读取“{name}”",
   "undo.name.linkFolder": "添加关联文件夹‘{name}’",
-  "undo.name.makeProject": "设为项目",
   "undo.name.move": "移动‘{name}’",
   "undo.name.move.minds": "移动 {count} 篇笔记",
   "undo.name.move.documents": "移动 {count} 个文档",
@@ -2637,14 +2634,6 @@ export const zhCN = {
   "linkedFolders.preview.time": "读取需要{time}，从最新的文件开始。",
   "linkedFolders.preview.onlineOnly.one": "1 个仅在云端的文件暂时跳过。",
   "linkedFolders.preview.onlineOnly.other": "{count} 个仅在云端的文件暂时跳过。",
-  "linkedFolders.readOnly": "只读",
-  "linkedFolders.readOnly.full":
-    "IncarnaMind 只读取这个文件夹，不会更改、移动或删除其中的任何内容。",
-  "linkedFolders.readOnly.unchecked": "未确认",
-  "linkedFolders.readOnly.unchecked.title":
-    "无法读取哪些文件夹可以添加文件。打开保存位置，在那里回答。",
-  "linkedFolders.preview.readOnly":
-    "IncarnaMind 只读取这个文件夹，不会更改、移动或删除其中的任何内容。",
   "linkedFolders.preview.becomesFolder":
     "其中的文件会放进同名文件夹，新文件也会自动加入。IncarnaMind 不会更改、移动或删除其中已有的文件。",
   "linkedFolders.preview.merge.one":
@@ -2681,7 +2670,6 @@ export const zhCN = {
     "“{folder}”里还没有 IncarnaMind 能读取的文件。之后放进去的文件会自动读取。",
   "linkedFolders.more": "{name} 的更多操作",
   "linkedFolders.pause": "暂停读取",
-  "linkedFolders.makeProject": "设为项目",
   "linkedFolders.resume": "继续读取",
   "linkedFolders.downloadOnlineOnly.one": "下载并读取 1 个仅在云端的文件",
   "linkedFolders.downloadOnlineOnly.other": "下载并读取 {count} 个仅在云端的文件",
@@ -2695,6 +2683,7 @@ export const zhCN = {
   "linkedFolders.unlink.title": "移除关联文件夹“{name}”？",
   "linkedFolders.unlink.body": "你的文件不受影响。IncarnaMind 会忘掉从中读取的内容。",
   "linkedFolders.unlink.citations": "只保留引用中引述的原文，引用仍可核对。",
+  "linkedFolders.unlink.notes": "其中的笔记仍留在文件夹“{folder}”中。",
   "linkedFolders.unlink.cancel": "取消",
   "linkedFolders.unlink.confirm": "移除",
   "units.kb": "{size} KB",
@@ -6221,7 +6210,7 @@ export const zhCN = {
   "error.library.autoNotLocal": "自动分类必须在这台电脑上运行。",
   "error.library.localModelMissing": "输入本地服务器和分类模型。",
   "error.library.ollamaNotLocal": "Ollama 分类模型必须在这台电脑上运行。",
-  "error.library.projectUndo": "无法撤销设为项目：不知道文件夹中各个文件原先在哪里。",
+  "error.library.projectUndo": "无法撤销：不知道文件夹中各个文件原先在哪里。",
   "error.meeting.notFound": "这个会议不存在或已删除。",
   "error.meeting.purgeFailed":
     "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
@@ -8490,7 +8479,6 @@ export const zhCN = {
   "agents.connect.reads.all":
     "它可以读取你的全部文档和笔记，包括以后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
   "agents.connect.reads": "它读取的内容会发送给{agent}所用的 AI 模型。",
-  "agents.connect.reads.projects": "它读取的内容会发送给{agent}所用的 AI 模型。项目只能单独共享。",
   "agents.connect.reads.walled":
     "它读取的内容会发送给{agent}所用的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
   "agents.share.all": "我的全部文档和笔记，包括以后添加的",

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Document, DocumentKind, LibraryGroup, Mind } from "../../../../core/api";
 import { displayName } from "../../../../shared/documentNames";
 import { mindName } from "../../../../shared/naming";
+import { useBoundPlace } from "../../boundFolders";
 import { commands } from "../../commands/registry";
 import { timeAgo } from "../../dates";
 import { useDropTarget } from "../../dragDrop";
@@ -14,6 +15,7 @@ import { onMiddleClick } from "../../middleClick";
 import { useSelectable } from "../../selection";
 import { useAppStore } from "../../store";
 import { useRename } from "../../useRename";
+import { BoundMark } from "../BoundMark";
 import { InlineName } from "../InlineName";
 import { DocumentLineIcon, FolderLineIcon, MindLineIcon, PlusLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
@@ -118,6 +120,7 @@ function FolderCard({
     [documents],
   );
   const latest = items[0]?.at;
+  const bound = useBoundPlace(folder.id);
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: a card that selects as the sidebar's rows do, not a table row.
@@ -156,6 +159,7 @@ function FolderCard({
             {folder.name}
           </button>
         )}
+        {!rename.renaming && bound && <BoundMark path={bound.path} />}
         {!rename.renaming && (
           <div className="relative shrink-0 opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 has-[[aria-expanded=true]]:opacity-100">
             <ObjectMenu

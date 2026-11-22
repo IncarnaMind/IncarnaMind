@@ -16,7 +16,13 @@ import { isRecord } from "../../src/core/errors";
 import { migrate, openDatabase } from "../../src/core/storage";
 import { migrations } from "../../src/core/storage/migrations";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder, sha256, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  linkWithoutFolder,
+  sha256,
+  writeSourceFile,
+} from "../helpers/documents";
 import { proposedFor } from "../helpers/library";
 import { proposedTagNamesOf } from "../helpers/tags";
 
@@ -437,27 +443,29 @@ describe("Organize suggests a Folder and waits for the User", () => {
     });
   });
 
-  test("a folder linked onto a Folder files the Documents its first scan adds there", async () => {
+  test("a folder linked onto a Folder gets its Folder inside it, which files the Documents its first scan adds", async () => {
     const { core, thesis, sources } = await setUp();
     await writeSourceFile(sources, "Notes/Chapter 1.txt", "Chapter 1: urban heat.");
     await writeSourceFile(sources, "Notes/Chapter 2.txt", "Chapter 2: field data.");
     const batches = batchesOf(core);
 
     const linked = await core.addLinkedFolder(join(sources, "Notes"), { groupId: thesis.id });
+    const notes = linked.bound?.folder;
+    expect(notes).toMatchObject({ name: "Notes", parentId: thesis.id });
 
     const last = await batches.until(
       linked.batchId,
       (batch) => !batch.adding && batch.sorted === 2,
     );
     expect(last).toMatchObject({
-      groupId: thesis.id,
+      groupId: notes?.id,
       linkedFolderId: linked.id,
       read: 2,
       suggested: [],
     });
     expect((await core.getLibrary()).assignments).toEqual(
       last.documentIds.map((documentId) =>
-        expect.objectContaining({ documentId, groupId: thesis.id, source: "user" }),
+        expect.objectContaining({ documentId, groupId: notes?.id, source: "user" }),
       ),
     );
   });
@@ -478,7 +486,7 @@ describe("Organize suggests a Folder and waits for the User", () => {
     );
     expect((await core.getLibrary()).assignments).toEqual(
       last.documentIds.map((documentId) =>
-        expect.objectContaining({ documentId, groupId: thesis.id, source: "user" }),
+        expect.objectContaining({ documentId, groupId: linked.bound?.folder.id, source: "user" }),
       ),
     );
   });
@@ -487,7 +495,8 @@ describe("Organize suggests a Folder and waits for the User", () => {
     const { core, thesis, sources } = await setUp();
     await writeSourceFile(sources, "Notes/Chapter 1.txt", "Chapter 1: urban heat.");
     const batches = batchesOf(core);
-    const outer = await core.addLinkedFolder(join(sources, "Notes"));
+    // Its filing as one Folder off, so Organize places its files (#3613).
+    const outer = await linkWithoutFolder(core, join(sources, "Notes"));
     await batches.until(outer.batchId, (batch) => !batch.adding && batch.sorted === 1);
     // A later scan of it, with a new file to find.
     await core.setLinkedFolderPaused(outer.id, true);

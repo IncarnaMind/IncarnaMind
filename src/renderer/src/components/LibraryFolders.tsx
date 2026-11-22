@@ -536,7 +536,12 @@ function FolderGroup({
         {...(rename.renaming ? {} : dragSource)}
         {...drop.props}
         {...(justLinked && { "data-just-linked": "true" })}
-        data-state={diskState?.kind}
+        {...(bound && {
+          "data-linked-folder-id": bound.linked.id,
+          "data-root": bound.linked.folderId === folder.boundFolderId ? "true" : undefined,
+          "data-status": bound.linked.status,
+          "data-state": diskState?.kind,
+        })}
         className={`${rowClass(lit, diskState?.kind === "unavailable" ? "muted" : "app", several && select.selected, dragged)} ${place} @container`}
       >
         {rename.renaming ? (
@@ -660,6 +665,17 @@ function FolderGroup({
           </div>
         )}
       </div>
+      {diskState?.kind === "empty" && (
+        // Under its row, never in its place: the row says its state, and this says why (#763).
+        <p
+          role="status"
+          data-testid="linked-folder-nothing-to-read"
+          className="pr-2 pb-1 text-[12px] leading-[18px] text-ink-meta"
+          style={{ paddingLeft: rowPadding(depth).paddingLeft + 24 }}
+        >
+          {t("linkedFolders.nothingToRead.notice", { folder: folder.name })}
+        </p>
+      )}
       {expanded && (
         <Contents
           listKey={folder.id}

@@ -65,7 +65,7 @@ const WORDS = {
     join: ", ",
     readsAll: translate("en", "agents.connect.reads.all", { agent: "Claude Code" }),
     readsFolders: translate("en", "agents.connect.reads", { agent: "Claude Code" }),
-    readsProjects: translate("en", "agents.connect.reads.projects", { agent: "Claude Code" }),
+    readsWalled: translate("en", "agents.connect.reads.walled", { agent: "Claude Code" }),
     shareAll: "All my Documents and notes, and what I add later",
     pairingAll: "Reads all your Documents and notes, and what you add later",
   },
@@ -81,7 +81,7 @@ const WORDS = {
     join: "、",
     readsAll: translate("zh-CN", "agents.connect.reads.all", { agent: "Claude Code" }),
     readsFolders: translate("zh-CN", "agents.connect.reads", { agent: "Claude Code" }),
-    readsProjects: translate("zh-CN", "agents.connect.reads.projects", { agent: "Claude Code" }),
+    readsWalled: translate("zh-CN", "agents.connect.reads.walled", { agent: "Claude Code" }),
     shareAll: "我的全部文档和笔记，包括以后添加的",
     pairingAll: "可读取你的全部文档和笔记，包括以后添加的",
   },
@@ -357,7 +357,7 @@ for (const width of [900, 1280]) {
   }
 }
 
-test("a Library that is only a Linked folder's files says it may read all of it, and Allow connects with all of it, those added later too", async () => {
+test("a Library that is only a Linked folder's Folder says what it reads, and Allow connects with all of it, those added later too", async () => {
   await writeNote("Tides", "Spring tides come at new moon.");
   await writeNote("Reef", "The reef shelters young coral.");
   const { app, window } = await launchApp(dataDir);
@@ -372,8 +372,9 @@ test("a Library that is only a Linked folder's files says it may read all of it,
     }, sources);
     await expectReadyDocuments(window, 2);
     const dialog = await openConnectDialog(window, "en");
-    await expect(dialog.getByTestId("agent-folder-row")).toHaveCount(0);
-    await expect(dialog.getByTestId("connect-agent-reads")).toHaveText(WORDS.en.readsAll);
+    // Linking made a Folder of it (#3613), open to work outside it: all reads it.
+    await expect(dialog.getByTestId("connect-agent-reads")).toHaveText(WORDS.en.readsFolders);
+    await expect(dialog.getByTestId("agent-share-all")).toBeChecked();
     await dialog.getByTestId("connect-agent-allow").click();
     await expect(dialog).toBeHidden();
     await expect(window.getByTestId("agent-pairing-reads")).toHaveText(WORDS.en.pairingAll);
@@ -389,7 +390,7 @@ test("a Library that is only a Linked folder's files says it may read all of it,
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`with a Project, the first line says a Project is shared only on its own, in ${LANGUAGE_NAME[language]}`, async () => {
+  test(`with a linked folder's Folder walled, the first line says such a Folder is shared only on its own, in ${LANGUAGE_NAME[language]}`, async () => {
     await writeNote("Quay plan", "The quay plan adds 31 moorings.");
     const { app, window } = await launchApp(dataDir);
     try {
@@ -398,13 +399,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await catchCopies(window);
       await window.evaluate(async (path) => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        const linked = await core.addLinkedFolder(path);
-        await core.createBoundFolder(linked.folderId);
+        const folder = (await core.addLinkedFolder(path)).bound?.folder;
+        if (!folder) throw new Error("Linking made no Folder.");
+        await core.updateLibraryGroup(folder.id, {
+          name: folder.name,
+          description: folder.description,
+          keepInside: true,
+        });
       }, sources);
       await expectReadyDocuments(window, 1);
       const dialog = await openConnectDialog(window, language);
       await expect(dialog.getByTestId("connect-agent-reads")).toHaveText(
-        WORDS[language].readsProjects,
+        WORDS[language].readsWalled,
       );
       await expect(dialog.getByTestId("agent-share-all")).toBeChecked();
       await shot(dialog, `project-dialog-1280-${language}`);

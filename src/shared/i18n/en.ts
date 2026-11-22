@@ -261,7 +261,6 @@ export const en = {
   "library.drop.stay": "Your files stay where they are.",
   "library.review": "Review",
   "library.row.suggested": "Suggested: “{folder}”",
-  "library.sources": "Folders on disk",
   "library.collapse": "Collapse {name}",
   "library.expand": "Expand {name}",
   "library.needsAttention": "Needs attention",
@@ -688,7 +687,6 @@ export const en = {
   "undo.examplesShown": "Showed the examples",
   "menu.showExamples": "Show the examples again",
   "undo.folderLinked": "Linked “{name}”",
-  "undo.projectMade": "Made “{name}” a project",
   "undo.fileAsFolder.on": "Filed “{name}” as one Folder",
   "undo.fileAsFolder.off": "Stopped filing “{name}” as one Folder",
   "undo.name.fileAsFolder.on": "File as one Folder",
@@ -699,7 +697,6 @@ export const en = {
   "undo.linkedFolderPaused": "Paused reading in “{name}”",
   "undo.linkedFolderResumed": "Resumed reading in “{name}”",
   "undo.name.linkFolder": "Link “{name}”",
-  "undo.name.makeProject": "Make a project",
   "undo.name.move": "Move “{name}”",
   "undo.name.move.minds": "Move {count} notes",
   "undo.name.move.documents": "Move {count} Documents",
@@ -2757,14 +2754,6 @@ export const en = {
   "linkedFolders.preview.time": "Reading takes {time}, newest first.",
   "linkedFolders.preview.onlineOnly.one": "1 online-only file is skipped for now.",
   "linkedFolders.preview.onlineOnly.other": "{count} online-only files are skipped for now.",
-  "linkedFolders.readOnly": "read-only",
-  "linkedFolders.readOnly.full":
-    "IncarnaMind reads this folder where it is and never changes, moves or deletes anything in it.",
-  "linkedFolders.readOnly.unchecked": "not checked",
-  "linkedFolders.readOnly.unchecked.title":
-    "IncarnaMind couldn’t read which folders it may add files to. Open the Output location to answer it there.",
-  "linkedFolders.preview.readOnly":
-    "IncarnaMind only reads this folder. It never changes, moves or deletes anything.",
   "linkedFolders.preview.becomesFolder":
     "Its files go in a Folder of the same name, and new files join them as they arrive. IncarnaMind never changes, moves or deletes the files already there.",
   "linkedFolders.preview.merge.one":
@@ -2804,7 +2793,6 @@ export const en = {
     "No files IncarnaMind can read in “{folder}” yet. New ones are read as they arrive.",
   "linkedFolders.more": "More actions for {name}",
   "linkedFolders.pause": "Pause reading",
-  "linkedFolders.makeProject": "Make it a project",
   "linkedFolders.resume": "Resume reading",
   "linkedFolders.downloadOnlineOnly.one": "Download and read 1 online-only file",
   "linkedFolders.downloadOnlineOnly.other": "Download and read {count} online-only files",
@@ -2819,6 +2807,7 @@ export const en = {
   "linkedFolders.unlink.body": "Your files aren’t touched. IncarnaMind forgets what it read.",
   "linkedFolders.unlink.citations":
     "It keeps only what your Citations quote, so they stay checkable.",
+  "linkedFolders.unlink.notes": "Its notes stay in the Folder “{folder}”.",
   "linkedFolders.unlink.cancel": "Cancel",
   "linkedFolders.unlink.confirm": "Unlink",
   "units.kb": "{size} KB",
@@ -6560,7 +6549,7 @@ export const en = {
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
   "error.library.projectUndo":
-    "Couldn’t undo the project: where its folder’s files were before is unknown.",
+    "Couldn’t undo it: where the folder’s files were before is unknown.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
   "error.meeting.purgeFailed":
     "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
@@ -9023,8 +9012,6 @@ export const en = {
   "agents.connect.reads.all":
     "It may read all your Documents and notes, including those you add later. What it reads goes to the AI model {agent} uses.",
   "agents.connect.reads": "What it reads goes to the AI model {agent} uses.",
-  "agents.connect.reads.projects":
-    "What it reads goes to the AI model {agent} uses. A Project is shared only on its own.",
   "agents.connect.reads.walled":
     "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
   "agents.share.all": "All my Documents and notes, and what I add later",

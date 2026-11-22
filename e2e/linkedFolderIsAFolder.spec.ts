@@ -141,7 +141,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(folder.getByTestId("document-list-item")).toHaveCount(5);
       await expect(window.getByTestId("not-in-a-folder")).toHaveCount(0);
       await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
-      await expect(window.getByText(t("linkedFolders.readOnly"), { exact: true })).toHaveCount(0);
+      await expect(
+        window.getByText(language === "en" ? "read-only" : "只读", { exact: true }),
+      ).toHaveCount(0);
       await expect(folder.getByTestId("browse-count").first()).toHaveText("6");
       await shot(window, `s1-wide-${language}`);
       await window.getByTestId("open-library").click();

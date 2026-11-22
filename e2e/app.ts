@@ -1100,19 +1100,16 @@ export async function editFolderInLibrary(window: Page, name: string): Promise<L
   return form;
 }
 
-/**
- * Waits for the sidebar's Linked folders section and each Linked folder's row. The rows don't
- * unfold: their files sit in the Folders and Not in a Folder.
- */
+/** Waits for a Linked folder's row in the sidebar's Folders: its Folder's, or its own (#3613). */
 export async function showSourceLocations(window: Page): Promise<void> {
-  const section = window.getByTestId("linked-folders-section");
-  await expect(section).toBeVisible();
-  await expect(
-    section.locator('[data-testid="folder-item"][data-root="true"]').first(),
-  ).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(window.locator(LINKED_ROW).first()).toBeVisible({ timeout: 15_000 });
 }
+
+/**
+ * A Linked folder's row: the Folder bound to it, in Folders (#3613), or, its filing as one Folder
+ * turned off, its own row there.
+ */
+const LINKED_ROW = '[data-linked-folder-id][data-root="true"]';
 
 /**
  * Puts a Tag on a Document through the core, each by its name (a Document's start will do): the
@@ -2005,15 +2002,15 @@ export async function linkFolderFromSidebar(
 
 /** A Linked folder's own row in the sidebar, by its folder's name on disk. */
 export const linkedFolderRow = (window: Page, name: string) =>
-  window.locator('[data-testid="folder-item"][data-root="true"]').filter({
+  window.locator(LINKED_ROW).filter({
     has: window.getByTestId("row-text").getByText(name, { exact: true }),
   });
 
-/** Opens a Linked folder's "More" menu from its row. Returns the menu. */
+/** Opens a Linked folder's "More" menu from its row, its Folder's or its own. Returns the menu. */
 export async function openLinkedFolderMenu(row: Locator): Promise<Locator> {
   await row.hover();
-  await row.getByTestId("linked-folder-menu").click();
-  const menu = row.getByTestId("linked-folder-actions");
+  await row.locator('[data-testid="linked-folder-menu"], [data-testid="folder-menu"]').click();
+  const menu = row.locator('[data-testid="linked-folder-actions"], [data-testid="folder-actions"]');
   await expect(menu).toBeVisible();
   return menu;
 }

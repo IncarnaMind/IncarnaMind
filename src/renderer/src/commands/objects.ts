@@ -762,7 +762,7 @@ export const linkedFolderCommands: readonly Command[] = [
       const folder = folderOf(ctx);
       if (folder?.boundFolderId) return store().stopFilingAsFolder(folder.id);
       const linked = linkedOf(ctx);
-      if (linked) await store().makeProject(linked.id);
+      if (linked) await store().fileAsFolder(linked.id);
     },
   },
   {

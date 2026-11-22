@@ -234,9 +234,9 @@ test("a first run opens on the credit paper with no model set up: its Citations 
     /Northwind Retail · (Q3 2026 results|Senior facilities agreement \(excerpt\))/,
     /Northwind Retail · (Q3 2026 results|Senior facilities agreement \(excerpt\))/,
   ]);
-  // The example’s Linked folder is no Linked folder of the User’s: on day one the section
-  // waits for one of their own (#1942).
-  await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
+  // The example’s Linked folder is no Linked folder of the User’s, and never a Folder (#1942,
+  // #3613).
+  await expect(window.locator("[data-linked-folder-id]")).toHaveCount(0);
 });
 
 test("removing the examples deletes the example Mind, its Documents and the copies of their files, and they aren't made again", async () => {

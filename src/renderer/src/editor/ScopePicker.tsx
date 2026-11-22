@@ -22,6 +22,7 @@ import {
 import {
   DocumentLineIcon,
   FolderLineIcon,
+  LinkLineIcon,
   LockLineIcon,
   MindLineIcon,
   TagLineIcon,
@@ -171,6 +172,7 @@ export const ScopePicker = Extension.create({
 function ChoiceIcon({ choice }: { choice: ScopeChoice }) {
   const className = "size-4 text-ink-meta";
   if (choice.walled) return <LockLineIcon className={className} />;
+  if (choice.sourceLocation) return <LinkLineIcon className={className} />;
   if (choice.kind === "folder") return <FolderLineIcon className={className} />;
   if (choice.kind === "tag") return <TagLineIcon className={className} />;
   if (choice.meeting) return <MindLineIcon className={className} />;
@@ -400,12 +402,8 @@ export function ScopeChoiceList({
                     {item.count === 0 ? t("scope.picker.empty.hint") : item.count}
                   </span>
                 )}
-                {(item.path.length > 0 || item.sourceLocation) && (
-                  <span className="scope-picker-path">
-                    {[...(item.sourceLocation ? [t("library.sources")] : []), ...item.path].join(
-                      " / ",
-                    )}
-                  </span>
+                {item.path.length > 0 && (
+                  <span className="scope-picker-path">{item.path.join(" / ")}</span>
                 )}
               </button>
             );

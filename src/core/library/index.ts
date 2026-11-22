@@ -1421,6 +1421,16 @@ export function createLibrary(options: {
     return group(id);
   }
 
+  /** Binds a Folder to no folder on disk any more: it stays a Folder, with what is in it. */
+  function unbind(groupId: string): void {
+    db.run("UPDATE library_groups SET bound_folder_id = NULL, updated_at = ? WHERE id = ?", [
+      now(),
+      group(groupId).id,
+    ]);
+    revision++;
+    changed();
+  }
+
   function parseGroup(input: unknown, existing?: { id: string; parentId: string | null }) {
     if (!isRecord(input) || typeof input.name !== "string" || typeof input.description !== "string")
       throw new InvalidInputError({ key: "error.folder.nameAndDescription" });
@@ -1611,15 +1621,63 @@ export function createLibrary(options: {
      * Unbinds the Folders bound to a Linked folder's folders, its own (`ownFolderId`) included
      * though a scan may not have made its row, as it is unlinked (ADR-0030).
      */
-    unbindLinkedFolder(linkedFolderId: string, ownFolderId: string): void {
-      const bound = `(bound_folder_id = ? OR bound_folder_id IN
-        (SELECT id FROM folders WHERE linked_folder_id = ?))`;
-      const params = [ownFolderId, linkedFolderId];
-      if (!db.get(`SELECT 1 FROM library_groups WHERE ${bound}`, params)) return;
-      db.run(`UPDATE library_groups SET bound_folder_id = NULL, updated_at = ? WHERE ${bound}`, [
-        now(),
-        ...params,
-      ]);
+    unbindLinkedFolder(linkedFolderId: string, ownFolderId: string): string[] {
+      const bound = db
+        .all<{ id: string }>(
+          `SELECT id FROM library_groups WHERE deleted_at IS NULL AND (bound_folder_id = ?
+             OR bound_folder_id IN (SELECT id FROM folders WHERE linked_folder_id = ?))`,
+          [ownFolderId, linkedFolderId],
+        )
+        .map((row) => row.id);
+      for (const id of bound) unbind(id);
+      return bound;
+    },
+    unbind,
+    /**
+     * The live Folders bound to a Linked folder's own folder (`ownFolderId`), each with the
+     * folder on disk it is bound to.
+     */
+    boundToLinkedFolder(ownFolderId: string): { id: string; boundFolderId: string }[] {
+      return db.all<{ id: string; boundFolderId: string }>(
+        `SELECT id, bound_folder_id AS boundFolderId FROM library_groups
+         WHERE deleted_at IS NULL AND bound_folder_id = ?`,
+        [ownFolderId],
+      );
+    },
+    /** Whether a live Folder holds nothing: no Folder, Note, Canvas, conversation or Document. */
+    isEmpty(groupId: string): boolean {
+      const id = group(groupId).id;
+      return !db.get(
+        `SELECT 1 FROM library_groups WHERE parent_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM minds WHERE folder_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM canvases WHERE folder_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM document_groups a JOIN documents d ON d.id = a.document_id
+           WHERE a.group_id = ? AND a.deleted_at IS NULL AND d.deleted_at IS NULL
+         LIMIT 1`,
+        [id, id, id, id, id],
+      );
+    },
+    /**
+     * Takes an empty Folder away without passing through Recently deleted (#3613): it is marked
+     * deleted and purged at once, as a tombstone, so only Undo (`restoreQuietly`) brings it back.
+     */
+    removeQuietly(groupId: string): void {
+      const at = now();
+      db.run(
+        "UPDATE library_groups SET deleted_at = ?, purged_at = ?, updated_at = ? WHERE id = ?",
+        [at, at, at, group(groupId).id],
+      );
+      revision++;
+      changed();
+    },
+    /** Brings back a Folder `removeQuietly` took away. */
+    restoreQuietly(groupId: string): void {
+      db.run(
+        `UPDATE library_groups SET deleted_at = NULL, purged_at = NULL, updated_at = ?
+         WHERE id = ? AND deleted_at IS NOT NULL`,
+        [now(), groupId],
+      );
       revision++;
       changed();
     },

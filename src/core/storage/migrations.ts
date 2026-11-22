@@ -3377,6 +3377,81 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE skills ADD COLUMN meeting_fill_uncovered INTEGER NOT NULL DEFAULT 1;
     `,
   },
+  {
+    version: 159,
+    description: "A folder linked before is a Folder bound to it, as linking one makes now (#3613)",
+    sql: `
+      CREATE TEMP TABLE bind_migration AS SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS at;
+      -- Each Linked folder of the User's with no Folder bound to any of its folders, and its own
+      -- Folder on disk. Not the app's own examples folder, and not one whose Documents the User
+      -- has all filed already: its new files keep going to Not in a Folder, as they did, until
+      -- the User chooses File as one Folder. A Document has a filing of its own when it is in a
+      -- live Folder, or in no Folder by the User's choice.
+      CREATE TEMP TABLE bind_folders AS
+        SELECT lf.id AS linked_folder_id, f.id AS folder_id, f.name AS name, lf.created_seq AS seq,
+          ${UUID_V4_SQL} AS group_id
+        FROM linked_folders lf
+        JOIN folders f ON f.linked_folder_id = lf.id AND f.relative_path = ''
+          AND f.deleted_at IS NULL
+        WHERE lf.deleted_at IS NULL
+          AND lf.id NOT IN (
+            SELECT json_extract(s.value, '$.linkedFolderId') FROM device_settings s
+            WHERE (s.key = 'examples' OR s.key LIKE 'examples.%') AND s.deleted_at IS NULL
+              AND json_valid(s.value) AND json_extract(s.value, '$.linkedFolderId') IS NOT NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM library_groups g WHERE g.deleted_at IS NULL AND g.bound_folder_id IN
+              (SELECT id FROM folders WHERE linked_folder_id = lf.id))
+          AND (
+            NOT EXISTS (SELECT 1 FROM documents d
+              WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL)
+            OR EXISTS (SELECT 1 FROM documents d
+              WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL AND NOT EXISTS (
+                SELECT 1 FROM document_groups a WHERE a.document_id = d.id AND a.deleted_at IS NULL
+                  AND (a.source = 'user' OR EXISTS (SELECT 1 FROM library_groups g
+                    WHERE g.id = a.group_id AND g.deleted_at IS NULL)))));
+      -- Named after the folder; a name a Folder at the top level has already, or another of these
+      -- has, takes the next number, as linking names one ("Interviews 2").
+      CREATE TEMP TABLE bind_names AS
+        SELECT b.group_id,
+          (SELECT COUNT(*) FROM library_groups g WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
+            AND lower(g.name) = lower(b.name)) > 0 AS taken,
+          ROW_NUMBER() OVER (PARTITION BY lower(b.name) ORDER BY b.seq, b.linked_folder_id) AS rank
+        FROM bind_folders b;
+      INSERT INTO library_groups (id, name, description, parent_id, counts_own_files, keep_inside,
+          bound_folder_id, created_at, updated_at)
+        SELECT b.group_id,
+          CASE WHEN NOT n.taken AND n.rank = 1 THEN substr(b.name, 1, 100)
+            ELSE substr(b.name, 1, 96) || ' ' || (n.rank + n.taken) END,
+          '', NULL, 0, 0, b.folder_id, m.at, m.at
+        FROM bind_folders b JOIN bind_names n ON n.group_id = b.group_id, bind_migration m;
+      -- Its Documents with no filing of their own are filed in it as the User's, as binding files
+      -- them; every filing the User made, and every Suggestion waiting, stays as it is.
+      UPDATE document_groups SET
+        group_id = (SELECT b.group_id FROM documents d
+          JOIN bind_folders b ON b.linked_folder_id = d.linked_folder_id
+          WHERE d.id = document_groups.document_id),
+        source = 'user',
+        filed_at = (SELECT at FROM bind_migration),
+        updated_at = (SELECT at FROM bind_migration)
+        WHERE deleted_at IS NULL AND source <> 'user'
+          AND NOT EXISTS (SELECT 1 FROM library_groups g
+            WHERE g.id = document_groups.group_id AND g.deleted_at IS NULL)
+          AND document_id IN (SELECT d.id FROM documents d
+            JOIN bind_folders b ON b.linked_folder_id = d.linked_folder_id
+            WHERE d.deleted_at IS NULL);
+      INSERT INTO document_groups (id, document_id, group_id, source, status, content_hash,
+          request_id, created_at, updated_at, filed_at)
+        SELECT ${UUID_V4_SQL}, d.id, b.group_id, 'user', 'classified', d.content_hash,
+          ${UUID_V4_SQL}, m.at, m.at, m.at
+        FROM documents d JOIN bind_folders b ON b.linked_folder_id = d.linked_folder_id,
+          bind_migration m
+        WHERE d.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM document_groups a
+          WHERE a.document_id = d.id AND a.deleted_at IS NULL);
+      DROP TABLE temp.bind_names;
+      DROP TABLE temp.bind_folders;
+      DROP TABLE temp.bind_migration;
+    `,
+  },
 ];
 
 /**
