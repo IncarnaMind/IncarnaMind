@@ -1,6 +1,7 @@
 import type { OrganizeReview, OrganizeReviewItem } from "../../../../core/api";
 import { useT } from "../../i18n";
 import { openReview, useOrganizeReview } from "../../organizeReview";
+import { waitsToConfirm } from "../../organizeReviewView";
 import { useAppStore } from "../../store";
 
 const waiting = new WeakMap<OrganizeReview, ReadonlyMap<string, OrganizeReviewItem>>();
@@ -11,15 +12,7 @@ function waitingIn(review: OrganizeReview | null): ReadonlyMap<string, OrganizeR
   let byDocument = waiting.get(review);
   if (!byDocument) {
     byDocument = new Map(
-      review.items
-        .filter(
-          (item) =>
-            item.ticked &&
-            (item.placement.kind === "folder" ||
-              item.placement.kind === "newFolder" ||
-              item.tags.length > 0),
-        )
-        .map((item) => [item.documentId, item]),
+      review.items.filter(waitsToConfirm).map((item) => [item.documentId, item]),
     );
     waiting.set(review, byDocument);
   }

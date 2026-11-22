@@ -17,7 +17,7 @@ import {
   stopOrganizing,
   useOrganizeReview,
 } from "../../organizeReview";
-import { reviewLayout, willMoveText } from "../../organizeReviewView";
+import { reviewLayout, waitsToConfirm, willMoveText } from "../../organizeReviewView";
 import { useAppStore } from "../../store";
 import { actionParts, MetaLine } from "../MetaLine";
 import { ProblemLine } from "../ProblemLine";
@@ -69,13 +69,7 @@ const report = (error: unknown) => useAppStore.getState().reportError(error);
 /** The agent's Suggestions wait with something to confirm: a Folder or a Tag. */
 const fromAgent = (review: OrganizeReview, asked: AgentAsked) =>
   review.items.some(
-    (item) =>
-      item.origin === "agent" &&
-      item.agent === asked.agent.name &&
-      item.ticked &&
-      (item.placement.kind === "folder" ||
-        item.placement.kind === "newFolder" ||
-        item.tags.length > 0),
+    (item) => item.origin === "agent" && item.agent === asked.agent.name && waitsToConfirm(item),
   );
 
 /**
