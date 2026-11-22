@@ -1661,8 +1661,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
 
     /** Try again, after a problem or an Undo. */
     retry(meetingId: string): Meeting {
-      const fill = meetings.storedFill(meetingId);
+      const stored = meetings.storedFill(meetingId);
+      const previous = stored?.refill?.undone ? stored.refill.previous : null;
+      const fill = previous ?? stored;
       if (fill?.state === "failed" || fill?.state === "off" || fill?.state === "undone") {
+        if (previous) meetings.setFill(meetingId, previous);
         const separating = meetings.get(meetingId).transcript?.separating === true;
         if (separating) set(meetingId, { state: "waiting", problem: null, blocks: [] });
         // While a room's speakers are told apart, its notes wait for them, as at Stop: the pass's

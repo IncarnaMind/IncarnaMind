@@ -1,6 +1,6 @@
 import * as Y from "yjs";
 import type { NodeJSON } from "../../shared/blockJson";
-import { wordFingerprint } from "../../shared/wordFiles";
+import { targetHash } from "../../shared/proposals";
 import { createElement, nodeOf } from "../answers/blocks";
 import { BLOCK_ID_ATTRIBUTE, type MeetingFill } from "../api";
 
@@ -23,7 +23,15 @@ export interface Refill {
   undone?: true;
 }
 
-export const fillFingerprint = wordFingerprint;
+export function fillFingerprint(element: Y.XmlElement): string {
+  return targetHash(
+    JSON.stringify(nodeOf(element), (_key, value: unknown) =>
+      typeof value === "object" && value !== null && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+        : value,
+    ),
+  );
+}
 
 export function fillFingerprints(
   ids: readonly string[],
@@ -32,7 +40,7 @@ export function fillFingerprints(
   return Object.fromEntries(
     ids.flatMap((id) => {
       const block = find(id);
-      return block ? [[id, wordFingerprint(block)]] : [];
+      return block ? [[id, fillFingerprint(block)]] : [];
     }),
   );
 }
@@ -44,7 +52,7 @@ export function replaceableFillBlocks(
   return new Set(
     previous.blocks.filter((id) => {
       const block = find(id);
-      return block !== null && previous.fingerprints?.[id] === wordFingerprint(block);
+      return block !== null && previous.fingerprints?.[id] === fillFingerprint(block);
     }),
   );
 }
@@ -58,7 +66,7 @@ export function removePreviousFill(
     const parent = block?.parent;
     if (!block || !(parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment)) return [];
     // Earlier versions did not record whether an AI-only block was shortened by the User.
-    if (previous.fingerprints?.[id] !== wordFingerprint(block)) return [];
+    if (previous.fingerprints?.[id] !== fillFingerprint(block)) return [];
     const at = parent.toArray().indexOf(block);
     const position = Y.encodeRelativePosition(
       Y.createRelativePositionFromTypeIndex(parent, at, -1),

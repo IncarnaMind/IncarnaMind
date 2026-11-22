@@ -5,6 +5,7 @@
  * when no safe item survives, a quit cuts it short, or Local mode keeps it off the cloud.
  */
 import { getEventListeners } from "node:events";
+import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import type {
@@ -3828,7 +3829,17 @@ test("a different template refills a saved Note, keeps an edited AI heading, and
 });
 
 test("a blank Note is left alone when the template fills only the User's notes", async () => {
-  const model = fillingModel("The model should not be asked to fill a blank Note.", {});
+  const model = fillingModel(
+    (prompt) =>
+      [
+        fact("P1_F1", "Price", "The enterprise price is 45 dollars a seat. [^1]", {
+          lines: prompt.includes("L1: Price?") ? ["L1"] : [],
+          sections: ["decisions"],
+        }),
+        overview("We reached an agreement about the enterprise plan. [^1]"),
+      ].join("\n\n"),
+    { 1: MY_LINES[0] },
+  );
   let templateId: string | undefined;
   const { core, meeting, client } = await recorded(
     model,
@@ -3857,4 +3868,83 @@ test("a blank Note is left alone when the template fills only the User's notes",
   await client.settled();
   expect(readMind(client).textContent).toBe("");
   expect(model.doStreamCalls).toHaveLength(0);
+
+  await core.setMeetingWriteupTemplate(meeting.id, null);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  const undone = await core.undoMeetingFill(meeting.id);
+  expect(undone.writeupTemplateId).toBe(templateId);
+  expect(undone.fill?.problem?.kind).toBe("empty");
+
+  await client.settled();
+  writeMind(client, [note("Price?")]);
+  await client.settled();
+  await core.fillMeetingNotes(meeting.id);
+  await vi.waitFor(async () => expect((await fillOf(core, meeting.id))?.state).toBe("filled"));
+  await client.settled();
+  expect(mindCitations(client)).toHaveLength(1);
+});
+
+test("refill and its Undo preserve a generated paragraph the User excluded from context", async () => {
+  const previousText = "The enterprise price is 45 dollars a seat.";
+  const nextText = "Enterprise seats cost 45 dollars each.";
+  const model = fillingModel(
+    (prompt) =>
+      [
+        fact(
+          "P1_F1",
+          "Agreement",
+          `${prompt.includes("Renewal account") ? nextText : previousText} [^1]`,
+          {
+            heading: "What we agreed",
+            sections: ["decisions"],
+          },
+        ),
+        overview("We reached an agreement about the enterprise plan. [^1]"),
+      ].join("\n\n"),
+    { 1: MY_LINES[0] },
+  );
+  const { core, meeting, client } = await recorded(model, null);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+
+  const exclude = (text: string) => {
+    const inContext = (node: JSONContent): JSONContent => {
+      if (node.type === "paragraph" && node.content?.some(({ text: run }) => run?.includes(text))) {
+        return { ...node, attrs: { ...node.attrs, includeInContext: false } };
+      }
+      return node.content ? { ...node, content: node.content.map(inContext) } : node;
+    };
+    editMind(client, (nodes) => nodes.map(inContext));
+  };
+  const excluded = () => {
+    const found: string[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name === "paragraph" && node.attrs.includeInContext === false) {
+        found.push(node.textContent.trim());
+      }
+    });
+    return found;
+  };
+
+  exclude(previousText);
+  await client.settled();
+  expect(excluded()).toEqual([previousText]);
+
+  const chosen = await core.createSkill({
+    name: "renewal-account",
+    description: "Renewal account and verified agreement.",
+    steps: "Renewal account\n\n## Sections\n\n- What we agreed",
+    meetingTemplate: true,
+  });
+  if (!chosen.ok) throw new Error("Couldn't create the template.");
+  await core.setMeetingWriteupTemplate(meeting.id, chosen.skill.id);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+  expect(excluded()).toEqual([previousText]);
+
+  exclude(nextText);
+  await client.settled();
+  await core.undoMeetingFill(meeting.id);
+  await client.settled();
+  expect(excluded()).toEqual([previousText, nextText]);
 });
