@@ -35,12 +35,19 @@ jobs:
           IMG="$(ls "$PWD"/dist/*.AppImage)"
           export HOME="$RUNNER_TEMP/home"
           mkdir -p "$HOME"
-          SCRIPT="$HOME/.config/IncarnaMind/agent-connection"
+          set +e
           for start in 1 2; do
             setsid xvfb-run -a "$IMG" > "app$start.log" 2>&1 &
             APP=$!
-            for i in $(seq 1 90); do [ -f "$SCRIPT" ] && grep -q "mount_" "$SCRIPT" && break; sleep 1; done
+            for i in $(seq 1 120); do
+              SCRIPT=$(find "$HOME" -name agent-connection -type f 2>/dev/null | head -1)
+              [ -f "$SCRIPT" ] && grep -q "mount_" "$SCRIPT" && break
+              sleep 1
+            done
             sleep 5
+            echo "=== start $start: app log so far"
+            tail -30 "app$start.log"
+            find "$HOME" -maxdepth 3 | head -30
             echo "=== start $start: the script"
             ls -la "$SCRIPT"
             cat "$SCRIPT"
