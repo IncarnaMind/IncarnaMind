@@ -356,7 +356,7 @@ export function createAgentServer(
     {
       title: "Suggest Folders and Tags",
       description:
-        "For Documents from list_sorting, suggest a fitting Folder and relevant Tags by id. The User confirms in Suggestions.",
+        "For Documents from list_sorting, suggest a Folder and Tags by id, or new ones by name where none fits; neither if nothing does. The User confirms in Suggestions.",
       inputSchema: z.object({
         proposals: z
           .array(
@@ -364,7 +364,9 @@ export function createAgentServer(
               documentId: z.string(),
               version: z.string(),
               folderId: z.string().optional(),
+              newFolder: z.string().optional(),
               tagIds: z.array(z.string()).max(20).optional(),
+              newTags: z.array(z.string()).max(20).optional(),
             }),
           )
           .min(1)
