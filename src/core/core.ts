@@ -7204,7 +7204,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     readScannedText: async (id) => documents.readScannedText(id),
     readScannedQuote: async (input) => documents.readScannedQuote(parseQuoted(input)),
-    readableQuote: async (input) => documents.readableQuote(parseQuoted(input)),
+    readableQuote: async (input) => documents.readableQuote(parseQuoted(input), true),
     previewLinkedFolder: (path) => documents.linkedFolders.preview(path),
     addLinkedFolder: async (path, options) => {
       const groupId = library.target(options);

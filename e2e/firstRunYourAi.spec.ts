@@ -533,14 +533,18 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
   await expect(card.getByTestId("first-open-agent-line")).toHaveText(AGENT_LINE);
   await expect(step("agentAsk")).not.toContainText("Paste this into");
   await stills(window, "4b-card-agent-ask-opens");
-  // One press opens Claude Code with the line typed, and copies nothing.
+  // One press opens Claude Code with the line typed, and copies nothing; until the Note comes the
+  // step says the request is to be sent there, then that it is being written (#3587).
   await card.getByTestId("first-open-agent-ask").click();
-  await expect(card.getByTestId("first-open-agent-ask")).toHaveText("Ask Claude Code");
   await expect.poll(typedInClaudeCode).toEqual([AGENT_LINE]);
   await expect(window.getByTestId("copied-line")).toHaveText(
     "Opened Claude Code with your request typed. Send it there.",
   );
   expect(await copied(window)).toBe("");
+  const asked = card.getByTestId("first-open-agent-asked");
+  await expect(asked).toHaveText("Asked Claude Code: send the request there.");
+  await expect(card.getByTestId("first-open-agent-ask")).toHaveText("Ask again");
+  await stills(window, "4e-card-agent-asked");
   // A Note of the User's own isn't the agent's.
   await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.createMind({
@@ -558,6 +562,8 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
       "cargo tonnes",
       "The Port of Wenlow handled 1.8 million tonnes of cargo in 2025.",
     );
+    await expect(asked).toHaveText("Writing the note in Claude Code.");
+    await stills(window, "4f-card-agent-writing");
     const ferry = await cite(
       agent,
       "ferry crossings Ardmore",
@@ -588,22 +594,23 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
     await expect(card.getByTestId("first-open-agent-look-open")).toHaveCount(0);
     await stills(window, "5-card-agent-second-done");
 
-    // With no model set up, the Note's own Check asks Claude Code, as it does from the Note.
+    // With no model set up, the Note's own Check asks Claude Code at once, as it does from the
+    // Note, and the Note's badge says so until the marks land (#3587).
     await card.getByTestId("first-open-agent-look-check").click();
     await expect(frontMind(window)).toHaveAttribute("data-mind-id", made.mindId);
-    const askToCheck = window.getByTestId("checks-ask-agent-ask");
-    await expect(askToCheck).toHaveText("Ask Claude Code");
-    await askToCheck.click();
     await expect
       .poll(typedInClaudeCode)
       .toEqual([
         AGENT_LINE,
         "Check my note “Harbour summary” in IncarnaMind against my Documents.",
       ]);
+    const badge = window.getByTestId("badge-asked");
+    await expect(badge).toHaveText("Asked your AI");
 
     const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
     );
+    await expect(badge).toHaveText("Your AI is checking");
     const results = given.sentences.map((sentence) =>
       sentence.text.startsWith(CARGO)
         ? { n: sentence.n, verdict: "supported", cites: [cargo] }
@@ -617,6 +624,7 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
         arguments: { mindId: made.mindId, task: given.task, results },
       }),
     );
+    await expect(badge).toHaveCount(0);
     // Back at Get started, the step shows what Claude Code's check found.
     await window
       .locator(`[data-testid="mind-tab"]:not([data-mind-id="${made.mindId}"])`)
@@ -675,16 +683,30 @@ test("the step asks the AI with the line typed, and copies it only where the AI 
     "Opened Claude Code with your request typed. Send it there.",
   );
 
-  // The same press in Chinese carries the card's line in Chinese.
+  // Asked, the AI asked last leads with Ask again; the same press in Chinese carries the card's
+  // line in Chinese.
   await core(window).look("zh-CN", "light");
-  await expect(ask).toHaveText(translate("zh-CN", "agents.ask.action", { agent: "VS Code" }));
+  await expect(ask).toHaveText(translate("zh-CN", "agents.asked.again"));
+  await expect(card.getByTestId("first-open-agent-asked")).toHaveText(
+    "已交给 Claude Code：在那里发送请求即可。",
+  );
+  await card.getByTestId("first-open-agent-others").click();
+  await expect(window.getByTestId("first-open-agent-other")).toHaveText(
+    translate("zh-CN", "agents.ask.action", { agent: "VS Code" }),
+  );
+  await window.getByTestId("first-open-agent-other").click();
   const line = translate("zh-CN", "firstOpen.agent.line", { document: "“Harbour report 2025”" });
-  await expect(card.getByTestId("first-open-agent-line")).toHaveText(line);
-  await ask.click();
   await expect(window.getByTestId("copied-line")).toHaveText(
     translate("zh-CN", "agents.ask.copied", { agent: "VS Code" }),
   );
   expect(await copied(window)).toBe(line);
+  await expect(card.getByTestId("first-open-agent-asked")).toHaveText(
+    "已为 VS Code 复制：粘贴到那里并发送请求。",
+  );
+  await ask.click();
+  await expect(window.getByTestId("copied-line")).toHaveText(
+    translate("zh-CN", "agents.ask.copied", { agent: "VS Code" }),
+  );
   await card.getByTestId("first-open-agent-others").click();
   await window.getByTestId("first-open-agent-other").click();
   await expect.poll(typedInClaudeCode).toEqual([AGENT_LINE, line]);

@@ -10,6 +10,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import type { AgentAsk, AgentPairing, AgentRequest, SearchScope } from "../../core/api";
+import { type AskedFor, rememberAsked } from "./askedAgent";
 import { core } from "./core";
 import { documentsOnScreen } from "./documentsOnScreen";
 import { noModelSetUp } from "./noModelSetUp";
@@ -155,6 +156,7 @@ export async function askAgent(
   scope?: SearchScope,
 ): Promise<boolean> {
   try {
+    const at = new Date().toISOString();
     const result = await core.askAgent({
       pairingId: agent.id,
       mindId,
@@ -162,12 +164,33 @@ export async function askAgent(
       ...(ask.kind === "question" && { onScreen: documentsOnScreen(), scope: scope ?? null }),
     });
     if (result.kind === "copy") await navigator.clipboard.writeText(result.text);
+    const about: AskedFor | null =
+      ask.kind === "check" && mindId !== null
+        ? { kind: "check", mindId }
+        : ask.kind === "summary"
+          ? { kind: "summary", documentId: ask.documentId }
+          : null;
+    if (about) rememberAsked(agent, about, { copied: result.kind === "copy", at });
     useNotices
       .getState()
       .confirm(result.kind === "copy" ? "agents.ask.copied" : "agents.ask.opened", {
         agent: agent.name,
       });
     return true;
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+    return false;
+  }
+}
+
+/**
+ * A Check with no model set up asks the User's own AI at once (#3587): the one the Ask pill asks,
+ * connected or used last. Resolves to whether one was asked; with none that reads the Note, none is.
+ */
+export async function askToCheck(mindId: string): Promise<boolean> {
+  try {
+    const [agent] = await core.listAgentsToAsk(mindId);
+    return agent ? await askAgent(agent, mindId, { kind: "check" }) : false;
   } catch (error) {
     useAppStore.getState().reportError(error);
     return false;

@@ -2,7 +2,8 @@
  * A check card says where its sentence comes from (#3322): the writer's own view is named as one,
  * with what the Documents hold on it and every quote of it, and no fault to fix; a verdict the
  * check worked out from what the Documents state says so, and shows its one line of working before
- * every quote it used.
+ * every quote it used. A verdict the User's own AI reported on several quotes shows every one of
+ * them (#3587).
  */
 import { Editor } from "@tiptap/core";
 import { DOMParser } from "linkedom";
@@ -15,6 +16,15 @@ import { claimWash } from "../../src/renderer/src/editor/claimChecks";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import { checkWithParts } from "../../src/shared/claimParts";
 import { type MessageKey, translate } from "../../src/shared/i18n";
+
+// What the card's quote opens: the Document at the quote the verdict rests on (#3587).
+const opened = vi.hoisted(() => [] as { quote: string | null }[]);
+vi.mock("../../src/renderer/src/openCited", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/renderer/src/openCited")>()),
+  openCited: async (citation: { quote: string | null }) => {
+    opened.push({ quote: citation.quote });
+  },
+}));
 
 const passage = (quote: string): CitationAttributes => ({
   passageId: `passage-${quote}`,
@@ -47,6 +57,13 @@ const EXAMPLES = {
     ],
     wrong: "Next year’s tickets will stay under ten thousand.",
     wrongSays: "Worked out from the review, next year’s tickets come to 10,580.",
+    season: "Busy season runs from July to the October holiday.",
+    seasonSays: "The review gives July in one place and August in another.",
+    seasonQuotes: [
+      "Half the week is spent at the counter, half on site visits.",
+      "The busy season starts in August and runs to the October holiday.",
+      "From July the queue grows, right up to the October holiday.",
+    ],
   },
   "zh-CN": {
     view: "我的建议是增加 2 名客服，5 月到岗。",
@@ -61,6 +78,13 @@ const EXAMPLES = {
     workedQuotes: ["客服中心 2026 年共处理工单 9,200 张。", "预计 2027 年工单量增长 15%。"],
     wrong: "明年的工单量不会超过一万张。",
     wrongSays: "按文档推算，明年的工单量约为 10,580 张。",
+    season: "旺季从七月持续到国庆假期。",
+    seasonSays: "文档一处说七月，另一处说八月。",
+    seasonQuotes: [
+      "平时一半时间在柜台，一半时间上门走访。",
+      "旺季一般从八月开始，一直到国庆假期。",
+      "七月起排队的人就多了，一直到国庆。",
+    ],
   },
 } as const;
 
@@ -194,6 +218,7 @@ async function card(
   sentence: string,
   check: ClaimCheckAttributes,
   shown: { state: string },
+  decision: unknown = { kind: "none" },
 ) {
   const { useAppStore } = await import("../../src/renderer/src/store");
   useAppStore.setState({ settings: { language, user: { personId: "person" } } } as never);
@@ -236,7 +261,7 @@ async function card(
         keep: false,
         corrections: [],
         editor,
-        decision: { kind: "none" },
+        decision,
         added: 0,
         onAdd: noop,
         onWiden: noop,
@@ -357,6 +382,95 @@ describe.each(["en", "zh-CN"] as const)("a verdict worked out (%s)", (language) 
     ]);
   });
 });
+
+describe.each(["en", "zh-CN"] as const)("a verdict the User's own AI reported (%s)", (language) => {
+  const example = EXAMPLES[language];
+  const t = (key: MessageKey) => translate(language, key);
+  const reported = (verdict: "contradicted" | "supported", quotes: readonly string[]) =>
+    checkOf(
+      example.season,
+      wholePart(example.season, {
+        verdict,
+        evidence: quotes.map(passage),
+        says: example.seasonSays,
+        restsOnEveryQuote: true,
+      }),
+    );
+
+  // protects=a mark the User's own AI reported on three quotes shows all three on its card, in the order the AI gave them, each opening its Document, so where two places disagree both are there; never only the first, which in the walk was about something else (#3587); fails_when=the card shows one quote, folds the others behind a count, or reorders them; no_claim=which quote decides
+  test("Contradicted on three quotes: every one shows, in the order given", async () => {
+    await card(language, example.season, reported("contradicted", example.seasonQuotes), {
+      state: "contradicted",
+    });
+    expect(texts("claim-badge")).toEqual([t("claim.state.contradicted")]);
+    expect(texts("claim-part-reason")).toEqual([example.seasonSays]);
+    expect(texts("claim-part-citation")).toEqual(example.seasonQuotes);
+    expect(container.querySelector('[data-testid="claim-part-more"]')).toBeNull();
+  });
+
+  // protects=an overstated verdict the AI rested on one quote shows its explanation and that quote, which its card used to leave out; fails_when=the card shows the explanation alone, or says Not found; no_claim=none beyond protects.
+  test("Overstated on one quote: its explanation and its quote show", async () => {
+    const [, quote] = example.seasonQuotes;
+    const check = checkOf(
+      example.season,
+      wholePart(example.season, {
+        verdict: "unsupported",
+        evidence: [passage(quote)],
+        unsupported: {
+          word: "overstated",
+          reason: example.seasonSays,
+          covered: null,
+          uncovered: null,
+          found: true,
+          quoted: passage(quote),
+        },
+        restsOnEveryQuote: true,
+      }),
+    );
+    await card(language, example.season, check, { state: "unsupported" });
+    expect(texts("claim-part-reason")).toEqual([example.seasonSays]);
+    expect(texts("claim-part-citation")).toEqual([quote]);
+    expect(container.textContent).not.toContain(t("claim.state.notFound"));
+  });
+
+  // protects=a Supported verdict the AI rested on two quotes shows both, though a ✓ card shows one quote of the Note's own check; fails_when=the second is behind "1 more"; no_claim=none beyond protects.
+  test("Supported on two quotes: both show", async () => {
+    const two = example.seasonQuotes.slice(1);
+    await card(language, example.season, reported("supported", two), { state: "supported" });
+    expect(texts("claim-part-citation")).toEqual(two);
+    expect(container.querySelector('[data-testid="claim-part-more"]')).toBeNull();
+  });
+});
+
+describe.each(["en", "zh-CN"] as const)(
+  "a sentence whose own Citation is at the verdict's place (%s)",
+  (language) => {
+    const example = EXAMPLES[language];
+    const [, verdictQuote] = example.seasonQuotes;
+    // The Note's writer cited a shorter span at the same place, as the walks found.
+    const noteQuote = verdictQuote.slice(2);
+
+    // protects=a card shows the quote its verdict rests on, and that quote is what it opens; the sentence's own Citation at the same place is its number beside it, never its words in place of the verdict's (#3587); fails_when=the card shows the Note's Citation's words while opening the verdict's, or drops the Citation's number
+    test("shows the verdict's quote, opens it, and names the sentence's Citation beside it", async () => {
+      opened.length = 0;
+      const check = checkOf(
+        example.season,
+        wholePart(example.season, { evidence: [passage(verdictQuote)], says: example.seasonSays }),
+      );
+      const already = {
+        kind: "already",
+        citation: { pos: 1, number: 1, key: "block-1:0", attributes: passage(noteQuote) },
+      };
+      await card(language, example.season, check, { state: "supported" }, already);
+      expect(texts("claim-quote")).toEqual([verdictQuote]);
+      expect(texts("claim-already-chip")).toEqual(["1"]);
+      await act(async () =>
+        (container.querySelector('[data-testid="claim-open-quote"]') as HTMLElement).click(),
+      );
+      expect(opened).toEqual([{ quote: verdictQuote }]);
+    });
+  },
+);
 
 // protects=with every result shown, a Supported verdict the check worked out carries a quiet dotted line, and by default nothing, as a Supported sentence shows nothing (#3358); a sentence the Documents state and a writer's own view carry nothing, and a contradiction keeps its wash however it was reached (#3322); fails if a worked-out sentence looks the same as a stated one with every result shown, carries a line by default, or a view looks like a kind of working
 test("the Note's line says which Supported sentences were worked out, with every result shown", () => {

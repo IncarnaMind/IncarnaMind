@@ -51,7 +51,14 @@ function isRealHyphen(before: string, after: string, evidence: string): boolean 
   return hasWord(evidence, `${before}-${after}`);
 }
 
-function read(raw: string, evidence: string): string {
+/**
+ * What a line break in a quote is: "join", a break a PDF's layout put in, which goes; "keep", one
+ * the Document shows as its own (a text file's lines, a Word file's paragraphs, a transcript's
+ * turns), which stays, so a quote that spans two turns reads as two (#3587).
+ */
+export type QuoteLines = "join" | "keep";
+
+function read(raw: string, evidence: string, lines: QuoteLines = "join"): string {
   const joined = raw.replace(LINE_END_HYPHEN, (match, hyphen: string, offset: number) => {
     if (hyphen === SOFT_HYPHEN) return "";
     const letters = isSpacedLetter(raw[offset - 1]) && isSpacedLetter(raw[offset + match.length]);
@@ -68,6 +75,7 @@ function read(raw: string, evidence: string): string {
   return joined
     .replace(WHITESPACE_RUN, (run, offset: number) => {
       if (!run.includes("\n")) return " ";
+      if (lines === "keep") return run.replace(/[^\S\n]+/gu, "");
       const before = joined.charAt(offset - 1);
       const after = joined.charAt(offset + run.length);
       return (before !== "" && isCjk(before)) || (after !== "" && isCjk(after)) ? "" : " ";
@@ -88,9 +96,13 @@ function wholeWord(text: string, { end }: TextRange): number {
  * The quote found at `ranges` of a text (one for each part of a quote with an ellipsis, see
  * `findQuote`), read as words, a part that stops at a split word run to its end.
  */
-export function readableQuote(text: string, ranges: readonly TextRange[]): string {
+export function readableQuote(
+  text: string,
+  ranges: readonly TextRange[],
+  lines: QuoteLines = "join",
+): string {
   return ranges
-    .map((range) => read(text.slice(range.start, wholeWord(text, range)), text))
+    .map((range) => read(text.slice(range.start, wholeWord(text, range)), text, lines))
     .join(" … ");
 }
 
