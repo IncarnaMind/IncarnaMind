@@ -549,37 +549,54 @@ const finish = (answer: ConversationAnswer): Promise<unknown> => {
 async function finishIn(
   answer: ConversationAnswer,
   row: ChangedMind,
+  options: { made: boolean; created: boolean; askedFrom: TabItem | null },
+): Promise<void> {
+  const factsOf = (requests: ReadonlySet<string>) => {
+    const calls = answer.toolCalls.filter(
+      (call) => call.mindChange && requests.has(call.mindChange.request),
+    );
+    return changedMinds({ toolCalls: calls })[0] ?? row;
+  };
+  await applyTurn(answer.id, row, factsOf, options);
+}
+
+/**
+ * Applies the changes one turn asked for in one Note at once, as one step of its Undo with the
+ * applied-edit line over them: in its open editor, or in the core with the Note opened beside the
+ * one in view. A turn is an Answer, or a request typed at a Note's foot (#3627); `factsOf` counts
+ * what the line says of the requests that apply.
+ */
+export async function applyTurn(
+  turnId: string,
+  row: ChangedMind,
+  factsOf: (requests: ReadonlySet<string>) => ChangedMind,
   { made, created, askedFrom }: { made: boolean; created: boolean; askedFrom: TabItem | null },
 ): Promise<void> {
   const editor = mindEditor(row.mindId);
   if (!editor) {
     const application = await core.applyAskedChanges({
-      answerId: answer.id,
+      answerId: turnId,
       mindId: row.mindId,
       requests: row.requests,
     });
     if (!application) {
       useAskedChanges.setState((state) => {
-        const { [row.mindId]: _gone, ...rest } = state.outcomes[answer.id] ?? {};
-        return { outcomes: { ...state.outcomes, [answer.id]: rest } };
+        const { [row.mindId]: _gone, ...rest } = state.outcomes[turnId] ?? {};
+        return { outcomes: { ...state.outcomes, [turnId]: rest } };
       });
       return;
     }
     const requests = new Set(application.requests);
-    const calls = answer.toolCalls.filter(
-      (call) => call.mindChange && requests.has(call.mindChange.request),
-    );
-    const [facts = row] = changedMinds({ toolCalls: calls });
     const each: Asked = {
-      answerId: answer.id,
+      answerId: turnId,
       mindId: row.mindId,
       requests,
       requested: row.requests,
-      facts,
+      facts: factsOf(requests),
       applied: null,
       application: refOf(application),
     };
-    asked.set(keyOf(answer.id, row.mindId), each);
+    asked.set(keyOf(turnId, row.mindId), each);
     setOutcome(each, application.held ? "held" : "applied", application.accepted);
     // A made Note comes to the front only when the User is still where they asked from (#2572).
     const stillThere = sameTabItem(
@@ -601,17 +618,14 @@ async function finishIn(
   if (requests.size === 0) {
     // Only changes that wait, which the card lists as waiting.
     useAskedChanges.setState((state) => {
-      const { [row.mindId]: _gone, ...rest } = state.outcomes[answer.id] ?? {};
-      return { outcomes: { ...state.outcomes, [answer.id]: rest } };
+      const { [row.mindId]: _gone, ...rest } = state.outcomes[turnId] ?? {};
+      return { outcomes: { ...state.outcomes, [turnId]: rest } };
     });
     return;
   }
-  const calls = answer.toolCalls.filter(
-    (call) => call.mindChange && requests.has(call.mindChange.request),
-  );
-  const [facts = row] = changedMinds({ toolCalls: calls });
+  const facts = factsOf(requests);
   const each: Asked = {
-    answerId: answer.id,
+    answerId: turnId,
     mindId: row.mindId,
     requests,
     requested: row.requests,
@@ -619,7 +633,7 @@ async function finishIn(
     applied: null,
     application: null,
   };
-  asked.set(keyOf(answer.id, row.mindId), each);
+  asked.set(keyOf(turnId, row.mindId), each);
   if (applyArrived(editor, row.mindId, requests, facts) === "held") setOutcome(each, "held");
 }
 

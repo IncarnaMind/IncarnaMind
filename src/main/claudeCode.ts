@@ -17,8 +17,10 @@ const processes = createLoginShellProcesses();
 export interface ClaudeCodeTurn {
   /** The command: `claude`, unless a test build gives another. */
   command?: string;
-  /** A folder of the turn's own, which its caller removes: the system prompt is written there. */
+  /** The folder the turn runs in. */
   cwd: string;
+  /** A private folder of the turn's own, which its caller removes: the system prompt is written there. */
+  scratch: string;
   systemPrompt: string;
   prompt: string;
   signal: AbortSignal;
@@ -26,11 +28,16 @@ export interface ClaudeCodeTurn {
   maxResponseBytes: number;
   /**
    * IncarnaMind's server, as a file of MCP settings only the User's account can read, and the
-   * Tools of it the turn may call; none: no tools at all.
+   * Tools of it the turn may call (all of them: "all"); none: no tools at all.
    */
-  server?: { configFile: string; name: string; tools: readonly string[] };
-  /** Whether Claude Code keeps the turn's session, to be continued later; a check keeps none. */
-  persist: boolean;
+  server?: { configFile: string; name: string; tools: readonly string[] | "all" };
+  /**
+   * The conversation Claude Code keeps, started with this id or continued; none: it keeps nothing,
+   * as a check and Meetings' requests do.
+   */
+  session?: { id: string; resume: boolean };
+  /** How Claude Code answers its own permission prompts; nothing it may ask is allowed here. */
+  permissionMode?: "dontAsk";
   /** Each message before the result, from the first; one that throws stops the turn. */
   onMessage?(message: Record<string, unknown>): void;
 }
@@ -64,12 +71,19 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
     "--mcp-config",
     server?.configFile ?? '{"mcpServers":{}}',
     ...(server
-      ? ["--allowedTools", server.tools.map((tool) => `mcp__${server.name}__${tool}`).join(",")]
+      ? [
+          "--allowedTools",
+          server.tools === "all"
+            ? `mcp__${server.name}`
+            : server.tools.map((tool) => `mcp__${server.name}__${tool}`).join(","),
+        ]
       : []),
     "--disable-slash-commands",
     "--permission-mode",
-    "dontAsk",
-    ...(turn.persist ? [] : ["--no-session-persistence"]),
+    turn.permissionMode ?? "dontAsk",
+    ...(turn.session
+      ? [turn.session.resume ? "--resume" : "--session-id", turn.session.id]
+      : ["--no-session-persistence"]),
     "--input-format",
     "stream-json",
     "--output-format",
@@ -80,13 +94,13 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
     // On Windows an npm-installed `claude.cmd` runs through cmd.exe, where a line break in an
     // argument ends the command: the prompt goes on stdin and the system prompt in a file.
     "--system-prompt-file",
-    join(turn.cwd, SYSTEM_PROMPT_FILE),
+    join(turn.scratch, SYSTEM_PROMPT_FILE),
   ];
 }
 
 /** Starts the turn and resolves with its result message, a successful one or not. */
 export async function runClaudeCodeTurn(turn: ClaudeCodeTurn): Promise<Record<string, unknown>> {
-  await writeFile(join(turn.cwd, SYSTEM_PROMPT_FILE), turn.systemPrompt, { mode: 0o600 });
+  await writeFile(join(turn.scratch, SYSTEM_PROMPT_FILE), turn.systemPrompt, { mode: 0o600 });
   const child = await processes.spawn(turn.command ?? "claude", argsOf(turn), {
     cwd: turn.cwd,
     env: {
@@ -173,7 +187,10 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
         continue;
       }
       if (msg.type === "result") {
-        if (!sent || bytes > turn.maxResponseBytes) {
+        // Before the prompt went, Claude Code ended at its start (a conversation it doesn't have,
+        // say): nothing of the request was sent, and its result says why.
+        if (!sent) return msg;
+        if (bytes > turn.maxResponseBytes) {
           throw new Error("Claude Code could not complete the request.");
         }
         // A result ends this turn even when the CLI keeps its stream open.

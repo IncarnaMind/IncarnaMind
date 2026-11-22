@@ -551,7 +551,7 @@ describe("a folder linked before (#3613)", () => {
   const migratedAgain = (set: Awaited<ReturnType<typeof started>>, before: Edit = () => {}) =>
     reopened(set, (db) => {
       db.run("ALTER TABLE library_groups DROP COLUMN deleted_quietly");
-      db.run("DELETE FROM schema_migrations WHERE version = 159");
+      db.run("DELETE FROM schema_migrations WHERE version = 161");
       before(db);
     });
   /** A fault in the database: a Folder named "Broken" can't be made. */

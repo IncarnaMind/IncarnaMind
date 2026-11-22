@@ -157,6 +157,10 @@ export function requestedRequests(doc: Y.Doc, requests: ReadonlySet<string>): Se
 export function translationRequested(doc: Y.Doc, requests: ReadonlySet<string>): boolean {
   return [...requests].every((request) => {
     const made = proposalRequestOf(doc, request);
+    // Asked at the Note's foot (#3627): what the User typed says whether it is a translation.
+    if (made?.source === "outside-agent") {
+      return made.requested === "edit" && TRANSLATION.test(made.instruction ?? "");
+    }
     if (made?.source !== "edit-with-ai" && made?.source !== "answer-added") return false;
     return (
       ("action" in made && made.action === "translate") ||

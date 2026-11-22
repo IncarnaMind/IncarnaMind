@@ -23,9 +23,18 @@ const NONE: readonly AgentPairing[] = [];
 const keyOf = (mindId: string | null, documentId?: string) =>
   documentId ? `${mindId}/${documentId}` : (mindId ?? "");
 
-const useAskable = create<{ byMind: Readonly<Record<string, readonly AgentPairing[]>> }>()(() => ({
+const useAskable = create<{
+  byMind: Readonly<Record<string, readonly AgentPairing[]>>;
+  /** Whether the User's own command-line AI can run here in the background, as last read. */
+  runsHere: boolean;
+}>()(() => ({
   byMind: {},
+  runsHere: false,
 }));
+
+/** Whether a Note's own input can run the User's command-line AI here (ADR-0034), as last read. */
+export const ownAiRunsHereNow = (): boolean => useAskable.getState().runsHere;
+export const useOwnAiRunsHere = (): boolean => useAskable((state) => state.runsHere);
 
 /** The agents the User can ask about `mindId` now, as last read, the one connected or used last first. */
 export const agentsToAsk = (mindId: string | null, documentId?: string): readonly AgentPairing[] =>
@@ -57,12 +66,17 @@ export function useReadAgentsToAsk(mindId: string | null, documentId?: string): 
   useEffect(() => {
     let current = true;
     const read = () => {
-      core.listAgentsToAsk(mindId, documentId).then((agents) => {
-        if (!current) return;
-        useAskable.setState(({ byMind }) => ({
-          byMind: { ...byMind, [keyOf(mindId, documentId)]: agents },
-        }));
-      }, useAppStore.getState().reportError);
+      // Read with the agents, as a Note opens: their command line may have been installed since.
+      Promise.all([core.listAgentsToAsk(mindId, documentId), core.ownAiRunsHere()]).then(
+        ([agents, runsHere]) => {
+          if (!current) return;
+          useAskable.setState(({ byMind }) => ({
+            byMind: { ...byMind, [keyOf(mindId, documentId)]: agents },
+            runsHere,
+          }));
+        },
+        useAppStore.getState().reportError,
+      );
     };
     read();
     const stop = core.on("agents.changed", read);

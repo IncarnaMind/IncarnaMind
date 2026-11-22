@@ -39,6 +39,7 @@ import {
   setEditTarget,
   watchMovedOn,
 } from "./editor/proposalReview";
+import { closeSelectionMenu } from "./editor/selectionDismissal";
 import { handSelectionToOwnAi } from "./editor/selectionToOwnAi";
 import { keepDecisions } from "./editor/theirChanges";
 import { failedEdit } from "./editProblems";
@@ -47,6 +48,7 @@ import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { modelInUseOf } from "./modelInUse";
 import { shownModelNow } from "./modelNames";
+import { askFromSelection, noteAskShownNow } from "./ownAiInNote";
 import { ownAiOnlyNow } from "./ownAiPanel";
 import { useAppStore } from "./store";
 
@@ -316,6 +318,22 @@ export async function requestEdit(
   const ownAi = OWN_AI_ACTIONS[action];
   // By the User's setup, not by whether the panel shows: one read in it still edits through their AI.
   if (ownAi && ownAiOnlyNow()) {
+    // An agent that runs in the background changes the Note in place, from its input (#3627).
+    if (noteAskShownNow(mindId) && !range) {
+      const words =
+        action === "instruction"
+          ? (instruction ?? "").trim()
+          : action === "translate"
+            ? translateNow("noteAsk.action.translate", { language: instruction ?? "" })
+            : translateNow(`noteAsk.action.${ownAi}` as "noteAsk.action.improve");
+      if (words !== "") {
+        const went = await askFromSelection(editor.state, mindId, words);
+        if (went === "started" || went === "problem" || went === "busy") {
+          closeSelectionMenu(editor);
+          return false;
+        }
+      }
+    }
     return handOver(editor, mindId, ownAi, instruction, range);
   }
   const selection = selectionForEdit(editor.state, range);

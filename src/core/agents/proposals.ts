@@ -141,7 +141,7 @@ export interface NamedOptions {
  * ("[note:1]"), or Citation n it has no token for ("[kept:1]"). One the User typed is shown
  * escaped ("\\[note:1]") and read back as words.
  */
-const HANDLE = /(?<!\\)\[(note|kept):(\d{1,4})\]/g;
+export const HANDLE = /(?<!\\)\[(note|kept):(\d{1,4})\]/g;
 const handle = (kind: "note" | "kept", n: number) => `[${kind}:${n}]`;
 const escapeHandles = (text: string) => text.replace(/\[(?=(?:note|kept):\d)/g, "\\[");
 const unescapeHandles = (text: string) => text.replace(/\\\[(?=(?:note|kept):\d)/g, "[");

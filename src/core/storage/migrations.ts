@@ -3378,7 +3378,41 @@ export const migrations: readonly Migration[] = [
     `,
   },
   {
-    version: 159,
+    version: 160,
+    description: "A Note's conversation with the User's own command-line AI (#3627)",
+    sql: `
+      -- Each Note's conversation with the User's own command-line AI (ADR-0034), and each request
+      -- in it: on this device only, as agent_requests is, since the agent's own copy is on this
+      -- computer. A deleted one keeps no words: its row stays only as the deletion.
+      CREATE TABLE own_ai_conversations (
+        id TEXT PRIMARY KEY,
+        mind_id TEXT NOT NULL,
+        pairing_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX own_ai_conversations_live ON own_ai_conversations (mind_id, pairing_id)
+        WHERE deleted_at IS NULL;
+      CREATE TABLE own_ai_turns (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        request TEXT NOT NULL,
+        selection TEXT NOT NULL DEFAULT '',
+        reply TEXT NOT NULL DEFAULT '',
+        outcome TEXT NOT NULL,
+        problem TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX own_ai_turns_by_conversation ON own_ai_turns (conversation_id, created_at)
+        WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 161,
     description: "A folder linked before is a Folder bound to it, as linking one makes now (#3613)",
     sql: `
       -- A Folder its filing as one Folder took away holding nothing (#3613) is deleted as any

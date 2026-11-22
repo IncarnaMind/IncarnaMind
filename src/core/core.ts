@@ -76,10 +76,17 @@ import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
-import { agentSocketPath, createAgents, serviceOf } from "./agents";
+import {
+  agentSocketPath,
+  createAgents,
+  HOSTED_CHECK_SENDS,
+  HOSTED_FLOW_SENDS,
+  serviceOf,
+} from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
+import { createOwnAiConversations } from "./agents/ownAiConversations";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createOwnAiChecks } from "./agents/ownRun";
 import { createAgentSetup } from "./agents/setup";
@@ -128,6 +135,7 @@ import {
   type AddDocumentsResult,
   type AddedToNote,
   type AgentOpened,
+  type AgentPairing,
   type AnnotationColour,
   type AnswerPlace,
   BLOCK_ID_ATTRIBUTE,
@@ -146,6 +154,7 @@ import {
   type CoreApi,
   type CoreApiMethod,
   type CoreEventSource,
+  type DataKind,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
   type DecisionHostStatus,
@@ -698,7 +707,7 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
   return { documentId: parseDocumentId(input.documentId), password };
 }
 
-/** Where migration 159 lists the Linked folders the first start binds (#3613). */
+/** Where migration 161 lists the Linked folders the first start binds (#3613). */
 const LINKED_FOLDERS_TO_BIND = "linkedFoldersToBind";
 /** Starts that try to bind one of them before it is left with its filing as one Folder off. */
 const BIND_TRIES = 3;
@@ -4345,7 +4354,7 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   };
   /**
-   * Binds the folders linked before that migration 159 chose, as linking binds one now, so each
+   * Binds the folders linked before that migration 161 chose, as linking binds one now, so each
    * Document is filed as the bind files it (#3613). A connection that read Not in a Folder, where
    * their files were, is given their new Folders, so it reads them still. Tidying up after an
    * upgrade never stops a start: a folder that fails is logged and tried again at the next start,
@@ -7030,55 +7039,94 @@ export function createCore(adapters: CoreAdapters): Core {
   ] as const)
     events.on(event, summaryAccessChanged);
   liveSummaries.changed(meetings.list());
+  /** Whether the User's consent lets IncarnaMind start this agent to send `sends`, asking once if not. */
+  const hostedConsent = async (pairing: AgentPairing, sends: readonly DataKind[]) => {
+    const service = serviceOf(pairing);
+    // Taken back in Settings › Privacy: the job goes by the link until the User allows it again.
+    if (consent.takenBack("hosted-agents", service)) return false;
+    try {
+      await consent.ensure("hosted-agents", service, sends);
+      return true;
+    } catch (error) {
+      if (error instanceof ConsentDeclinedError) return false;
+      throw error;
+    }
+  };
+  const hostedHeldBack = (pairing: AgentPairing, mindId: string) => {
+    // Local mode pauses every pairing, so it comes before the reach it takes away.
+    if (embedding.localOnly()) return "local-mode" as const;
+    if (!agents.askable(mindId).some((each) => each.id === pairing.id)) return "access" as const;
+    // An acceptance from before the flow grew still counts for what was allowed then.
+    return consent.allows("hosted-agents", serviceOf(pairing)) ? null : ("taken-back" as const);
+  };
+  const onHostedReachChange = (listener: () => void) => {
+    const off = (
+      [
+        "agents.changed",
+        "privacy.changed",
+        "settings.changed",
+        "dataFlows.changed",
+        "minds.changed",
+        "library.changed",
+        "library.assignments",
+      ] as const
+    ).map((event) => events.on(event, listener));
+    return () => {
+      for (const each of off) each();
+    };
+  };
+  const hostedTitleOf = (mindId: string) => {
+    const mind = minds.list().find((each) => each.id === mindId);
+    return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
+  };
   const ownAiChecks = createOwnAiChecks({
     runner: adapters.ownAi,
     askable: (mindId) => agents.askable(mindId),
     checkGrant: (pairingId, mindId) => agents.checkGrant(pairingId, mindId),
-    async consented(pairing) {
-      const service = serviceOf(pairing);
-      // Taken back in Settings › Privacy: Check goes by the link until the User allows it again.
-      if (consent.takenBack("hosted-agents", service)) return false;
-      try {
-        await consent.ensure("hosted-agents", service);
-        return true;
-      } catch (error) {
-        if (error instanceof ConsentDeclinedError) return false;
-        throw error;
-      }
-    },
-    heldBack(pairing, mindId) {
-      // Local mode pauses every pairing, so it comes before the reach it takes away.
-      if (embedding.localOnly()) return "local-mode";
-      if (!agents.askable(mindId).some((each) => each.id === pairing.id)) return "access";
-      return consent.status("hosted-agents", serviceOf(pairing)) === "accepted"
-        ? null
-        : "taken-back";
-    },
-    onReachChange(listener) {
-      const off = (
-        [
-          "agents.changed",
-          "privacy.changed",
-          "settings.changed",
-          "dataFlows.changed",
-          "minds.changed",
-          "library.changed",
-          "library.assignments",
-        ] as const
-      ).map((event) => events.on(event, listener));
-      return () => {
-        for (const each of off) each();
-      };
-    },
+    consented: (pairing) => hostedConsent(pairing, HOSTED_CHECK_SENDS),
+    heldBack: hostedHeldBack,
+    onReachChange: onHostedReachChange,
     onActivity: (listener) => events.on("agents.activity", listener),
     ended: (end) => events.emit("agents.ownCheck", end),
-    titleOf(mindId) {
-      const mind = minds.list().find((each) => each.id === mindId);
-      return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
-    },
+    titleOf: hostedTitleOf,
     lifetime: lifetime.signal,
     log: adapters.log ?? silentLogger,
   });
+  const ownAiConversations = createOwnAiConversations({
+    runner: adapters.ownAi,
+    db,
+    askable: (mindId) => agents.askable(mindId),
+    conversationGrant: (pairingId, front, hears) =>
+      agents.conversationGrant(pairingId, front, hears),
+    consented: (pairing) => hostedConsent(pairing, HOSTED_FLOW_SENDS),
+    heldBack: hostedHeldBack,
+    onReachChange: onHostedReachChange,
+    turned: (turn) => events.emit("agents.noteTurn", turn),
+    titleOf: hostedTitleOf,
+    newId: () => crypto.randomUUID(),
+    now,
+    lifetime: lifetime.signal,
+    log: adapters.log ?? silentLogger,
+  });
+  // A connection's conversations go with the connection, and with its consent to start it (ADR-0034).
+  const forgetConversations = (pairingId: string) =>
+    ownAiConversations
+      .forgetPairing(pairingId)
+      .catch((error: unknown) =>
+        console.error("A Note's conversation couldn't be deleted:", error),
+      );
+  agents.watch({ connected: () => undefined, disconnected: forgetConversations });
+  events.on("dataFlows.changed", () => {
+    const pairings = agents.settings().pairings;
+    for (const pairingId of ownAiConversations.pairingsWithConversations()) {
+      const pairing = pairings.find((each) => each.id === pairingId);
+      if (pairing && consent.allows("hosted-agents", serviceOf(pairing))) continue;
+      void forgetConversations(pairingId);
+    }
+  });
+  ownAiConversations
+    .dropPurged()
+    .catch((error: unknown) => console.error("A Note's conversation couldn't be deleted:", error));
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
@@ -8670,6 +8718,7 @@ export function createCore(adapters: CoreAdapters): Core {
         wordImports.dropPurged(),
         documents.dropPurged(),
         canvases.dropPurged(),
+        ownAiConversations.dropPurged(),
       ]);
       transcripts?.dropPurged();
       // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
@@ -9629,6 +9678,18 @@ export function createCore(adapters: CoreAdapters): Core {
       return ownAiChecks.check(mindId, pairingId);
     },
     stopOwnAiCheck: async (mindId) => ownAiChecks.stop(mindId),
+    askInNote: (input) => ownAiConversations.ask(input),
+    stopInNote: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.stop(mindId);
+    },
+    noteConversation: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.turns(mindId);
+    },
+    ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);

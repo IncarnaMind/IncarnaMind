@@ -1,5 +1,6 @@
 import { agentsToAsk, askAgent, noModel } from "../askYourAi";
 import { fixesFree } from "../checks";
+import { focusNoteAsk, noteAskShownNow } from "../ownAiInNote";
 import { askableAt, askedSentenceOf, askedSentences } from "../unsupportedFixes";
 import { noteHandle } from "./handles";
 import type { Command } from "./registry";
@@ -59,6 +60,21 @@ export const askYourAiCommands: readonly Command[] = [
     run() {
       const at = withSentencesToAsk();
       if (at) void askAgent(at.agent, at.mindId, { kind: "fix", sentences: at.sentences });
+    },
+  },
+  {
+    id: "mind.askInNote",
+    label: "noteAsk.command",
+    group: "main",
+    reversible: true,
+    assistant: false,
+    when: () => {
+      const mindId = noteHandle.current?.mindId;
+      return mindId !== undefined && noteAskShownNow(mindId);
+    },
+    run() {
+      const mindId = noteHandle.current?.mindId;
+      if (mindId !== undefined) focusNoteAsk(mindId);
     },
   },
   {
