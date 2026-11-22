@@ -262,18 +262,20 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     });
   });
 
-  // protects=while a request runs, every window hears when it started and what it is doing: the AI's own words as it writes them, and each call with what it names (the Document a reading read); fails_when=the line can only show the last Tool's name, or no Document's name
+  // protects=while a request runs, every window hears when it started and what it is doing: the AI's own words for a step, standing through that step's calls; thinking once it thinks again after them; and a call with what it names (the Document a reading read) when it said nothing for it; fails_when=the line can only show the last Tool's name, the AI's words flash and go, or no Document is named
   it("tells what the run is doing as it goes", async () => {
     const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
     const run = runner(async (agent, request) => {
+      request.progress?.({ kind: "said", text: "I" });
       request.progress?.({ kind: "said", text: "Reading the report" });
       await pause();
       const found = structured<{ passages: { documentId: string }[] }>(
         await agent.callTool({ name: "search", arguments: { query: "ferry passengers" } }),
       ).passages[0];
-      await agent.callTool({ name: "read_passages", arguments: { documentId: found?.documentId } });
       await pause();
       request.progress?.({ kind: "thinking" });
+      await pause();
+      await agent.callTool({ name: "read_passages", arguments: { documentId: found?.documentId } });
       await pause();
       return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
     });
@@ -282,14 +284,16 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await ended();
     const working = turns.filter((turn) => turn.state === "working");
     expect(working[0]?.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
-    expect(working.map((turn) => turn.doing)).toEqual(
+    const doings = working.map((turn) => turn.doing);
+    expect(doings).not.toContainEqual({ kind: "said", text: "I" });
+    expect(doings).not.toContainEqual(expect.objectContaining({ kind: "call", tool: "search" }));
+    expect(doings).toEqual(
       expect.arrayContaining([
         { kind: "said", text: "Reading the report" },
+        { kind: "thinking" },
         { kind: "call", tool: "read_passages", summary: "Report", count: 1 },
       ]),
     );
-    // After a call, thinking is what it is doing: its words, when it writes some, come next.
-    expect(working.at(-1)?.doing).toEqual({ kind: "thinking" });
   });
 
   // protects=a turn ends when its run does, though the command line's connection is still open and listening for the Tool list to change, as Claude Code's can be then; fails_when=closing that connection waits on a message to a socket already gone, and the request stays working for good

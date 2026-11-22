@@ -32,6 +32,15 @@ const DOING: Partial<Record<AgentToolName, MessageKey>> = {
   update_canvas: "noteAsk.doing.publish_canvas",
 };
 
+/** What the pill says of a call as it starts, before it names what it reads or writes. */
+const STARTED: Partial<Record<AgentToolName, MessageKey>> = {
+  read_mind: "noteAsk.doing.read_mind.any",
+  search: "noteAsk.doing.search.any",
+  read_passages: "noteAsk.doing.read_passages.any",
+  propose_changes: "noteAsk.doing.propose_changes.any",
+  create_mind: "noteAsk.doing.create_mind.any",
+};
+
 /** The seconds appear once a request has run this long, as the User's AI app shows them. */
 const SECONDS_FROM = 3;
 
@@ -97,9 +106,9 @@ function doingOf(ask: NoteAsk, t: Translate): string {
   const key = DOING[doing.tool];
   if (!key) return t("noteAsk.pill.working");
   if (doing.summary === "" && key !== "noteAsk.doing.list_minds" && key !== "noteAsk.doing.cite") {
-    return doing.tool === "read_passages"
-      ? t("noteAsk.doing.read_passages.any")
-      : t("noteAsk.pill.working");
+    // A call as it starts, before it names what it reads or writes.
+    const any = STARTED[doing.tool];
+    return any ? t(any) : t("noteAsk.pill.working");
   }
   if (doing.tool === "read_passages" && doing.count > 1) {
     return t("noteAsk.doing.read_passages.counted", {

@@ -39,6 +39,8 @@ const INSTRUCTIONS = [
 const MAX_WORDS = 4000;
 /** How often the windows hear what a run is doing at most, as its words come a few at a time. */
 const TELL_EVERY_MS = 200;
+/** The AI's words show once they say something: a first word alone doesn't. */
+const SAID_FROM = 12;
 const isAgentTool = (name: string): name is AgentToolName =>
   (AGENT_TOOLS as readonly string[]).includes(name);
 const MAX_QUOTE = 4000;
@@ -411,22 +413,32 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (!signal.aborted) tell(event({ state: "working" }));
       }, TELL_EVERY_MS);
     };
+    // The AI's own words for a step stand for its calls until it thinks again after them, as the
+    // User's AI app shows a thought for its step; with none, the line says the call itself.
+    let saidForStep = false;
+    let calledSince = false;
     const doingCall = (tool: AgentToolName, summary: string) => {
       const seen = named.get(tool) ?? new Set<string>();
       if (summary !== "") seen.add(summary);
       named.set(tool, seen);
-      doing = { kind: "call", tool, summary, count: seen.size };
+      calledSince = true;
+      if (!saidForStep) doing = { kind: "call", tool, summary, count: seen.size };
     };
     const progress = (step: OwnAiProgress) => {
       if (signal.aborted) return;
       if (step.kind === "said") {
         written = step.text;
+        // Its first word or two say nothing yet.
+        if (step.text.trim().length < SAID_FROM) return;
         doing = { kind: "said", text: step.text };
+        saidForStep = true;
+        calledSince = false;
       } else if (step.kind === "tool") {
         // A Tool's name the stream gives as the call starts; what it names comes when it ends.
         if (isAgentTool(step.name)) doingCall(step.name, "");
-      } else if (doing?.kind !== "said") {
+      } else if (doing?.kind !== "said" || calledSince) {
         doing = { kind: "thinking" };
+        saidForStep = false;
       }
       tellWorking();
     };
