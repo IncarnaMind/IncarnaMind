@@ -382,8 +382,16 @@ export function CitationView({
     const documentId = state.documentId ?? attributes.documentId;
     if (!documentId || onScreen) return;
     recordUsage({ event: "citation_opened", fields: { check: shownCheck } });
+    // One place may run over several Units (a long section's parts): open over all of them.
+    const froms = groupLooks.flatMap((member) => member.pageFrom ?? []);
+    const tos = groupLooks.flatMap((member) => member.pageTo ?? member.pageFrom ?? []);
     openCitedPlace(
-      { ...attributes, documentId, quote: at?.quote ?? groupLooks[0]?.quote ?? attributes.quote },
+      {
+        ...attributes,
+        documentId,
+        quote: at?.quote ?? groupLooks[0]?.quote ?? attributes.quote,
+        ...(froms.length > 0 && { pageFrom: Math.min(...froms), pageTo: Math.max(...tos) }),
+      },
       {
         origin,
         check: shownCheck,
@@ -625,13 +633,27 @@ export function CitationView({
       recheck: recheckAsked,
       badge: badgeText,
       quote: attributes.quote ?? "",
+      pageFrom: attributes.pageFrom ?? null,
+      pageTo: attributes.pageTo ?? null,
       changed: changed?.parts ?? null,
       here: () => hereRef.current,
       fix: hasFix
         ? { label: t("citation.update"), run: () => choicesRef.current.update?.() }
         : null,
     });
-  }, [editor, lookKey, markerCheck, recheckAsked, badgeText, attributes.quote, changed, hasFix, t]);
+  }, [
+    editor,
+    lookKey,
+    markerCheck,
+    recheckAsked,
+    badgeText,
+    attributes.quote,
+    attributes.pageFrom,
+    attributes.pageTo,
+    changed,
+    hasFix,
+    t,
+  ]);
   const worst = many ? worstLook(groupLooks) : null;
   const shownCheck = worst?.check ?? state.check;
   const shownRecheck = worst ? worst.recheck : recheckAsked;

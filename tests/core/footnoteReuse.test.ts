@@ -731,6 +731,42 @@ describe("the writer's notes", () => {
     expect(printed.notes).toHaveLength(3);
   });
 
+  test("the one mark of Citations side by side carries the failed check of each in its Word comment", () => {
+    const failed = (source: string, quote: string): Footnote => ({
+      source,
+      unverified: true,
+      failed: { check: "not-found", quote, verdict: null },
+    });
+    const blocks = [
+      paragraph(
+        words("Slow"),
+        cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "first words") }),
+        cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "second words") }),
+      ),
+    ];
+    const { data } = renderDocx(blocks, {
+      title: "",
+      labels: exportLabels("en"),
+      language: "en-US",
+      paper: "a4",
+      created: "2026-10-22T00:00:00Z",
+      font: null,
+      lineSpacing: null,
+      review: {
+        trackAs: null,
+        markAiText: false,
+        commentFailedChecks: true,
+        now: "2026-10-22T00:00:00Z",
+        authorName: "Test User",
+      },
+    });
+    const files = unzip(data);
+    expect(part(files, "word/document.xml").match(/<w:footnoteReference /g)).toHaveLength(1);
+    const comments = part(files, "word/comments.xml");
+    expect(comments).toContain("first words");
+    expect(comments).toContain("second words");
+  });
+
   test("a Citation a change still waiting adds keeps its own mark beside one of its place", () => {
     const change = { id: "p1", at: null };
     const blocks = [

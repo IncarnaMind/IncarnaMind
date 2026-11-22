@@ -297,6 +297,15 @@ describe("Citations side by side with one number (#3654)", () => {
     expect(numberCitations(tenGone?.doc ?? run.doc).map((each) => each.number)).toEqual([1, 1]);
     const nineGone = groupKeyStep(inRun((nine ?? 0) + 1), "Backspace");
     expect(numberCitations(nineGone?.doc ?? run.doc).map((each) => each.number)).toEqual([1]);
+    // Spaces between them are passed with them, and taken with them.
+    const spaced = stateWith([
+      paragraph("a", text("Spaced"), placed("tides", 2), text(" "), placed("tides", 2), text(".")),
+    ]);
+    const [lead, last] = numberedCitations(spaced).map((each) => each.pos);
+    const inSpaced = (pos: number) =>
+      spaced.apply(spaced.tr.setSelection(TextSelection.create(spaced.doc, pos)));
+    expect(groupKeyStep(inSpaced(lead ?? 0), "ArrowRight")?.selection.from).toBe((last ?? 0) + 1);
+    expect(groupKeyStep(inSpaced((last ?? 0) + 1), "Backspace")?.doc.textContent).toBe("Spaced .");
     const single = stateWith([paragraph("a", text("One"), placed("tides", 2), text("."))]);
     const one = numberedCitations(single)[0]?.pos ?? 0;
     expect(

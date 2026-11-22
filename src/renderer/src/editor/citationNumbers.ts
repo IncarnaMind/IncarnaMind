@@ -21,7 +21,8 @@ import {
 } from "../../../core/api";
 import { readCalculatedFigureAttributes } from "../../../shared/calculatedFigures";
 import type { CitationForm } from "../../../shared/citationStyles";
-import { type CitationLive, citationSubject } from "../../../shared/citations";
+import { type CitationLive, citationSubject, footnoteSubjectKey } from "../../../shared/citations";
+import { MOST_QUOTES_AT_ONCE } from "../../../shared/documentViewer";
 import { FootnoteNumbering } from "../../../shared/footnoteNumbers";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { asOneStep } from "./editorUndo";
@@ -133,8 +134,11 @@ export function numberFootnotes(
   const numbering = new FootnoteNumbering();
   let endnotes = 0;
   let cited = 0;
-  /** Where the Citations side by side with the last one start, among `citations`. */
-  let run = 0;
+  /**
+   * The chips of the Citations side by side with the last one: for each number and its source
+   * and place, the Citation that shows it and how many it stands for.
+   */
+  let shown = new Map<string, { at: number; count: number }>();
   doc.forEach((block, offset, index) => {
     const id = block.attrs[BLOCK_ID_ATTRIBUTE];
     const blockKey = typeof id === "string" ? id : `#${index}`;
@@ -209,15 +213,21 @@ export function numberFootnotes(
         footnote = true;
       }
       inBlock += 1;
-      if (!beside) run = citations.length;
-      const same = citations.findIndex((each, place) => place >= run && each.number === number);
+      if (!beside) shown = new Map();
+      // One number is one source and place in Numbered, but one note of several in a note style:
+      // a chip stands only for Citations of one place, so one opening shows all its quotes.
+      const chip = `${number}\u0000${footnoteSubjectKey(citationSubject(attributes, live))}`;
+      const joins = shown.get(chip);
+      const shownBy = joins && joins.count < MOST_QUOTES_AT_ONCE ? joins.at : citations.length;
+      if (joins && shownBy === joins.at) joins.count += 1;
+      else shown.set(chip, { at: citations.length, count: 1 });
       citations.push({
         pos: at,
         number,
         key: `${blockKey}:${inBlock}`,
         attributes,
         footnote,
-        shownBy: same < 0 ? citations.length : same,
+        shownBy,
       });
       return false;
     });
@@ -530,13 +540,24 @@ export function groupKeyStep(state: EditorState, key: string): Transaction | nul
   const ahead = (pos: number) => (step === 1 ? pos : pos - 1);
   let at = selection.from;
   let skipped = false;
+  // The spaces a run of Citations side by side may hold are passed with the hidden ones they lead to.
+  const spaceAt = (pos: number) =>
+    pos >= 0 && pos < state.doc.content.size && state.doc.textBetween(pos, pos + 1) === " ";
   const skipHidden = () => {
-    while (hidden(ahead(at))) {
-      at += step;
+    for (;;) {
+      let past = at;
+      while (spaceAt(ahead(past))) past += step;
+      if (!hidden(ahead(past))) return;
+      at = past + step;
       skipped = true;
     }
   };
   skipHidden();
+  if (skipped) {
+    let past = at;
+    while (spaceAt(ahead(past))) past += step;
+    if (shownAt(ahead(past)) !== null) at = past;
+  }
   const chip = shownAt(ahead(at));
   if (key === "ArrowRight" || key === "ArrowLeft") {
     if (chip !== null) {

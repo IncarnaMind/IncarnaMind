@@ -65,20 +65,28 @@ export function noteNumbers(citations: readonly Cited[], context: SourceContext)
 export function besideRepeats(fragment: Fragment, numbers: readonly number[]): Set<number> {
   const repeats = new Set<number>();
   let index = 0;
-  fragment.descendants((node) => {
-    if (node.type.name === FOOTNOTE_NODE) return false;
-    if (!node.isTextblock) return true;
+  // A run of inline content: a text block's, or the copy's own when it is part of one paragraph.
+  const run = (content: Fragment) => {
     let previous: number | null = null;
-    node.forEach((child) => {
+    content.forEach((child) => {
       if (child.type.name === CITATION_NODE) {
         const number = numbers[index] ?? null;
         if (number !== null && number === previous) repeats.add(index);
         previous = number;
         index++;
-      } else if (!child.isText || (child.text ?? "").trim() !== "") previous = null;
+        return;
+      }
+      if (child.isText && (child.text ?? "").trim() === "") return;
+      previous = null;
+      if (!child.isInline) block(child);
     });
-    return false;
-  });
+  };
+  const block = (node: ProseMirrorNode) => {
+    if (node.type.name === FOOTNOTE_NODE) return;
+    if (node.isTextblock) run(node.content);
+    else node.forEach(block);
+  };
+  run(fragment);
   return repeats;
 }
 

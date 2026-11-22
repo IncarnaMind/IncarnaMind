@@ -1,6 +1,6 @@
 import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useMemo } from "react";
-import { quoteStepHandle, useHandle } from "../commands/handles";
+import { useViewerHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { ChevronDownLineIcon, ChevronUpLineIcon } from "../components/lineIcons";
 import { withKeys } from "../editor/withShortcut";
@@ -28,7 +28,7 @@ export function QuoteStepper({
 }) {
   const t = useT();
   const handle = useMemo(() => ({ next: () => onStep(1), previous: () => onStep(-1) }), [onStep]);
-  useHandle(quoteStepHandle, handle);
+  useViewerHandle("quoteSteps", handle);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Enter" || event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();

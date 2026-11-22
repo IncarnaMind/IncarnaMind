@@ -17,6 +17,9 @@ export interface CitationLook {
   /** Its card's state line. */
   badge: string;
   quote: string;
+  /** The Units its quote is in: a chip opens its Document over all of its quotes'. */
+  pageFrom: number | null;
+  pageTo: number | null;
   /** How its quoted words read in the Document's newer version, when they changed there. */
   changed: ChangedQuote["parts"] | null;
   /** Its right-click menu's actions (`citation.*`). */
@@ -31,6 +34,8 @@ interface Looks {
 }
 
 const editors = new WeakMap<EditorView, Looks>();
+
+const NO_LOOKS: readonly CitationLook[] = [];
 
 function looksOf(view: EditorView): Looks {
   let looks = editors.get(view);
@@ -69,7 +74,10 @@ export function useCitationLooks(
     [view],
   );
   const read = useCallback(() => {
-    if (!view || keys.length === 0) return last.current;
+    if (!view || keys.length === 0) {
+      last.current = NO_LOOKS;
+      return last.current;
+    }
     const { byKey } = looksOf(view);
     const now = keys.flatMap((key) => byKey.get(key) ?? []);
     const same =

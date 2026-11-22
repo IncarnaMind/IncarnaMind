@@ -19,6 +19,8 @@ const look = (key: string, check: CitationCheck, recheck = false, badge = ""): C
   recheck,
   badge,
   quote: `Quote ${key}`,
+  pageFrom: 1,
+  pageTo: 1,
   changed: null,
   here: () => ({}),
   fix: null,

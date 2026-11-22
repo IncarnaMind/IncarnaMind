@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MOST_QUOTES_AT_ONCE } from "../shared/documentViewer";
 import { parseCitedArea, parseLocation } from "../shared/locations";
 import {
   type AssistantCorner,
@@ -62,8 +63,6 @@ const MAX_CLOSED = 30;
 /** Enough for any window; it bounds what one saved layout can hold. */
 const MAX_TABS_PER_GROUP = 200;
 const MAX_TEXT = 20_000;
-/** The most quotes one opening marks: the Citations one chip stands for. */
-const MAX_QUOTES = 50;
 
 const storageKey = (windowId: string) => `windowLayout.${windowId}`;
 
@@ -192,7 +191,7 @@ function parsePlace(value: unknown): DocumentPlace {
     const quotes = value.quotes;
     if (
       !Array.isArray(quotes) ||
-      quotes.length > MAX_QUOTES ||
+      quotes.length > MOST_QUOTES_AT_ONCE ||
       !quotes.every((each) => typeof each === "string" && each.length <= MAX_TEXT)
     ) {
       throw new InvalidInputError({ key: "error.layout.quotes" });

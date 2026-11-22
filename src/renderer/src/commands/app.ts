@@ -52,9 +52,9 @@ import {
   citedVersionInUse,
   findHandle,
   homeNextHandle,
-  quoteStepHandle,
   readMindHandle,
   sidebarHandle,
+  viewerHandleInUse,
 } from "./handles";
 import { languageCommands } from "./language";
 import { libraryCommands } from "./library";
@@ -122,6 +122,9 @@ function mindOf(ctx: CommandContext): string | null {
   const targets = ctx.selection.length > 0 ? ctx.selection : ctx.focus ? [ctx.focus] : [];
   return targets.find((each) => each.kind === "mind")?.id ?? mindInFront();
 }
+
+/** The stepper of the focused group's viewer, else of a viewer shown (`QuoteStepper`). */
+const quoteStepsInUse = () => viewerHandleInUse("quoteSteps", useAppStore.getState().layout);
 
 const appCommands: readonly Command[] = [
   {
@@ -572,8 +575,8 @@ const appCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+G" },
     group: "open",
     reversible: true,
-    when: () => findHandle.current === null && quoteStepHandle.current !== null,
-    run: () => quoteStepHandle.current?.next(),
+    when: () => findHandle.current === null && quoteStepsInUse() !== null,
+    run: () => quoteStepsInUse()?.next(),
   },
   {
     id: "citation.previousQuote",
@@ -581,8 +584,8 @@ const appCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+Shift+G" },
     group: "open",
     reversible: true,
-    when: () => findHandle.current === null && quoteStepHandle.current !== null,
-    run: () => quoteStepHandle.current?.previous(),
+    when: () => findHandle.current === null && quoteStepsInUse() !== null,
+    run: () => quoteStepsInUse()?.previous(),
   },
   ...footnoteCommands,
   ...noteBasicsCommands,

@@ -1113,15 +1113,24 @@ export class DocxWriter {
           } else {
             // Side by side with a Citation of the same note: its mark stands for both (#3654).
             const pending = context.pending === true;
-            if (sharesMarkBefore(content, index, (each) => sharedNoteOf(each, pending), isBlank))
-              break;
+            const noteOf = (each: Inline) => sharedNoteOf(each, pending);
+            if (sharesMarkBefore(content, index, noteOf, isBlank)) break;
             const reference = this.footnote(
               item.footnote,
               item.work,
               !item.inserted && !item.deleted && !context.pending,
             );
             xml += this.noteApart(content[index - 1]);
-            xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
+            // The mark carries the failed checks of every Citation it stands for.
+            const footnotes = [item.footnote];
+            for (let next = index + 1; next < to; next++) {
+              const later = content[next];
+              if (!later || isBlank(later)) continue;
+              if (later.kind !== "citation" || !sharesMarkBefore(content, next, noteOf, isBlank))
+                break;
+              footnotes.push(later.footnote);
+            }
+            xml += this.review ? this.review.failed(reference, footnotes) : reference;
           }
           break;
         case "footnote":

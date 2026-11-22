@@ -31,9 +31,6 @@ export const citationHandle: Handle<{
 /** The open Mind's find bar: what "Find next" and "Find previous" do. */
 export const findHandle: Handle<{ next(): void; previous(): void }> = { current: null };
 
-/** The viewer's step through the quotes one chip stands for (`QuoteStepper`), when it shows. */
-export const quoteStepHandle: Handle<{ next(): void; previous(): void }> = { current: null };
-
 /**
  * The command palette is open, or opening: its dialog takes the page's selection a frame after
  * ⌘K, so a viewer keeps the words selected until it has.
@@ -135,6 +132,8 @@ interface ViewerActions {
     /** Starts a pick whose release highlights the region (#327); absent where areas aren't picked. */
     highlight?: () => void;
   };
+  /** The step through the quotes one chip stands for (`QuoteStepper`), while it shows. */
+  quoteSteps: { next(): void; previous(): void };
 }
 
 const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]> } = {
@@ -143,6 +142,7 @@ const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]>
   slide: new Map(),
   transcriptActions: new Map(),
   area: new Map(),
+  quoteSteps: new Map(),
 };
 
 /** The tab a viewer is drawn in: what the handle it lends the commands is filed under. */

@@ -404,6 +404,15 @@ describe("Citations side by side with one note (#3654)", () => {
     ).toBe("A[1] [2][1]\n\nSources\n[1] Tides, p. 4\n[2] Tides, p. 2");
   });
 
+  test("a copy of part of one paragraph writes one marker for them too", () => {
+    const paragraphOf = schema.nodeFromJSON(
+      paragraph(text("Slow"), cite(4), cite(4), text(" and fast"), cite(2)),
+    );
+    expect(copiedText(paragraphOf.content, schema, context)).toBe(
+      "Slow[1] and fast[2]\n\nSources\n[1] Tides, p. 4\n[2] Tides, p. 2",
+    );
+  });
+
   test("Word's copy writes one reference for them, and keeps each Citation's element", () => {
     const { document } = parseHTML("<!doctype html><html><body></body></html>");
     const root = document.createElement("div");
