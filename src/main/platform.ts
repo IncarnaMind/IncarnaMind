@@ -65,6 +65,7 @@ import { createElectronScreenCapture } from "./meetings/screen";
 import { createModelRuntimeFolder } from "./modelRuntimeFolder";
 import { createOfficeConverter } from "./officeConverter";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
+import { createOwnAi } from "./ownAi";
 import { createPageLook } from "./pageLook";
 import { decodePictureToPng } from "./pictureDecode";
 import { createElectronPictures } from "./pictures";
@@ -175,6 +176,12 @@ const fileShell: FileShell = {
  */
 const testOllamaApp =
   import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_OLLAMA_APP : undefined;
+
+/**
+ * Test-only launch flag: the command that stands in for the User's Claude Code in a check run in the
+ * background. Without it a test build runs none, so no test starts the computer's own `claude`.
+ */
+const testOwnAi = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_OWN_AI : undefined;
 
 function ollamaApp(): OllamaApp {
   if (import.meta.env.MODE === "test") {
@@ -1094,6 +1101,11 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     },
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
     summarizeWithMeetingAgent,
+    ...(import.meta.env.MODE !== "test"
+      ? { ownAi: createOwnAi() }
+      : testOwnAi
+        ? { ownAi: createOwnAi({ command: testOwnAi }) }
+        : {}),
     transcriber: fakeTranscriber
       ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))
       : createUtilityProcessTranscriber(),

@@ -158,6 +158,11 @@ export function ConnectAgentFields({
       <p data-testid="connect-agent-reads" className={dialogTextClass}>
         {t(!anyFolder ? "agents.connect.reads.all" : READS_WITH[leftOut], { agent })}
       </p>
+      {client.id === "claude-code" && (
+        <p data-testid="connect-agent-background" className={dialogTextClass}>
+          {t("agents.connect.background", { agent })}
+        </p>
+      )}
       {client.id === "other" && (
         <label className="flex flex-col gap-1">
           <span className={fieldLabelClass}>{t("agents.connect.name")}</span>
