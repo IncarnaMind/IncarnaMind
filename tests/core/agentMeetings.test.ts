@@ -421,9 +421,13 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
         });
       const passageId = await passageOf(core, recorded[key].transcriptId, MEETINGS[key][0]);
       const cited = await cite(passageId);
-      expect(cited.isError).toBe(true);
+      expect(cited.isError ?? false).toBe(false);
+      expect(
+        (cited.structuredContent as { citations: { check: string; cite: string | null }[] })
+          .citations,
+      ).toEqual([expect.objectContaining({ check: "not-found", cite: null })]);
       expect(resultText(cited)).toBe(
-        resultText(await cite("no-such-passage")).replace("no-such-passage", passageId),
+        resultText(await cite("no-such-passage")).replaceAll("no-such-passage", passageId),
       );
     }
     said.push(resultText(await countLists(agent)));

@@ -272,8 +272,8 @@ describe("an agent reading a Document", () => {
     expect(asked.read.left).toBeUndefined();
   });
 
-  // protects=an agent citing what it read is told which Passage it named that it doesn't have; fails_when=the refusal leaves the agent to send the same call again
-  it("tells an agent citing what it read which Passage it doesn't have", async () => {
+  // protects=an agent citing what it read gets the good quotes cited and is told which Passage it named that it doesn't have (#3573, #3597); fails_when=one unknown passageId refuses the whole call or hides which passageId wasn't found
+  it("tells an agent citing what it read which Passage it doesn't have without losing the good quotes", async () => {
     const { agent, read, short } = await library();
     const whole = await read({ documentId: short.id });
     const quotes = whole.read.passages.flatMap((passage) =>
@@ -287,11 +287,33 @@ describe("an agent reading a Document", () => {
 
     const madeUp = "0001da17-5c2f-463f-a18d-5ee8be66219e";
     const named = await cite([quotes[0], { passageId: madeUp, quote: quotes[1]?.quote }]);
-    expect(named.isError).toBe(true);
-    // The User has a Folder this agent wasn't given, so the refusal says that too (#3544).
-    expect(resultText(named)).toBe(
-      `${translate("en", "agents.problem.citeNotFound", { passageId: madeUp })} ${translate("en", "agents.notShared")}`,
-    );
+    expect(named.isError ?? false).toBe(false);
+    const cited = named.structuredContent as {
+      citations: {
+        passageId: string | null;
+        check: string;
+        cite: string | null;
+        document: string | null;
+        location: string | null;
+        text: string | null;
+      }[];
+    };
+    expect(cited.citations).toHaveLength(2);
+    expect(cited.citations[0]).toMatchObject({
+      passageId: quotes[0]?.passageId,
+      check: "found",
+      text: null,
+    });
+    expect(cited.citations[0]?.cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
+    // The User has a Folder this agent wasn't given, so the not-found note says that too (#3544).
+    expect(cited.citations[1]).toMatchObject({
+      passageId: madeUp,
+      check: "not-found",
+      cite: null,
+      document: null,
+      location: null,
+      text: `${translate("en", "agents.problem.citeNotFound", { passageId: madeUp })} ${translate("en", "agents.notShared")}`,
+    });
   });
 
   // protects=a Transcript read whole, in parts, keeps every turn's time and speaker, in the interface's words as reading around a Passage gives them (#3582); fails_when=a part leaves out a turn's speaker mark where it leaves out the overlap, or names its speaker as the file does
