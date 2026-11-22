@@ -9645,6 +9645,8 @@ export interface Skill {
    * its name; `duplicateSkill` makes a copy that is the User's own.
    */
   builtIn: boolean;
+  /** Its SKILL.md defines the sections of a Meeting write-up. */
+  meetingTemplate: boolean;
   /** Every file in the Skill: SKILL.md first, then the others in path order. */
   files: SkillFile[];
   /** ISO 8601, UTC. */
@@ -9677,6 +9679,7 @@ export interface SkillImportPreview {
   importId: string;
   /** The folder or zip it was read from. */
   source: string;
+  meetingTemplate: boolean;
   name: string;
   description: string;
   license: string | null;
@@ -15101,7 +15104,7 @@ export interface CoreApi {
    * Saves a new Skill the User wrote or edited from a draft, turned on. A name
    * another Skill has is refused (`name-taken`), never replaced.
    */
-  createSkill(draft: SkillDraft): Promise<SkillSaveResult>;
+  createSkill(draft: SkillDraft & { meetingTemplate?: boolean }): Promise<SkillSaveResult>;
   /**
    * Saves what the User changed in a Skill that isn't built-in, keeping its
    * other files and whether it's on. Only the name, the description and the

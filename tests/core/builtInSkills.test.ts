@@ -262,6 +262,41 @@ describe("Installing the built-in Skills", () => {
     expect(await again.listSkills()).toEqual(skills);
   });
 
+  test("meeting templates keep their group and edited sections when copied, renamed, exported and reimported", async () => {
+    const dir = await createTempDataFolder();
+    const core = startWithBuiltIns(dir);
+    const skills = await core.listSkills();
+    const starter = named(skills, "meeting-sales");
+    expect(starter.meetingTemplate).toBe(true);
+    expect(named(skills, "literature-review").meetingTemplate).toBe(false);
+    const copy = await core.duplicateSkill(starter.id);
+    const draft = await core.getSkillDraft(copy.id);
+    expect(draft.steps).toContain("Pricing and terms discussed");
+    expect(draft.steps).toContain("谈到的价格和条款");
+    const result = await core.updateSkill(copy.id, {
+      ...draft,
+      name: "weekly-pipeline",
+      steps: "Current deals and agreed next steps.",
+    });
+    expect(result).toMatchObject({ ok: true, skill: { id: copy.id, meetingTemplate: true } });
+    await core.setOutputLocation(await createTempDataFolder());
+    const saved = await core.saveSkillExport(copy.id);
+    if (saved.status !== "saved") throw new Error("The template export did not finish.");
+    await core.removeSkill(copy.id);
+    const restored = await core.importSkill((await previewOk(core, saved.file.path)).importId);
+    expect(restored).toMatchObject({
+      name: "weekly-pipeline",
+      meetingTemplate: true,
+      builtIn: false,
+    });
+    expect((await core.getSkillDraft(restored.id)).steps).toBe(
+      "Current deals and agreed next steps.",
+    );
+    core.close();
+    const again = startWithBuiltIns(dir);
+    expect(named(await again.listSkills(), "weekly-pipeline").meetingTemplate).toBe(true);
+  });
+
   test("Skills the User imports aren't built-in, and a core given no built-in Skills has none", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir);

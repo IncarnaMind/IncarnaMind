@@ -5046,6 +5046,41 @@ export const en = {
   "skills.settings.license": "License: {license}",
   "skills.settings.scripts.one": "1 script",
   "skills.settings.scripts": "{count} scripts",
+  "skills.builtIn.meeting-board.title": "Board meeting",
+  "skills.builtIn.meeting-board.short": "Decisions, resolutions, votes, actions and risks.",
+  "skills.builtIn.meeting-board":
+    "Use when preparing minutes of a board meeting. Distinguish motions from resolutions that passed, preserving vote counts and abstentions only where recorded.",
+  "skills.builtIn.meeting-client.title": "Client call",
+  "skills.builtIn.meeting-client.short": "Requests, agreements, owners and open questions.",
+  "skills.builtIn.meeting-client":
+    "Use when writing up a meeting with a client. Separate what the client asked for from what either side agreed to do and preserve any unanswered questions.",
+  "skills.builtIn.meeting-interview.title": "Interview",
+  "skills.builtIn.meeting-interview.short":
+    "Answers by topic, stated concerns and recommendations.",
+  "skills.builtIn.meeting-interview":
+    "Use when writing up an interview. Attribute answers and distinguish a participant’s evaluation from the candidate’s own statements. Include a recommendation only if someone made one.",
+  "skills.builtIn.meeting-legal.title": "Legal consultation",
+  "skills.builtIn.meeting-legal.short":
+    "Facts given, advice and its limits, documents and next steps.",
+  "skills.builtIn.meeting-legal":
+    "Use when recording a legal consultation. Attribute the facts as reported and preserve qualifications on advice. Record only advice actually given at the meeting.",
+  "skills.builtIn.meeting-one-on-one.title": "1:1",
+  "skills.builtIn.meeting-one-on-one.short":
+    "Priorities, feedback and commitments from both people.",
+  "skills.builtIn.meeting-one-on-one":
+    "Use when two colleagues review progress, feedback or support in a one-to-one meeting. Separate each person’s commitments and preserve open requests for help.",
+  "skills.builtIn.meeting-sales.title": "Sales call",
+  "skills.builtIn.meeting-sales.short": "Needs, questions, objections, terms and next steps.",
+  "skills.builtIn.meeting-sales":
+    "Use when writing up a sales discovery, demo or pricing conversation. Cite each answer alongside its question and distinguish a quoted price from agreed terms.",
+  "skills.builtIn.meeting-team.title": "Team sync",
+  "skills.builtIn.meeting-team.short": "Progress, decisions, blockers and agreed work.",
+  "skills.builtIn.meeting-team":
+    "Use when writing up a team sync or project check-in. Record progress, decisions and blockers separately and keep owners and deadlines only when the meeting establishes them.",
+  "meetings.template.importOther": "Choose a meeting template folder or zip.",
+  "meetings.settings.templates": "Meeting templates",
+  "skills.settings.meetings": "Meetings",
+  "skills.settings.newMeeting": "New meeting template…",
   "skills.settings.builtIn": "Built-in",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.
   "skills.builtIn.chronology.title": "Chronology",
