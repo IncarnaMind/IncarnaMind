@@ -6064,6 +6064,7 @@ export const en = {
   "error.canvas.versionNotFound": "That version of the Canvas isn’t there.",
   "error.layout.units": "That place in a Document counts from 1.",
   "error.layout.area": "That area of a Document isn’t a rectangle inside its page.",
+  "error.layout.quotes": "Those quotes to mark in a Document aren’t a short list of text.",
   "error.layout.conversation": "The assistant shows a conversation, or a New chat.",
   "error.layout.foldedBy": "The assistant can be folded only by you, or for your own AI.",
   "error.layout.wordPlace": "That place in the Word file isn’t one IncarnaMind can open.",

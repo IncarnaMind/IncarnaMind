@@ -195,7 +195,7 @@ function parsePlace(value: unknown): DocumentPlace {
       quotes.length > MAX_QUOTES ||
       !quotes.every((each) => typeof each === "string" && each.length <= MAX_TEXT)
     ) {
-      throw new InvalidInputError("Quotes are a short list of text.");
+      throw new InvalidInputError({ key: "error.layout.quotes" });
     }
     place.quotes = quotes;
   }

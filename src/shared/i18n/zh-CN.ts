@@ -5768,6 +5768,7 @@ export const zhCN = {
   "error.canvas.versionNotFound": "这个页面的这一版本不存在。",
   "error.layout.units": "文档中的位置从 1 开始编号。",
   "error.layout.area": "文档中的这个区域不是页面内的矩形。",
+  "error.layout.quotes": "要在文档中标出的这些引文不是一组简短的文字。",
   "error.layout.conversation": "助手显示的是一段对话，或者一个新对话。",
   "error.layout.foldedBy": "助手只能由你收起，或为你的智能体收起。",
   "error.layout.wordPlace": "无法打开 Word 文件中的这个位置。",
