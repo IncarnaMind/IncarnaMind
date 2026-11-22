@@ -6624,6 +6624,13 @@ export function createCore(adapters: CoreAdapters): Core {
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
+      handedNote: (fileId) =>
+        handedFiles.get(fileId)
+          ? (handedFiles
+              .versions(fileId)
+              .filter((version) => version.mindId !== null)
+              .at(-1)?.mindId ?? null)
+          : null,
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
       checksWritten: () => settings.get().user.checkAssistantWrites,
