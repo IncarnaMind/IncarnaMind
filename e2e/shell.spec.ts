@@ -2,9 +2,11 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, LinkedFolder } from "../src/core/api";
+import { offeredSettingsPages } from "../src/renderer/src/settingsPages";
 import {
   addDocuments,
   confirmLink,
+  useLocalChatModel as connectLocalChatModel,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -17,7 +19,6 @@ import {
   removeDataFolder,
   showSourceLocations,
   turnOnEmbeddings,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -440,7 +441,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   expect(await layout()).toEqual(before);
 
   // A chat model: tagging starts, then stops. Nothing above the footer moves.
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await expect(item).toHaveAttribute("data-tagging", "tagged");
   await expect(status.locator("[role]")).toHaveCount(0);
   expect(await layout()).toEqual(before);
@@ -450,7 +451,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
 test("an Answer that waits for the User's approval shows an amber dot on the assistant, folded too, and none on the Mind", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await window.evaluate(
     async ({ node, server }) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -511,23 +512,19 @@ test("an Answer that waits for the User's approval shows an amber dot on the ass
 test("first run and every Settings page", async () => {
   test.skip(!SCREENSHOTS, "Only takes screenshots: set INCARNAMIND_SCREENSHOTS to a folder.");
   const { app, window } = await launchApp(dataDir);
-  await screenshot(window, "first-run");
-
-  await window.getByRole("button", { name: "Settings" }).click();
-  const settings = window.getByTestId("settings");
-  for (const page of [
-    "general",
-    "models",
-    "search",
-    "meetings",
-    "connectors",
-    "skills",
-    "privacy",
-  ]) {
-    await settings.getByTestId(`settings-nav-${page}`).click();
-    await expect(settings).toHaveAttribute("data-page", page);
-    await expect(settings.getByTestId(`settings-page-${page}`)).not.toBeEmpty();
-    await screenshot(window, `settings-${page}`);
+  try {
+    await screenshot(window, "first-run");
+    await dismissChatSetup(window);
+    await connectLocalChatModel(window);
+    await window.getByRole("button", { name: "Settings" }).click();
+    const settings = window.getByTestId("settings");
+    for (const page of offeredSettingsPages) {
+      await settings.getByTestId(`settings-nav-${page}`).click();
+      await expect(settings).toHaveAttribute("data-page", page);
+      await expect(settings.getByTestId(`settings-page-${page}`)).not.toBeEmpty();
+      await screenshot(window, `settings-${page}`);
+    }
+  } finally {
+    await app.close();
   }
-  await app.close();
 });
