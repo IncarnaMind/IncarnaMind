@@ -193,6 +193,25 @@ export const nameInLine = (name: string): string => shortenMiddle(name, NAME_IN_
  */
 export const quotedName = (name: string): string => (/[“”]/.test(name) ? `‘${name}’` : `“${name}”`);
 
+/** How much of a selection a label quotes: a chip above it holds all of it. */
+export const QUOTE_CHARACTERS = 48;
+
+/**
+ * A selection in one line, cut short: for the composer's edit chip, the Question Explain asks
+ * with (#2348), and the line a selection hands the User's own AI (#3612). An inline node shows
+ * as nothing, as in the core's own reading.
+ */
+export function quoteOf(text: string): string {
+  const flat = text
+    .replace(/\uFFFC/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const characters = [...flat];
+  return characters.length > QUOTE_CHARACTERS
+    ? `${characters.slice(0, QUOTE_CHARACTERS - 1).join("")}…`
+    : flat;
+}
+
 /** What a Mind is called: the title the User typed, else its first line of text. Empty when it has neither. */
 export const mindName = (mind: { title: string; autoTitle: string }): string =>
   mind.title || mind.autoTitle;

@@ -66,6 +66,14 @@ const globals: Record<string, unknown> = {
   MutationObserver: view.MutationObserver,
   requestAnimationFrame: () => 0,
   cancelAnimationFrame: () => undefined,
+  IntersectionObserver: class {
+    observe() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    observe() {}
+    disconnect() {}
+  },
   localStorage: {
     getItem: (key: string) => kept.get(key) ?? null,
     setItem: (key: string, value: string) => void kept.set(key, value),
@@ -103,6 +111,9 @@ const { OrganizeLines }: { OrganizeLines: ComponentType } = await import(
 const { SuggestionMark }: { SuggestionMark: ComponentType<{ documentId: string }> } = await import(
   `${components}/SuggestionMark.tsx`
 );
+const { OrganizeReviewPage }: { OrganizeReviewPage: ComponentType } = await import(
+  `${components}/OrganizeReviewPage.tsx`
+);
 
 const LOOSE = { ids: null };
 const DOCUMENTS = {
@@ -120,7 +131,10 @@ let closeAgent: (() => Promise<void>) | null = null;
  * A Library of these Documents in no Folder, with Claude Code connected to all of it and no model
  * set up, drawn as its top and rows show them; `agent` calls IncarnaMind as Claude Code would.
  */
-async function library(language: "en" | "zh-CN" = "en") {
+async function library(
+  language: "en" | "zh-CN" = "en",
+  { inView = false }: { inView?: boolean } = {},
+) {
   const dataDir = await createTempDataFolder();
   real = startCore(dataDir, {
     agents: {
@@ -150,32 +164,44 @@ async function library(language: "en" | "zh-CN" = "en") {
     documents: await real.listDocuments(),
     library: await real.getLibrary(),
     settings: { language, user: {}, device: {} },
+    // The Library's tab in front, or nothing: the Review opens by itself only in view.
+    layout: inView
+      ? {
+          groups: [
+            { id: "g", tabs: [{ id: "t", item: { kind: "library" } }], activeTabId: "t", width: 1 },
+          ],
+          focusedGroupId: "g",
+          reopenable: 0,
+          conversationId: null,
+        }
+      : null,
   } as never);
   const container = page.createElement("div", {});
   page.body.append(container);
   const root = createRoot(container);
-  await act(async () =>
-    root.render(
-      createElement(
-        Fragment,
-        null,
-        createElement(OrganizeButton, {
-          target: LOOSE,
-          testId: "library-sort-into-folders",
-          className: "",
-          children: "Organize",
-        }),
-        createElement(OrganizeLines),
-        ...added.map((doc) =>
-          createElement(
-            "div",
-            { key: doc.id, "data-row": doc.name },
-            createElement(SuggestionMark, { documentId: doc.id }),
+  /** The Library's page as it shows: the Review in place of its top and rows while open. */
+  const Shown = () =>
+    useOrganizeReview((state) => state.open)
+      ? createElement(OrganizeReviewPage)
+      : createElement(
+          Fragment,
+          null,
+          createElement(OrganizeButton, {
+            target: LOOSE,
+            testId: "library-sort-into-folders",
+            className: "",
+            children: "Organize",
+          }),
+          createElement(OrganizeLines),
+          ...added.map((doc) =>
+            createElement(
+              "div",
+              { key: doc.id, "data-row": doc.name },
+              createElement(SuggestionMark, { documentId: doc.id }),
+            ),
           ),
-        ),
-      ),
-    ),
-  );
+        );
+  await act(async () => root.render(createElement(Shown)));
   unmount = async () => {
     await act(() => root.unmount());
     container.remove();
@@ -206,7 +232,7 @@ async function library(language: "en" | "zh-CN" = "en") {
   };
   const propose = (proposals: object[]) =>
     agent.callTool({ name: "propose_sorting", arguments: { proposals } });
-  return { part, words, row, settle, listed, propose };
+  return { container, part, words, row, settle, listed, propose };
 }
 
 beforeAll(async () => {
@@ -300,6 +326,63 @@ describe("Organize asked of the User's own AI", () => {
     await settle(() => expect(part("organize-asked")?.textContent).toBe(words));
     expect(part("organize-asked")?.dataset.state).toBe("landed");
     expect(part("organize-asked-confirm")).toBeNull();
+  });
+
+  // protects=with the Library in view, the Review opens by itself once the AI has answered for every Document it read, as the Library's own Organize opens it when it ends, and not after a part of them; it names the AI once under its title and its rows don't repeat it (#3610); fails_when=the Review opens halfway, stays closed once the AI has finished, or every row repeats the AI's name
+  test("opens the Review by itself once the AI has answered for every Document it read", async () => {
+    const { container, part, words, settle, listed, propose } = await library("en", {
+      inView: true,
+    });
+    await act(async () => part("library-sort-into-folders")?.click());
+    const of = await listed();
+    await propose([
+      { ...of("Quay repair"), newFolder: "Harbour works" },
+      { ...of("Dredging plan"), newFolder: "Harbour works" },
+    ]);
+    await settle(() => expect(part("organize-asked")?.dataset.state).toBe("landed"));
+    expect(words()).toBe(
+      "Suggested by Claude Code: 2 Documents will move into 1 new Folder. Nothing has moved yet.",
+    );
+    expect(useOrganizeReview.getState().open).toBe(false);
+
+    await propose([{ ...of("Pier survey"), newFolder: "Harbour works" }, of("Holiday list")]);
+    await settle(() => expect(part("organize-review")).not.toBeNull());
+    expect(part("organize-review-will-move")?.textContent).toBe(
+      "Suggested by Claude Code: 3 Documents will move into 1 new Folder. Nothing has moved yet.",
+    );
+    expect(container.textContent?.split("Suggested by Claude Code")).toHaveLength(2);
+    expect(useAgentAsked.getState().byKey).toEqual({});
+    expect((await (real as Core).getLibrary()).groups).toEqual([]);
+  });
+
+  // protects=with no model set up, the Review's ⋯ offers Discard alone, since Fewer Folders, More Folders and Try Again plan on a model in IncarnaMind and could only answer with a notice; with one set up they are there (#3610); fails_when=the menu offers what can't run, or hides it from a User with a model
+  test("offers only Discard in the Review's ⋯ with no model set up", async () => {
+    const { part, settle, listed, propose } = await library("en", { inView: true });
+    await act(async () => part("library-sort-into-folders")?.click());
+    const of = await listed();
+    await propose(
+      Object.keys(DOCUMENTS).map((name) => ({ ...of(name), newFolder: "Harbour works" })),
+    );
+    await settle(() => expect(part("organize-review")).not.toBeNull());
+    const items = async () => {
+      const menu = part("organize-review-menu-items");
+      if (!menu) throw new Error("The Review has no ⋯ menu.");
+      // The browser shows the popover; this DOM can't, so the menu hears that it opens.
+      Object.assign(menu, { hidePopover: () => undefined, matches: () => false });
+      const opens = Object.assign(new view.Event("beforetoggle"), { newState: "open" });
+      await act(async () => menu.dispatchEvent(opens));
+      return [...menu.querySelectorAll("[data-testid]")].map((each) =>
+        each.getAttribute("data-testid"),
+      );
+    };
+    expect(await items()).toEqual(["organize-review-discard"]);
+    await act(async () => useAppStore.setState({ chatReadiness: { ready: true } } as never));
+    expect(await items()).toEqual([
+      "organize-review-fewer",
+      "organize-review-more",
+      "organize-review-again",
+      "organize-review-discard",
+    ]);
   });
 
   // protects=the Chinese Library's top says the AI is organizing and then what it suggests, in the Review's own words (#3610); fails_when=a Chinese User sees English, or the line counts differently from the Review

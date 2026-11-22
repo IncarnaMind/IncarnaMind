@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Document, LibraryGroup } from "../../../core/api";
+import { askFirstAgent } from "../askYourAi";
 import { focusComposer } from "../commands/assistant";
 import { useComposer } from "../composer";
 import { LIBRARY_DELETED } from "../deletedItems";
@@ -38,6 +39,7 @@ import { queryWords } from "../matcher";
 import { meetingHitsOf } from "../meetingTranscript";
 import { organizeStateOf } from "../organizeOutcome";
 import { openReview, useFoldersWaiting, useOrganizeReview } from "../organizeReview";
+import { hiddenForOwnAiNow } from "../ownAiPanel";
 import {
   DAY_ONE_DOCUMENTS,
   ownsATag,
@@ -435,6 +437,11 @@ export function LibraryPane() {
   const askAbout =
     nothingMatches && query !== ""
       ? () => {
+          // With only their own AI, the words go to it (#3612).
+          if (hiddenForOwnAiNow()) {
+            void askFirstAgent(null, { kind: "question", text: query });
+            return;
+          }
           focusComposer();
           useComposer.getState().requestAsk(query);
         }

@@ -134,7 +134,7 @@ import {
 } from "./proposals";
 import { AgentRefusedError, MAX_PATH_CHARS, NotReachedError, text, whole } from "./refusals";
 import type { AgentRequests, RequestNamed } from "./requests";
-import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
+import type { AgentSorting, SortingBatch, SortingProposal, SortingTaken } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
 import {
@@ -573,7 +573,7 @@ export interface AgentAccess {
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
-  proposeSorting(proposals: SortingProposal[]): Promise<{ waiting: number }>;
+  proposeSorting(proposals: SortingProposal[]): Promise<SortingTaken>;
   listMinds(): Promise<AgentMindList>;
   readMind(input: AgentReadMindInput): Promise<AgentMindText>;
   ask(input: AgentAskInput, signal?: AbortSignal): Promise<AgentAnswer>;
@@ -2652,12 +2652,12 @@ export function createAgentAccess(
         "",
         [{ action: "write", scope: { kind: "library" } }],
         (pairing) => {
-          const waiting = deps.sorting.submit(sortingScope(pairing), pairing.name, proposals);
-          return {
-            result: { waiting },
-            count: waiting,
-            documentIds: proposals.map((p) => p.documentId),
-          };
+          const { taken, documentIds } = deps.sorting.submit(
+            sortingScope(pairing),
+            pairing.name,
+            proposals,
+          );
+          return { result: taken, count: taken.waiting, documentIds };
         },
       );
     },

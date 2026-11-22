@@ -4,6 +4,7 @@ import { writingTime } from "../../../shared/blockTimes";
 import { markNow, noteOf } from "../editor/meetingNotes";
 import { translateNow } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
+import { canStartSkillDraft, startTemplateFromMeeting } from "../makeSkill";
 import { saveRecording } from "../meetingAudio";
 import { helpKeysLabel } from "../meetingHelp";
 import { canRecordMeetings, isLive, useMeetings } from "../meetings";
@@ -426,6 +427,25 @@ export const meetingCommands: readonly Command[] = [
     run(ctx) {
       const meeting = startedMeetingInView(ctx);
       if (meeting) return useMeetings.getState().keepAudio(meeting.id);
+    },
+  },
+  {
+    id: "meeting.saveTemplate",
+    label: "meetings.template.saveAs",
+    group: "main",
+    reversible: true,
+    appliesTo: ["mind", "tab"],
+    when: (ctx) => {
+      const meeting = recordedMeetingOf(ctx);
+      return (
+        meeting?.kind === "meeting" &&
+        meeting.status === "stopped" &&
+        canStartSkillDraft(meeting.mindId)
+      );
+    },
+    run(ctx) {
+      const meeting = recordedMeetingOf(ctx);
+      if (meeting) return startTemplateFromMeeting(meeting.mindId);
     },
   },
   {

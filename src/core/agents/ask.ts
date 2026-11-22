@@ -15,8 +15,10 @@
  * open and the Search scope, as the in-app assistant is given them. The line names the Document in
  * front; the rest waits in the request. Only what the asked agent can read now is named or kept.
  */
+import { citedLocation } from "../../shared/citations";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
-import { mindName, quotedName } from "../../shared/naming";
+import { parseLocation } from "../../shared/locations";
+import { mindName, quotedName, quoteOf as shortQuote } from "../../shared/naming";
 import type { Logger } from "../adapters";
 import {
   type AgentAsk,
@@ -24,11 +26,13 @@ import {
   type AgentRequest,
   ASK_VERDICTS,
   type AskAgentResult,
+  type AskedSelection,
   type AskedSentence,
   MAX_ASKED_SENTENCES,
   type Mind,
   NOT_IN_A_FOLDER_ID,
   type OrganizeTarget,
+  SELECTION_ACTIONS,
   type SearchScope,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
@@ -120,7 +124,7 @@ const quoteOf = (asked: AskedSentence, say: Say) =>
 /** The line the User sends, and the request that waits: the Note named by its title, and its id in the request. */
 export function agentRequest(
   note: { title: string; mindId: string } | null,
-  ask: Exclude<AgentAsk, { kind: "organize" | "summary" }>,
+  ask: Exclude<AgentAsk, { kind: "organize" | "summary" | "selection" }>,
   say: Say,
   meeting?: { transcriptId: string; propose: boolean; writeup?: string | null },
   file?: HandedFileAsked | null,
@@ -250,7 +254,8 @@ function questionRequest(
   const title = note && quotedName(note.title);
   const document = front && quotedName(front.name);
   const scoped = looking.folders.length + looking.documents.length > 0;
-  const line =
+  // With no words yet, the line ends where the User types their question in their AI (#3612).
+  const line = (
     title !== null && document
       ? say("agents.ask.line.questionNoteDocument", { title, document, question })
       : title !== null
@@ -259,7 +264,8 @@ function questionRequest(
           ? say("agents.ask.line.questionDocument", { document, question })
           : scoped
             ? say("agents.ask.line.questionScope", { question })
-            : say("agents.ask.line.questionAlone", { question });
+            : say("agents.ask.line.questionAlone", { question })
+  ).trimEnd();
   const ids = (each: Named[]) => each.map((one) => one.id);
   return {
     line,
@@ -369,7 +375,12 @@ function parseAsk(value: unknown): AgentAsk {
     case "meeting":
       return { kind: "meeting", meetingId: words(value.meetingId) };
     case "question":
-      return { kind: "question", text: words(value.text) };
+      if (typeof value.text !== "string") {
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      }
+      return { kind: "question", text: value.text.trim() };
+    case "selection":
+      return parseSelection(value);
     case "note":
       return { kind: "note" };
     case "check":
@@ -386,6 +397,93 @@ function parseAsk(value: unknown): AgentAsk {
     default:
       throw new InvalidInputError({ key: "error.agent.askRequest" });
   }
+}
+
+/** The line a Note's selection is handed over with, and the task that waits for the agent. */
+function selectionTask(
+  ask: AskedSelection,
+  title: string,
+  quote: string,
+  how: string,
+  say: Say,
+): [line: string, task: string] {
+  switch (ask.action) {
+    case "explain":
+      return [
+        say("agents.ask.line.selection.explain", { title, quote }),
+        say("agents.ask.selection.explain"),
+      ];
+    case "improve":
+      return [
+        say("agents.ask.line.selection.improve", { title, quote }),
+        say("agents.ask.selection.improve", { how }),
+      ];
+    case "shorten":
+      return [
+        say("agents.ask.line.selection.shorten", { title, quote }),
+        say("agents.ask.selection.shorten", { how }),
+      ];
+    case "translate":
+      return ask.language
+        ? [
+            say("agents.ask.line.selection.translate", { title, quote, language: ask.language }),
+            say("agents.ask.selection.translate", { language: ask.language, how }),
+          ]
+        : [
+            say("agents.ask.line.selection.translateAny", { title, quote }),
+            say("agents.ask.selection.translateAny", { how }),
+          ];
+    case "edit":
+      return [
+        say("agents.ask.line.selection.edit", {
+          title,
+          quote,
+          instruction: ask.instruction ?? "",
+        }).trimEnd(),
+        say("agents.ask.selection.edit", { how }),
+      ];
+    case "ask":
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
+  }
+}
+
+/** The most of a selection one request carries, in characters: a long section, not a whole report. */
+const MAX_ASKED_SELECTION = 20_000;
+
+const said = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() !== ""
+    ? value.trim().slice(0, MAX_ASKED_SELECTION)
+    : undefined;
+
+const page = (value: unknown): number | null =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+
+function parseSelection(value: Record<string, unknown>): AskedSelection {
+  const action = SELECTION_ACTIONS.find((each) => each === value.action);
+  const text = words(value.text);
+  const documentId = value.documentId === undefined ? undefined : words(value.documentId);
+  // A Document's words are asked about; a Note's are explained or changed in place.
+  if (!action || (documentId === undefined) === (action === "ask")) {
+    throw new InvalidInputError({ key: "error.agent.askRequest" });
+  }
+  if ([...text].length > MAX_ASKED_SELECTION) {
+    throw new InvalidInputError({ key: "error.agent.selectionTooLong" });
+  }
+  const language = action === "translate" ? said(value.language) : undefined;
+  const instruction = action === "edit" ? said(value.instruction) : undefined;
+  return {
+    kind: "selection",
+    action,
+    text,
+    ...(language && { language }),
+    ...(instruction && { instruction }),
+    ...(documentId !== undefined && {
+      documentId,
+      pageFrom: page(value.pageFrom),
+      pageTo: page(value.pageTo),
+      location: parseLocation(value.location),
+    }),
+  };
 }
 
 function parseSentence(value: unknown): AskedSentence {
@@ -484,6 +582,59 @@ export function createAgentAsk(options: AgentAskOptions) {
     };
   }
 
+  /**
+   * Words the User selected, and what to do with them (#3612): the line names the Note or the
+   * Document and quotes the words' start; the words whole, and the task, wait for the agent. A
+   * change waits for the User as any of the agent's does; an agent that may not change the Note
+   * is asked for the new words in its reply instead.
+   */
+  function selectionRequest(
+    pairing: AgentPairing,
+    note: { title: string; mindId: string } | null,
+    ask: AskedSelection,
+  ): AgentRequestText {
+    const { say } = options;
+    // The line's quote ends inside the line's own sentence, not on a full stop of its own.
+    const quote = quotedName(shortQuote(ask.text).replace(/[.。]$/u, ""));
+    if (ask.documentId !== undefined) {
+      const name = options.nameOf("document", ask.documentId);
+      if (name === null) throw new NotFoundError({ key: "error.agent.cantAskDocument" });
+      const where = citedLocation(
+        {
+          location: ask.location ?? null,
+          pageFrom: ask.pageFrom ?? null,
+          pageTo: ask.pageTo ?? null,
+        },
+        say,
+      );
+      return {
+        line: say("agents.ask.line.selection.ask", { document: quotedName(name), quote }),
+        request: say("agents.ask.request.selectionDocument", {
+          where: where ? say("agents.ask.request.selection.where", { where }) : "",
+          selection: ask.text,
+        }),
+        named: { open: [ask.documentId], folders: [], documents: [] },
+        sentences: [],
+      };
+    }
+    if (note === null) throw new InvalidInputError({ key: "error.agent.askRequest" });
+    const title = quotedName(note.title);
+    const how = say(
+      pairing.propose ? "agents.ask.selection.propose" : "agents.ask.selection.reply",
+    );
+    const [line, task] = selectionTask(ask, title, quote, how, say);
+    return {
+      line,
+      request: say("agents.ask.request.selection", {
+        title,
+        mindId: note.mindId,
+        selection: ask.text,
+        task,
+      }),
+      sentences: [],
+    };
+  }
+
   /** One Document named in the line, which says everything: nothing waits for the agent (#3572). */
   function summaryRequest(documentId: string): AgentRequestText {
     const name = options.nameOf("document", documentId);
@@ -506,15 +657,15 @@ export function createAgentAsk(options: AgentAskOptions) {
     },
     async ask(input: unknown): Promise<AskAgentResult> {
       const { pairingId, mindId, ask, onScreen, scope, openChat } = parseInput(input);
-      const pairing = options
-        .askable(mindId, ask.kind === "summary" ? ask.documentId : undefined)
-        .find((each) => each.id === pairingId);
+      const documentId =
+        ask.kind === "summary" || ask.kind === "selection" ? ask.documentId : undefined;
+      const pairing = options.askable(mindId, documentId).find((each) => each.id === pairingId);
       if (!pairing)
         throw new NotFoundError({
           key:
             ask.kind === "organize"
               ? "error.agent.cantOrganize"
-              : ask.kind === "summary"
+              : documentId !== undefined
                 ? "error.agent.cantAskDocument"
                 : "error.agent.cantAsk",
         });
@@ -547,23 +698,25 @@ export function createAgentAsk(options: AgentAskOptions) {
         }
       }
       const looking = ask.kind === "question" ? lookingAt(pairingId, onScreen, scope) : undefined;
-      if ((ask.kind === "organize" || ask.kind === "summary") && mindId !== null)
+      if ((ask.kind === "organize" || documentId !== undefined) && mindId !== null)
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       const { line, request, named, sentences } =
         ask.kind === "organize"
           ? sortingRequest(pairing, ask.target)
           : ask.kind === "summary"
             ? summaryRequest(ask.documentId)
-            : agentRequest(
-                note,
-                ask,
-                options.say,
-                transcriptId && meetingPairing
-                  ? { transcriptId, propose: meetingPairing.propose, writeup }
-                  : undefined,
-                note ? options.handedFile(note.mindId) : null,
-                looking,
-              );
+            : ask.kind === "selection"
+              ? selectionRequest(pairing, note, ask)
+              : agentRequest(
+                  note,
+                  ask,
+                  options.say,
+                  transcriptId && meetingPairing
+                    ? { transcriptId, propose: meetingPairing.propose, writeup }
+                    : undefined,
+                  note ? options.handedFile(note.mindId) : null,
+                  looking,
+                );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
       if (request !== null || named !== undefined) {
         options.keepRequest({
@@ -572,7 +725,10 @@ export function createAgentAsk(options: AgentAskOptions) {
           title:
             ask.kind === "organize"
               ? options.say("library.classify")
-              : (note?.title ?? looking?.open[0]?.name ?? ""),
+              : (note?.title ??
+                looking?.open[0]?.name ??
+                (documentId === undefined ? null : options.nameOf("document", documentId)) ??
+                ""),
           sentences,
           text: request ?? "",
           named: named ?? null,

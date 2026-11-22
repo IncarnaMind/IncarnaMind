@@ -200,7 +200,12 @@ function user(
 }
 
 /** The window as the User finds it: folded or not, its rail (out of sight while quiet), and the pill. */
-async function windowShown(): Promise<{ folded: boolean; rail: boolean; pill: OwnAiPill | null }> {
+async function windowShown(): Promise<{
+  folded: boolean;
+  rail: boolean;
+  quiet: boolean;
+  pill: OwnAiPill | null;
+}> {
   const container = page.createElement("div", {});
   page.body.append(container);
   const root = createRoot(container);
@@ -221,7 +226,7 @@ async function windowShown(): Promise<{ folded: boolean; rail: boolean; pill: Ow
     container.remove();
   };
   const folded = useAppStore.getState().layout?.assistant.folded === true;
-  return { folded, rail: folded && !quiet, pill };
+  return { folded, rail: folded && !quiet, quiet, pill };
 }
 
 let unmount: (() => Promise<void>) | null = null;
@@ -297,39 +302,51 @@ describe("the assistant and its pill", () => {
   test("with an agent and no model: folded out of sight for them, no rail, and the pill asks Claude Code", async () => {
     user(NO_MODEL, agents);
     const shown = await windowShown();
-    expect(shown).toEqual({ folded: true, rail: false, pill: { mindId: MIND, agents } });
+    expect(shown).toEqual({
+      folded: true,
+      rail: false,
+      quiet: true,
+      pill: { mindId: MIND, documentId: null, agents },
+    });
     expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
   });
 
-  // protects=once the User opens the assistant it stays open, and their own fold shows the rail as for everyone; fails_when=the app folds a panel the User opened, or hides the rail of their own fold
-  test("their own open holds, and their own fold shows the rail", async () => {
+  // protects=with only their own AI the panel is never shown, even where they opened or folded it themselves before (#3612): no panel, no rail, and the pill asks; one they had open is folded for their AI, so a window opened again shows nothing of it before their AI is known; fails_when=a place they kept brings the panel or its rail back
+  test("a place they kept is out of sight too, with the pill", async () => {
     user(NO_MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: false, foldedBy: "user" });
-    expect(await windowShown()).toEqual({ folded: false, rail: false, pill: null });
+    expect(await windowShown()).toEqual({
+      folded: true,
+      rail: false,
+      quiet: true,
+      pill: { mindId: MIND, documentId: null, agents },
+    });
+    expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
     await unmount?.();
     user(NO_MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "user" });
     expect(await windowShown()).toEqual({
       folded: true,
-      rail: true,
-      pill: { mindId: MIND, agents },
+      rail: false,
+      quiet: true,
+      pill: { mindId: MIND, documentId: null, agents },
     });
   });
 
   // protects=a User with a model, or with neither, keeps the assistant as it was: open, or folded to its rail, with no agent's pill; fails_when=either is folded, loses the rail or gets the agent's pill
   test("with a model, or with neither: as before", async () => {
     user(MODEL, agents);
-    expect(await windowShown()).toEqual({ folded: false, rail: false, pill: null });
+    expect(await windowShown()).toEqual({ folded: false, rail: false, quiet: false, pill: null });
     await unmount?.();
     user(NO_MODEL, []);
-    expect(await windowShown()).toEqual({ folded: false, rail: false, pill: null });
+    expect(await windowShown()).toEqual({ folded: false, rail: false, quiet: false, pill: null });
     await unmount?.();
     user(MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "user" });
-    expect(await windowShown()).toEqual({ folded: true, rail: true, pill: null });
+    expect(await windowShown()).toEqual({ folded: true, rail: true, quiet: false, pill: null });
   });
 
   // protects=a fold made only for the User's own AI goes once they set up a model; fails_when=it stays folded for a User with a model who never folded it
   test("set up a model, and the fold made for their AI goes", async () => {
     user(MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "agent" });
-    expect(await windowShown()).toEqual({ folded: false, rail: false, pill: null });
+    expect(await windowShown()).toEqual({ folded: false, rail: false, quiet: false, pill: null });
   });
 });
 

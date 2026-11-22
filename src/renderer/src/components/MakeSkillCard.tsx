@@ -8,6 +8,7 @@ import {
   stopSkillDraft,
   useMakeSkill,
 } from "../makeSkill";
+import { settingsPageOfferedNow } from "../settingsOffered";
 import { skillTitle } from "../skills";
 import { useAppStore } from "../store";
 import { ProblemLine } from "./ProblemLine";
@@ -32,12 +33,14 @@ export function MakeSkillCard({ mindId }: { mindId: string }) {
     if (phase) region.current?.scrollIntoView({ block: "nearest" });
   }, [phase]);
 
-  if (!state) return null;
+  if (!state || state.phase === "opening-template") return null;
+  const meetingTemplate =
+    (state.phase === "editing" || state.phase === "saved") && state.meetingTemplate;
   const close = () => closeMakeSkill(mindId);
   return (
     <section
       ref={region}
-      aria-label={t("skills.make.region")}
+      aria-label={t(meetingTemplate ? "meetings.template.saveAs" : "skills.make.region")}
       data-testid="make-skill"
       data-phase={state.phase}
       className="mt-6 mb-4"
@@ -97,10 +100,18 @@ export function MakeSkillCard({ mindId }: { mindId: string }) {
         <SkillEditor
           testId="make-skill-editor"
           initial={state.draft}
-          title={t("skills.edit.new")}
-          note={t("skills.edit.drafted")}
-          save={(draft) => core.createSkill(draft)}
-          onSaved={(skill) => skillSaved(mindId, skill.name)}
+          title={t(meetingTemplate ? "meetings.template.saveAs" : "skills.edit.new")}
+          note={t(
+            meetingTemplate
+              ? state.draft.steps
+                ? "meetings.template.reviewHeadings"
+                : "meetings.template.addHeadings"
+              : "skills.edit.drafted",
+          )}
+          save={(draft) =>
+            core.createSkill(meetingTemplate ? { ...draft, meetingTemplate: true } : draft)
+          }
+          onSaved={(skill) => skillSaved(mindId, skill.name, skill.meetingTemplate)}
           onCancel={close}
         />
       )}
@@ -109,9 +120,16 @@ export function MakeSkillCard({ mindId }: { mindId: string }) {
           role="status"
           testId="make-skill-saved"
           action={{
-            label: t("skills.edit.open"),
+            label: t(meetingTemplate ? "meetings.settings.templates" : "skills.edit.open"),
             testId: "make-skill-open-settings",
-            onClick: () => openSettings("skills"),
+            onClick: () => {
+              if (!meetingTemplate) openSettings("skills");
+              else
+                openSettings(
+                  settingsPageOfferedNow("skills") ? "skills" : "meetings",
+                  "meeting-templates",
+                );
+            },
           }}
           also={{ label: t("skills.edit.close"), testId: "make-skill-close", onClick: close }}
         >

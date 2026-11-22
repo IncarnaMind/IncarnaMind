@@ -13,7 +13,7 @@ import { openFigureSchedule, tieOutFigures } from "../figures";
 import { useFindSources } from "../findSources";
 import { useHistory } from "../history";
 import { translateNow } from "../i18n";
-import { startSkillFromMind } from "../makeSkill";
+import { canStartSkillDraft, startSkillFromMind } from "../makeSkill";
 import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
@@ -452,7 +452,10 @@ const appCommands: readonly Command[] = [
     keywords: ["skills.settings.title"],
     group: "main",
     reversible: true,
-    when: (ctx) => onlyOne(ctx) && mindOf(ctx) !== null,
+    when: (ctx) => {
+      const mindId = mindOf(ctx);
+      return onlyOne(ctx) && mindId !== null && canStartSkillDraft(mindId);
+    },
     run: (ctx) => {
       const mindId = mindOf(ctx);
       if (mindId) return startSkillFromMind(mindId);

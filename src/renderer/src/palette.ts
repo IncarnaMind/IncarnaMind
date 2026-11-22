@@ -17,6 +17,7 @@ import type {
   TabItem,
   TextRange,
 } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import type { Language } from "../../core/language";
 import type { CommandId } from "../../shared/commands";
 import { displayName } from "../../shared/documentNames";
@@ -25,6 +26,7 @@ import { isListedMind } from "../../shared/listedMinds";
 import { formatLocation } from "../../shared/locations";
 import { mindName } from "../../shared/naming";
 import { useAnnotations } from "./annotations";
+import { askFirstAgent } from "./askYourAi";
 import { focusComposer } from "./commands/assistant";
 import { placeAt } from "./commands/edit";
 import { citationHandle, noteHandle, paletteOpen } from "./commands/handles";
@@ -48,6 +50,7 @@ import { currentTabOf } from "./layoutSlice";
 import { matchName, type NameMatch, queryWords } from "./matcher";
 import { isListedDocument, noteOf, transcriptInNote } from "./meetingTranscript";
 import type { ObjectRef, Translate } from "./objects";
+import { hiddenForOwnAiNow, ownAiNoteNow } from "./ownAiPanel";
 import { useSelection } from "./selection";
 import { refKey } from "./selectionModel";
 import { moveFromPalette } from "./sidebarMoves";
@@ -592,7 +595,13 @@ export function conversationTextGroup(found: readonly ConversationMatch[]): Pale
   return items.length > 0 ? [{ id: "conversationText", items: items.slice(0, SHOWN.words) }] : [];
 }
 
-export function askGroup(text: string, conversation: string, t: Translate): PaletteGroup[] {
+/** The typed words as a Question: in the open conversation, or to `agent`, the User's own AI (#3612). */
+export function askGroup(
+  text: string,
+  conversation: string,
+  t: Translate,
+  agent?: string,
+): PaletteGroup[] {
   return [
     {
       id: "ask",
@@ -602,7 +611,7 @@ export function askGroup(text: string, conversation: string, t: Translate): Pale
           key: "ask",
           text,
           name: t("palette.askRow", { text }),
-          meta: t("palette.ask.in", { conversation }),
+          meta: agent ? t("agents.ask.pill", { agent }) : t("palette.ask.in", { conversation }),
         },
       ],
     },
@@ -692,6 +701,13 @@ export async function runItem(
       await openConversation(item.conversationId, item.answerId ?? undefined);
       return;
     case "ask":
+      if (hiddenForOwnAiNow()) {
+        const asked = await askFirstAgent(ownAiNoteNow(), { kind: "question", text: item.text });
+        if (asked === "none") {
+          store.reportError(new TranslatableError({ key: "error.agent.cantAsk" }));
+        }
+        return;
+      }
       focusComposer();
       useComposer.getState().requestAsk(item.text);
       return;
