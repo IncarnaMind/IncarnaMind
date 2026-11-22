@@ -7,17 +7,19 @@
 import { create } from "zustand";
 import type { ChatReadiness, SkillDraft } from "../../core/api";
 import { core } from "./core";
+import { noteOf } from "./editor/meetingNotes";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
+import { showNotesOf } from "./meetingViews";
 import { useAppStore } from "./store";
 
 export type MakeSkillState =
   | { phase: "drafting"; requestId: string }
-  | { phase: "editing"; draft: SkillDraft }
+  | { phase: "editing"; draft: SkillDraft; meetingTemplate?: boolean }
   | { phase: "empty" }
   | { phase: "not-ready"; readiness: Extract<ChatReadiness, { ready: false }> }
   | { phase: "failed"; message: string }
-  | { phase: "saved"; name: string };
+  | { phase: "saved"; name: string; meetingTemplate?: boolean };
 
 interface MakeSkillStore {
   /** By Mind. */
@@ -68,6 +70,34 @@ export async function startSkillFromMind(mindId: string): Promise<void> {
   set(mindId, state.phase === "failed" && state.message === "" ? null : state);
 }
 
+export async function startTemplateFromMeeting(mindId: string): Promise<void> {
+  const app = useAppStore.getState();
+  await app.openMind(mindId);
+  showNotesOf(mindId);
+  const note = await noteOf(mindId);
+  if (!note) throw new Error(translateNow("meetings.mark.noNote"));
+  const title = app.minds.find((mind) => mind.id === mindId)?.title?.trim();
+  const headings: string[] = [];
+  // A write-up's sections are on the page itself. Headings inside an Answer or a quoted document belong to it.
+  note.editor.state.doc.forEach((block, offset) => {
+    if (block.type.name !== "heading") return;
+    const text = block.textContent.trim();
+    if (text && !(offset === 0 && title === text)) headings.push(text);
+  });
+  const guidance = translateNow("meetings.template.sectionGuidance");
+  set(mindId, {
+    phase: "editing",
+    meetingTemplate: true,
+    draft: {
+      name: "",
+      description: translateNow("meetings.template.draftWhen"),
+      steps: headings.length
+        ? [guidance, "", ...headings.map((text) => `- **${text}**`)].join("\n")
+        : "",
+    },
+  });
+}
+
 /** Stops the AI drafting; the card goes away. */
 export function stopSkillDraft(mindId: string): void {
   const current = useMakeSkill.getState().byMind[mindId];
@@ -76,6 +106,7 @@ export function stopSkillDraft(mindId: string): void {
   core.cancelSkillDraft(current.requestId).catch(useAppStore.getState().reportError);
 }
 
-export const skillSaved = (mindId: string, name: string) => set(mindId, { phase: "saved", name });
+export const skillSaved = (mindId: string, name: string, meetingTemplate?: boolean) =>
+  set(mindId, { phase: "saved", name, meetingTemplate });
 
 export const closeMakeSkill = (mindId: string) => set(mindId, null);

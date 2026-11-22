@@ -3,6 +3,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { CHINESE_SCRIPTS, type ChineseScript } from "../../../shared/meetingWords";
 import { useT } from "../i18n";
 import { useSettingsPageOffered } from "../settingsOffered";
+import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
 import {
   ROUTE_LABELS,
@@ -33,6 +34,13 @@ const SCRIPT_LABELS: Record<ChineseScript, MessageKey> = {
 export function MeetingsSettings() {
   const t = useT();
   const skillsPage = useSettingsPageOffered("skills");
+  const templates = useSettingsTarget<HTMLDetailsElement>(
+    ["meeting-templates"],
+    !skillsPage,
+    () => {
+      if (templates.current) templates.current.open = true;
+    },
+  );
   const device = useAppStore((state) => state.settings?.device);
   const canRecord = useAppStore((state) => state.settings?.meetingAudio);
   const updateSettings = useAppStore((state) => state.updateSettings);
@@ -145,7 +153,7 @@ export function MeetingsSettings() {
       <WordsToKnow services={services} />
       <HelpSettings />
       {!skillsPage && (
-        <details>
+        <details ref={templates}>
           <summary
             data-testid="meeting-templates-disclosure"
             className="cursor-pointer text-[13px] font-semibold text-ink"

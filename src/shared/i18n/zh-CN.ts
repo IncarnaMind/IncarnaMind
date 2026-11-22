@@ -7354,6 +7354,12 @@ export const zhCN = {
   "meetings.command.deleteAudio": "删除音频",
   "meetings.command.keepAudio": "保留音频",
   "meetings.command.audioKeptAlready": "这场会议的音频已保留",
+  "meetings.template.saveAs": "存为会议模板…",
+  "meetings.template.reviewHeadings": "核对要保留的小标题，再给模板起个名字。",
+  "meetings.template.addHeadings": "这份纪要还没有小标题。可以在下方填写想重复使用的章节。",
+  "meetings.template.draftWhen": "整理同类会议纪要时，使用以下章节。",
+  "meetings.template.sectionGuidance":
+    "按以下顺序整理。会上谈到的内容才写入对应章节，决定和承诺都要引用原话。",
   "meetings.command.saveRecording": "另存录音…",
   "meetings.command.saveWhileRecording": "停止录制后才能另存录音",
   "meetings.recording.saveTitle": "另存录音",
