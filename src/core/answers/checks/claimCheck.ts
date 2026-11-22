@@ -265,8 +265,24 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     ((rows && sheets) || libraryLists !== undefined)
       ? deps.analysisRuntime
       : undefined;
-  const { scoped, session, decisions, citedShown, looked, searches, tools, workings, libraryRead } =
-    setUpRun(deps, request, results, calculates, runtime && { runtime, rows, lists: libraryLists });
+  const {
+    scoped,
+    session,
+    decisions,
+    citedShown,
+    citedByTool,
+    looked,
+    searches,
+    tools,
+    workings,
+    libraryRead,
+  } = setUpRun(
+    deps,
+    request,
+    results,
+    calculates,
+    runtime && { runtime, rows, lists: libraryLists },
+  );
   let court: Awaited<ReturnType<typeof courtDecisions>>;
   try {
     court = await courtDecisions(decisions, scoped, signal);
@@ -297,6 +313,10 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       );
     return hasFound(read.evidence ?? []) || hasFound(fallbackMarkers);
   };
+  const recorded = (read: ReadVerdict) =>
+    hasFoundQuote(read) ||
+    (citedByTool() &&
+      (read.evidence ?? []).some((marker) => session.tools.hasRecord?.(marker) ?? false));
   const readReply = (text: string, earlier: readonly string[] = []): ReadVerdict | null => {
     const turns = [...earlier, text];
     const from = turns.findLastIndex((turn) => readVerdict(turn) !== null);
@@ -306,9 +326,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   };
   // The verdict the search-again ask is for (#3381): one resting on a quote it recorded is not.
   const saysNotStated = (read: ReadVerdict) =>
-    read.verdict === "unsupported" &&
-    (read.word ?? "not-found") === "not-found" &&
-    !hasFoundQuote(read);
+    read.verdict === "unsupported" && (read.word ?? "not-found") === "not-found" && !recorded(read);
   // Each asks the model once, for something its reply lacks; none of them reads its verdict.
   const turnChecks: TurnCheck[] = [
     {
@@ -336,7 +354,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
         return read &&
           looked() &&
           read.verdict !== "unsupported" &&
-          !hasFoundQuote(read) &&
+          !recorded(read) &&
           !restsOnOwnFigure(read) &&
           !workedOut()
           ? { claims: [], note: CITE_FIRST, requires: "cite" }
