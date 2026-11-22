@@ -286,10 +286,13 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
       let markedStart = starts.indexOf(from);
       let markedEnd = ends.indexOf(to) + 1;
       if (markedStart < 0 || markedEnd <= markedStart) continue;
-      // Ignore whitespace at a mark's edges (e.g. a space before a rewritten Citation) so it never
-      // stretches the sentence text beyond what the core reads (#3542).
-      while (markedStart < markedEnd && /\s/.test(text[markedStart] ?? "")) markedStart++;
-      while (markedEnd > markedStart && /\s/.test(text[markedEnd - 1] ?? "")) markedEnd--;
+      // Ignore whitespace at a mark's edges (e.g. a space before a rewritten Citation) unless the
+      // stored check text itself keeps that edge whitespace, so it never stretches the sentence
+      // text beyond what the core reads (#3542).
+      if (!/^\s/.test(check.text))
+        while (markedStart < markedEnd && /\s/.test(text[markedStart] ?? "")) markedStart++;
+      if (!/\s$/.test(check.text))
+        while (markedEnd > markedStart && /\s/.test(text[markedEnd - 1] ?? "")) markedEnd--;
       if (markedEnd <= markedStart) continue;
       const spanFrom = starts[markedStart] ?? from;
       const spanTo = ends[markedEnd - 1] ?? to;
