@@ -560,6 +560,8 @@ export interface UnboundFolder {
   groupId: string;
   boundFolderId: string | null;
   removed: boolean;
+  /** Its folder's Documents a Folder bound further up took then, which putting it back takes back. */
+  refiled: AssignmentChange[];
 }
 
 /**

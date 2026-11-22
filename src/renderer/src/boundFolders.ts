@@ -41,12 +41,12 @@ export function unboundLinkedFolders(
   state: Places & Pick<ReturnType<typeof useAppStore.getState>, "library">,
   exampleIds: ReadonlySet<string>,
 ): LinkedFolder[] {
+  // Only its own Folder counts: one bound to a folder inside it, after a merge, is a Folder of
+  // its own, and the folder around it keeps its row.
   const bound = new Set((state.library?.groups ?? []).map((each) => each.boundFolderId));
-  return state.linkedFolders.filter((linked) => {
-    if (exampleIds.has(linked.id) || bound.has(linked.folderId)) return false;
-    const inside = state.folders.filter((each) => each.linkedFolderId === linked.id);
-    return !inside.some((each) => bound.has(each.id));
-  });
+  return state.linkedFolders.filter(
+    (linked) => !exampleIds.has(linked.id) && !bound.has(linked.folderId),
+  );
 }
 
 /** The ids of the examples' own Linked folders. */

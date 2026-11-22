@@ -283,7 +283,12 @@ describe("filing as one Folder, turned off and on (#3613)", () => {
     await core.assignDocumentGroup(fees?.id ?? "", coast.id);
 
     const off = await core.unbindFolder(bound.id, []);
-    expect(off).toEqual({ groupId: bound.id, boundFolderId: bound.boundFolderId, removed: true });
+    expect(off).toEqual({
+      groupId: bound.id,
+      boundFolderId: bound.boundFolderId,
+      removed: true,
+      refiled: [],
+    });
     expect(await live(core, bound.id)).toBe(false);
     expect(await inRecentlyDeleted(core, bound.id)).toBe(false);
     let where = await filed(core);
@@ -320,6 +325,34 @@ describe("filing as one Folder, turned off and on (#3613)", () => {
 
     await core.rebindFolder(off);
     expect((await filed(core))("Quay plan").groupId).toBe(bound.id);
+  });
+
+  // protects=turned off before the folder's first scan ends, a Folder that stays for its Note files none of what that scan finds (#3613); fails_when=the first scan files its files in a Folder no longer bound to the folder
+  it("off during the first scan, the Folder that stays files none of what it finds", async () => {
+    const { core, files } = await started();
+    await writeFile(join(files, "Quay plan.md"), PLAN);
+    const { folder } = boundOf(await core.addLinkedFolder(files));
+    await core.createMind({ title: "Quay notes", folderId: folder.id });
+    expect((await core.unbindFolder(folder.id, [])).removed).toBe(false);
+    await processed(core);
+    expect((await filed(core))("Quay plan").groupId).toBeNull();
+  });
+
+  // protects=a Folder bound inside a bound one, turned off, lets its files go to the one around it, and on again (Undo) takes them back from there (#3613); fails_when=its files stay in the Folder around it once it is on again
+  it("off and on again, a Folder inside a bound one takes its files back from it", async () => {
+    const { core, files } = await started();
+    await mkdir(join(files, "work"));
+    await writeFile(join(files, "work", "Brief.md"), "# Brief\n\nThe quay opens in May.\n");
+    const work = boundOf(await core.addLinkedFolder(join(files, "work"))).folder;
+    await processed(core);
+    const outer = boundOf(await core.addLinkedFolder(files)).folder;
+    await processed(core);
+    expect((await filed(core))("Brief").groupId).toBe(work.id);
+
+    const off = await core.unbindFolder(work.id, []);
+    expect((await filed(core))("Brief").groupId).toBe(outer.id);
+    await core.rebindFolder(off);
+    expect((await filed(core))("Brief")).toEqual({ groupId: work.id, source: "user" });
   });
 
   // protects=Undo of turning it on leaves a file of its folder the User had filed in another Folder where they filed it (#3507); fails_when=Undo moves or unfiles a filing binding never made
@@ -444,6 +477,17 @@ describe("a folder linked before (#3613)", () => {
     expect(where("Harbour fees")).toEqual({ groupId: set.coast.id, source: "user" });
     await arrives(core, set.files, "Late");
     expect((await filed(core))("Late").groupId).toBe(bound[0]?.id);
+  });
+
+  // protects=a folder linked before whose name a Folder has already, and one numbered after it, gets the next free number (#3613); fails_when=two Folders beside each other share a name
+  it("named after it, past the names the User's Folders have", async () => {
+    const set = await unsorted();
+    const name = basename(set.files);
+    await set.core.createLibraryGroup({ name, description: "" });
+    await set.core.createLibraryGroup({ name: `${name} 2`, description: "" });
+    const core = await migratedAgain(set);
+    const [bound] = (await core.getLibrary()).groups.filter((each) => each.boundFolderId);
+    expect(bound?.name).toBe(`${name} 3`);
   });
 
   // protects=an agent that read Not in a Folder, where a folder linked before kept its files, reads them in their new Folder after the migration, and one that didn't is given nothing more (#3613); fails_when=the agent loses the folder's files, or a share widens

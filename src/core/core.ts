@@ -689,19 +689,41 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
   return { documentId: parseDocumentId(input.documentId), password };
 }
 
-/** `rebindFolder`'s input, as `unbindFolder` gave it. */
-function parseUnboundFolder(input: unknown): UnboundFolder {
+/** `rebindFolder`'s input, as `unbindFolder` gave it, its refiled changes still to be read. */
+function parseUnboundFolder(
+  input: unknown,
+): Omit<UnboundFolder, "refiled"> & { refiled: unknown[] } {
   if (
     !isRecord(input) ||
     typeof input.groupId !== "string" ||
     input.groupId === "" ||
     (input.boundFolderId !== null && typeof input.boundFolderId !== "string") ||
-    typeof input.removed !== "boolean"
+    typeof input.removed !== "boolean" ||
+    !Array.isArray(input.refiled)
   ) {
     // Only Undo sends it, as `unbindFolder` gave it: anything else can't be put back.
     throw new InvalidInputError({ key: "error.library.projectUndo" });
   }
-  return { groupId: input.groupId, boundFolderId: input.boundFolderId, removed: input.removed };
+  return {
+    groupId: input.groupId,
+    boundFolderId: input.boundFolderId,
+    removed: input.removed,
+    refiled: input.refiled,
+  };
+}
+
+/** The Folder each refiled Document went to, by that Folder: `unfileBound` checks the rest. */
+function refiledByFolder(refiled: readonly unknown[]): Map<string, string[]> {
+  const by = new Map<string, string[]>();
+  for (const change of refiled) {
+    const after = isRecord(change) && isRecord(change.after) ? change.after.assignment : undefined;
+    const to = isRecord(after) && typeof after.groupId === "string" ? after.groupId : null;
+    if (!to || !isRecord(change) || typeof change.documentId !== "string") {
+      throw new InvalidInputError({ key: "error.library.projectUndo" });
+    }
+    by.set(to, [...(by.get(to) ?? []), change.documentId]);
+  }
+  return by;
 }
 
 /** `deleteAgain`'s input: each item, and the time it was deleted before its Restore. */
@@ -1039,10 +1061,15 @@ export function createCore(adapters: CoreAdapters): Core {
   /** Set once rerank exists: a Document became ready, so the built-in reranking model is needed. */
   let prepareRerank = () => {};
   let libraryDocumentChanged = (_document: Document) => {};
+  /** The Folders linking made, which a first scan files in only while they are bound (#3613). */
+  const linkedFolderGroups = new Set<string>();
   const batches = createBatches({
     db,
     emit: (batch) => events.emit("documents.batch", batch),
-    file: (documentId, groupId) => library.file(documentId, groupId),
+    file: (documentId, groupId) => {
+      if (linkedFolderGroups.has(groupId)) fileInBoundFolder(documentId);
+      else library.file(documentId, groupId);
+    },
   });
   const rememberSecret = (secret: string) => {
     knownSecrets.add(secret);
@@ -4190,9 +4217,11 @@ export function createCore(adapters: CoreAdapters): Core {
     });
     return { folder: library.bind(made.id, folder.id), filed: fileUnder([folder.id]) };
   };
-  /** The name, or the first of "name 2", "name 3"… that no Folder beside it has. */
-  const freeFolderName = (name: string, parentId: string | null) => {
-    const beside = library.folders().filter((each) => each.parentId === parentId);
+  /** The name, or the first of "name 2", "name 3"… that no other Folder beside it has. */
+  const freeFolderName = (name: string, parentId: string | null, self?: string) => {
+    const beside = library
+      .folders()
+      .filter((each) => each.parentId === parentId && each.id !== self);
     const taken = (candidate: string) => beside.some((each) => sameName(each.name, candidate));
     let free = name;
     for (let n = 2; taken(free); n += 1) free = `${name.slice(0, 96)} ${n}`;
@@ -4215,19 +4244,30 @@ export function createCore(adapters: CoreAdapters): Core {
       const removed = library.isEmpty(groupId);
       if (removed) library.removeQuietly(groupId);
       // Each has no filing of its own again, so a Folder bound further up takes it (ADR-0030).
-      for (const id of back) fileInBoundFolder(id);
-      return { groupId, boundFolderId, removed };
+      const refiled = back.flatMap((id) => fileInBoundFolder(id) ?? []);
+      return { groupId, boundFolderId, removed, refiled };
     });
   };
   /** See `CoreApi.rebindFolder`. */
   const rebindFolder = (input: unknown): BoundFolderChange => {
     const unbound = parseUnboundFolder(input);
     return db.transaction(() => {
-      if (unbound.removed) library.restoreQuietly(unbound.groupId);
+      if (unbound.removed) {
+        library.restoreQuietly(unbound.groupId);
+        // A Folder made beside it since may have its name: it takes the next free one.
+        const back = library.folder(unbound.groupId);
+        const name = freeFolderName(back.name, back.parentId, back.id);
+        if (name !== back.name) library.update(back.id, { ...back, name });
+      }
       if (unbound.boundFolderId === null) {
         return { folder: library.folder(unbound.groupId), filed: [] };
       }
       const folder = library.bind(unbound.groupId, unbound.boundFolderId);
+      // What a Folder further up took when this one let go goes back to no filing, for this one.
+      const live = new Set(library.folders().map((each) => each.id));
+      for (const [to, ids] of refiledByFolder(unbound.refiled)) {
+        if (live.has(to)) library.unfileBound(to, unbound.refiled, (id) => ids.includes(id));
+      }
       return { folder, filed: fileUnder([unbound.boundFolderId]) };
     });
   };
@@ -7643,6 +7683,7 @@ export function createCore(adapters: CoreAdapters): Core {
             nestMerged(regrouped, made.folder.id);
             return { bound: made, merged: regrouped };
           });
+      if (bound) linkedFolderGroups.add(bound.folder.id);
       // Its first scan only starts adding Documents once this has returned.
       const batchId = batches.begin(bound?.folder.id ?? dropped);
       // A folder inside one already linked adds nothing: its scans aren't this batch.

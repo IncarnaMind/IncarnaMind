@@ -595,6 +595,7 @@ function moveLinkSteps(from: string, to: string): void {
   for (const link of linkSteps.values()) {
     link.path = moved(link.path);
     for (const merged of link.before.linkedFolders) merged.path = moved(merged.path);
+    for (const merged of link.merged) merged.path = moved(merged.path);
   }
 }
 

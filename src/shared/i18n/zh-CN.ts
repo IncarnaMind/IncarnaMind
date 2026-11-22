@@ -6213,7 +6213,7 @@ export const zhCN = {
   "error.library.autoNotLocal": "自动分类必须在这台电脑上运行。",
   "error.library.localModelMissing": "输入本地服务器和分类模型。",
   "error.library.ollamaNotLocal": "Ollama 分类模型必须在这台电脑上运行。",
-  "error.library.projectUndo": "无法撤销：不知道文件夹中各个文件原先在哪里。",
+  "error.library.projectUndo": "无法撤销：不知道这些文档原先所在的文件夹。请手动重新归入。",
   "error.meeting.notFound": "这个会议不存在或已删除。",
   "error.meeting.purgeFailed":
     "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",

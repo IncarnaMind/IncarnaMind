@@ -3410,18 +3410,23 @@ export const migrations: readonly Migration[] = [
                   AND (a.source = 'user' OR EXISTS (SELECT 1 FROM library_groups g
                     WHERE g.id = a.group_id AND g.deleted_at IS NULL)))));
       -- Named after the folder; a name a Folder at the top level has already, or another of these
-      -- has, takes the next number, as linking names one ("Interviews 2").
+      -- has, takes a number past the highest such name has ("Interviews 2"), as linking names one.
       CREATE TEMP TABLE bind_names AS
         SELECT b.group_id,
           (SELECT COUNT(*) FROM library_groups g WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
             AND lower(g.name) = lower(b.name)) > 0 AS taken,
+          max(1, COALESCE((SELECT MAX(CAST(substr(g.name, length(b.name) + 2) AS INTEGER))
+            FROM library_groups g WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
+              AND lower(substr(g.name, 1, length(b.name) + 1)) = lower(b.name) || ' '
+              AND substr(g.name, length(b.name) + 2) GLOB '[0-9]*'
+              AND substr(g.name, length(b.name) + 2) NOT GLOB '*[^0-9]*'), 0)) AS highest,
           ROW_NUMBER() OVER (PARTITION BY lower(b.name) ORDER BY b.seq, b.linked_folder_id) AS rank
         FROM bind_folders b;
       INSERT INTO library_groups (id, name, description, parent_id, counts_own_files, keep_inside,
           bound_folder_id, created_at, updated_at)
         SELECT b.group_id,
           CASE WHEN NOT n.taken AND n.rank = 1 THEN substr(b.name, 1, 100)
-            ELSE substr(b.name, 1, 96) || ' ' || (n.rank + n.taken) END,
+            ELSE substr(b.name, 1, 96) || ' ' || (n.highest + n.rank - 1 + n.taken) END,
           '', NULL, 0, 0, b.folder_id, m.at, m.at
         FROM bind_folders b JOIN bind_names n ON n.group_id = b.group_id, bind_migration m;
       -- Its Documents with no filing of their own are filed in it as the User's, as binding files

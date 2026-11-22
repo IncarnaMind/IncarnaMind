@@ -14,6 +14,7 @@ import {
   type LibrarySection as Section,
 } from "../../libraryPage";
 import { formatCount, linkedFolderRowState, rowStateLabel } from "../../linkedFolders";
+import { isListedDocument } from "../../meetingTranscript";
 import { organizeDocuments } from "../../organizeDocuments";
 import { fixOrganizeProblem } from "../../organizeFix";
 import { organizeStateOf } from "../../organizeOutcome";
@@ -440,7 +441,11 @@ function FolderHead({
   );
   const dragSource = useDragSource(() => (rename.renaming ? null : folderDrag(folder, "library")));
   const bound = useBoundPlace(folder.id);
-  const status = bound && rowStateLabel(linkedFolderRowState(bound.linked, count > 0), t, language);
+  const linkedId = bound?.linked.id ?? null;
+  const hasFiles = useAppStore((state) =>
+    state.documents.some((each) => each.linkedFolderId === linkedId && isListedDocument(each)),
+  );
+  const status = bound && rowStateLabel(linkedFolderRowState(bound.linked, hasFiles), t, language);
   let name: ReactNode;
   if (rename.renaming) {
     name = (
