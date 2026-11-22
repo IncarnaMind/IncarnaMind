@@ -328,6 +328,8 @@ test("agents that can't be read: Your AI says so with Try again, and the page st
 
   await controlReads(app as ElectronApplication, "core:getAgents", { hold: 1 });
   await failed.getByRole("button", { name: "Try again" }).click();
+  // The retried read is held where the core answers, before anything is checked or settled.
+  await expect.poll(() => controlReads(app as ElectronApplication, "core:getAgents", {})).toBe(1);
   await expect(failed).toBeVisible();
   await expect(settings.getByTestId("ai-use-model-open")).toBeVisible();
   await expect(settings.getByTestId("ai-jobs")).toBeVisible();
