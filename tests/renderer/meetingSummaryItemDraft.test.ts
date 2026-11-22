@@ -81,6 +81,7 @@ test("an item disappearing during refresh keeps the draft available to copy or c
   const find = <ElementType extends HTMLElement>(id: string) =>
     container.querySelector<ElementType>(`[data-testid="meeting-summary-item-${id}"]`);
 
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   try {
     await show([row]);
     container.querySelector("details")?.setAttribute("open", "");
@@ -115,8 +116,14 @@ test("an item disappearing during refresh keeps the draft available to copy or c
     expect(container.querySelector("details")).toBeNull();
     expect(save).not.toHaveBeenCalled();
   } finally {
-    await act(() => root.unmount());
-    container.remove();
-    vi.unstubAllGlobals();
+    try {
+      await act(() => root.unmount());
+      // Tiptap destroys the unmounted editor on the next timer, while its DOM still exists.
+      await vi.runOnlyPendingTimersAsync();
+    } finally {
+      vi.useRealTimers();
+      container.remove();
+      vi.unstubAllGlobals();
+    }
   }
 });

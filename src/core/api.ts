@@ -15968,6 +15968,14 @@ export interface CoreApi {
    * is out of date (`AgentSettings.skillsOutOfDate`) and the User confirmed their changes go (#3430).
    */
   replaceAgentSkill(pairingId: string): Promise<void>;
+  /**
+   * Whether the entry IncarnaMind wrote in this agent's settings starts a program that is no longer
+   * there (an AppImage's from an earlier start, an app moved since), so the agent can't reach
+   * IncarnaMind until it is repaired (#3644).
+   */
+  agentNeedsRepair(pairingId: string): Promise<boolean>;
+  /** Writes this agent's entry in its settings again, with IncarnaMind as it is now: the User's Repair (#3644). */
+  repairAgent(pairingId: string): Promise<AgentSetupResult>;
   /** How a paired agent starts IncarnaMind's server, again: e.g. to set it up in that agent once more. */
   getAgentLaunch(pairingId: string): Promise<AgentLaunch>;
   /** The calls a paired agent made, newest first: the most recent 500. */
@@ -16846,6 +16854,8 @@ const methods: Record<CoreApiMethod, true> = {
   updateAgent: true,
   disconnectAgent: true,
   replaceAgentSkill: true,
+  agentNeedsRepair: true,
+  repairAgent: true,
   getAgentLaunch: true,
   listAgentActivity: true,
   listAgentClients: true,

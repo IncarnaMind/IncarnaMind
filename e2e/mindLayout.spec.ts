@@ -296,26 +296,38 @@ test("every text in a Mind starts at one edge, its controls sit in the left marg
   await screenshot(window, "mind-narrow.png");
   await setGroupBeside(window, false);
 
-  // Two markers on one line sit side by side.
-  await editor.evaluate((dom) => {
+  // Adjacent Citations to different pages each have a visible marker.
+  await editor.evaluate(async (dom) => {
     const { view, commands } = (dom as unknown as { editor: Editor }).editor;
-    const found: Record<string, unknown>[] = [];
-    view.state.doc.descendants((child) => {
-      if (found.length === 0 && child.type.name === "citation") found.push({ ...child.attrs });
-      return found.length === 0;
-    });
-    const cited = found[0] ?? {};
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const citations = [];
+    for (const [page, text] of [
+      [2, "Spring tides happen at new moon and at full moon."],
+      [3, "Harbours publish the times of high water every year."],
+    ] as const) {
+      const passages = await core.findPassages({ text, mindId: null, scope: null });
+      const passage = passages.find((item) => item.text.includes(text));
+      if (!passage) throw new Error(`Missing text from page ${page}.`);
+      const citation = await core.citePassage({ passageId: passage.passageId, text });
+      if (citation?.pageFrom !== page || citation.pageTo !== page) {
+        throw new Error(
+          `Expected a Citation to page ${page}, got ${citation?.pageFrom}–${citation?.pageTo}.`,
+        );
+      }
+      citations.push({ type: "citation", attrs: { ...citation } });
+    }
     commands.insertContentAt(view.state.doc.content.size, {
       type: "paragraph",
-      content: [
-        { type: "text", text: "Copied from the Note:" },
-        { type: "citation", attrs: cited },
-        { type: "citation", attrs: cited },
-      ],
+      content: [{ type: "text", text: "Tide tables:" }, ...citations],
     });
   });
-  await expect(markers).toHaveCount(5);
-  const [first, second] = [await box(markers.nth(3)), await box(markers.nth(4))];
+  const adjacent = editor
+    .locator(":scope > p")
+    .filter({ hasText: "Tide tables:" })
+    .getByTestId("citation-chip")
+    .filter({ visible: true });
+  await expect(adjacent).toHaveCount(2);
+  const [first, second] = [await box(adjacent.nth(0)), await box(adjacent.nth(1))];
   expectNear(middle(first), middle(second), 1, "the two markers' middles");
   expect
     .soft(second.x, "the second marker is right of the first")

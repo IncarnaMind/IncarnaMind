@@ -71,12 +71,18 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
   const menu = await openPageMenu(window);
   // The Note's group has no ⋯ of its own: the page's takes the group's items (#2868).
   await expect(menu.getByTestId("tab-menu-split")).toBeVisible();
-  const style = menu.getByTestId("page-style");
   const word = menu.getByTestId("look-word");
+  await expect(menu.getByTestId("page-style")).toBeVisible();
+  await expect(word).toBeVisible();
   await expect(word).toHaveAttribute("aria-checked", "true");
   await expect(menu.getByTestId("look-plain")).toHaveAttribute("aria-checked", "false");
-  const [styleBox, wordBox] = [await style.boundingBox(), await word.boundingBox()];
-  expect(wordBox && styleBox && wordBox.y > styleBox.y).toBe(true);
+  const gap = await menu.evaluate((element) => {
+    const style = element.querySelector('[data-testid="page-style"]');
+    const look = element.querySelector('[data-testid="look-word"]');
+    if (!style || !look) throw new Error("The Style or Word Look row is missing.");
+    return look.getBoundingClientRect().top - style.getBoundingClientRect().top;
+  });
+  expect(gap, "Word Look is below Style in the open menu").toBeGreaterThan(0);
   if (SCREENSHOTS) {
     await motionSettled(window);
     await window.screenshot({ path: join(SCREENSHOTS, "word-look-menu.png") });

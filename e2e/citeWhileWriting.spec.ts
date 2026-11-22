@@ -526,6 +526,88 @@ test("an input method's Esc or Enter in the field leaves the search open, and ci
   }
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the open Document picker takes the next key when the Note or the page has focus (${language})`, async () => {
+    const { app, window, editor } = await started(language, 1600, { chinese: true });
+    try {
+      const label = language === "en" ? "Link a Document" : "链接文档";
+      const picker = window.getByTestId("scope-picker");
+      const open = async (from: "shortcut" | "sidebar" = "shortcut") => {
+        if (from === "sidebar") await pointAndClick(window, window.getByTestId("sidebar-search"));
+        else await window.keyboard.press("ControlOrMeta+k");
+        await window.getByTestId("palette-search").fill(`>${label}`);
+        await expect(
+          window.getByTestId("palette-item").filter({ hasText: label }).first(),
+        ).toBeVisible();
+        await window.keyboard.press("Enter");
+        await expect(picker).toBeVisible();
+      };
+      const leaveFocusOnPage = async () => {
+        await editor.evaluate((element) => element.blur());
+        await expect(window.locator("body")).toBeFocused();
+      };
+      await window.keyboard.type("Spring tides");
+      await open();
+      await leaveFocusOnPage();
+      await window.keyboard.press("Escape");
+      await expect(picker).toHaveCount(0);
+      await expect(editor).toBeFocused();
+      await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides");
+
+      await window.keyboard.press("Shift+ArrowLeft");
+      await expect.poll(() => window.evaluate(() => getSelection()?.toString())).toBe("s");
+      // With words selected, the shortcut opens the URL editor. Sidebar Search opens the palette.
+      await open("sidebar");
+      await window.keyboard.press("Escape");
+      await expect(picker).toHaveCount(0);
+      expect(await window.evaluate(() => getSelection()?.toString())).toBe("s");
+      await window.keyboard.press("ArrowRight");
+
+      await open();
+      await leaveFocusOnPage();
+      for (const key of ["Enter", "Escape"]) {
+        await window.locator("body").dispatchEvent("keydown", { key, isComposing: true });
+        await expect(picker).toBeVisible();
+      }
+      await window.keyboard.type("tid");
+      await expect(picker.getByRole("option")).toHaveCount(1);
+      await expect(picker.getByRole("option")).toContainText("Tides");
+      await leaveFocusOnPage();
+      await window.keyboard.press("Enter");
+      await expect(editor.getByTestId("document-chip")).toHaveText("Tides");
+      await expect(picker).toHaveCount(0);
+
+      await open();
+      const errors: string[] = [];
+      window.on("pageerror", (error) => errors.push(error.message));
+      await window.keyboard.press("ControlOrMeta+w");
+      await expect(picker).toHaveCount(0);
+      await expect(editor).toHaveCount(0);
+      await window.evaluate(() => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      });
+      await expect(window.locator("body")).toBeFocused();
+      const pageKey = await window.evaluate(() => {
+        const event = new KeyboardEvent("keydown", { key: "x", bubbles: true, cancelable: true });
+        let reached = false;
+        document.body.addEventListener(
+          "keydown",
+          () => {
+            reached = true;
+          },
+          { once: true },
+        );
+        document.body.dispatchEvent(event);
+        return { reached, prevented: event.defaultPrevented };
+      });
+      expect(pageKey).toEqual({ reached: true, prevented: false });
+      expect(errors).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 test("⌘K reaches Cite… and Link a Document", async () => {
   const { app, window, editor } = await started();
   try {
