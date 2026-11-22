@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { SourceMap } from "node:module";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -146,7 +148,7 @@ async function pressedAfter(
             const elapsed = performance.now()-from;
             const stages = performance.getEntriesByType("mark").filter(e=>e.name.startsWith("mic:") && e.startTime>=from!-1).map(e=>[e.name,Math.round(e.startTime-from!)]);
             long.disconnect();
-            (globalThis as unknown as {micProbe:unknown}).micProbe={elapsed,expected,events,tasks,stages};
+            (globalThis as unknown as {micProbe:unknown}).micProbe={from,elapsed,expected,events,tasks,stages};
             resolve(elapsed);
           });
           watch.observe(document.body, { attributes: true, childList: true, subtree: true });
@@ -161,6 +163,66 @@ async function pressedAfter(
   );
   console.log("[2586-mic]",JSON.stringify(await window.evaluate(()=>(globalThis as unknown as {micProbe:unknown}).micProbe)));
   return elapsed;
+}
+
+async function profileResume(window: Page) {
+  const cdp = await window.context().newCDPSession(window);
+  try {
+    await cdp.send("Emulation.setCPUThrottlingRate", {rate:2});
+    await cdp.send("Performance.enable");
+    await cdp.send("Profiler.enable");
+    const metrics = await cdp.send("Performance.getMetrics");
+    const origin = metrics.metrics.find(metric => metric.name === "NavigationStart");
+    if (!origin) throw new Error("Missing navigation clock");
+    type TimelineEvent = { name: string; ph: string; ts: number; dur?: number; tid: number; };
+    const timeline: TimelineEvent[] = [];
+    cdp.on("Tracing.dataCollected", ({ value }) => {
+      for (const event of value as TimelineEvent[]) if (event.ph === "X" && (event.dur ?? 0) >= 1000) timeline.push(event);
+    });
+    const complete = new Promise<void>(resolve => cdp.once("Tracing.tracingComplete", () => resolve()));
+    await cdp.send("Tracing.start", {categories:"devtools.timeline,toplevel,blink.user_timing"});
+    await cdp.send("Profiler.start");
+    const elapsed = await pressedAfter(window, "meeting-mic", false, () => window.keyboard.press("Enter"));
+    const {profile} = await cdp.send("Profiler.stop");
+    await cdp.send("Tracing.end");
+    await complete;
+    const bounds = await window.evaluate(() => (window as unknown as {micProbe: {from: number, elapsed: number}}).micProbe);
+    const start = origin.value * 1e6 + bounds.from * 1e3;
+    const stop = origin.value * 1e6 + (bounds.from + bounds.elapsed) * 1e3;
+    console.log("[2586-mic-timeline]", JSON.stringify({ms:elapsed,events:timeline.filter(e=>e.ts<stop && e.ts+(e.dur ?? 0)>start).map(e=>[e.name,Math.round((e.ts-start)/1000),Math.round((e.dur ?? 0)/1000),e.tid])}));
+    const sources = new Map<string, SourceMap>();
+    const frames = new Map<number, string>();
+    const parents = new Map<number, number>();
+    for (const node of profile.nodes) {
+      const frame = node.callFrame;
+      if (frame.url.startsWith("file:") && frame.url.endsWith(".js") && !sources.has(frame.url)) {
+        const contents = await readFile(fileURLToPath(frame.url) + ".map","utf8").catch(() => null);
+        if (contents) sources.set(frame.url, new SourceMap(JSON.parse(contents)));
+      }
+      const source = sources.get(frame.url)?.findEntry(frame.lineNumber, frame.columnNumber);
+      frames.set(node.id, source && "originalSource" in source ? source.originalSource.split("/").slice(-2).join("/") + ":" + (source.originalLine + 1) : frame.functionName || frame.url.split("/").pop() || "(anonymous)");
+      for (const child of node.children ?? []) parents.set(child,node.id);
+    }
+    let time = profile.startTime;
+    const totals = new Map<string,number>();
+    for (const [index, delta] of (profile.timeDeltas ?? []).entries()) {
+      time += delta;
+      if (time < start || time > stop) continue;
+      let node = profile.samples?.[index];
+      const path = [];
+      while (node !== undefined && path.length < 12) {
+        path.push(frames.get(node));
+        node = parents.get(node);
+      }
+      const key = path.join(" ← ");
+      totals.set(key, (totals.get(key) ?? 0) + delta);
+    }
+    console.log("[2586-mic-cpu]", JSON.stringify({ms:elapsed,sampledMs:[...totals.values()].reduce((a,b)=>a+b,0)/1000,hot:[...totals].sort((a,b)=>b[1]-a[1]).slice(0,15)}));
+    return elapsed;
+  } finally {
+    await cdp.send("Emulation.setCPUThrottlingRate", {rate:1});
+    await cdp.detach();
+  }
 }
 
 const msOf = (clock: string) => {
@@ -256,7 +318,7 @@ test("Pause my mic: the bar's button, ⌘K and the shortcut pause and resume the
   await shot(window, "mic-palette-en");
   whilePaused.push(await sentSince(app, pausedFrom));
   expect(
-    await pressedAfter(window, "meeting-mic", false, () => window.keyboard.press("Enter")),
+    await profileResume(window),
   ).toBeLessThan(100);
   await expect(mic).toHaveAttribute("aria-pressed", "false");
   await expect(line).toBeHidden();

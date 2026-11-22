@@ -171,6 +171,7 @@ export default defineConfig({
     // electron-vite leaves the renderer unminified; minified, its JavaScript is half the size
     // to load and parse at every launch.
     build: {
+      sourcemap: "hidden",
       minify: true,
       rollupOptions: {
         input: {
