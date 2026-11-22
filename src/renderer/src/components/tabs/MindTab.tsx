@@ -48,6 +48,7 @@ export function MindTab({ mindId }: { mindId: string }) {
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const [count, setCount] = useState<HTMLElement | null>(null);
   const [badge, setBadge] = useState<HTMLElement | null>(null);
+  const [ask, setAsk] = useState<HTMLElement | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLElement | null>(null);
   const [outlineButton, setOutlineButton] = useState<HTMLElement | null>(null);
   const [outline, setOutline] = useState<HTMLElement | null>(null);
@@ -126,6 +127,7 @@ export function MindTab({ mindId }: { mindId: string }) {
                       reviewShown,
                       outlineButton,
                       outline,
+                      ask,
                     }}
                   >
                     <CompareSheetSlotContext.Provider value={sheetSlot}>
@@ -139,6 +141,10 @@ export function MindTab({ mindId }: { mindId: string }) {
             {pill && (
               <div aria-hidden="true" data-testid="ask-pill-fade" className="ask-pill-fade" />
             )}
+          </div>
+          {/* The input where the User asks their own AI to change the Note stays at the page's foot (#3627). */}
+          <div className="note-ask-foot" style={transcriptShown ? { display: "none" } : undefined}>
+            <div ref={setAsk} className="mind-measure" />
           </div>
           {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
           <div className="mind-menu-slot">

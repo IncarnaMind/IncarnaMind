@@ -62,7 +62,9 @@ export const ComposerDockContext = createContext<HTMLElement | null>(null);
  * while writing and the check badge; `review`, beside the page or over its
  * right edge, for the reviewing pane (#697), and where it shows now;
  * `outlineButton`, the tab's top left, and `outline`, at the left of the page,
- * for the outline (#3414). Each is null until it is there.
+ * for the outline (#3414); `ask`, the page's foot under the text, for the input
+ * where the User asks their own AI to change the Note (#3627). Each is null
+ * until it is there.
  */
 export const PageSlotsContext = createContext<{
   top: HTMLElement | null;
@@ -73,6 +75,7 @@ export const PageSlotsContext = createContext<{
   reviewShown: ReviewShown;
   outlineButton: HTMLElement | null;
   outline: HTMLElement | null;
+  ask: HTMLElement | null;
 }>({
   top: null,
   menu: null,
@@ -82,6 +85,7 @@ export const PageSlotsContext = createContext<{
   reviewShown: "closed",
   outlineButton: null,
   outline: null,
+  ask: null,
 });
 
 /** Where a Mind's reviewing pane is: beside the page, over its right edge, folded to its button, or closed. */

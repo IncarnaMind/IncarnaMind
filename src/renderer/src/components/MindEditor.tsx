@@ -222,6 +222,7 @@ import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
 import { meetingTemplateSlashItems } from "./meetings/MeetingTemplatePicker";
+import { NoteAsk } from "./noteAsk/NoteAsk";
 import { useTabPlace } from "./tabs/tabItems";
 
 /** The Block at the top of the Note's view, and how far into it the view starts. */
@@ -1316,6 +1317,10 @@ function MindEditorView({
           countShown &&
           !(firstOpen && isExample) &&
           createPortal(<WordCount editor={editor} doc={doc} />, slots.count)}
+        {showingNotes &&
+          !readOnly &&
+          slots.ask &&
+          createPortal(<NoteAsk mindId={mindId} editor={editor} />, slots.ask)}
         {showingNotes &&
           slots.badge &&
           createPortal(

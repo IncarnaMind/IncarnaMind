@@ -100,8 +100,16 @@ const askedOnOf = (merged: boolean): AskedOn => {
   return documentId ? { mindId: null, documentId } : NOTHING;
 };
 
+/** An agent IncarnaMind can run in the background: a Note it can read has its own input (#3627). */
+export const runsInBackground = (pairing: AgentPairing): boolean =>
+  pairing.client === "claude-code";
+
 const pillOf = (hidden: boolean, on: AskedOn, agents: readonly AgentPairing[]): OwnAiPill | null =>
-  hidden && (on.mindId !== null || on.documentId !== null) && agents.length > 0
+  hidden &&
+  (on.mindId !== null || on.documentId !== null) &&
+  agents.length > 0 &&
+  // The Note's own input asks in its place.
+  !(on.mindId !== null && agents.some(runsInBackground))
     ? { ...on, agents }
     : null;
 

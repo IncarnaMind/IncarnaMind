@@ -14,6 +14,7 @@ import { needsAnAi } from "../editWithAi";
 import { queueExplain } from "../explainQueue";
 import { translateNow } from "../i18n";
 import { modelInUseOf } from "../modelInUse";
+import { askFromSelection, noteAskShownNow } from "../ownAiInNote";
 import { ownAiOnlyNow } from "../ownAiPanel";
 import { revealAssistant } from "../quietAssistant";
 import { scopeWithin } from "../scope";
@@ -41,6 +42,18 @@ export async function explainSelection(
   const selection = selectionForEdit(editor.state);
   if (!selection) return false;
   if (ownAiOnlyNow()) {
+    // An agent that runs in the background answers under the Note's input (#3627).
+    if (noteAskShownNow(mindId)) {
+      const went = await askFromSelection(
+        editor.state,
+        mindId,
+        translateNow("noteAsk.action.explain"),
+      );
+      if (went === "started" || went === "problem") {
+        closeSelectionMenu(editor);
+        return true;
+      }
+    }
     // With only their own AI, it explains in its reply there (#3612). As a change handed over
     // does, the selection closes at its end: nothing here answers over the words.
     closeSelectionMenu(editor);
