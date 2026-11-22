@@ -41,6 +41,7 @@ import {
   TranslatableError,
 } from "../errors";
 import type { Language } from "../language";
+import { meetingGuestKey } from "../meetings/brief";
 import { OAuthFlowError, OAuthTokenError, refreshOAuthTokens } from "../oauth";
 import {
   createOAuthAccount,
@@ -1150,7 +1151,7 @@ export function createCalendars(options: CalendarsOptions) {
       return { mindId, joinUrl: event.join_url };
     },
 
-    noteEvent(mindId: unknown): NoteEvent | null {
+    noteEvent(mindId: unknown, strictOccurrence = false): NoteEvent | null {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.calendar.badRequest" });
       const link = db.get<{ event_key: string; event: string }>(
@@ -1170,7 +1171,9 @@ export function createCalendars(options: CalendarsOptions) {
       const recorded = db.get("SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL", [
         mindId,
       ]);
-      const live = copy && groupOf(copy, recorded ? sameOccurrence : sameDisplayEvent)?.shown;
+      const live =
+        copy &&
+        groupOf(copy, recorded || strictOccurrence ? sameOccurrence : sameDisplayEvent)?.shown;
       if (live) {
         return {
           eventId: live.id,
@@ -1183,6 +1186,26 @@ export function createCalendars(options: CalendarsOptions) {
       }
       const kept = parseSnapshot(link.event);
       return kept && { eventId: null, ...kept };
+    },
+
+    earlierMeetings(event: NoteEvent, mindId: string): string[] {
+      const guests = meetingGuestKey(event.attendees);
+      if (!guests) return [];
+      const candidates = db.all<{ id: string; event: string }>(
+        `SELECT m.id, n.event FROM meetings m
+         JOIN calendar_event_notes n ON n.mind_id = m.mind_id AND n.deleted_at IS NULL
+         WHERE m.deleted_at IS NULL AND m.status = 'stopped' AND m.mind_id <> ?
+           AND m.stopped_at <= ? AND m.transcript_document_id IS NOT NULL
+         ORDER BY m.stopped_at DESC, m.id`,
+        [mindId, event.startsAt],
+      );
+      return [
+        ...new Set(
+          candidates
+            .filter((row) => meetingGuestKey(parseSnapshot(row.event)?.attendees ?? []) === guests)
+            .map((row) => row.id),
+        ),
+      ];
     },
 
     /** The people on the event a Note was made for, for the transcriber and for naming Speakers. */
