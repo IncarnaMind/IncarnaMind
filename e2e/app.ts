@@ -1474,15 +1474,15 @@ export async function agentsToConnect(settings: Locator): Promise<Locator> {
 }
 
 /**
- * In Settings › AI, opens "Add an account or key…" and chooses `entry` (#2835): a catalog id, or
- * a directory key such as "plan:chatgpt" or "transcription:soniox". The sheet closes on the choice.
+ * From Settings › AI's list, opens "Add an account or key…" and returns its sheet: the button under
+ * Accounts and keys, or, with no model set up, where there is no Accounts and keys (#3645), the
+ * same entry in ⌘K, which opens Settings › AI with the sheet.
  */
-export async function openDirectoryEntry(settings: Locator, entry: string): Promise<void> {
+export async function openAddSheet(settings: Locator): Promise<Locator> {
   const add = settings.getByTestId("models-add-provider");
   await expect(settings.getByTestId("ai-limits")).toBeVisible();
   if ((await add.count()) > 0) await add.click();
   else {
-    // With no model set up there is no Accounts and keys (#3645): ⌘K's entry opens the sheet.
     const window = settings.page();
     await window.keyboard.press("Escape");
     await expect(settings).toBeHidden();
@@ -1495,6 +1495,15 @@ export async function openDirectoryEntry(settings: Locator, entry: string): Prom
   }
   const sheet = settings.getByTestId("ai-add-sheet");
   await expect(sheet).toBeVisible();
+  return sheet;
+}
+
+/**
+ * In Settings › AI, opens "Add an account or key…" and chooses `entry` (#2835): a catalog id, or
+ * a directory key such as "plan:chatgpt" or "transcription:soniox". The sheet closes on the choice.
+ */
+export async function openDirectoryEntry(settings: Locator, entry: string): Promise<void> {
+  const sheet = await openAddSheet(settings);
   await sheet
     .locator(entry.includes(":") ? `[data-entry="${entry}"]` : `[data-catalog-id="${entry}"]`)
     .first()
