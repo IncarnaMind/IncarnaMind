@@ -72,6 +72,22 @@ for (const language of LANGUAGES) {
       await setLanguage(window, language);
       const card = await askFirstQuestion(window);
       for (const way of WAYS[language]) await expect(card.getByTestId(way)).toBeVisible();
+      const geometry = await card.evaluate((element) => {
+        const box = (node: Element | null) => {
+          if (!node) return null;
+          const { top, bottom, height } = node.getBoundingClientRect();
+          return { top, bottom, height, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight };
+        };
+        return {
+          innerHeight, viewport: innerWidth, card: box(element),
+          plain: !!element.querySelector('[data-testid="plain-text-secrets"]'),
+          ways: [...element.querySelectorAll('[data-testid="setup-chatgpt"],[data-testid="way-claude"],[data-testid="way-local"]')].map(box),
+          thread: box(document.querySelector('[data-testid="assistant-thread"]')),
+          threadChildren: [...(document.querySelector('[data-testid="assistant-thread"]')?.children ?? [])].map(box),
+          composer: box(document.querySelector('[data-testid="assistant-composer"]')),
+        };
+      });
+      console.log("[2586-setup]", language, JSON.stringify(geometry));
       // The dock takes its room a frame after the card comes, so the first screen is read once it settles.
       await expect.poll(() => firstScreenShows(card, language), { timeout: 5_000 }).toBe(true);
       // The Note keeps its room above the dock: a click in its text lands there, not on the card.

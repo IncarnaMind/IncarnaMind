@@ -165,7 +165,8 @@ const notesPlace = (editor: Locator) =>
 
 for (const language of ["en", "zh-CN"] as const) {
   // protects=during the call the bar's Notes | Transcript switches the page in place by mouse, ⌥⌘←/⌥⌘→ and ⌘K; the Transcript shows both sides' words being said before any line is finished, from a cloud service sending unfinished words; Notes comes back to its cursor and scroll; Open beside opens the Transcript in the next group (#138); fails_when=a new tab opens, the live view waits for a finished line, one side's words are missing, the notes lose their place, or the layout breaks at 900 or 1,440 px; no_claim=the real service's timing.
-  test(`during the call, Notes | Transcript switch the page in place, the words being said show from the first, and Notes keeps its place (${language})`, async () => {
+  for (const endKey of ["End", "Meta+ArrowRight"]) {
+  test(`during the call [${endKey}], Notes | Transcript switch the page in place, the words being said show from the first, and Notes keeps its place (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, {
       transcriber: { cloud: { lineMs: 8000 } },
@@ -272,7 +273,22 @@ for (const language of ["en", "zh-CN"] as const) {
     }
     const tenth = editor.locator(":scope > p").nth(9);
     await pointAndClick(window, tenth);
-    await window.keyboard.press("End");
+    const observer = await editor.evaluateHandle((dom) => {
+      const scroller = dom.closest<HTMLElement>('[data-testid="mind-scroller"]');
+      if (!scroller) throw new Error("No Note scroller.");
+      const start = performance.now();
+      const history: string[] = [];
+      const note = (event: string) => history.push(`${Math.round(performance.now() - start)} ${event} y=${scroller.scrollTop}`);
+      for (const name of ["keydown", "mousedown", "scroll", "focusin"]) {
+        document.addEventListener(name, (event) => {
+          if (name === "scroll" && event.target !== scroller) return;
+          note(name + ":" + (event instanceof KeyboardEvent ? event.key : event.target instanceof Element ? event.target.tagName : ""));
+        }, true);
+      }
+      note("start");
+      return history;
+    });
+    await window.keyboard.press(endKey);
     const scroller = panel.getByTestId("mind-scroller");
     let before = await notesPlace(editor);
     const settled = async () => {
@@ -291,7 +307,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor).toBeHidden();
     await pointAndClick(window, switcher.locator("label").filter({ hasText: words.notes }));
     await expect(editor).toBeFocused();
-    expect(await notesPlace(editor)).toEqual(before);
+    const afterSwitch = await notesPlace(editor);
+    console.log("[2586-meeting]", JSON.stringify({endKey, language, before, afterSwitch, history: await observer.jsonValue()}));
+    expect(afterSwitch).toEqual(before);
     await window.keyboard.type("!");
     await expect(tenth).toHaveText(/10!$/);
 
@@ -333,6 +351,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(panel.getByTestId("meeting-bar")).toHaveCount(0);
     await app.close();
   });
+  }
 
   // protects=with the cursor in a table ⌥⌘← and ⌥⌘→ are the table's (a column is added, the view stays), and ⌘K still switches the views from inside one (#2682); fails_when=the keys switch the page instead of adding a column, the view moves, or Show the Transcript and Show notes do nothing with the cursor in a table; no_claim=the hint's wording, which the first test reads.
   test(`in a table, ⌥⌘← and ⌥⌘→ add a column and the view stays; ⌘K still switches (${language})`, async () => {
