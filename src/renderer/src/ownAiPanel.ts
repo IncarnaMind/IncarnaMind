@@ -57,21 +57,23 @@ export function setUpModelInstead(): void {
 }
 
 /**
- * Folds the assistant for a User with only their own AI, while they have never folded or unfolded
- * it themselves, and unfolds it again when that ends, if it was folded for that alone.
+ * Folds the assistant for a User with only their own AI, unless they are reading a Conversation
+ * in it, so a window opened again doesn't show it before their AI is known (#3612); and unfolds
+ * it again when that ends, if it was folded for that alone.
  */
 export function useFoldForOwnAi(): void {
   useReadAgentsToAsk(null);
   const only = useOwnAiOnly();
+  const reading = useReading((state) => state.reading);
   const place = useAppStore((state) => state.layout?.assistant ?? null);
   useEffect(() => {
-    if (only === null || !place || place.foldedBy === "user") return;
+    if (only === null || !place) return;
     const { placeAssistant } = useAppStore.getState();
-    if (only && !place.folded) void placeAssistant({ folded: true, foldedBy: "agent" });
+    if (only && !place.folded && !reading) void placeAssistant({ folded: true, foldedBy: "agent" });
     else if (!only && place.folded && place.foldedBy === "agent") {
       void placeAssistant({ folded: false, foldedBy: null });
     }
-  }, [only, place]);
+  }, [only, place, reading]);
 }
 
 export interface OwnAiPill {

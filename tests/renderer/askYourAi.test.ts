@@ -289,15 +289,16 @@ describe("the assistant and its pill", () => {
     expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
   });
 
-  // protects=with only their own AI the panel is never shown, even where they opened or folded it themselves before (#3612): no panel, no rail, and the pill asks; fails_when=a place they kept brings the panel or its rail back
+  // protects=with only their own AI the panel is never shown, even where they opened or folded it themselves before (#3612): no panel, no rail, and the pill asks; one they had open is folded for their AI, so a window opened again shows nothing of it before their AI is known; fails_when=a place they kept brings the panel or its rail back
   test("a place they kept is out of sight too, with the pill", async () => {
     user(NO_MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: false, foldedBy: "user" });
     expect(await windowShown()).toEqual({
-      folded: false,
+      folded: true,
       rail: false,
       quiet: true,
       pill: { mindId: MIND, documentId: null, agents },
     });
+    expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
     await unmount?.();
     user(NO_MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "user" });
     expect(await windowShown()).toEqual({
