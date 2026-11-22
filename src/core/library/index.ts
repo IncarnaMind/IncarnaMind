@@ -1619,18 +1619,27 @@ export function createLibrary(options: {
     },
     /**
      * Unbinds the Folders bound to a Linked folder's folders, its own (`ownFolderId`) included
-     * though a scan may not have made its row, as it is unlinked (ADR-0030).
+     * though a scan may not have made its row, as it is unlinked (ADR-0030). Returns the live ones.
      */
     unbindLinkedFolder(linkedFolderId: string, ownFolderId: string): string[] {
-      const bound = db
+      const bound = `(bound_folder_id = ? OR bound_folder_id IN
+        (SELECT id FROM folders WHERE linked_folder_id = ?))`;
+      const params = [ownFolderId, linkedFolderId];
+      const live = db
         .all<{ id: string }>(
-          `SELECT id FROM library_groups WHERE deleted_at IS NULL AND (bound_folder_id = ?
-             OR bound_folder_id IN (SELECT id FROM folders WHERE linked_folder_id = ?))`,
-          [ownFolderId, linkedFolderId],
+          `SELECT id FROM library_groups WHERE ${bound} AND deleted_at IS NULL`,
+          params,
         )
         .map((row) => row.id);
-      for (const id of bound) unbind(id);
-      return bound;
+      if (!db.get(`SELECT 1 FROM library_groups WHERE ${bound}`, params)) return live;
+      // One in Recently deleted too: restored, it is bound to no folder that is gone.
+      db.run(`UPDATE library_groups SET bound_folder_id = NULL, updated_at = ? WHERE ${bound}`, [
+        now(),
+        ...params,
+      ]);
+      revision++;
+      changed();
+      return live;
     },
     unbind,
     /**

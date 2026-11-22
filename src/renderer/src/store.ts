@@ -508,11 +508,9 @@ export interface AppState extends LayoutSlice {
   /** Pauses or resumes a Linked folder's indexing, with Undo. Resolves to that change, if it changed anything. */
   setLinkedFolderPaused(linkedFolderId: string, paused: boolean): Promise<Undoable | undefined>;
   /**
-   * Makes a Linked folder a Project (ADR-0030): a Folder named after it, keeping its work inside it,
-   * that its files are filed in as they arrive. With Undo, which deletes that Folder again and puts
-   * its files back where they were.
+   * Files a Linked folder's files in one Folder bound to it again (ADR-0030, #3613), with Undo,
+   * which puts its files back where they were.
    */
-  /** Files a Linked folder's files in one Folder bound to it, with Undo (#3613). */
   fileAsFolder(linkedFolderId: string): Promise<void>;
   /** Files a Linked folder's files in no Folder of its own: its Folder goes, with Undo (#3613). */
   stopFilingAsFolder(groupId: string): Promise<void>;
