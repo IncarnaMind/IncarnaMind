@@ -8369,7 +8369,7 @@ export const zhCN = {
   "agents.activity.read_passages": "读取了段落",
   "agents.activity.cite": "引用了“{text}”",
   "agents.activity.check_citations": "核对了引用",
-  "agents.activity.show_citation": "向你展示了一条引用",
+  "agents.activity.show_citation": "在 IncarnaMind 中为你打开了它",
   "ai.jobs.organize.agent": "你可以让已连接的 AI 推荐文件夹和标签。",
   "agents.sorting.tagConsent": "允许将这些文档的标签名称发送给 {agent} 使用的 AI 模型吗？",
   "agents.sorting.shareTags": "允许共享标签名称",
