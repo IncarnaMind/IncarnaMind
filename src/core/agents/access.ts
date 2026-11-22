@@ -3474,8 +3474,11 @@ export function createAgentAccess(
           const verdict = OWN_VERDICTS[each.verdict as OwnVerdict];
           if (verdict === undefined) return [];
           const cites: unknown[] = Array.isArray(each.cites) ? each.cites : [];
+          const cited = cites.flatMap((cite) =>
+            typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
+          );
           const working = isRecord(each.working)
-            ? workedFrom(each.working, citationOfToken)
+            ? workedFrom(each.working, citationOfToken, cited)
             : undefined;
           if (working && !working.ok) workings.push(`${each.n}: ${working.problem}`);
           const run = working
@@ -3483,16 +3486,20 @@ export function createAgentAccess(
               ? working.worked
               : null
             : typeof each.run === "string" && each.run.trim() !== ""
-              ? workOut.confirmed(each.run, pairing.id, mind.id, reach)
+              ? workOut.confirmed(each.run, pairing.id, mind.id, reach, cited)
               : undefined;
           if (run?.ok) for (const id of run.backing.documentIds) worked.add(id);
+          // The run's report named it too; told here beside the sentence, the agent can cite its quote.
+          if (run && !run.ok && run.reason === "number-not-worked-out" && run.detail) {
+            workings.push(
+              `${each.n}: the run's code writes ${run.detail} itself, and no quote cited with this sentence gives it: cite the quote that states it with the sentence, or work the figure out without it`,
+            );
+          }
           return [
             {
               n: each.n,
               verdict,
-              evidence: cites.flatMap((cite) =>
-                typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
-              ),
+              evidence: cited,
               ...(run !== undefined && { worked: run }),
               explanation:
                 typeof each.explanation === "string" && each.explanation.trim() !== ""

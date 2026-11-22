@@ -23,7 +23,9 @@ export type CalculatorKind =
   | "currencies"
   | "percent-points"
   | "table"
-  | "analysis-number";
+  | "analysis-number"
+  /** A wrong sentence whose figure rests on a factor or an amount no Document gives (#3661). */
+  | "unstated-input";
 
 /** What the figure measures: money in a currency, a percent, percentage points, or a count of things. */
 export type ExpectedUnit =
@@ -572,6 +574,86 @@ const ENGLISH: readonly CalculatorCase[] = [
     },
     inputs: ["6,045", "3,115", "2,250"],
   },
+  {
+    id: "en-unstated-1",
+    language: "en",
+    kind: "unstated-input",
+    scaled: false,
+    document: doc(
+      "Ferrow Bay Harbour 2025 accounts note",
+      "Ferrow Bay Harbour runs ferries and a freight quay.",
+      "Fares came to £1,250,000 in 2025, and the 2026 plan assumes fares grow 3%. Freight income was £640,000; the plan sets no figure for freight.",
+    ),
+    question: "What does Ferrow Bay Harbour's plan expect fares to be in 2026?",
+    expected: { value: 1_287_500, unit: GBP },
+    traps: [],
+    right: "Ferrow Bay Harbour's plan puts 2026 fares at £1,287,500.",
+    wrong: {
+      sentence: "Ferrow Bay Harbour's freight income will reach £659,200 in 2026.",
+      why: "a growth rate the plan doesn't give for freight",
+    },
+    inputs: ["£1,250,000", "3%"],
+  },
+  {
+    id: "en-unstated-2",
+    language: "en",
+    kind: "unstated-input",
+    scaled: false,
+    document: doc(
+      "Oakhanger Studio running costs 2025",
+      "Oakhanger Studio rents a pottery workshop in Wells.",
+      "In 2025 rent was £48,000, staff costs £126,000 and utilities £9,600. The insurance renewal is due in March, and its premium has not been quoted yet.",
+    ),
+    question: "What did Oakhanger Studio's rent, staff and utilities cost in 2025?",
+    expected: { value: 183_600, unit: GBP },
+    traps: [],
+    right: "Oakhanger Studio's rent, staff and utilities cost £183,600 in 2025.",
+    wrong: {
+      sentence: "With insurance, Oakhanger Studio's running costs came to £187,600 in 2025.",
+      why: "an insurance premium no Document gives",
+    },
+    inputs: ["£48,000", "£126,000", "£9,600"],
+  },
+  {
+    id: "en-unstated-3",
+    language: "en",
+    kind: "unstated-input",
+    scaled: true,
+    document: doc(
+      "Corriemoor Knitwear export sales 2025",
+      "Corriemoor Knitwear sells jumpers to shops abroad.",
+      "Euro sales were €1.10 million in 2025, which the accounts convert at €1.10 to the pound. US sales were $2.40 million; the accounts give no dollar rate.",
+    ),
+    question: "What were Corriemoor Knitwear's euro sales in pounds in 2025?",
+    expected: { value: 1_000_000, unit: GBP },
+    traps: [],
+    right: "Corriemoor Knitwear's euro sales came to £1.00 million in 2025 at the accounts' rate.",
+    wrong: {
+      sentence: "Corriemoor Knitwear's US sales came to £1.92 million in 2025.",
+      why: "a dollar rate the accounts don't give",
+    },
+    inputs: ["€1.10 million", "€1.10 to the pound"],
+  },
+  {
+    id: "en-unstated-4",
+    language: "en",
+    kind: "unstated-input",
+    scaled: false,
+    document: doc(
+      "Tannerford Clinic activity report 2025",
+      "Tannerford Clinic is a family practice with 12 doctors.",
+      "The clinic saw 18,240 patients in 2025. It plans to hire three more doctors in 2026.",
+    ),
+    question: "How many patients did each Tannerford Clinic doctor see on average in 2025?",
+    expected: { value: 1_520, unit: { kind: "count", words: ["patient", "patients"] } },
+    traps: [],
+    right: "Each Tannerford Clinic doctor saw 1,520 patients on average in 2025.",
+    wrong: {
+      sentence: "Tannerford Clinic will see 20,064 patients in 2026.",
+      why: "a growth no Document gives",
+    },
+    inputs: ["18,240", "12 doctors"],
+  },
 ];
 
 const CHINESE: readonly CalculatorCase[] = [
@@ -1024,6 +1106,86 @@ const CHINESE: readonly CalculatorCase[] = [
     right: "味稻餐饮三家门店2025年6月客流合计21,580人次。",
     wrong: { sentence: "味稻餐饮三家门店2025年6月客流合计21,850人次。", why: "digits swapped" },
     inputs: ["9,860", "7,745", "3,975"],
+  },
+  {
+    id: "zh-unstated-1",
+    language: "zh-CN",
+    kind: "unstated-input",
+    scaled: true,
+    document: doc(
+      "澄湖茶饮2025年经营简报",
+      "澄湖茶饮在本市经营12家门店，并开展线上外卖业务。",
+      "2025年线上销售额为310万元，公司计划2026年线上销售额增长20%。门店销售额为860万元，计划中没有给出门店销售额的目标。",
+    ),
+    question: "按计划，澄湖茶饮2026年线上销售额是多少？",
+    expected: { value: 3_720_000, unit: CNY },
+    traps: [],
+    right: "按计划，澄湖茶饮2026年线上销售额为372万元。",
+    wrong: {
+      sentence: "澄湖茶饮2026年门店销售额将达到946万元。",
+      why: "计划没有给出的门店增速",
+    },
+    inputs: ["310万元", "20%"],
+  },
+  {
+    id: "zh-unstated-2",
+    language: "zh-CN",
+    kind: "unstated-input",
+    scaled: true,
+    document: doc(
+      "青石陶艺工作室2025年运营支出",
+      "青石陶艺工作室在城西租用一处陶艺工坊。",
+      "2025年房租48万元，人工126万元，水电9.6万元。保险将于3月续保，保费尚未确定。",
+    ),
+    question: "青石陶艺工作室2025年房租、人工和水电合计多少？",
+    expected: { value: 1_836_000, unit: CNY },
+    traps: [],
+    right: "青石陶艺工作室2025年房租、人工和水电合计183.6万元。",
+    wrong: {
+      sentence: "加上保险，青石陶艺工作室2025年运营支出合计187.6万元。",
+      why: "文档没有给出的保费",
+    },
+    inputs: ["48万元", "126万元", "9.6万元"],
+  },
+  {
+    id: "zh-unstated-3",
+    language: "zh-CN",
+    kind: "unstated-input",
+    scaled: true,
+    document: doc(
+      "云岭针织2025年出口销售",
+      "云岭针织向海外门店出口毛衫。",
+      "2025年欧元区销售额为110万欧元，报表按每欧元7.8元折算。美国销售额为240万美元，报表没有给出美元汇率。",
+    ),
+    question: "按报表汇率，云岭针织2025年欧元区销售额折合人民币多少？",
+    expected: { value: 8_580_000, unit: CNY },
+    traps: [],
+    right: "按报表汇率，云岭针织2025年欧元区销售额折合人民币858万元。",
+    wrong: {
+      sentence: "云岭针织2025年美国销售额折合人民币1,716万元。",
+      why: "报表没有给出的美元汇率",
+    },
+    inputs: ["110万欧元", "7.8元"],
+  },
+  {
+    id: "zh-unstated-4",
+    language: "zh-CN",
+    kind: "unstated-input",
+    scaled: false,
+    document: doc(
+      "柳溪社区诊所2025年诊疗情况",
+      "柳溪社区诊所共有12名医生。",
+      "2025年接诊18,240人次。诊所计划2026年再招聘3名医生。",
+    ),
+    question: "柳溪社区诊所2025年平均每位医生接诊多少人次？",
+    expected: { value: 1_520, unit: { kind: "count", words: ["人次"] } },
+    traps: [],
+    right: "柳溪社区诊所2025年平均每位医生接诊1,520人次。",
+    wrong: {
+      sentence: "柳溪社区诊所2026年接诊量将达到20,064人次。",
+      why: "文档没有给出的增幅",
+    },
+    inputs: ["18,240", "12名"],
   },
 ];
 
