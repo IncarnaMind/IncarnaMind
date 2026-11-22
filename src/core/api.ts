@@ -13000,6 +13000,12 @@ export interface AskAgentInput {
   onScreen?: string[] | null;
   /** With a question: the chat box's Search scope, as `AskInConversationInput.scope`; only the Folders and Documents of it that the agent can read are named or kept. */
   scope?: SearchScope | null;
+  /**
+   * Continue in the chat the User has open (#3588): the request is kept as an Ask keeps it, the
+   * line comes back to copy, and no link opens. `frontAgent` brings the app forward once it is
+   * copied.
+   */
+  openChat?: boolean;
 }
 
 /**
@@ -15574,6 +15580,12 @@ export interface CoreApi {
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
   /**
+   * Brings the agent's app to the front, starting no chat, for the chat the User has open (#3588),
+   * where its documentation gives a link for that. Called once the line is copied: the app can take
+   * the focus a copy needs. False where it gives none, or no app took the link.
+   */
+  frontAgent(pairingId: string): Promise<boolean>;
+  /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
    */
@@ -16378,6 +16390,7 @@ const methods: Record<CoreApiMethod, true> = {
   listAgentsToAsk: true,
   listDocumentsToAsk: true,
   askAgent: true,
+  frontAgent: true,
   handedFileOf: true,
   listCanvases: true,
   showCanvas: true,

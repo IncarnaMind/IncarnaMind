@@ -33,7 +33,7 @@ import {
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { parseSearchScope } from "../scope";
-import { promptLinkFor } from "./clients";
+import { frontLinkFor, promptLinkFor } from "./clients";
 import type { RequestNamed } from "./requests";
 
 type Say = (key: MessageKey, params?: MessageParams) => string;
@@ -401,6 +401,7 @@ interface ParsedInput {
   ask: AgentAsk;
   onScreen: string[];
   scope: SearchScope | null;
+  openChat: boolean;
 }
 
 function parseInput(input: unknown): ParsedInput {
@@ -414,6 +415,7 @@ function parseInput(input: unknown): ParsedInput {
       ? input.onScreen.filter((id): id is string => typeof id === "string" && id !== "")
       : [],
     scope: parseSearchScope(input.scope),
+    openChat: input.openChat === true,
   };
 }
 
@@ -493,7 +495,7 @@ export function createAgentAsk(options: AgentAskOptions) {
       };
     },
     async ask(input: unknown): Promise<AskAgentResult> {
-      const { pairingId, mindId, ask, onScreen, scope } = parseInput(input);
+      const { pairingId, mindId, ask, onScreen, scope, openChat } = parseInput(input);
       const pairing = options
         .askable(mindId, ask.kind === "summary" ? ask.documentId : undefined)
         .find((each) => each.id === pairingId);
@@ -550,6 +552,8 @@ export function createAgentAsk(options: AgentAskOptions) {
           named: named ?? null,
         });
       }
+      // For the chat the User has open: copied, never typed into a new chat (#3588).
+      if (openChat) return { kind: "copy", text: line };
       const link = promptLinkFor(pairing.client, line);
       if (link && options.openLink) {
         try {
@@ -564,6 +568,22 @@ export function createAgentAsk(options: AgentAskOptions) {
         }
       }
       return { kind: "copy", text: line };
+    },
+    /** See `CoreApi.frontAgent`. */
+    async front(pairingId: unknown): Promise<boolean> {
+      const pairing = options.askable(null).find((each) => each.id === pairingId);
+      const link = pairing ? frontLinkFor(pairing.client) : null;
+      if (!pairing || !link || !options.openLink) return false;
+      try {
+        await options.openLink(link);
+        return true;
+      } catch (error) {
+        options.log.warn("agents.askFrontUnopened", {
+          client: pairing.client ?? "other",
+          error: error instanceof Error ? error.name : "unknown",
+        });
+        return false;
+      }
     },
   };
 }

@@ -8896,6 +8896,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return wanted.filter((id) => readable.has(id));
     },
     askAgent: (input) => agentAsk.ask(input),
+    frontAgent: (pairingId) => agentAsk.front(pairingId),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;

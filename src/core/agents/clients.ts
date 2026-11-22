@@ -80,6 +80,11 @@ export interface ClientDefinition {
   pasted?(launch: AgentLaunch): string;
   /** The link its app documents that opens it with a prompt typed and not sent (#3373). */
   prompt?: PromptLink;
+  /**
+   * The link its app documents that brings it to the front where the User can go back to a chat
+   * they have, starting none (#3588); none where its documentation gives no such link.
+   */
+  front?: string;
 }
 
 export interface PromptLink {
@@ -104,6 +109,9 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
       most: 12_000,
       of: "prompt",
     },
+    // The same page: a chat link whose ID "is missing or invalid" opens "your recent chats"
+    // instead, so it starts no chat. Claude Code's, Codex's and Cursor's pages document none.
+    front: "claude://claude.ai/chat/",
     apps: ["Claude.app"],
     home: [
       ["Library", "Application Support", "Claude"],
@@ -429,6 +437,10 @@ export function promptLinkFor(client: string | null, prompt: string): string | n
   const link = form.link(prompt);
   return (form.of === "link" ? link.length : prompt.length) <= form.most ? link : null;
 }
+
+/** The link that brings the agent's app forward without starting a chat; null where it has none. */
+export const frontLinkFor = (client: string | null): string | null =>
+  clientDefinition(client)?.front ?? null;
 
 /** Whether the agent looks installed: its app, or the folder it keeps its settings in. */
 export function isInstalled(

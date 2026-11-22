@@ -25,14 +25,14 @@ export function ComposerAskAgent({
 }) {
   const t = useT();
   const done = () => useAnswers.getState().dismiss(composerKey(mindId));
-  const ask = async (agent: AgentPairing) => {
+  const ask = async (agent: AgentPairing, openChat = false) => {
     const text = useComposer.getState().draft(draftKey).text.trim();
     const what = text
       ? ({ kind: "question", text } as const)
       : mindId
         ? ({ kind: "note" } as const)
         : null;
-    if (!what || !(await askAgent(agent, mindId, what, scope))) return;
+    if (!what || !(await askAgent(agent, mindId, what, scope, { openChat }))) return;
     if (text) useComposer.getState().update(draftKey, { text: "" });
     done();
   };
@@ -41,6 +41,7 @@ export function ComposerAskAgent({
       agents={agents}
       label={(agent) => t("agents.ask.action", { agent })}
       onAsk={(agent) => void ask(agent)}
+      onContinue={(agent) => void ask(agent, true)}
       setUp={{
         label: t("agents.ask.setUpModel"),
         testId: "composer-ask-agent-set-up",

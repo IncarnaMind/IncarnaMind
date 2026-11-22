@@ -37,14 +37,15 @@ export function CheckNotReady({
   // it comes.
   if (noModel && agents === null) return <p className="mind-health-line">{"\u00A0"}</p>;
   if (noModel && agents !== null && agents.length > 0) {
-    const ask = async (agent: AgentPairing) => {
-      if (await askAgent(agent, mindId, { kind: "check" })) dismiss();
+    const ask = async (agent: AgentPairing, openChat = false) => {
+      if (await askAgent(agent, mindId, { kind: "check" }, undefined, { openChat })) dismiss();
     };
     return (
       <AskAgentLine
         agents={agents}
         label={(agent) => t("agents.ask.action", { agent })}
         onAsk={(agent) => void ask(agent)}
+        onContinue={(agent) => void ask(agent, true)}
         setUp={{ ...setUp, label: t("agents.ask.setUpModel"), testId: "checks-ask-agent-set-up" }}
         testId="checks-ask-agent"
         className="mind-health-line"
@@ -69,7 +70,8 @@ export function CheckNotReady({
 
 /**
  * The Note's card while the User's own AI is asked to check it (#3587): what became of the request,
- * in the words the badge says, then Ask again, the other AIs behind its ⌄, and Set up a model.
+ * in the words the badge says, then Ask again, Continue in the open chat and the other AIs behind
+ * its ⌄, and Set up a model.
  */
 export function AskedCheckLine({ mindId }: { mindId: string }) {
   const t = useT();
@@ -93,6 +95,9 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
           name === agent.name ? t("agents.asked.again") : t("agents.ask.action", { agent: name })
         }
         onAsk={(each) => void askAgent(each, mindId, { kind: "check" })}
+        onContinue={(each) =>
+          void askAgent(each, mindId, { kind: "check" }, undefined, { openChat: true })
+        }
         setUp={{ ...setUp, testId: "checks-asked-set-up" }}
         testId="checks-asked-line"
       />

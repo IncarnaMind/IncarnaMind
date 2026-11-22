@@ -441,6 +441,77 @@ async function withDocuments() {
   return { ...base, fares, secret, summary, tariffs, diary, pairing, agent };
 }
 
+describe("continuing in the chat the User has open (#3588)", () => {
+  // protects=Continue in the open chat keeps the request exactly as an Ask does and gives back the very line an Ask types, to copy, opening nothing; brought forward after, Claude's app takes the one link its documentation gives for that, and every other agent opens nothing; fails_when=the line differs from an Ask's, the request isn't kept or is changed, a link opens before the line is copied or starts a new chat, or an agent with no documented link has one opened
+  it.each([
+    ["Claude", "claude-desktop", ["claude://claude.ai/chat/"], true],
+    ["Claude Code", "claude-code", [], false],
+    ["Codex", "codex", [], false],
+    ["Cursor", "cursor", [], false],
+    ["VS Code", "vscode", [], false],
+  ] as const)("for %s", async (name, client, opened, fronted) => {
+    const { core, links, mind, connect } = await started();
+    const asked = await connect(name, client);
+    const line = `Fix the sentence IncarnaMind flagged in “${TITLE}”.`;
+    const continued = await core.askAgent({
+      pairingId: asked.id,
+      mindId: mind.id,
+      ask: fix,
+      openChat: true,
+    });
+    expect(continued).toEqual({ kind: "copy", text: line });
+    expect(links).toEqual([]);
+    expect(await core.frontAgent(asked.id)).toBe(fronted);
+    expect(links).toEqual(opened);
+
+    // The very line an Ask types in a new chat, or copies.
+    const plain = await core.askAgent({ pairingId: asked.id, mindId: mind.id, ask: fix });
+    const typed = (link: string | undefined) => {
+      const url = new URL(link ?? "about:blank");
+      return (
+        url.searchParams.get("q") ?? url.searchParams.get("prompt") ?? url.searchParams.get("text")
+      );
+    };
+    expect(plain.kind === "copy" ? plain.text : typed(links.at(-1))).toBe(line);
+
+    // Each kept the same request for the agent, read once.
+    const agent = await connectLegacyAgent(asked.launch);
+    const request = { mindId: mind.id, title: TITLE, request: LONG_FIX(mind.id) };
+    expect(await requestRead(agent, TITLE)).toEqual(request);
+    expect(await requestRead(agent, TITLE)).toEqual(request);
+    expect(await requestRead(agent, TITLE)).toEqual(NONE);
+  });
+
+  // protects=where the documented link isn't taken (Claude isn't installed), the line is still copied, the app is said not to have come forward, and nothing else opens; fails_when=the failure reaches the User, nothing comes back to copy, or it is said to be in front
+  it("copies the line when Claude's app can't be brought forward", async () => {
+    const dataDir = await createTempDataFolder();
+    const tried: string[] = [];
+    const core = startCore(dataDir, {
+      agents: {
+        ...(await agentsAdapter(dataDir)),
+        openLink: async (url: string) => {
+          tried.push(url);
+          throw new Error("No application knows how to open claude links.");
+        },
+      },
+    });
+    const folder = await core.createLibraryGroup({ name: "Ferries", description: "" });
+    const mind = await core.createMind({ title: "Ferry report", folderId: folder.id });
+    await core.setAgentsEnabled(true);
+    const { pairing } = await core.connectAgent({
+      name: "Claude",
+      client: "claude-desktop",
+      folderIds: [folder.id],
+    });
+    expect(
+      await core.askAgent({ pairingId: pairing.id, mindId: mind.id, ask: fix, openChat: true }),
+    ).toEqual({ kind: "copy", text: "Fix the sentence IncarnaMind flagged in “Ferry report”." });
+    expect(tried).toEqual([]);
+    expect(await core.frontAgent(pairing.id)).toBe(false);
+    expect(tried).toEqual(["claude://claude.ai/chat/"]);
+  });
+});
+
 describe("asking a connected AI to organize", () => {
   it("offers only agents that can read the whole target, and rechecks it before handing it over", async () => {
     const { core, ferries, fares, summary, tariffs, diary, pairing, agent } = await withDocuments();

@@ -28,6 +28,8 @@ const bridge = {
   asked: [] as AskAgentInput[],
   /** The agent's app took the link, as Claude Code's does. */
   opens: false,
+  /** The agent's app was brought forward for the chat the User has open, as Claude's is (#3588). */
+  fronts: false,
   /** What the core tells the windows of each call an agent made. */
   calls: [] as ((activity: AgentActivity) => void)[],
   on: (event: string, listener: (activity: AgentActivity) => void) => {
@@ -38,7 +40,14 @@ const bridge = {
   listConversations: async () => [],
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
+    if (input.openChat) return { kind: "copy", text: "The request" };
     return bridge.opens ? { kind: "opened" } : { kind: "copy", text: "The request" };
+  },
+  /** How many lines were copied as each app was brought forward: the copy must come first. */
+  frontedAfter: [] as number[],
+  frontAgent: async () => {
+    bridge.frontedAfter.push(copied.length);
+    return bridge.fronts;
   },
   // The core keeps the assistant's place as the window asks.
   layout: null as WindowLayout | null,
@@ -230,6 +239,8 @@ async function lineAbove(): Promise<HTMLElement> {
 beforeEach(() => {
   bridge.asked = [];
   bridge.opens = false;
+  bridge.fronts = false;
+  bridge.frontedAfter = [];
   useAgentAsked.setState({ byKey: {} });
   copied.length = 0;
   useNotices.setState({ confirmation: null });
@@ -490,6 +501,59 @@ describe("a Check that no model can run, for each kind of User (#3533)", () => {
   });
 });
 
+describe("continuing in the chat the User has open (#3588)", () => {
+  // protects=Continue in the open chat asks as an Ask does, copies the line for the chat the User has open, and says it was copied and where to paste it: with the agent's app brought forward, or to open it where it can't be; fails_when=it asks for a new chat, copies nothing, or the notice says the app opened with the request typed
+  test("copies the line and says where to paste it, the app brought forward or not", async () => {
+    const claude = pairing("Claude", "claude-desktop");
+    user(NO_MODEL, [claude]);
+    bridge.fronts = true;
+    expect(await askAgent(claude, MIND, { kind: "note" }, undefined, { openChat: true })).toBe(
+      true,
+    );
+    expect(bridge.asked).toEqual([
+      { pairingId: claude.id, mindId: MIND, ask: { kind: "note" }, openChat: true },
+    ]);
+    expect(copied).toEqual(["The request"]);
+    expect(bridge.frontedAfter).toEqual([1]);
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "agents.ask.continued",
+      params: { agent: "Claude" },
+    });
+
+    const code = pairing("Claude Code", "claude-code");
+    bridge.fronts = false;
+    expect(await askAgent(code, MIND, { kind: "check" }, undefined, { openChat: true })).toBe(true);
+    expect(copied).toEqual(["The request", "The request"]);
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "agents.ask.continueCopied",
+      params: { agent: "Claude Code" },
+    });
+  });
+
+  // protects=the one-press default is unchanged: a new chat with the line typed, never the open chat; fails_when=a plain Ask carries openChat or copies where the app opened
+  test("the default press still opens a new chat with the line typed", async () => {
+    const code = pairing("Claude Code", "claude-code");
+    user(NO_MODEL, [code]);
+    bridge.opens = true;
+    expect(await askAgent(code, MIND, { kind: "note" })).toBe(true);
+    expect(bridge.asked).toEqual([{ pairingId: code.id, mindId: MIND, ask: { kind: "note" } }]);
+    expect(copied).toEqual([]);
+    expect(useNotices.getState().confirmation).toMatchObject({ message: "agents.ask.opened" });
+  });
+
+  // protects=the Check line's ⌄ is there with a single AI connected, so the open chat is one step away, named for more than other AIs; fails_when=the ⌄ shows only with a second AI, or keeps saying "Ask another AI"
+  test.each([
+    ["en", "More ways to ask"],
+    ["zh-CN", "更多提问方式"],
+  ] as const)("the Check line offers it with one AI connected (%s)", async (language, name) => {
+    user(NO_MODEL, [pairing("Claude Code", "claude-code")], language);
+    const line = await checkLine(NO_MODEL as never);
+    expect(
+      line.querySelector('[data-testid="checks-ask-agent-others"]')?.getAttribute("aria-label"),
+    ).toBe(name);
+  });
+});
+
 describe("a Check handed to the User's own AI says how it goes, until its marks land (#3587)", () => {
   const codex = pairing("Codex", "codex");
   const claude = pairing("Claude Code", "claude-code");
@@ -543,7 +607,7 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
         "Asked Codex: send the request there.",
         "Checking this note in Codex.",
         "Ask again",
-        "Ask another AI",
+        "More ways to ask",
         "Set up a model",
       ],
     ],
@@ -553,12 +617,12 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
         "已交给 Codex：在那里发送请求即可。",
         "Codex 正在核对这篇笔记。",
         "再问一次",
-        "交给其他智能体",
+        "更多提问方式",
         "设置 AI 模型",
       ],
     ],
   ] as const)("asked, checking, then its result (%s)", async (language, words) => {
-    const [asked, checking, again, others, setUp] = words;
+    const [asked, checking, again, more, setUp] = words;
     user(NO_MODEL, [claude, codex], language);
     bridge.opens = true;
     expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
@@ -567,7 +631,7 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     expect(part("checks-asked")?.dataset.state).toBe("asked");
     expect(part("checks-asked-line-ask")?.textContent).toBe(again);
     expect(part("checks-asked-set-up")?.textContent).toBe(setUp);
-    expect(part("checks-asked-line-others")?.getAttribute("aria-label")).toBe(others);
+    expect(part("checks-asked-line-others")?.getAttribute("aria-label")).toBe(more);
 
     await called(claude, "check_mind_yourself", { mindId: MIND });
     await called(codex, "list_minds");
@@ -633,6 +697,36 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     expect(Object.values(useAgentAsked.getState().byKey).map((each) => each.for)).toEqual([
       { kind: "summary", documentId: "harbour-report" },
     ]);
+  });
+
+  // protects=while a check is asked, Ask again's ⌄ also offers Continue in the open chat, and choosing it asks the same AI for the chat the User has open and keeps the check asked, reading as copied (#3588); fails_when=the asked line's ⌄ lacks the choice, it asks for a new chat, or the line drops the asked state or still reads as opened
+  test("Ask again's ⌄ continues in the open chat, and the check stays asked, as copied", async () => {
+    user(NO_MODEL, [codex]);
+    bridge.opens = true;
+    expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
+    const { container, part } = await askedLine();
+    expect(part("checks-asked")?.textContent).toBe("Asked Codex: send the request there.");
+    // The browser shows the popover; this DOM can't, so the ⌄'s menu hears that it opens.
+    const menu = container.querySelector<HTMLElement>('[role="menu"]');
+    if (!menu) throw new Error("The asked line has no ⌄ menu.");
+    Object.assign(menu, { hidePopover: () => undefined, matches: () => false });
+    // The menu's opening can't be animated here, which motion reports through `reportError`.
+    Object.assign(view, { reportError: () => undefined });
+    const opens = Object.assign(new view.Event("beforetoggle"), { newState: "open" });
+    await act(async () => menu.dispatchEvent(opens));
+    expect(part("checks-asked-line-continue")?.textContent).toBe("Continue in the open chat");
+
+    bridge.asked = [];
+    await act(async () => part("checks-asked-line-continue")?.click());
+    await act(async () => undefined);
+    expect(bridge.asked).toEqual([
+      { pairingId: codex.id, mindId: MIND, ask: { kind: "check" }, openChat: true },
+    ]);
+    expect(copied).toEqual(["The request"]);
+    expect(part("checks-asked")?.dataset.state).toBe("asked");
+    expect(part("checks-asked")?.textContent).toBe(
+      "Copied for Codex: paste the request there and send it.",
+    );
   });
 
   // protects=the Chinese words for an AI that never came; fails_when=Chinese gets English words

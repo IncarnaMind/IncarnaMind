@@ -38,6 +38,9 @@ export function OwnAiPill({ mindId, agents }: Pill) {
         agents={others}
         label={label}
         onAsk={(agent) => void askAgent(agent, mindId, { kind: "note" })}
+        onContinue={() =>
+          void askAgent(first, mindId, { kind: "note" }, undefined, { openChat: true })
+        }
         testId="own-ai-pill"
         className="h-6 hover:bg-hover hover:text-ink"
         name={t("agents.ask.more")}
