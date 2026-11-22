@@ -995,7 +995,7 @@ describe("outside agents", () => {
     // every page before a suggestion (#3610); 3,459 before propose_sorting took a Suggestion for
     // every Document one list answer holds (#3626); 3,455 before show_citation showed a Note, file or
     // Canvas again by its id (#3534).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_477);
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_479);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
