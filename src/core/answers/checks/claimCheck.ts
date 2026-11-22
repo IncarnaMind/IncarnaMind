@@ -278,20 +278,43 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   // A figure IncarnaMind worked out itself is backed by its own record, which the model is given:
   // a sentence that only names it as its label says is Supported with no quote from a Document.
   const figures = sends("worked-figures") ? (request.figures ?? []) : [];
-  const workedOut = () => workings().some((run) => run.end.kind === "done");
+  const workedOut = () =>
+    workings().some(
+      (run) =>
+        run.end.kind === "done" &&
+        (rowsOf(run).length > 0 ||
+          (run.output.results.some((each) => each.kind === "figure") &&
+            libraryRead(run) !== undefined)),
+    );
   const restsOnOwnFigure = (read: ReadVerdict) =>
     read.verdict === "supported" && figures.length > 0;
-  const recorded = (read: ReadVerdict) =>
-    (read.evidence ?? []).some((marker) => session.tools.hasRecord?.(marker) ?? false);
+  const fallbackMarkers = Array.from({ length: MARKERS_READ }, (_, at) => at + 1);
+  const hasFoundQuote = (read: ReadVerdict) => {
+    const unfound = new Set((session.tools.unfoundQuotes?.() ?? []).map((each) => each.marker));
+    const hasFound = (markers: readonly number[]) =>
+      markers.some(
+        (marker) => (session.tools.hasRecord?.(marker) ?? false) && !unfound.has(marker),
+      );
+    return hasFound(read.evidence ?? []) || hasFound(fallbackMarkers);
+  };
+  const readReply = (text: string, earlier: readonly string[] = []): ReadVerdict | null => {
+    const turns = [...earlier, text];
+    const from = turns.findLastIndex((turn) => readVerdict(turn) !== null);
+    return from < 0 || turns.slice(from + 1).some(readsAsRefusal)
+      ? null
+      : readVerdict(turns.slice(from).join("\n"));
+  };
   // The verdict the search-again ask is for (#3381): one resting on a quote it recorded is not.
   const saysNotStated = (read: ReadVerdict) =>
-    read.verdict === "unsupported" && (read.word ?? "not-found") === "not-found" && !recorded(read);
+    read.verdict === "unsupported" &&
+    (read.word ?? "not-found") === "not-found" &&
+    !hasFoundQuote(read);
   // Each asks the model once, for something its reply lacks; none of them reads its verdict.
   const turnChecks: TurnCheck[] = [
     {
       name: "search-first",
-      check(text) {
-        const read = readVerdict(text);
+      check(text, earlier) {
+        const read = readReply(text, earlier);
         return read && !looked() && !restsOnOwnFigure(read)
           ? { claims: [], note: SEARCH_FIRST }
           : null;
@@ -299,8 +322,8 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     },
     {
       name: "search-again",
-      check(text) {
-        const read = readVerdict(text);
+      check(text, earlier) {
+        const read = readReply(text, earlier);
         return read && looked() && searches() <= 1 && saysNotStated(read)
           ? { claims: [], note: SEARCH_AGAIN }
           : null;
@@ -308,12 +331,12 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     },
     {
       name: "cite-first",
-      check(text) {
-        const read = readVerdict(text);
+      check(text, earlier) {
+        const read = readReply(text, earlier);
         return read &&
           looked() &&
           read.verdict !== "unsupported" &&
-          !recorded(read) &&
+          !hasFoundQuote(read) &&
           !restsOnOwnFigure(read) &&
           !workedOut()
           ? { claims: [], note: CITE_FIRST, requires: "cite" }
@@ -351,9 +374,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     support: model.support,
     structuredOutput: givesStructuredOutput(model.capabilities),
     takesTemperature: model.capabilities.facts.temperature,
-    ...(model.provider.kind === "openrouter" && {
-      forcedToolChoice: model.capabilities.facts.forcedToolChoice,
-    }),
+    ...(model.capabilities.facts.forcedToolChoice === false && { forcedToolChoice: false }),
     window: model.window,
     ...(model.capabilities.facts.maxOutput !== undefined && {
       maxOutput: model.capabilities.facts.maxOutput,
@@ -376,11 +397,7 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   // A model may write its verdict beside `cite` and only its sentence after: the turns from that
   // verdict on are read as one. A turn after it that declines takes the verdict back.
   const turns = [...setAside, reply];
-  const from = turns.findLastIndex((turn) => readVerdict(turn) !== null);
-  const read =
-    from < 0 || turns.slice(from + 1).some(readsAsRefusal)
-      ? null
-      : readVerdict(turns.slice(from).join("\n"));
+  const read = readReply(reply, setAside);
   if (!read) return notChecked(turns.some(readsAsRefusal) ? "refused" : "malformed");
   if (!looked() && !restsOnOwnFigure(read)) return notChecked("unread");
 
