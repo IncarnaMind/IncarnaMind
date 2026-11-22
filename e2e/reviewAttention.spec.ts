@@ -200,12 +200,23 @@ async function profileReview(window: Page, expected: string) {
     const metrics = await cdp.send("Performance.getMetrics");
     const origin = metrics.metrics.find(metric => metric.name === "NavigationStart");
     if (!origin) throw new Error("Missing navigation clock");
+    type TimelineEvent = { name: string; ph: string; ts: number; dur?: number; tid: number; };
+    const timeline: TimelineEvent[] = [];
+    cdp.on("Tracing.dataCollected", ({ value }) => {
+      for (const event of value as TimelineEvent[]) if (event.ph === "X" && (event.dur ?? 0) >= 1000) timeline.push(event);
+    });
+    const complete = new Promise<void>(resolve => cdp.once("Tracing.tracingComplete", () => resolve()));
+    await cdp.send("Tracing.start", {categories:"devtools.timeline,toplevel,blink.user_timing"});
     await cdp.send("Profiler.start");
+    await newMind(window);
     const result = await pressReview(window, expected);
     const {profile} = await cdp.send("Profiler.stop");
+    await cdp.send("Tracing.end");
+    await complete;
     const bounds = await window.evaluate(() => (window as unknown as {__reviewPress: Press}).__reviewPress);
     const start = origin.value * 1e6 + (bounds.clicked ?? 0) * 1e3;
     const stop = origin.value * 1e6 + (bounds.shown ?? 0) * 1e3;
+    console.log("[2586-timeline]", JSON.stringify({ms:result.ms,events:timeline.filter(e=>e.ts<stop && e.ts+(e.dur ?? 0)>start).map(e=>[e.name,Math.round((e.ts-start)/1000),Math.round((e.dur ?? 0)/1000),e.tid])}));
     const sources = new Map<string, SourceMap>();
     const frames = new Map<number, string>();
     const parents = new Map<number, number>();
@@ -363,7 +374,6 @@ test("Review goes to each Document that needs attention, and a credit failure is
     expect(await clipped()).toBe(false);
     expect(await nameCut()).toBe(true);
     await screenshot(window, "review-attention-en-900-status");
-    await newMind(window);
     const third = await profileReview(window, thirdId);
     expect(third.selected).toBe(thirdId);
     expect(third.ms).toBeGreaterThanOrEqual(0);
@@ -375,7 +385,6 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await setLanguage(window, "zh-CN");
     await expect(header).toHaveText("4 个文档未整理：额度已用完 · 充值");
     await screenshot(window, "review-attention-zh-900-status");
-    await newMind(window);
     const fourth = await profileReview(window, fourthId);
     expect(fourth.selected).toBe(fourthId);
     expect(fourth.ms).toBeGreaterThanOrEqual(0);

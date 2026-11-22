@@ -284,14 +284,19 @@ test("thread: it scrolls inside a panel under 60% of the screen's height, the ne
   if (!frame) throw new Error("The thread isn't drawn.");
   await panel.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 2, { steps: 4 });
   await panel.evaluate(() => {
-    const kept = globalThis as unknown as { shifted: number };
+    const kept = globalThis as unknown as { shifted: number; shifts: unknown[] };
+    kept.shifts = [];
     kept.shifted = 0;
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries() as (PerformanceEntry & {
         value: number;
         hadRecentInput: boolean;
+        sources: {node: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly}[];
+
       })[]) {
         if (!entry.hadRecentInput) kept.shifted += entry.value;
+        const thread = document.querySelector('[data-testid="help-thread"]');
+        kept.shifts.push({time:entry.startTime,value:entry.value,recent:entry.hadRecentInput,screen:[screen.width,screen.height,screen.availHeight],panel:[innerWidth,innerHeight],scrollTop:thread?.scrollTop, sources:entry.sources.map(s=>({node:s.node instanceof Element ? [s.node.tagName,s.node.className,s.node.closest("[data-testid]")?.getAttribute("data-testid"),s.node.closest("[data-status]")?.getAttribute("data-status")] : s.node?.nodeName, before:s.previousRect.toJSON(),after:s.currentRect.toJSON()}))});
       }
     }).observe({ type: "layout-shift" });
   });
@@ -308,6 +313,7 @@ test("thread: it scrolls inside a panel under 60% of the screen's height, the ne
   expect(await inView(asked)).toBe(true);
   expect(await thread.evaluate((element) => element.scrollTop)).toBe(scrolled);
   expect(await panel.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+  console.log("[2586-help-shift]",JSON.stringify(await panel.evaluate(()=>({records:(globalThis as unknown as {shifts:unknown[]}).shifts,screen:[screen.width,screen.height,screen.availHeight],panel:[innerWidth,innerHeight]}))));
   expect(
     await panel.evaluate(() => (globalThis as unknown as { shifted: number }).shifted),
   ).toBeLessThan(0.001);
