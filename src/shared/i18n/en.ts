@@ -6539,6 +6539,10 @@ export const en = {
   "error.agent.noFolders": "Choose at least one Folder for the agent to read.",
   "error.agent.keyUnreadable":
     "This agent’s key can’t be read here. Disconnect it and connect it again.",
+  "error.agent.socketTooLong":
+    "Agents can’t reach IncarnaMind from this folder: the path is too long for a local connection. Use a shorter data or temporary folder.",
+  "error.agent.socketUnavailable":
+    "Agents can’t reach IncarnaMind right now: couldn’t open its local connection. Restart IncarnaMind or close another copy and try again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
