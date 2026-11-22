@@ -14,6 +14,7 @@ import { showNotesOf } from "./meetingViews";
 import { useAppStore } from "./store";
 
 export type MakeSkillState =
+  | { phase: "opening-template" }
   | { phase: "drafting"; requestId: string }
   | { phase: "editing"; draft: SkillDraft; meetingTemplate?: boolean }
   | { phase: "empty" }
@@ -30,7 +31,7 @@ export const useMakeSkill = create<MakeSkillStore>()(() => ({ byMind: {} }));
 
 export function canStartSkillDraft(mindId: string) {
   const phase = useMakeSkill.getState().byMind[mindId]?.phase;
-  return phase !== "editing" && phase !== "drafting";
+  return phase !== "opening-template" && phase !== "editing" && phase !== "drafting";
 }
 
 const set = (mindId: string, state: MakeSkillState | null) =>
@@ -43,6 +44,7 @@ const set = (mindId: string, state: MakeSkillState | null) =>
 
 /** Opens the Mind and has the AI draft a Skill from it; the card in the Mind shows how it goes. */
 export async function startSkillFromMind(mindId: string): Promise<void> {
+  if (!canStartSkillDraft(mindId)) return;
   const requestId = crypto.randomUUID();
   set(mindId, { phase: "drafting", requestId });
   void useAppStore.getState().openMind(mindId);
@@ -76,6 +78,22 @@ export async function startSkillFromMind(mindId: string): Promise<void> {
 }
 
 export async function startTemplateFromMeeting(mindId: string): Promise<void> {
+  if (!canStartSkillDraft(mindId)) return;
+  const previous = useMakeSkill.getState().byMind[mindId];
+  const opening = { phase: "opening-template" } as const;
+  set(mindId, opening);
+  try {
+    const draft = await templateDraftFromHeadings(mindId);
+    if (useMakeSkill.getState().byMind[mindId] === opening) {
+      set(mindId, { phase: "editing", meetingTemplate: true, draft });
+    }
+  } catch (error) {
+    if (useMakeSkill.getState().byMind[mindId] === opening) set(mindId, previous ?? null);
+    throw error;
+  }
+}
+
+async function templateDraftFromHeadings(mindId: string): Promise<SkillDraft> {
   const app = useAppStore.getState();
   await app.openMind(mindId);
   showNotesOf(mindId);
@@ -90,17 +108,13 @@ export async function startTemplateFromMeeting(mindId: string): Promise<void> {
     if (text && !(offset === 0 && title === text)) headings.push(text);
   });
   const guidance = translateNow("meetings.template.sectionGuidance");
-  set(mindId, {
-    phase: "editing",
-    meetingTemplate: true,
-    draft: {
-      name: "",
-      description: translateNow("meetings.template.draftWhen"),
-      steps: headings.length
-        ? [guidance, "", ...headings.map((text) => `- **${text}**`)].join("\n")
-        : "",
-    },
-  });
+  return {
+    name: "",
+    description: translateNow("meetings.template.draftWhen"),
+    steps: headings.length
+      ? [guidance, "", ...headings.map((text) => `- **${text}**`)].join("\n")
+      : "",
+  };
 }
 
 /** Stops the AI drafting; the card goes away. */

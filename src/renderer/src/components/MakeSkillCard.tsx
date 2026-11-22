@@ -33,7 +33,7 @@ export function MakeSkillCard({ mindId }: { mindId: string }) {
     if (phase) region.current?.scrollIntoView({ block: "nearest" });
   }, [phase]);
 
-  if (!state) return null;
+  if (!state || state.phase === "opening-template") return null;
   const meetingTemplate =
     (state.phase === "editing" || state.phase === "saved") && state.meetingTemplate;
   const close = () => closeMakeSkill(mindId);
