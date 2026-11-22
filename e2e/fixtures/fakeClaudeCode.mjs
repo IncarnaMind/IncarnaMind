@@ -95,7 +95,11 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         .slice(line.indexOf(name) + name.length)
         .replace(/^\s*\(the User (?:wrote|changed) this\)/, "")
         .trim();
-      const text = quote === "" ? words.toUpperCase() : words.replace(quote, quote.toUpperCase());
+      // "outside": the whole paragraph, beyond the words selected.
+      const text =
+        quote === "" || mode === "outside"
+          ? words.toUpperCase()
+          : words.replace(quote, quote.toUpperCase());
       await use("propose_changes", {
         mindId,
         version: read.version,

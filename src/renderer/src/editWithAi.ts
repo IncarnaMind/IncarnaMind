@@ -328,7 +328,7 @@ export async function requestEdit(
             : translateNow(`noteAsk.action.${ownAi}` as "noteAsk.action.improve");
       if (words !== "") {
         const went = await askFromSelection(editor.state, mindId, words);
-        if (went === "started" || went === "problem") {
+        if (went === "started" || went === "problem" || went === "busy") {
           closeSelectionMenu(editor);
           return false;
         }

@@ -49,7 +49,7 @@ export async function explainSelection(
         mindId,
         translateNow("noteAsk.action.explain"),
       );
-      if (went === "started" || went === "problem") {
+      if (went === "started" || went === "problem" || went === "busy") {
         closeSelectionMenu(editor);
         return true;
       }

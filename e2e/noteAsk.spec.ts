@@ -6,7 +6,6 @@ import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
   catchCopies,
-  clickEndOf,
   copied,
   createDataFolder,
   dismissChatSetup,
@@ -18,6 +17,7 @@ import {
   setLanguage,
   setWindowSize,
   sidebarFolder,
+  slideSelect,
   urlsOpened,
   writeNote,
 } from "./app";
@@ -54,7 +54,7 @@ test.afterEach(async () => {
 });
 
 /** What the stand-in does at its next start. */
-const nextRun = (mode: "change" | "explain" | "wait" | "signed-out") =>
+const nextRun = (mode: "change" | "outside" | "explain" | "wait" | "signed-out") =>
   writeFile(join(bin, "mode"), mode);
 
 async function shot(window: Page, name: string) {
@@ -116,11 +116,9 @@ async function open(window: Page, mindId: string) {
   await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
 }
 
-/** Selects the last `count` characters of the paragraph that holds `words`, with the keys. */
-async function selectEnd(window: Page, words: string, count: number) {
-  await clickEndOf(window, frontMind(window).locator("p", { hasText: words }).first());
-  for (let index = 0; index < count; index++) await window.keyboard.press("Shift+ArrowLeft");
-}
+/** Selects `words` in the paragraph that holds them, with the mouse. */
+const selectIn = (window: Page, words: string) =>
+  slideSelect(window, frontMind(window).locator("p", { hasText: words }).first(), words);
 
 const FIRST = "The harbour handled 1,240 ship calls in 2025.";
 const SECOND = "Harbour pilots went on strike in July.";
@@ -158,7 +156,7 @@ test("a request at a Note's foot changes the selected words at once, says what i
     });
 
     // Words selected and a change asked: it lands at once, in them alone, nothing opened or copied.
-    await selectEnd(window, "ship calls", "ship calls in 2025.".length);
+    await selectIn(window, "ship calls in 2025.");
     await expect(box.getByTestId("note-ask-quote")).toContainText("ship calls in 2025.");
     await nextRun("change");
     await send("Put these in capitals");
@@ -215,7 +213,7 @@ test("a request at a Note's foot changes the selected words at once, says what i
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.updateAgent(id, { propose: false });
     }, pairingId);
-    await selectEnd(window, "pilots", "in July.".length);
+    await selectIn(window, "in July.");
     await nextRun("change");
     await send("Put these in capitals");
     await expect(line).toContainText("Claude Code may only read. Let it propose changes?");
@@ -231,6 +229,24 @@ test("a request at a Note's foot changes the selected words at once, says what i
       return (await bridge.getAgents()).pairings.find((each) => each.id === id)?.propose;
     }, pairingId);
     expect(propose).toBe(true);
+
+    // A change beyond the words selected waits for the User, its bar clear of the input.
+    await selectIn(window, "strike");
+    await nextRun("outside");
+    await send("Put these in capitals");
+    await expect(line).toHaveText("1 change waits for you in “Harbour notes”.");
+    await pointAndClick(window, frontMind(window).locator("ins[data-proposal-id]").first());
+    const bar = window.getByTestId("change-bar");
+    const clearOfInput = async () => {
+      await expect(bar).toBeVisible();
+      const [barBox, inputBox] = [await bar.boundingBox(), await box.boundingBox()];
+      expect((barBox?.y ?? 0) + (barBox?.height ?? 0)).toBeLessThanOrEqual(inputBox?.y ?? 0);
+    };
+    await clearOfInput();
+    await both(app, window, "note-ask-waiting", async () => {
+      await expect(line).toHaveText("“Harbour notes”中有 1 处修改等你确认。");
+      await clearOfInput();
+    });
   } finally {
     await app.close();
   }

@@ -17,6 +17,7 @@ import { agentsToAsk, ownAiRunsHereNow, useAgentsToAsk, useOwnAiRunsHere } from 
 import type { ChangedMind } from "./changedMinds";
 import { core } from "./core";
 import { currentTabOf } from "./layoutSlice";
+import { useNotices } from "./notices";
 import { hiddenForOwnAiNow, runsInBackground, useHiddenForOwnAi } from "./ownAiPanel";
 import { useAppStore } from "./store";
 
@@ -193,13 +194,20 @@ export async function allowAndAskAgain(mindId: string): Promise<void> {
 /**
  * A selection toolbar action sent as a request of the Note's input (ADR-0034), with the words
  * selected as its context. "link": no agent runs it in the background now, and the caller hands
- * the selection over by the link as before; "none": nothing is selected.
+ * the selection over by the link as before; "none": nothing is selected; "busy": a request of the
+ * Note's is still running, and this one is not sent.
  */
 export async function askFromSelection(
   state: EditorState,
   mindId: string,
   words: string,
-): Promise<"started" | "problem" | "link" | "none"> {
+): Promise<"started" | "problem" | "link" | "none" | "busy"> {
+  const running = useNoteAsks.getState().byMind[mindId];
+  // A new request waits for Stop, as Return at the input does while one runs (ADR-0034).
+  if (running?.state === "working") {
+    useNotices.getState().confirm("noteAsk.busy", { agent: running.agent }, { look: true });
+    return "busy";
+  }
   const selected = selectedForRequest(state);
   if (!selected) return "none";
   return askInNote(mindId, { words, quote: selected.quote, selection: selected.selection });

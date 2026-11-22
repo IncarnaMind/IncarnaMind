@@ -52,9 +52,9 @@ vi.mock("../../src/renderer/src/askedChanges", async (original) => ({
   applyTurn,
 }));
 
-const { allowAndAskAgain, askInNote, selectedForRequest, useNoteAsks } = await import(
-  "../../src/renderer/src/ownAiInNote"
-);
+const { allowAndAskAgain, askFromSelection, askInNote, selectedForRequest, useNoteAsks } =
+  await import("../../src/renderer/src/ownAiInNote");
+const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 
 const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
@@ -139,6 +139,25 @@ describe("the input at a Note's foot (#3627)", () => {
     bridge.start = { kind: "link" };
     expect(await askInNote("m1", { words: "shorter", quote: "", selection: null })).toBe("link");
     expect(ask()).toBeUndefined();
+  });
+
+  // protects=a selection action while the Note's request runs sends nothing and says why, as Return at the input does; fails_when=it is dropped without a word, or shown as if it were the running one
+  test("doesn't send a selection action while a request runs, and says so", async () => {
+    await askInNote("m1", { words: "shorter", quote: "", selection: null });
+    const schema = getSchema(noteExtensions());
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { id: "a" }, content: [{ type: "text", text: "Fares rose." }] },
+      ],
+    });
+    const state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 6) });
+    expect(await askFromSelection(state, "m1", "Explain this")).toBe("busy");
+    expect(bridge.asked).toHaveLength(1);
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "noteAsk.busy",
+      params: { agent: "Claude Code" },
+    });
   });
 
   // protects=the selection a request carries: its words, and for each top-level Block the text before and after them, which the core holds a change inside to; fails_when=the core gets offsets or text it can't compare with the Note's
