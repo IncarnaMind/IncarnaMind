@@ -8755,6 +8755,8 @@ export const zhCN = {
   "meetings.summary.retryTranscript": "重试转写",
   "meetings.summary.share": "请先让你的 AI 可以读取这场会议的笔记和转写稿，再生成摘要。",
   "meetings.summary.failed": "无法生成摘要。",
+  "meetings.summary.restoreAgent":
+    "请将“整理会议笔记的 AI”和“自动生成会议摘要”都设为 {agent}，然后重试。",
   "meetings.summary.updateFailed": "无法补全摘要。",
   "agents.ask.line.fix": "把 IncarnaMind 在笔记{title}里标出来的那句改好。",
   "agents.ask.line.fixAll": "把 IncarnaMind 在笔记{title}里标出来的 {count} 句改好。",

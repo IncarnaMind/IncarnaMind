@@ -285,8 +285,12 @@ for (const transcriptFails of [false, true]) {
           core.updateSettings({ device: { meetingSummaryRoute: null } }),
         );
         await expect(problem.getByTestId("meeting-summary-retry")).toHaveCount(0);
+        await expect(problem).toContainText("Choose My Claude");
         await problem.getByRole("button", { name: "Settings", exact: true }).click();
         await expect(settings).toHaveAttribute("data-page", "meetings");
+        await settings.getByTestId("meeting-summary-route").selectOption(agent);
+        await closeSettings(window);
+        await expect(problem.getByTestId("meeting-summary-retry")).toBeEnabled();
       } finally {
         await removeDataFolder(dir);
         await removeDataFolder(home);
