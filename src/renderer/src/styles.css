@@ -3222,12 +3222,21 @@
       max-width: 128px;
     }
   }
+  /* A folded template adds the 24px More button and its 2px gap before any command folds. */
   @container meeting-bar (width < 466px) {
     [data-fold="template"] {
       display: none;
     }
     .meeting-controls:has([data-fold="template"]) .meeting-more {
       display: inline-flex;
+    }
+    :root:not(:lang(zh)) .meeting-controls:has([data-fold="template"]) [data-fold="mark"] {
+      display: none;
+    }
+  }
+  @container meeting-bar (width < 422px) {
+    :root:lang(zh) .meeting-controls:has([data-fold="template"]) [data-fold="mark"] {
+      display: none;
     }
   }
   @container meeting-bar (width < 586px) {
