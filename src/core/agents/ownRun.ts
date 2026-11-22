@@ -68,6 +68,8 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
       .askable(mindId)
       .find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
     if (!runner || !pairing) return { kind: "link" };
+    // An agent that isn't on this computer can't run: the link, with no consent to ask for.
+    if (!(await runner.installed("claude-code"))) return { kind: "link" };
     // Nothing of the User's agent is started, its `--version` included, before the consent.
     if (!(await options.consented(pairing))) return { kind: "link" };
     const status = await runner.status("claude-code");

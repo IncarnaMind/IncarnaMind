@@ -103,15 +103,17 @@ const untilStopped = (_agent: Agent, request: RunRequest) =>
     request.signal.addEventListener("abort", () => resolve({ kind: "finished" }), { once: true });
   });
 
-/** A runner whose command line is `act`, or `status` without one. */
+/** A runner whose command line is `act`, or `status` without one; `installed`: whether `claude` is found at all. */
 function runner(
   act: (agent: Agent, request: RunRequest) => Promise<RunEnd> = checks,
   status: OwnAiStatus = { kind: "ready" },
+  installed = true,
 ) {
   const runs: RunRequest[] = [];
   const launches: AgentLaunch[] = [];
   const statuses: OwnAiClient[] = [];
   const adapter: OwnAiRunner = {
+    installed: async () => installed,
     async status(client) {
       statuses.push(client);
       return status;
@@ -275,13 +277,22 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
     ).toMatch(/no longer connected|isn't connected|Connect it again/i);
   });
 
-  // protects=a User the background can't serve keeps today's link: no runner on this host, only an agent that runs in its own app, or Claude Code not installed; fails_when=the press does nothing, or starts a run that can't work
+  // protects=a User the background can't serve keeps today's link: no runner on this host, only an agent that runs in its own app, or Claude Code not installed, which on a connection made before asks no consent for a run that can't happen; fails_when=the press does nothing, starts a run that can't work, or asks the User to allow an agent that isn't there
   it("keeps the link where no agent can run it in the background", async () => {
     const none = await written();
     expect(await none.core.checkWithOwnAi(none.mindId)).toEqual({ kind: "link" });
 
     const missing = await written(runner(checks, { kind: "missing" }).adapter);
     expect(await missing.core.checkWithOwnAi(missing.mindId)).toEqual({ kind: "link" });
+
+    const absent = runner(checks, { kind: "missing" }, false);
+    const older = await written(absent.adapter);
+    madeBefore(older.dataDir);
+    const asked: string[] = [];
+    older.core.on("consent.requested", (request) => asked.push(request.flow.id));
+    expect(await older.core.checkWithOwnAi(older.mindId)).toEqual({ kind: "link" });
+    expect(asked).toEqual([]);
+    expect(absent.statuses).toEqual([]);
 
     const run = runner();
     const vscodeOnly = await written(run.adapter);

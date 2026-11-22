@@ -6,9 +6,10 @@
  * IncarnaMind's server with a grant, in a settings file only the User's account can read, inside
  * a folder of its own that goes when the run ends; nothing of the run is kept.
  */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { stopProcessTree } from "../core/execution";
 import { ClaudeCodeIsolationError, object, runClaudeCodeTurn } from "./claudeCode";
@@ -91,8 +92,34 @@ async function short(command: string, args: string[]): Promise<Short> {
   return late ? { kind: "no-answer" } : { kind: "exited", code, out };
 }
 
+/** A file the User's account may run. */
+const runnable = async (path: string) =>
+  (await stat(path).catch(() => null))?.isFile() === true &&
+  (await access(path, constants.X_OK).then(
+    () => true,
+    () => false,
+  ));
+
+/** Whether the login shell's PATH holds `command`, as a terminal would find it, looked up without starting it. */
+async function onPath(command: string): Promise<boolean> {
+  if (isAbsolute(command)) return runnable(command);
+  const environment = await processes.environment();
+  const value = (name: string) =>
+    Object.entries(environment).find(([key]) => key.toUpperCase() === name)?.[1] ?? "";
+  const names =
+    process.platform === "win32"
+      ? (value("PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").map((ext) => `${command}${ext}`)
+      : [command];
+  for (const folder of value("PATH").split(delimiter).filter(Boolean)) {
+    for (const name of names) if (await runnable(join(folder, name))) return true;
+  }
+  return false;
+}
+
 export function createOwnAi({ command = "claude" }: { command?: string } = {}): OwnAiRunner {
   return {
+    installed: () => onPath(command),
+
     async status(): Promise<OwnAiStatus> {
       const version = await short(command, ["--version"]);
       if (version.kind === "no-answer") return { kind: "unknown" };

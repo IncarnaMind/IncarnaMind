@@ -4,13 +4,17 @@
  * whether Claude Code is there and signed in. A small Node program stands in for `claude`.
  */
 import { spawn as spawnNode } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createOwnAi } from "../../src/main/ownAi";
 
 const launch = vi.hoisted(() => vi.fn());
+/** The login shell's PATH, as the launcher reads it. */
+const shell = vi.hoisted(() => ({ PATH: "" }));
 vi.mock("../../src/main/processes", () => ({
-  createLoginShellProcesses: () => ({ spawn: launch }),
+  createLoginShellProcesses: () => ({ spawn: launch, environment: async () => shell }),
 }));
 
 afterEach(() => launch.mockReset());
@@ -320,5 +324,28 @@ describe("whether Claude Code can run a check", () => {
     await expect(createOwnAi().status("claude-code")).resolves.toEqual({ kind: "unknown" });
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
+  });
+});
+
+describe("whether Claude Code is on this computer", () => {
+  // protects=whether `claude` is installed is read from the login shell's PATH without starting it, so a connection made before is asked no consent for an agent that isn't there and nothing of it runs before the consent; fails_when=the lookup starts the command, or finds a file it can't run
+  it("finds claude on the login shell's PATH without starting it", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "own-ai-path-"));
+    try {
+      shell.PATH = ["/nowhere", folder].join(process.platform === "win32" ? ";" : ":");
+      await expect(createOwnAi().installed("claude-code")).resolves.toBe(false);
+      await writeFile(join(folder, "claude"), "#!/bin/sh\nexit 0\n");
+      if (process.platform !== "win32") {
+        await expect(createOwnAi().installed("claude-code")).resolves.toBe(false);
+        await chmod(join(folder, "claude"), 0o755);
+        await expect(createOwnAi().installed("claude-code")).resolves.toBe(true);
+        await expect(
+          createOwnAi({ command: join(folder, "claude") }).installed("claude-code"),
+        ).resolves.toBe(true);
+      }
+      expect(launch).not.toHaveBeenCalled();
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 });

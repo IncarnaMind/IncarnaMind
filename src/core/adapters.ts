@@ -1677,6 +1677,8 @@ export type OwnAiFailure =
  * chat kept (ADR-0032). The desktop app runs Claude Code (src/main/ownAi.ts).
  */
 export interface OwnAiRunner {
+  /** Whether the agent's command is on this computer, found without starting anything of it. */
+  installed(client: OwnAiClient): Promise<boolean>;
   status(client: OwnAiClient): Promise<OwnAiStatus>;
   /**
    * One run, resolved when it ends. `server`: IncarnaMind's server as the agent starts it, with a
