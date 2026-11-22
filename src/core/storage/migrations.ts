@@ -3381,91 +3381,40 @@ export const migrations: readonly Migration[] = [
     version: 159,
     description: "A folder linked before is a Folder bound to it, as linking one makes now (#3613)",
     sql: `
-      CREATE TEMP TABLE bind_migration AS SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS at;
-      -- Each Linked folder of the User's with no Folder bound to any of its folders, and its own
-      -- Folder on disk. Not the app's own examples folder, and not one whose Documents the User
-      -- has all filed already: its new files keep going to Not in a Folder, as they did, until
-      -- the User chooses File as one Folder. A Document has a filing of its own when it is in a
-      -- live Folder, or in no Folder by the User's choice.
-      CREATE TEMP TABLE bind_folders AS
-        SELECT lf.id AS linked_folder_id, f.id AS folder_id, f.name AS name, lf.created_seq AS seq,
-          ${UUID_V4_SQL} AS group_id
-        FROM linked_folders lf
-        JOIN folders f ON f.linked_folder_id = lf.id AND f.relative_path = ''
-          AND f.deleted_at IS NULL
-        WHERE lf.deleted_at IS NULL
-          AND lf.id NOT IN (
-            SELECT json_extract(s.value, '$.linkedFolderId') FROM device_settings s
-            WHERE (s.key = 'examples' OR s.key LIKE 'examples.%') AND s.deleted_at IS NULL
-              AND json_valid(s.value) AND json_extract(s.value, '$.linkedFolderId') IS NOT NULL)
-          AND NOT EXISTS (
-            SELECT 1 FROM library_groups g WHERE g.deleted_at IS NULL AND g.bound_folder_id IN
-              (SELECT id FROM folders WHERE linked_folder_id = lf.id))
-          AND (
-            NOT EXISTS (SELECT 1 FROM documents d
-              WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL)
-            OR EXISTS (SELECT 1 FROM documents d
-              WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL AND NOT EXISTS (
-                SELECT 1 FROM document_groups a WHERE a.document_id = d.id AND a.deleted_at IS NULL
-                  AND (a.source = 'user' OR EXISTS (SELECT 1 FROM library_groups g
-                    WHERE g.id = a.group_id AND g.deleted_at IS NULL)))));
-      -- Named after the folder; a name a Folder at the top level has already, or another of these
-      -- has, takes a number past the highest such name has ("Interviews 2"), as linking names one.
-      CREATE TEMP TABLE bind_names AS
-        SELECT b.group_id,
-          (SELECT COUNT(*) FROM library_groups g WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
-            AND lower(g.name) = lower(b.name)) > 0 AS taken,
-          max(1, COALESCE((SELECT MAX(CAST(substr(g.name, length(b.name) + 2) AS INTEGER))
-            FROM library_groups g WHERE g.deleted_at IS NULL AND g.parent_id IS NULL
-              AND lower(substr(g.name, 1, length(b.name) + 1)) = lower(b.name) || ' '
-              AND substr(g.name, length(b.name) + 2) GLOB '[0-9]*'
-              AND substr(g.name, length(b.name) + 2) NOT GLOB '*[^0-9]*'), 0)) AS highest,
-          ROW_NUMBER() OVER (PARTITION BY lower(b.name) ORDER BY b.seq, b.linked_folder_id) AS rank
-        FROM bind_folders b;
-      INSERT INTO library_groups (id, name, description, parent_id, counts_own_files, keep_inside,
-          bound_folder_id, created_at, updated_at)
-        SELECT b.group_id,
-          CASE WHEN NOT n.taken AND n.rank = 1 THEN substr(b.name, 1, 100)
-            ELSE substr(b.name, 1, 96) || ' ' || (n.highest + n.rank - 1 + n.taken) END,
-          '', NULL, 0, 0, b.folder_id, m.at, m.at
-        FROM bind_folders b JOIN bind_names n ON n.group_id = b.group_id, bind_migration m;
-      -- Its Documents with no filing of their own are filed in it as the User's, as binding files
-      -- them; every filing the User made, and every Suggestion waiting, stays as it is.
-      UPDATE document_groups SET
-        group_id = (SELECT b.group_id FROM documents d
-          JOIN bind_folders b ON b.linked_folder_id = d.linked_folder_id
-          WHERE d.id = document_groups.document_id),
-        source = 'user',
-        filed_at = (SELECT at FROM bind_migration),
-        updated_at = (SELECT at FROM bind_migration)
-        WHERE deleted_at IS NULL AND source <> 'user'
-          AND NOT EXISTS (SELECT 1 FROM library_groups g
-            WHERE g.id = document_groups.group_id AND g.deleted_at IS NULL)
-          AND document_id IN (SELECT d.id FROM documents d
-            JOIN bind_folders b ON b.linked_folder_id = d.linked_folder_id
-            WHERE d.deleted_at IS NULL);
-      INSERT INTO document_groups (id, document_id, group_id, source, status, content_hash,
-          request_id, created_at, updated_at, filed_at)
-        SELECT ${UUID_V4_SQL}, d.id, b.group_id, 'user', 'classified', d.content_hash,
-          ${UUID_V4_SQL}, m.at, m.at, m.at
-        FROM documents d JOIN bind_folders b ON b.linked_folder_id = d.linked_folder_id,
-          bind_migration m
-        WHERE d.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM document_groups a
-          WHERE a.document_id = d.id AND a.deleted_at IS NULL);
-      -- An agent that read Not in a Folder read those files there: it reads them in their new
-      -- Folders, so what it reaches stays as it was, no more and no less.
-      UPDATE agent_pairings SET
-        folder_ids = (SELECT json_group_array(value) FROM (
-          SELECT value FROM json_each(agent_pairings.folder_ids)
-          UNION ALL SELECT group_id FROM bind_folders)),
-        updated_at = (SELECT at FROM bind_migration)
-        WHERE deleted_at IS NULL AND json_valid(folder_ids)
-          AND EXISTS (SELECT 1 FROM json_each(agent_pairings.folder_ids)
-            WHERE value = 'not-in-a-folder')
-          AND EXISTS (SELECT 1 FROM bind_folders);
-      DROP TABLE temp.bind_names;
-      DROP TABLE temp.bind_folders;
-      DROP TABLE temp.bind_migration;
+      -- A Folder its filing as one Folder took away holding nothing (#3613) is deleted as any
+      -- Folder is, and marked so that Recently deleted doesn't list it: only Undo brings it back.
+      ALTER TABLE library_groups ADD COLUMN deleted_quietly INTEGER NOT NULL DEFAULT 0;
+      -- The Linked folders the first start binds as linking binds one now, through the same code:
+      -- each of the User's with no Folder bound to it (in Recently deleted included), not the
+      -- app's own examples folder, and not one whose Documents the User has all filed already,
+      -- whose new files keep going to Not in a Folder as they did until the User chooses File as
+      -- one Folder. A Document has a filing of its own when it is in a live Folder, or in no
+      -- Folder by the User's choice.
+      INSERT INTO device_settings (id, key, value, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, 'linkedFoldersToBind', ids, at, at FROM (
+          SELECT json_group_array(lf.id) AS ids, COUNT(*) AS count,
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS at
+          FROM linked_folders lf
+          WHERE lf.deleted_at IS NULL
+            AND lf.id NOT IN (
+              SELECT json_extract(s.value, '$.linkedFolderId') FROM device_settings s
+              WHERE (s.key = 'examples' OR s.key LIKE 'examples.%') AND s.deleted_at IS NULL
+                AND json_valid(s.value) AND json_extract(s.value, '$.linkedFolderId') IS NOT NULL)
+            AND NOT EXISTS (
+              SELECT 1 FROM library_groups g WHERE g.purged_at IS NULL AND g.bound_folder_id IN
+                (SELECT id FROM folders WHERE linked_folder_id = lf.id AND deleted_at IS NULL))
+            AND (
+              NOT EXISTS (SELECT 1 FROM documents d
+                WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL)
+              OR EXISTS (SELECT 1 FROM documents d
+                WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL AND NOT EXISTS (
+                  SELECT 1 FROM document_groups a
+                  WHERE a.document_id = d.id AND a.deleted_at IS NULL
+                    AND (a.source = 'user' OR EXISTS (SELECT 1 FROM library_groups g
+                      WHERE g.id = a.group_id AND g.deleted_at IS NULL)))))
+        )
+        WHERE count > 0 AND NOT EXISTS (SELECT 1 FROM device_settings
+          WHERE key = 'linkedFoldersToBind' AND deleted_at IS NULL);
     `,
   },
 ];

@@ -689,6 +689,9 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
   return { documentId: parseDocumentId(input.documentId), password };
 }
 
+/** Where migration 159 lists the Linked folders the first start binds (#3613). */
+const LINKED_FOLDERS_TO_BIND = "linkedFoldersToBind";
+
 /** `rebindFolder`'s input, as `unbindFolder` gave it, its refiled changes still to be read. */
 function parseUnboundFolder(
   input: unknown,
@@ -1061,15 +1064,10 @@ export function createCore(adapters: CoreAdapters): Core {
   /** Set once rerank exists: a Document became ready, so the built-in reranking model is needed. */
   let prepareRerank = () => {};
   let libraryDocumentChanged = (_document: Document) => {};
-  /** The Folders linking made, which a first scan files in only while they are bound (#3613). */
-  const linkedFolderGroups = new Set<string>();
   const batches = createBatches({
     db,
     emit: (batch) => events.emit("documents.batch", batch),
-    file: (documentId, groupId) => {
-      if (linkedFolderGroups.has(groupId)) fileInBoundFolder(documentId);
-      else library.file(documentId, groupId);
-    },
+    file: (documentId, groupId) => library.file(documentId, groupId),
   });
   const rememberSecret = (secret: string) => {
     knownSecrets.add(secret);
@@ -4207,14 +4205,16 @@ export function createCore(adapters: CoreAdapters): Core {
    */
   const bindFolderOnDisk = (folderId: string, parentId: string | null) => {
     const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
-    const folder = linked ? { id: folderId, name: basename(linked.path) } : folders.get(folderId);
+    const folder = linked
+      ? { id: folderId, name: basename(linked.path) || linked.path }
+      : folders.get(folderId);
     const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
     if (already) return { folder: already, filed: [] };
-    const made = library.create({
-      name: freeFolderName(folder.name.slice(0, 100), parentId),
-      description: "",
-      parentId,
-    });
+    const name = (folder.name.trim() || linked?.path || folder.id).slice(0, 100).trim();
+    const made = library.create(
+      { name: freeFolderName(name, parentId), description: "", parentId },
+      true,
+    );
     return { folder: library.bind(made.id, folder.id), filed: fileUnder([folder.id]) };
   };
   /** The name, or the first of "name 2", "name 3"… that no other Folder beside it has. */
@@ -4248,16 +4248,24 @@ export function createCore(adapters: CoreAdapters): Core {
       return { groupId, boundFolderId, removed, refiled };
     });
   };
+  /** Brings back a Folder taken away quietly, under a free name, unless it was purged since. */
+  const restoreRemoved = (groupId: string): boolean => {
+    if (!library.restoreQuietly(groupId)) return false;
+    // A Folder made beside it since may have its name: it takes the next free one.
+    const back = library.folder(groupId);
+    const name = freeFolderName(back.name, back.parentId, back.id);
+    if (name !== back.name) library.update(back.id, { ...back, name });
+    return true;
+  };
   /** See `CoreApi.rebindFolder`. */
   const rebindFolder = (input: unknown): BoundFolderChange => {
     const unbound = parseUnboundFolder(input);
     return db.transaction(() => {
-      if (unbound.removed) {
-        library.restoreQuietly(unbound.groupId);
-        // A Folder made beside it since may have its name: it takes the next free one.
-        const back = library.folder(unbound.groupId);
-        const name = freeFolderName(back.name, back.parentId, back.id);
-        if (name !== back.name) library.update(back.id, { ...back, name });
+      if (unbound.removed && !restoreRemoved(unbound.groupId)) {
+        // Purged since: binding makes a Folder again, as linking does.
+        if (unbound.boundFolderId === null)
+          throw new NotFoundError({ key: "error.folder.notFound" });
+        return bindFolderOnDisk(unbound.boundFolderId, null);
       }
       if (unbound.boundFolderId === null) {
         return { folder: library.folder(unbound.groupId), filed: [] };
@@ -4275,19 +4283,54 @@ export function createCore(adapters: CoreAdapters): Core {
    * Binds the Folders of the Linked folders a link around them merged to the same folders inside
    * the new one (#3613), whose ids are its own, and says where each was.
    */
-  const rebindMerged = (before: readonly LinkedFolder[], linked: LinkedFolder): MergedFolder[] => {
+  const rebindMerged = (
+    before: readonly LinkedFolder[],
+    bindings: ReadonlyMap<string, readonly { id: string; relativePath: string }[]>,
+    linked: LinkedFolder,
+  ): MergedFolder[] => {
     const live = new Set(documents.linkedFolders.list().map((each) => each.id));
     return before.flatMap((inner) => {
       const inside = relative(linked.path, inner.path);
       if (live.has(inner.id) || inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
         return [];
       }
-      const folderId = folderIdFor(linked.id, inside.split(sep).join("/"));
-      return library.boundToLinkedFolder(inner.folderId).map(({ id }) => {
+      const base = inside.split(sep).join("/");
+      // Its own Folder and any bound to a folder inside it, as each was before the merge.
+      return (bindings.get(inner.id) ?? []).map(({ id, relativePath }) => {
         const { parentId } = library.folder(id);
-        library.bind(id, folderId);
+        library.bind(id, folderIdFor(linked.id, relativePath ? `${base}/${relativePath}` : base));
         return { path: inner.path, groupId: id, parentId };
       });
+    });
+  };
+  /**
+   * Binds the folders linked before that migration 159 chose, once, as linking binds one now, so
+   * each Document is filed as the bind files it (#3613). A connection that read Not in a Folder,
+   * where their files were, is given their new Folders, so it reads them still.
+   */
+  const bindFoldersLinkedBefore = () => {
+    const chosen = settings.readDeviceValue(LINKED_FOLDERS_TO_BIND);
+    if (!Array.isArray(chosen)) return;
+    db.transaction(() => {
+      const made = documents.linkedFolders
+        .list()
+        .filter(
+          (linked) => chosen.includes(linked.id) && library.boundTo([linked.folderId]) === null,
+        )
+        .map((linked) => bindFolderOnDisk(linked.folderId, null).folder.id);
+      if (made.length > 0) {
+        db.run(
+          `UPDATE agent_pairings SET
+             folder_ids = (SELECT json_group_array(value) FROM (
+               SELECT value FROM json_each(agent_pairings.folder_ids)
+               UNION ALL SELECT value FROM json_each(?))),
+             updated_at = ?
+           WHERE deleted_at IS NULL AND json_valid(folder_ids)
+             AND EXISTS (SELECT 1 FROM json_each(agent_pairings.folder_ids) WHERE value = ?)`,
+          [JSON.stringify(made), now(), NOT_IN_A_FOLDER_ID],
+        );
+      }
+      settings.deleteDeviceValue(LINKED_FOLDERS_TO_BIND);
     });
   };
   /** Puts each merged Folder that was at the top level inside the new Folder, as on disk. */
@@ -4561,11 +4604,17 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     forgotten: (ids) => layouts.forgetClosed(ids),
     foldersRestored: (folderIds) => {
-      const bound = library
-        .folders()
-        .flatMap((each) =>
-          folderIds.includes(each.id) && each.boundFolderId ? [each.boundFolderId] : [],
+      const live = library.folders();
+      const bound: string[] = [];
+      for (const each of live) {
+        if (!folderIds.includes(each.id) || !each.boundFolderId) continue;
+        const taken = live.some(
+          (other) => !folderIds.includes(other.id) && other.boundFolderId === each.boundFolderId,
         );
+        // One Folder a folder (ADR-0030): one bound to it since keeps it, and this comes back plain.
+        if (taken) library.unbind(each.id);
+        else bound.push(each.boundFolderId);
+      }
       if (bound.length > 0) fileUnder(bound);
     },
     conversationsChanged,
@@ -5237,6 +5286,7 @@ export function createCore(adapters: CoreAdapters): Core {
       stopReadyWaits.delete(stop);
     }
   };
+  bindFoldersLinkedBefore();
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
   library.start();
@@ -7673,14 +7723,20 @@ export function createCore(adapters: CoreAdapters): Core {
       const rebind =
         isRecord(options) && typeof options.rebind === "string" ? options.rebind : null;
       const before = documents.linkedFolders.list();
+      const bindings = new Map(
+        before.map((each) => [each.id, library.boundToLinkedFolder(each.id, each.folderId)]),
+      );
       const linked = await documents.linkedFolders.add(path);
       const known = before.some((each) => each.id === linked.id);
       // Linking makes its Folder at once, inside the one it was dropped on (#3613).
       const { bound, merged } = known
         ? { bound: null, merged: [] }
         : db.transaction(() => {
-            const regrouped = rebindMerged(before, linked);
-            const kept = rebind !== null && library.folders().some((each) => each.id === rebind);
+            const regrouped = rebindMerged(before, bindings, linked);
+            // Undo of an unlink links it again into the Folder it had, as it was.
+            const kept =
+              rebind !== null &&
+              (library.folders().some((each) => each.id === rebind) || restoreRemoved(rebind));
             const made = kept
               ? {
                   folder: library.bind(rebind, linked.folderId),
@@ -7690,9 +7746,9 @@ export function createCore(adapters: CoreAdapters): Core {
             nestMerged(regrouped, made.folder.id);
             return { bound: made, merged: regrouped };
           });
-      if (bound) linkedFolderGroups.add(bound.folder.id);
-      // Its first scan only starts adding Documents once this has returned.
-      const batchId = batches.begin(bound?.folder.id ?? dropped);
+      // Its first scan only starts adding Documents once this has returned. They are filed as they
+      // are found, in the Folder bound to them then (ADR-0030), never by the batch (#3613).
+      const batchId = batches.begin(known ? dropped : null);
       // A folder inside one already linked adds nothing: its scans aren't this batch.
       if (known) batches.done(batchId);
       else batches.linking(batchId, linked);

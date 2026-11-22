@@ -1397,8 +1397,12 @@ export function createLibrary(options: {
     return isCitationStyleId(value) ? value : null;
   }
 
-  function create(input: unknown): LibraryGroup {
-    const value = parseGroup(input);
+  /**
+   * Makes a Folder. `linking`: one a folder linked on disk makes (#3613), which the limit on
+   * Folders never refuses, since the User asked for it by linking the folder.
+   */
+  function create(input: unknown, linking = false): LibraryGroup {
+    const value = parseGroup(input, undefined, linking);
     const at = now();
     const id = randomUUID();
     db.run(
@@ -1431,14 +1435,18 @@ export function createLibrary(options: {
     changed();
   }
 
-  function parseGroup(input: unknown, existing?: { id: string; parentId: string | null }) {
+  function parseGroup(
+    input: unknown,
+    existing?: { id: string; parentId: string | null },
+    overLimit = false,
+  ) {
     if (!isRecord(input) || typeof input.name !== "string" || typeof input.description !== "string")
       throw new InvalidInputError({ key: "error.folder.nameAndDescription" });
     const name = input.name.trim();
     const description = input.description.trim();
     if (!name || name.length > 100 || description.length > 500)
       throw new InvalidInputError({ key: "error.folder.lengths" });
-    if (existing === undefined && groups().length >= 100)
+    if (existing === undefined && !overLimit && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
     const { countsOwnFiles, keepInside, parentId } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
@@ -1643,14 +1651,19 @@ export function createLibrary(options: {
     },
     unbind,
     /**
-     * The live Folders bound to a Linked folder's own folder (`ownFolderId`), each with the
-     * folder on disk it is bound to.
+     * The live Folders bound to a Linked folder's own folder (`ownFolderId`) or to a folder inside
+     * it, each with that folder's path inside it ('' for its own).
      */
-    boundToLinkedFolder(ownFolderId: string): { id: string; boundFolderId: string }[] {
-      return db.all<{ id: string; boundFolderId: string }>(
-        `SELECT id, bound_folder_id AS boundFolderId FROM library_groups
-         WHERE deleted_at IS NULL AND bound_folder_id = ?`,
-        [ownFolderId],
+    boundToLinkedFolder(
+      linkedFolderId: string,
+      ownFolderId: string,
+    ): { id: string; relativePath: string }[] {
+      return db.all<{ id: string; relativePath: string }>(
+        `SELECT g.id, CASE WHEN g.bound_folder_id = ? THEN '' ELSE f.relative_path END
+           AS relativePath
+         FROM library_groups g LEFT JOIN folders f ON f.id = g.bound_folder_id
+         WHERE g.deleted_at IS NULL AND (g.bound_folder_id = ? OR f.linked_folder_id = ?)`,
+        [ownFolderId, ownFolderId, linkedFolderId],
       );
     },
     /** Whether a live Folder holds nothing: no Folder, Note, Canvas, conversation or Document. */
@@ -1668,27 +1681,30 @@ export function createLibrary(options: {
       );
     },
     /**
-     * Takes an empty Folder away without passing through Recently deleted (#3613): it is marked
-     * deleted and purged at once, as a tombstone, so only Undo (`restoreQuietly`) brings it back.
+     * Takes an empty Folder away without passing through Recently deleted (#3613): it is deleted,
+     * marked as taken away quietly so Recently deleted doesn't list it, and purged with the rest
+     * after 30 days; only Undo (`restoreQuietly`) brings it back before then.
      */
     removeQuietly(groupId: string): void {
       const at = now();
       db.run(
-        "UPDATE library_groups SET deleted_at = ?, purged_at = ?, updated_at = ? WHERE id = ?",
-        [at, at, at, group(groupId).id],
+        "UPDATE library_groups SET deleted_at = ?, deleted_quietly = 1, updated_at = ? WHERE id = ?",
+        [at, at, group(groupId).id],
       );
       revision++;
       changed();
     },
-    /** Brings back a Folder `removeQuietly` took away. */
-    restoreQuietly(groupId: string): void {
+    /** Brings back a Folder `removeQuietly` took away, unless it was purged since. Says whether. */
+    restoreQuietly(groupId: string): boolean {
+      const taken = `id = ? AND deleted_at IS NOT NULL AND deleted_quietly = 1 AND purged_at IS NULL`;
+      if (!db.get(`SELECT 1 FROM library_groups WHERE ${taken}`, [groupId])) return false;
       db.run(
-        `UPDATE library_groups SET deleted_at = NULL, purged_at = NULL, updated_at = ?
-         WHERE id = ? AND deleted_at IS NOT NULL`,
+        `UPDATE library_groups SET deleted_at = NULL, deleted_quietly = 0, updated_at = ? WHERE ${taken}`,
         [now(), groupId],
       );
       revision++;
       changed();
+      return true;
     },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": a Linked

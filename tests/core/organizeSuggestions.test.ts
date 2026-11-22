@@ -458,7 +458,7 @@ describe("Organize suggests a Folder and waits for the User", () => {
       (batch) => !batch.adding && batch.sorted === 2,
     );
     expect(last).toMatchObject({
-      groupId: notes?.id,
+      groupId: null,
       linkedFolderId: linked.id,
       read: 2,
       suggested: [],

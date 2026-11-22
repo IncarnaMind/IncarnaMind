@@ -57,7 +57,8 @@ const linkedOf = (ctx: CommandContext): LinkedFolder | undefined => {
   if (id !== undefined) return store().linkedFolders.find((each) => each.id === id);
   return boundPlaceOf(folderOf(ctx), store())?.linked;
 };
-const isBound = (ctx: CommandContext) => folderOf(ctx)?.boundFolderId != null;
+/** A Folder bound to a folder this window can find: one bound to none it can is a plain Folder. */
+const isBound = (ctx: CommandContext) => boundPlaceOf(folderOf(ctx), store()) !== null;
 
 /** How many Documents a selection holds, or 0 for one: its commands then say "these 3". */
 const many = (ctx: CommandContext): number => {
@@ -766,7 +767,7 @@ export const linkedFolderCommands: readonly Command[] = [
     reversible: true,
     run: async (ctx) => {
       const folder = folderOf(ctx);
-      if (folder?.boundFolderId) return store().stopFilingAsFolder(folder.id);
+      if (folder && isBound(ctx)) return store().stopFilingAsFolder(folder.id);
       const linked = linkedOf(ctx);
       if (linked) await store().fileAsFolder(linked.id);
     },

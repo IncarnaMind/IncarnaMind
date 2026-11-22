@@ -18,7 +18,12 @@ import {
 import { openDatabase } from "../../src/core/storage";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
-import { waitForProcessing } from "../helpers/documents";
+import {
+  createSourceFolder,
+  linkWithoutFolder,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { type Handed, handOver, NORTH, refusal, started, structured } from "../helpers/handedFiles";
 import { plainDeck } from "../helpers/pptx";
 
@@ -176,6 +181,67 @@ describe("linking a folder makes a Folder bound to it (#3613)", () => {
     expect((await filed(core))("Crew").groupId).toBe(work.id);
   });
 
+  // protects=files added onto a Folder linking made, and onto it once its filing is off and it stays, are filed in it, so a connection not given that Folder doesn't read them (#3613); fails_when=they land in Not in a Folder
+  it("files added onto its Folder are filed there, also once its filing is off", async () => {
+    const { core, bound } = await project();
+    const sources = await createSourceFolder();
+    const notes = await writeSourceFile(sources, "Harbour notes.md", "# Harbour notes\n\nBoats.\n");
+    await core.addDocuments([notes], { groupId: bound.id });
+    expect((await filed(core))("Harbour notes")).toEqual({ groupId: bound.id, source: "user" });
+
+    await core.createMind({ title: "Quay notes", folderId: bound.id });
+    await core.unbindFolder(bound.id, []);
+    const log = await writeSourceFile(sources, "Harbour log.md", "# Harbour log\n\nThe tide.\n");
+    await core.addDocuments([log], { groupId: bound.id });
+    expect((await filed(core))("Harbour log")).toEqual({ groupId: bound.id, source: "user" });
+  });
+
+  // protects=linking is never refused for the limit on Folders, and a folder name with a space at its end takes a free name: the link and its Folder are made together (#3613); fails_when=the folder is linked with no Folder and no Undo
+  it("links past the limit on Folders, and under a free name when its name ends in a space", async () => {
+    const { core, files } = await started();
+    await core.createLibraryGroup({ name: "Notes", description: "" });
+    for (let n = (await core.getLibrary()).groups.length; n < 100; n++) {
+      await core.createLibraryGroup({ name: `Folder ${n}`, description: "" });
+    }
+    const spaced = join(files, "Notes ");
+    await mkdir(spaced);
+    const linked = await core.addLinkedFolder(spaced);
+    expect(boundOf(linked).folder.name).toBe("Notes 2");
+    expect((await core.getLibrary()).groups).toHaveLength(101);
+  });
+
+  // protects=folders linked one around another twice keep each Folder bound to its own folder, so the innermost's new files go to its Folder (#3613); fails_when=the innermost Folder is bound to a folder gone, and its files go to the one around it
+  it("linked around twice, the innermost Folder stays bound to its folder", async () => {
+    const { core, files } = await started();
+    await mkdir(join(files, "b", "c"), { recursive: true });
+    await writeFile(join(files, "b", "c", "Brief.md"), "# Brief\n\nThe quay opens in May.\n");
+    await writeFile(join(files, "b", "Budget.md"), "# Budget\n\nThe quay costs 40.\n");
+    const c = boundOf(await core.addLinkedFolder(join(files, "b", "c"))).folder;
+    await processed(core);
+    boundOf(await core.addLinkedFolder(join(files, "b")));
+    await processed(core);
+    boundOf(await core.addLinkedFolder(files));
+    await processed(core);
+    expect((await core.getLibrary()).groups.find((each) => each.id === c.id)?.boundFolderId).toBe(
+      (await diskFolder(core, "b/c")).id,
+    );
+    await writeFile(join(files, "b", "c", "Crew.md"), "# Crew\n\nSix people.\n");
+    await core.reconcileDocuments();
+    expect((await filed(core))("Crew").groupId).toBe(c.id);
+  });
+
+  // protects=a bound Folder restored from Recently deleted while another Folder is bound to its folder comes back plain, so one Folder is bound to a folder (#3613); fails_when=two Folders are bound to one folder
+  it("restored while another is bound to its folder, it comes back plain", async () => {
+    const { core, linked, bound } = await project();
+    await core.deleteLibraryGroup(bound.id);
+    const again = await core.createBoundFolder(linked.folderId);
+    await core.updateLibraryGroup(again.folder.id, { name: "Quay works", description: "" });
+    await core.restore([{ kind: "folder", id: bound.id }]);
+    const groups = (await core.getLibrary()).groups;
+    expect(groups.find((each) => each.id === bound.id)?.boundFolderId).toBeNull();
+    expect(groups.find((each) => each.id === again.folder.id)?.boundFolderId).toBe(linked.folderId);
+  });
+
   // protects=removing a Document of a linked folder takes it out of IncarnaMind and leaves its file where it is (ADR-0010, #3613); fails_when=the file is deleted or moved
   it("removing a Document there leaves its file", async () => {
     const { core, files } = await project();
@@ -264,16 +330,39 @@ describe("a Folder bound to a folder on disk", () => {
     expect((await filed(core))("Late").groupId).toBe(again.folder.id);
   });
 
-  // protects=unlinked, a Folder that held only the folder's files goes, and not to Recently deleted (#3613); fails_when=an empty Folder stays behind, or shows in Recently deleted though the User deleted nothing
+  // protects=unlinked, a Folder that held only the folder's files goes, and not to Recently deleted; linked again into it, as Undo does, the same Folder comes back with its files (#3613); fails_when=an empty Folder stays behind, shows in Recently deleted though the User deleted nothing, or Undo makes another Folder
   it("unlinked, a Folder that held only the folder's files goes, not to Recently deleted", async () => {
-    const { core, linked, bound } = await project();
+    const { core, files, linked, bound } = await project();
     await core.removeLinkedFolder(linked.id);
     expect(await live(core, bound.id)).toBe(false);
     expect(await inRecentlyDeleted(core, bound.id)).toBe(false);
+
+    const again = await core.addLinkedFolder(files, { rebind: bound.id });
+    expect(boundOf(again).folder.id).toBe(bound.id);
+    await processed(core);
+    expect((await filed(core))("Quay plan")).toEqual({ groupId: bound.id, source: "user" });
   });
 });
 
 describe("filing as one Folder, turned off and on (#3613)", () => {
+  // protects=a Folder its filing took away quietly is purged with the rest after 30 days and never comes back to life: turned on after that, a new Folder is made (#3613); fails_when=the purged Folder is brought back
+  it("on again after the Folder was purged, a new Folder is made", async () => {
+    const set = await project();
+    const off = await set.core.unbindFolder(set.bound.id, []);
+    await set.core.close();
+    const db = openDatabase(join(set.dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE library_groups SET purged_at = deleted_at WHERE id = ?", [set.bound.id]);
+    } finally {
+      db.close();
+    }
+    const core = await set.restart();
+    const on = await core.rebindFolder(off);
+    expect(on.folder.id).not.toBe(set.bound.id);
+    expect(await live(core, set.bound.id)).toBe(false);
+    expect((await filed(core))("Quay plan")).toEqual({ groupId: on.folder.id, source: "user" });
+  });
+
   // protects=turned off, the folder's files go back to no filing, not to Not in a Folder as the User's choice, so Organize may place them; the Folder that held nothing else goes, not to Recently deleted; on again, the same Folder comes back with them, and a file the User filed elsewhere stays (#3613); fails_when=the files stay filed, the Folder lands in Recently deleted, or turning it on makes another Folder
   it("off, the files go back to no filing and the empty Folder goes quietly; on, the same Folder", async () => {
     const { core, coast, files, bound } = await project();
@@ -447,11 +536,16 @@ describe("filing as one Folder, turned off and on (#3613)", () => {
 
 describe("a folder linked before (#3613)", () => {
   /** The data folder opened again with the migration to run again, as on its first start. */
-  async function migratedAgain(set: Awaited<ReturnType<typeof started>>) {
+  async function migratedAgain(
+    set: Awaited<ReturnType<typeof started>>,
+    before: (db: ReturnType<typeof openDatabase>) => void = () => {},
+  ) {
     await set.core.close();
     const db = openDatabase(join(set.dataDir, DATABASE_FILE));
     try {
+      db.run("ALTER TABLE library_groups DROP COLUMN deleted_quietly");
       db.run("DELETE FROM schema_migrations WHERE version = 159");
+      before(db);
     } finally {
       db.close();
     }
@@ -488,6 +582,65 @@ describe("a folder linked before (#3613)", () => {
     const core = await migratedAgain(set);
     const [bound] = (await core.getLibrary()).groups.filter((each) => each.boundFolderId);
     expect(bound?.name).toBe(`${name} 3`);
+  });
+
+  // protects=a folder linked before is filed as linking files one now: with sorting by itself off, a Document Organize had left waiting, with an error, is filed as classified with the error gone (#3613); fails_when=it keeps waiting, is queued again at every start, or shows its old error
+  it("leaves each Document as linking would: no old waiting state or error", async () => {
+    const set = await unsorted();
+    const plan = (await set.core.listDocuments()).find((each) => each.name === "Quay plan");
+    const core = await migratedAgain(set, (db) => {
+      db.run(
+        `INSERT INTO document_groups (id, document_id, group_id, source, status, request_id,
+           error_kind, error_message, created_at, updated_at)
+         VALUES ('row-1', ?, NULL, 'automatic', 'waiting', 'request-1', 'model', 'No model.', ?, ?)`,
+        [plan?.id ?? "", "2026-11-01T00:00:00.000Z", "2026-11-01T00:00:00.000Z"],
+      );
+    });
+    const row = (await core.getLibrary()).assignments.find((each) => each.documentId === plan?.id);
+    expect(row).toMatchObject({ source: "user", status: "classified", error: null });
+    expect(row?.groupId).not.toBeNull();
+  });
+
+  // protects=folders linked before get Folder names no Folder beside them has, in any letter case, past a Folder the User made with that name (#3613); fails_when=two Folders side by side share a name
+  it("get names no Folder beside them has", async () => {
+    const set = await started();
+    await set.core.createLibraryGroup({ name: "A", description: "" });
+    await set.core.createLibraryGroup({ name: "ärger", description: "" });
+    for (const name of ["A", "A 2", "Ärger"]) {
+      await mkdir(join(set.files, name));
+      await linkWithoutFolder(set.core, join(set.files, name));
+    }
+    const core = await migratedAgain(set);
+    const top = (await core.getLibrary()).groups.filter((each) => each.parentId === null);
+    const names = top.map((each) => each.name.toLocaleLowerCase());
+    expect(new Set(names).size).toBe(names.length);
+    expect(top.filter((each) => each.boundFolderId).map((each) => each.name)).toHaveLength(3);
+    expect(top.map((each) => each.name)).toContain("Ärger 2");
+  });
+
+  // protects=a folder linked before whose first scan never ended, so it has no record on disk yet, gets its Folder too (#3613); fails_when=it is left as if the User had turned filing off
+  it("one whose first scan never ended gets its Folder too", async () => {
+    const set = await unsorted();
+    const core = await migratedAgain(set, (db) => {
+      db.run("DELETE FROM folders WHERE linked_folder_id = ?", [set.linked.id]);
+    });
+    const bound = (await core.getLibrary()).groups.filter((each) => each.boundFolderId);
+    expect(bound).toEqual([expect.objectContaining({ boundFolderId: set.linked.folderId })]);
+  });
+
+  // protects=a folder whose Project waits in Recently deleted gets no second Folder, and restored, the Project is the one bound (#3613); fails_when=two Folders end up bound to one folder
+  it("one whose Project waits in Recently deleted gets none; restored, that one is bound", async () => {
+    const set = await unsorted();
+    const project = await set.core.createBoundFolder(set.linked.folderId);
+    await set.core.deleteLibraryGroup(project.folder.id);
+    await writeFile(join(set.files, "Crew.md"), "# Crew\n\nSix people.\n");
+    await set.core.reconcileDocuments();
+    await processed(set.core);
+    const core = await migratedAgain(set);
+    expect((await core.getLibrary()).groups.some((each) => each.boundFolderId)).toBe(false);
+    await core.restore([{ kind: "folder", id: project.folder.id }]);
+    const bound = (await core.getLibrary()).groups.filter((each) => each.boundFolderId);
+    expect(bound.map((each) => each.id)).toEqual([project.folder.id]);
   });
 
   // protects=an agent that read Not in a Folder, where a folder linked before kept its files, reads them in their new Folder after the migration, and one that didn't is given nothing more (#3613); fails_when=the agent loses the folder's files, or a share widens

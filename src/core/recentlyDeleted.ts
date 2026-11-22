@@ -409,9 +409,10 @@ export function createRecentlyDeleted(options: {
           ),
         ...db
           .all<{ id: string; name: string; deleted_at: string }>(
-            // A Folder deleted with the Folder it is in waits as part of that one item.
+            // A Folder deleted with the Folder it is in waits as part of that one item; one its
+            // filing as one Folder took away quietly is no item at all (#3613).
             `SELECT g.id, g.name, g.deleted_at FROM library_groups g
-             WHERE g.deleted_at >= ? AND g.purged_at IS NULL
+             WHERE g.deleted_at >= ? AND g.purged_at IS NULL AND g.deleted_quietly = 0
                AND NOT EXISTS (SELECT 1 FROM library_groups p
                  WHERE p.id = g.parent_id AND p.deleted_at = g.deleted_at)`,
             [since],
