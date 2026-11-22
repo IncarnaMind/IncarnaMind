@@ -425,13 +425,24 @@ async function dragArea(
   from: { x: number; y: number },
   to: { x: number; y: number },
 ): Promise<void> {
+  const before = await areaChip(window).count();
   await pointAndClick(window, window.getByTestId("viewer-area-select"));
   await dragAreaOver(window, page, from, to);
-  await expect(areaChip(window)).toBeVisible();
+  await expectAddedChip(window, before);
+}
+
+/**
+ * The chip the gesture added, after those a test keeps from before it: the composer adds it last,
+ * and a chip kept from earlier may still be there beside it.
+ */
+async function expectAddedChip(window: Page, before: number): Promise<void> {
+  await expect(areaChip(window)).toHaveCount(before + 1);
+  await expect(areaChip(window).last()).toBeVisible();
 }
 
 /** Draws an area from the top left of `first` to the bottom right of `last`, wherever the page puts them. */
 async function dragAreaAcross(window: Page, first: Locator, last: Locator): Promise<void> {
+  const before = await areaChip(window).count();
   await pointAndClick(window, window.getByTestId("viewer-area-select"));
   const start = await first.boundingBox();
   const end = await last.boundingBox();
@@ -440,7 +451,7 @@ async function dragAreaAcross(window: Page, first: Locator, last: Locator): Prom
   await window.mouse.down();
   await window.mouse.move(end.x + end.width - 1, end.y + end.height - 1, { steps: 12 });
   await window.mouse.up();
-  await expect(areaChip(window)).toBeVisible();
+  await expectAddedChip(window, before);
 }
 
 test("an area over a chart's words is found, and its picture goes into the composer", async () => {
