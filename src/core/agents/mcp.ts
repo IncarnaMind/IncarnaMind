@@ -195,7 +195,7 @@ export function createAgentServer(
     {
       title: "Search Documents",
       description:
-        "Search the User's Documents. Returns the best Passages, each with its Location and a ready Citation (`cite`) of its best sentence (`quote`). Use the words a Document would use; ask for page 2 for more.",
+        "Search the User's Documents. Returns the best Passages, each with its Location and a ready Citation (`cite`) of its best sentence (`quote`), for that sentence only: a claim on other words needs `cite` of those words. Use the words a Document would use; ask for page 2 for more.",
       inputSchema: z.object({
         query: z.string().describe("Words to look for."),
         folderIds,
