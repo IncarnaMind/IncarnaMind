@@ -526,6 +526,59 @@ test("an input method's Esc or Enter in the field leaves the search open, and ci
   }
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`the open Document picker takes the next key when the Note or the page has focus (${language})`, async () => {
+    const { app, window, editor } = await started(language, 1600, { chinese: true });
+    try {
+      const label = language === "en" ? "Link a Document" : "链接文档";
+      const picker = window.getByTestId("scope-picker");
+      const open = async () => {
+        await window.keyboard.press("ControlOrMeta+k");
+        await window.getByTestId("palette-search").fill(`>${label}`);
+        await expect(
+          window.getByTestId("palette-item").filter({ hasText: label }).first(),
+        ).toBeVisible();
+        await window.keyboard.press("Enter");
+        await expect(picker).toBeVisible();
+      };
+      const leaveFocusOnPage = async () => {
+        await editor.evaluate((element) => element.blur());
+        await expect(window.locator("body")).toBeFocused();
+      };
+      await window.keyboard.type("Spring tides");
+      await open();
+      await leaveFocusOnPage();
+      await window.keyboard.press("Escape");
+      await expect(picker).toHaveCount(0);
+      await expect(editor).toBeFocused();
+      await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides");
+
+      await window.keyboard.press("Shift+ArrowLeft");
+      await open();
+      await window.keyboard.press("Escape");
+      await expect(picker).toHaveCount(0);
+      expect(await window.evaluate(() => getSelection()?.toString())).toBe("s");
+      await window.keyboard.press("ArrowRight");
+
+      await open();
+      await leaveFocusOnPage();
+      for (const key of ["Enter", "Escape"]) {
+        await window.locator("body").dispatchEvent("keydown", { key, isComposing: true });
+        await expect(picker).toBeVisible();
+      }
+      await window.keyboard.type("tid");
+      await expect(picker.getByRole("option")).toHaveCount(1);
+      await expect(picker.getByRole("option")).toContainText("Tides");
+      await leaveFocusOnPage();
+      await window.keyboard.press("Enter");
+      await expect(editor.getByTestId("document-chip")).toHaveText("Tides");
+      await expect(picker).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 test("⌘K reaches Cite… and Link a Document", async () => {
   const { app, window, editor } = await started();
   try {
