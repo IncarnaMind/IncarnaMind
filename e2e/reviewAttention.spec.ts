@@ -195,6 +195,7 @@ async function pressReview(
 async function profileReview(window: Page, expected: string) {
   const cdp = await window.context().newCDPSession(window);
   try {
+    await cdp.send("Emulation.setCPUThrottlingRate", {rate:2});
     await cdp.send("Performance.enable");
     await cdp.send("Profiler.enable");
     const metrics = await cdp.send("Performance.getMetrics");
@@ -247,6 +248,7 @@ async function profileReview(window: Page, expected: string) {
     console.log("[2586-cpu]", JSON.stringify({ms:result.ms,sampledMs:[...totals.values()].reduce((a,b)=>a+b,0)/1000,hot:[...totals].sort((a,b)=>b[1]-a[1]).slice(0,15)}));
     return result;
   } finally {
+    await cdp.send("Emulation.setCPUThrottlingRate", {rate:1});
     await cdp.detach();
   }
 }
