@@ -3,7 +3,9 @@
 // stream, reaching IncarnaMind's server only through the settings file it was given. What it does
 // is read from the file INCARNAMIND_TEST_OWN_AI_MODE_FILE names at each start: "check" (the
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped;
-// "signed-out" is not signed in; "limit" ends as a plan's limit does.
+// "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
+// foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
+// "explain" answers and changes nothing.
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -58,7 +60,8 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     say({ type: "result", subtype: "success", is_error: true, result: "Limit reached." });
     return;
   }
-  const mindId = String(message.message.content).match(/mindId: ([^)]+)\)/)?.[1];
+  const prompt = String(message.message.content);
+  const mindId = prompt.match(/mindId: ([^)]+)\)/)?.[1];
   const use = async (name, input) => {
     say({
       type: "assistant",
@@ -68,6 +71,45 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     });
     return (await agent.callTool({ name, arguments: input })).structuredContent;
   };
+  if (prompt.startsWith("In their note")) {
+    if (mode === "explain") {
+      await agent.close();
+      say({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "It counts the ship calls the harbour handled in 2025.",
+      });
+      return;
+    }
+    const quote = prompt.match(/The words they selected in it: “([^”]*)”/)?.[1] ?? "";
+    const read = await use("read_mind", { mindId, named: true });
+    const line = (read?.markdown ?? "")
+      .split("\n")
+      .find((each) => quote !== "" && each.includes(quote));
+    const name = line?.match(/¶\d+/)?.[0];
+    if (name && line) {
+      // A paragraph the User wrote reads "(the User wrote this)" between its name and its words.
+      const text = line
+        .slice(line.indexOf(name) + name.length)
+        .replace(/^\s*\(the User (?:wrote|changed) this\)/, "")
+        .trim()
+        .replace(quote, quote.toUpperCase());
+      await use("propose_changes", {
+        mindId,
+        version: read.version,
+        changes: [{ paragraph: name, text }],
+      });
+    }
+    await agent.close();
+    say({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "Put the selected words in capitals.",
+    });
+    return;
+  }
   const given = await use("check_mind_yourself", { mindId });
   await use("report_check", {
     mindId,

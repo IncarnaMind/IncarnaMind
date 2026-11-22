@@ -13,7 +13,6 @@ import type {
   NoteTurnEvent,
   NoteTurnProblem,
 } from "../../core/api";
-import { applyTurn } from "./askedChanges";
 import { agentsToAsk, useAgentsToAsk } from "./askYourAi";
 import type { ChangedMind } from "./changedMinds";
 import { core } from "./core";
@@ -115,12 +114,22 @@ function heard(event: NoteTurnEvent): void {
   for (const each of event.applied)
     byNote.set(each.mindId, [...(byNote.get(each.mindId) ?? []), each]);
   const askedFrom = currentTabOf(useAppStore.getState().layout)?.item ?? null;
-  for (const [mindId, applied] of byNote) {
-    const row = rowOf(mindId, applied);
-    applyTurn(event.turnId, row, () => row, { made: false, created: false, askedFrom }).catch(
-      useAppStore.getState().reportError,
-    );
-  }
+  // Loaded when a turn ends: the selection menu's edits load this module, and the assistant's
+  // applied edits load the menu's.
+  void import("./askedChanges")
+    .then(({ applyTurn }) =>
+      Promise.all(
+        [...byNote].map(([mindId, applied]) => {
+          const row = rowOf(mindId, applied);
+          return applyTurn(event.turnId, row, () => row, {
+            made: false,
+            created: false,
+            askedFrom,
+          });
+        }),
+      ),
+    )
+    .catch(useAppStore.getState().reportError);
 }
 
 let listening = false;

@@ -297,37 +297,45 @@ describe("the line above a Note", () => {
 
 describe("the assistant and its pill", () => {
   const agents = [pairing("Claude Code", "claude-code"), pairing("VS Code", "vscode")];
+  /** Agents reached only through their own apps: the pill asks them. */
+  const desktop = [pairing("Claude", "claude-desktop"), pairing("VS Code", "vscode")];
 
   // protects=a User with only their own AI who never opened or folded the assistant finds it out of sight, no rail, with a pill that asks that AI about the Note; fails_when=it stays open, a rail shows, or no pill offers their AI
-  test("with an agent and no model: folded out of sight for them, no rail, and the pill asks Claude Code", async () => {
-    user(NO_MODEL, agents);
+  test("with an agent and no model: folded out of sight for them, no rail, and the pill asks it", async () => {
+    user(NO_MODEL, desktop);
     const shown = await windowShown();
     expect(shown).toEqual({
       folded: true,
       rail: false,
       quiet: true,
-      pill: { mindId: MIND, documentId: null, agents },
+      pill: { mindId: MIND, documentId: null, agents: desktop },
     });
     expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
   });
 
+  // protects=a Note whose agent IncarnaMind runs in the background asks from its own input at its foot, so the pill gives way there (#3627); fails_when=the pill and the Note's input both offer to ask
+  test("a Note whose agent runs in the background has its own input, not the pill", async () => {
+    user(NO_MODEL, agents);
+    expect(await windowShown()).toEqual({ folded: true, rail: false, quiet: true, pill: null });
+  });
+
   // protects=with only their own AI the panel is never shown, even where they opened or folded it themselves before (#3612): no panel, no rail, and the pill asks; one they had open is folded for their AI, so a window opened again shows nothing of it before their AI is known; fails_when=a place they kept brings the panel or its rail back
   test("a place they kept is out of sight too, with the pill", async () => {
-    user(NO_MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: false, foldedBy: "user" });
+    user(NO_MODEL, desktop, "en", { ...DEFAULT_ASSISTANT, folded: false, foldedBy: "user" });
     expect(await windowShown()).toEqual({
       folded: true,
       rail: false,
       quiet: true,
-      pill: { mindId: MIND, documentId: null, agents },
+      pill: { mindId: MIND, documentId: null, agents: desktop },
     });
     expect(useAppStore.getState().layout?.assistant.foldedBy).toBe("agent");
     await unmount?.();
-    user(NO_MODEL, agents, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "user" });
+    user(NO_MODEL, desktop, "en", { ...DEFAULT_ASSISTANT, folded: true, foldedBy: "user" });
     expect(await windowShown()).toEqual({
       folded: true,
       rail: false,
       quiet: true,
-      pill: { mindId: MIND, documentId: null, agents },
+      pill: { mindId: MIND, documentId: null, agents: desktop },
     });
   });
 
