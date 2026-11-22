@@ -120,11 +120,18 @@ function runner(
  * Claude Code connected, allowed to propose changes unless `readOnly`. `cited`: the Note's first
  * sentence rests on the report with a Citation after it.
  */
-async function written(ownAi: OwnAiRunner, { readOnly = false, cited = false } = {}) {
+async function written(
+  ownAi: OwnAiRunner,
+  {
+    readOnly = false,
+    cited = false,
+    quietMs,
+  }: { readOnly?: boolean; cited?: boolean; quietMs?: number } = {},
+) {
   const canvasFiles = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
   const started = await startAgentsCore(
     checkingModel({}, []),
-    { canvasFiles, ownAi },
+    { canvasFiles, ownAi, ...(quietMs !== undefined && { ownAiQuietMs: quietMs }) },
     { modelSetUp: false },
   );
   const { core } = started;
@@ -294,6 +301,48 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
         { kind: "call", tool: "read_passages", summary: "Report", count: 1 },
       ]),
     );
+  });
+
+  // protects=a run that has sent nothing for a while is said to be quiet, and no longer once it sends again; fails_when=the line stays the same for minutes with nothing to say the AI is silent
+  it("says when the AI has sent nothing for a while", async () => {
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "said", text: "Reading the report" });
+      await pause(900);
+      request.progress?.({ kind: "heard" });
+      await pause(500);
+      return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 300 });
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    expect(await ended()).toMatchObject({ state: "landed", quiet: false });
+    const working = turns.filter((turn) => turn.state === "working");
+    const quiet = working.findIndex((turn) => turn.quiet);
+    expect(working[quiet]?.doing).toEqual({ kind: "said", text: "Reading the report" });
+    expect(working.slice(quiet + 1).some((turn) => !turn.quiet)).toBe(true);
+    expect(working.slice(0, quiet).every((turn) => !turn.quiet)).toBe(true);
+  });
+
+  // protects=a Note the AI writes is named with its id at the end, so the line can open it; fails_when=the line says it wrote a Note the User has no way to open
+  it("names the Note it wrote, to open", async () => {
+    let wrote = "";
+    const run = runner(async (agent) => {
+      wrote = structured<{ mindId: string }>(
+        await agent.callTool({
+          name: "create_mind",
+          arguments: { title: "Ferry summary", markdown: "The ferry carried passengers." },
+        }),
+      ).mindId;
+      return { kind: "finished", reply: "I wrote “Ferry summary”." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "summarise the report in a new note" });
+    const end = await ended();
+    expect(wrote).not.toBe("");
+    expect(end).toMatchObject({
+      state: "landed",
+      made: [{ mindId: wrote, title: "Ferry summary" }],
+    });
   });
 
   // protects=once a turn has ended, a call of its run that finishes later tells no window it is working again; fails_when=the input stays on Working for good, with nothing to stop

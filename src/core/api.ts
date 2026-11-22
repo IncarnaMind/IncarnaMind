@@ -13376,8 +13376,11 @@ export interface NoteTurnEvent {
   startedAt: string;
   applied: NoteChangeApplied[];
   waiting: { mindId: string; title: string; count: number }[];
-  made: { title: string }[];
+  /** The Notes it wrote, to open from the line. */
+  made: { mindId: string; title: string }[];
   fresh: boolean;
+  /** While it works: the AI has sent nothing for a while, and no call of it runs here. */
+  quiet: boolean;
 }
 
 /**

@@ -54,7 +54,7 @@ test.afterEach(async () => {
 });
 
 /** What the stand-in does at its next start. */
-const nextRun = (mode: "change" | "outside" | "explain" | "wait" | "signed-out") =>
+const nextRun = (mode: "change" | "outside" | "explain" | "wait" | "signed-out" | "write") =>
   writeFile(join(bin, "mode"), mode);
 
 async function shot(window: Page, name: string) {
@@ -143,6 +143,11 @@ test("a request at a Note's foot changes the selected words at once, says what i
     const input = box.getByTestId("note-ask-input");
     const pill = box.getByTestId("note-ask-pill");
     const problem = box.getByTestId("note-ask-problem");
+    const words = box.getByTestId("note-ask-pill-open");
+    // Show conversation sits at the Note's top right, beside its menu.
+    const toggle = window.locator(
+      '[data-testid="tab-group"][data-focused] [data-testid="note-ask-conversation-toggle"]',
+    );
     const send = async (words: string) => {
       await pointAndClick(window, input);
       await window.keyboard.type(words);
@@ -161,16 +166,27 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await expect(box.getByTestId("note-ask-quote")).toContainText("ship calls in 2025.");
     await nextRun("change");
     await send("Put these in capitals");
-    // The pill says it in the AI's own words; the Note marks what changed, with its Undo.
+    // The line, as wide as the input, says it in the AI's own words, with Undo at its end; the
+    // Note marks what changed, with its own Undo.
     await expect(pill).toHaveAttribute("data-state", "landed");
-    await expect(pill).toHaveText("Put the selected words in capitals.");
+    await expect(words).toHaveText("Put the selected words in capitals.");
+    const undo = box.getByTestId("note-ask-undo");
+    await expect(undo).toHaveText("Undo");
+    const [lineBox, inputBox] = [
+      await pill.boundingBox(),
+      await box.getByTestId("note-ask-input").locator("xpath=../..").boundingBox(),
+    ];
+    expect(Math.abs((lineBox?.width ?? 0) - (inputBox?.width ?? 0))).toBeLessThanOrEqual(2);
     await expect(frontMind(window)).toContainText("The harbour handled 1,240 SHIP CALLS IN 2025.");
     await expect(frontMind(window)).toContainText(SECOND);
     expect(await urlsOpened(app)).toEqual([]);
     expect(await copied(window)).toBe("");
     await both(app, window, "note-ask-done", async () => {
-      await expect(pill).toHaveAttribute("data-state", "landed");
+      await expect(undo).toHaveText("撤销");
     });
+    await pointAndClick(window, undo);
+    await expect(frontMind(window)).toContainText("The harbour handled 1,240 ship calls in 2025.");
+    await expect(undo).toHaveCount(0);
 
     // While it works: the pill says what it is doing, in its own words, and counts the seconds;
     // Send is Stop, which stops it at once and leaves nothing behind.
@@ -203,26 +219,23 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await nextRun("explain");
     await send("What does this count?");
     await expect(pill).toHaveText("It counts the ship calls the harbour handled in 2025.");
-    // Pressed, the pill opens into the whole reply; the reply is in one place at a time.
-    await pointAndClick(window, box.getByTestId("note-ask-pill-open"));
-    const card = box.getByTestId("note-ask-card");
-    await expect(card).toContainText("It counts the ship calls the harbour handled in 2025.");
-    await expect(pill).toHaveCount(0);
-    await both(app, window, "note-ask-card", async () => {
-      await expect(card.getByTestId("note-ask-open-chat")).toHaveText("在对话中打开");
-    });
-    await pointAndClick(window, box.getByTestId("note-ask-card-close"));
-    await expect(card).toHaveCount(0);
-
-    // The conversation opens on request: each request that went, and its reply.
-    await pointAndClick(window, box.getByTestId("note-ask-conversation-toggle"));
+    // Pressed, the line opens the conversation at that reply: the reply is in one place at a time.
+    await expect(toggle).toHaveText("Show conversation");
+    await pointAndClick(window, words);
     const conversation = box.getByTestId("note-ask-conversation");
     await expect(conversation.getByTestId("note-ask-turn")).toHaveCount(3);
+    await expect(conversation.getByTestId("note-ask-turn").last()).toContainText(
+      "It counts the ship calls the harbour handled in 2025.",
+    );
     await expect(conversation).toContainText("Put these in capitals");
+    await expect(pill).toHaveCount(0);
+    await expect(toggle).toHaveText("Hide conversation");
     await both(app, window, "note-ask-conversation", async () => {
-      await expect(box.getByTestId("note-ask-conversation-toggle")).toHaveText("隐藏对话");
+      await expect(toggle).toHaveText("隐藏对话");
     });
-    await pointAndClick(window, box.getByTestId("note-ask-conversation-toggle"));
+    await pointAndClick(window, toggle);
+    await expect(conversation).toHaveCount(0);
+    await expect(pill).toHaveText("It counts the ship calls the harbour handled in 2025.");
 
     // A connection that may only read is let to propose changes here, and the request goes again.
     await window.evaluate(async (id) => {
@@ -238,7 +251,7 @@ test("a request at a Note's foot changes the selected words at once, says what i
       await expect(problem).toContainText("Claude Code 只能读取。允许它提出修改吗？");
     });
     await pointAndClick(window, box.getByTestId("note-ask-allow"));
-    await expect(pill).toHaveText("Put the selected words in capitals.");
+    await expect(words).toHaveText("Put the selected words in capitals.");
     await expect(frontMind(window)).toContainText("Harbour pilots went on strike IN JULY.");
     const propose = await window.evaluate(async (id) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -270,6 +283,19 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await expect(frontMind(window).locator("ins[data-proposal-id]")).toHaveCount(0);
     await expect(frontMind(window)).toContainText("HARBOUR PILOTS WENT ON STRIKE IN JULY.");
     await expect(box.getByTestId("note-ask-accept-all")).toHaveCount(0);
+
+    // A Note it wrote opens from the line's end, in one press.
+    await nextRun("write");
+    await send("Write this up as a new note");
+    await expect(words).toHaveText("I wrote a new note, “Ferry summary”, from this one.");
+    const openIt = box.getByTestId("note-ask-open");
+    await expect(openIt).toHaveText("Open “Ferry summary”");
+    await both(app, window, "note-ask-wrote", async () => {
+      await expect(openIt).toHaveText("打开“Ferry summary”");
+    });
+    await pointAndClick(window, openIt);
+    await expect(frontMind(window)).toContainText("The harbour handled 1,240 ship calls in 2025.");
+    await expect(frontMind(window)).not.toContainText(SECOND);
   } finally {
     await app.close();
   }

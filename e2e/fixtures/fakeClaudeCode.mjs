@@ -5,7 +5,7 @@
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped;
 // "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
 // foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
-// "explain" answers and changes nothing.
+// "explain" answers and changes nothing; "write" writes a new Note, "Ferry summary".
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -86,6 +86,20 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         subtype: "success",
         is_error: false,
         result: "It counts the ship calls the harbour handled in 2025.",
+      });
+      return;
+    }
+    if (mode === "write") {
+      await use("create_mind", {
+        title: "Ferry summary",
+        markdown: "The harbour handled 1,240 ship calls in 2025.",
+      });
+      await agent.close();
+      say({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "I wrote a new note, “Ferry summary”, from this one.",
       });
       return;
     }

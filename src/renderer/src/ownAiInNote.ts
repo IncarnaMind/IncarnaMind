@@ -49,6 +49,8 @@ export interface NoteAsk {
   waiting: NoteTurnEvent["waiting"];
   made: NoteTurnEvent["made"];
   fresh: boolean;
+  /** While it works, the AI has sent nothing for a while. */
+  quiet: boolean;
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -56,6 +58,18 @@ export interface NoteAsk {
 export const useNoteAsks = create<{ byMind: Readonly<Record<string, NoteAsk>> }>(() => ({
   byMind: {},
 }));
+
+/** The Notes whose conversation shows, opened at their top right or from the line's reply. */
+export const useConversationShown = create<{ byMind: Readonly<Record<string, true>> }>(() => ({
+  byMind: {},
+}));
+
+export function showConversation(mindId: string, shown: boolean): void {
+  useConversationShown.setState((state) => {
+    const { [mindId]: _was, ...rest } = state.byMind;
+    return { byMind: shown ? { ...rest, [mindId]: true } : rest };
+  });
+}
 
 /** The turns this window asked for, whose changes it applies. */
 const askedHere = new Set<string>();
@@ -125,6 +139,7 @@ function heard(event: NoteTurnEvent): void {
     waiting: event.waiting,
     made: event.made,
     fresh: event.fresh,
+    quiet: event.state === "working" && event.quiet,
     asked: was?.asked ?? { words: "", quote: "", selection: null },
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
@@ -189,6 +204,7 @@ export async function askInNote(
     waiting: [],
     made: [],
     fresh: false,
+    quiet: false,
     asked,
   };
   if (start.kind === "started") askedHere.add(start.turnId);

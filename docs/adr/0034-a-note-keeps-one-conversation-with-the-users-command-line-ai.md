@@ -144,17 +144,18 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
   - Its placeholder says what it is for ("Describe a change…" / "描述要做的修改…").
   - With text selected, a chip above it quotes the selection's start ("“The harbour handled…”") with ✕ to drop it.
   - Return sends, and Shift+Return makes a new line.
-- **One pill above it, centred, one line** (#3677), as the User's AI app shows its own:
-  - while the request runs: a small moving mark, "Working", then what the AI is doing, in its own words where it wrote some (it is asked to say in a few words what it is about to do before each step), else what it is reading and where ("Reading “Interview 3” · 4 read"), else "Thinking"; and the seconds since the request, from the third;
-  - when it ends: the first words of the AI's reply, cut to one line, with "Accept all" at its right end while changes wait in the Note, in place of the line across the top of the Note. Pressed, the pill opens into a card in its place: the whole reply, formatted, a close, and "Accept all" and "Open in chat" under it. The reply is in one place at a time: the pill, its card or the conversation.
-  - the run's thinking itself arrives empty in Claude Code's stream, so the pill can't show it; the words come from the lines the AI writes between its steps, and from its reply as it writes it.
+- **One line above it, alone in its row** (#3677), as the User's AI app shows its own:
+  - while the request runs, a small pill in the middle: a moving mark, "Working", then what the AI is doing, in its own words where it wrote some (it is asked to say in a few words what it is about to do before each step), else what it is reading and how many so far ("Reading “Interview 3” · 4 read"), else "Thinking"; and the seconds since the request, from the third. Once the AI has sent nothing for 30 seconds, no call of it running in IncarnaMind, it says "Still waiting for {agent}…" until something comes;
+  - when it ends, a line as wide as the input: the first words of the AI's reply, cut to one line, and one action at its end. "Accept all" while changes wait in the Note, in place of the line across the top of the Note; else "Open “…”" for a Note it wrote, or left changes waiting in, which opens it (at the first change that waits); else "Undo" while what it changed in the Note can still be undone. With no reply, the line says what it did, and the Notes it names open from there.
+  - Pressed, the line opens the conversation at that reply. The reply is in one place at a time: the line or the conversation. The User's AI app opens a card in place first; ours goes straight to the conversation (the owner, 2026-11-22).
+  - the run's thinking itself arrives empty in Claude Code's stream, so the line can't show it; the words come from the lines the AI writes between its steps, and from its reply as it writes it.
 
-  The pill goes when the User types the next request. An applied change stays marked in the Note with its Undo, unlike the User's AI app, where a direct change leaves no mark.
+  The line goes when the User types the next request. An applied change stays marked in the Note with its Undo, unlike the User's AI app, where a direct change leaves no mark.
 - **Stop:**
-  - While a run goes, Send is Stop (Esc too, from the input). Stop ends the run at once: the pill goes, the input is idle, and nothing is added in its place.
+  - While a run goes, Send is Stop (Esc too, from the input). Stop ends the run at once: the line goes, the input is idle, and nothing is added in its place.
   - A change that applied before Stop stays, with its Undo; a change that waits stays waiting; nothing else lands.
   - While a run goes, Return does nothing new: only Stop, and Esc, act (the owner, 2026-11-22). A selection toolbar action then sends nothing either, and a line says the AI is still working and Stop comes first.
-- **A failure,** in the pill, one line with one action, as for the check:
+- **A failure,** in the line, with one action, as for the check:
   - not signed in;
   - too old;
   - the plan's or key's limit;
@@ -167,10 +168,10 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 
   It stays until the next request or ✕.
 - **The conversation:**
-  - It is hidden; a quiet "Show conversation" (显示对话) beside the pill, or "Open in chat" in its card, opens it above the input, in the Note's column, never higher than a third of the window, so the Note stays in view.
+  - It is hidden; "Show conversation" (显示对话) at the Note's top right, beside its menu, or the line above the input, opens it above the input, in the Note's column, never higher than a third of the window, so the Note stays in view. Sending doesn't close it.
   - It lists each request (the User's words, the selection's quote) and its reply as the AI wrote it, formatted, newest last, from IncarnaMind's record.
   - Esc or "Hide conversation" closes it. It never opens by itself.
-- **Explain, Improve writing, Shorten and Translate** in the selection toolbar fill the input with their request and send it. Explain's answer shows in the pill, and its card, and changes nothing.
+- **Explain, Improve writing, Shorten and Translate** in the selection toolbar fill the input with their request and send it. Explain's answer shows in the line, and changes nothing.
 - **A run that sends nothing for six minutes is stopped,** with a plain line ("{agent} stopped answering for six minutes, so it stopped. Send it again."). While it works, Claude Code sends a tick about every second as it thinks, its words and Tool inputs as it writes them (partial messages, and fine-grained Tool streaming), and a heartbeat every 30 seconds during a Tool call; six minutes is past Claude Code's own five-minute limit for a stream with no data, so its own watchdog and retry act first. Before #3677 the only way out was the run's own 15 minutes. A check run has the same limit.
 - **What this changes in `DESIGN.md`,** by the owner's decision: "A Mind has no composer of its own" gives way, since a Note now has this one input. A change the User asked for still applies at once with Undo, as there, in the Note it was asked from. The design entry is the owner's to change.
 

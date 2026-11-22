@@ -1513,6 +1513,7 @@ export function createAgentAccess(
       throw error;
     }
     try {
+      if (grant?.kind === "conversation") grant.calling?.(tool);
       const done = await run(pairing);
       record(
         "done",

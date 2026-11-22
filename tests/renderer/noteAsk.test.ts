@@ -77,6 +77,7 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   waiting: [],
   made: [],
   fresh: false,
+  quiet: false,
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {

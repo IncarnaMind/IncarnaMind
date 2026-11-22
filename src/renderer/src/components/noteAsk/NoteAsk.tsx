@@ -1,5 +1,5 @@
 import type { Editor } from "@tiptap/react";
-import { type KeyboardEvent, useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { NoteTurn } from "../../../../core/api";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { core } from "../../core";
@@ -10,20 +10,23 @@ import {
   caretOf,
   clearNoteAsk,
   selectedForRequest,
+  showConversation,
   stopInNote,
+  useConversationShown,
   useNoteAskShown,
   useNoteAsks,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { StopIcon } from "../icons";
 import { TypingTextarea } from "../TypingTextarea";
-import { NoteAskCard, NoteAskPill, Reply } from "./NoteAskPill";
+import { NoteAskPill, Reply } from "./NoteAskPill";
 
 /**
  * The input at a Note's foot (ADR-0034, #3627), for a User whose own AI IncarnaMind runs in the
  * background, as the User's AI app shows its own (#3677): they say what they want, with the words
- * selected as its context; one pill above it says what the AI is doing and then the first words
- * of its reply; Send is Stop while it runs; and the Note's conversation opens on request.
+ * selected as its context; one line above it says what the AI is doing and then the first words
+ * of its reply; Send is Stop while it runs; and the Note's conversation opens from its top right,
+ * or from the line, at the reply.
  */
 export function NoteAsk({ mindId, editor }: { mindId: string; editor: Editor }) {
   useReadAgentsToAsk(mindId);
@@ -38,9 +41,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const [words, setWords] = useState("");
   const [quote, setQuote] = useState(() => selectedForRequest(editor.state)?.quote ?? "");
   const [whole, setWhole] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [card, setCard] = useState(false);
-  const kept = useKeptConversation(mindId, ask?.state ?? null);
+  const open = useConversationShown((state) => state.byMind[mindId] === true);
   const working = ask?.state === "working";
 
   useEffect(() => {
@@ -59,8 +60,6 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     if (typed === "" || working) return;
     const selected = whole ? null : selectedForRequest(editor.state);
     setWords("");
-    setOpen(false);
-    setCard(false);
     try {
       const went = await askInNote(mindId, {
         words: typed,
@@ -78,8 +77,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape") {
       if (working) void stopInNote(mindId);
-      else if (card) setCard(false);
-      else if (open) setOpen(false);
+      else if (open) showConversation(mindId, false);
       else return;
       event.preventDefault();
       return;
@@ -93,29 +91,18 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const placeholder = t("noteAsk.placeholder");
   return (
     <div data-testid="note-ask" data-mind-id={mindId} className="note-ask">
-      {open && <NoteConversation mindId={mindId} onClose={() => setOpen(false)} />}
-      {ask && card && !working ? (
-        <NoteAskCard
-          ask={ask}
-          mindId={mindId}
-          editor={editor}
-          onClose={() => setCard(false)}
-          onOpenChat={() => {
-            setCard(false);
-            setOpen(true);
-          }}
-        />
-      ) : (
-        <div className="note-ask-over">
-          {/* The reply is in one place at a time: the pill, its card, or the conversation. */}
-          {ask && (working || !open) && (
-            <NoteAskPill ask={ask} mindId={mindId} editor={editor} onOpen={() => setCard(true)} />
-          )}
-          {(kept || ask) && !working && (
-            <ConversationToggle open={open} onToggle={() => setOpen((was) => !was)} />
-          )}
-        </div>
-      )}
+      {open && <NoteConversation mindId={mindId} onClose={() => showConversation(mindId, false)} />}
+      <div className="note-ask-over">
+        {/* The reply is in one place at a time: the line, or the conversation. */}
+        {ask && (working || !open) && (
+          <NoteAskPill
+            ask={ask}
+            mindId={mindId}
+            editor={editor}
+            onOpen={() => showConversation(mindId, true)}
+          />
+        )}
+      </div>
       <div className="composer">
         {quote !== "" && !whole && (
           <div className="note-ask-quote">
@@ -145,10 +132,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
             value={words}
             onChange={(event) => {
               setWords(event.target.value);
-              if (ask && ask.state !== "working") {
-                clearNoteAsk(mindId);
-                setCard(false);
-              }
+              if (ask && ask.state !== "working") clearNoteAsk(mindId);
             }}
             onKeyDown={onKeyDown}
             className="composer-input"
@@ -185,42 +169,16 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   );
 }
 
-function ConversationToggle({ open, onToggle }: { open: boolean; onToggle(): void }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      data-testid="note-ask-conversation-toggle"
-      aria-expanded={open}
-      onClick={onToggle}
-      className="note-ask-toggle"
-    >
-      {t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
-    </button>
-  );
-}
-
-/** Whether the Note has a conversation kept, read as it opens and as each request ends. */
-function useKeptConversation(mindId: string, state: string | null): boolean {
-  const [kept, setKept] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request ends.
-  useEffect(() => {
-    let current = true;
-    core.noteConversation(mindId).then((turns) => {
-      if (current) setKept(turns.length > 0);
-    }, useAppStore.getState().reportError);
-    return () => {
-      current = false;
-    };
-  }, [mindId, state]);
-  return kept;
-}
-
 /** The Note's conversation, as IncarnaMind keeps it: each request and its reply, oldest first. */
 function NoteConversation({ mindId, onClose }: { mindId: string; onClose(): void }) {
   const t = useT();
   const [turns, setTurns] = useState<readonly NoteTurn[] | null>(null);
   const latest = useNoteAsks((state) => state.byMind[mindId]?.state);
+  const last = useRef<HTMLDivElement | null>(null);
+  // Opened from the line, it shows that reply: the latest, at its foot.
+  useEffect(() => {
+    if (turns?.length) last.current?.scrollIntoView({ block: "end" });
+  }, [turns]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request ends.
   useEffect(() => {
     let current = true;
@@ -247,8 +205,13 @@ function NoteConversation({ mindId, onClose }: { mindId: string; onClose(): void
       }}
     >
       {turns?.length === 0 && <p className="note-ask-empty">{t("noteAsk.conversationEmpty")}</p>}
-      {turns?.map((turn) => (
-        <div key={turn.id} data-testid="note-ask-turn" className="note-ask-turn">
+      {turns?.map((turn, at) => (
+        <div
+          key={turn.id}
+          ref={at === turns.length - 1 ? last : undefined}
+          data-testid="note-ask-turn"
+          className="note-ask-turn"
+        >
           <p className="note-ask-request">
             {turn.request}
             {turn.quote !== "" && <span className="note-ask-turn-quote"> “{turn.quote}”</span>}

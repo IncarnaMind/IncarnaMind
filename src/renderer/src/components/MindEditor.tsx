@@ -223,6 +223,7 @@ import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
 import { meetingTemplateSlashItems } from "./meetings/MeetingTemplatePicker";
 import { NoteAsk } from "./noteAsk/NoteAsk";
+import { NoteConversationToggle } from "./noteAsk/NoteConversationToggle";
 import { useTabPlace } from "./tabs/tabItems";
 
 /** The Block at the top of the Note's view, and how far into it the view starts. */
@@ -1291,6 +1292,7 @@ function MindEditorView({
               {showingNotes && reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
+              {showingNotes && !readOnly && <NoteConversationToggle mindId={mindId} />}
               {showingNotes && <CommentsButton editor={editor} mindId={mindId} doc={doc} />}
               <PageMenu
                 editor={editor}

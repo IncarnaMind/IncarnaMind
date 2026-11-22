@@ -42,6 +42,11 @@ const MAX_WORDS = 4000;
 const TELL_EVERY_MS = 200;
 /** The AI's words show once they say something: a first word alone doesn't. */
 const SAID_FROM = 12;
+/**
+ * How long a run may send nothing, no call of it running here, before the line says it is still
+ * waiting for the AI: a line that doesn't change for longer reads as stuck (#3677).
+ */
+const QUIET_MS = 30_000;
 const isAgentTool = (name: string): name is AgentToolName =>
   (AGENT_TOOLS as readonly string[]).includes(name);
 const MAX_QUOTE = 4000;
@@ -84,6 +89,8 @@ export interface OwnAiConversationsOptions {
   now(): string;
   lifetime: AbortSignal;
   log: Logger;
+  /** How long a run may send nothing before the line says so; QUIET_MS by default. */
+  quietMs?: number;
 }
 
 interface ConversationRow {
@@ -241,6 +248,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         waiting: [],
         made: [],
         fresh: false,
+        quiet: false,
         ...rest,
         ...outcome,
         reply,
@@ -379,7 +387,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const named = new Map<string, Set<string>>();
     const applied: NoteChangeApplied[] = [];
     const waiting = new Map<string, { mindId: string; title: string; count: number }>();
-    const made: { title: string }[] = [];
+    const made: { mindId: string; title: string }[] = [];
     let readOnly = false;
     let lost: NoteTurnProblem | null = null;
     const event = (rest: Partial<NoteTurnEvent> & Pick<NoteTurnEvent, "state">): NoteTurnEvent => ({
@@ -394,6 +402,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       waiting: [...waiting.values()],
       made,
       fresh: false,
+      quiet,
       ...rest,
     });
     const tell = (each: NoteTurnEvent) => {
@@ -421,6 +430,25 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     // User's AI app shows a thought for its step; with none, the line says the call itself.
     let saidForStep = false;
     let calledSince = false;
+    // When the run last sent anything, or a call of it here started or ended; the calls running.
+    let heardAt = Date.now();
+    let calls = 0;
+    let quiet = false;
+    const heard = () => {
+      heardAt = Date.now();
+      if (!quiet) return;
+      quiet = false;
+      tellWorking();
+    };
+    const quietMs = options.quietMs ?? QUIET_MS;
+    const listening = setInterval(
+      () => {
+        if (quiet || over || signal.aborted || calls > 0 || Date.now() - heardAt < quietMs) return;
+        quiet = true;
+        tell(event({ state: "working" }));
+      },
+      Math.min(1_000, quietMs / 4),
+    );
     const doingCall = (tool: AgentToolName, summary: string) => {
       const seen = named.get(tool) ?? new Set<string>();
       if (summary !== "") seen.add(summary);
@@ -430,6 +458,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     };
     const progress = (step: OwnAiProgress) => {
       if (signal.aborted || over) return;
+      heard();
+      if (step.kind === "heard") return;
       if (step.kind === "said") {
         written = step.text;
         // Its first word or two say nothing yet.
@@ -453,11 +483,22 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       { mindId, selection: turn.selection, words: turn.request },
       {
         asked: (change) => applied.push(change),
+        calling: () => {
+          calls += 1;
+          heard();
+        },
         called: (call) => {
+          calls = Math.max(0, calls - 1);
           if (signal.aborted || over) return;
+          heard();
           if (call.outcome === "refused" && call.problem === "read-only") readOnly = true;
-          if (call.outcome === "done" && call.tool === "create_mind")
-            made.push({ title: call.summary });
+          if (call.outcome === "done" && call.tool === "create_mind") {
+            const wrote = call.effects.find(
+              (each) => each.action === "write" && each.scope.kind === "mind",
+            );
+            const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
+            if (mindId !== "") made.push({ mindId, title: call.summary });
+          }
           if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
             for (const { scope } of call.effects) {
               if (scope.kind !== "mind") continue;
@@ -527,6 +568,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       }
     } finally {
       over = true;
+      clearInterval(listening);
       offReach();
       if (pending !== null) clearTimeout(pending);
       pending = null;

@@ -1689,7 +1689,9 @@
     color: var(--color-ink-meta);
   }
   /* "Changes (3)" at the page's top right, while the pane is folded or over the page. */
-  .review-fold {
+  /* Show conversation (#3677) beside it at the Note's top right, alike. */
+  .review-fold,
+  .note-ask-toggle {
     height: 28px;
     padding: 0 8px;
     border-radius: 6px;
@@ -2573,17 +2575,11 @@
     flex-direction: column;
     gap: 6px;
   }
-  /* The row above the input: the pill in the middle, the conversation's toggle at the right. */
+  /* The row above the input, with the line alone: small in the middle while a request runs. */
   .note-ask-over {
-    position: relative;
     display: flex;
     justify-content: center;
     min-height: 28px;
-  }
-  .note-ask-over > .note-ask-toggle {
-    position: absolute;
-    right: 0;
-    bottom: 4px;
   }
   .note-ask-pill {
     display: inline-flex;
@@ -2601,8 +2597,12 @@
     line-height: 20px;
     color: var(--color-ink-meta);
   }
-  .note-ask-over:has(> .note-ask-toggle) > .note-ask-pill {
-    max-width: min(calc(100% - 320px), 560px);
+  /* Once it ends, as wide as the input, its one action at the end. */
+  .note-ask-pill.note-ask-end {
+    width: 100%;
+    max-width: none;
+    justify-content: space-between;
+    border-radius: 10px;
   }
   .note-ask-pill-text {
     min-width: 0;
@@ -2627,6 +2627,21 @@
     flex: none;
     font-weight: 600;
     color: var(--color-accent);
+    &:hover {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+  }
+  .note-ask-pill-open-note {
+    flex: 0 1 auto;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .note-ask-pill-name {
+    color: var(--color-ink);
+    font-weight: 600;
     &:hover {
       text-decoration: underline;
       text-underline-offset: 3px;
@@ -2665,54 +2680,6 @@
     40% {
       opacity: 1;
     }
-  }
-  .note-ask-toggle {
-    flex: none;
-    font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
-    color: var(--color-ink-meta);
-    text-decoration: underline;
-    text-decoration-color: var(--color-rule-strong);
-    text-underline-offset: 3px;
-    &:hover {
-      color: var(--color-ink);
-    }
-  }
-  /* The reply opened from the pill, in its place. */
-  .note-ask-card {
-    position: relative;
-    max-height: 40vh;
-    overflow: auto;
-    padding: 12px 36px 12px 16px;
-    border: 1px solid var(--color-rule);
-    border-radius: 12px;
-    background: var(--color-sheet);
-    box-shadow: var(--shadow-popover);
-  }
-  .note-ask-card-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    color: var(--color-ink-meta);
-    &:hover {
-      background: var(--color-hover);
-      color: var(--color-ink);
-    }
-  }
-  .note-ask-card-actions {
-    display: flex;
-    gap: 16px;
-    margin-top: 8px;
-    font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 20px;
   }
   /* A reply as the AI wrote it, at the size of the app's reading text in a narrow place. */
   .note-ask-reply-text {

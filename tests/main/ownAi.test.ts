@@ -546,7 +546,7 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
     await expect(ask(undefined, 500)).resolves.toEqual({ kind: "finished", reply: "Checked." });
   });
 
-  // protects=what the run says to the User between its calls, and each call as it starts, reach IncarnaMind as they come; fails_when=the line can only show a call once it has ended
+  // protects=what the run says to the User between its calls, and each call as it starts, reach IncarnaMind as they come, and so does that it sent anything, at most once a second; fails_when=the line can only show a call once it has ended, or can't tell a silent run from a busy one
   it("says what the run is doing as its stream tells it", async () => {
     const steps: unknown[] = [];
     const part = (event: unknown) => ({ type: "stream_event", event });
@@ -577,7 +577,9 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       kind: "finished",
       reply: "Checked.",
     });
+    // That something came at all is told once here: the whole stream came within a second.
     expect(steps).toEqual([
+      { kind: "heard" },
       { kind: "said", text: "Reading " },
       { kind: "said", text: "Reading the tides" },
       { kind: "tool", name: "search" },

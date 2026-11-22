@@ -39,6 +39,9 @@ const STATUS_MS = 15_000;
  */
 const STALL_MS = 6 * 60_000;
 
+/** How often the core hears that the run is alive, whatever it sent. */
+const HEARD_EVERY_MS = 1_000;
+
 /** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
 const NOTHING_TO_PURGE = /No Claude Code project data found/;
 const SERVER = "incarnamind";
@@ -198,6 +201,7 @@ export function createOwnAi({
       let begun = false;
       // The words of the text block being written, as its pieces come.
       let written = "";
+      let toldHeard = 0;
       const heardPart = (event: Record<string, unknown>) => {
         const block = object(event.content_block);
         const delta = object(event.delta);
@@ -242,6 +246,10 @@ export function createOwnAi({
           partial: true,
           stallMs,
           onMessage(message) {
+            if (Date.now() - toldHeard >= HEARD_EVERY_MS) {
+              toldHeard = Date.now();
+              request.progress?.({ kind: "heard" });
+            }
             if (message.type === "stream_event") {
               if (begun) heardPart(object(message.event));
               return;

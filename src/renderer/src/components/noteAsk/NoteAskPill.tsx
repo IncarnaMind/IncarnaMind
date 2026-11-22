@@ -1,15 +1,16 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { AgentToolName } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
-import { RemoveIcon } from "../../editor/icons";
+import { undoAsked, useAskedState } from "../../askedChanges";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
+import { showWaitingChanges } from "../../mindChanges";
 import { allowAndAskAgain, firstWordsOf, type NoteAsk, withoutCitations } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
@@ -53,9 +54,46 @@ export function useWaitingInNote(editor: Editor): number {
   });
 }
 
+/** The other Notes it wrote, or left changes waiting in: the one in front has them before the User. */
+const elsewhereOf = (ask: NoteAsk, mindId: string) => ({
+  made: ask.made.filter((each) => each.mindId !== mindId),
+  waiting: ask.waiting.filter((each) => each.mindId !== mindId),
+});
+
+const openNote = (mindId: string) => useAppStore.getState().openMind(mindId);
+
+/** A sentence of the line, with the Note it names as a button that opens it. */
+function Naming({
+  said,
+  title,
+  onOpen,
+}: {
+  said: (title: string) => string;
+  title: string;
+  onOpen(): void;
+}) {
+  const [before = "", after = ""] = said("\u0000").split("\u0000");
+  return (
+    <span>
+      {before}
+      <button
+        type="button"
+        data-testid="note-ask-open-note"
+        onClick={onOpen}
+        className="note-ask-pill-name"
+      >
+        {title}
+      </button>
+      {after}
+    </span>
+  );
+}
+
 /** What the AI did, in IncarnaMind's words, for a reply that says nothing of it. */
-function factsOf(ask: NoteAsk, t: Translate): string {
-  const did = [
+function Facts({ ask, mindId }: { ask: NoteAsk; mindId: string }) {
+  const t = useT();
+  const { made, waiting } = elsewhereOf(ask, mindId);
+  const did: ReactNode[] = [
     ...(ask.changed > 0
       ? [
           t(ask.changed === 1 ? "noteAsk.done.changed.one" : "noteAsk.done.changed.other", {
@@ -63,20 +101,41 @@ function factsOf(ask: NoteAsk, t: Translate): string {
           }),
         ]
       : []),
-    ...ask.waiting.map((each) =>
-      t(each.count === 1 ? "noteAsk.done.waiting.one" : "noteAsk.done.waiting.other", {
-        count: each.count,
-        title: each.title,
-      }),
-    ),
-    ...ask.made.map((each) => t("noteAsk.done.wrote", { title: each.title })),
+    ...waiting.map((each) => (
+      <Naming
+        key={`waiting-${each.mindId}`}
+        said={(title) =>
+          t(each.count === 1 ? "noteAsk.done.waiting.one" : "noteAsk.done.waiting.other", {
+            count: each.count,
+            title,
+          })
+        }
+        title={each.title}
+        onOpen={() => showWaitingChanges(each.mindId)}
+      />
+    )),
+    ...made.map((each) => (
+      <Naming
+        key={`made-${each.mindId}`}
+        said={(title) => t("noteAsk.done.wrote", { title })}
+        title={each.title}
+        onOpen={() => openNote(each.mindId)}
+      />
+    )),
   ];
-  return did.length > 0 ? did.join(" ") : t("noteAsk.done.nothing", { agent: ask.agent });
+  return (
+    <span data-testid="note-ask-facts" className="note-ask-pill-text note-ask-pill-reply">
+      {did.length > 0
+        ? did.flatMap((each, at) => (at === 0 ? [each] : [" ", each]))
+        : t("noteAsk.done.nothing", { agent: ask.agent })}
+    </span>
+  );
 }
 
 /** What a running request is doing, in the AI's own words where it wrote some. */
 function doingOf(ask: NoteAsk, t: Translate): string {
   const { doing } = ask;
+  if (ask.quiet) return t("noteAsk.pill.quiet", { agent: ask.agent });
   if (doing === null) return t("noteAsk.pill.working");
   if (doing.kind === "thinking") return t("noteAsk.pill.thinking");
   if (doing.kind === "said") {
@@ -114,10 +173,10 @@ function useSeconds(startedAt: string | null, counting: boolean): number {
 }
 
 /**
- * The one line above a Note's input (#3677), as the User's AI app shows it: while a request runs,
- * what the AI is doing, in its own words where it wrote some, and the seconds since the request;
- * when it ends, the first words of its reply, with Accept all while its changes wait. Pressed, it
- * opens into the whole reply.
+ * The one line above a Note's input (#3677), as the User's AI app shows it: while a request runs, a
+ * small line in the middle of what the AI is doing, in its own words where it wrote some, and the
+ * seconds since the request; when it ends, a line as wide as the input of its reply's first words,
+ * with the one thing to do next at its end. Pressed, the reply opens in the conversation.
  */
 export function NoteAskPill({
   ask,
@@ -133,7 +192,6 @@ export function NoteAskPill({
   const t = useT();
   const working = ask.state === "working";
   const seconds = useSeconds(ask.startedAt, working);
-  const waiting = useWaitingInNote(editor);
   if (working) {
     return (
       <div
@@ -162,7 +220,7 @@ export function NoteAskPill({
   if (ask.state === "failed") {
     const readOnly = ask.problem === "read-only";
     return (
-      <div data-testid="note-ask-pill" data-state="failed" className="note-ask-pill">
+      <div data-testid="note-ask-pill" data-state="failed" className="note-ask-pill note-ask-end">
         <ProblemLine
           testId="note-ask-problem"
           role={readOnly ? "status" : "alert"}
@@ -189,94 +247,88 @@ export function NoteAskPill({
       </div>
     );
   }
-  const words = firstWordsOf(ask.reply) || factsOf(ask, t);
+  const words = firstWordsOf(ask.reply);
   return (
-    <div data-testid="note-ask-pill" data-state="landed" className="note-ask-pill">
-      <button
-        type="button"
-        data-testid="note-ask-pill-open"
-        aria-haspopup="dialog"
-        onClick={onOpen}
-        className="note-ask-pill-text note-ask-pill-reply"
-      >
-        {words}
-      </button>
-      {waiting > 0 && <AcceptAll editor={editor} mindId={mindId} testId="note-ask-accept-all" />}
+    <div data-testid="note-ask-pill" data-state="landed" className="note-ask-pill note-ask-end">
+      {words === "" ? (
+        <Facts ask={ask} mindId={mindId} />
+      ) : (
+        <button
+          type="button"
+          data-testid="note-ask-pill-open"
+          onClick={onOpen}
+          className="note-ask-pill-text note-ask-pill-reply"
+        >
+          {words}
+        </button>
+      )}
+      <EndAction ask={ask} mindId={mindId} editor={editor} named={words === ""} />
     </div>
   );
 }
 
-function AcceptAll({ editor, mindId, testId }: { editor: Editor; mindId: string; testId: string }) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      onClick={() => resolveProposalsIn(editor, mindId, "all", "accept")}
-      className="note-ask-pill-action"
-    >
-      {t("proposal.acceptAll")}
-    </button>
-  );
-}
-
-/** The whole reply, opened from the pill in its place: Accept all while changes wait, and the conversation. */
-export function NoteAskCard({
+/**
+ * The one thing to do next, at the line's end: Accept all while its changes wait in the Note; else
+ * open the Note it wrote, or left changes waiting in, unless the line names it already; else Undo,
+ * while what it changed here can still be undone.
+ */
+function EndAction({
   ask,
   mindId,
   editor,
-  onClose,
-  onOpenChat,
+  named,
 }: {
   ask: NoteAsk;
   mindId: string;
   editor: Editor;
-  onClose(): void;
-  onOpenChat(): void;
+  named: boolean;
 }) {
   const t = useT();
   const waiting = useWaitingInNote(editor);
-  return (
-    <section
-      data-testid="note-ask-card"
-      aria-label={t("noteAsk.reply")}
-      className="note-ask-card"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          onClose();
-        }
-      }}
-    >
+  const undoable = useAskedState(ask.turnId ?? "", mindId) === "can-undo";
+  if (waiting > 0) {
+    return (
       <button
         type="button"
-        data-testid="note-ask-card-close"
-        aria-label={t("checks.close")}
-        title={t("checks.close")}
-        onClick={onClose}
-        className="note-ask-card-close"
+        data-testid="note-ask-accept-all"
+        onClick={() => resolveProposalsIn(editor, mindId, "all", "accept")}
+        className="note-ask-pill-action"
       >
-        <RemoveIcon className="size-3" />
+        {t("proposal.acceptAll")}
       </button>
-      {ask.reply === "" ? (
-        <p className="note-ask-reply-text">{factsOf(ask, t)}</p>
-      ) : (
-        <Reply text={ask.reply} />
-      )}
-      <div className="note-ask-card-actions">
-        {waiting > 0 && (
-          <AcceptAll editor={editor} mindId={mindId} testId="note-ask-card-accept-all" />
-        )}
-        <button
-          type="button"
-          data-testid="note-ask-open-chat"
-          onClick={onOpenChat}
-          className="note-ask-pill-action"
-        >
-          {t("noteAsk.openInChat")}
-        </button>
-      </div>
-    </section>
+    );
+  }
+  const { made, waiting: elsewhere } = elsewhereOf(ask, mindId);
+  const [wrote] = made;
+  const [left] = elsewhere;
+  const other = named
+    ? undefined
+    : wrote
+      ? { ...wrote, waits: false }
+      : left && { ...left, waits: true };
+  if (other) {
+    return (
+      <button
+        type="button"
+        data-testid="note-ask-open"
+        onClick={() => (other.waits ? showWaitingChanges(other.mindId) : openNote(other.mindId))}
+        className="note-ask-pill-action note-ask-pill-open-note"
+      >
+        {t("noteAsk.open", { title: other.title })}
+      </button>
+    );
+  }
+  if (!undoable || ask.turnId === null) return null;
+  const { turnId } = ask;
+  return (
+    <button
+      type="button"
+      data-testid="note-ask-undo"
+      onClick={() => undoAsked(turnId, mindId)}
+      className="note-ask-pill-action"
+    >
+      {t("edit.applied.undo")}
+    </button>
   );
 }
 
