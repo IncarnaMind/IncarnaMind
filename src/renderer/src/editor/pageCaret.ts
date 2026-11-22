@@ -3,18 +3,12 @@ import { AllSelection, Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 /**
- * The caret a click left in a selection, read before the key that follows it. A click inside
- * selected words leaves the caret to the page, which tells the editor only after a key pressed
- * at once has been handled: ⌘K then saw the words still selected, as after find's match, and
- * opened the link field instead of ⌘K (#3414, as #2279 does for Shift-click).
+ * Chromium can deliver a key before selectionchange after a click (#3414) or a native caret
+ * move. Read the visible caret before commands such as opening a link or splitting a paragraph.
  */
 export function caretFromPage(view: EditorView): void {
   const { selection } = view.state;
-  if (
-    view.composing ||
-    selection.empty ||
-    !(selection instanceof TextSelection || selection instanceof AllSelection)
-  )
+  if (view.composing || !(selection instanceof TextSelection || selection instanceof AllSelection))
     return;
   const shown = view.dom.ownerDocument.getSelection();
   const node = shown?.focusNode;
@@ -26,6 +20,7 @@ export function caretFromPage(view: EditorView): void {
     return;
   }
   if (at < 0 || at > view.state.doc.content.size) return;
+  if (selection.empty && selection.from === at) return;
   view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at))));
 }
 

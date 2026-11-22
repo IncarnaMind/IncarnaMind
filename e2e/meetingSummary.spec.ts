@@ -489,7 +489,19 @@ for (const language of ["en", "zh-CN"] as const) {
       const savedOverview = focused.getByTestId("meeting-summary-text");
       const quoteReview = focused.getByTestId("meeting-summary-candidates");
       await expect(quoteReview).toBeVisible();
-      await pointAndClick(reopened.window, savedOverview);
+      await savedOverview
+        .locator("p")
+        .first()
+        .click({ position: { x: 2, y: 6 } });
+      await reopened.window.keyboard.press(
+        process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End",
+      );
+      await reopened.window.keyboard.press("Enter");
+      await expect(savedOverview.locator(":scope > p")).toHaveText([
+        words.overview,
+        words.addition,
+        "",
+      ]);
       await reopened.window.keyboard.press("ControlOrMeta+a");
       await reopened.window.keyboard.press("Backspace");
       await expect(savedOverview).toHaveText("");
