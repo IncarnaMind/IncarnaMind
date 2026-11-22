@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
@@ -245,6 +246,226 @@ test.each([
 
   expect(result.verdict).toBe("contradicted");
   expect(correctionIn(result)?.choices[0]?.wording).toBe(each.to);
+});
+
+describe("Malformed table-row and whole-sentence corrections (#3339)", () => {
+  test("drops a raw pipe-delimited table row offered against a prose sentence", async () => {
+    const claim = "The review rates the central estuary's risk as High.";
+    const quote = "Central | 4 | 3.2 | Medium";
+    const result = await checkWithReply({
+      claim,
+      reply: [
+        "Verdict: contradicted",
+        "Explanation: The review rates the central estuary's risk as Medium, not High. [^1]",
+        "Evidence: [1]",
+        "Change 1: High",
+        `To 1: ${quote} [^1]`,
+      ].join("\n"),
+      citations: [{ marker: 1, quote }],
+      files: [
+        {
+          name: "Review.md",
+          contents: `| Site | Sites | Depth | Risk |\n| --- | --- | --- | --- |\n| ${quote} |`,
+        },
+      ],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toBeUndefined();
+  });
+
+  test("keeps a cell-value fix for a table-row contradiction", async () => {
+    const claim = "The review rates the central estuary's risk as High.";
+    const quote = "Central | 4 | 3.2 | Medium";
+    const result = await checkWithReply({
+      claim,
+      reply: [
+        "Verdict: contradicted",
+        "Explanation: The review rates the central estuary's risk as Medium, not High. [^1]",
+        "Evidence: [1]",
+        "Change 1: High",
+        "To 1: Medium [^1]",
+      ].join("\n"),
+      citations: [{ marker: 1, quote }],
+      files: [
+        {
+          name: "Review.md",
+          contents: `| Site | Sites | Depth | Risk |\n| --- | --- | --- | --- |\n| ${quote} |`,
+        },
+      ],
+    });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toMatchObject({
+      from: "High",
+      choices: [{ wording: "Medium" }],
+    });
+  });
+
+  test.each(["海港云按年付费所有套餐另享 20% 优惠。", "海港云按年付费所有套餐另享 20% 优惠"])(
+    "drops a whole-sentence replacement that would drop the subject (%s)",
+    async (from) => {
+      const claim = "海港云按年付费所有套餐另享 20% 优惠。";
+      const quote = "按年付费所有套餐另享 15% 优惠";
+      const result = await checkWithReply({
+        claim,
+        reply: [
+          "Verdict: contradicted",
+          "Explanation: 价格表写明按年付费另享 15% 优惠，而非 20%。 [^1]",
+          "Evidence: [1]",
+          `Change 1: ${from}`,
+          `To 1: ${quote} [^1]`,
+        ].join("\n"),
+        citations: [{ marker: 1, quote }],
+        files: [{ name: "价格表.md", contents: `海港云价格说明：${quote}。` }],
+      });
+
+      expect(result.verdict).toBe("contradicted");
+      expect(correctionIn(result)).toBeUndefined();
+    },
+  );
+
+  test("keeps a value-only replacement for a Chinese sentence and allows replacing a bare cell value", async () => {
+    const claim = "海港云按年付费所有套餐另享 20% 优惠。";
+    const quote = "按年付费所有套餐另享 15% 优惠";
+    const zh = await checkWithReply({
+      claim,
+      reply: [
+        "Verdict: contradicted",
+        "Explanation: 价格表写明按年付费另享 15% 优惠，而非 20%。 [^1]",
+        "Evidence: [1]",
+        "Change 1: 20%",
+        "To 1: 15% [^1]",
+      ].join("\n"),
+      citations: [{ marker: 1, quote }],
+      files: [{ name: "价格表.md", contents: `海港云价格说明：${quote}。` }],
+    });
+
+    expect(zh.verdict).toBe("contradicted");
+    expect(correctionIn(zh)).toMatchObject({ from: "20%", choices: [{ wording: "15%" }] });
+
+    const bare = await checkWithReply({
+      claim: "High",
+      reply: [
+        "Verdict: contradicted",
+        "Explanation: The table gives Medium, not High. [^1]",
+        "Evidence: [1]",
+        "Change 1: High",
+        "To 1: Medium [^1]",
+      ].join("\n"),
+      citations: [{ marker: 1, quote: "Central | 4 | 3.2 | Medium" }],
+      files: [
+        { name: "Review.md", contents: "Central | 4 | 3.2 | Medium\nHigh risk was lowered." },
+      ],
+    });
+
+    expect(bare.verdict).toBe("contradicted");
+    expect(correctionIn(bare)).toMatchObject({ from: "High", choices: [{ wording: "Medium" }] });
+  });
+});
+
+describe("A provider's 400 refusal during a check (#3339)", () => {
+  const badRequest = (message: string, responseBody?: string) =>
+    new APICallError({
+      message,
+      url: "https://api.deepseek.com/chat/completions",
+      requestBodyValues: {},
+      statusCode: 400,
+      ...(responseBody !== undefined && { responseBody }),
+      isRetryable: false,
+    });
+
+  test("tries once more on a passing 400 and lands the contradiction", async () => {
+    const claim = "海港云商业版每席位每月 250 元。";
+    const quote = "商业版每席位每月 190 元";
+    let refusedOnce = false;
+    const model = scriptedModel(
+      (call) => {
+        if (!refusedOnce) {
+          refusedOnce = true;
+          throw badRequest("Bad Request");
+        }
+        const searches = call.results.filter((result) => result.tool === "search_documents");
+        if (searches.length === 0) {
+          return { calls: [{ tool: "search_documents", input: { query: claim } }] };
+        }
+        if (!call.results.some((result) => result.tool === "cite")) {
+          const passage = shownPassages(searches.at(-1)?.text ?? "").find((each) =>
+            each.text.includes(quote),
+          );
+          if (!passage) throw new Error("No Passage holds the price quote.");
+          return {
+            calls: [
+              { tool: "cite", input: { citations: [{ marker: 1, passage: passage.id, quote }] } },
+            ],
+          };
+        }
+        return {
+          text: [
+            "Verdict: contradicted",
+            "Explanation: 价格表写明商业版每席位每月 190 元，不是 250 元。 [^1]",
+            "Evidence: [1]",
+            "Change 1: 250 元",
+            "To 1: 190 元 [^1]",
+          ].join("\n"),
+        };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const dataDir = await createTempDataFolder();
+    const sources = await createTempDataFolder();
+    const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+    await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+    await addAndProcess(core, [await writeSourceFile(sources, "价格表.md", `海港云${quote}。`)]);
+
+    const result = await core.checkClaim({ claim });
+
+    expect(result.verdict).toBe("contradicted");
+    expect(correctionIn(result)).toMatchObject({
+      from: "250 元",
+      choices: [{ wording: "190 元" }],
+    });
+  });
+
+  test("marks Not checked with the provider's detail or clean fallback when a 400 persists", async () => {
+    const runRefused = async (error: APICallError) => {
+      let calls = 0;
+      const model = scriptedModel(
+        () => {
+          calls++;
+          throw error;
+        },
+        { generate: checkGenerate({}) },
+      );
+      const dataDir = await createTempDataFolder();
+      const sources = await createTempDataFolder();
+      const core = startCore(dataDir, { createChatModel: scriptedModels(model).createChatModel });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      await addAndProcess(core, [
+        await writeSourceFile(sources, "价格表.md", "海港云商业版每席位每月 190 元。"),
+      ]);
+      const result = await core.checkClaim({ claim: "海港云商业版每席位每月 250 元。" });
+      return { result, calls };
+    };
+
+    const withBody = await runRefused(
+      badRequest("Bad Request", JSON.stringify({ error: { message: "Content Exists Risk" } })),
+    );
+    expect(withBody.calls).toBe(2);
+    expect(withBody.result).toMatchObject({
+      verdict: "not-checked",
+      reason: "failed",
+      detail: "Content Exists Risk",
+    });
+
+    const bare = await runRefused(badRequest("Bad Request"));
+    expect(bare.calls).toBe(2);
+    expect(bare.result).toMatchObject({
+      verdict: "not-checked",
+      reason: "failed",
+      detail: null,
+    });
+  });
 });
 
 const evidence = (documentId: string): CitationAttributes => ({

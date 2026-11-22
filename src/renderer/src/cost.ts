@@ -83,6 +83,12 @@ export function reasonText(
   if (reason === "figures-not-read") return figuresNotReadText(t, detail);
   if (reason === "two-readings") return twoReadingsText(t, language, detail);
   if (reason === "sign-word") return signWordText(t, detail);
+  if (reason === "failed") {
+    const trimmed = detail?.trim() ?? "";
+    return trimmed === ""
+      ? t("claim.reason.failed.unknown")
+      : t("claim.reason.failed", { detail: trimmed, ...params });
+  }
   if (reason !== "read-budget")
     return t(`claim.reason.${reason}`, { detail: detail ?? "", ...params });
   const stop = budgetStopOf(detail);

@@ -188,7 +188,11 @@ const notJudged = (why: NotJudged): { reason: ClaimCheckFailure; detail: string 
 export function notJudgedError(why: NotJudged): TranslatableError {
   if ("failed" in why && why.failed.wording) return new TranslatableError(why.failed.wording);
   const { reason, detail } = notJudged(why);
-  return new TranslatableError({ key: `claim.reason.${reason}`, values: { detail: detail ?? "" } });
+  const trimmed = detail?.trim() ?? "";
+  if (reason === "failed" && trimmed === "") {
+    return new TranslatableError({ key: "error.check.failed" });
+  }
+  return new TranslatableError({ key: `claim.reason.${reason}`, values: { detail: trimmed } });
 }
 
 const withoutCandidates = (result: ResolvableRecordCiteResult): RecordCiteResult => {
