@@ -8,6 +8,7 @@ import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import type { MessageKey, MessageParams } from "../src/shared/i18n";
 import { translate } from "../src/shared/i18n";
 import {
+  acceptPlainTextKeys,
   catchCopies,
   createDataFolder,
   frontMind,
@@ -221,6 +222,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await interceptOpenPath(app);
     await interceptOpenExternal(app);
     await setWindowSize(app, window, 1440, 900);
+    // A runner has no keyring; the User's computer usually has one.
+    await acceptPlainTextKeys(window);
     await catchCopies(window);
     await setLanguage(window, language);
     const panel = window.getByTestId("setup-panel");
