@@ -4,14 +4,17 @@
  * wants to understand a sentence never has to Undo words added to their own document.
  */
 import type { Editor } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import { mindSearchScope } from "../../../shared/searchScope";
 import { useComposer } from "../composer";
 import { answerBeingWritten, askInAssistant } from "../conversations";
 import { core } from "../core";
+import { needsAnAi } from "../editWithAi";
 import { queueExplain } from "../explainQueue";
 import { translateNow } from "../i18n";
 import { modelInUseOf } from "../modelInUse";
+import { ownAiOnlyNow } from "../ownAiPanel";
 import { revealAssistant } from "../quietAssistant";
 import { scopeWithin } from "../scope";
 import { folderHoldsDocumentsNow } from "../scopeDocuments";
@@ -19,13 +22,15 @@ import { useAppStore } from "../store";
 import { quoteOf, selectionForEdit } from "./editSelection";
 import { mindFocusOf } from "./mindFocus";
 import { closeSelectionMenu } from "./selectionDismissal";
+import { handSelectionToOwnAi } from "./selectionToOwnAi";
 
 /**
  * Asks the assistant to explain what is selected in a Note, as the prototype does: the
  * selection goes with the Question as a chip, the assistant opens where the User left it
  * (revealed and unfolded, docked as it was), and nothing in the Note changes. Asked while an
  * Answer is being written, it waits in view, cancellable, until that Answer is done: one
- * Answer at a time, one Stop. False when nothing is selected.
+ * Answer at a time, one Stop. For a User with only their own AI, that AI is asked instead
+ * (#3612). False when nothing is selected.
  */
 export async function explainSelection(
   editor: Editor,
@@ -35,6 +40,18 @@ export async function explainSelection(
   if (editor.isDestroyed) return false;
   const selection = selectionForEdit(editor.state);
   if (!selection) return false;
+  if (ownAiOnlyNow()) {
+    // With only their own AI, it explains in its reply there (#3612). As a change handed over
+    // does, the selection closes at its end: nothing here answers over the words.
+    closeSelectionMenu(editor);
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, selection.range.to)),
+    );
+    if ((await handSelectionToOwnAi(selection, mindId, "explain")) === "none") {
+      needsAnAi(mindId, selection, "menu");
+    }
+    return true;
+  }
   const focus = mindFocusOf(editor.state);
   const state = useAppStore.getState();
   const folderId = state.minds.find((each) => each.id === mindId)?.folderId ?? null;

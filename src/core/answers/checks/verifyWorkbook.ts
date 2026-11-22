@@ -25,10 +25,75 @@ import type { NodeJSON } from "../blocks";
 export const MOST_TYPED_NUMBERS = 1_000;
 
 const NUMBER_SHOWN = /^[\s(-]*[£$€¥]?\s*-?[\d,]*\.?\d+\s*[%)]?\s*[kKmMbB]?$/;
+const FOUR_DIGIT_YEAR = /^(?:19|20)\d{2}$/;
+const SCALE = "(?:[kKmMbB]|thousand|million|billion|trillion|[万亿])";
+const NUMBER_TEXT = new RegExp(
+  `^[\\s(-]*[£$€¥]?\\s*-?[\\d,]*\\.?\\d+\\s*[%)]?(?:\\s*${SCALE})?$`,
+  "i",
+);
+const CURRENCY_TEXT = new RegExp(
+  `^(?:(?:GBP|USD|EUR|JPY|CNY|RMB|CHF|CAD|AUD|HKD|SGD|INR|NZD|SEK|NOK|DKK|KRW|TWD)\\s*-?[\\d,]+(?:\\.\\d+)?(?:\\s*${SCALE})?|-?[\\d,]+(?:\\.\\d+)?(?:\\s*${SCALE})?\\s*(?:GBP|USD|EUR|JPY|CNY|RMB|CHF|CAD|AUD|HKD|SGD|INR|NZD|SEK|NOK|DKK|KRW|TWD))$`,
+  "i",
+);
+const QUANTITY_TEXT =
+  /^-?[\d,]+(?:\.\d+)?\s*(?:days?|weeks?|months?|years?|hours?|minutes?|bps|tonnes?|tons?|kg|km|miles?|shares?|units?)$/i;
+const WORDS = /[\p{L}\p{N}]/u;
 
 /** A cell holding a number someone typed, not one a formula worked out. */
 export const isTyped = (cell: WorkbookCell): boolean =>
   cell.formula === null && typeof cell.saved === "number" && NUMBER_SHOWN.test(cell.shown);
+
+/** A text cell that clearly states a figure ("GBP 500,000", "USD 1 million", "14 days"), never a bare year heading. */
+function isTextFigure(shown: string): boolean {
+  const trimmed = shown.trim();
+  if (trimmed === "" || FOUR_DIGIT_YEAR.test(trimmed)) return false;
+  return NUMBER_TEXT.test(trimmed) || CURRENCY_TEXT.test(trimmed) || QUANTITY_TEXT.test(trimmed);
+}
+
+const isHeaderRow = (cells: readonly WorkbookCell[]): boolean =>
+  cells.length > 0 &&
+  cells.every((cell) => cell.formula === null && !isTyped(cell) && !isTextFigure(cell.shown));
+
+/** What a sheet or range holds, counted from occupied cells alone without building table nodes. */
+export interface SheetCounts {
+  typed: number;
+  formulas: number;
+  textRows: number;
+}
+
+/** Counts a sheet's (or range's) checkable content in linear time over occupied cells (#3575). */
+export function sheetCounts(sheet: WorkbookSheet, range: CellRange | null): SheetCounts {
+  const within = checkedRange(sheet, range);
+  let firstRow = Number.POSITIVE_INFINITY;
+  let firstColumn = Number.POSITIVE_INFINITY;
+  const rows = new Map<number, WorkbookCell[]>();
+  for (const cell of cellsIn(sheet, within)) {
+    if (cell.row < firstRow) firstRow = cell.row;
+    if (cell.column < firstColumn) firstColumn = cell.column;
+    const list = rows.get(cell.row);
+    if (list) list.push(cell);
+    else rows.set(cell.row, [cell]);
+  }
+  const headed = isHeaderRow(rows.get(firstRow) ?? []);
+  let typed = 0;
+  let formulas = 0;
+  let textRows = 0;
+  for (const [row, cells] of rows) {
+    if (headed && row === firstRow) continue;
+    let rowTyped = 0;
+    let rowFormulas = 0;
+    let valueWords = false;
+    for (const cell of cells) {
+      if (cell.formula !== null) rowFormulas++;
+      else if (isTyped(cell)) rowTyped++;
+      else if (cell.column > firstColumn && WORDS.test(cell.shown)) valueWords = true;
+    }
+    typed += rowTyped;
+    formulas += rowFormulas;
+    if (rowTyped === 0 && rowFormulas === 0 && valueWords) textRows++;
+  }
+  return { typed, formulas, textRows };
+}
 
 /** The workbook of a Document's Units, or null when they aren't a workbook's (or hold no sheet). */
 export function workbookOf(
@@ -42,13 +107,14 @@ export function workbookOf(
 
 export function sheetChoices(model: WorkbookModel): WorkbookSheetChoice[] {
   return model.sheets.map((sheet) => {
-    let typed = 0;
-    let formulas = 0;
-    for (const cell of sheet.cells.values()) {
-      if (cell.formula !== null) formulas++;
-      else if (isTyped(cell)) typed++;
-    }
-    return { name: sheet.name, rows: sheet.rows.length, typed, formulas };
+    const counts = sheetCounts(sheet, null);
+    return {
+      name: sheet.name,
+      rows: sheet.rows.length,
+      typed: counts.typed,
+      formulas: counts.formulas,
+      ...(counts.textRows > 0 && { textRows: counts.textRows }),
+    };
   });
 }
 
@@ -88,6 +154,8 @@ export interface SheetTable {
   headed: boolean;
   typed: number;
   formulas: number;
+  /** Data rows with no formulas or typed-in numbers that `tableClaim` reads as claims (#3575). */
+  textRows: number;
 }
 
 /** The range a check covers: the one given, else every cell the sheet holds. */
@@ -159,11 +227,12 @@ export function sheetTable(
   );
   const first = rowNumbers[0];
   const firstCells = first === undefined ? [] : [...(byRow.get(first)?.values() ?? [])];
-  const headed =
-    firstCells.length > 0 && firstCells.every((cell) => cell.formula === null && !isTyped(cell));
+  const headed = isHeaderRow(firstCells);
   const dataRows = headed ? rowNumbers.slice(1) : rowNumbers;
+  const textOf = (row: number, column: number) => cellText(byRow.get(row)?.get(column), worked);
   let typed = 0;
   let formulas = 0;
+  let textRows = 0;
   const rows: TableRow[] = dataRows.map((row) => {
     const cells = byRow.get(row) ?? new Map<number, WorkbookCell>();
     const formulaColumns: number[] = [];
@@ -179,13 +248,20 @@ export function sheetTable(
         typedColumns.push(index);
       }
     });
+    if (
+      formulaColumns.length === 0 &&
+      typedColumns.length === 0 &&
+      columns.slice(1).some((column) => WORDS.test(textOf(row, column)))
+    ) {
+      textRows++;
+    }
     return { row, formulas: formulaColumns, typed: typedColumns };
   });
-  const textOf = (row: number, column: number) => cellText(byRow.get(row)?.get(column), worked);
   return {
     headed,
     typed,
     formulas,
+    textRows,
     rows,
     columns,
     node: {

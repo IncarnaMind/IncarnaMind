@@ -16,6 +16,7 @@ import { helpItems, helpToKeep, piecesText } from "../helpReply";
 import { translateNow, useT } from "../i18n";
 import { addHelpToNotes, askHelp, askQuestion, helpAsked, useMeetingHelp } from "../meetingHelp";
 import { clockTime } from "../meetingTime";
+import { noModelSetUp } from "../noModelSetUp";
 import { useAppStore } from "../store";
 
 const bridge = () => window[MEETING_PANEL_BRIDGE_KEY];
@@ -333,6 +334,8 @@ function Suggestion({
   const t = useT();
   const usesExternalAI = useAppStore((state) => !!state.settings?.device.meetingCallHelpAgentId);
   const answer = useHelpAnswer(help);
+  // With no model, the answer came from the User's own AI, and the assistant isn't shown (#3612).
+  const opens = useAppStore((state) => !noModelSetUp(state.chatReadiness));
   const [problem, setProblem] = useState<string | null>(null);
   const shown = useRef(true);
   useEffect(() => {
@@ -376,6 +379,7 @@ function Suggestion({
     );
   };
   const typed = help.kind === "question";
+  const openable = typed && opens;
   return (
     <div ref={holder} className="panel-suggestion" data-pinned={pinned}>
       <HelpSuggestion help={help} answer={answer} onRetry={() => retry(meeting, help)} />
@@ -397,7 +401,7 @@ function Suggestion({
             {t("meetings.screen.look")}
           </button>
         )}
-      {(keeps || pinned || typed) && answer.status !== "streaming" && (
+      {(keeps || pinned || openable) && answer.status !== "streaming" && (
         <div className="panel-actions">
           {(keeps || pinned) && (
             <button
@@ -434,7 +438,7 @@ function Suggestion({
                 {t("meetings.help.addToNotes")}
               </button>
             ))}
-          {typed && (
+          {openable && (
             <button
               type="button"
               data-testid="help-open-assistant"

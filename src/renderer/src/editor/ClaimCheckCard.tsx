@@ -40,7 +40,14 @@ import { unreadFiguresOf } from "../../../shared/unreadFigures";
 import { verificationOf } from "../../../shared/verification";
 import { savedPageSource } from "../../../shared/webSource";
 import { useAddedDocuments } from "../addedDocuments";
-import { askAgent, askedAbout, useAgentRequests, useAgentsToAsk, useNoModel } from "../askYourAi";
+import {
+  askAgent,
+  askedAbout,
+  askFirstAgent,
+  useAgentRequests,
+  useAgentsToAsk,
+  useNoModel,
+} from "../askYourAi";
 import {
   addAsCitation,
   addPartCitations,
@@ -74,6 +81,7 @@ import { useFade } from "../motion";
 import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
+import { ownAiOnlyNow } from "../ownAiPanel";
 import { useQuotedWordsOnPage } from "../quotedWordsOnPage";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
@@ -223,10 +231,10 @@ function rowAt(editor: Editor, at: number): string | null {
 }
 
 function searchTheWeb(mindId: string, sentence: string): void {
-  void askInAssistant({
-    text: translateNow("claim.webQuestion", { sentence }),
-    mindId,
-  });
+  const text = translateNow("claim.webQuestion", { sentence });
+  // With only their own AI, it searches the web itself (#3612).
+  if (ownAiOnlyNow()) void askFirstAgent(mindId, { kind: "question", text });
+  else void askInAssistant({ text, mindId });
 }
 
 /**
@@ -1417,7 +1425,7 @@ export function ClaimCard({
         key: "search-web",
         testId: "claim-search-web",
         label: t("claim.searchWeb"),
-        onClick: () => (webSearchOn ? onSearchWeb() : setWebOffShown(true)),
+        onClick: () => (webSearchOn || ownAiOnlyNow() ? onSearchWeb() : setWebOffShown(true)),
       },
       state === "unsupported" &&
         !fixes && {

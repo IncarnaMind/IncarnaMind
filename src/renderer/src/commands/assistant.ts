@@ -5,7 +5,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
 import { copyAnswer, notesToAdd } from "../answerEditors";
 import { useAnswers } from "../answers";
-import { askAgent } from "../askYourAi";
+import { askOnPill } from "../askYourAi";
 import { shownDock } from "../assistantPlace";
 import { useComposer } from "../composer";
 import {
@@ -20,13 +20,14 @@ import {
   useConversations,
   useReadyAsk,
 } from "../conversations";
+import { selectionForEdit } from "../editor/editSelection";
 import { requestEditField } from "../editor/selectionCommands";
-import { startEditing } from "../editWithAi";
+import { requestEdit, startEditing } from "../editWithAi";
 import { billingUrlOfProvider, keyProviderOf, useKeyRefusals } from "../keyRefusals";
 import { assistantTabOf, groupsMerged } from "../layoutSlice";
 import { removedModelNow } from "../modelInUse";
 import { requestModelMenu } from "../modelMenu";
-import { ownAiPillNow } from "../ownAiPanel";
+import { hiddenForOwnAiNow, ownAiPillNow } from "../ownAiPanel";
 import { exampleMindIds, useAppStore } from "../store";
 import {
   assistantHandle,
@@ -46,7 +47,8 @@ import type { Command } from "./registry";
  */
 
 const store = () => useAppStore.getState();
-const isThere = () => assistantHandle.current !== null;
+// Out of sight for a User with only their own AI, it offers nothing (#3612).
+const isThere = () => assistantHandle.current !== null && !hiddenForOwnAiNow();
 const folded = () => store().layout?.assistant.folded ?? false;
 
 /** The dock commands, in the order the ⋯ menu lists them. */
@@ -75,6 +77,7 @@ export function placeAt(dock: AssistantDock): Promise<void> {
 
 /** Puts the cursor in the composer, unfolding the assistant for it. */
 export function focusComposer(): void {
+  if (hiddenForOwnAiNow()) return;
   if (folded()) void store().placeAssistant({ folded: false });
   useComposer.getState().requestFocus();
 }
@@ -86,11 +89,9 @@ export function focusComposer(): void {
  * the selection. With words selected in a Document, it asks about them.
  */
 function askOrEdit(): void {
-  // As the pill it is shown on: with only their own AI and the assistant folded, the User asks it (#3373).
-  const pill = ownAiPillNow();
-  const [agent] = pill?.agents ?? [];
-  if (pill && agent) {
-    void askAgent(agent, pill.mindId, { kind: "note" });
+  const own = ownAiAsk();
+  if (own) {
+    own();
     return;
   }
   const viewer = viewerHandleInUse("selection", useAppStore.getState().layout);
@@ -104,6 +105,28 @@ function askOrEdit(): void {
     if (note.editor.view.hasFocus()) startEditing(note.editor, note.mindId);
   }
   focusComposer();
+}
+
+/**
+ * ⌘J for a User with only their own AI, the panel out of sight (#3373, #3612): words selected in a
+ * Document are asked about, words in a Note go to Edit with AI…, and otherwise it asks as the pill
+ * does. Null when there is nothing to hand over, or the panel shows.
+ */
+function ownAiAsk(): (() => void) | null {
+  if (!hiddenForOwnAiNow()) return null;
+  const viewer = viewerHandleInUse("selection", useAppStore.getState().layout);
+  if (viewer?.ask) return viewer.ask;
+  const note = noteHandle.current;
+  if (note && !note.editor.isDestroyed && selectionForEdit(note.editor.state)) {
+    return () => {
+      if (!requestEditField(note.editor)) {
+        void requestEdit(note.editor, note.mindId, note.doc, "instruction");
+      }
+    };
+  }
+  const pill = ownAiPillNow();
+  const [agent] = pill?.agents ?? [];
+  return pill && agent ? () => void askOnPill(agent, pill) : null;
 }
 
 /** New chat: the assistant shows a new, empty conversation (an empty one is reused), ready to ask. */
@@ -223,7 +246,7 @@ export const assistantCommands: readonly Command[] = [
     group: "main",
     top: 10,
     reversible: true,
-    when: isThere,
+    when: () => isThere() || ownAiAsk() !== null,
     run: askOrEdit,
   },
   {
@@ -235,7 +258,7 @@ export const assistantCommands: readonly Command[] = [
     group: "main",
     // The Documents it adds come with an Undo, as Library › Add's do.
     reversible: true,
-    when: () => composerHandle.current !== null,
+    when: () => composerHandle.current !== null && !hiddenForOwnAiNow(),
     run: () => {
       focusComposer();
       composerHandle.current?.addFiles();

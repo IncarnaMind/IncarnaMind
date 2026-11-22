@@ -19,6 +19,7 @@ import {
   MOST_ASKED_QUOTES,
   type SelectedPart,
 } from "../../../core/api";
+import { TranslatableError } from "../../../core/errors";
 import type { NodeJSON } from "../../../shared/blockJson";
 import type { MessageKey } from "../../../shared/i18n";
 import { mindName } from "../../../shared/naming";
@@ -26,6 +27,7 @@ import { readableQuoteText } from "../../../shared/readableQuote";
 import { sourceText } from "../../../shared/sources";
 import { setTextOrigin } from "../../../shared/textOrigins";
 import { type AddTarget, addInEditor } from "../addToNote";
+import { askFirstAgent } from "../askYourAi";
 import { citationAttributesOf } from "../citedSelection";
 import { focusComposer } from "../commands/assistant";
 import { readMindHandle } from "../commands/handles";
@@ -39,6 +41,7 @@ import { noteExtensions } from "../editor/noteSchema";
 import { whenMindEditor } from "../editor/openEditors";
 import { translateNow } from "../i18n";
 import { useNotices } from "../notices";
+import { hiddenForOwnAiNow } from "../ownAiPanel";
 import { exampleMindIds, useAppStore } from "../store";
 import { rangeTsv, type SheetRange } from "./sheetSelection";
 
@@ -220,10 +223,44 @@ export async function addSelectionToNote(
 }
 
 /**
- * Puts a pick in the composer as a chip, after any already there, and the cursor in the composer,
- * unfolding the assistant: the Question asked next is about it.
+ * The pick handed to the User's own AI, for a User with only their own AI (#3612): the words, with
+ * the Document and where in it, and the question typed there; a pick with no words names the
+ * Document alone.
  */
-export function putQuoteInComposer(asked: AskedQuote): AskedQuote {
+async function askOwnAiAbout(asked: AskedQuote): Promise<void> {
+  const { documentId } = asked;
+  const went = await askFirstAgent(
+    null,
+    asked.quote.trim() === ""
+      ? { kind: "question", text: "" }
+      : {
+          kind: "selection",
+          action: "ask",
+          text: asked.quote,
+          documentId,
+          pageFrom: asked.pageFrom,
+          pageTo: asked.pageTo,
+          location: asked.location,
+        },
+    { documentId, onScreen: [documentId] },
+  );
+  if (went === "none") {
+    useAppStore
+      .getState()
+      .reportError(new TranslatableError({ key: "error.agent.cantAskDocument" }));
+  }
+}
+
+/**
+ * Puts a pick in the composer as a chip, after any already there, and the cursor in the composer,
+ * unfolding the assistant: the Question asked next is about it. For a User with only their own AI,
+ * the pick goes to it instead, and no chip waits (null).
+ */
+export function putQuoteInComposer(asked: AskedQuote): AskedQuote | null {
+  if (hiddenForOwnAiNow()) {
+    void askOwnAiAbout(asked);
+    return null;
+  }
   const composer = useComposer.getState();
   const key = composer.seat?.mindId ?? NO_MIND;
   const quotes = composer.draft(key).quotes ?? [];

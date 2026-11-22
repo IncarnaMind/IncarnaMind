@@ -138,7 +138,14 @@ for (const [language, width] of [
       await runCommand(window, "library.review", translate(language, "library.review.open"));
       const row = window.getByTestId("organize-review-row");
       await expect(row).toContainText("Field notes");
-      await expect(row).toContainText(
+      // Every row is the one agent's: the Review names it once, under its title (#3610).
+      await expect(window.getByTestId("organize-review-will-move")).toContainText(
+        translate(language, "organizeReview.suggestedBy", {
+          agent: "Field assistant",
+          what: "",
+        }).trim(),
+      );
+      await expect(row).not.toContainText(
         translate(language, "organizeReview.agent", { agent: "Field assistant" }),
       );
       if (shots) {
