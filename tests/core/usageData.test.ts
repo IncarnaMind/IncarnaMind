@@ -397,6 +397,7 @@ describe("Usage data: the events", () => {
       ["question_asked", { provider: "What did the board decide?", local: false }],
       ["error_occurred", { area: "document", kind: "/Users/alice/Contracts/NDA.docx" }],
       ["skill_used", { skill: "my-secret-skill", forced: false }],
+      ["skill_used", { skill: "meeting-legal", forced: true }],
       // A field that isn't declared, e.g. to carry a name or a quote.
       ["citation_opened", { check: "found", quote: "Spring tides happen at new moon." }],
       ["mind_created", { title: "Board minutes" }],
@@ -501,7 +502,7 @@ describe("Usage data: what the core derives from its events", () => {
     trackUsage(events, (event) => recorded.push(event), {
       chatProvider: (id) => (id === "cloud" ? { kind: "anthropic", local: false } : null),
       connectorIsRemote: (id) => (id === "gone" ? null : id === "remote"),
-      skillIsBuiltIn: (name) => name === "summarise-document",
+      skillIsBuiltIn: (name) => name === "summarise-document" || name === "meeting-legal",
       now: () => time,
       answerStarted: () => {
         questions++;
@@ -547,7 +548,12 @@ describe("Usage data: what the core derives from its events", () => {
       ...ids,
       call: call({ source: "connector", connector: { id: "other", name: "X" }, status: "failed" }),
     });
-    for (const name of ["summarise-document", "my-client-letters", "summarise-document"]) {
+    for (const name of [
+      "summarise-document",
+      "my-client-letters",
+      "meeting-legal",
+      "summarise-document",
+    ]) {
       events.emit("answer.toolCallFinished", {
         ...ids,
         call: call({
@@ -584,6 +590,7 @@ describe("Usage data: what the core derives from its events", () => {
       { event: "connector_used", fields: { remote: false } },
       { event: "skill_used", fields: { skill: "summarise-document", forced: false } },
       { event: "skill_used", fields: { skill: "own", forced: true } },
+      { event: "skill_used", fields: { skill: "meeting-template", forced: true } },
       {
         event: "answer_finished",
         fields: {

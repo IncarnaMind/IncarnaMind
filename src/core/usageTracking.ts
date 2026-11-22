@@ -20,7 +20,7 @@ import type {
   Unsubscribe,
 } from "./api";
 import {
-  BUILT_IN_SKILL_NAMES,
+  builtInSkillUsage,
   DOCUMENT_FORMATS,
   type UsageEvent,
   type UsageEventFields,
@@ -42,9 +42,6 @@ export interface UsageLookups {
   /** An Answer started: counted for the weekly model-spend event's `questions` field (#1993). */
   answerStarted(): void;
 }
-
-const isBuiltInSkillName = (name: string): name is (typeof BUILT_IN_SKILL_NAMES)[number] =>
-  BUILT_IN_SKILL_NAMES.some((each) => each === name);
 
 /**
  * `documents_added`'s fields for what adding files did: the Documents made
@@ -150,7 +147,7 @@ export function trackUsage(
         const name = typeof call.input.name === "string" ? call.input.name : "";
         if (!name || !onceFor(answerId, `skill:${name}`)) return;
         // Only a built-in Skill is named; the User's own is "own", whatever it is called.
-        const skill = isBuiltInSkillName(name) && lookups.skillIsBuiltIn(name) ? name : "own";
+        const skill = lookups.skillIsBuiltIn(name) ? builtInSkillUsage(name) : "own";
         record({ event: "skill_used", fields: { skill, forced: call.forced === true } });
       }
     }),

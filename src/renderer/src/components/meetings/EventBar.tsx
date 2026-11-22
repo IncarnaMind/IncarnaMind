@@ -6,6 +6,7 @@ import { useMinuteClock } from "../../minuteClock";
 import { useNoteEvent } from "../../noteEvents";
 import { CalendarLineIcon, RecordingLineIcon } from "../lineIcons";
 import { buttonStyle } from "../ui";
+import { MeetingBrief } from "./MeetingBrief";
 
 /**
  * A calendar meeting's Note before its call (#190), as the prototype's bar has it: when it is and
@@ -19,7 +20,12 @@ export function EventBar({ mindId }: { mindId: string }) {
   const event = useNoteEvent(mindId);
   const meeting = useMeetingOf(mindId);
   const now = useMinuteClock();
-  if (!event || meeting) return null;
+  if (!event) return null;
+  const brief =
+    event.eventId && now.getTime() < Date.parse(event.endsAt) ? (
+      <MeetingBrief key={mindId} mindId={mindId} />
+    ) : null;
+  if (meeting) return meeting.status === "ready" ? brief : null;
   const soon = startsIn(event, now, t);
   const people = andList(
     language,
@@ -59,6 +65,7 @@ export function EventBar({ mindId }: { mindId: string }) {
           {t(event.joinUrl ? "eventBar.join" : "eventBar.record")}
         </button>
       </div>
+      {brief}
     </section>
   );
 }

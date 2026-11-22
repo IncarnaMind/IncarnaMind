@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { DEV_WATCHER, WATCHER_NAME } from "../../scripts/callWatcher.mjs";
+import { DEV_WATCHER, WATCHER_NAME, WINDOWS_WATCHER_NAME } from "../../scripts/callWatcher.mjs";
 import type { CallWatchProblem } from "../../src/core/api";
 import { isRecordingEvent, streamsOfJson, streamsOfText } from "../../src/main/calls/pactl";
 import {
@@ -13,6 +13,8 @@ import {
   MAC_WATCHER,
   macCallApps,
   readMacLine,
+  readWindowsLine,
+  WINDOWS_WATCHER,
   watchLines,
 } from "../../src/main/calls/watcher";
 
@@ -84,6 +86,35 @@ describe("macOS: Core Audio's processes running input", () => {
       expect(await exited).toBe(0);
     },
   );
+});
+
+describe("Windows: the microphone-use registry snapshot", () => {
+  test("matches supported desktop and packaged apps, including Teams only once", () => {
+    expect(WINDOWS_WATCHER).toBe(WINDOWS_WATCHER_NAME);
+    const apps = [
+      "Zoom.exe",
+      "chrome.exe",
+      "MSTeams_8wekyb3d8bbwe",
+      "MS-TEAMS.EXE",
+      "MSTeams_",
+      "chrome.exe.bak",
+      "soundrecorder.exe",
+      "IncarnaMind.exe",
+    ];
+    expect(readWindowsLine(JSON.stringify({ exact: true, apps }))).toEqual([
+      "zoom",
+      "chrome",
+      "teams",
+    ]);
+    expect(readWindowsLine('{"exact":true,"apps":[]}')).toEqual([]);
+  });
+
+  test("invalid or inexact snapshots cannot end a call", () => {
+    expect(readWindowsLine('{"exact":false,"apps":[]}')).toBeNull();
+    for (const invalid of ["{", '{"apps":[]}', '{"exact":true,"apps":[null]}']) {
+      expect(() => readWindowsLine(invalid)).toThrow("Invalid Windows microphone snapshot");
+    }
+  });
 });
 
 describe("Linux: PulseAudio's recording streams", () => {
@@ -247,9 +278,33 @@ describe("A watcher that stops by itself", () => {
     expect(children).toHaveLength(4);
   });
 
-  test("Windows has no watcher yet, and says so", () => {
+  test("turning off Windows detection closes the helper's stdin and ignores a late snapshot", async () => {
+    const input = new PassThrough();
+    const closed = vi.fn();
+    input.on("finish", closed);
+    const child = Object.assign(fakeChild(), { stdin: input });
+    const read = vi.fn();
+    const stop = watchLines({
+      log: quiet,
+      listener: { apps: () => undefined, problem: () => undefined },
+      start: () => child,
+      read,
+      missing: "not-on-windows",
+      closeInput: true,
+    });
+    child.say('{"exact":true,"apps":["Teams.exe"]}');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(read).toHaveBeenCalledTimes(1);
+    stop();
+    child.say('{"exact":true,"apps":["Zoom.exe"]}');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  test("Windows without its packaged helper says call detection is unavailable", () => {
     const problems: CallWatchProblem[] = [];
-    createCallWatcher({ log: quiet, platform: "win32", own: ours, macWatcher: null }).watch({
+    createCallWatcher({ log: quiet, platform: "win32", own: ours, helper: null }).watch({
       apps: () => undefined,
       problem: (problem) => problems.push(problem),
     });

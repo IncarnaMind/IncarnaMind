@@ -772,6 +772,8 @@ export interface AudioCapture {
  * per-app microphone record Windows keeps, and PulseAudio's recording streams on Linux.
  */
 export interface CallWatcher {
+  /** Whether a known microphone release can start the countdown to stop recording. */
+  endRecordingOnRelease?: boolean;
   /**
    * Starts watching: `apps` gets the ids of the call apps using the microphone now
    * (src/shared/meetingApps.ts), then again each time that changes; `problem` once this computer
@@ -1520,7 +1522,7 @@ export interface CoreAdapters {
   speakerSeparator?: SpeakerSeparator;
   roomSpeakerReviewer?: RoomSpeakerReviewer;
   summarizeWithMeetingAgent?(request: {
-    purpose?: "candidate-review" | "call-help";
+    purpose?: "candidate-review" | "call-help" | "meeting-brief";
     client: "claude-code" | "codex";
     /** App-authored instructions only; the client may put them in its trusted context. */
     instructions: string;

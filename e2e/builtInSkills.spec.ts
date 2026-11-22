@@ -1,19 +1,24 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   assistantAnswers,
   closeSettings,
   createDataFolder,
   dismissChatSetup,
+  interceptSkillPicker,
   launchApp,
   newMind,
   openSettings,
   openSteps,
   removeDataFolder,
+  setWindowSize,
   useLocalChatModel,
+  useOutputLocation,
 } from "./app";
 
 /** The Skills the app ships (resources/skills/), in name order. */
-const BUILT_IN = [
+const GENERAL_SKILLS = [
   "chronology",
   "cim-red-flags",
   "covenant-summary",
@@ -25,12 +30,56 @@ const BUILT_IN = [
   "summarise-document",
 ];
 
+const MEETING_TEMPLATES = [
+  "board",
+  "client",
+  "interview",
+  "legal",
+  "one-on-one",
+  "sales",
+  "team",
+].map((kind) => `meeting-${kind}`);
+const BUILT_IN = [...GENERAL_SKILLS, ...MEETING_TEMPLATES];
+
 let dataDir: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
 });
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
+});
+
+test("Meeting templates can be created from Meetings with no built-in model", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  const outputs = test.info().outputPath("templates");
+  await mkdir(outputs, { recursive: true });
+  await useOutputLocation(window, outputs);
+  await openSettings(window, "meetings");
+  await expect(window.getByTestId("settings-nav-skills")).toHaveCount(0);
+  await window.getByTestId("meeting-templates-disclosure").click();
+  const section = window.getByTestId("skills-meetings");
+  await expect(section.getByTestId("skill-item")).toHaveCount(MEETING_TEMPLATES.length);
+  await section.getByTestId("meeting-template-new").click();
+  const editor = section.getByTestId("meeting-template-editor");
+  await editor.getByTestId("meeting-template-editor-name").fill("Outside call");
+  await editor.getByTestId("meeting-template-editor-when").fill("Customer handovers");
+  await editor.getByTestId("meeting-template-editor-steps").fill("Record handover actions.");
+  await editor.getByTestId("meeting-template-editor-save").click();
+  const saved = section.locator('[data-skill-name="outside-call"]');
+  await expect(saved).toBeVisible();
+  await saved.getByTestId("skill-menu").click();
+  await saved.getByTestId("skill-export").click();
+  await expect(section.getByTestId("skill-export-done")).toBeVisible();
+  await interceptSkillPicker(window, join(outputs, "outside-call.zip"));
+  await section.getByTestId("skill-import").click();
+  await section.getByTestId("skill-import-zip").click();
+  const preview = section.getByTestId("skill-preview");
+  await expect(preview.getByTestId("skill-preview-name")).toHaveText("outside-call");
+  await preview.getByTestId("skill-import-confirm").click();
+  await expect(preview).toBeHidden();
+  await expect(saved).toHaveCount(1);
+  await app.close();
 });
 
 test("a fresh data folder has the built-in Skills: labelled in Settings, and offered in a Question's slash menu", async () => {
@@ -43,9 +92,14 @@ test("a fresh data folder has the built-in Skills: labelled in Settings, and off
   const section = window.getByTestId("skills-settings");
   const items = section.getByTestId("skill-item");
   await expect(section.getByTestId("skills-built-in").getByTestId("skill-item")).toHaveCount(9);
-  await expect(items).toHaveCount(9);
-  for (const [index, name] of BUILT_IN.entries()) {
-    const item = items.nth(index);
+  await expect(items).toHaveCount(BUILT_IN.length);
+  const templates = section.getByTestId("skills-meetings");
+  await expect(templates.getByTestId("skill-item")).toHaveCount(MEETING_TEMPLATES.length);
+  for (const name of BUILT_IN) {
+    const group = MEETING_TEMPLATES.includes(name)
+      ? templates
+      : section.getByTestId("skills-built-in");
+    const item = group.locator(`[data-skill-name="${name}"]`);
     await expect(item).toHaveAttribute("data-skill-name", name);
     await expect(item).toHaveAttribute("data-built-in", "true");
     await expect(item.getByTestId("skill-enabled")).toBeChecked();
@@ -62,11 +116,11 @@ test("a fresh data folder has the built-in Skills: labelled in Settings, and off
     await itemNamed(name).getByTestId(action).click();
   };
   await itemAction("summarise-document", "skill-remove");
-  await expect(items).toHaveCount(8);
+  await expect(items).toHaveCount(BUILT_IN.length - 1);
   await expect(restore).toHaveText("Restore built-in Skills");
   await restore.click();
   await expect(itemNamed("summarise-document")).toHaveAttribute("data-built-in", "true");
-  await expect(items).toHaveCount(9);
+  await expect(items).toHaveCount(BUILT_IN.length);
   await expect(restore).toHaveCount(0);
 
   // Duplicated as the User's own: a copy that isn't built-in.
@@ -78,7 +132,22 @@ test("a fresh data folder has the built-in Skills: labelled in Settings, and off
   await expect(copy.getByTestId("skill-duplicate")).toHaveCount(0);
   await expect(copy.getByTestId("skill-edit")).toBeVisible();
   await window.keyboard.press("Escape");
-  await expect(items).toHaveCount(10);
+  await expect(items).toHaveCount(BUILT_IN.length + 1);
+  await setWindowSize(app, window, 1100, 760);
+  await templates.getByText("Sales call", { exact: true }).scrollIntoViewIfNeeded();
+  if (process.env.INCARNAMIND_SCREENSHOTS)
+    await window.screenshot({
+      path: join(process.env.INCARNAMIND_SCREENSHOTS, "meeting-templates-en.png"),
+    });
+  await templates.getByTestId("meeting-template-new").click();
+  const templateEditor = templates.getByTestId("meeting-template-editor");
+  await templateEditor.getByTestId("meeting-template-editor-name").fill("Weekly handover");
+  await templateEditor.getByTestId("meeting-template-editor-when").fill("When shifts change.");
+  await templateEditor
+    .getByTestId("meeting-template-editor-steps")
+    .fill("List open work and its owner.");
+  await templateEditor.getByTestId("meeting-template-editor-save").click();
+  await expect(templates.locator('[data-skill-name="weekly-handover"]')).toBeVisible();
   await closeSettings(window);
 
   // In the composer, "/" offers them like any other Skill.

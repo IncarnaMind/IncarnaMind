@@ -36,6 +36,7 @@ import {
   isMeetingTemplate,
   type MeetingHelpKind,
 } from "../shared/meetingHelp";
+import { meetingSummaryModelRoute } from "../shared/meetingSummary";
 import { bibliographyShown } from "../shared/mindBibliography";
 import {
   chosenCitationStyle,
@@ -234,6 +235,7 @@ import {
   createTextRecognitionModel,
   type TextRecognitionModel,
 } from "./documents/scan";
+import { keywordSearch, windowedPassagesBySeq } from "./documents/search";
 import type { Reranker } from "./documents/searchTool";
 import { tunedSearch } from "./documents/searchTuning";
 import { LANGUAGE_SAMPLE, writtenInChinese } from "./documents/textLanguage";
@@ -310,6 +312,14 @@ import {
   watchCallHelpAccess,
 } from "./meetings/agentHelp";
 import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
+import {
+  BRIEF_DISMISSED,
+  meetingBriefBlocks,
+  QUESTIONS_DISMISSED,
+  readMeetingBriefHistory,
+} from "./meetings/brief";
+import { briefDocuments } from "./meetings/briefDocuments";
+import { completeBriefAnswer, generateBriefQuestions } from "./meetings/briefQuestions";
 import { createMeetingCandidateReview } from "./meetings/candidateReviews";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
@@ -325,6 +335,7 @@ import {
   transcriptsApart,
   undoMeetingJoin,
 } from "./meetings/oneItem";
+import { createBriefPreparation } from "./meetings/prepareBrief";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createMeetingSpeakerReview } from "./meetings/speakerReview";
 import { meetingSummaryRoute } from "./meetings/summaryRoute";
@@ -5945,12 +5956,16 @@ export function createCore(adapters: CoreAdapters): Core {
     });
     return meetings.start({ meetingId: meeting.id }).id;
   };
-  let liveOfferMeetings = new Set(
-    meetings
-      .list()
-      .filter(isLive)
-      .map((meeting) => meeting.id),
-  );
+  const liveCalls = (list: readonly Meeting[]) =>
+    new Map(
+      list
+        .filter(isLive)
+        .map(
+          ({ id, kind, transcript }) =>
+            [id, kind === "meeting" ? transcript?.documentId : null] as const,
+        ),
+    );
+  let liveMeetings = liveCalls(meetings.list());
   const meetingOffers = createMeetingOffers({
     watcher: adapters.callWatcher,
     watching: () => {
@@ -5965,8 +5980,8 @@ export function createCore(adapters: CoreAdapters): Core {
       offerAllowed(settings.get().device, { kind: "calendar" }),
     calendarEvents: calendars.reminderEvents,
     markCalendarReminderSeen: calendars.markReminderSeen,
-    busy: () => liveOfferMeetings.size > 0,
-    live: (meetingId) => liveOfferMeetings.has(meetingId),
+    busy: () => liveMeetings.size > 0,
+    live: (meetingId) => liveMeetings.has(meetingId),
     record: () => recordOffer(),
     recordCalendar: (eventId) => {
       const { mindId, joinUrl } = calendars.takeReminderNotes(eventId);
@@ -5982,7 +5997,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("settings.changed", () => meetingOffers.refresh());
   events.on("meetings.changed", (list) => {
-    liveOfferMeetings = new Set(list.filter(isLive).map((meeting) => meeting.id));
+    liveMeetings = liveCalls(list);
     meetingOffers.refresh();
   });
   events.on("calendarEvents.changed", () => meetingOffers.refresh());
@@ -6286,6 +6301,15 @@ export function createCore(adapters: CoreAdapters): Core {
         return reached.filter((id) => sources.has(id));
       },
       noteTranscripts: () => noteTranscripts(db),
+      refreshLiveTranscripts: (documentIds) => {
+        if (!transcripts) return;
+        const checks = [...liveMeetings].flatMap(([meetingId, documentId]) =>
+          documentId && documentIds.includes(documentId)
+            ? [transcripts.refresh(meetingId, { waitForPassages: true })]
+            : [],
+        );
+        if (checks.length) return Promise.all(checks).then(() => undefined);
+      },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.
       search: (query, documentIds, parameters, signal) =>
@@ -6446,6 +6470,185 @@ export function createCore(adapters: CoreAdapters): Core {
       return null;
     return doc;
   }
+
+  async function meetingItemSources(meetingId: string, itemId: number) {
+    const documentId = meetings.transcriptOf(meetingId);
+    if (!documentId) return null;
+    const line = meetings.summaryItemEvidence(meetingId, itemId)?.line;
+    if (line) {
+      const sources = await candidateReviews.transcriptActionSources(meetingId, documentId, line);
+      return meetings.summaryItemEvidence(meetingId, itemId)?.documentId === documentId
+        ? { documentId, sources }
+        : null;
+    }
+    await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
+    if (!meetingSummaryDocument(meetingId, documentId)) return null;
+    const evidence = meetings.summaryItemEvidence(meetingId, itemId);
+    const version = documents.currentVersion(documentId);
+    if (!evidence || evidence.documentId !== documentId || !version) return null;
+    const units = documents.pageTexts(documentId, version, null, null);
+    return {
+      documentId,
+      sources: meetingSummarySources(units, evidence.quotes),
+    };
+  }
+  function upcomingBriefEvent(mindId: string) {
+    const event = calendars.noteEvent(mindId, true);
+    if (
+      !event?.eventId ||
+      event.endsAt <= now() ||
+      !readableMindName(mindId) ||
+      content.readSettings(mindId, (state) => state.get(BRIEF_DISMISSED) === true)
+    )
+      return null;
+    const started = db.get(
+      "SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL AND status <> 'ready'",
+      [mindId],
+    );
+    return started ? null : { ...event, eventId: event.eventId };
+  }
+
+  function earlierBriefMeetings(mindId: string) {
+    const event = upcomingBriefEvent(mindId);
+    if (!event) return [];
+    const wall = walledFolder(mindId);
+    return calendars.earlierMeetings(event, mindId).flatMap((id) => {
+      const meeting = meetings.get(id);
+      const title = readableMindName(meeting.mindId);
+      const documentId = meetings.transcriptOf(id);
+      if (!title || !documentId || walledFolder(meeting.mindId) !== wall) return [];
+      const doc = meetingSummaryDocument(id, documentId);
+      return doc && !doc.notCited && doc.fileStatus === "available"
+        ? [{ ...meeting, title, documentId }]
+        : [];
+    });
+  }
+  function meetingBriefHistory(mindId: string) {
+    return readMeetingBriefHistory({
+      earlier: () => earlierBriefMeetings(mindId),
+      currentVersion: (id) => documents.currentVersion(id),
+      indexed: transcriptCues,
+      itemSources: meetingItemSources,
+      cite: citing.citeUnit,
+    });
+  }
+
+  const briefPreparation = createBriefPreparation({
+    events,
+    lifetime: lifetime.signal,
+    questionsHidden: (mindId) =>
+      content.readSettings(mindId, (state) => state.get(QUESTIONS_DISMISSED) === true),
+    context(mindId) {
+      const event = upcomingBriefEvent(mindId);
+      if (!event) return null;
+      const side = walledFolder(mindId);
+      const chosen = settings.get().device.meetingNotesAgentId;
+      const pairing =
+        chosen && !side && !embedding.localOnly() && adapters.summarizeWithMeetingAgent
+          ? agents
+              .askable(mindId)
+              .find((p) => p.id === chosen && (p.client === "codex" || p.client === "claude-code"))
+          : null;
+      const choice = ownModelIn(mindId) ?? settings.get().user.chatModel;
+      const model =
+        !chosen && choice && chat.canPrepareMeetingSummary(choice, side !== null)
+          ? chat.describeModel(choice)
+          : null;
+      const route = pairing
+        ? { id: pairing.id, label: pairing.name, external: true, client: true as const }
+        : model
+          ? {
+              id: meetingSummaryModelRoute(model.choice, model.service?.id),
+              label: model.service ? `${model.name} · ${model.service.name}` : model.name,
+              external: !!model.service,
+            }
+          : null;
+      const mayRead = (id: string, noteId = mindId) =>
+        !pairing || agents.askable(noteId, id).some((p) => p.id === pairing.id);
+      const attached = content.read(mindId, (blocks) => {
+        const cited: CitedVersions = new Map();
+        addCitedVersions(blocks, cited);
+        return [...cited.keys()];
+      });
+      const folder = minds.get(mindId).folderId;
+      const selected = content.readSettings(mindId, mindScopeIn);
+      const direct = [
+        ...new Set([
+          ...attached,
+          ...(folder ? library.treeDocumentIds(folder) : []),
+          ...(selected && hasSearchScope(selected) ? (resolveScope(selected, mindId) ?? []) : []),
+        ]),
+      ];
+      const permitted = evidence.scope(mindId, direct).documentIds ?? direct;
+      const current = briefDocuments(
+        documents.getMany(permitted.filter((id) => walledDocument(id) === side && mayRead(id))),
+        event.title,
+      );
+      const prior = earlierBriefMeetings(mindId)
+        .filter((call) => mayRead(call.documentId, call.mindId))
+        .map((call) => ({
+          id: call.id,
+          documentId: call.documentId,
+          title: call.title,
+          contentHash: documents.currentVersion(call.documentId) ?? "",
+          items: call.summary?.items ?? [],
+        }));
+      return {
+        event,
+        route,
+        documents: current
+          .map(({ doc, invited }) => ({
+            id: doc.id,
+            title: doc.name,
+            contentHash: doc.contentHash,
+            invited,
+          }))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+        prior,
+        language: settings.get().language,
+      };
+    },
+    history: meetingBriefHistory,
+    search: (query, ids) => windowedPassagesBySeq(db, keywordSearch(db, query, 12, ids)),
+    first: (id) => documents.passagesBetween(id, 0, 0),
+    passage: (id) => documents.passage(id),
+    cite: (id, quote) => {
+      const current = documents.passage(id);
+      return current && completeBriefAnswer(current.text, quote)
+        ? citing.citeQuote(id, quote)
+        : null;
+    },
+    async generate(mindId, route, packet, check, signal) {
+      const chosen = settings.get().device.meetingNotesAgentId;
+      if (chosen) {
+        const agent = agents.askable(mindId).find((p) => p.id === chosen && chosen === route.id);
+        if (
+          !adapters.summarizeWithMeetingAgent ||
+          (agent?.client !== "codex" && agent?.client !== "claude-code")
+        )
+          throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+        check();
+        return adapters.summarizeWithMeetingAgent({
+          client: agent.client,
+          purpose: "meeting-brief",
+          ...packet,
+          signal,
+        });
+      }
+      const choice = ownModelIn(mindId) ?? settings.get().user.chatModel;
+      if (!choice) throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      const prepared = await chat.prepareModel(choice, "chat", "off", { background: true });
+      check();
+      if (
+        meetingSummaryModelRoute(
+          { providerId: prepared.provider.id, modelId: prepared.modelId },
+          prepared.provider.service?.id,
+        ) !== route.id
+      )
+        throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      return generateBriefQuestions(prepared, packet, signal);
+    },
+  });
 
   const candidateReviews = createMeetingCandidateReview({
     pendingSpeakers: (meetingId) => transcripts?.pendingSpeakers(meetingId) ?? null,
@@ -8643,6 +8846,51 @@ export function createCore(adapters: CoreAdapters): Core {
     listCalendarEvents: async (input) => calendars.list(input),
     takeEventNotes: async (eventId) => calendars.takeNotes(eventId),
     getNoteEvent: async (mindId) => calendars.noteEvent(mindId),
+    getMeetingBriefPreparation: async (mindId) => briefPreparation.read(mindId),
+    prepareMeetingBrief: (mindId, route) => briefPreparation.prepare(mindId, route),
+    getMeetingBriefHistory: meetingBriefHistory,
+    keepMeetingBrief: async (mindId, section) => {
+      if (section !== undefined && section !== "questions")
+        throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      const items = section ? [] : await meetingBriefHistory(mindId);
+      const prepared = briefPreparation.read(mindId);
+      const prep = section && prepared ? { ...prepared, invitation: [] } : prepared;
+      const dismissed = section ? QUESTIONS_DISMISSED : BRIEF_DISMISSED;
+      const lang = settings.get().language;
+      const blocks = meetingBriefBlocks(
+        {
+          history: translate(lang, "meetings.brief.lastTime"),
+          invite: translate(lang, "meetings.brief.inInvite"),
+          questions: translate(lang, "meetings.brief.questions"),
+          missing: translate(lang, "meetings.brief.noAnswer"),
+        },
+        items,
+        prep,
+      );
+      if (!blocks.length) return false;
+      const kept = content.edit(writableMind(mindId).id, (note) => {
+        const flags = note.doc?.getMap(MIND_SETTINGS_FIELD);
+        if (!flags || flags.get(dismissed) === true) return false;
+        insertBlocks(note, blocks);
+        flags.set(dismissed, true);
+        return true;
+      });
+      if (kept) {
+        if (!section) briefPreparation.clear(mindId);
+        mindsChanged();
+      }
+      return kept;
+    },
+    dismissMeetingBrief: async (mindId, section) => {
+      if (section !== undefined && section !== "questions")
+        throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      if (!calendars.noteEvent(mindId, true)) return;
+      content.editSettings(writableMind(mindId).id, (state) =>
+        state.set(section ? QUESTIONS_DISMISSED : BRIEF_DISMISSED, true),
+      );
+      if (!section) briefPreparation.clear(mindId);
+      mindsChanged();
+    },
     openCalendarSettings: () => calendars.openSettings(),
     listMeetings: async () => meetings.list(),
     listJoinedMeetings: async () => joinedMeetings(db),
@@ -8678,27 +8926,7 @@ export function createCore(adapters: CoreAdapters): Core {
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
-    getMeetingSummaryItemSources: async (meetingId, itemId) => {
-      const documentId = meetings.transcriptOf(meetingId);
-      if (!documentId) return null;
-      const line = meetings.summaryItemEvidence(meetingId, itemId)?.line;
-      if (line) {
-        const sources = await candidateReviews.transcriptActionSources(meetingId, documentId, line);
-        return meetings.summaryItemEvidence(meetingId, itemId)?.documentId === documentId
-          ? { documentId, sources }
-          : null;
-      }
-      await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      if (!meetingSummaryDocument(meetingId, documentId)) return null;
-      const evidence = meetings.summaryItemEvidence(meetingId, itemId);
-      const version = documents.currentVersion(documentId);
-      if (!evidence || evidence.documentId !== documentId || !version) return null;
-      const units = documents.pageTexts(documentId, version, null, null);
-      return {
-        documentId,
-        sources: meetingSummarySources(units, evidence.quotes),
-      };
-    },
+    getMeetingSummaryItemSources: meetingItemSources,
     canReviewMeetingSummaryCandidates: async (meetingId) => candidateReviews.canReview(meetingId),
     getMeetingSummaryCandidates: candidateReviews.get,
     reviewMeetingSummaryCandidates: candidateReviews.review,

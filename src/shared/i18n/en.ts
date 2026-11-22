@@ -432,6 +432,33 @@ export const en = {
   "calendars.allow": "Allow",
   "calendars.openSystemSettings": "Open System Settings",
   "calendars.fromInvite": "From the invite",
+  "meetings.brief.questions": "They may ask",
+  "meetings.brief.noAnswer": "No answer was found in the sources for this meeting.",
+  "error.meeting.briefChanged":
+    "This meeting or its sources changed. Open the meeting brief again to use the current information.",
+  "error.meeting.briefTooLong":
+    "The meeting sources are too long for this model. Choose a model with a larger context window for this note.",
+  "error.meeting.briefIncomplete":
+    "The model could not prepare three questions. Try preparing the brief again.",
+  "meetings.brief.keepQuestions": "Keep questions in notes",
+  "meetings.brief.dismissQuestions": "Dismiss questions",
+  "meetings.brief.title": "Meeting brief",
+  "meetings.brief.inInvite": "Documents named in the meeting title",
+  "meetings.brief.prepare": "Prepare with {service}",
+  "meetings.brief.readInvite": "Find meeting sources",
+  "meetings.brief.sending": "Preparing meeting brief…",
+  "meetings.brief.clientDisclosure":
+    "Sends the meeting title and permitted excerpts from earlier meetings and authorized documents linked to this note, in its folder, or in its selected search scope to {service}. Your connected AI account manages its own billing.",
+  "meetings.brief.disclosure":
+    "Sends the meeting title and excerpts from earlier meetings with the same people and from documents linked to this note, in its folder, or in its selected search scope to {service}.",
+  "meetings.brief.localDisclosure":
+    "Uses the meeting title, earlier meetings with the same people and related documents on this computer.",
+  "meetings.brief.chooseModel":
+    "To prepare questions, choose a model for this note or connect your AI with access to the meeting sources.",
+  "meetings.brief.nothing": "No meeting sources to prepare from.",
+  "meetings.brief.lastTime": "Last time with these people",
+  "meetings.brief.keep": "Keep in notes",
+  "meetings.brief.dismiss": "Dismiss meeting brief",
   "eventBar.label": "The meeting on your calendar",
   "eventBar.today": "Today",
   "eventBar.tomorrow": "Tomorrow",
@@ -5023,6 +5050,41 @@ export const en = {
   "skills.settings.license": "License: {license}",
   "skills.settings.scripts.one": "1 script",
   "skills.settings.scripts": "{count} scripts",
+  "skills.builtIn.meeting-board.title": "Board meeting",
+  "skills.builtIn.meeting-board.short": "Decisions, resolutions, votes, actions and risks.",
+  "skills.builtIn.meeting-board":
+    "Use when preparing minutes of a board meeting. Distinguish motions from resolutions that passed, preserving vote counts and abstentions only where recorded.",
+  "skills.builtIn.meeting-client.title": "Client call",
+  "skills.builtIn.meeting-client.short": "Requests, agreements, owners and open questions.",
+  "skills.builtIn.meeting-client":
+    "Use when writing up a meeting with a client. Separate what the client asked for from what either side agreed to do and preserve any unanswered questions.",
+  "skills.builtIn.meeting-interview.title": "Interview",
+  "skills.builtIn.meeting-interview.short":
+    "Answers by topic, stated concerns and recommendations.",
+  "skills.builtIn.meeting-interview":
+    "Use when writing up an interview. Attribute answers and distinguish a participant’s evaluation from the candidate’s own statements. Include a recommendation only if someone made one.",
+  "skills.builtIn.meeting-legal.title": "Legal consultation",
+  "skills.builtIn.meeting-legal.short":
+    "Facts given, advice and its limits, documents and next steps.",
+  "skills.builtIn.meeting-legal":
+    "Use when recording a legal consultation. Attribute the facts as reported and preserve qualifications on advice. Record only advice actually given at the meeting.",
+  "skills.builtIn.meeting-one-on-one.title": "1:1",
+  "skills.builtIn.meeting-one-on-one.short":
+    "Priorities, feedback and commitments from both people.",
+  "skills.builtIn.meeting-one-on-one":
+    "Use when two colleagues review progress, feedback or support in a one-to-one meeting. Separate each person’s commitments and preserve open requests for help.",
+  "skills.builtIn.meeting-sales.title": "Sales call",
+  "skills.builtIn.meeting-sales.short": "Needs, questions, objections, terms and next steps.",
+  "skills.builtIn.meeting-sales":
+    "Use when writing up a sales discovery, demo or pricing conversation. Cite each answer alongside its question and distinguish a quoted price from agreed terms.",
+  "skills.builtIn.meeting-team.title": "Team sync",
+  "skills.builtIn.meeting-team.short": "Progress, decisions, blockers and agreed work.",
+  "skills.builtIn.meeting-team":
+    "Use when writing up a team sync or project check-in. Record progress, decisions and blockers separately and keep owners and deadlines only when the meeting establishes them.",
+  "meetings.template.importOther": "Choose a meeting template folder or zip.",
+  "meetings.settings.templates": "Meeting templates",
+  "skills.settings.meetings": "Meetings",
+  "skills.settings.newMeeting": "New meeting template…",
   "skills.settings.builtIn": "Built-in",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.
   "skills.builtIn.chronology.title": "Chronology",
@@ -7215,12 +7277,13 @@ export const en = {
   "settings.calendarOffers.detail":
     "One minute before an event with two or more people: “Take notes”.",
   "settings.callOffers": "Calls not on your calendar",
+  "settings.callOffers.detailWindows":
+    "Get an offer when a meeting app uses the microphone. Stop recording when you leave.",
   "settings.callOffers.detail": "When a meeting app starts using the microphone.",
   "settings.callOffers.perApp": "Per app…",
   "settings.callOffers.apps": "Ask when these apps use the microphone",
   "settings.callOffers.noPactl": "Needs PulseAudio’s pactl, which isn’t on this computer.",
-  "settings.callOffers.notOnWindows":
-    "Calls can’t be noticed on Windows yet. They will be in an update.",
+  "settings.callOffers.notOnWindows": "Call detection is unavailable in this Windows build.",
   "offers.turnOn.line":
     "IncarnaMind can now stay in the menu bar, open at login and offer to take notes when a call starts.",
   "offers.turnOn.line.other":

@@ -11,6 +11,7 @@ const skill = (name: string, over: Partial<Skill> = {}): Skill => ({
   compatibility: null,
   enabled: true,
   builtIn: false,
+  meetingTemplate: false,
   files: [],
   createdAt: "2026-11-09T10:00:00.000Z",
   updatedAt: "2026-11-09T10:00:00.000Z",
