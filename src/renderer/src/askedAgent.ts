@@ -5,7 +5,9 @@
  * about the Note or the Document, which the core tells the windows as it records each call, so
  * nothing polls the agent. Quiet: nothing from it for a while, and the words say how to ask again;
  * a later call makes it working again. It ends when what was asked for lands: the check's report,
- * or the Note the agent wrote; a check's ends too once a model is set up.
+ * the Note the agent wrote, or the change to words the User selected (#3612); a check's ends too
+ * once a model is set up. Words to explain land nothing in the Note: that ends at the connection's
+ * first call about it, which has the words, as its answer comes in its own app.
  */
 import { create } from "zustand";
 import type { AgentActivity, AgentPairing, ChatReadiness } from "../../core/api";
@@ -14,7 +16,10 @@ import { useT } from "./i18n";
 import { noModelSetUp } from "./noModelSetUp";
 import { useAppStore } from "./store";
 
-export type AskedFor = { kind: "check"; mindId: string } | { kind: "summary"; documentId: string };
+export type AskedFor =
+  | { kind: "check"; mindId: string }
+  | { kind: "summary"; documentId: string }
+  | { kind: "change" | "explain"; mindId: string };
 
 export type AskedState = "asked" | "working" | "quiet";
 
@@ -37,7 +42,11 @@ export interface AgentAsked {
 export const QUIET_AFTER_MS = 3 * 60_000;
 
 const keyOf = (asked: AskedFor) =>
-  asked.kind === "check" ? `mind:${asked.mindId}` : `document:${asked.documentId}`;
+  asked.kind === "check"
+    ? `mind:${asked.mindId}`
+    : asked.kind === "summary"
+      ? `document:${asked.documentId}`
+      : `selection:${asked.mindId}`;
 
 export const useAgentAsked = create<{ byKey: Readonly<Record<string, AgentAsked>> }>()(() => ({
   byKey: {},
@@ -67,16 +76,19 @@ function put(key: string, asked: AgentAsked | null): void {
 
 const about = (activity: AgentActivity, asked: AgentAsked): boolean => {
   const what = asked.for;
-  return what.kind === "check"
-    ? activity.effects.some(({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId)
-    : activity.documentIds.includes(what.documentId);
+  return what.kind === "summary"
+    ? activity.documentIds.includes(what.documentId)
+    : activity.effects.some(({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId);
 };
+
+const LANDS_WITH = { check: "report_check", change: "propose_changes" } as const;
 
 const landed = (activity: AgentActivity, asked: AgentAsked): boolean =>
   activity.outcome === "done" &&
-  (asked.for.kind === "check"
-    ? activity.tool === "report_check" && about(activity, asked)
-    : activity.tool === "create_mind");
+  (asked.for.kind === "summary"
+    ? activity.tool === "create_mind"
+    : (asked.for.kind === "explain" || activity.tool === LANDS_WITH[asked.for.kind]) &&
+      about(activity, asked));
 
 function heard(activity: AgentActivity): void {
   for (const [key, asked] of Object.entries(useAgentAsked.getState().byKey)) {
@@ -126,6 +138,13 @@ export function forgetAsked(asked: AskedFor): void {
   if (useAgentAsked.getState().byKey[keyOf(asked)]) put(keyOf(asked), null);
 }
 
+const WORKING = {
+  check: "agents.asked.checking",
+  summary: "agents.asked.writing",
+  change: "agents.asked.changing",
+  explain: "agents.asked.changing",
+} as const;
+
 /**
  * What was asked of the User's own AI about this Note or Document, and what it says now: `words`
  * for a line, `short` for the check badge, which shares its row with the Ask pill; null for nothing.
@@ -142,7 +161,7 @@ export function useAskedAgent(
     now.state === "asked"
       ? t(now.copied ? "agents.asked.copied" : "agents.asked.opened", { agent })
       : now.state === "working"
-        ? t(now.for.kind === "check" ? "agents.asked.checking" : "agents.asked.writing", { agent })
+        ? t(WORKING[now.for.kind], { agent })
         : t("agents.asked.quiet", { agent });
   return { asked: now, words, short: t(`agents.asked.short.${now.state}`) };
 }

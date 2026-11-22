@@ -46,6 +46,7 @@ import {
 } from "../citationFormatting";
 import { noteHandle, readMindHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
+import { commands } from "../commands/registry";
 import { commentIdsOf, commentOnSelection } from "../comments";
 import { startCompareDocuments, useComparisons } from "../comparisons";
 import { useComposer } from "../composer";
@@ -196,6 +197,7 @@ import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPartOf, writingPlaceOf } from "../mindWriting";
 import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
+import { hiddenForOwnAiNow, useHiddenForOwnAi } from "../ownAiPanel";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
 import { skillDescription, skillTitle } from "../skills";
@@ -743,9 +745,11 @@ function MindEditorView({
               translateNow("editor.slash.citeHint"),
               (current, range) => setCite({ editor: current, from: range.from, to: range.to }),
             );
+            // A Skill is the panel's, which a User with only their own AI never sees (#3612).
+            const offered = hiddenForOwnAiNow() ? [] : skills;
             return place === "question"
-              ? skills
-              : [...writing, ...noteSlashItems, compare, ...skills];
+              ? offered
+              : [...writing, ...noteSlashItems, compare, ...offered];
           },
         }),
         ScopePicker,
@@ -1048,26 +1052,28 @@ function MindEditorView({
   }, [mindId, doc, hasDocuments, place]);
 
   useMenuEditLine(editor, mindId, readOnly);
+  const hiddenForOwnAi = useHiddenForOwnAi();
   const editField = useMemo(
     (): EditWithAiField => ({
       mindId,
       send: (current, instruction) =>
         void requestEdit(current, mindId, doc, "instruction", instruction, undefined, "menu"),
-      ...(reads && {
-        handOff(current: typeof editor, typed: string) {
-          if (!startEditing(current, mindId)) return;
-          const composer = useComposer.getState();
-          const draft = composer.draft(mindId).text;
-          if (typed.trim() !== "") {
-            composer.update(mindId, {
-              text: draft === "" ? typed.trim() : `${draft} ${typed.trim()}`,
-            });
-          }
-          composer.requestFocus();
-        },
-      }),
+      ...(reads &&
+        !hiddenForOwnAi && {
+          handOff(current: typeof editor, typed: string) {
+            if (!startEditing(current, mindId)) return;
+            const composer = useComposer.getState();
+            const draft = composer.draft(mindId).text;
+            if (typed.trim() !== "") {
+              composer.update(mindId, {
+                text: draft === "" ? typed.trim() : `${draft} ${typed.trim()}`,
+              });
+            }
+            composer.requestFocus();
+          },
+        }),
     }),
-    [mindId, doc, reads],
+    [mindId, doc, reads, hiddenForOwnAi],
   );
 
   // When the language changes: relabel. Setting the props also redraws the placeholder,
@@ -1179,6 +1185,11 @@ function MindEditorView({
   /** The hint's "press ⌘J…": the composer takes the focus, the Question to go on the hint's line. */
   const askOnLine = (pos: number) => {
     if (editor.isDestroyed) return;
+    // With only their own AI, ⌘J asks it about the Note (#3612).
+    if (hiddenForOwnAiNow()) {
+      void commands.run("composer.focus");
+      return;
+    }
     editor.commands.setTextSelection(pos + 1);
     cursorInMind.current = true;
     cursorPlaced.current = true;

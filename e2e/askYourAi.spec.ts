@@ -33,8 +33,8 @@ test.skip(
 /*
  * Ask your AI (#3373, #3419): a User who connected their own AI and set up no model finds the page
  * above the Note bare and the assistant folded out of sight, with no rail, and a pill that asks
- * that AI about the Note, whose ⌄ also opens IncarnaMind's own chat on model setup; they ask it to
- * fix a sentence that needs a look, all of them at once, and with what they typed in the chat box.
+ * that AI about the Note, whose ⌄ also opens Settings › AI to set up IncarnaMind's own model
+ * (#3612); they ask it to fix a sentence that needs a look, and all of them at once.
  * Claude Code has a link that opens it with one line typed; VS Code has none, so the line is
  * copied. The rest waits for the agent's read_request, which the card and its Activity then show.
  * The app opens nothing here: each link it would open is recorded.
@@ -144,7 +144,7 @@ async function shot(window: Page, name: string) {
 const typedIn = (url: string | undefined) =>
   new URL(url ?? "about:blank").searchParams.get("q") ?? "";
 
-test("an agent-only User finds a bare page, the assistant folded and a pill that asks their own AI; the card and the chat box ask it too", async () => {
+test("an agent-only User finds a bare page, the assistant folded and a pill that asks their own AI; the card asks it too", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   await acceptPlainTextKeys(window);
   try {
@@ -266,8 +266,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     expect(typedIn((await urlsOpened(app))[3])).toBe(noteNamed);
     await expect(assistant).toBeHidden();
 
-    // IncarnaMind's own chat is under the pill's ⌄, last, by the keyboard as its agents are: it
-    // opens the assistant on model setup, with the cursor in its key field.
+    // IncarnaMind's own model is under the pill's ⌄, last, by the keyboard as its agents are: it
+    // opens Settings › AI, and the assistant stays out of sight (#3612).
     await window.getByTestId("own-ai-pill-others").focus();
     await window.keyboard.press("Enter");
     await expect(window.getByRole("menuitem", { name: "Continue in the open chat" })).toBeFocused();
@@ -278,32 +278,11 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(useModel).toHaveText("Use a model in IncarnaMind…");
     await expect(useModel).toBeFocused();
     await window.keyboard.press("Enter");
-    await expect(assistant).toBeVisible();
-    await expect(assistant).not.toHaveAttribute("data-folded", "true");
-    await expect(window.getByTestId("model-setup")).toBeVisible();
-    await expect(window.getByTestId("setup-key")).toBeFocused();
-    await expect(window.getByTestId("own-ai-pill")).toHaveCount(0);
-    await pointAndClick(window, window.getByTestId("setup-later"));
-
-    // Their own fold then shows the rail, as for everyone, beside the pill; opened again, Enter in
-    // the chat box offers Claude Code for the words, in place of the setup card, and Enter again asks.
-    await pointAndClick(window, window.getByTestId("assistant-fold"));
-    await expect(window.getByTestId("assistant-rail")).toBeVisible();
-    await expect(window.getByTestId("own-ai-pill")).toBeVisible();
-    await pointAndClick(window, window.getByTestId("assistant-fold"));
-    await expect(assistant).not.toHaveAttribute("data-folded", "true");
-    await expect(window.getByTestId("own-ai-pill")).toHaveCount(0);
-    await window.keyboard.press("ControlOrMeta+j");
-    await window.keyboard.type("What did fuel cost in 2025?");
-    await window.keyboard.press("Enter");
-    const offer = window.getByTestId("composer-ask-agent");
-    await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
+    await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
+    await closeSettings(window);
+    await expect(assistant).toBeHidden();
     await expect(window.getByTestId("model-setup")).toHaveCount(0);
-    await window.keyboard.press("Enter");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(5);
-    expect(typedIn((await urlsOpened(app))[4])).toBe(`${noteNamed}\n\nWhat did fuel cost in 2025?`);
-    await expect(offer).toBeHidden();
-    await expect(window.getByTestId("composer-input")).toHaveValue("");
+    await expect(window.getByTestId("own-ai-pill")).toBeVisible();
 
     // In Chinese, the same request in Chinese words.
     await setLanguage(window, "zh-CN");
@@ -314,8 +293,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
       "已打开 Claude Code，请求已填好，在那里发送即可。",
     );
     await shot(window, "ask-opened-line-zh-CN");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(6);
-    expect(typedIn((await urlsOpened(app))[5])).toBe(
+    await expect.poll(() => urlsOpened(app)).toHaveLength(5);
+    expect(typedIn((await urlsOpened(app))[4])).toBe(
       `把 IncarnaMind 在笔记“${TITLE}”里标出来的那句改好。`,
     );
     await pointAndClick(window, mark);
@@ -437,7 +416,7 @@ test("Continue in the open chat, from the Ask pill's menu: the line an Ask types
   }
 });
 
-test("with no model, a question typed with a Document open names it in the line, its id waits for the agent, and an agent that finds nothing waiting is not refused", async () => {
+test("with no model, a Document open is what ⌘J and a question typed in ⌘K ask about, its id waits for the agent, and an agent that finds nothing waiting is not refused", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   await acceptPlainTextKeys(window);
   try {
@@ -454,30 +433,38 @@ test("with no model, a question typed with a Document open names it in the line,
     await expect(
       window.getByTestId("viewer-tab-strip").or(window.getByTestId("tab-group")),
     ).toBeVisible();
+    const named = "About my document “Annual summary 2025” in IncarnaMind:";
+    const request = `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${documentId}).`;
 
-    // ⌘J goes to the chat box; Enter offers Claude Code for the words, and Enter again asks it.
+    // The panel stays out of sight (#3612): ⌘J asks Claude Code about the Document, and the User
+    // types the question there; a question typed in ⌘K goes with the Document.
     await window.keyboard.press("ControlOrMeta+j");
-    await window.keyboard.type("Summarise this document");
-    await window.keyboard.press("Enter");
-    const offer = window.getByTestId("composer-ask-agent");
-    await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
-    await shot(window, "ask-document-offer-en");
-    await window.keyboard.press("Enter");
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
-    expect(typedIn((await urlsOpened(app))[0])).toBe(
-      "About my document “Annual summary 2025” in IncarnaMind:\n\nSummarise this document",
-    );
+    expect(typedIn((await urlsOpened(app))[0])).toBe(named);
+    await expect(window.getByTestId("assistant")).toBeHidden();
+    await window.keyboard.press("ControlOrMeta+k");
+    await window.keyboard.type("Summarise this document");
+    const ask = window
+      .getByTestId("palette-item")
+      .filter({ hasText: "Ask “Summarise this document”" });
+    await expect(ask).toContainText("Ask Claude Code");
+    await shot(window, "ask-document-palette-en");
+    await pointAndClick(window, ask);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
+    expect(typedIn((await urlsOpened(app))[1])).toBe(`${named}\n\nSummarise this document`);
 
-    // The rest waits for the agent, once; a second look finds nothing waiting, and is no failed call.
+    // The rest waits for the agent, once each; a third look finds nothing waiting, and is no failed call.
     const agent = await claudeCode(launch);
     try {
-      const first = await agent.callTool({ name: "read_request", arguments: {} });
-      expect(first.isError ?? false).toBe(false);
-      expect(first.structuredContent).toEqual({
-        mindId: null,
-        title: "Annual summary 2025",
-        request: `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${documentId}).`,
-      });
+      for (let read = 0; read < 2; read++) {
+        const each = await agent.callTool({ name: "read_request", arguments: {} });
+        expect(each.isError ?? false).toBe(false);
+        expect(each.structuredContent).toEqual({
+          mindId: null,
+          title: "Annual summary 2025",
+          request,
+        });
+      }
       const again = await agent.callTool({ name: "read_request", arguments: {} });
       expect(again.isError ?? false).toBe(false);
       expect(again.structuredContent).toMatchObject({ mindId: null, title: "" });
@@ -487,13 +474,13 @@ test("with no model, a question typed with a Document open names it in the line,
 
     // The same, in Chinese.
     await setLanguage(window, "zh-CN");
-    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type("总结一下这个文档");
-    await window.keyboard.press("Enter");
-    await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
-    await window.keyboard.press("Enter");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
-    expect(typedIn((await urlsOpened(app))[1])).toBe(
+    const asked = window.getByTestId("palette-item").filter({ hasText: "总结一下这个文档" });
+    await expect(asked).toContainText("Claude Code");
+    await pointAndClick(window, asked);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
+    expect(typedIn((await urlsOpened(app))[2])).toBe(
       "关于我在 IncarnaMind 中的文档“Annual summary 2025”：\n\n总结一下这个文档",
     );
   } finally {

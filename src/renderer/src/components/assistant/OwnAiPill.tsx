@@ -1,4 +1,4 @@
-import { askAgent } from "../../askYourAi";
+import { askOnPill } from "../../askYourAi";
 import { shortcutLabel } from "../../commands/keymap";
 import { useComparisons } from "../../comparisons";
 import { useT } from "../../i18n";
@@ -6,11 +6,13 @@ import { type OwnAiPill as Pill, setUpModelInstead } from "../../ownAiPanel";
 import { OtherAgents } from "../AskAgentLine";
 
 /**
- * The Ask pill for a User with only their own AI, the assistant folded (#3373): "Ask {agent}" with
- * ⌘J asks it about the Note the User is in; its ⌄ holds the others, as the card offers them, and
- * last IncarnaMind's own chat, which opens the assistant on model setup.
+ * The Ask pill for a User with only their own AI, the assistant out of sight (#3373, #3612): "Ask
+ * {agent}" with ⌘J asks it about the Note the User is in, or the Document in front, where the
+ * User types their question; its ⌄ holds the others, as the card offers them, and last
+ * IncarnaMind's own model, set up in Settings.
  */
-export function OwnAiPill({ mindId, agents }: Pill) {
+export function OwnAiPill(pill: Pill) {
+  const { agents } = pill;
   const t = useT();
   // The Compare Documents sheet's Make button sits where the pill floats (#1839).
   const comparing = useComparisons((state) => Object.keys(state.sheets).length > 0);
@@ -26,7 +28,7 @@ export function OwnAiPill({ mindId, agents }: Pill) {
       <button
         type="button"
         data-testid="own-ai-pill-ask"
-        onClick={() => void askAgent(first, mindId, { kind: "note" })}
+        onClick={() => void askOnPill(first, pill)}
         className="flex h-full items-center gap-3 rounded-full pl-5 hover:text-ink"
       >
         {label(first.name)}
@@ -37,10 +39,8 @@ export function OwnAiPill({ mindId, agents }: Pill) {
       <OtherAgents
         agents={others}
         label={label}
-        onAsk={(agent) => void askAgent(agent, mindId, { kind: "note" })}
-        onContinue={() =>
-          void askAgent(first, mindId, { kind: "note" }, undefined, { openChat: true })
-        }
+        onAsk={(agent) => void askOnPill(agent, pill)}
+        onContinue={() => void askOnPill(first, pill, true)}
         testId="own-ai-pill"
         className="h-6 hover:bg-hover hover:text-ink"
         name={t("agents.ask.more")}

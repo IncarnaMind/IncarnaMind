@@ -19,6 +19,7 @@ import {
   type EditWithAiResult,
   type ProviderError,
   type RunEstimate,
+  type SelectionAction,
 } from "../../core/api";
 import { aiUseOfAccepted, proposalRequestOf } from "../../shared/proposals";
 import { useAnswers } from "./answers";
@@ -27,7 +28,7 @@ import { core } from "./core";
 
 import { appliedLineIn } from "./editor/appliedEditLine";
 import { offerEditorUndo } from "./editor/editorUndo";
-import { quoteOf, selectionForEdit } from "./editor/editSelection";
+import { type EditSelection, quoteOf, selectionForEdit } from "./editor/editSelection";
 import {
   editorDoc,
   editTarget,
@@ -38,6 +39,7 @@ import {
   setEditTarget,
   watchMovedOn,
 } from "./editor/proposalReview";
+import { handSelectionToOwnAi } from "./editor/selectionToOwnAi";
 import { keepDecisions } from "./editor/theirChanges";
 import { failedEdit } from "./editProblems";
 import { errorMessage } from "./errors";
@@ -45,6 +47,7 @@ import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { modelInUseOf } from "./modelInUse";
 import { shownModelNow } from "./modelNames";
+import { hiddenForOwnAiNow } from "./ownAiPanel";
 import { useAppStore } from "./store";
 
 /** The languages Translate… offers: each in its own name, and as the model is told it. */
@@ -200,6 +203,54 @@ export const setMenuShows = (mindId: string, shown: boolean) =>
 export const noteBusy = (mindId: string, menu?: MenuEdit) =>
   set("problems", mindId, menu ? { kind: "busy", menu } : { kind: "busy" });
 
+/**
+ * The line an action of the selection menu leaves when no AI can do it (#3612): no model is set
+ * up, and none of the User's own AIs can read the Note. It says what it needs, with Set up.
+ */
+export function needsAnAi(mindId: string, selection: EditSelection, from?: "menu"): void {
+  const readiness = useAppStore.getState().chatReadiness;
+  if (!readiness || readiness.ready) return;
+  set("problems", mindId, {
+    kind: "not-ready",
+    readiness,
+    ...(from === "menu" && { menu: { blockId: selection.from.blockId, at: Date.now() } }),
+  });
+}
+
+/** What the User's own AI is asked for an action of the selection menu, with no model set up (#3612). */
+const OWN_AI_ACTIONS: Partial<Record<EditAction, Exclude<SelectionAction, "ask" | "explain">>> = {
+  improve: "improve",
+  shorten: "shorten",
+  translate: "translate",
+  instruction: "edit",
+};
+
+/**
+ * For a User with only their own AI, the selection goes to it and the menu closes over the words,
+ * as for an edit; the line where the change will land says what became of it, from ⌘K too, as the
+ * composer it would say it in isn't shown. With no AI that reads the Note, the line says so.
+ */
+async function handOver(
+  editor: Editor,
+  mindId: string,
+  action: Exclude<SelectionAction, "ask" | "explain">,
+  instruction: string | undefined,
+  range?: { from: number; to: number },
+): Promise<boolean> {
+  const selection = selectionForEdit(editor.state, range);
+  if (!selection || editor.isDestroyed) return false;
+  set("problems", mindId, null);
+  closeSelection(editor, selection.range);
+  const asked = await handSelectionToOwnAi(
+    selection,
+    mindId,
+    action,
+    action === "translate" ? { language: instruction } : { instruction },
+  );
+  if (asked === "none") needsAnAi(mindId, selection, "menu");
+  return false;
+}
+
 /** Waits until the editor shows the request's Proposals; the first, or null after a while. */
 function whenShown(editor: Editor, request: string): Promise<PendingProposal | null> {
   const first = () => pendingIn(editor.state).find((each) => each.request === request) ?? null;
@@ -262,6 +313,10 @@ export async function requestEdit(
   from?: "menu",
   again?: () => Promise<unknown>,
 ): Promise<boolean> {
+  const ownAi = OWN_AI_ACTIONS[action];
+  if (ownAi && hiddenForOwnAiNow()) {
+    return handOver(editor, mindId, ownAi, instruction, range);
+  }
   const selection = selectionForEdit(editor.state, range);
   if (!selection || editor.isDestroyed) return false;
   if (useEdits.getState().pending[mindId]) {

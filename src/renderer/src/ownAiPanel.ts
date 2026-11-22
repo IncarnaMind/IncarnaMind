@@ -1,11 +1,13 @@
 /**
- * The assistant for a User whose own AI is connected and who set up no model (#3373): its panel
- * starts folded and out of sight, as the quiet assistant of a first open is, until the User opens
- * or folds it themselves; while it is folded the pill at the foot of the page asks their own AI
- * about the Note, as ⌘J does.
+ * The assistant for a User whose own AI is connected and who set up no model (#3373, #3612): its
+ * panel is never shown, whatever it was before, and the pill at the foot of a Note or a Document
+ * asks their own AI about it, as ⌘J does. The one exception is a Conversation they already have,
+ * opened to be read: the panel shows it until they fold it. Folded for their AI, it opens as it
+ * was once a model is set up.
  */
 import { useEffect } from "react";
-import type { AgentPairing, AssistantPlace } from "../../core/api";
+import { create } from "zustand";
+import type { AgentPairing } from "../../core/api";
 import {
   agentsToAsk,
   noModel,
@@ -14,8 +16,7 @@ import {
   useNoModel,
   useReadAgentsToAsk,
 } from "./askYourAi";
-import { assistantTabOf, groupsMerged } from "./layoutSlice";
-import { chooseModelInPlace } from "./modelSetup";
+import { assistantTabOf, documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useAppStore } from "./store";
 import { useGroupsMerged } from "./useWindowWidth";
 
@@ -30,22 +31,29 @@ export function useOwnAiOnly(): boolean | null {
 
 export const ownAiOnlyNow = (): boolean => noModel() && agentsToAsk(null).length > 0;
 
-const foldedForOwnAi = (place: AssistantPlace | undefined) =>
-  place?.folded === true && place.foldedBy === "agent";
+/** A Conversation the User opened to read, which the panel shows until they fold it. */
+const useReading = create<{ reading: boolean }>(() => ({ reading: false }));
 
-/** Folded for their own AI, never by the User: no rail, the panel out of sight. */
+export const readConversationForOwnAi = (): void => useReading.setState({ reading: true });
+
+useAppStore.subscribe((state, before) => {
+  if (state.layout?.assistant.folded === true && before.layout?.assistant.folded !== true) {
+    useReading.setState({ reading: false });
+  }
+});
+
+/** The panel is out of sight for a User with only their own AI: no rail, no commands, no keys. */
 export function useHiddenForOwnAi(): boolean {
   const only = useOwnAiOnly();
-  return useAppStore((state) => only === true && foldedForOwnAi(state.layout?.assistant));
+  const reading = useReading((state) => state.reading);
+  return only === true && !reading;
 }
 
-export const hiddenForOwnAiNow = (): boolean =>
-  ownAiOnlyNow() && foldedForOwnAi(useAppStore.getState().layout?.assistant);
+export const hiddenForOwnAiNow = (): boolean => ownAiOnlyNow() && !useReading.getState().reading;
 
-/** IncarnaMind's own chat, from the pill: the panel opens, as the User's own choice, on model setup. */
+/** IncarnaMind's own model, from the pill's ⌄: set up in Settings › AI, where the panel comes back once it works. */
 export function setUpModelInstead(): void {
-  void useAppStore.getState().placeAssistant({ folded: false });
-  chooseModelInPlace();
+  useAppStore.getState().openSettings("ai");
 }
 
 /**
@@ -67,58 +75,68 @@ export function useFoldForOwnAi(): void {
 }
 
 export interface OwnAiPill {
-  /** The Note the User is in, which the request names. */
-  mindId: string;
+  /** The Note the User is in, which the request names; null on a Document. */
+  mindId: string | null;
+  /** The Document in front, with no Note on screen. */
+  documentId: string | null;
   /** The one connected or used last first. */
   agents: readonly AgentPairing[];
 }
 
-const pillOf = (
-  only: boolean | null,
-  folded: boolean,
-  mindId: string | null,
-  agents: readonly AgentPairing[],
-): OwnAiPill | null =>
-  only && folded && mindId !== null && agents.length > 0 ? { mindId, agents } : null;
+/** What the pill asks about: the Note the assistant reads, else the Document in front. */
+interface AskedOn {
+  mindId: string | null;
+  documentId: string | null;
+}
 
-const mindIn = (merged: boolean) => {
-  const tab = assistantTabOf(useAppStore.getState().layout, merged);
-  return tab?.item.kind === "mind" ? tab.item.mindId : null;
+const NOTHING: AskedOn = { mindId: null, documentId: null };
+
+const askedOnOf = (merged: boolean): AskedOn => {
+  const { layout } = useAppStore.getState();
+  const tab = assistantTabOf(layout, merged);
+  if (tab?.item.kind === "mind") return { mindId: tab.item.mindId, documentId: null };
+  const [documentId] = documentsOnScreenOf(layout, merged);
+  return documentId ? { mindId: null, documentId } : NOTHING;
 };
 
-/** The Note the User is in, as the assistant reads it. */
-function useMindIn(): string | null {
+const pillOf = (hidden: boolean, on: AskedOn, agents: readonly AgentPairing[]): OwnAiPill | null =>
+  hidden && (on.mindId !== null || on.documentId !== null) && agents.length > 0
+    ? { ...on, agents }
+    : null;
+
+/** The Note or Document the pill asks about, followed. */
+function useAskedOn(): AskedOn {
   const merged = useGroupsMerged();
-  return useAppStore((state) => {
+  const mindId = useAppStore((state) => {
     const tab = assistantTabOf(state.layout, merged);
     return tab?.item.kind === "mind" ? tab.item.mindId : null;
   });
+  const documentId = useAppStore((state) =>
+    mindId === null ? (documentsOnScreenOf(state.layout, merged)[0] ?? null) : null,
+  );
+  return mindId !== null || documentId !== null ? { mindId, documentId } : NOTHING;
 }
 
 /** Whether the pill shows, as the Workbench reads its agents: for a page that makes room for it. */
 export function useOwnAiPillShown(): boolean {
-  const only = useOwnAiOnly();
-  const folded = useAppStore((state) => only === true && state.layout?.assistant.folded === true);
-  const mindId = useMindIn();
-  return pillOf(only, folded, mindId, useAgentsToAsk(mindId)) !== null;
+  const hidden = useHiddenForOwnAi();
+  const on = useAskedOn();
+  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined)) !== null;
 }
 
-/** The pill's Note and agents, with the assistant folded for a User with only their own AI; null otherwise. */
+/** The pill's Note or Document and agents, with the panel out of sight for a User with only their own AI; null otherwise. */
 export function useOwnAiPill(): OwnAiPill | null {
-  const only = useOwnAiOnly();
-  const folded = useAppStore((state) => only === true && state.layout?.assistant.folded === true);
-  const mindId = useMindIn();
-  useReadAgentsToAsk(mindId);
-  return pillOf(only, folded, mindId, useAgentsToAsk(mindId));
+  const hidden = useHiddenForOwnAi();
+  const on = useAskedOn();
+  useReadAgentsToAsk(on.mindId, on.documentId ?? undefined);
+  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined));
 }
 
 /** The same, read once: what ⌘J asks while the pill shows. */
 export function ownAiPillNow(): OwnAiPill | null {
-  const mindId = mindIn(groupsMerged());
-  return pillOf(
-    ownAiOnlyNow(),
-    useAppStore.getState().layout?.assistant.folded === true,
-    mindId,
-    agentsToAsk(mindId),
-  );
+  const on = askedOnOf(groupsMerged());
+  return pillOf(hiddenForOwnAiNow(), on, agentsToAsk(on.mindId, on.documentId ?? undefined));
 }
+
+/** The Note a question typed elsewhere (⌘K, the Library) is about: the one the assistant reads. */
+export const ownAiNoteNow = (): string | null => askedOnOf(groupsMerged()).mindId;

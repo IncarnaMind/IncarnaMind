@@ -32,6 +32,7 @@ import { errorMessage } from "./errors";
 import { helpToKeep } from "./helpReply";
 import { translateNow } from "./i18n";
 import { isLive, useMeetings } from "./meetings";
+import { hiddenForOwnAiNow } from "./ownAiPanel";
 import { useAppStore } from "./store";
 import { openTranscriptOfNote } from "./transcripts";
 import { windowKeysOf } from "./windowKeys";
@@ -198,10 +199,13 @@ export async function askHelpInAssistant(kind: MeetingHelpKind): Promise<void> {
   const meeting = liveMeetingNow();
   if (!meeting) return;
   const stayed = noMoveSinceAsked();
+  // With only their own AI, the help is read in the floating panel: the assistant isn't shown (#3612).
+  const hidden = hiddenForOwnAiNow();
+  if (hidden && !useMeetingHelp.getState().panel.shown) files.showMeetingPanel(true);
   const asked = await askHelp(meeting, kind, useConversations.getState().openId);
   // Moved on while it was asked (another conversation, a New chat, a later ask): the help waits in
   // History.
-  if (asked && stayed() && useConversations.getState().openId !== asked.conversationId) {
+  if (asked && !hidden && stayed() && useConversations.getState().openId !== asked.conversationId) {
     await openConversation(asked.conversationId);
   }
 }

@@ -6112,6 +6112,7 @@ export const zhCN = {
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
   "error.agent.cantAskDocument": "这个智能体现在无法读取这个文档。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
+  "error.agent.selectionTooLong": "文字太多，无法一次交给你的 AI。少选一些再试。",
   "error.agent.nameEmpty": "输入智能体的名称。",
   "error.firstRun.work": "这些不是设置里可选的工作类型。",
   "error.firstRun.noPicks": "没有可发送的选择。",
@@ -8394,6 +8395,7 @@ export const zhCN = {
   "agents.asked.copied": "已为{agent}复制：粘贴到那里并发送请求。",
   "agents.asked.checking": "{agent}正在核对这篇笔记。",
   "agents.asked.writing": "{agent}正在写笔记。",
+  "agents.asked.changing": "{agent}正在修改你选中的文字。",
   "agents.asked.quiet": "{agent}还没有动静。请发送请求，或再问一次。",
   "agents.asked.again": "再问一次",
   "agents.asked.short.asked": "已交给你的 AI",
@@ -8535,6 +8537,31 @@ export const zhCN = {
   "agents.ask.request.item": "{name}（{idName}：{id}）",
   "agents.ask.request.check":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。如果这篇笔记不是你写的，就用 read_mind 读取，自己核对。最后告诉我哪些句子需要留意。",
+  "agents.ask.line.selection.explain": "关于我在 IncarnaMind 中的笔记{title}：解释{quote}。",
+  "agents.ask.line.selection.improve": "关于我在 IncarnaMind 中的笔记{title}：润色{quote}。",
+  "agents.ask.line.selection.shorten": "关于我在 IncarnaMind 中的笔记{title}：精简{quote}。",
+  "agents.ask.line.selection.translate":
+    "关于我在 IncarnaMind 中的笔记{title}：把{quote}翻译为 {language}。",
+  "agents.ask.line.selection.translateAny": "关于我在 IncarnaMind 中的笔记{title}：翻译{quote}。",
+  "agents.ask.line.selection.edit":
+    "关于我在 IncarnaMind 中的笔记{title}里的{quote}：\n\n{instruction}",
+  "agents.ask.line.selection.ask": "关于我在 IncarnaMind 中的文档{document}里的{quote}：",
+  "agents.ask.request.selection":
+    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。下面是我在笔记里选中的文字，每段一行：\n\n{selection}\n\n{task}",
+  "agents.ask.request.selectionDocument":
+    "我这条消息说的是我在 IncarnaMind 中选中的这段文字{where}：\n\n{selection}\n\n请回答我的消息里关于这段文字的问题，依据它所在的文档，需要时也参考我的其他文档。",
+  "agents.ask.request.selection.where": "（{where}）",
+  "agents.ask.selection.explain": "请在对话中给我解释这段文字，需要时参考我的文档。笔记不要改动。",
+  "agents.ask.selection.improve": "请润色这段文字，让它更清楚、更好读，意思不变。{how}",
+  "agents.ask.selection.shorten": "请精简这段文字，保留原意。{how}",
+  "agents.ask.selection.translate": "请把这段文字翻译为 {language}。{how}",
+  "agents.ask.selection.translateAny":
+    "请把这段文字翻译为我在消息里说的语言；如果我没说，先问我翻译为哪种语言。{how}",
+  "agents.ask.selection.edit":
+    "请按我的消息处理这段文字。{how}如果我的消息是在问这段文字，就在对话中回答，笔记不要改动。",
+  "agents.ask.selection.propose":
+    "只改这段文字：先用 read_mind（named）读取笔记，再对包含这段文字的每个段落调用 propose_changes，段落其余部分一字不改。笔记的其他内容不要改动。",
+  "agents.ask.selection.reply": "你不能修改这篇笔记，请把改好的文字写在对话中，我自己粘贴。",
   "agents.ask.verdict.unsupported": "没有依据",
   "agents.ask.verdict.contradicted": "与我的文档矛盾",
   "agents.ask.verdict.not-found": "在我的文档中找不到",

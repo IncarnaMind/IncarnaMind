@@ -32,6 +32,7 @@ import {
   useEdits,
 } from "../editWithAi";
 import { markSelectionAsMine } from "../markAsMine";
+import { hiddenForOwnAiNow } from "../ownAiPanel";
 import { useAppStore } from "../store";
 import { noteHandle } from "./handles";
 import type { Command, CommandContext } from "./registry";
@@ -292,7 +293,9 @@ export const proposalCommands: readonly Command[] = [
     run() {
       const note = withSelection();
       if (!note || requestEditField(note.editor, true)) return;
-      if (startEditing(note.editor, note.mindId)) useComposer.getState().requestFocus();
+      // With only their own AI, the words go to it, and they say there what to change (#3612).
+      if (hiddenForOwnAiNow()) void requestEdit(note.editor, note.mindId, note.doc, "instruction");
+      else if (startEditing(note.editor, note.mindId)) useComposer.getState().requestFocus();
     },
   },
   editAction("improve", "editor.ai.improve"),
@@ -307,7 +310,13 @@ export const proposalCommands: readonly Command[] = [
     when: () => withSelection() !== null,
     run() {
       const note = withSelection();
-      if (!note || !startEditing(note.editor, note.mindId)) return;
+      if (!note) return;
+      // With only their own AI, they name the language there (#3612).
+      if (hiddenForOwnAiNow()) {
+        void requestEdit(note.editor, note.mindId, note.doc, "translate");
+        return;
+      }
+      if (!startEditing(note.editor, note.mindId)) return;
       const language = useAppStore.getState().settings?.language ?? "en";
       useComposer
         .getState()

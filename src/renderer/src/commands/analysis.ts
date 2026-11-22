@@ -1,4 +1,5 @@
 import { NO_MIND, useComposer } from "../composer";
+import { hiddenForOwnAiNow } from "../ownAiPanel";
 import { useResearch } from "../research";
 import { focusComposer } from "./assistant";
 import type { Command } from "./registry";
@@ -10,6 +11,8 @@ export const analysisCommands: readonly Command[] = [
     keywords: ["analysis.command.keywords"],
     group: "main",
     reversible: true,
+    // The panel's, which a User with only their own AI never sees (#3612).
+    when: () => !hiddenForOwnAiNow(),
     enabled: () => {
       const { seat } = useComposer.getState();
       return seat && useResearch.getState().plans[seat.mindId]

@@ -38,6 +38,7 @@ import { translateNow } from "./i18n";
 import { currentTabOf, WINDOW_ID } from "./layoutSlice";
 import { returnQuestion, useModelSetup, waitForModel } from "./modelSetup";
 import { useNotices } from "./notices";
+import { ownAiOnlyNow, readConversationForOwnAi } from "./ownAiPanel";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
 
@@ -256,6 +257,8 @@ export async function openConversation(
       askingReads: null,
       sought: answerId ?? null,
     });
+    // Their own Conversation is theirs to read, though only their own AI is set up (#3612).
+    if (ownAiOnlyNow()) readConversationForOwnAi();
     unfold();
     return true;
   } catch (error) {

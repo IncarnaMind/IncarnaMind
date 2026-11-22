@@ -3,6 +3,7 @@ import { formatDateTime } from "../../../../shared/dates";
 import { mindName } from "../../../../shared/naming";
 import { addAnswer } from "../../addToNote";
 import { notesToAdd } from "../../answerEditors";
+import { askFirstAgent } from "../../askYourAi";
 import { homeNextHandle, useHandle } from "../../commands/handles";
 import { commands } from "../../commands/registry";
 import { conversationById, openConversation, useConversations } from "../../conversations";
@@ -12,6 +13,7 @@ import type { HomeNextStep as Step } from "../../homeNextStep";
 import { useLanguage, useT } from "../../i18n";
 import { saidInLine } from "../../lineNames";
 import { showCheckCard, startCheckAsking } from "../../mindCheck";
+import { hiddenForOwnAiNow } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
 
 /** Opens the Mind where Home is, once its tab is in the layout: its card and result line need it there. */
@@ -65,7 +67,10 @@ export function HomeNextStep({ step }: { step: Step }) {
           await store.pickDocuments();
           break;
         case "ask":
-          await commands.run("composer.focus");
+          // With only their own AI, it is asked about the Documents, and the question typed there (#3612).
+          if (hiddenForOwnAiNow())
+            await askFirstAgent(null, { kind: "question", text: "" }, { onScreen: [] });
+          else await commands.run("composer.focus");
           break;
         case "write": {
           await openConversation(step.answer.conversationId, step.answer.id);

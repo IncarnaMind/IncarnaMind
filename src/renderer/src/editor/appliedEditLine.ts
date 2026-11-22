@@ -160,6 +160,8 @@ export type AppliedLine = (
       text: string;
       action: { label: string; run(): void } | null;
       close(): void;
+      /** Not a failure: what became of words handed to the User's own AI (#3612). */
+      asked?: true;
     }
 ) & {
   /** The language it was last drawn in, once that changed. */
@@ -680,13 +682,17 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     const mark = document.createElement("span");
     mark.className = "applied-problem-dot";
     mark.setAttribute("aria-hidden", "true");
-    const parts: (Node | string)[] = [mark, text("min-w-0", line.text)];
+    const parts: (Node | string)[] = [...(line.asked ? [] : [mark]), text("min-w-0", line.text)];
     if (line.action) {
       parts.push(dot(), actionButton(line.action.label, "menu-edit-action", line.action.run));
     }
     parts.push(dot(), actionButton(t("edit.close"), "menu-edit-close", line.close));
-    const element = lineElement("edit-problem", "applied-line applied-line--problem", parts);
-    element.setAttribute("role", "alert");
+    const element = lineElement(
+      line.asked ? "edit-asked" : "edit-problem",
+      "applied-line applied-line--problem",
+      parts,
+    );
+    element.setAttribute("role", line.asked ? "status" : "alert");
     return element;
   }
   if (line.kind === "applied") {
