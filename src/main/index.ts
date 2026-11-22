@@ -25,7 +25,7 @@ import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
-import { appLinkIn } from "../shared/appLinks";
+import { APP_LINK_SCHEME, appLinkIn } from "../shared/appLinks";
 import { channelFor, EVENT_CHANNEL, FILES_CHANNELS, SERVED_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
@@ -182,6 +182,9 @@ if (instance.kind === "update") {
 if (instance.kind === "owner") {
   // Only the data owner creates a native singleton; contenders cannot later unlink its files (#1448).
   app.requestSingleInstanceLock();
+  // Windows' installer registers no scheme, so the app does, for its user only (ADR-0033).
+  if (app.isPackaged && process.platform === "win32")
+    app.setAsDefaultProtocolClient(APP_LINK_SCHEME);
   app.on("quit", () => instance.owner.quitting());
   startAgainIfStalled(
     app,
@@ -356,7 +359,7 @@ function showFrontAndSend(channel: string, ...message: unknown[]): void {
 // An app link the system hands over (ADR-0033) goes to the core, which shows its item or keeps it
 // for the first window: macOS sends it as an event, Windows and Linux start the app again with it.
 const appLinks = createAppLinkInbox({
-  show: (link) => core?.showLinked(link) ?? false,
+  show: (link) => void core?.showLinked(link),
   front: () => void showFront(),
 });
 app.on("open-url", (event, url) => {

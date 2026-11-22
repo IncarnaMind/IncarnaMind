@@ -2,11 +2,11 @@
 
 When the User asks their own AI for a Note, a file or a page, the agent writes it into IncarnaMind and replies in its own app. The User wants to get back to it later from that chat (#3534). Asking the agent to open it again already works in every client: `show_citation` shows a Note, a handed-over file or a Canvas by its id. This records the link an agent can also give with its reply: what it looks like, what opening it may do, and how it reaches the app. Other apps will keep these links in chats and notes, so the form doesn't change once shipped.
 
-Two names are still open: the scheme the app registers with the system (the app's own scheme, `APP_LINK_SCHEME` in `src/shared/appLinks.ts`, `incarnamind` until then), and the site the web link is on. The product's own name is under review. Until both are fixed, the app reads its links but doesn't register the scheme, and no Tool gives out a link.
+The scheme is the product's name, `incarnamind`, and is registered with the system. The site the web link goes through is still to be fixed: until its domain is bought and the site is live, no Tool gives out a link, and the app's side only shows what a link handed to it names.
 
 ## The link
 
-- **Three kinds, each by its own id:** `<scheme>://note/<id>` for a Note, `<scheme>://file/<id>` for a file an agent handed over, and `<scheme>://canvas/<id>` for a Canvas. The id is the item's own random UUID (AGENTS.md rule 7), in lower case.
+- **Three kinds, each by its own id:** `incarnamind://note/<id>` for a Note, `incarnamind://file/<id>` for a file an agent handed over, and `incarnamind://canvas/<id>` for a Canvas. The id is the item's own random UUID (AGENTS.md rule 7), in lower case.
 - **A handed file's link is the file's, not a version's.** It shows the Note of the file's newest version, so a link given with version 1 still shows the file after version 2 comes.
 - **Nothing else in it.** No name, no path, no text of the User's, no query and no fragment, and no verb: a link only shows. A title changes and a path tells where the User keeps things; an id does neither. (Obsidian's `obsidian://open?vault=…&file=…` carries both; DEVONthink's `x-devonthink-item://<UUID>` and Things' `things:///show?id=…` carry only an id.)
 
@@ -29,7 +29,7 @@ Most of the apps an agent's reply is read in don't open a custom scheme (#3534's
 
 - **macOS:** the system sends the running app an `open-url` event, also when the link starts it. The handler is set before the app is ready, and a link that comes before the first window is shown waits for it.
 - **Windows and Linux:** the system starts the app again with the link as an argument. The copy that holds the data folder receives the second start's arguments (`SecondStart`) and reads the link there. A link that starts the app is read from its own arguments.
-- **Registration,** once the scheme's name is fixed: `electron-builder.yml`'s `protocols` (macOS's `Info.plist`, the Linux `.desktop` file's `x-scheme-handler`), and `app.setAsDefaultProtocolClient` at start on Windows and Linux. An AppImage that isn't integrated into the desktop can't register itself; there the link only works once the User has integrated it.
+- **Registration:** `electron-builder.yml`'s `protocols` puts the scheme in macOS's `Info.plist` and in the Linux `.desktop` file's `MimeType` (`x-scheme-handler/incarnamind`, which the .deb installs). Windows' installer registers no scheme, so the app registers it for its user at start (`app.setAsDefaultProtocolClient`), and the uninstaller removes it (`build/installer.nsh`). An AppImage that isn't integrated into the desktop has no `.desktop` file and can't register itself: there a link works once the User has integrated it.
 
 ## Considered options
 
@@ -42,10 +42,9 @@ Most of the apps an agent's reply is read in don't open a custom scheme (#3534's
 
 ## Consequences
 
-- `src/shared/appLinks.ts` makes and reads the links; the scheme is one constant. The core's `showLinked` shows what one names, through the same event box 1 uses (`agents.opened`, in front).
+- `src/shared/appLinks.ts` makes and reads the links; the scheme is one constant, which a test holds to what the installers register. The core's `showLinked` shows what one names, through the same event box 1 uses (`agents.opened`, in front).
 - The main process takes a link from `open-url` and from a start's arguments (`src/main/appLinkInbox.ts`). A link that comes before the app is up waits for it; one naming nothing there only brings the app forward.
-- Still to do, once the names are fixed:
-  - registering the scheme;
-  - the `/open` page on our site;
+- Still to do, once the site's domain is fixed and the site is live:
+  - the `/open` page on our site (its pull request waits on the site);
   - the Tools returning the web link, with `docs/privacy.md` and `docs/where-your-data-goes.md` saying what the page does;
   - `docs/agents.md` saying the Tools give one.

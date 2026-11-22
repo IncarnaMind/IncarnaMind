@@ -1,11 +1,11 @@
 /**
- * The app's own links (#3534, ADR-0033): one item by its id, `<scheme>://note/<id>`, `…/file/<id>` or
- * `…/canvas/<id>`. A link only shows its item; it carries no name, path, text, query or fragment,
- * and anything else in the app's scheme only brings the app forward. Every link the app is handed,
- * from the system or a start's arguments, is read here and nowhere else.
+ * The app's own links (#3534, ADR-0033): one item by its id, `incarnamind://note/<id>`,
+ * `…/file/<id>` or `…/canvas/<id>`. A link only shows its item; it carries no name, path, text,
+ * query or fragment, and anything else in the app's scheme only brings the app forward. Every link
+ * the app is handed, from the system or a start's arguments, is read here and nowhere else.
  */
 
-/** The scheme the app's links use. One constant: the name it registers is still to be fixed. */
+/** The scheme the app's links use, as electron-builder.yml and build/installer.nsh register it. */
 export const APP_LINK_SCHEME = "incarnamind";
 
 export const APP_LINK_KINDS = ["note", "file", "canvas"] as const;
