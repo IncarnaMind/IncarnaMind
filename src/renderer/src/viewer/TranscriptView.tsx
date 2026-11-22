@@ -43,6 +43,7 @@ import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import { CURRENT_QUOTE, markEachQuote, QuoteStepsLine, useQuoteSteps } from "./quoteSteps";
 import { TranscriptHeadLine } from "./TranscriptHeadLine";
 import { TranscriptPlayerBar } from "./TranscriptPlayerBar";
 import { TranscriptSpeakerReview } from "./TranscriptSpeakerReview";
@@ -689,6 +690,7 @@ function TranscriptContent({
     const request = JSON.stringify([
       target.request,
       target.quote,
+      target.quotes,
       target.pageFrom,
       target.pageTo,
       cue,
@@ -707,17 +709,18 @@ function TranscriptContent({
       range.setStartBefore(first);
       range.setEndAfter(last);
     }
-    const marks =
-      cueLines && cue?.excerpt
-        ? markTranscriptExcerpt(cueLines, partsRef.current, cue, cue.excerpt, target.quote)
+    const marks = markEachQuote({ quote: target.quote, quotes: target.quotes }, (quote) =>
+      cueLines && cue?.excerpt && quote === target.quote
+        ? markTranscriptExcerpt(cueLines, partsRef.current, cue, cue.excerpt, quote)
         : cueLines
           ? markQuote(
               cueLines.flatMap((line) => textNodes(line)),
-              target.quote,
+              quote,
             )
           : target.pageFrom === undefined
-            ? markQuote(textNodes(body), target.quote)
-            : range && markQuote(textNodes(body, range), target.quote);
+            ? markQuote(textNodes(body), quote)
+            : ((range && markQuote(textNodes(body, range), quote)) ?? null),
+    );
     setHighlighted((count) => (marks?.length ? count + 1 : 0));
     const anchor = marks?.[0] ?? (cue?.excerpt ? null : first);
     if (anchor) {
@@ -733,10 +736,13 @@ function TranscriptContent({
     citedLines,
     target.request,
     target.quote,
+    target.quotes,
     target.pageFrom,
     target.pageTo,
     target.transcriptCue,
   ]);
+
+  const { step, stepper } = useQuoteSteps({ target, root: list, drawn: highlighted });
 
   // New lines while live: followed, unless the User has scrolled up to read.
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again for each line
@@ -745,6 +751,7 @@ function TranscriptContent({
     if (container && following.current) container.scrollTop = container.scrollHeight;
   }, [parts.length, partials]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: placed again beside the quote each step goes to
   useLayoutEffect(() => {
     const element = column.current;
     if (!element || !mark || highlighted === 0) {
@@ -752,7 +759,7 @@ function TranscriptContent({
       return;
     }
     const place = () => {
-      const first = element.querySelector("[data-quote-highlight]");
+      const first = element.querySelector(CURRENT_QUOTE);
       setMarkTop(first ? markTopFor(first, element) : null);
       setMarkRoom(marginRoom(element));
     };
@@ -760,7 +767,7 @@ function TranscriptContent({
     const observer = new ResizeObserver(place);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [mark, highlighted]);
+  }, [mark, highlighted, step]);
 
   const onScroll = () => {
     const container = scroller.current;
@@ -830,6 +837,7 @@ function TranscriptContent({
         {aside}
       </ViewerHeader>
       {meeting && hasLines && <TranscriptHeadLine playable={playable} />}
+      <QuoteStepsLine stepper={stepper} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         {reviewable && nameable && meetingId && (
           <TranscriptSpeakerReview

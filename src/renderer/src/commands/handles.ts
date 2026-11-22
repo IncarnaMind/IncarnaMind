@@ -132,6 +132,8 @@ interface ViewerActions {
     /** Starts a pick whose release highlights the region (#327); absent where areas aren't picked. */
     highlight?: () => void;
   };
+  /** The step through the quotes one chip stands for (`QuoteStepper`), while it shows. */
+  quoteSteps: { next(): void; previous(): void };
 }
 
 const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]> } = {
@@ -140,6 +142,7 @@ const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]>
   slide: new Map(),
   transcriptActions: new Map(),
   area: new Map(),
+  quoteSteps: new Map(),
 };
 
 /** The tab a viewer is drawn in: what the handle it lends the commands is filed under. */

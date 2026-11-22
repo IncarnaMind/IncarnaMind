@@ -39,3 +39,26 @@ export class FootnoteNumbering {
     return number;
   }
 }
+
+/**
+ * Whether the inline at `index` is a Citation side by side with the one before it (nothing but
+ * spaces between) whose note it shares: the text shows one mark for both, as the Note shows one
+ * chip (#3654). `noteOf` is a Citation's note (`footnoteSubjectKey`), null for anything else or a
+ * Citation that has a note of its own; `isSpace` says what may stand between them.
+ */
+export function sharesMarkBefore<T>(
+  inlines: readonly T[],
+  index: number,
+  noteOf: (inline: T) => string | null,
+  isSpace: (inline: T) => boolean,
+): boolean {
+  const own = inlines[index];
+  const note = own === undefined ? null : noteOf(own);
+  if (note === null) return false;
+  for (let at = index - 1; at >= 0; at--) {
+    const before = inlines[at] as T;
+    if (isSpace(before)) continue;
+    return noteOf(before) === note;
+  }
+  return false;
+}

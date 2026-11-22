@@ -5,7 +5,7 @@
  * and is never passed through here.
  */
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
-import { citedLocation } from "../../shared/citations";
+import { citedLocation, footnoteSubjectKey } from "../../shared/citations";
 import { translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
 import { type SourceContext, sourceEntry, sourceKeyOf, sourcesOf } from "../../shared/sources";
@@ -58,6 +58,22 @@ interface Cluster {
 
 export const isBlank = (inline: Inline | undefined) =>
   inline?.kind === "text" && inline.text.trim() === "" && !inline.text.includes("\n");
+
+/**
+ * The note a Citation in the text shares with the other Citations of its source and place
+ * (`footnoteSubjectKey`, #1381), or null for anything else, and for a Citation a change still
+ * waiting adds or removes, which stands for itself (#107).
+ */
+export function sharedNoteOf(inline: Inline, pending = false): string | null {
+  if (inline.kind !== "citation" || pending || inline.inserted || inline.deleted) return null;
+  return footnoteSubjectKey({
+    documentId: inline.work.documentId,
+    contentHash: inline.work.contentHash ?? null,
+    location: inline.work.location,
+    unverified: inline.footnote.unverified,
+    link: inline.footnote.link ?? null,
+  });
+}
 
 /** What changes still waiting do to an inline, as one key: a cluster is all one or all another (#107). */
 export const changeKey = (inline: Pendings | undefined): string =>

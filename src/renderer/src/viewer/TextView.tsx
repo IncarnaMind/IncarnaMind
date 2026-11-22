@@ -24,12 +24,20 @@ import type { ViewerTarget } from "../store";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { type AnnotationRange, annotationRangesIn } from "./annotationMarks";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks";
 import { parseMarkdown } from "./markdown";
 import { looksLikeCode } from "./plainText";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
+import {
+  CURRENT_QUOTE,
+  type QuoteRange,
+  QuoteStepContext,
+  QuoteStepsLine,
+  quotesIn,
+  useQuoteSteps,
+} from "./quoteSteps";
 import { sourceSelection, useSelectionReader } from "./selectedText";
 import { ViewerHeader } from "./ViewerHeader";
 import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
@@ -282,22 +290,26 @@ function TextContent({
     return first && last ? { start: first.start, end: last.end, first } : null;
   }, [units, target.pageFrom, target.pageTo]);
 
-  const highlight = useMemo(() => {
-    const quote = target.quote;
-    if (!quote) return NO_HIGHLIGHT;
-    if (target.pageFrom !== undefined) {
-      if (!cited) return NO_HIGHLIGHT;
-      const inside = findQuote(text.slice(cited.start, cited.end), quote);
-      if (inside) {
-        return inside.map((range) => ({
-          start: range.start + cited.start,
-          end: range.end + cited.start,
-        }));
-      }
-      return NO_HIGHLIGHT;
-    }
-    return findQuote(text, quote) ?? NO_HIGHLIGHT;
-  }, [text, target.quote, target.pageFrom, cited]);
+  const quotes = useMemo(
+    () => quotesOf({ quote: target.quote, quotes: target.quotes }),
+    [target.quote, target.quotes],
+  );
+  const highlight = useMemo((): readonly QuoteRange[] => {
+    const several = quotes.length > 1;
+    const ranges = quotes.flatMap((quote, index) => {
+      const at = (range: TextRange, offset: number): QuoteRange => ({
+        start: range.start + offset,
+        end: range.end + offset,
+        ...(several && { quote: index }),
+      });
+      if (target.pageFrom === undefined)
+        return (findQuote(text, quote) ?? []).map((range) => at(range, 0));
+      if (!cited) return [];
+      const inside = findQuote(text.slice(cited.start, cited.end), quote) ?? [];
+      return inside.map((range) => at(range, cited.start));
+    });
+    return ranges.length > 0 ? ranges.sort((a, b) => a.start - b.start) : NO_HIGHLIGHT;
+  }, [text, quotes, target.pageFrom, cited]);
   const blocks = useMemo(
     () => (markdown ? parseMarkdown(text, { literal }) : null),
     [text, markdown, literal],
@@ -316,6 +328,8 @@ function TextContent({
     for (const [unit, index] of headingIndexes(units)) if (index >= 0) starts.set(unit.page, index);
     return starts;
   }, [units]);
+  const found = useMemo(() => quotesIn(highlight), [highlight]);
+  const { step, stepper } = useQuoteSteps({ target, root: column, drawn: highlight, found });
   const mark = quoteMarkOf(target.citation);
   const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const [markTop, setMarkTop] = useState<number | null>(null);
@@ -360,7 +374,7 @@ function TextContent({
       return;
     }
     const place = () => {
-      const first = element.querySelector("[data-quote-highlight]");
+      const first = element.querySelector(CURRENT_QUOTE);
       setMarkTop(first ? markTopFor(first, element) : null);
       setMarkRoom(marginRoom(element));
     };
@@ -368,7 +382,7 @@ function TextContent({
     const observer = new ResizeObserver(place);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [showMark, highlight, source]);
+  }, [showMark, highlight, source, step]);
 
   // Each open request goes to its quote, else to its cited Unit, else the top; so does
   // switching between the formatted file and its source. Opening the Document again
@@ -380,7 +394,7 @@ function TextContent({
     const first = appliedRequest.current === null;
     appliedRequest.current = target.request;
     appliedMode.current = source;
-    const quoted = container.querySelector<HTMLElement>("[data-quote-highlight]");
+    const quoted = container.querySelector<HTMLElement>(CURRENT_QUOTE);
     const unit =
       citedHeading !== null && citedHeading >= 0
         ? container.querySelector(`[data-heading="${citedHeading}"]`)
@@ -406,63 +420,68 @@ function TextContent({
   };
 
   return (
-    <div className="flex min-h-0 flex-1">
-      {outline && (
-        <OutlinePanel
-          entries={outline}
-          current={current}
-          onGo={(heading) => {
-            const container = scroller.current;
-            const element = container?.querySelector(`[data-heading="${heading}"]`);
-            if (container && element) scrollToElement(container, element, 24);
-            setCurrent(heading);
-          }}
-        />
-      )}
-      <div
-        ref={scroller}
-        data-testid="viewer-text"
-        data-view={blocks ? (source ? "source" : "formatted") : code ? "code" : "plain"}
-        data-quote-tone={quoteTone(target.citation)}
-        onScroll={onScroll}
-        className="viewer-backdrop viewer-text-backdrop min-h-0 min-w-0 flex-1 overflow-auto select-text"
-      >
-        <article className="viewer-page viewer-text-page" data-area-unit="">
-          <div ref={column} className="relative" {...pictureClick}>
-            {blocks && !source ? (
-              <MarkdownBlocks
-                blocks={blocks}
-                source={text}
-                highlight={highlight}
-                annotations={annotations}
-              />
-            ) : (
-              <pre className={`document-plain ${blocks || code ? "document-plain--code" : ""}`}>
-                <PlainText
-                  source={text}
-                  units={units}
-                  highlight={highlight}
-                  annotations={annotations}
-                  headings={blocks ? sectionStarts : null}
-                />
-              </pre>
-            )}
-            {mark && markTop !== null && (
-              <CitationMark
-                mark={mark}
-                room={markRoom}
-                style={{ top: markTop, left: "calc(100% + 12px)" }}
-              />
-            )}
+    <QuoteStepContext.Provider value={step}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <QuoteStepsLine stepper={stepper} />
+        <div className="flex min-h-0 flex-1">
+          {outline && (
+            <OutlinePanel
+              entries={outline}
+              current={current}
+              onGo={(heading) => {
+                const container = scroller.current;
+                const element = container?.querySelector(`[data-heading="${heading}"]`);
+                if (container && element) scrollToElement(container, element, 24);
+                setCurrent(heading);
+              }}
+            />
+          )}
+          <div
+            ref={scroller}
+            data-testid="viewer-text"
+            data-view={blocks ? (source ? "source" : "formatted") : code ? "code" : "plain"}
+            data-quote-tone={quoteTone(target.citation)}
+            onScroll={onScroll}
+            className="viewer-backdrop viewer-text-backdrop min-h-0 min-w-0 flex-1 overflow-auto select-text"
+          >
+            <article className="viewer-page viewer-text-page" data-area-unit="">
+              <div ref={column} className="relative" {...pictureClick}>
+                {blocks && !source ? (
+                  <MarkdownBlocks
+                    blocks={blocks}
+                    source={text}
+                    highlight={highlight}
+                    annotations={annotations}
+                  />
+                ) : (
+                  <pre className={`document-plain ${blocks || code ? "document-plain--code" : ""}`}>
+                    <PlainText
+                      source={text}
+                      units={units}
+                      highlight={highlight}
+                      annotations={annotations}
+                      headings={blocks ? sectionStarts : null}
+                    />
+                  </pre>
+                )}
+                {mark && markTop !== null && (
+                  <CitationMark
+                    mark={mark}
+                    room={markRoom}
+                    style={{ top: markTop, left: "calc(100% + 12px)" }}
+                  />
+                )}
+              </div>
+            </article>
+            <AnnotationNoteLayer
+              container={scroller}
+              documentId={documentId}
+              annotations={stored ?? []}
+            />
           </div>
-        </article>
-        <AnnotationNoteLayer
-          container={scroller}
-          documentId={documentId}
-          annotations={stored ?? []}
-        />
+        </div>
       </div>
-    </div>
+    </QuoteStepContext.Provider>
   );
 }
 

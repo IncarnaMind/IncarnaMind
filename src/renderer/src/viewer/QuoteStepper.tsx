@@ -1,0 +1,76 @@
+import { isMacOS } from "@tiptap/core";
+import { type KeyboardEvent, useMemo } from "react";
+import { useViewerHandle } from "../commands/handles";
+import { shortcutLabel } from "../commands/keymap";
+import { ChevronDownLineIcon, ChevronUpLineIcon } from "../components/lineIcons";
+import { withKeys } from "../editor/withShortcut";
+import { useT } from "../i18n";
+
+/**
+ * The quotes of a chip that stands for several Citations of one place, one at a time: which is
+ * current and how many there are, with previous and next. It looks like the find bar and sits at
+ * the top right of the viewer, so a step never moves the buttons from under the pointer; the
+ * current quote carries the Citation's mark beside it. ⌘G and ⇧⌘G step too, as they step through
+ * a find's matches, and Enter and Shift+Enter or ↓ and ↑ on its buttons.
+ */
+export function QuoteStepper({
+  number,
+  at,
+  total,
+  onStep,
+}: {
+  /** The chip's number, as the Note shows it; 0 for none. */
+  number: number;
+  /** The current quote, from 0. */
+  at: number;
+  total: number;
+  onStep(by: 1 | -1): void;
+}) {
+  const t = useT();
+  const handle = useMemo(() => ({ next: () => onStep(1), previous: () => onStep(-1) }), [onStep]);
+  useViewerHandle("quoteSteps", handle);
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Enter" || event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      onStep(event.key === "ArrowUp" || (event.key === "Enter" && event.shiftKey) ? -1 : 1);
+    }
+  };
+  return (
+    <div
+      role="toolbar"
+      data-testid="quote-steps"
+      aria-label={t("citation.steps.label", { number })}
+      className="find-bar quote-steps"
+      onKeyDown={onKeyDown}
+    >
+      <div className="find-row">
+        {number > 0 && <span className="quote-steps-number">{number}</span>}
+        <span data-testid="quote-steps-count" aria-live="polite" className="find-count">
+          {t("citation.steps.count", { at: at + 1, total })}
+        </span>
+        <button
+          type="button"
+          data-testid="quote-steps-previous"
+          title={withKeys(t, t("citation.steps.previous"), shortcutLabel("citation.previousQuote"))}
+          aria-label={t("citation.steps.previous")}
+          aria-keyshortcuts={isMacOS() ? "Shift+Meta+G" : "Shift+Control+G"}
+          disabled={at === 0}
+          onClick={() => onStep(-1)}
+        >
+          <ChevronUpLineIcon className="size-4" />
+        </button>
+        <button
+          type="button"
+          data-testid="quote-steps-next"
+          title={withKeys(t, t("citation.steps.next"), shortcutLabel("citation.nextQuote"))}
+          aria-label={t("citation.steps.next")}
+          aria-keyshortcuts={isMacOS() ? "Meta+G" : "Control+G"}
+          disabled={at === total - 1}
+          onClick={() => onStep(1)}
+        >
+          <ChevronDownLineIcon className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}

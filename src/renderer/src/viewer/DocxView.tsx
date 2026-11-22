@@ -24,6 +24,7 @@ import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/Ou
 import { citedPlaceGone } from "./citedPlace";
 import { mapOfficeFontNames } from "./officeFontNames";
 import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
+import { isCurrentQuote, markEachQuote, QuoteStepsLine, useQuoteSteps } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
@@ -152,7 +153,8 @@ function DocxPages({
   const [zoom, setZoom] = useState(1);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [current, setCurrent] = useState<number | null>(null);
-  const [marks, setMarks] = useState<HTMLElement[]>([]);
+  /** The quotes' highlights, drawn again at each open. */
+  const [drawn, setDrawn] = useState<HTMLElement[]>([]);
   const [place, setPlace] = useState<MarkPlace | null>(null);
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
   const comments = useRef<DocxComment[]>([]);
@@ -320,7 +322,6 @@ function DocxPages({
     if (!body || rendered !== "yes") return;
     unmarkQuote(body);
     for (const comment of comments.current) unmarkQuote(comment.note);
-    const quote = target.quote;
     const section = citedSection();
     const place = docx.units
       .filter(
@@ -331,8 +332,7 @@ function DocxPages({
       )
       .map((unit) => `section.${CLASS_NAME} > ${unit.label?.notes ? "ol" : "article"}`)
       .join(",");
-    let found: HTMLElement[] | null = null;
-    if (quote) {
+    const found = markEachQuote(target, (quote) => {
       const inNotes = (list: readonly DocxComment[]) => {
         for (const comment of list) {
           const marked = markQuote(textNodes(comment.note), quote);
@@ -350,10 +350,9 @@ function DocxPages({
         target.pageFrom === undefined
           ? (markQuote(textNodes(body), quote) ?? inNotes(comments.current))
           : (markQuote(quoteNodesIn(body, section, place), quote) ?? inNotes(anchoredInSection));
-      found = find();
-      if (!found) found = withoutFootnoteNumbers(body, find);
-    }
-    setMarks(found ?? []);
+      return find() ?? withoutFootnoteNumbers(body, find);
+    });
+    setDrawn([...body.querySelectorAll<HTMLElement>("[data-quote-highlight]")]);
     if (section?.heading) setCurrent(headingElements().indexOf(section.heading));
     // Go to the quote, or else to the cited section, or the paragraph a Mind's caret is in
     // (#736), or the top.
@@ -372,7 +371,22 @@ function DocxPages({
       const above = found || anchor === at ? container.clientHeight / 3 : PADDING;
       container.scrollTop = Math.max(0, top - above);
     } else container.scrollTop = 0;
-  }, [rendered, citedSection, target.request, target.quote, target.wordPlace, placed]);
+  }, [
+    rendered,
+    citedSection,
+    target.request,
+    target.quote,
+    target.quotes,
+    target.wordPlace,
+    placed,
+  ]);
+
+  const { step, stepper } = useQuoteSteps({ target, root: host, drawn });
+  // The mark sits beside the quote the viewer is on, whose highlights are washed in full.
+  const marks = useMemo(
+    () => drawn.filter((element) => isCurrentQuote(element, step)),
+    [drawn, step],
+  );
 
   // The Document's highlights (#327), after the Citation's wash, so both read.
   const stored = useDocumentAnnotations(document.id);
@@ -475,6 +489,7 @@ function DocxPages({
         }
         placeGone={citedPlaceGone(target, docx.units.length)}
       />
+      <QuoteStepsLine stepper={stepper} />
       <div className="flex min-h-0 flex-1">
         {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
         <div

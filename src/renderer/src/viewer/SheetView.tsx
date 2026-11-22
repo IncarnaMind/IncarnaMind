@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -42,9 +43,18 @@ import { useLanguage, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { FileStates } from "./FileStates";
 import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone, useMarkMeasure } from "./quoteMark";
+import {
+  CURRENT_QUOTE,
+  QuoteStepContext,
+  QuoteStepsLine,
+  quoteClass,
+  quoteIndexProps,
+  quotesIn,
+  useQuoteSteps,
+} from "./quoteSteps";
 import { citeRangeAction, SheetSelectionMenu } from "./SelectionMenu";
 import { addRangeToNote, askAboutRange, copyRange } from "./selectionActions";
 import {
@@ -188,10 +198,24 @@ function Sheets({
   const sheets = workbook.sheets;
   const from = target.pageFrom ?? 1;
   const to = target.pageTo ?? from;
-  const found = useMemo(
-    () => (target.quote ? findCells(units, target.quote, target.pageFrom, target.pageTo) : null),
-    [units, target.quote, target.pageFrom, target.pageTo],
-  );
+  const found = useMemo(() => {
+    const quotes = quotesOf({ quote: target.quote, quotes: target.quotes });
+    let sheet: string | null = null;
+    const cells = new Set<string>();
+    /** Which quotes each cell is of, when several quotes of one chip are marked. */
+    const quoteOf = new Map<string, number[]>();
+    for (const [index, quote] of quotes.entries()) {
+      const one = findCells(units, quote, target.pageFrom, target.pageTo);
+      if (!one) continue;
+      sheet ??= one.sheet;
+      if (one.sheet !== sheet) continue;
+      for (const cell of one.cells) {
+        cells.add(cell);
+        if (quotes.length > 1) quoteOf.set(cell, [...(quoteOf.get(cell) ?? []), index]);
+      }
+    }
+    return sheet === null ? null : { sheet, cells, quoteOf };
+  }, [units, target.quote, target.quotes, target.pageFrom, target.pageTo]);
   const citedUnit = units.find((unit) => unit.page === from);
   const citedSheet = found?.sheet ?? citedUnit?.label?.sheet ?? null;
   const [active, setActive] = useState(() =>
@@ -289,10 +313,41 @@ function Sheets({
     Boolean(hasContent) && (citedSheet === null || sheet?.name === citedSheet),
     citedArea,
   );
+  // The grid draws only the rows in view: the quotes found count, not those drawn yet.
+  const foundQuotes = useMemo(
+    () => quotesIn([...(found?.quoteOf.values() ?? [])].flat().map((quote) => ({ quote }))),
+    [found],
+  );
+  // A quote in rows not drawn yet is brought into view as an opening's rows are.
+  const reachQuote = useCallback(
+    (quote: number) => {
+      if (!found) return;
+      const refs = cellsOn(found)
+        .filter((ref) => found.quoteOf.get(cellKey(found.sheet, ref))?.includes(quote))
+        .flatMap((ref) => parseCellRef(ref) ?? []);
+      if (refs.length === 0) return;
+      setScrollTo({
+        top: Math.min(...refs.map((ref) => ref.row)),
+        bottom: Math.max(...refs.map((ref) => ref.row)),
+        left: Math.min(...refs.map((ref) => ref.column)),
+        right: Math.max(...refs.map((ref) => ref.column)),
+        request: target.request,
+      });
+    },
+    [found, target.request],
+  );
+  const { step, stepper } = useQuoteSteps({
+    target,
+    root: box,
+    drawn: found,
+    found: foundQuotes,
+    reach: reachQuote,
+  });
 
   return (
-    <>
+    <QuoteStepContext.Provider value={step}>
       <ViewerHeader placeGone={citedPlaceGone(target, units.length)} />
+      <QuoteStepsLine stepper={stepper} />
       <div
         ref={box}
         data-testid="viewer-sheet"
@@ -308,6 +363,7 @@ function Sheets({
             units={units}
             headerRow={headerRows.get(sheet.name) ?? null}
             highlighted={found?.sheet === sheet.name ? found.cells : null}
+            quoteOf={found?.quoteOf ?? null}
             mark={found?.sheet === sheet.name ? mark : null}
             scrollTo={sheet.name === (citedSheet ?? "") ? scrollTo : null}
           />
@@ -363,7 +419,7 @@ function Sheets({
           ))}
         </div>
       </div>
-    </>
+    </QuoteStepContext.Provider>
   );
 }
 
@@ -578,6 +634,7 @@ function Grid({
   units,
   headerRow: sheetHeaderRow,
   highlighted,
+  quoteOf,
   mark,
   scrollTo,
 }: {
@@ -587,10 +644,13 @@ function Grid({
   units: readonly TextUnit[];
   headerRow: number | null;
   highlighted: ReadonlySet<string> | null;
+  /** Which of the quotes opened together each highlighted cell is of (`useQuoteSteps`). */
+  quoteOf: ReadonlyMap<string, readonly number[]> | null;
   mark: ReturnType<typeof quoteMarkOf>;
   scrollTo: ScrollRequest | null;
 }) {
   const t = useT();
+  const step = useContext(QuoteStepContext);
   const scroller = useRef<HTMLDivElement>(null);
   const table = useRef<HTMLTableElement>(null);
   const [view, setView] = useState({ top: 0, height: 600, left: 0, width: 600 });
@@ -603,7 +663,8 @@ function Grid({
   const keys = useRef<HTMLButtonElement>(null);
   const { measured, onSize: measuredMark } = useMarkMeasure(mark);
   const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
-  const applied = useRef<number | null>(null);
+  /** The scroll asked for last: an opening's, or a step's to a quote in rows not drawn. */
+  const applied = useRef<ScrollRequest | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
   const csv = model.look === null;
   const settingUp = useSettingUp();
@@ -732,10 +793,10 @@ function Grid({
   // own size, as the rows past the sheet's last are counted from it, and for the mark's width.
   useLayoutEffect(() => {
     const element = scroller.current;
-    if (!element || !scrollTo || applied.current === scrollTo.request) return;
+    if (!element || !scrollTo || applied.current === scrollTo) return;
     if (view.height !== element.clientHeight || view.width !== element.clientWidth) return;
     if (mark && !measured) return;
-    applied.current = scrollTo.request;
+    applied.current = scrollTo;
     const frozenHeight = rows.start(model.frozen.rows + 1);
     const body = element.clientHeight - HEADER_HEIGHT - frozenHeight;
     element.scrollTop = Math.max(0, rows.start(scrollTo.top) - frozenHeight - body / 3);
@@ -878,7 +939,7 @@ function Grid({
       setPlace(null);
       return;
     }
-    const marked = [...grid.querySelectorAll<HTMLElement>("td[data-quote-highlight]")];
+    const marked = [...grid.querySelectorAll<HTMLElement>(`td${CURRENT_QUOTE}`)];
     if (marked.length === 0) {
       setPlace(null);
       return;
@@ -913,7 +974,7 @@ function Grid({
         { ...measured, height: MARK_HEIGHT },
       ),
     );
-  }, [mark, highlighted, first, last, view, measured, rows, columns, model.frozen]);
+  }, [mark, highlighted, first, last, view, measured, rows, columns, model.frozen, step]);
 
   const styleOf = (row: number, column: number): CellStyle | undefined =>
     model.book?.styles[styleIndexAt(model, row, column)];
@@ -948,6 +1009,9 @@ function Grid({
       const { at, cell, shown, text } = contentOf(top, column);
       const style = styleOf(top, column);
       const isHighlighted = highlighted?.has(cellKey(sheet.name, ref)) ?? false;
+      // A cell two quotes share shows as the one the viewer is on.
+      const of = isHighlighted ? (quoteOf?.get(cellKey(sheet.name, ref)) ?? []) : [];
+      const quote = of.includes(step) ? step : of[0];
       const isPicked = activeRange !== null && isInRange(activeRange, top, column);
 
       // Its extent: merged rows and columns in view, or empty cells its text spills over.
@@ -1120,12 +1184,13 @@ function Grid({
           data-ref={ref}
           data-row={top}
           data-quote-highlight={isHighlighted ? "" : undefined}
+          {...quoteIndexProps(quote)}
           data-selected={isPicked ? "" : undefined}
           rowSpan={spanRows > 1 ? spanRows : undefined}
           colSpan={spanColumns > 1 ? spanColumns : undefined}
           title={note ?? (unsavedMark ? t("sheet.noSavedValue") : undefined)}
           aria-label={unsavedMark ? t("sheet.noSavedValue") : undefined}
-          className={`${csv && numeric ? "viewer-cell--number" : ""} ${isHighlighted ? "viewer-cell--quote" : ""} ${note ? "viewer-cell--note" : ""} ${unsaved ? "viewer-cell--unsaved" : ""}`}
+          className={`${csv && numeric ? "viewer-cell--number" : ""} ${isHighlighted ? `viewer-cell--quote${quoteClass(quote, step)}` : ""} ${note ? "viewer-cell--note" : ""} ${unsaved ? "viewer-cell--unsaved" : ""}`}
           style={css}
         >
           {csv ? (

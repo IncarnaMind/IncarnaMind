@@ -35,7 +35,7 @@ import { holdsQuote, NO_MIND, useComposer } from "../composer";
 import { core } from "../core";
 import { flashBlocks } from "../editor/blockOrigins";
 import { sourceContext } from "../editor/copyCitations";
-import { addFootnotes, citationsIn, copiedText, wordFootnoteHtml } from "../editor/copyNotes";
+import { addFootnotes, copiedText, wordFootnoteHtml } from "../editor/copyNotes";
 import { offerEditorUndo } from "../editor/editorUndo";
 import { noteExtensions } from "../editor/noteSchema";
 import { whenMindEditor } from "../editor/openEditors";
@@ -311,7 +311,7 @@ export async function copySelectionWithCitation(selection: ViewerSelection): Pro
     const context = sourceContext();
     const holder = document.createElement("div");
     holder.append(DOMSerializer.fromSchema(schema).serializeFragment(fragment));
-    addFootnotes(holder, citationsIn(fragment), context);
+    addFootnotes(holder, fragment, context);
     await navigator.clipboard.write([
       new ClipboardItem({
         "text/html": new Blob([wordFootnoteHtml(holder.innerHTML)], { type: "text/html" }),
@@ -436,7 +436,7 @@ export async function copyRange(selection: RangeSelection): Promise<void> {
     );
     const holder = document.createElement("div");
     holder.append(DOMSerializer.fromSchema(noteSchema).serializeFragment(fragment));
-    addFootnotes(holder, citationsIn(fragment), context);
+    addFootnotes(holder, fragment, context);
     await navigator.clipboard.write([
       new ClipboardItem({
         "text/plain": new Blob([`${tsv}\n\n${translateNow("citedSource.title")}\n[1] ${source}`], {

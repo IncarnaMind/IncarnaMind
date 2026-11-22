@@ -5,7 +5,9 @@ import type { DecorationSet } from "@tiptap/pm/view";
 import { describe, expect, test } from "vitest";
 import { CITATION_NODE, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import {
+  type CitationGroup,
   citationNumbersPlugin,
+  groupKeyStep,
   numberCitations,
   numberedCitations,
   numberFootnotes,
@@ -187,6 +189,154 @@ describe("Citation numbers", () => {
     expect(
       numberFootnotes(doc, "numbered", { documents: [] }).citations.map((each) => each.number),
     ).toEqual([1, 1]);
+  });
+});
+
+describe("Citations side by side with one number (#3654)", () => {
+  /** Each Citation's number, and the place of the Citation whose chip shows it. */
+  const shown = (state: EditorState) =>
+    numberedCitations(state).map((each) => `${each.number}@${each.shownBy}`);
+
+  test("show as one chip, drawn by the first of them; apart, each shows its own", () => {
+    const state = stateWith([
+      paragraph(
+        "a",
+        text("Slow"),
+        placed("tides", 1),
+        placed("tides", 2),
+        placed("tides", 2),
+        placed("tides", 2),
+        text("."),
+      ),
+      paragraph("b", text("Fast"), placed("tides", 2), text(" and slow"), placed("tides", 2)),
+    ]);
+    expect(shown(state)).toEqual(["1@0", "2@1", "2@1", "2@1", "2@4", "2@5"]);
+  });
+
+  test("join each number once across a run, spaces between included, at its first place", () => {
+    const state = stateWith([
+      paragraph(
+        "a",
+        text("Run"),
+        placed("tides", 2),
+        text(" "),
+        placed("tides", 3),
+        placed("tides", 2),
+      ),
+    ]);
+    expect(shown(state)).toEqual(["1@0", "2@1", "1@0"]);
+  });
+
+  test("never join a screen's Citations: each card shows the screen it quotes", () => {
+    const screen = (from: number): JSONContent => ({
+      type: CITATION_NODE,
+      attrs: {
+        documentId: "meeting",
+        documentName: "Meeting",
+        contentHash: "meeting-v1",
+        quote: "Words on the shared screen.",
+        location: {
+          kind: "screen",
+          at: "2026-10-14T13:05:00.000Z",
+          screen: "m/1",
+          from,
+          to: from + 8,
+        },
+        check: "found",
+        checkReason: null,
+      },
+    });
+    const state = stateWith([paragraph("a", text("Shown"), screen(0), screen(0))]);
+    expect(shown(state)).toEqual(["1@0", "1@1"]);
+  });
+
+  test("never join a quote found with one not found: they carry two numbers", () => {
+    const state = stateWith([
+      paragraph("a", text("Mixed"), placed("tides", 2), placed("tides", 2, "not-found")),
+    ]);
+    expect(shown(state)).toEqual(["1@0", "2@1"]);
+  });
+
+  test("tell the first one's node view its group, and the others that they show nothing", () => {
+    const state = stateWith([
+      paragraph("a", text("Slow"), placed("tides", 2), placed("tides", 2), placed("moon", 1)),
+    ]);
+    const plugin = state.plugins[0];
+    const groups = (
+      plugin?.getState(state) as { decorations: DecorationSet } | undefined
+    )?.decorations
+      .find()
+      .map((each) => each.spec.citationGroup as CitationGroup | undefined)
+      .filter((each) => each !== undefined);
+    expect(groups).toEqual([
+      { key: "a:1", shows: true, members: ["a:1", "a:2"] },
+      { key: "a:2", shows: false, members: [] },
+      { key: "a:3", shows: true, members: ["a:3"] },
+    ]);
+  });
+
+  test("are crossed by the caret in one step, and removed by one Backspace or Delete", () => {
+    const state = stateWith([
+      paragraph(
+        "a",
+        text("Slow"),
+        placed("tides", 2),
+        placed("tides", 2),
+        placed("tides", 2),
+        text("."),
+      ),
+    ]);
+    const first = numberedCitations(state)[0]?.pos ?? 0;
+    const after = first + 3;
+    const at = (pos: number) =>
+      state.apply(state.tr.setSelection(TextSelection.create(state.doc, pos)));
+    expect(groupKeyStep(at(first), "ArrowRight")?.selection.from).toBe(after);
+    expect(groupKeyStep(at(after), "ArrowLeft")?.selection.from).toBe(first);
+    // Inside the chip, where a click may leave the caret: out to its edge.
+    expect(groupKeyStep(at(first + 1), "ArrowRight")?.selection.from).toBe(after);
+    const removed = groupKeyStep(at(after), "Backspace");
+    expect(removed?.doc.textContent).toBe("Slow.");
+    expect(numberCitations(removed?.doc ?? state.doc)).toHaveLength(0);
+    expect(groupKeyStep(at(first), "Delete")?.doc.textContent).toBe("Slow.");
+    // Past the chip, and beside a chip of one Citation, the keys do what they always do.
+    expect(groupKeyStep(at(after + 1), "Backspace")).toBeNull();
+    // "9 10 9": the second 9 shows in the first chip; the keys go past it to "10" and leave it be.
+    const run = stateWith([
+      paragraph(
+        "a",
+        text("Run"),
+        placed("tides", 2),
+        placed("tides", 3),
+        placed("tides", 2),
+        text("."),
+      ),
+    ]);
+    const [nine, ten, again] = numberedCitations(run).map((each) => each.pos);
+    const end = (again ?? 0) + 1;
+    const inRun = (pos: number) =>
+      run.apply(run.tr.setSelection(TextSelection.create(run.doc, pos)));
+    expect(groupKeyStep(inRun(end), "ArrowLeft")?.selection.from).toBe(ten);
+    const tenGone = groupKeyStep(inRun(end), "Backspace");
+    expect(numberCitations(tenGone?.doc ?? run.doc).map((each) => each.number)).toEqual([1, 1]);
+    const nineGone = groupKeyStep(inRun((nine ?? 0) + 1), "Backspace");
+    expect(numberCitations(nineGone?.doc ?? run.doc).map((each) => each.number)).toEqual([1]);
+    // Spaces between them are passed with them, and taken with them.
+    const spaced = stateWith([
+      paragraph("a", text("Spaced"), placed("tides", 2), text(" "), placed("tides", 2), text(".")),
+    ]);
+    const [lead, last] = numberedCitations(spaced).map((each) => each.pos);
+    const inSpaced = (pos: number) =>
+      spaced.apply(spaced.tr.setSelection(TextSelection.create(spaced.doc, pos)));
+    expect(groupKeyStep(inSpaced(lead ?? 0), "ArrowRight")?.selection.from).toBe((last ?? 0) + 1);
+    expect(groupKeyStep(inSpaced((last ?? 0) + 1), "Backspace")?.doc.textContent).toBe("Spaced .");
+    const single = stateWith([paragraph("a", text("One"), placed("tides", 2), text("."))]);
+    const one = numberedCitations(single)[0]?.pos ?? 0;
+    expect(
+      groupKeyStep(
+        single.apply(single.tr.setSelection(TextSelection.create(single.doc, one + 1))),
+        "Backspace",
+      ),
+    ).toBeNull();
   });
 });
 

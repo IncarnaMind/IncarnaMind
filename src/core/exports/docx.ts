@@ -17,7 +17,7 @@
 import { deflateRawSync } from "node:zlib";
 import { footnoteSubjectKey } from "../../shared/citations";
 import type { PrintedMarks } from "../../shared/exportMarks";
-import { FootnoteNumbering } from "../../shared/footnoteNumbers";
+import { FootnoteNumbering, sharesMarkBefore } from "../../shared/footnoteNumbers";
 import type { TableAlign } from "../../shared/markdownTables";
 import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
 import type { CitedWork, MindComment, ParagraphFormat, StyledRun } from "../api";
@@ -37,7 +37,7 @@ import {
 } from "../mindText";
 import { tabHeading } from "../noteTabs";
 import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../pageDefaults";
-import { changeKey } from "./citations";
+import { changeKey, isBlank, sharedNoteOf } from "./citations";
 import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
 import { noteChecks } from "./noteChecks";
@@ -1111,13 +1111,27 @@ export class DocxWriter {
             const apart = before?.kind === "text" && /\S$/.test(before.text);
             xml += this.source(item.footnote, apart ? " " : "");
           } else {
+            // Side by side with a Citation of the same note: its mark stands for both (#3654).
+            const pending = context.pending === true;
+            const noteOf = (each: Inline) => sharedNoteOf(each, pending);
+            if (sharesMarkBefore(content, index, noteOf, isBlank)) break;
             const reference = this.footnote(
               item.footnote,
               item.work,
               !item.inserted && !item.deleted && !context.pending,
             );
             xml += this.noteApart(content[index - 1]);
-            xml += this.review ? this.review.failed(reference, [item.footnote]) : reference;
+            // The mark carries the failed checks of every Citation it stands for.
+            const footnotes = [item.footnote];
+            // Past this run's end too: a change's edge can fall between Citations that share it.
+            for (let next = index + 1; next < content.length; next++) {
+              const later = content[next];
+              if (!later || isBlank(later)) continue;
+              if (later.kind !== "citation" || !sharesMarkBefore(content, next, noteOf, isBlank))
+                break;
+              footnotes.push(later.footnote);
+            }
+            xml += this.review ? this.review.failed(reference, footnotes) : reference;
           }
           break;
         case "footnote":
