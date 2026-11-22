@@ -200,7 +200,7 @@ async function written(ownAi?: OwnAiRunner) {
       }).state,
     ]);
   };
-  return { ...started, core, mindId: mind.id, claude, vscode, ends, ended, marks };
+  return { ...started, core, mindId: mind.id, coast, claude, vscode, ends, ended, marks };
 }
 
 describe("a Check run on the User's own Claude Code in the background (#3606)", () => {
@@ -484,5 +484,43 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
     expect((await failed.ended())?.problem).toBe("failed");
     const theirs = await connectLegacyAgent(failed.claude.launch);
     expect(await take(theirs, failed.mindId)).toBe(readOnly);
+  });
+
+  // protects=two presses at once on one Note, each naming another Claude Code connection, start one run, and both are told the agent that runs it, so the line that hears its end is the one showing Stop; fails_when=a press is told it started a run of an agent that isn't running, and its line shows Stop for ever
+  it("tells a second press the agent already running", async () => {
+    const run = runner(untilStopped);
+    const { core, mindId, claude, coast, ended } = await written(run.adapter);
+    const other = await core.connectAgent({
+      name: "Claude Code, work",
+      client: "claude-code",
+      folderIds: [coast.id],
+      propose: false,
+    });
+    const [first, second] = await Promise.all([
+      core.checkWithOwnAi(mindId, claude.pairing.id),
+      core.checkWithOwnAi(mindId, other.pairing.id),
+    ]);
+    const runs = (start: typeof first) =>
+      start.kind === "started" ? start.pairing.id : start.kind;
+    expect(runs(second)).toBe(runs(first));
+    expect(run.runs).toHaveLength(1);
+    await core.stopOwnAiCheck(mindId);
+    expect((await ended())?.pairingId).toBe(runs(first));
+  });
+
+  // protects=what the press found is checked again once the consent is answered, which may take as long as the User does: the Note gone from the agent's reach meanwhile starts nothing and keeps the link (Local mode turned on meanwhile already ends the dialog with its own line); fails_when=Claude Code starts with the Note's title for an agent that may no longer read it
+  it("starts nothing when the Note left the agent's reach while the consent waited", async () => {
+    const run = runner(untilStopped);
+    const { core, mindId, claude, dataDir } = await written(run.adapter);
+    madeBefore(dataDir);
+    const inland = await core.createLibraryGroup({ name: "Inland", description: "Rivers." });
+    core.on("consent.requested", (request) => {
+      void (async () => {
+        await core.updateAgent(claude.pairing.id, { folderIds: [inland.id] });
+        await core.respondToConsent(request.requestId, true);
+      })();
+    });
+    expect(await core.checkWithOwnAi(mindId)).toEqual({ kind: "link" });
+    expect(run.runs).toEqual([]);
   });
 });

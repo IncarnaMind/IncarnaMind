@@ -101,28 +101,44 @@ export async function runClaudeCodeTurn(turn: ClaudeCodeTurn): Promise<Record<st
   return readTurn(child, turn);
 }
 
+/** How long a stopped turn's output may take to close before IncarnaMind stops reading it. */
+const STOP_WAIT_MS = 5_000;
+
 async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
   const { signal } = turn;
-  const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
+  let open = true;
+  const closed = new Promise<void>((resolve) =>
+    child.once("close", () => {
+      open = false;
+      resolve();
+    }),
+  );
+  // The whole group, whatever its leader's own state: a process it started can hold the output
+  // after the leader exits. A group's id isn't reused while any member of it lives.
   const kill = () => {
-    if (child.exitCode === null && child.signalCode === null) stopProcessTree(child);
+    if (open) stopProcessTree(child);
   };
   child.on("error", kill);
   child.stdin?.on("error", kill);
   child.stderr?.resume();
   if (!child.stdin || !child.stdout) {
     kill();
-    await closed;
+    await drained(child, closed);
     throw new Error("Claude Code input or output is unavailable.");
   }
   const stdin = child.stdin;
+  const lines = createInterface({ input: child.stdout });
+  // Stopped: the reading ends now, not once every holder of the output lets it go.
+  const stop = () => {
+    kill();
+    lines.close();
+  };
   let bytes = 0;
   child.stdout.on("data", (chunk: Buffer) => {
     bytes += chunk.length;
-    if (bytes > turn.maxResponseBytes) kill();
+    if (bytes > turn.maxResponseBytes) stop();
   });
-  const lines = createInterface({ input: child.stdout });
-  signal.addEventListener("abort", kill, { once: true });
+  signal.addEventListener("abort", stop, { once: true });
   try {
     signal.throwIfAborted();
     stdin.write(
@@ -168,11 +184,25 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     signal.throwIfAborted();
     throw new Error("Claude Code could not complete the request.");
   } finally {
-    signal.removeEventListener("abort", kill);
-    lines.close();
-    kill();
-    await closed;
+    signal.removeEventListener("abort", stop);
+    stop();
+    await drained(child, closed);
   }
+}
+
+/** Waits for a stopped turn's output to close, up to `STOP_WAIT_MS`; past that, stops reading it. */
+async function drained(child: ChildProcess, closed: Promise<void>): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(true), STOP_WAIT_MS);
+  });
+  const tooLate = await Promise.race([closed.then(() => false), late]);
+  clearTimeout(timer);
+  if (!tooLate) return;
+  for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
+  console.warn(
+    "Claude Code's output stayed open after it was stopped, so IncarnaMind stopped reading it.",
+  );
 }
 
 /** Claude Code's effective settings hold a hook or an enabled plugin, which nothing here can turn off. */

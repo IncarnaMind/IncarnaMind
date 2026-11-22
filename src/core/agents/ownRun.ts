@@ -84,7 +84,11 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
         versions: { found: status.found, lowest: status.lowest },
       };
     }
-    if (running.has(mindId)) return { kind: "started", pairing };
+    // Another press may have started a run while this one waited: it names the agent running.
+    const meanwhile = running.get(mindId);
+    if (meanwhile) return { kind: "started", pairing: meanwhile.pairing };
+    // The consent can wait as long as the User does: what it found may no longer hold.
+    if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
 
     const stop = new AbortController();
     const signal = AbortSignal.any([options.lifetime, stop.signal]);

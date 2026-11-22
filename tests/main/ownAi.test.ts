@@ -263,6 +263,35 @@ describe("a check run on the User's own Claude Code", () => {
     await expect(run()).resolves.toEqual({ kind: "failed", reason: "other" });
   });
 
+  // protects=Stop ends every process the run started even after Claude Code itself exited while one of them still holds its output, and the run settles; fails_when=a stopped run waits for ever on output a leftover process holds, keeping the check and its grant alive
+  // Windows has no process group: `taskkill /T` can't reach a process whose parent has exited.
+  it.skipIf(process.platform === "win32")(
+    "stops a run whose command line exited while a process it started holds its output",
+    async () => {
+      const folder = await mkdtemp(join(tmpdir(), "own-ai-held-"));
+      const pidFile = join(folder, "pid");
+      useClaude({
+        run: `
+        const held = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });
+        require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(held.pid));
+        process.exit(0);
+      `,
+      });
+      try {
+        const stop = new AbortController();
+        const job = run(stop.signal);
+        await vi.waitFor(async () => expect(await readFile(pidFile, "utf8")).not.toBe(""));
+        const held = Number(await readFile(pidFile, "utf8"));
+        stop.abort();
+        await expect(job).rejects.toThrow();
+        await vi.waitFor(() => expect(() => process.kill(held, 0)).toThrow());
+      } finally {
+        await rm(folder, { recursive: true, force: true });
+      }
+    },
+    15_000,
+  );
+
   // protects=Stop ends Claude Code and every process it started, and removes the run's folder; fails_when=a stopped run keeps the process or its folder with the grant
   it("ends the run and removes its folder when stopped", async () => {
     const stop = new AbortController();
