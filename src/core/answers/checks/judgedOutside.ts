@@ -37,6 +37,7 @@ import {
   markedSentences,
   markSentence,
   type SelectedSentence,
+  unmarkSentence,
 } from "./sentences";
 import { fileCheckLines, judgedWithOf, type Reader, readingOf } from "./standing";
 import type { MindCheckScope } from "./verify";
@@ -372,7 +373,15 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
           }
           if (each.verdict === "nothing-to-check") {
             if (sentence.always) unconfirmed.push(each.n);
-            else skipped.add(sentence.key);
+            else {
+              skipped.add(sentence.key);
+              unmarkSentence(
+                sentence.element,
+                sentence.from,
+                sentence.to,
+                "check-against-documents",
+              );
+            }
             continue;
           }
           // A file cited by path is evidence for the sentence that cites it alone (#3509).
