@@ -36,12 +36,6 @@ const useReading = create<{ reading: boolean }>(() => ({ reading: false }));
 
 export const readConversationForOwnAi = (): void => useReading.setState({ reading: true });
 
-useAppStore.subscribe((state, before) => {
-  if (state.layout?.assistant.folded === true && before.layout?.assistant.folded !== true) {
-    useReading.setState({ reading: false });
-  }
-});
-
 /** The panel is out of sight for a User with only their own AI: no rail, no commands, no keys. */
 export function useHiddenForOwnAi(): boolean {
   const only = useOwnAiOnly();
@@ -58,8 +52,8 @@ export function setUpModelInstead(): void {
 
 /**
  * Folds the assistant for a User with only their own AI, unless they are reading a Conversation
- * in it, so a window opened again doesn't show it before their AI is known (#3612); and unfolds
- * it again when that ends, if it was folded for that alone.
+ * in it, so a window opened again doesn't show it before their AI is known (#3612), and ends the
+ * reading when they fold it; unfolds it again when that ends, if it was folded for that alone.
  */
 export function useFoldForOwnAi(): void {
   useReadAgentsToAsk(null);
@@ -68,6 +62,11 @@ export function useFoldForOwnAi(): void {
   const place = useAppStore((state) => state.layout?.assistant ?? null);
   useEffect(() => {
     if (only === null || !place) return;
+    // Folded by the User, the Conversation they were reading goes out of sight with it.
+    if (reading && place.folded) {
+      useReading.setState({ reading: false });
+      return;
+    }
     const { placeAssistant } = useAppStore.getState();
     if (only && !place.folded && !reading) void placeAssistant({ folded: true, foldedBy: "agent" });
     else if (!only && place.folded && place.foldedBy === "agent") {
