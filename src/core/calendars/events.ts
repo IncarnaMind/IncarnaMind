@@ -21,7 +21,7 @@ export interface ReadEvent {
 }
 
 /** More are rarely shown, and a company-wide invite can name thousands. */
-const MAX_ATTENDEES = 50;
+export const MAX_ATTENDEES = 50;
 
 /** Hosts whose addresses are calls, found in an invite's place or text when it names no call. */
 const CALL_HOSTS = [
