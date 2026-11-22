@@ -58,7 +58,13 @@ import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
 import type { ServedConnection } from "./mcp";
 import { createAgentRequests, type KeptRequest } from "./requests";
-import { type AgentListener, isSocketPathUsable, listenForAgents } from "./socket";
+import {
+  AgentEndpointError,
+  type AgentListener,
+  isSocketPathUsable,
+  isWindowsPipe,
+  listenForAgents,
+} from "./socket";
 import { createAgentWorkings } from "./workings";
 
 export { type AgentAccess, AgentRefusedError } from "./access";
@@ -242,7 +248,7 @@ export function createAgents(options: AgentsOptions) {
   /** When each pairing's "last used" time was last written. */
   const lastWritten = new Map<string, number>();
   let listener: AgentListener | null = null;
-  let listenProblem: "too-long" | "unavailable" | null = null;
+  let listenProblem: "too-long" | "untrusted" | "unavailable" | null = null;
   /** Starting and stopping the listener, one after another, so two quick toggles can't race. */
   let listening: Promise<void> = Promise.resolve();
   let closed = false;
@@ -650,14 +656,16 @@ export function createAgents(options: AgentsOptions) {
   const socketError = () =>
     new InvalidInputError({
       key:
-        listenProblem === "too-long" || !isSocketPathUsable(options.socketPath)
-          ? "error.agent.socketTooLong"
-          : "error.agent.socketUnavailable",
+        listenProblem === "untrusted"
+          ? "error.agent.socketUntrusted"
+          : listenProblem === "too-long" || !isSocketPathUsable(options.socketPath)
+            ? "error.agent.socketTooLong"
+            : "error.agent.socketUnavailable",
     });
 
   const ensureReachable = async (): Promise<void> => {
     if (!isSocketPathUsable(options.socketPath)) {
-      listenProblem = "too-long";
+      listenProblem = isWindowsPipe(options.socketPath) ? "untrusted" : "too-long";
       throw socketError();
     }
     if (enabled() && !listener) {
@@ -679,9 +687,13 @@ export function createAgents(options: AgentsOptions) {
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
           listenProblem =
-            !isSocketPathUsable(options.socketPath) || code === "ENAMETOOLONG"
-              ? "too-long"
-              : "unavailable";
+            error instanceof AgentEndpointError && error.reason === "untrusted"
+              ? "untrusted"
+              : (error instanceof AgentEndpointError && error.reason === "too-long") ||
+                  !isSocketPathUsable(options.socketPath) ||
+                  code === "ENAMETOOLONG"
+                ? "too-long"
+                : "unavailable";
           // Another copy of IncarnaMind on this data folder is listening already, or the socket can't open.
           options.reportError(error);
         }
@@ -781,7 +793,7 @@ export function createAgents(options: AgentsOptions) {
     async setEnabled(value: unknown): Promise<AgentSettings> {
       if (typeof value !== "boolean") throw new InvalidInputError("enabled must be true or false.");
       if (value && !isSocketPathUsable(options.socketPath)) {
-        listenProblem = "too-long";
+        listenProblem = isWindowsPipe(options.socketPath) ? "untrusted" : "too-long";
         throw socketError();
       }
       options.writeValue(ENABLED_KEY, value);

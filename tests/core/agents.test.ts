@@ -1220,8 +1220,9 @@ describe("the agents' socket", () => {
       tempDir: deepTemp,
       shortDir: "/tmp",
       canUseDir: () => true,
+      uid: 501,
     });
-    expect(shortFallback).toMatch(/^\/tmp\/incarnamind-[0-9a-f]{16}\.sock$/);
+    expect(shortFallback).toMatch(/^\/tmp\/im-501\/incarnamind-[0-9a-f]{16}\.sock$/);
     expect(Buffer.byteLength(shortFallback)).toBeLessThanOrEqual(MAX_SOCKET_PATH_BYTES);
     expect(isSocketPathUsable(shortFallback)).toBe(true);
 

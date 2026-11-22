@@ -6213,6 +6213,8 @@ export const zhCN = {
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
   "error.agent.socketTooLong":
     "智能体无法从这个文件夹连接到 IncarnaMind：路径太长，无法建立本地连接。请改用更短的数据文件夹或临时文件夹。",
+  "error.agent.socketUntrusted":
+    "智能体暂时无法连接到 IncarnaMind：其他账号占用了这个本地连接，或它并非仅限当前账号使用。请重启 IncarnaMind，或改用其他数据文件夹。",
   "error.agent.socketUnavailable":
     "智能体暂时无法连接到 IncarnaMind：无法打开本地连接。请重启 IncarnaMind 或关闭另一个正在运行的窗口后再试。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
