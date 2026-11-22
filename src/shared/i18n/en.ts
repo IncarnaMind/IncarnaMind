@@ -1528,6 +1528,7 @@ export const en = {
   "claim.searchWeb": "Search the web",
   "error.check.partChecking": "This sentence is being checked. Wait for it to finish.",
   "error.check.partChanged": "Those words have changed. Check the sentence again.",
+  "error.check.failed": "The check couldn’t be completed. Check again in a moment.",
   "claim.usedDocumentWording": "Changed to what the Document says",
   "claim.useDocumentWording": "Use the Document’s wording",
   "opinions.one": "1 opinion left out",

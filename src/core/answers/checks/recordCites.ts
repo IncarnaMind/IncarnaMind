@@ -190,7 +190,7 @@ export function notJudgedError(why: NotJudged): TranslatableError {
   const { reason, detail } = notJudged(why);
   const trimmed = detail?.trim() ?? "";
   if (reason === "failed" && trimmed === "") {
-    return new TranslatableError({ key: "claim.reason.failed.unknown" });
+    return new TranslatableError({ key: "error.check.failed" });
   }
   return new TranslatableError({ key: `claim.reason.${reason}`, values: { detail: trimmed } });
 }

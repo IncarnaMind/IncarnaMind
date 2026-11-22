@@ -1477,6 +1477,7 @@ export const zhCN = {
   "claim.findSources.menu": "查找资料…",
   "error.check.partChecking": "正在核对这句话。请等待核对完成。",
   "error.check.partChanged": "这段文字已改动。请重新核对这句话。",
+  "error.check.failed": "无法完成核对，请稍后重新核对。",
   "claim.usedDocumentWording": "已改为文档的说法",
   "claim.useDocumentWording": "改为文档的说法",
   "opinions.one": "1 处观点未纳入核对",
