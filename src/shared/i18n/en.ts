@@ -6526,6 +6526,8 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.noteAsk.tooLong":
+    "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":
     "That’s more than your AI can be handed at once. Select fewer words and ask again.",
   "error.agent.nameEmpty": "Give the agent a name.",
@@ -9151,6 +9153,7 @@ export const en = {
   "noteAsk.done.waiting.other": "{count} changes wait for you in “{title}”.",
   "noteAsk.done.wrote": "Wrote “{title}”.",
   "noteAsk.done.nothing": "{agent} changed nothing.",
+  "noteAsk.busy": "{agent} is still working on your last request. Stop it to ask something else.",
   "noteAsk.readOnly": "{agent} may only read. Let it propose changes?",
   "noteAsk.allow": "Allow",
   "noteAsk.showConversation": "Show conversation",

@@ -93,17 +93,19 @@ interface TurnRow {
 
 const canRun = (pairing: AgentPairing) => pairing.client === "claude-code";
 
-function words(value: unknown, what: string, max: number): string {
-  if (typeof value !== "string") throw new InvalidInputError(`${what} must be text.`);
+function words(value: unknown, max: number): string {
+  if (typeof value !== "string") throw new InvalidInputError({ key: "error.agent.askRequest" });
   const trimmed = value.trim();
-  if (trimmed.length > max) throw new InvalidInputError(`${what} is too long.`);
+  if (trimmed.length > max) {
+    throw new InvalidInputError({ key: "error.noteAsk.tooLong", values: { max } });
+  }
   return trimmed;
 }
 
 function selectionOf(value: unknown): SelectedInBlock[] | null {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length === 0 || value.length > MAX_SELECTED_BLOCKS) {
-    throw new InvalidInputError("selection must list the selected Blocks.");
+    throw new InvalidInputError({ key: "error.agent.askRequest" });
   }
   return value.map((each) => {
     if (
@@ -112,9 +114,7 @@ function selectionOf(value: unknown): SelectedInBlock[] | null {
       typeof each.before !== "string" ||
       typeof each.after !== "string"
     ) {
-      throw new InvalidInputError(
-        "Each selected Block needs its id and the text around the selection.",
-      );
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
     return { blockId: each.blockId, before: each.before, after: each.after };
   });
@@ -217,14 +217,13 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   }
 
   async function ask(input: NoteRequestInput): Promise<NoteRequestStart> {
-    if (!isRecord(input)) throw new InvalidInputError("A request needs its Note and its words.");
-    const mindId = words(input.mindId, "mindId", 200);
-    const request = words(input.words, "The request", MAX_WORDS);
-    if (request === "") throw new InvalidInputError("The request is empty.");
-    const quote = input.quote === undefined ? "" : words(input.quote, "quote", MAX_QUOTE);
+    if (!isRecord(input)) throw new InvalidInputError({ key: "error.agent.askRequest" });
+    const mindId = words(input.mindId, 200);
+    const request = words(input.words, MAX_WORDS);
+    if (request === "") throw new InvalidInputError({ key: "error.agent.askRequest" });
+    const quote = input.quote === undefined ? "" : words(input.quote, MAX_QUOTE);
     const selection = selectionOf(input.selection);
-    const pairingId =
-      input.pairingId === undefined ? undefined : words(input.pairingId, "pairingId", 200);
+    const pairingId = input.pairingId === undefined ? undefined : words(input.pairingId, 200);
 
     const already = running.get(mindId);
     if (already) return { kind: "started", pairing: already.pairing, turnId: already.turnId };
