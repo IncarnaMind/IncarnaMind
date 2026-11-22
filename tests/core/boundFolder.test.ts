@@ -535,22 +535,64 @@ describe("filing as one Folder, turned off and on (#3613)", () => {
 });
 
 describe("a folder linked before (#3613)", () => {
-  /** The data folder opened again with the migration to run again, as on its first start. */
-  async function migratedAgain(
-    set: Awaited<ReturnType<typeof started>>,
-    before: (db: ReturnType<typeof openDatabase>) => void = () => {},
-  ) {
+  type Edit = (db: ReturnType<typeof openDatabase>) => void;
+  /** `set.core` closed, its database edited, and the data folder opened again. */
+  async function reopened(set: Awaited<ReturnType<typeof started>>, edit: Edit) {
     await set.core.close();
     const db = openDatabase(join(set.dataDir, DATABASE_FILE));
     try {
-      db.run("ALTER TABLE library_groups DROP COLUMN deleted_quietly");
-      db.run("DELETE FROM schema_migrations WHERE version = 159");
-      before(db);
+      edit(db);
     } finally {
       db.close();
     }
     return set.restart();
   }
+  /** The data folder opened again with the migration to run again, as on its first start. */
+  const migratedAgain = (set: Awaited<ReturnType<typeof started>>, before: Edit = () => {}) =>
+    reopened(set, (db) => {
+      db.run("ALTER TABLE library_groups DROP COLUMN deleted_quietly");
+      db.run("DELETE FROM schema_migrations WHERE version = 159");
+      before(db);
+    });
+  /** A fault in the database: a Folder named "Broken" can't be made. */
+  const broken: Edit = (db) =>
+    db.run(`CREATE TRIGGER broken BEFORE INSERT ON library_groups WHEN NEW.name = 'Broken'
+      BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END`);
+  const mended: Edit = (db) => db.run("DROP TRIGGER broken");
+  const boundNames = async (core: Core) =>
+    (await core.getLibrary()).groups
+      .filter((each) => each.boundFolderId)
+      .map((each) => each.name)
+      .sort();
+  /** A set with two folders linked before, "Quay" and "Broken", both with no Folder. */
+  async function twoLinkedBefore() {
+    const set = await started();
+    for (const name of ["Quay", "Broken"]) {
+      await mkdir(join(set.files, name));
+      await linkWithoutFolder(set.core, join(set.files, name));
+    }
+    return set;
+  }
+
+  // protects=binding the folders linked before never stops a start: one that fails is logged and left with its filing as one Folder off, the others are bound, and it is bound at the next start that can (#3613); fails_when=the core doesn't start, the others stay unbound, or it is never tried again
+  it("one that fails to bind stops neither the start nor the others, and is tried again", async () => {
+    const set = await twoLinkedBefore();
+    const first = await migratedAgain(set, broken);
+    expect(await boundNames(first)).toEqual(["Quay"]);
+    expect(await first.listLinkedFolders()).toHaveLength(2);
+
+    const next = await reopened({ ...set, core: first }, mended);
+    expect(await boundNames(next)).toEqual(["Broken", "Quay"]);
+  });
+
+  // protects=a folder that fails to bind at three starts is left with its filing as one Folder off, not tried at every start for ever (#3613); fails_when=it is tried again after the third
+  it("one that fails at three starts is left with its filing off", async () => {
+    const set = await twoLinkedBefore();
+    let core = await migratedAgain(set, broken);
+    for (let start = 2; start <= 3; start++) core = await reopened({ ...set, core }, () => {});
+    const after = await reopened({ ...set, core }, mended);
+    expect(await boundNames(after)).toEqual(["Quay"]);
+  });
 
   // protects=a folder linked before gets a Folder bound to it at the next start, named after it, open to work outside it, holding its files with no filing; every filing the User made stays (#3613); fails_when=its files stay in Not in a Folder, a filing the User made moves, or the Folder keeps its work inside it
   it("gets a Folder holding the files it had not filed; the User's filings stay", async () => {

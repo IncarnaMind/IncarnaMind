@@ -691,6 +691,17 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
 
 /** Where migration 159 lists the Linked folders the first start binds (#3613). */
 const LINKED_FOLDERS_TO_BIND = "linkedFoldersToBind";
+/** Starts that try to bind one of them before it is left with its filing as one Folder off. */
+const BIND_TRIES = 3;
+
+/** The list at `LINKED_FOLDERS_TO_BIND`, and how many starts have tried it, or null for none. */
+function parseFoldersToBind(value: unknown): { linkedFolderIds: string[]; tries: number } | null {
+  if (!isRecord(value) || !Array.isArray(value.linkedFolderIds)) return null;
+  return {
+    linkedFolderIds: value.linkedFolderIds.filter((id): id is string => typeof id === "string"),
+    tries: typeof value.tries === "number" ? value.tries : 0,
+  };
+}
 
 /** `rebindFolder`'s input, as `unbindFolder` gave it, its refiled changes still to be read. */
 function parseUnboundFolder(
@@ -4304,34 +4315,54 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   };
   /**
-   * Binds the folders linked before that migration 159 chose, once, as linking binds one now, so
-   * each Document is filed as the bind files it (#3613). A connection that read Not in a Folder,
-   * where their files were, is given their new Folders, so it reads them still.
+   * Binds the folders linked before that migration 159 chose, as linking binds one now, so each
+   * Document is filed as the bind files it (#3613). A connection that read Not in a Folder, where
+   * their files were, is given their new Folders, so it reads them still. Tidying up after an
+   * upgrade never stops a start: a folder that fails is logged and tried again at the next start,
+   * up to `BIND_TRIES` starts, and meanwhile shows as one whose filing as one Folder is off.
    */
   const bindFoldersLinkedBefore = () => {
-    const chosen = settings.readDeviceValue(LINKED_FOLDERS_TO_BIND);
-    if (!Array.isArray(chosen)) return;
-    db.transaction(() => {
-      const made = documents.linkedFolders
-        .list()
-        .filter(
-          (linked) => chosen.includes(linked.id) && library.boundTo([linked.folderId]) === null,
-        )
-        .map((linked) => bindFolderOnDisk(linked.folderId, null).folder.id);
-      if (made.length > 0) {
-        db.run(
-          `UPDATE agent_pairings SET
-             folder_ids = (SELECT json_group_array(value) FROM (
-               SELECT value FROM json_each(agent_pairings.folder_ids)
-               UNION ALL SELECT value FROM json_each(?))),
-             updated_at = ?
-           WHERE deleted_at IS NULL AND json_valid(folder_ids)
-             AND EXISTS (SELECT 1 FROM json_each(agent_pairings.folder_ids) WHERE value = ?)`,
-          [JSON.stringify(made), now(), NOT_IN_A_FOLDER_ID],
-        );
-      }
-      settings.deleteDeviceValue(LINKED_FOLDERS_TO_BIND);
+    const log = adapters.log ?? silentLogger;
+    const failure = (error: unknown) => ({
+      error: error instanceof Error ? error.name : "unknown",
+      message: error instanceof Error ? error.message : String(error),
     });
+    try {
+      const toBind = parseFoldersToBind(settings.readDeviceValue(LINKED_FOLDERS_TO_BIND));
+      if (!toBind) return;
+      const tries = toBind.tries + 1;
+      const failed: string[] = [];
+      for (const linked of documents.linkedFolders.list()) {
+        if (!toBind.linkedFolderIds.includes(linked.id)) continue;
+        try {
+          db.transaction(() => {
+            if (library.boundTo([linked.folderId]) !== null) return;
+            const made = bindFolderOnDisk(linked.folderId, null).folder.id;
+            db.run(
+              `UPDATE agent_pairings SET
+                 folder_ids = (SELECT json_group_array(value) FROM (
+                   SELECT value FROM json_each(agent_pairings.folder_ids) UNION ALL SELECT ?)),
+                 updated_at = ?
+               WHERE deleted_at IS NULL AND json_valid(folder_ids)
+                 AND EXISTS (SELECT 1 FROM json_each(agent_pairings.folder_ids) WHERE value = ?)`,
+              [made, now(), NOT_IN_A_FOLDER_ID],
+            );
+          });
+        } catch (error) {
+          failed.push(linked.id);
+          log.error("linkedFolder.bind.failed", {
+            linkedFolderId: linked.id,
+            tries,
+            ...failure(error),
+          });
+        }
+      }
+      if (failed.length > 0 && tries < BIND_TRIES) {
+        settings.writeDeviceValue(LINKED_FOLDERS_TO_BIND, { linkedFolderIds: failed, tries });
+      } else settings.deleteDeviceValue(LINKED_FOLDERS_TO_BIND);
+    } catch (error) {
+      log.error("linkedFolder.bind.failed", failure(error));
+    }
   };
   /** Puts each merged Folder that was at the top level inside the new Folder, as on disk. */
   const nestMerged = (merged: readonly MergedFolder[], outerId: string) => {

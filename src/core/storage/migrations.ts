@@ -3391,7 +3391,8 @@ export const migrations: readonly Migration[] = [
       -- one Folder. A Document has a filing of its own when it is in a live Folder, or in no
       -- Folder by the User's choice.
       INSERT INTO device_settings (id, key, value, created_at, updated_at)
-        SELECT ${UUID_V4_SQL}, 'linkedFoldersToBind', ids, at, at FROM (
+        SELECT ${UUID_V4_SQL}, 'linkedFoldersToBind',
+          json_object('linkedFolderIds', json(ids), 'tries', 0), at, at FROM (
           SELECT json_group_array(lf.id) AS ids, COUNT(*) AS count,
             strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS at
           FROM linked_folders lf
