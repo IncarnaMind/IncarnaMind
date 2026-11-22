@@ -221,7 +221,7 @@ import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
 import { readVtt } from "./documents/formats/vtt";
 import { createOwnFiles } from "./documents/ownFiles";
-import { approximateTokens } from "./documents/passages";
+import { approximateTokens, livePassageText } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
 import {
@@ -336,6 +336,7 @@ import {
   undoMeetingJoin,
 } from "./meetings/oneItem";
 import { createBriefPreparation } from "./meetings/prepareBrief";
+import { createSharedScreens } from "./meetings/screens";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createMeetingSpeakerReview } from "./meetings/speakerReview";
 import { meetingSummaryRoute } from "./meetings/summaryRoute";
@@ -2262,7 +2263,7 @@ export function createCore(adapters: CoreAdapters): Core {
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,
     readableMindName,
-    liveTranscript: (mindId) => liveTranscriptOf(mindId),
+    liveTranscript: (mindId, question) => liveTranscriptOf(mindId, question),
     noteCall: (mindId) => noteCallOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
@@ -5113,7 +5114,10 @@ export function createCore(adapters: CoreAdapters): Core {
     _question: { id?: string; text: string },
   ): CallHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
-  let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
+  let liveTranscriptOf = async (
+    _mindId: string,
+    _question: string,
+  ): Promise<LiveTranscript | null> => null;
   /** See `AnswersOptions.noteCall`; set once Meetings are. */
   let noteCallOf = (_mindId: string): { live: boolean; transcript: string | null } | null => null;
   let transcriptSaved = (_meetingId: string) => {};
@@ -5277,6 +5281,43 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     });
 
+  // The shared screen (ADR-0031): one window a recording Meeting reads, in memory only.
+  const screenCapture = adapters.screenCapture;
+  const screens =
+    screenCapture && textRecognitionModel
+      ? createSharedScreens({
+          capture: screenCapture,
+          reader: textRecognitionModel,
+          now,
+          asks: () => settings.get().device.meetingScreenAsk,
+          pictureLimit: () => settings.get().device.meetingScreenPictureLimit,
+          providerId: (mindId) => modelInUseIn(mindId)?.providerId ?? null,
+          searchLibrary: async (meetingId, text) => {
+            const scope = resolveScope(NO_SCOPE, meetingOf(meetingId).mindId);
+            const found = await documents.search(text, {
+              mode: "keyword",
+              limit: 5,
+              ...(scope && { documentIds: scope }),
+            });
+            return found.flatMap((passage) => documents.passage(passage.passageId) ?? []);
+          },
+          passage(meetingId, passageId) {
+            const found = documents.passage(passageId);
+            return found &&
+              !documents.get(found.documentId).notCited &&
+              documents.searchableCount([found.documentId]) > 0 &&
+              walledDocument(found.documentId) === walledFolder(meetingOf(meetingId).mindId)
+              ? found
+              : null;
+          },
+          changed: meetingsChanged,
+          log: adapters.log ?? silentLogger,
+        })
+      : undefined;
+  events.on("textRecognitionModel.status", () => {
+    if (screens?.waitingForModel()) meetingsChanged();
+  });
+
   if (transcripts) readsTimedByWriter = (path) => transcripts.timesReads(path);
   transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
@@ -5317,10 +5358,16 @@ export function createCore(adapters: CoreAdapters): Core {
       documents.hold(capturing);
     },
     ...(transcripts && { transcripts }),
+    ...(screens && { screens }),
     health: captureHealth,
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  const meetingOf = (meetingId: string): Meeting => {
+    const meeting = meetings.list().find((each) => each.id === meetingId);
+    if (!meeting) throw new NotFoundError({ key: "error.meeting.notFound" });
+    return meeting;
+  };
   noteReadAgain = (mindId) => {
     if (!transcripts || lifetime.signal.aborted) return;
     const meeting = meetings.liveOf(mindId);
@@ -6016,7 +6063,7 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       : null;
   };
-  liveTranscriptOf = async (mindId) => {
+  liveTranscriptOf = async (mindId, question) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
     const meeting = meetings
       .list()
@@ -6027,14 +6074,24 @@ export function createCore(adapters: CoreAdapters): Core {
           (each.status === "recording" || each.status === "paused"),
       );
     if (!meeting) return null;
+    const screen = screens?.forQuestion(meeting.id, question);
     const documentId = meeting.transcript?.documentId;
-    if (!documentId || !transcripts) return { passages: [], behind: isBehind(meeting) };
+    if (!documentId || !transcripts) return { passages: [], behind: isBehind(meeting), screen };
     await transcripts.refresh(meeting.id);
     await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
     const now = meetings.list().find((each) => each.id === meeting.id) ?? meeting;
+    const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const first = passages[0];
     return {
-      passages: await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
+      passages:
+        first && passages.length > 1
+          ? livePassageText(
+              passages,
+              documents.pageTexts(documentId, first.contentHash, null, null),
+            )
+          : passages,
       behind: isBehind(now),
+      screen,
     };
   };
 
@@ -8956,6 +9013,40 @@ export function createCore(adapters: CoreAdapters): Core {
     writeMeetingRecording: (meetingId, path) => meetings.writeRecording(meetingId, path),
     readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
+    listShareableWindows: async (meetingId) => {
+      if (!screens) throw new InvalidInputError({ key: "error.meeting.noSharedScreen" });
+      if (typeof meetingId !== "string") throw new NotFoundError({ key: "error.meeting.notFound" });
+      if (meetingOf(meetingId).status !== "recording")
+        throw new InvalidInputError({ key: "error.meeting.notRecording" });
+      return screens.windows(meetingId);
+    },
+    readSharedScreen: async (input) => {
+      if (!screens) throw new InvalidInputError({ key: "error.meeting.noSharedScreen" });
+      if (!isRecord(input) || typeof input.meetingId !== "string") {
+        throw new InvalidInputError({ key: "error.meeting.noWindow" });
+      }
+      if (meetingOf(input.meetingId).status !== "recording") {
+        throw new InvalidInputError({ key: "error.meeting.notRecording" });
+      }
+      await screens.read(input.meetingId, input.windowId);
+      return meetingOf(input.meetingId);
+    },
+    declineSharedScreen: async (meetingId) => {
+      screens?.decline(meetingId);
+      return meetingOf(meetingId);
+    },
+    stopSharedScreen: async (meetingId) => {
+      screens?.stop(meetingId);
+      return meetingOf(meetingId);
+    },
+    getSharedScreen: async (input) => {
+      if (!isRecord(input) || typeof input.screen !== "string") {
+        throw new InvalidInputError({ key: "error.meeting.screenNotKept" });
+      }
+      const from = typeof input.from === "number" ? input.from : 0;
+      const to = typeof input.to === "number" ? input.to : 0;
+      return screens?.frame(input.screen, from, to) ?? null;
+    },
     getMeetingSpeakerReview: (id) => speakerReview.quote(id),
     reviewMeetingSpeakers: (input) => speakerReview.review(input),
     cancelMeetingSpeakerReview: async (id) => speakerReview.cancel(id),

@@ -1,31 +1,18 @@
 /**
- * The desktop app's `AudioCapture` (ADR-0015): a hidden window, in a session
- * of its own, records the microphone and the computer's sound through
- * Chromium, and sends 16 kHz PCM back here, which goes on to the core.
- *
- * Only that session may use media: the microphone, and display capture,
- * which `setDisplayMediaRequestHandler` answers with loopback audio and the
- * window's own page as the video, so no screen is captured. The window exists
- * only while a Meeting records.
+ * The desktop app's `AudioCapture` (ADR-0015): the hidden capture window
+ * (./captureWindow) records the microphone and the computer's sound through
+ * Chromium, and sends 16 kHz PCM back here, which goes on to the core. The
+ * window is held while a Meeting records.
  */
-import { join } from "node:path";
-import {
-  BrowserWindow,
-  type IpcMainEvent,
-  ipcMain,
-  type Session,
-  session,
-  shell,
-  systemPreferences,
-} from "electron";
+import { type IpcMainEvent, ipcMain, shell, systemPreferences } from "electron";
 import type { AudioCapture, AudioSink, CaptureSession, Logger } from "../../core";
 import type { AudioSource } from "../../core/api";
 import {
   CAPTURE_CHANNELS,
-  CAPTURE_PARTITION,
   type CaptureWindowState,
   createMicrophoneRelay,
 } from "../../shared/capture";
+import type { CaptureWindows } from "./captureWindow";
 
 /** How long stopping waits for the window to send its last samples. */
 const STOP_TIMEOUT_MS = 3000;
@@ -50,51 +37,12 @@ const CAPTURE_STATES: ReadonlySet<string> = new Set([
   "ended",
 ]);
 
-/** The capture windows, so the app's own window handling leaves them out. */
-const captureWindows = new WeakSet<BrowserWindow>();
-export const isCaptureWindow = (window: BrowserWindow) => captureWindows.has(window);
-
 /** Samples from the window, as 16-bit PCM whatever view IPC delivered them in. */
 function samplesOf(value: unknown): Int16Array | null {
   if (value instanceof Int16Array) return value;
   if (!ArrayBuffer.isView(value) || value.byteLength % 2 !== 0) return null;
   const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength).slice();
   return new Int16Array(bytes.buffer);
-}
-
-/** Lets only the capture window's session use media, and answers its display capture with loopback audio. */
-function prepareSession(log: Logger): Session {
-  const captureSession = session.fromPartition(CAPTURE_PARTITION, { cache: false });
-  // The microphone asks for "media" with mediaTypes ["audio"]; display capture (Electron 44)
-  // asks for "media" with none, and our handler below decides what it gets. A camera never.
-  const microphoneOrDisplay = (types: readonly string[] | undefined) =>
-    (types ?? []).every((type) => type === "audio");
-  captureSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
-    const mediaTypes = "mediaTypes" in details ? details.mediaTypes : undefined;
-    callback(
-      (permission === "media" && microphoneOrDisplay(mediaTypes)) ||
-        permission === "display-capture",
-    );
-  });
-  captureSession.setPermissionCheckHandler(
-    (_contents, permission, _origin, details) =>
-      (permission === "media" && details.mediaType !== "video") || permission === "display-capture",
-  );
-  captureSession.setDisplayMediaRequestHandler(
-    (request, callback) => {
-      try {
-        // Chromium won't grant audio alone: the video is this window's own blank page.
-        callback({ video: request.frame ?? undefined, audio: "loopback" });
-      } catch (error) {
-        log.error("meeting.loopbackRefused", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-        callback({});
-      }
-    },
-    { useSystemPicker: false },
-  );
-  return captureSession;
 }
 
 /** On macOS, asks for the microphone if the User hasn't been asked: true if it may be used. */
@@ -106,45 +54,19 @@ async function microphoneAllowed(): Promise<boolean> {
   return false;
 }
 
-export interface ElectronCaptureOptions {
-  log: Logger;
-  /** The dev server's address in development; the built page otherwise. */
-  rendererUrl: string | undefined;
-}
-
-export function createElectronAudioCapture({
-  log,
-  rendererUrl,
-}: ElectronCaptureOptions): AudioCapture {
-  let captureSession: Session | null = null;
-
+export function createElectronAudioCapture(windows: CaptureWindows, log: Logger): AudioCapture {
   return {
     // Linux: the microphone only, for now (ADR-0015).
     systemAudio: process.platform === "darwin" || process.platform === "win32",
 
     start(request, sink: AudioSink): CaptureSession {
-      captureSession ??= prepareSession(log);
-      const window = new BrowserWindow({
-        show: false,
-        width: 320,
-        height: 240,
-        title: "IncarnaMind audio",
-        webPreferences: {
-          preload: join(__dirname, "../preload/capture.js"),
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
-          session: captureSession,
-          backgroundThrottling: false,
-        },
-      });
-      captureWindows.add(window);
-      const contents = window.webContents;
+      const use = windows.use();
+      const contents = use.contents;
       const fromWindow = (event: IpcMainEvent) => event.sender === contents;
       const microphoneRelay = createMicrophoneRelay({
         start: (request) => contents.send(CAPTURE_CHANNELS.start, request),
         microphone: (on) => {
-          if (!window.isDestroyed()) contents.send(CAPTURE_CHANNELS.microphone, on);
+          if (!contents.isDestroyed()) contents.send(CAPTURE_CHANNELS.microphone, on);
         },
       });
       let stopped = () => {};
@@ -180,12 +102,7 @@ export function createElectronAudioCapture({
         ipcMain.off(CAPTURE_CHANNELS.state, onState);
         ipcMain.off(CAPTURE_CHANNELS.stopped, onStopped);
       };
-
-      contents.on("console-message", (event) => {
-        if (event.level === "error") log.error("meeting.captureWindow", { message: event.message });
-      });
-      contents.on("render-process-gone", (_event, details) => {
-        log.error("meeting.captureGone", { reason: details.reason });
+      use.onGone(() => {
         sink.state("microphone", "ended");
         if (request.systemAudio) sink.state("system", "ended");
         stopped();
@@ -201,15 +118,8 @@ export function createElectronAudioCapture({
         }
         const microphone = await microphoneAllowed();
         if (!microphone) sink.state("microphone", "denied");
-        await new Promise<void>((resolve, reject) => {
-          contents.once("did-finish-load", () => resolve());
-          contents.once("did-fail-load", (_event, code, description) =>
-            reject(new Error(`The capture page didn't load (${code}): ${description}`)),
-          );
-          if (rendererUrl) void window.loadURL(new URL("capture.html", `${rendererUrl}/`).href);
-          else void window.loadFile(join(__dirname, "../renderer/capture.html"));
-        });
-        if (window.isDestroyed()) return;
+        await use.loaded;
+        if (contents.isDestroyed()) return;
         microphoneRelay.start({ microphone, systemAudio: request.systemAudio });
       };
       const starting = begin().catch((error: unknown) => {
@@ -224,7 +134,7 @@ export function createElectronAudioCapture({
         setMicrophone: (on) => microphoneRelay.set(on),
         async stop() {
           await starting;
-          if (!window.isDestroyed()) {
+          if (!contents.isDestroyed()) {
             contents.send(CAPTURE_CHANNELS.stop);
             let timer: ReturnType<typeof setTimeout> | undefined;
             await Promise.race([
@@ -236,7 +146,7 @@ export function createElectronAudioCapture({
             clearTimeout(timer);
           }
           detach();
-          if (!window.isDestroyed()) window.destroy();
+          use.release();
         },
       };
     },

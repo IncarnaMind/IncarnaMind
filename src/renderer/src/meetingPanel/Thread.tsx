@@ -332,6 +332,7 @@ function Suggestion({
   holder?: RefObject<HTMLDivElement | null> | undefined;
 }) {
   const t = useT();
+  const usesExternalAI = useAppStore((state) => !!state.settings?.device.meetingCallHelpAgentId);
   const answer = useHelpAnswer(help);
   // With no model, the answer came from the User's own AI, and the assistant isn't shown (#3612).
   const opens = useAppStore((state) => !noModelSetUp(state.chatReadiness));
@@ -377,10 +378,29 @@ function Suggestion({
       },
     );
   };
-  const openable = help.kind === "question" && opens;
+  const typed = help.kind === "question";
+  const openable = typed && opens;
   return (
     <div ref={holder} className="panel-suggestion" data-pinned={pinned}>
       <HelpSuggestion help={help} answer={answer} onRetry={() => retry(meeting, help)} />
+      {typed &&
+        help.question &&
+        meeting.screen?.state === "reading" &&
+        answer.status === "done" &&
+        !usesExternalAI &&
+        !answer.steps?.meetingHelpAgent &&
+        (!answer.steps?.sent?.sharedScreen || answer.steps.sent.sharedScreen === "text") &&
+        !help.question.includes(t("meetings.screen.look")) && (
+          <button
+            className="panel-link"
+            type="button"
+            onClick={() =>
+              void askQuestion(meeting, `${help.question} ${t("meetings.screen.look")}.`)
+            }
+          >
+            {t("meetings.screen.look")}
+          </button>
+        )}
       {(keeps || pinned || openable) && answer.status !== "streaming" && (
         <div className="panel-actions">
           {(keeps || pinned) && (

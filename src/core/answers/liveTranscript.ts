@@ -1,9 +1,11 @@
 /**
  * A Question asked during a call (#144): the assistant listens to the live
- * transcript. The meeting's Transcript, indexed up to the moment the Question
- * is asked, goes with it as Passages the model can cite by their times, the
- * newest that fit, after the Mind it reads and before what the User selected
- * there and the Question itself.
+ * transcript, and reads the shared screen when the User chose a window to
+ * read (ADR-0031). The meeting's Transcript, indexed up to the moment the
+ * Question is asked, goes with it as Passages the model can cite by their
+ * times, the newest that fit; the recent screens go as text the model can
+ * cite as it cites a Passage. Both come after the Mind it reads and before
+ * what the User selected there and the Question itself.
  */
 import type { WindowedPassage } from "../documents/search";
 import type { ContextWindow } from "../providers/models";
@@ -18,6 +20,16 @@ import type { AnswerMessage } from "./engine";
 export interface LiveTranscript {
   passages: WindowedPassage[];
   behind: boolean;
+  screen?: {
+    readings: SharedScreenText[];
+    ended: AbortSignal;
+    picture():
+      | { state: "sent"; data: Uint8Array; id: string; refund(): void }
+      | { state: "text" | "limit" };
+    firstTextOnlyAnswer(): boolean;
+    mostlyVisual: boolean;
+    refersToScreen: boolean;
+  };
 }
 
 /** The most of a live transcript a Question takes: about 8k tokens, half an hour of talk or so. */
@@ -26,6 +38,20 @@ export const LISTENED_TOKEN_LIMIT = 8_000;
 /** How much of the transcript a model reads: less where its window is small. */
 export const listenedTokens = (window: ContextWindow | undefined) =>
   window ? Math.min(LISTENED_TOKEN_LIMIT, Math.floor(window.tokens / 4)) : LISTENED_TOKEN_LIMIT;
+
+/** A screen read from the shared window, as a Question gets it. */
+export interface SharedScreenText {
+  id: string;
+  /** When it was read (ISO 8601). */
+  at: string;
+  window: string;
+  /** As read. */
+  text: string;
+  /** As the model reads it: each figure that may be misread marked "⟦…⟧". */
+  marked: string;
+  /** The Library Passages its text is from, citable after the call. */
+  library: WindowedPassage[];
+}
 
 /** The newest Passages that fit in `tokens`, in reading order. */
 export function newestWithin(
@@ -45,12 +71,21 @@ export function newestWithin(
 }
 
 /**
- * The messages with the transcript (`shown`: its Passages as the model reads them) in the
- * Question's message: after the Mind read with it, where that message holds the Mind, so the
- * Mind keeps its place for the prompt cache and the selection stays right before the Question.
+ * The messages with what was heard and seen in the Question's message: the
+ * screens (`screens`, as the model reads them) and the transcript (`shown`:
+ * its Passages as the model reads them), after the Mind read with it, where
+ * that message holds the Mind, so the Mind keeps its place for the prompt
+ * cache and the selection stays right before the Question. Either may be "".
  */
-export function withTranscript(messages: readonly AnswerMessage[], shown: string): AnswerMessage[] {
-  return withBeforeQuestion(messages, `<live-transcript>\n${shown}\n</live-transcript>`);
+export function withTranscript(
+  messages: readonly AnswerMessage[],
+  shown: string,
+  screens = "",
+): AnswerMessage[] {
+  return withBeforeQuestion(
+    messages,
+    [screens, `<live-transcript>\n${shown}\n</live-transcript>`].filter(Boolean).join("\n\n"),
+  );
 }
 
 /** The messages with `block` in the Question's message, after the Mind read with it (see `withTranscript`). */

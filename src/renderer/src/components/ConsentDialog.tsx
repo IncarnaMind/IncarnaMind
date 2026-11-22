@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ConsentRequest } from "../../../core/api";
 import { CHATGPT_SERVICE } from "../../../core/providers/chatgpt/service";
 import { core } from "../core";
+import { dataKindKey } from "../dataKinds";
 import { useGap, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { ProviderDataUseNotice } from "./providers/ProviderDataUseNotice";
@@ -90,7 +91,7 @@ export function ConsentDialog() {
             <ul className={ruledListClass}>
               {request.newKinds.map((kind) => (
                 <li key={kind} className="py-2 text-ui text-ink">
-                  {t(`consent.data.${kind}`)}
+                  {t(dataKindKey(request.flow.id, kind))}
                 </li>
               ))}
             </ul>

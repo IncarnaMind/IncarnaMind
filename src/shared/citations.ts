@@ -237,6 +237,7 @@ export function citationState(
   documents: readonly LiveDocument[] | null,
   kept: readonly KeptCitationText[] = [],
   keptInside: string | null = null,
+  screens: readonly string[] = [],
 ): CitationState {
   // Matches the page makes it found on the User's word, though a word of it may have been misread
   // (#535). It stands only for the check it was given for: a later check that isn't that one isn't
@@ -247,6 +248,18 @@ export function citationState(
     attributes.checkReason === "unsure-word";
   const check = confirmed ? "found" : (attributes.check ?? "checking");
   const reason = confirmed ? null : (attributes.checkReason ?? null);
+  const location = citationLocation(attributes);
+  if (location?.kind === "screen") {
+    // Its check stands while its screen is kept; then nothing is left to check (ADR-0031).
+    return screenKept(location.screen, screens)
+      ? { check, reason, documentId: null, changedAfterCited: false }
+      : {
+          check: "cant-check",
+          reason: "screen-deleted",
+          documentId: null,
+          changedAfterCited: false,
+        };
+  }
   const own = attributes.documentId ?? null;
   if (documents === null) {
     return {
@@ -559,6 +572,12 @@ export function newVersionCitation(
 }
 
 /**
+ * Whether the recorded frame supporting a Citation is still in memory.
+ */
+export const screenKept = (screen: string, screens: readonly string[]): boolean =>
+  screens.includes(screen);
+
+/**
  * A Citation's short Location label in a language ("p. 3", "slide 4",
  * "Revenue, rows 12–14", "§ 2.1 Sensitivity", "lines 120–134"); null for a
  * whole TXT or Markdown file cited before Locations.
@@ -625,6 +644,10 @@ export function citationSource(
   const name = language ? citedName(attributes, t, language) : (attributes.documentName ?? "");
   const location = citationLocation(attributes);
   if (!location) return { name, where: null, text: name };
+  if (location.kind === "screen") {
+    const where = formatLocation(location, t, { language });
+    return { name: where, where, text: where };
+  }
   const sameName = (sheet: string) =>
     sheet.toLowerCase() === name.toLowerCase().replace(/\.[^.]+$/, "") ||
     sheet.toLowerCase() === name.toLowerCase();
@@ -691,9 +714,10 @@ export function citationSubject(
 
 /** A Citation as plain text, e.g. "[Attention Is All You Need, p. 3]", for copying as text. */
 export function citationReference(attributes: Partial<CitationAttributes>): string {
+  const location = citationLocation(attributes);
+  if (location?.kind === "screen") return `[${englishPrintedLocation(location)}]`;
   const name = attributes.documentName;
   if (!name) return "";
-  const location = citationLocation(attributes);
   return location ? `[${name}, ${englishPrintedLocation(location)}]` : `[${name}]`;
 }
 
@@ -726,6 +750,11 @@ export function badgeMessage(
   attributes: Partial<CitationAttributes>,
   t: Translate,
 ): { key: MessageKey; params?: Record<string, string> } {
+  if (citationLocation(attributes)?.kind === "screen") {
+    if (state.reason === "screen-deleted") return { key: "citation.screen.deleted" };
+    if (state.check === "found") return { key: "citation.badge.found.screen" };
+    if (state.check === "not-found") return { key: "citation.badge.notFound.screen" };
+  }
   const { where, params } = placeOf(attributes, t);
   switch (state.check) {
     case "checking":

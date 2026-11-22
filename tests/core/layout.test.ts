@@ -250,6 +250,14 @@ describe("Tabs and groups", () => {
       change({ type: "open", item: notes, place: { transcriptCue: { startMs: 10, endMs: 0 } } }),
     ).rejects.toThrow(InvalidInputError);
 
+    const excerpt = { start: 12, end: 18, cueHash: "14chftd" };
+    const where = { transcriptCue: { ...transcriptCue, excerpt }, quote: "Friday" };
+    layout = await change({ type: "open", item: notes, place: where });
+    expect(tabOf(layout, notes).tab.place).toEqual(where);
+    await expect(
+      change({ type: "open", item: notes, place: { ...where, quote: "different" } }),
+    ).rejects.toThrow(InvalidInputError);
+
     // A Word file's original, opened at the paragraph a Mind's caret is in (#736).
     layout = await change({ type: "open", item: notes, place: { wordPlace: "w:p#12" } });
     expect(tabOf(layout, notes).tab.place).toEqual({ wordPlace: "w:p#12" });

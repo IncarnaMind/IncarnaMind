@@ -29,7 +29,7 @@
 import { markersIn, shownRanges } from "../../shared/answerBlocks";
 import { citationNode, type NodeJSON } from "../../shared/blockJson";
 import { parseQuotedWords } from "../../shared/citations";
-import { formatFullDateTime } from "../../shared/dates";
+import { formatFullDateTime, formatTime } from "../../shared/dates";
 import { FIGURE_MARKER } from "../../shared/figureMarkers";
 import {
   englishPlace,
@@ -75,12 +75,13 @@ import {
   type QuotedWordsCheck,
   type RejectedRecord,
   type SelectedPart,
+  type ThirdPartySource,
   type TranscriptSpeakers,
 } from "../api";
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
 import { HEADER_ROWS } from "../documents/formats/grid";
-import type { PageText } from "../documents/passages";
+import { laidOut, type PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
@@ -104,6 +105,8 @@ import type {
   SearchResultForModel,
   UnfoundQuote,
 } from "./engine";
+import type { SharedScreenText } from "./liveTranscript";
+
 import { NOT_CITED_ATTRIBUTE } from "./prompt";
 import { quoteCells } from "./quoteCells";
 import {
@@ -116,6 +119,12 @@ import {
 import { readDocumentPages } from "./readDocumentPages";
 import { withSetAsideMarks } from "./sheetRows";
 import { wholeSentences } from "./wholeSentences";
+
+/** The kinds of Document someone other than the User wrote or said, and the third-party text each is. */
+const THIRD_PARTY_KINDS: ReadonlyMap<DocumentKind, ThirdPartySource> = new Map([
+  ["web", "web-page"],
+  ["transcript", "transcript"],
+]);
 
 const SEARCHED_ALREADY =
   "You already searched for this, and have its Passages: answer with them, or search for something different.";
@@ -315,56 +324,61 @@ function quoteInCues(
 ): TextRange[] | null {
   // Cue marks round down, so a named second includes cues that start within it.
   const until = time.to + 1000;
-  const then = (span: { startMs: number; endMs: number }) =>
-    span.startMs < until && span.endMs > time.from;
-  const turn = turnGoingOn(speakers);
-  if (!time.speaker) {
+  const match = (atMark: boolean) => {
+    const then = (span: { startMs: number; endMs: number }) =>
+      span.startMs < until && (atMark ? span.startMs >= time.from : span.endMs > time.from);
+    const turn = turnGoingOn(speakers);
+    if (!time.speaker) {
+      return quoteInCueWindow(
+        units,
+        quote,
+        (cue, label, said) => turn.stretches(cue, label, said, then(cue)),
+        matching,
+      );
+    }
+    const asked = markWords(time.speaker);
+    // Of a line the User split (#138), only the named Speaker's parts, each run of them that holds
+    // a part said then, as a line that isn't split is whole: a quote that runs into another
+    // Speaker's part isn't theirs.
     return quoteInCueWindow(
       units,
       quote,
-      (cue, label, said) => turn.stretches(cue, label, said, then(cue)),
+      (cue, label, said) => {
+        const parts = turn.partsIn(cue, label, said);
+        const theirs = parts.map(
+          (part) =>
+            label !== null &&
+            (asked === markWords(speakerMark(speakers, part.startMs, label)) ||
+              asked === markWords(speakerOf(speakers, part.startMs, label))),
+        );
+        const ranges: CueStretch[] = [];
+        const end = (index: number) => parts[index + 1]?.at ?? said.length;
+        for (let first = 0; first < parts.length; first++) {
+          if (!theirs[first]) {
+            turn.stop();
+            continue;
+          }
+          let last = first;
+          while (theirs[last + 1]) last++;
+          const run = parts.slice(first, last + 1);
+          if (run.some(then)) {
+            ranges.push({ start: (run[0] as TurnPart).at, end: end(last) });
+            turn.cited(run.at(-1) as TurnPart);
+          } else {
+            for (let at = first; at <= last && turn.goesOn(parts[at] as TurnPart); at++) {
+              ranges.push({ start: (parts[at] as TurnPart).at, end: end(at), goesOn: true });
+            }
+          }
+          first = last;
+        }
+        return ranges;
+      },
       matching,
     );
-  }
-  const asked = markWords(time.speaker);
-  // Of a line the User split (#138), only the named Speaker's parts, each run of them that holds
-  // a part said then, as a line that isn't split is whole: a quote that runs into another
-  // Speaker's part isn't theirs.
-  return quoteInCueWindow(
-    units,
-    quote,
-    (cue, label, said) => {
-      const parts = turn.partsIn(cue, label, said);
-      const theirs = parts.map(
-        (part) =>
-          label !== null &&
-          (asked === markWords(speakerMark(speakers, part.startMs, label)) ||
-            asked === markWords(speakerOf(speakers, part.startMs, label))),
-      );
-      const ranges: CueStretch[] = [];
-      const end = (index: number) => parts[index + 1]?.at ?? said.length;
-      for (let first = 0; first < parts.length; first++) {
-        if (!theirs[first]) {
-          turn.stop();
-          continue;
-        }
-        let last = first;
-        while (theirs[last + 1]) last++;
-        const run = parts.slice(first, last + 1);
-        if (run.some(then)) {
-          ranges.push({ start: (run[0] as TurnPart).at, end: end(last) });
-          turn.cited(run.at(-1) as TurnPart);
-        } else {
-          for (let at = first; at <= last && turn.goesOn(parts[at] as TurnPart); at++) {
-            ranges.push({ start: (parts[at] as TurnPart).at, end: end(at), goesOn: true });
-          }
-        }
-        first = last;
-      }
-      return ranges;
-    },
-    matching,
-  );
+  };
+  // A displayed clock names the cue starting in that second, even if the preceding cue
+  // ends partway through it and both say the same words.
+  return (time.from === time.to ? match(true) : null) ?? match(false);
 }
 
 /** A part of a cue, by its Speaker as the User's who's who has it now (#138): null for none. */
@@ -1920,26 +1934,40 @@ export interface Quoted {
   check(): CheckResult;
 }
 
-const toCitation = (record: Accepted, result: CheckResult | null, asShown = true): Citation => ({
-  passageId: record.source.passageId,
-  documentId: record.source.documentId,
-  documentName: record.source.documentName,
-  contentHash: record.source.contentHash,
-  pageFrom: record.range.pageFrom,
-  pageTo: record.range.pageTo,
-  location: record.location,
-  // A Citation that ends not found shows the words that weren't, not a sentence around them.
-  ...(asShown && record.shown && (!result || result.check === "found")
-    ? { quote: record.shown, given: record.quote }
-    : { quote: record.quote }),
-  ...(record.source.yourNoteAt && { yourNoteAt: record.source.yourNoteAt }),
-  check: result?.check ?? "checking",
-  checkReason: result?.checkReason ?? null,
-  ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
-  ...(record.quotedWords && { quotedWords: record.quotedWords }),
-  ...(record.quotedWordsFound && { quotedWordsFound: record.quotedWordsFound }),
-  ...(record.cells && { cells: record.cells }),
-});
+const toCitation = (record: Accepted, result: CheckResult | null, asShown = true): Citation =>
+  record.location?.kind === "screen"
+    ? {
+        passageId: "",
+        documentId: "",
+        documentName: "",
+        contentHash: "",
+        pageFrom: null,
+        pageTo: null,
+        location: record.location,
+        quote: "",
+        check: result?.check ?? "checking",
+        checkReason: result?.checkReason ?? null,
+      }
+    : {
+        passageId: record.source.passageId,
+        documentId: record.source.documentId,
+        documentName: record.source.documentName,
+        contentHash: record.source.contentHash,
+        pageFrom: record.range.pageFrom,
+        pageTo: record.range.pageTo,
+        location: record.location,
+        // A Citation that ends not found shows the words that weren't, not a sentence around them.
+        ...(asShown && record.shown && (!result || result.check === "found")
+          ? { quote: record.shown, given: record.quote }
+          : { quote: record.quote }),
+        ...(record.source.yourNoteAt && { yourNoteAt: record.source.yourNoteAt }),
+        check: result?.check ?? "checking",
+        checkReason: result?.checkReason ?? null,
+        ...(result?.unsure && result.unsure.length > 0 && { unsure: result.unsure }),
+        ...(record.quotedWords && { quotedWords: record.quotedWords }),
+        ...(record.quotedWordsFound && { quotedWordsFound: record.quotedWordsFound }),
+        ...(record.cells && { cells: record.cells }),
+      };
 
 export interface CitationSessionEvents {
   /** The model gave a valid record for a marker (again: it replaces the earlier one). */
@@ -1985,7 +2013,7 @@ export interface CitationSessionEvents {
  * Question context shows, which a record names by id to keep one as it is.
  */
 export function createCitationSession(
-  documents: Omit<AnswerDocuments, "search" | "searchableCount"> &
+  given: Omit<AnswerDocuments, "search" | "searchableCount"> &
     Partial<Pick<AnswerDocuments, "search" | "searchableCount">>,
   events: CitationSessionEvents,
   opening?: { documentId: string; name: string; passages(): WindowedPassage[] },
@@ -1993,10 +2021,42 @@ export function createCitationSession(
 ) {
   const handles = new Map<string, string>();
   const handleOf = new Map<string, string>();
+  /** How many ids each kind has given out: "P" for Passages, "S" for screens. */
+  const counts = new Map<string, number>();
   /** Each Passage's text as the model was given it, by its short id. */
   const shownTexts = new Map<string, string>();
   /** Who's who each Transcript Passage was marked with, by its handle, as `shownTexts` keeps its text. */
   const shownSpeakers = new Map<string, TranscriptSpeakers | null>();
+  const screens = new Map<string, SharedScreenText>();
+  let picturedScreen: string | undefined;
+  const documents: typeof given = {
+    ...given,
+    citationSource(passageId) {
+      const screen = screens.get(passageId);
+      if (!screen) return given.citationSource(passageId);
+      return {
+        passageId,
+        text: screen.text,
+        pageFrom: null,
+        pageTo: null,
+        documentId: passageId,
+        documentName: "",
+        documentKind: "text",
+        contentHash: "",
+        documentDeleted: false,
+        notCited: false,
+        citedBy: null,
+        yourNoteAt: null,
+      };
+    },
+    pageTexts(documentId, contentHash, from, to) {
+      const screen = screens.get(documentId);
+      return screen
+        ? [{ page: null, kind: "slide", text: screen.text }]
+        : given.pageTexts(documentId, contentHash, from, to);
+    },
+    documentDate: (id) => (screens.has(id) ? null : given.documentDate(id)),
+  };
   const records = new Map<number, Accepted>();
   /** Markers whose last record from a `cite` call was refused or came back with a problem to fix. */
   const toFix = new Set<number>();
@@ -2027,10 +2087,12 @@ export function createCitationSession(
   /** The Question context's Citations the model wrote as ids in text, not as records (`citeWrittenIds`), each once. */
   const idsAsText = new Set<string>();
 
-  const handleFor = (passageId: string) => {
+  const handleFor = (passageId: string, kind: "P" | "S" = "P") => {
     let handle = handleOf.get(passageId);
     if (!handle) {
-      handle = `P${handleOf.size + 1}`;
+      const count = (counts.get(kind) ?? 0) + 1;
+      counts.set(kind, count);
+      handle = `${kind}${count}`;
       handleOf.set(passageId, handle);
       handles.set(handle.toLowerCase(), passageId);
     }
@@ -2169,7 +2231,10 @@ export function createCitationSession(
    * the record. The text read is that of the version the Passage was built
    * from, which the Citation records: the Document may have a newer one by now.
    */
-  const check = (record: Accepted) => {
+  const check = (record: Accepted): CheckResult => {
+    if (record.source.passageId === picturedScreen && record.quote === "(picture)") {
+      return { check: "cant-check", checkReason: "picture" };
+    }
     const now = documents.citationSource(record.source.passageId);
     const pages = citedText(record);
     const result = checkCitation({
@@ -2272,6 +2337,17 @@ export function createCitationSession(
 
   /** Where a record points, for its label: narrowed to its quote when the quote is there. */
   const locationFor = (record: Omit<Accepted, "location">): Citation["location"] => {
+    const screen = screens.get(record.source.passageId);
+    if (screen) {
+      const found = quoteInUnits(citedText(record), record.quote, {});
+      return {
+        kind: "screen",
+        at: screen.at,
+        screen: screen.id,
+        from: found?.[0]?.start ?? 0,
+        to: found?.at(-1)?.end ?? 0,
+      };
+    }
     if (record.range.pageFrom === null) return null;
     const units = citedText(record);
     if (units.length === 0) {
@@ -2304,8 +2380,8 @@ export function createCitationSession(
   const loosely = (name: string): string => {
     const alone = /^\s*\[?\s*(?:passage\s*)?(\d{1,4})\s*\]?\s*$/i.exec(name);
     if (alone) return `P${alone[1]}`;
-    const id = /(?<![\p{L}\p{N}])P\s?(\d{1,4})(?!\p{N})/iu.exec(name);
-    return id ? `P${id[1]}` : name;
+    const id = /(?<![\p{L}\p{N}])([PS])\s?(\d{1,4})(?!\p{N})/iu.exec(name);
+    return id ? `${(id[1] as string).toUpperCase()}${id[2]}` : name;
   };
 
   /** The first Passage the model was given whose pages hold the quote word for word, or null. */
@@ -2733,9 +2809,12 @@ export function createCitationSession(
       passageIds: found.map((passage) => passage.passageId),
       ranks: found.map((passage, index) => passage.rank ?? index),
       coverage: coverageOf(found),
-      // Someone else wrote a saved web page: reading it makes the Run third-party (#78).
-      ...(found.some((passage) => passage.documentKind === "web") && {
-        thirdParty: ["web-page"] as const,
+      // Someone else wrote a saved web page, and said what a Transcript holds: reading either
+      // makes the Run third-party (#78).
+      ...(found.some((passage) => THIRD_PARTY_KINDS.has(passage.documentKind)) && {
+        thirdParty: [
+          ...new Set(found.flatMap((passage) => THIRD_PARTY_KINDS.get(passage.documentKind) ?? [])),
+        ],
       }),
     };
   }
@@ -2795,11 +2874,13 @@ export function createCitationSession(
         ? (documents.speakers?.(passage.documentId) ?? null)
         : null;
       const plain = foldRadicals(
-        withCueMarks(
-          withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
-          units,
-          speakers,
-        ),
+        passage.liveCueWindow
+          ? withCueMarks(laidOut(units), units, speakers, passage.liveCueWindow)
+          : withCueMarks(
+              withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
+              units,
+              speakers,
+            ),
       );
       const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;
@@ -2873,11 +2954,45 @@ export function createCitationSession(
     };
   }
 
+  /**
+   * The shared screens as the model reads them, each under the id it cites it by ("S1"), its
+   * figures that may be misread marked, and after it the Library Passages its text is from.
+   */
+  function showScreens(shown: readonly SharedScreenText[]): string {
+    return shown
+      .map((screen) => {
+        const passageId = `screen:${screen.id}`;
+        screens.set(passageId, screen);
+        const id = handleFor(passageId, "S");
+        shownTexts.set(id, screen.marked);
+        const library = screen.library.length > 0 ? show(screen.library) : "";
+        const same = screen.library.map((passage) => handleOf.get(passage.passageId) ?? "");
+        const time = formatTime(screen.at, "en", { twelveHour: false });
+        const matches = library ? ` same-as="${same.filter(Boolean).join(" ")}"` : "";
+        const tags = [
+          "shared-screen",
+          "live-transcript",
+          "passage",
+          "question",
+          ...(events.defuses ?? []),
+        ] as const;
+        const block = tagged(
+          "shared-screen",
+          screen.marked,
+          ` id="${id}" window="${asAttribute(screen.window, tags)}" read="${time}"${matches}`,
+          tags,
+        );
+        return library ? `${block}\n\n${library}` : block;
+      })
+      .join("\n\n");
+  }
+
   const tools: AnswerTools = {
+    // Passages given before any search, such as a meeting's shared screen, are cited the same way.
     get documentCount() {
       if (!documents.searchableCount)
         throw new Error("Document count is unavailable in this Citation session.");
-      return documents.searchableCount();
+      return Math.max(documents.searchableCount(), handleOf.size > 0 ? 1 : 0);
     },
 
     async searchDocuments(
@@ -3237,6 +3352,21 @@ export function createCitationSession(
     /** Searches the Answer's Search scope as its search Tool does, for Passages to `show`. */
     find: (query: string, signal?: AbortSignal, options?: AnswerSearchOptions) =>
       find(query, signal, undefined, options),
+
+    /** Gives the model a meeting's shared screens, citable as Passages are (ADR-0031). */
+    showScreens,
+    forgetPicture() {
+      picturedScreen = undefined;
+    },
+    pictureOfScreen(id: string): string | undefined {
+      const passageId = `screen:${id}`;
+      const handle = handleOf.get(passageId);
+      if (handle && screens.has(passageId)) {
+        picturedScreen = passageId;
+        return handle;
+      }
+      return undefined;
+    },
 
     quotes,
 

@@ -80,6 +80,7 @@ import {
   USAGE,
   userText,
 } from "./prompt";
+import { screenReply } from "./sharedScreen";
 import {
   WORKBOOK_TEXT_FLAG,
   WORKBOOK_TWO_INPUTS,
@@ -772,6 +773,8 @@ function analysisReply(prompt: Prompt, question: string, searched: string): Repl
 /** What the model does next, apart from Connector Tools: call a Tool, or stream its Answer. */
 export function answerReply(prompt: Prompt, tools: readonly string[]): Reply {
   const question = lastQuestion(prompt);
+  const shared = screenReply(prompt, question, tools);
+  if (shared) return shared;
   if (tools.includes("search_documents") && isCell(prompt)) return cellReply(prompt);
   if (tools.includes("use_skill") && toolResults(prompt, "use_skill").length === 0) {
     const named = skillNamed(prompt, question);

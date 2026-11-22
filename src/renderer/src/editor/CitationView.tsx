@@ -66,6 +66,7 @@ import { useGap, useLanguage, useT } from "../i18n";
 import { useJudgementLimit } from "../judgementLimit";
 import { currentTabOf, groupsMerged } from "../layoutSlice";
 import { limitReason } from "../limitWords";
+import { useKeptScreens } from "../meetings";
 import { useModelNames } from "../modelNames";
 import { useBreathing } from "../motion";
 import type { ObjectRef } from "../objects";
@@ -116,6 +117,7 @@ import { Popover } from "./Popover";
 import { onPeek, pointedCard, useCitationPeek } from "./peek";
 import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 import { isQuietFocus } from "./quietFocus";
+import { ScreenCitationCard } from "./ScreenCitationCard";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
 import {
@@ -212,7 +214,8 @@ export function CitationView({
   const assistantFolded = useContext(AssistantFoldedContext) === true;
   /** The Mind's group: the Document opens in the group to its right. */
   const place = useTabPlace();
-  const state = citationState(attributes, documents, kept, keptInside);
+  const screens = useKeptScreens();
+  const state = citationState(attributes, documents, kept, keptInside, screens);
   // A help reply's check never reads another call's Transcript, so Check again can't change it.
   const otherCalls = useContext(OtherCallsContext);
   const otherCall =
@@ -233,6 +236,7 @@ export function CitationView({
   const recheck = looked !== null && looked !== "failed" && "keptInside" in looked ? null : looked;
   const shown = withShownName(attributes, documents);
   const location = citationLocation(attributes);
+  const onScreen = location?.kind === "screen" ? location : null;
   const speakers = citedSpeakers(attributes, documents);
   const where = location
     ? formatLocation(location, t, { speakers, quote: attributes.quote })
@@ -333,7 +337,7 @@ export function CitationView({
    */
   const openCited = (withQuote: boolean, keep = false) => {
     const documentId = state.documentId ?? attributes.documentId;
-    if (!documentId) return;
+    if (!documentId || onScreen) return;
     recordUsage({ event: "citation_opened", fields: { check: state.check } });
     // The version it was made from, at its own place (#2159); the bar's action opens the current one.
     openCitedPlace(
@@ -539,9 +543,10 @@ export function CitationView({
   const menuId = useId();
   const objectMenu = useObjectMenu({ kind: "citation", id: menuId });
   const here = {
-    ...(state.reason !== "document-removed" && {
-      "citation.open": () => openFromCardRef.current(),
-    }),
+    ...(state.reason !== "document-removed" &&
+      !onScreen && {
+        "citation.open": () => openFromCardRef.current(),
+      }),
     ...(choices.update && { "citation.update": choices.update }),
     ...(choices.keepOld && { "citation.keepOld": choices.keepOld }),
     ...(choices.pageChecked && { "citation.pageChecked": choices.pageChecked }),
@@ -679,7 +684,7 @@ export function CitationView({
             checks={members.map((member) =>
               member.attributes === attributes
                 ? state.check
-                : citationState(member.attributes, documents, kept).check,
+                : citationState(member.attributes, documents, kept, keptInside, screens).check,
             )}
           />
         ) : styled.kind === "joined" ? null : (
@@ -739,54 +744,65 @@ export function CitationView({
               marker.current?.focus();
             }}
           >
-            <CitationCard
-              card={cardRef}
-              state={state}
-              attributes={shown}
-              recheck={recheck}
-              recheckAsked={recheckAsked}
-              badgeText={badgeText}
-              started={started}
-              onOpen={openFromCard}
-              onUpdate={choices.update}
-              onKeep={choices.keepOld}
-              onPageChecked={choices.pageChecked}
-              onUseDocumentWording={choices.useDocumentWording}
-              otherCall={otherCall}
-              checkAgainOf={
-                state.check === "not-checked" && state.reason !== "small-model" && !otherCall
-                  ? judgedAnswer
-                  : null
-              }
-              onRemove={
-                editor.isEditable
-                  ? () => {
-                      dismiss();
-                      deleteNode();
-                    }
-                  : null
-              }
-              onRegenerate={() => {
-                dismiss();
-                if (regenerateHere) {
-                  regenerateHere();
-                  return;
+            {onScreen ? (
+              <ScreenCitationCard
+                location={onScreen}
+                state={state}
+                badgeText={badgeText}
+                menu={{ target: { kind: "citation", id: menuId }, here }}
+              />
+            ) : (
+              <CitationCard
+                card={cardRef}
+                state={state}
+                attributes={shown}
+                recheck={recheck}
+                recheckAsked={recheckAsked}
+                badgeText={badgeText}
+                started={started}
+                onOpen={openFromCard}
+                onUpdate={choices.update}
+                onKeep={choices.keepOld}
+                onPageChecked={choices.pageChecked}
+                onUseDocumentWording={choices.useDocumentWording}
+                otherCall={otherCall}
+                checkAgainOf={
+                  state.check === "not-checked" && state.reason !== "small-model" && !otherCall
+                    ? judgedAnswer
+                    : null
                 }
-                const answer = answerAround(editor, getPos());
-                if (answer && mindId) {
-                  void useAnswers.getState().regenerate(mindId, answer.answerId, answer.questionId);
+                onRemove={
+                  editor.isEditable
+                    ? () => {
+                        dismiss();
+                        deleteNode();
+                      }
+                    : null
                 }
-              }}
-              inAnswer={
-                regenerateHere !== null ||
-                (mindId !== null && answerAround(editor, getPos()) !== null)
-              }
-              menu={{ target: { kind: "citation", id: menuId }, here }}
-              note={noteOf(formatting, inCluster)}
-              signOff={signOff}
-              onSignOff={canSignOff ? toggleSignOff : null}
-              hint={<CardKeyHint shown={byKeyboard && !pinned && !inCard} />}
-            />
+                onRegenerate={() => {
+                  dismiss();
+                  if (regenerateHere) {
+                    regenerateHere();
+                    return;
+                  }
+                  const answer = answerAround(editor, getPos());
+                  if (answer && mindId) {
+                    void useAnswers
+                      .getState()
+                      .regenerate(mindId, answer.answerId, answer.questionId);
+                  }
+                }}
+                inAnswer={
+                  regenerateHere !== null ||
+                  (mindId !== null && answerAround(editor, getPos()) !== null)
+                }
+                menu={{ target: { kind: "citation", id: menuId }, here }}
+                note={noteOf(formatting, inCluster)}
+                signOff={signOff}
+                onSignOff={canSignOff ? toggleSignOff : null}
+                hint={<CardKeyHint shown={byKeyboard && !pinned && !inCard} />}
+              />
+            )}
           </Popover>,
           document.body,
         )}

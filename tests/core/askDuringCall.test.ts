@@ -118,6 +118,25 @@ describe("Asking during a call", { timeout: 60_000 }, () => {
     ]);
     expect(answer.steps?.sent).toEqual({ documents: [], transcript: true });
     expect(readMind(client).textContent).toBe("");
+    // What the others said is third-party text: a later write or send asks first (#78).
+    expect(answer.textOrigin).toBe("transcript");
+  });
+
+  test("asked before anything is said, it is told nothing has been said yet, and says Listening… meanwhile", async () => {
+    const calls: ModelCall[] = [];
+    const { core, meeting } = await setUp(listeningModel(calls));
+    await core.startMeeting({ meetingId: meeting.id });
+    const phases: string[] = [];
+    core.on("answer.phase", (event) => phases.push(event.phase));
+
+    const answer = await ask(core, { mindId: meeting.mindId, text: "Catch me up" });
+
+    expect(calls[0]?.system).toContain(
+      "An empty <live-transcript> means no call content is available yet",
+    );
+    expect(calls[0] && userText(calls[0])).toContain("<live-transcript>\n\n</live-transcript>");
+    expect(phases[0]).toBe("listening");
+    expect(answer.textOrigin).toBeNull();
   });
 
   test("tags in a call's speech reach the request defused, so a line can't forge the tags the app wrote (#2473)", async () => {

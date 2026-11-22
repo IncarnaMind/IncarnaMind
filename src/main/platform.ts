@@ -23,6 +23,7 @@ import {
   type Keychain,
   type Logger,
   type OllamaApp,
+  type ScreenCapture,
   type Transcriber,
   type UsageDataSender,
 } from "../core";
@@ -57,7 +58,9 @@ import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { summarizeWithMeetingAgent } from "./meetingSummaryAgent";
 import { createElectronAudioCapture } from "./meetings/capture";
+import { type CaptureWindows, createCaptureWindows } from "./meetings/captureWindow";
 import { createRoomSpeakerReviewer } from "./meetings/roomSpeakerReviewer";
+import { createElectronScreenCapture } from "./meetings/screen";
 import { createModelRuntimeFolder } from "./modelRuntimeFolder";
 import { createOfficeConverter } from "./officeConverter";
 import { createFakeOllamaApp, createOllamaApp } from "./ollamaApp";
@@ -881,7 +884,7 @@ function calendarAdapters(log: Logger): Pick<CoreAdapters, "systemCalendar" | "c
  * `globalThis.incarnamindFakeAudio`, e.g. to change the microphone.
  * INCARNAMIND_TEST_AUDIO=none is a copy with no capture at all.
  */
-function audioCapture(log: Logger): AudioCapture | undefined {
+function audioCapture(log: Logger, windows: CaptureWindows): AudioCapture | undefined {
   if (import.meta.env.MODE === "test" && process.env.INCARNAMIND_TEST_AUDIO === "none") {
     return undefined;
   }
@@ -911,7 +914,20 @@ function audioCapture(log: Logger): AudioCapture | undefined {
     (globalThis as { incarnamindFakeAudio?: FakeCapture }).incarnamindFakeAudio = fake;
     return fake;
   }
-  return createElectronAudioCapture({ log, rendererUrl: process.env.ELECTRON_RENDERER_URL });
+  return createElectronAudioCapture(windows, log);
+}
+
+/**
+ * What reads the window the User shares during a Meeting (ADR-0024). A test
+ * build shares only the test page INCARNAMIND_TEST_SHARED_WINDOW names, and
+ * without one reads none, so no test ever captures a real window.
+ */
+function screenCapture(log: Logger, windows: CaptureWindows): ScreenCapture | undefined {
+  if (import.meta.env.MODE === "test") {
+    const testPage = process.env.INCARNAMIND_TEST_SHARED_WINDOW;
+    return testPage ? createElectronScreenCapture({ windows, log, testPage }) : undefined;
+  }
+  return createElectronScreenCapture({ windows, log });
 }
 
 /**
@@ -952,6 +968,11 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
   const web = webStandIn();
   const standIn = standInPort();
   const connectorDirectory = testConnectorDirectory();
+  const captureWindows = createCaptureWindows({
+    log,
+    rendererUrl: process.env.ELECTRON_RENDERER_URL,
+  });
+  const sharedScreen = screenCapture(log, captureWindows);
   const scriptedOllama =
     import.meta.env.MODE === "test" &&
     process.env.INCARNAMIND_FAKE_CHAT === "1" &&
@@ -999,7 +1020,8 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
       },
     }),
     log,
-    audioCapture: audioCapture(log),
+    audioCapture: audioCapture(log, captureWindows),
+    ...(sharedScreen && { screenCapture: sharedScreen }),
     calendarServices: calendarServices(),
     ...calendarAdapters(log),
     capturePage: createCitedPageCapture({ rendererUrl: process.env.ELECTRON_RENDERER_URL, log }),
