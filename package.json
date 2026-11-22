@@ -12,10 +12,15 @@
     "node": ">=24"
   },
   "overrides": {
-    "node-forge": "^1.4.1",
+    "node-forge": "^1.4.3",
     "@anthropic-ai/sandbox-runtime": {
       "zod": "$zod"
-    }
+    },
+    "@sentry/bundler-plugins": {
+      "glob": "^14.0.2"
+    },
+    "minimatch@^9.0.3": "^11.0.1",
+    "minimatch@^10.2.5": "^11.0.1"
   },
   "scripts": {
     "postinstall": "node patches/y-tiptap.mjs",
