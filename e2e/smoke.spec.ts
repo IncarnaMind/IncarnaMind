@@ -17,6 +17,7 @@ import {
   linkFolderFromSidebar,
   nameMind,
   newMind,
+  openAddSheet,
   openDocumentMenu,
   openPlanPage,
   openSettings,
@@ -264,8 +265,11 @@ test("first run asks for no model; the first own Question waits while the setup 
 test("Settings › AI offers Add an account or key, whose sheet starts with the plans to sign in to", async () => {
   const { app, window } = await launchApp(dataDir);
   const settings = await openSettings(window, "ai");
-  await expect(settings.getByTestId("models-add-provider")).toHaveText("Add an account or key…");
-  await settings.getByTestId("models-add-provider").click();
+  // With no model set up, a model is one quiet row and ⌘K holds Add an account or key (#3645).
+  await expect(settings.getByTestId("ai-use-model-open")).toContainText(
+    "Use a model in IncarnaMind…",
+  );
+  await openAddSheet(settings);
   const plans = settings.locator('[data-testid="provider-directory-group"][data-group="plans"]');
   await expect(plans).toContainText("Sign in with a plan you already pay for");
   await expect(plans).toContainText("ChatGPTPlus or Pro");

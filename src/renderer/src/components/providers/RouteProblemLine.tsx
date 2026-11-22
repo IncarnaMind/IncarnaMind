@@ -7,7 +7,7 @@ import {
 import { formatResetTime } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
 import { wayBackRun } from "../../routeSignIn";
-import type { SettingsPage } from "../../settingsPages";
+import type { SettingsPage, SettingsTarget } from "../../settingsPages";
 import { type ProblemAction, ProblemLine } from "../ProblemLine";
 
 /**
@@ -29,7 +29,7 @@ export function RouteProblemLine({
   resetsAt: string | null;
   details: string | null;
   onRetry?: (() => void) | undefined;
-  onOpenSettings(page: SettingsPage): void;
+  onOpenSettings(page: SettingsPage, at?: SettingsTarget): void;
 }) {
   const t = useT();
   const language = useLanguage();

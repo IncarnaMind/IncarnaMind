@@ -5,6 +5,7 @@ import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
   clickEditItem,
+  useLocalChatModel as connectLocalChatModel,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -56,6 +57,8 @@ for (const language of ["en", "zh-CN"] as const) {
       try {
         await setWindowSize(app, window, language === "en" ? 1280 : 900, 660);
         await dismissChatSetup(window);
+        // A model set up, so the monthly cap is listed (#3645).
+        await connectLocalChatModel(window);
         await setLanguage(window, language);
         const core = await coreOf(window);
         const selectAll = (field: Locator) => selectAllIn(app, window, route, field);

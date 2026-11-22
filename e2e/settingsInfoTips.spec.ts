@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { translate } from "../src/shared/i18n";
 import {
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -46,6 +47,8 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`Settings help opens by keyboard and pointer without changing its setting, and Escape closes only the help (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
+    // A model set up, so the monthly cap and its help are listed (#3645).
+    await connectLocalChatModel(window);
     const settings = await openSettings(window, "ai");
     await setLanguage(window, language);
     const name = language === "en" ? "More information" : "查看说明";
@@ -132,6 +135,7 @@ test("Settings help shown for the keyboard goes as soon as the focus moves on, w
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
+    await connectLocalChatModel(window);
     const settings = await openSettings(window, "ai");
     await setWindowSize(app, window, 1440, 900);
     await showSettingsPage(window, "ai");

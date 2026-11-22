@@ -263,9 +263,9 @@ for (const language of ["en", "zh-CN"] as const) {
         const settings = await openSettings(window, "ai");
         await setLanguage(window, language);
         await expect(
-          settings
-            .getByTestId("models-sorting")
-            .locator("option", { hasText: translate(language, "models.sorting.chat") }),
+          settings.getByTestId("models-sorting").locator("option", {
+            hasText: translate(language, "models.sorting.chat", { model: "GPT-6 Luna" }),
+          }),
         ).toHaveCount(1);
         await expect(settings.getByTestId("models-sorting").locator("option:checked")).toHaveText(
           model,
@@ -342,11 +342,13 @@ for (const language of ["en", "zh-CN"] as const) {
             );
           } else {
             expect(told.answer?.kind).toBe("here");
-            // The same model as Answers reads as "Use your AI model"; another, by its name.
+            // The same model as Answers reads as "Use {model}"; another, by its name.
             await expect(
               settings.getByTestId("models-sorting").locator("option:checked"),
             ).toContainText(
-              chatDefault === "the same" ? translate(language, "models.sorting.chat") : shown,
+              chatDefault === "the same"
+                ? translate(language, "models.sorting.chat", { model: shown })
+                : shown,
             );
             expect(words).toBe(translate(language, "tagging.automatic.local"));
           }
@@ -867,7 +869,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect.poll(() => controlReads(app, "core:setTranscriptionKey", {})).toBe(1);
       await closeSettingsDialog(window);
       const again = await settingsOnModels(window);
-      await expect(again.getByTestId("your-providers")).toBeVisible();
+      // With no model and no key kept yet, there is no Accounts and keys (#3645).
+      await expect(again.getByTestId("ai-limits")).toBeVisible();
       await expect(sonioxRow(again)).toHaveCount(0);
 
       // The core keeps the key: Your providers lists it, though the reads that came back are
@@ -1189,9 +1192,11 @@ test("Settings › AI shows the jobs, editable in place, with Quick tasks follow
 
     // What sorts, saved where it is shown: the select is the setting, one line tall.
     const sorting = settings.getByTestId("models-sorting");
-    await expect(sorting.locator("option:checked")).toHaveText("Use your AI model");
+    // The model Answers use, by its name.
+    const own = sorting.locator("option:checked");
+    await expect(own).toHaveText(/^Use /);
     expect((await sorting.boundingBox())?.height ?? 0).toBeLessThan(48);
-    await sorting.selectOption({ label: "Use your AI model" });
+    await sorting.selectOption({ label: (await own.textContent()) ?? "" });
     await expect.poll(async () => (await bridge(window).library()).classifier.kind).toBe("chat");
   } finally {
     await app.close();
@@ -1225,7 +1230,7 @@ test("Local mode offers only choices on this computer, in the setup card and in 
       "On this computer",
     ]);
     await expect(settings.getByTestId("models-sorting").locator("option")).toHaveText([
-      "Use your AI model",
+      /^Use /,
       "Other model…",
     ]);
   } finally {
@@ -1403,7 +1408,9 @@ for (const language of ["en", "zh-CN"] as const) {
         .toContain(translate(language, "setup.sorting.sendsWhenOn", { service: "Anthropic" }));
       expect((await bridge(window).library()).automatic).toBe(false);
 
-      await select.selectOption({ label: translate(language, "models.sorting.chat") });
+      await select.selectOption({
+        label: translate(language, "models.sorting.chat", { model: "GPT-6 Luna" }),
+      });
       await expect
         .poll(async () => (await bridge(window).library()).classifier)
         .toMatchObject({

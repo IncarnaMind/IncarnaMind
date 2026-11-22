@@ -46,7 +46,7 @@ function backToMore(setView: (view: View) => void) {
 
 /**
  * The setup's second step (#3296): the User's AI, two ways (#3362). First the AI they already
- * have, connected as Settings › Agents connects it (`AgentWays`); then a model in IncarnaMind: a
+ * have, connected as Settings › AI connects it (`AgentWays`); then a model in IncarnaMind: a
  * key is recognised by its form and works at once, and the other ways follow, cloud first and a
  * model on this computer last. "More services…" opens the directory in the step, and a service
  * chosen there is set up in it, so the setup is never left. Continue waits for either way to

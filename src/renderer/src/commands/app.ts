@@ -251,7 +251,7 @@ const appCommands: readonly Command[] = [
     // Signs in, then shows the plan in Settings → Models, where its model is chosen; a failure says why there.
     run: async () => {
       const { openSettings } = useAppStore.getState();
-      if (await signInAgain(openSettings)) openSettings("ai");
+      if (await signInAgain(openSettings)) openSettings("ai", "model");
     },
   },
   {

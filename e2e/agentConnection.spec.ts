@@ -22,7 +22,8 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-async function actionsFor(window: Page, query: string): Promise<string[]> {
+/** ⌘K, searched for `query`: what it lists, then the AI page opened from its entry. */
+async function actionsFor(window: Page, query: string, entry: string): Promise<string[]> {
   await window.keyboard.press("ControlOrMeta+k");
   const palette = window.getByTestId("palette");
   await expect(window.getByTestId("palette-search")).toBeFocused();
@@ -31,7 +32,7 @@ async function actionsFor(window: Page, query: string): Promise<string[]> {
     palette.getByTestId("palette-item").or(palette.getByTestId("palette-empty")).first(),
   ).toBeVisible();
   const items = await palette.getByTestId("palette-item").allTextContents();
-  await window.keyboard.press("Enter");
+  await palette.getByTestId("palette-item").filter({ hasText: entry }).first().click();
   await expect(palette).toBeHidden();
   await expect(window.getByTestId("agents-settings")).toBeVisible();
   await window.getByTestId("settings-close").focus();
@@ -40,7 +41,8 @@ async function actionsFor(window: Page, query: string): Promise<string[]> {
   return items;
 }
 
-test("Agents settings and command-palette entries are offered in both languages and widths", async () => {
+// Your AI leads Settings › AI (#3645): no page of its own, and ⌘K finds it by the old page's word.
+test("Your AI is on the AI page, found in ⌘K by agents, in both languages and widths", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await dismissChatSetup(window);
@@ -53,15 +55,17 @@ test("Agents settings and command-palette entries are offered in both languages 
           .click();
         const settings = await showSettingsPage(window, "privacy");
         await expect(settings.getByTestId("consent-settings")).toBeVisible();
-        const agents = settings.getByTestId("settings-nav-agents");
-        await expect(agents).toHaveText(language === "en" ? "Agents" : "智能体");
-        await agents.focus();
+        await expect(settings.getByTestId("settings-nav-agents")).toHaveCount(0);
+        const ai = settings.getByTestId("settings-nav-ai");
+        await expect(ai).toHaveText("AI");
+        await ai.focus();
         await window.keyboard.press("Enter");
         await expect(settings.getByTestId("agents-settings")).toBeVisible();
         await window.keyboard.press("Escape");
         await expect(settings).toBeHidden();
-        const word = language === "en" ? "Agents" : "智能体";
-        expect((await actionsFor(window, word)).some((text) => text.includes(word))).toBe(true);
+        const entry = language === "en" ? "Settings: AI" : "设置：AI";
+        const items = await actionsFor(window, language === "en" ? "agents" : "智能体", entry);
+        expect(items.some((text) => text.includes(entry))).toBe(true);
       }
     }
   } finally {
@@ -90,13 +94,13 @@ test("offering agents leaves the listener off until the User enables it", async 
   }
 });
 
-test("the model setup keeps its Claude app shortcut separate from Agents settings, in English and Chinese", async () => {
+test("the model setup keeps its Claude app shortcut separate from Your AI, in English and Chinese", async () => {
   const { app, window } = await launchApp(dataDir);
   try {
     await setWindowSize(app, window, 1600, 900);
     const leadsToAgents = {
-      en: ["Open Agents settings", "Connect the Claude app", "Connect Antigravity"],
-      "zh-CN": ["打开智能体设置", "连接 Claude 应用", "连接 Antigravity"],
+      en: ["Open Settings › AI", "Connect the Claude app", "Connect Antigravity"],
+      "zh-CN": ["打开“设置 › AI”", "连接 Claude 应用", "连接 Antigravity"],
     } as const;
     await newMind(window);
     await window.getByTestId("mind-editor").click();

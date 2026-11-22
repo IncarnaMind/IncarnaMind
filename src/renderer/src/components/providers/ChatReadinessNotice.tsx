@@ -11,7 +11,7 @@ import { turnOffLocalMode } from "../../localMode";
 import { useSettingUp } from "../../modelSetup";
 import { useRequests } from "../../requests";
 import { wayBackRun } from "../../routeSignIn";
-import type { SettingsPage } from "../../settingsPages";
+import type { SettingsPage, SettingsTarget } from "../../settingsPages";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 import { readinessKey, serviceName } from "./shared";
@@ -26,7 +26,7 @@ function routeWayBack(
   readiness: Extract<ChatReadiness, { ready: false }>,
   index: number,
   t: ReturnType<typeof useT>,
-  openSettings: (page: SettingsPage) => void,
+  openSettings: (page: SettingsPage, at?: SettingsTarget) => void,
   before?: () => void,
 ): { label: string; onClick(): void } | undefined {
   if (readiness.reason !== "sign-in-required") return undefined;
@@ -53,7 +53,7 @@ function routeWayBack(
 export function readinessAction(
   readiness: Extract<ChatReadiness, { ready: false }>,
   t: ReturnType<typeof useT>,
-  openSettings: (page: SettingsPage) => void,
+  openSettings: (page: SettingsPage, at?: SettingsTarget) => void,
   label: string,
   before?: () => void,
 ): { label: string; onClick(): void } {
@@ -72,7 +72,8 @@ export function readinessAction(
     label,
     onClick: () => {
       before?.();
-      openSettings(settingsPageFor(readiness));
+      const page = settingsPageFor(readiness);
+      openSettings(page, page === "ai" ? "model" : undefined);
     },
   };
 }
@@ -81,7 +82,7 @@ export function readinessAction(
 export const readinessAlso = (
   readiness: Extract<ChatReadiness, { ready: false }>,
   t: ReturnType<typeof useT>,
-  openSettings: (page: SettingsPage) => void,
+  openSettings: (page: SettingsPage, at?: SettingsTarget) => void,
   before?: () => void,
 ) => routeWayBack(readiness, 1, t, openSettings, before);
 

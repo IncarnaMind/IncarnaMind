@@ -12881,7 +12881,10 @@ export interface AgentPairing {
 }
 
 export interface AgentSettings {
-  /** Connecting agents is on (Settings → Agents, experimental). Off by default; off, nothing listens. */
+  /**
+   * Connecting agents is on. Off by default; Settings and first run turn it on as the User connects
+   * an agent (`agentConnector`); off, nothing listens.
+   */
   enabled: boolean;
   /**
    * "local-mode": Local mode pauses every pairing, because an agent sends what
@@ -12973,7 +12976,7 @@ export const AGENT_TOOLS = [
 ] as const;
 
 /**
- * The agents Settings → Agents sets IncarnaMind up in, and "other" for the
+ * The agents Settings → AI sets IncarnaMind up in, and "other" for the
  * rest (see src/core/agents/clients.ts). A pairing made before an agent
  * stopped being listed keeps its own id, so a pairing's `client` is any text.
  */

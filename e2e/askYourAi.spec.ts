@@ -27,10 +27,7 @@ import {
   writeNote,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * Ask your AI (#3373, #3419): a User who connected their own AI and set up no model finds the page
@@ -251,7 +248,7 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     );
 
     // What Claude Code read can be read again in its Activity.
-    const settings = await openSettings(window, "agents");
+    const settings = await openSettings(window, "ai");
     const row = settings.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
     await pointAndClick(window, row.getByTestId("agent-activity-toggle"));
     const call = row.getByTestId("agent-activity-call").filter({ hasText: "Read your request" });
@@ -281,6 +278,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(useModel).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
+    // It lands on the model's own quiet row, under Your AI (#3645).
+    await expect(window.getByTestId("ai-use-model-open")).toBeFocused();
     await closeSettings(window);
     await expect(assistant).toBeHidden();
     await expect(window.getByTestId("model-setup")).toHaveCount(0);
@@ -439,7 +438,9 @@ test("with no model, a Document open is what ⌘J and a question typed in ⌘K a
     const request = `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${documentId}).`;
 
     // The panel stays out of sight (#3612): ⌘J asks Claude Code about the Document, and the User
-    // types the question there; a question typed in ⌘K goes with the Document.
+    // types the question there; a question typed in ⌘K goes with the Document. The panel folded
+    // says the window knows the User has only their own AI, which ⌘J waits on.
+    await expect(window.getByTestId("assistant")).toBeHidden();
     await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(named);

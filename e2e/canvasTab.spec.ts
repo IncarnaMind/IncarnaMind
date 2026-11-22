@@ -4,6 +4,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -28,10 +29,7 @@ import {
   showCanvasTab,
 } from "./canvases";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A Canvas in its tab (#3406), with Chromium's sandbox on: a Citation's marker opens its Passage
@@ -136,6 +134,9 @@ test("with the focus in a Canvas, the window's own shortcuts work, other keys ar
   const { app, window } = await launchApp(dataDir, { home, sandboxed: true });
   try {
     await dismissChatSetup(window);
+    // A model set up, so ⌘J has Ask's composer to focus: with only the User's own AI, the
+    // assistant is folded and ⌘J asks that AI instead (#3612).
+    await connectLocalChatModel(window);
     await newMind(window);
     await enterContent(window);
     const agent = await connectCanvasAgent(window);

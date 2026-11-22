@@ -6522,7 +6522,7 @@ export function createCore(adapters: CoreAdapters): Core {
   agentsLocalModeChanged = () => agents.localModeChanged();
   agentsModelChanged = (ready) => agents.modelChanged(ready);
   agents.start().catch((error: unknown) => console.error(error));
-  // Setting IncarnaMind up in the User's agent, from Settings → Agents.
+  // Setting IncarnaMind up in the User's agent, from Settings → AI.
   const agentSetup = createAgentSetup({
     agents,
     skills: skillFiles,

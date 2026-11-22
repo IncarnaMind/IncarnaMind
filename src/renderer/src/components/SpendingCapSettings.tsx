@@ -8,6 +8,7 @@ import {
 import { core } from "../core";
 import { formatMoney, formatSpent, setAsideText } from "../cost";
 import { useLanguage, useT } from "../i18n";
+import { noModelSetUp } from "../noModelSetUp";
 import type { SettingsPage, SettingsTarget } from "../settingsPages";
 import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
@@ -20,6 +21,13 @@ import { errorTextClass, rowFieldClass } from "./ui";
 const FIRST_CAP: Record<Currency, number> = { USD: 20, CNY: 150 };
 
 const TARGET: readonly SettingsTarget[] = ["spending-cap"];
+
+/** The cap shows once a model can spend, or while it is on: with neither it would cap nothing. */
+export function useSpendingCapShown(): boolean {
+  const noModel = useAppStore((state) => noModelSetUp(state.chatReadiness));
+  const on = useAppStore((state) => (state.settings?.user.monthlyCap ?? null) !== null);
+  return !noModel || on;
+}
 
 /**
  * This month's cost so far, read again each time Settings shows `page` and

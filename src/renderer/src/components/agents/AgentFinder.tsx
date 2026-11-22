@@ -6,7 +6,7 @@ import { SearchField } from "../SearchField";
 import { clientName } from "./agentWords";
 
 /**
- * The agents to connect (#3374), in the setup's Your AI step and Settings › Agents: those on this
+ * The agents to connect (#3374), in the setup's Your AI step and Settings › AI: those on this
  * computer first, then the most used, and any other found by typing its name. Each place draws
  * the agents its own way.
  */

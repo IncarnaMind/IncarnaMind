@@ -10,21 +10,13 @@ import { en } from "../../src/shared/i18n/en";
 import { zhCN } from "../../src/shared/i18n/zh-CN";
 
 describe("Settings pages", () => {
-  test("are General, AI, Meetings, Connectors, Skills, Agents and Privacy, in that order", () => {
-    expect(settingsPages).toEqual([
-      "general",
-      "ai",
-      "meetings",
-      "connectors",
-      "skills",
-      "agents",
-      "privacy",
-    ]);
+  test("are General, AI, Meetings, Connectors, Skills and Privacy, in that order", () => {
+    expect(settingsPages).toEqual(["general", "ai", "meetings", "connectors", "skills", "privacy"]);
   });
 
   test("a page name is recognised, and anything else, such as a click event, is not", () => {
     for (const page of settingsPages) expect(isSettingsPage(page)).toBe(true);
-    for (const old of ["chat-model", "approvals", "organization", "models", "search"]) {
+    for (const old of ["chat-model", "approvals", "organization", "models", "search", "agents"]) {
       expect(isSettingsPage(old)).toBe(false);
     }
     expect(isSettingsPage({ type: "click" })).toBe(false);
@@ -43,6 +35,8 @@ describe("Settings pages", () => {
     expect(resolveSettingsPage("notifications")).toBe("general");
     expect(resolveSettingsPage("models")).toBe("ai");
     expect(resolveSettingsPage("search")).toBe("ai");
+    // Your AI leads Settings › AI (#3645): a link to the Agents page lands there.
+    expect(resolveSettingsPage("agents")).toBe("ai");
     expect(resolveSettingsPage("ai")).toBe("ai");
     expect(resolveSettingsPage({ type: "click" })).toBe("general");
   });
