@@ -406,6 +406,11 @@ for (const language of ["en", "zh-CN"] as const) {
     expect((await partials.getByTestId("transcript-speaker").allInnerTexts()).sort()).toEqual(
       [...words.speakers].sort(),
     );
+    const speakerColor = await partials
+      .getByTestId("transcript-speaker")
+      .first()
+      .evaluate((speaker) => getComputedStyle(speaker).color);
+    await expect(partials.locator(".transcript-text").first()).toHaveCSS("color", speakerColor);
     for (const said of await partials.locator(".transcript-text").allInnerTexts()) {
       expect(
         [...FAKE_LINES, ...FAKE_THEIR_LINES].some((line) => line.startsWith(said.trim())),

@@ -147,7 +147,7 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
   const letGoOfMicrophone = (app: string, exact: boolean) => {
     letGo.set(app, { timer: setTimeout(() => callOver(app), SAME_CALL_MS), exact });
     // Only a watcher that says when an app lets go may stop a recording.
-    if (ending || !exact) return;
+    if (ending || !exact || options.watcher?.endRecordingOnRelease === false) return;
     const meetingId = [...taken].find(
       ([id, takenApp]) => takenApp === app && options.live(id),
     )?.[0];

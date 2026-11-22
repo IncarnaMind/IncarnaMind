@@ -68,6 +68,11 @@ export type {
   RerankingCheck,
   RerankingDevice,
   RerankingModelFiles,
+  ScreenCapture,
+  ScreenFrame,
+  ScreenPermission,
+  ScreenSession,
+  ScreenSink,
   ScriptRuntimes,
   SpawnOptions,
   SpeakerModelFiles,
@@ -83,7 +88,7 @@ export type {
   UsageEventMessage,
   VoiceTurn,
 } from "./adapters";
-export { MEETING_SAMPLE_RATE } from "./adapters";
+export { MEETING_SAMPLE_RATE, SCREEN_THUMBNAIL_WIDTH, ScreenCaptureError } from "./adapters";
 export * from "./api";
 export { CITED_PAGES_FOLDER, type CitedPlace } from "./citedPages";
 export { type Core, createCore, DATABASE_FILE } from "./core";

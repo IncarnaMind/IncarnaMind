@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
+import { ALL_SHARED_ID, type CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { translate } from "../src/shared/i18n";
 import {
@@ -17,9 +17,11 @@ import {
   interceptOpenPath,
   launchApp,
   motionSettled,
+  openSettings,
   removeDataFolder,
   setWindowSize,
   showSettingsPage,
+  urlsOpened,
   useLocalChatModel,
 } from "./app";
 
@@ -54,6 +56,7 @@ const HARBOUR = [
   "",
   "Ferry crossings to Ardmore Island rose to 4,200 in 2025.",
 ].join("\n");
+const AGENT_LINE = "Write a short summary of “Harbour report 2025” as a new note in IncarnaMind.";
 const CARGO = "The port handled 1.8 million tonnes of cargo in 2025";
 const FERRY = "Ferry crossings to Ardmore Island fell to 3,100 in 2025";
 
@@ -149,6 +152,14 @@ async function stills(window: Page, name: string): Promise<void> {
   await setWindowSize(app, window, 1280, 900);
 }
 
+/** What each link opening Claude Code would have typed there, as the app recorded them. */
+async function typedInClaudeCode(): Promise<string[]> {
+  const links = await urlsOpened(app as ElectronApplication);
+  return links
+    .filter((link) => link.startsWith("claude-cli://"))
+    .map((link) => new URL(link).searchParams.get("q") ?? "");
+}
+
 /** The agent's client, started as the agent starts IncarnaMind's server. */
 async function agentOf(window: Page, pairingId: string): Promise<Client> {
   const launch = await core(window).launchOf(pairingId);
@@ -214,10 +225,8 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   const window = await launch();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
-  await expect(ai.getByRole("heading", { level: 2 })).toHaveText([
-    "Use the AI you already have",
-    "Use a model in IncarnaMind",
-  ]);
+  // The AI they have leads; a model in IncarnaMind is one quiet line, closed (#3537).
+  await expect(ai.getByRole("heading", { level: 2 })).toHaveText(["Use the AI you already have"]);
   const agents = ai.getByTestId("setup-agent");
   const claudeCode = ai.locator('[data-testid="setup-agent"][data-value="claude-code"]');
   // The chat apps first, then the coding tools, the one found on this computer ahead of the
@@ -237,17 +246,34 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   expect(order.slice(3, -1).some(([, found]) => found)).toBe(false);
   await expect(agents.last()).toHaveAttribute("data-value", "other");
   await expect(agents.first().locator("input")).toBeFocused();
-  await expect(ai.getByTestId("setup-key")).toBeVisible();
+  const inApp = ai.getByTestId("setup-in-app-open");
+  await expect(inApp).toHaveText("Use a model in IncarnaMind");
+  for (const behind of ["setup-key", "setup-way-chatgpt", "setup-way-more", "setup-way-local"]) {
+    await expect(ai.getByTestId(behind), behind).toHaveCount(0);
+  }
   await expect(ai.getByTestId("setup-next")).toBeDisabled();
   await stills(window, "1-your-ai");
+  // Pressed, it opens in place with the key field and the other ways, still the one step.
+  await inApp.click();
+  await expect(ai.getByRole("heading", { level: 2 })).toHaveText([
+    "Use the AI you already have",
+    "Use a model in IncarnaMind",
+  ]);
+  // The key field takes the focus, as a person who pressed it means to paste one.
+  await expect(ai.getByTestId("setup-key")).toBeFocused();
+  await expect(ai.getByTestId("setup-way-more")).toBeVisible();
+  await expect(ai.getByTestId("setup-next")).toBeDisabled();
+  await expect(panelOf(window)).toHaveAttribute("data-step", "ai");
+  await stills(window, "1b-your-ai-model-open");
 
-  // Chosen: the three lines of the connect dialog, with nothing to read yet but the Documents to
-  // come, the rest under Details, and Allow and connect in view at both widths.
+  // Chosen: the three lines of the connect dialog, with all of the User's Documents and notes as
+  // what it reads, those to come too (#3544), the rest under Details, and Allow and connect in
+  // view at both widths.
   await claudeCode.locator("input").press("Space");
   const connect = ai.getByTestId("setup-agent-connect");
   await expect(connect).toContainText("Let Claude Code read your Documents?");
   await expect(connect.getByTestId("connect-agent-reads")).toHaveText(
-    translate("en", "agents.connect.reads.none", { agent: "Claude Code" }),
+    translate("en", "agents.connect.reads.all", { agent: "Claude Code" }),
   );
   await expect(connect.getByTestId("agent-folder-row")).toHaveCount(0);
   await expect(connect.getByTestId("agent-propose")).toBeChecked();
@@ -319,10 +345,36 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await expect(models.getByTestId("model-default-row-sorting")).toContainText(
     "Ask your connected AI to suggest Folders and Tags.",
   );
+  // With only their own AI connected, Settings says whose it is and holds back what is for the
+  // built-in assistant: no Connectors, no Skills, here or in ⌘K (#3537).
+  const none = models.getByTestId("ai-none");
+  await expect(none).toContainText("Your AI: Claude Code");
+  await expect(none).toContainText("A model in IncarnaMind is optional.");
+  await expect(none).not.toContainText("No AI yet");
+  const listed = await models
+    .locator('[data-testid^="settings-nav-"]')
+    .evaluateAll((all) =>
+      all.map((each) => each.getAttribute("data-testid")?.replace("settings-nav-", "")),
+    );
+  expect(listed).toEqual(["general", "ai", "meetings", "agents", "privacy"]);
+  await expect(window.getByTestId("settings-nav-connectors")).toHaveCount(0);
+  await expect(window.getByTestId("settings-nav-skills")).toHaveCount(0);
+  await expect(window.getByTestId("settings-page-connectors")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("settings")).toBeHidden();
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.getByTestId("palette-search").fill("Settings");
+  await expect(window.locator('[data-key="command:settings.privacy"]')).toBeVisible();
+  await expect(window.locator('[data-key="command:settings.connectors"]')).toHaveCount(0);
+  await expect(window.locator('[data-key="command:settings.skills"]')).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await openSettings(window, "ai");
   const page = await showSettingsPage(window, "agents");
   await expect(page.getByTestId("agents-enabled")).toBeChecked();
   const row = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
-  await expect(row.getByTestId("agent-pairing-reads")).toHaveText("Reads Not in a Folder");
+  await expect(row.getByTestId("agent-pairing-reads")).toHaveText(
+    "Reads all your Documents and notes, and what you add later",
+  );
   await expect(row.getByTestId("agent-pairing-proposes")).toHaveText(
     "Writes notes, Canvases and files there; proposes changes to yours",
   );
@@ -342,10 +394,8 @@ test("agents that can't be listed: the step says so in their place, and a model 
   await window.reload();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
-  await expect(ai.getByRole("heading", { level: 2 })).toHaveText([
-    "Use the AI you already have",
-    "Use a model in IncarnaMind",
-  ]);
+  await expect(ai.getByRole("heading", { level: 2 })).toHaveText(["Use the AI you already have"]);
+  await expect(ai.getByTestId("setup-in-app-open")).toBeVisible();
   const problem = ai.getByTestId("setup-agents-problem");
   await expect(problem).toContainText("Couldn\u2019t list the agents on this computer");
   await expect(ai.getByTestId("setup-agent")).toHaveCount(0);
@@ -480,13 +530,21 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
   await core(window).add(path);
   await expect(step("files")).toHaveAttribute("data-state", "done");
   await expect(step("agentAsk")).toHaveAttribute("data-state", "open");
-  await expect(card.getByTestId("first-open-agent-line")).toHaveText(
-    "Write a summary of my documents as a new note in IncarnaMind, then check it against them.",
+  await expect(card.getByTestId("first-open-agent-line")).toHaveText(AGENT_LINE);
+  await expect(step("agentAsk")).not.toContainText("Paste this into");
+  await stills(window, "4b-card-agent-ask-opens");
+  // One press opens Claude Code with the line typed, and copies nothing; until the Note comes the
+  // step says the request is to be sent there, then that it is being written (#3587).
+  await card.getByTestId("first-open-agent-ask").click();
+  await expect.poll(typedInClaudeCode).toEqual([AGENT_LINE]);
+  await expect(window.getByTestId("copied-line")).toHaveText(
+    "Opened Claude Code with your request typed. Send it there.",
   );
-  await card.getByTestId("first-open-agent-copy").click();
-  expect(await copied(window)).toBe(
-    "Write a summary of my documents as a new note in IncarnaMind, then check it against them.",
-  );
+  expect(await copied(window)).toBe("");
+  const asked = card.getByTestId("first-open-agent-asked");
+  await expect(asked).toHaveText("Asked Claude Code: send the request there.");
+  await expect(card.getByTestId("first-open-agent-ask")).toHaveText("Ask again");
+  await stills(window, "4e-card-agent-asked");
   // A Note of the User's own isn't the agent's.
   await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.createMind({
@@ -504,6 +562,8 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
       "cargo tonnes",
       "The Port of Wenlow handled 1.8 million tonnes of cargo in 2025.",
     );
+    await expect(asked).toHaveText("Writing the note in Claude Code.");
+    await stills(window, "4f-card-agent-writing");
     const ferry = await cite(
       agent,
       "ferry crossings Ardmore",
@@ -528,15 +588,29 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
     );
     await expect(step("agentAsk")).toHaveText(/Your AI wrote a note/);
     await expect(card.getByTestId("first-open-agent-look")).toHaveText(
-      "Its marks show here once Claude Code has checked the note.",
+      "What needs a look shows here once the note is checked.",
     );
-    // The note opens from here before its check too, but the step waits for the check.
-    await expect(card.getByTestId("first-open-agent-look-open")).toBeVisible();
+    // The step is the User's own Check on the Note; the Note opens from the step once it is checked.
+    await expect(card.getByTestId("first-open-agent-look-open")).toHaveCount(0);
     await stills(window, "5-card-agent-second-done");
+
+    // With no model set up, the Note's own Check asks Claude Code at once, as it does from the
+    // Note, and the Note's badge says so until the marks land (#3587).
+    await card.getByTestId("first-open-agent-look-check").click();
+    await expect(frontMind(window)).toHaveAttribute("data-mind-id", made.mindId);
+    await expect
+      .poll(typedInClaudeCode)
+      .toEqual([
+        AGENT_LINE,
+        "Check my note “Harbour summary” in IncarnaMind against my Documents.",
+      ]);
+    const badge = window.getByTestId("badge-asked");
+    await expect(badge).toHaveText("Asked your AI");
 
     const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
     );
+    await expect(badge).toHaveText("Your AI is checking");
     const results = given.sentences.map((sentence) =>
       sentence.text.startsWith(CARGO)
         ? { n: sentence.n, verdict: "supported", cites: [cargo] }
@@ -550,6 +624,12 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
         arguments: { mindId: made.mindId, task: given.task, results },
       }),
     );
+    await expect(badge).toHaveCount(0);
+    // Back at Get started, the step shows what Claude Code's check found.
+    await window
+      .locator(`[data-testid="mind-tab"]:not([data-mind-id="${made.mindId}"])`)
+      .first()
+      .click();
     await expect(card.getByTestId("first-open-agent-look")).toHaveText("1 sentence needs a look.");
     await stills(window, "6-card-agent-checked");
 
@@ -564,6 +644,73 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
   } finally {
     await agent.close();
   }
+});
+
+// protects=the card's ask step opens the AI that has a link with the line typed and copies it only for one that has none, the other connected AIs behind its ⌄, in English and Chinese; fails_when=the press copies for an AI that opens, opens nothing for one that does, or the line is another than the card's
+test("the step asks the AI with the line typed, and copies it only where the AI has no way to open", async () => {
+  test.setTimeout(240_000);
+  const window = await launch();
+  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  await connectClaudeCode(window, await atStep(window, "ai"));
+  await (await atStep(window, "ai")).getByTestId("setup-next").click();
+  await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  // VS Code, connected last, has no link that opens it with a line.
+  await window.evaluate(async (everything) => {
+    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    await bridge.setAgentsEnabled(true);
+    await bridge.connectAgent({ name: "VS Code", client: "vscode", folderIds: [everything] });
+  }, ALL_SHARED_ID);
+  const path = join(sources, "Harbour report 2025.md");
+  await writeFile(path, `${HARBOUR}\n`);
+  await core(window).add(path);
+
+  const card = window.getByTestId("first-open-steps");
+  const ask = card.getByTestId("first-open-agent-ask");
+  await expect(ask).toHaveText("Ask VS Code");
+  await stills(window, "4c-card-agent-ask-copies");
+  await ask.click();
+  await expect(window.getByTestId("copied-line")).toHaveText("Copied. Paste it into VS Code.");
+  expect(await copied(window)).toBe(AGENT_LINE);
+  expect(await typedInClaudeCode()).toEqual([]);
+
+  // The other connected AI is one step away, as the Ask pill offers it.
+  await card.getByTestId("first-open-agent-others").click();
+  const other = window.getByTestId("first-open-agent-other");
+  await expect(other).toHaveText("Ask Claude Code");
+  await other.click();
+  await expect.poll(typedInClaudeCode).toEqual([AGENT_LINE]);
+  await expect(window.getByTestId("copied-line")).toHaveText(
+    "Opened Claude Code with your request typed. Send it there.",
+  );
+
+  // Asked, the AI asked last leads with Ask again; the same press in Chinese carries the card's
+  // line in Chinese.
+  await core(window).look("zh-CN", "light");
+  await expect(ask).toHaveText(translate("zh-CN", "agents.asked.again"));
+  await expect(card.getByTestId("first-open-agent-asked")).toHaveText(
+    "已交给 Claude Code：在那里发送请求即可。",
+  );
+  await card.getByTestId("first-open-agent-others").click();
+  await expect(window.getByTestId("first-open-agent-other")).toHaveText(
+    translate("zh-CN", "agents.ask.action", { agent: "VS Code" }),
+  );
+  await window.getByTestId("first-open-agent-other").click();
+  const line = translate("zh-CN", "firstOpen.agent.line", { document: "“Harbour report 2025”" });
+  await expect(window.getByTestId("copied-line")).toHaveText(
+    translate("zh-CN", "agents.ask.copied", { agent: "VS Code" }),
+  );
+  expect(await copied(window)).toBe(line);
+  await expect(card.getByTestId("first-open-agent-asked")).toHaveText(
+    "已为 VS Code 复制：粘贴到那里并发送请求。",
+  );
+  await ask.click();
+  await expect(window.getByTestId("copied-line")).toHaveText(
+    translate("zh-CN", "agents.ask.copied", { agent: "VS Code" }),
+  );
+  await card.getByTestId("first-open-agent-others").click();
+  await window.getByTestId("first-open-agent-other").click();
+  await expect.poll(typedInClaudeCode).toEqual([AGENT_LINE, line]);
+  await stills(window, "4d-card-agent-ask-picked");
 });
 
 // protects=the first-open card offers Ask with only a model, and asks the User to use their agent when both are connected; fails_when=either path shows the other card

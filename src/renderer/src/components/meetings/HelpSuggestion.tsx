@@ -5,7 +5,12 @@ import type {
   MarkedCitation,
   MeetingHelp,
 } from "../../../../core/api";
-import { citationSource, citedLocation } from "../../../../shared/citations";
+import {
+  badgeMessage,
+  citationSource,
+  citationState,
+  citedLocation,
+} from "../../../../shared/citations";
 import { withFigureText } from "../../../../shared/figureMarkers";
 import { lineText, markersOf, momentBegun, momentOf } from "../../../../shared/helpQuotes";
 import type { ReplyItem, ReplyPiece } from "../../../../shared/helpReplyRead";
@@ -21,6 +26,7 @@ import { isTheirs, SPEAKER_ME } from "../../../../shared/speakers";
 import { useAnswers } from "../../answers";
 import { useCallStarts } from "../../callStarts";
 import { core } from "../../core";
+import { ScreenCitationCard } from "../../editor/ScreenCitationCard";
 import { citationNumbers, helpParts, quoted } from "../../helpReply";
 import {
   type DrawnReply,
@@ -30,7 +36,8 @@ import {
   replyAtEnd,
 } from "../../helpReplyEnd";
 import { useT } from "../../i18n";
-import { helpAsked, type PendingHelp } from "../../meetingHelp";
+import { helpAsked, type PendingHelp, revealHelpSource } from "../../meetingHelp";
+import { useKeptScreens } from "../../meetings";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
 import { DocumentLineIcon } from "../lineIcons";
@@ -511,6 +518,32 @@ const citedIn = (answer: ConversationAnswer, numbers: ReadonlyMap<number, number
     return citation ? [{ citation, number }] : [];
   });
 
+function ScreenSource({ citation, number }: { citation: MarkedCitation; number: number }) {
+  const t = useT();
+  const kept = useKeptScreens();
+  const [open, setOpen] = useState(false);
+  const state = citationState(citation, null, [], null, kept);
+  const badge = badgeMessage(state, citation, t);
+  const place = citation.location;
+  if (place?.kind !== "screen") return null;
+  return (
+    <li className="help-source">
+      <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary className="cursor-pointer">
+          {number} · {citationSource(citation, t).text}
+        </summary>
+        {open && (
+          <ScreenCitationCard
+            location={place}
+            state={state}
+            badgeText={t(badge.key, badge.params)}
+          />
+        )}
+      </details>
+    </li>
+  );
+}
+
 function Sources({
   answer,
   numbers,
@@ -526,7 +559,40 @@ function Sources({
   return (
     <ul data-testid="help-sources" className="help-sources">
       {cited.map(({ citation, number }) => {
+        if (citation.location?.kind === "screen")
+          return <ScreenSource key={citation.marker} citation={citation} number={number} />;
         const where = citedLocation(citation, t);
+        if (
+          answer.steps?.meetingHelpAgent &&
+          citation.location?.kind === "time" &&
+          citation.check === "found"
+        ) {
+          return (
+            <li key={citation.marker} className="help-source" data-testid="help-source">
+              <details className="min-w-0">
+                <summary className="cursor-pointer break-words">
+                  {t("meetings.help.agent.original", { number, location: where ?? "" })}
+                </summary>
+                <blockquote className="my-1 whitespace-pre-wrap break-words text-ink">
+                  {citation.quote}
+                </blockquote>
+                <button
+                  type="button"
+                  className="panel-link"
+                  onClick={() =>
+                    revealHelpSource({
+                      conversationId: answer.conversationId,
+                      answerId: answer.id,
+                      sourceMarker: citation.marker,
+                    })
+                  }
+                >
+                  {t("meetings.help.agent.openTranscript")}
+                </button>
+              </details>
+            </li>
+          );
+        }
         return (
           <li key={citation.marker} data-testid="help-source" className="help-source">
             <DocumentLineIcon
@@ -626,6 +692,18 @@ export function HelpSuggestion({
       className="help-suggestion"
     >
       <HelpHeading asked={help} heard={help.heard} />
+      {answer.steps?.sent?.sharedScreen && (
+        <p className="text-xs text-ink-secondary">
+          {t(`meetings.screen.use.${answer.steps.sent.sharedScreen}`)}
+        </p>
+      )}
+      {answer.steps?.meetingHelpAgent && answer.steps.sentAt && (
+        <p className="text-xs text-ink-secondary">
+          {t("meetings.help.agent.used", {
+            agent: answer.steps.meetingHelpAgent.client === "codex" ? "Codex" : "Claude Code",
+          })}
+        </p>
+      )}
       {items.map((item, index) => (
         <Item
           // biome-ignore lint/suspicious/noArrayIndexKey: the options are in the order written.

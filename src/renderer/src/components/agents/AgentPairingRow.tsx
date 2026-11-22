@@ -5,17 +5,19 @@ import {
   type AgentDisconnected,
   type AgentPairing,
   type AgentSetupResult,
+  ALL_SHARED_ID,
   type LibraryGroup,
   NOT_IN_A_FOLDER_ID,
 } from "../../../../core/api";
 import { unitsOf } from "../../../../shared/i18n/join";
-import { sharedInside } from "../../agentFolders";
+import { choiceOfAll, sharedInside } from "../../agentFolders";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { buttonStyle, rowFieldClass } from "../ui";
-import { AgentFolderList, useAgentFolderRows } from "./AgentFolderList";
+import { useAgentFolderRows } from "./AgentFolderList";
+import { AgentShareChoice } from "./AgentShareChoice";
 import {
   activityWords,
   doneWords,
@@ -35,8 +37,9 @@ export interface JustSetUp {
 }
 
 /**
- * One connected agent in Settings → Agents (#351): its name, the Folders it
- * may read and whether it may propose changes to their notes (#352), both
+ * One connected agent in Settings → Agents (#351): its name, what it may read
+ * (all of the User's Documents and Notes, or its Folders, #3544) and whether it
+ * may propose changes to their notes (#352), both
  * changed in place, when it was last used, its activity (every
  * call, newest first), the details a technical User needs to set it up again,
  * and Disconnect, which stops it at once, as deleting a Connector does. A
@@ -77,6 +80,7 @@ export function AgentPairingRow({
   const [copied, setCopied] = useState<"settings" | "skill" | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  const nameButton = useRef<HTMLButtonElement>(null);
   const replaceButton = useRef<HTMLButtonElement>(null);
   const keepButton = useRef<HTMLButtonElement>(null);
   const asked = useRef(false);
@@ -124,24 +128,28 @@ export function AgentPairingRow({
       reportError(error);
     });
   };
-  const rows = useAgentFolderRows(open === "folders", chosen.includes(NOT_IN_A_FOLDER_ID));
+  const all = chosen.includes(ALL_SHARED_ID);
+  const rows = useAgentFolderRows(open === "folders", all || chosen.includes(NOT_IN_A_FOLDER_ID));
   const names = [
     ...folders.filter((folder) => chosen.includes(folder.id)).map((folder) => folder.name),
     ...(chosen.includes(NOT_IN_A_FOLDER_ID) ? [t("library.unsorted")] : []),
   ];
   // What a pairing made before #3394 reaches now too, named on its row (#3394).
-  const inside = sharedInside(folders, chosen);
+  const inside = all ? [] : sharedInside(folders, chosen);
   const insideNames = folders
     .filter((folder) => inside.includes(folder.id))
     .map((folder) => folder.name);
-  const setFolder = (folderId: string, on: boolean) => {
-    const next = on ? [...chosen, folderId] : chosen.filter((id) => id !== folderId);
+  const share = (next: string[]) => {
     setChosen(next);
     core.updateAgent(pairing.id, { folderIds: next }).catch((error: unknown) => {
       setChosen(said.current);
       reportError(error);
     });
   };
+  const setFolder = (folderId: string, on: boolean) =>
+    share(on ? [...chosen, folderId] : chosen.filter((id) => id !== folderId));
+  // Choosing Folders starts from what all reaches now, so the agent loses nothing at the click.
+  const setAll = (value: boolean) => share(value ? [ALL_SHARED_ID] : choiceOfAll(folders, rows));
   const copySettings = async (what: "settings" | "skill") => {
     try {
       const setup = await core.copyAgentSetup(pairing.id);
@@ -152,6 +160,12 @@ export function AgentPairingRow({
     }
   };
   const done = justSetUp?.pairingId === pairing.id ? justSetUp.result : null;
+  useEffect(() => {
+    if (!done) return;
+    const frame = requestAnimationFrame(() => nameButton.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [done]);
+
   const toggle = (what: "folders" | "activity") => setOpen(open === what ? null : what);
 
   return (
@@ -165,6 +179,7 @@ export function AgentPairingRow({
           <button
             type="button"
             data-testid="agent-pairing-name"
+            ref={nameButton}
             title={pairing.name}
             onDoubleClick={() => setRenaming(true)}
             onKeyDown={(event) => {
@@ -182,7 +197,7 @@ export function AgentPairingRow({
       detail={
         <>
           <span data-testid="agent-pairing-reads" className="block">
-            {readsLine(names, t, language)}
+            {all ? t("agents.pairing.readsAll") : readsLine(names, t, language)}
           </span>
           {insideNames.length > 0 && (
             <span data-testid="agent-pairing-inside" className="block">
@@ -355,9 +370,15 @@ export function AgentPairingRow({
           <legend className="text-[13px] leading-5 font-semibold text-ink">
             {t("agents.pairing.foldersTitle", { agent: pairingInSentence(pairing, t) })}
           </legend>
-          <AgentFolderList rows={rows} chosen={new Set(chosen)} onToggle={setFolder} />
+          <AgentShareChoice
+            all={all}
+            onAll={setAll}
+            rows={rows}
+            chosen={new Set(chosen)}
+            onToggle={setFolder}
+          />
           <div className="mt-2">
-            <ProposeChoice checked={propose} onChange={changePropose} />
+            <ProposeChoice checked={propose} onChange={changePropose} noFolders={all} />
           </div>
         </fieldset>
       )}

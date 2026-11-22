@@ -8,9 +8,10 @@ import { copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test, vi } from "vitest";
+import * as Y from "yjs";
 import type { Core, VerifyClaimsInput } from "../../src/core";
 import type { SortWord } from "../../src/core/answers/checks/claims";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
 import { verificationOf } from "../../src/shared/verification";
@@ -115,6 +116,110 @@ async function shownChecks(core: Core, client: MindClient) {
     }),
   }));
 }
+
+/**
+ * Each claim's mark as the Note's page shows it: each result read with what the core says it
+ * stands on now, as the window reads it (#3455).
+ */
+async function pageShows(core: Core, mindId: string, client: MindClient) {
+  await client.settled();
+  const versions = new Map((await core.listDocuments()).map((each) => [each.id, each.contentHash]));
+  const { lines } = await core.judgedWithNow(mindId);
+  return claimsOf(readMind(client), {
+    footing: "not-yet-known",
+    versions,
+    folderId: null,
+    scope: null,
+    judgedNow: new Map(Object.entries(lines)),
+  }).claims.map((claim) => claim.shown);
+}
+
+/** Writes `to` over the first `from` in the Mind's text, wherever it is, as the User would. */
+function retype(client: MindClient, from: string, to: string) {
+  const texts = (node: Y.XmlFragment | Y.XmlElement): Y.XmlText[] =>
+    node
+      .toArray()
+      .flatMap((child) =>
+        child instanceof Y.XmlText ? [child] : child instanceof Y.XmlElement ? texts(child) : [],
+      );
+  // Its words alone: `toString` writes a mark's attributes into the text.
+  const plain = (text: Y.XmlText) =>
+    text
+      .toDelta()
+      .map((op: { insert?: unknown }) => (typeof op.insert === "string" ? op.insert : ""))
+      .join("");
+  const text = texts(client.blocks).find((each) => plain(each).includes(from));
+  if (!text) throw new Error(`Nothing in the Mind reads ${from}.`);
+  const at = plain(text).indexOf(from);
+  text.delete(at, from.length);
+  text.insert(at, to);
+}
+
+/**
+ * A memo with a line above its title, sections that open with a line, a lead-in and its list, a
+ * paragraph of three sentences, and two tables, each with its caption, the first with section
+ * labels.
+ */
+const MEMO = [
+  "Draft for the harbour board.",
+  "",
+  "# Harbour review",
+  "",
+  "All amounts below are in thousands.",
+  "",
+  "## North",
+  "",
+  "The north figures are for 2025.",
+  "",
+  "### Quays",
+  "",
+  "The north quay holds 42 boats.",
+  "",
+  "The north harbour has:",
+  "",
+  "- A fuel berth takes 12 boats.",
+  "- A crane lifts 40 tonnes.",
+  "",
+  "The office opens at seven. It closes at six. It shuts on Sundays.",
+  "",
+  "Berths by basin",
+  "",
+  "| Quay | Boats |",
+  "| --- | --- |",
+  "| Inner basin: | |",
+  "| West quay | 30 |",
+  "| Outer basin: | |",
+  "| East quay | 12 |",
+  "",
+  "Mooring fees",
+  "",
+  "| Quay | Fees |",
+  "| --- | --- |",
+  "| West quay | 310 |",
+  "",
+  "## South",
+  "",
+  "The south figures are for 2024.",
+  "",
+  "### Quays",
+  "",
+  "The south quay holds 19 boats.",
+].join("\n");
+
+const MEMO_CLAIMS = [
+  "The north quay holds 42 boats.",
+  "A fuel berth takes 12 boats.",
+  "A crane lifts 40 tonnes.",
+  "The office opens at seven.",
+  "It closes at six.",
+  "It shuts on Sundays.",
+  "West quay — Boats: 30",
+  "East quay — Boats: 12",
+  "West quay — Fees: 310",
+  "The south quay holds 19 boats.",
+] as const;
+
+const NORTH_CLAIMS = MEMO_CLAIMS.filter((claim) => !claim.includes("south"));
 
 describe("Verify a document", () => {
   test("its text becomes a Mind, a paragraph or numbered heading to a Block with its page; its claims are found, then checked", async () => {
@@ -363,20 +468,232 @@ describe("Verify a document", () => {
     expect(calls).toEqual([]);
   });
 
-  test("results go “needs re-check” as Check against Documents' do: an edited claim", async () => {
+  // protects=editing one claim of a checked file re-checks that claim alone, on the Note's page as in the core: the results after it stand on their own words and the headings they are under, so a Contradicted and an Unsupported below it, under its heading or under none, still need a look (#3455); fails_when=an edit turns every result after it within the lines a check reads above a claim to Needs re-check, hiding their findings
+  test.each([
+    ["under a heading", REPORT, 2],
+    [
+      "under none",
+      buildPdf([
+        { lines: ["Harbour report", SUPPORTED, CONTRADICTED] },
+        { lines: [UNSUPPORTED, THANKS] },
+      ]),
+      1,
+    ],
+  ])(
+    "results go “needs re-check” as Check against Documents' do: an edited claim alone, %s",
+    async (_, pdf, edited) => {
+      const { core, sources } = await setUp();
+      const { mind, client } = await verified(
+        core,
+        await writeSourceFile(sources, "Harbour notes.pdf", pdf),
+      );
+      await core.findClaims(request(mind.id));
+      await core.verifyClaims(request(mind.id));
+
+      typeInto(client, edited, 0, "Not all ");
+
+      expect(await pageShows(core, mind.id, client)).toEqual([
+        { state: "needs-recheck", why: "edited" },
+        { state: "contradicted" },
+        { state: "unsupported" },
+      ]);
+    },
+  );
+
+  // protects=a result stands on what frames its line by the Note's structure (#3455): its table's caption and section label, the opening lines of each section it is in, its list's lead-in and what its paragraph says before it, so one edit re-checks the lines it frames and only those; fails_when=an edit leaves standing a line it frames, so a result stands for a subject, unit or period its check never judged, or re-checks a line it doesn't frame (a later line, another section, another table), hiding that line's finding
+  test.each([
+    ["a claim on its own line", "holds 42", "holds 40", ["The north quay holds 42 boats."]],
+    ["the line above the Note's title", "harbour board", "harbour council", [...MEMO_CLAIMS]],
+    ["the Note's opening line", "in thousands", "in millions", [...MEMO_CLAIMS]],
+    [
+      "its section's opening line",
+      "north figures are for 2025",
+      "north figures are for 2024",
+      NORTH_CLAIMS,
+    ],
+    [
+      "another section's opening line",
+      "south figures are for 2024",
+      "south figures are for 2023",
+      ["The south quay holds 19 boats."],
+    ],
+    [
+      "a list's lead-in",
+      "north harbour has",
+      "north marina has",
+      ["A fuel berth takes 12 boats.", "A crane lifts 40 tonnes."],
+    ],
+    [
+      "a paragraph's second sentence",
+      "closes at six",
+      "closes at five",
+      ["It closes at six.", "It shuts on Sundays."],
+    ],
+    [
+      "a table's caption",
+      "Berths by basin",
+      "Berths by quay",
+      ["West quay — Boats: 30", "East quay — Boats: 12"],
+    ],
+    ["a table's section label", "Inner basin:", "Inner harbour:", ["West quay — Boats: 30"]],
+  ])("editing %s re-checks the lines it frames, and no other", async (_, from, to, rechecked) => {
+    const { core, sources } = await setUp(
+      checkingModel(
+        Object.fromEntries(
+          MEMO_CLAIMS.map((claim) => [claim, { verdict: "unsupported" as const }]),
+        ),
+      ),
+    );
+    const { mind, client } = await verified(
+      core,
+      await writeSourceFile(sources, "Harbour review.md", MEMO),
+    );
+    await core.findClaims(request(mind.id));
+    await core.verifyClaims(request(mind.id));
+    expect(await pageShows(core, mind.id, client)).toEqual(
+      MEMO_CLAIMS.map(() => ({ state: "unsupported" })),
+    );
+
+    retype(client, from, to);
+
+    const edited = (claim: string) => claim.includes(from);
+    expect(await pageShows(core, mind.id, client)).toEqual(
+      MEMO_CLAIMS.map((claim) =>
+        !(rechecked as readonly string[]).includes(claim)
+          ? { state: "unsupported" }
+          : { state: "needs-recheck", why: edited(claim) ? "edited" : "context" },
+      ),
+    );
+  });
+
+  // protects=a table row's result stands on its table's caption and its section label, which say what the row is of, beside the headings above (#3455, from #3554's review); fails_when=a caption or a section label changed with the same claim and headings above leaves the row's result standing for a different subject
+  test.each([
+    ["its table's caption", "(in thousands)", "(in millions)", ["Cash", "Fixed assets"]],
+    ["its section label", "Current assets:", "Liquid assets:", ["Cash"]],
+  ])("a table row is checked again when %s changes", async (_, from, to, rechecked) => {
+    const CASH = "Cash — 2025: 3,820; 2024: 3,145";
+    const FIXED = "Fixed assets — 2025: 9,470; 2024: 8,860";
+    const { core, sources } = await setUp(
+      checkingModel({ [CASH]: { verdict: "unsupported" }, [FIXED]: { verdict: "unsupported" } }),
+    );
+    const row = (y: number, cells: readonly string[]) =>
+      cells.map((text, column) => ({ text, x: [72, 260, 340][column] ?? 72, y }));
+    const balance = await writeSourceFile(
+      sources,
+      "Balance sheet.pdf",
+      buildPdf([
+        {
+          lines: ["Balance sheet at 31 December (in thousands)"],
+          placed: [
+            ...row(720, ["Item", "2025", "2024"]),
+            ...row(706, ["Current assets:"]),
+            ...row(692, ["Cash", "3,820", "3,145"]),
+            ...row(678, ["Non-current assets:"]),
+            ...row(664, ["Fixed assets", "9,470", "8,860"]),
+          ],
+        },
+      ]),
+    );
+    const { mind, client } = await verified(core, balance);
+    expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 2 });
+    await core.verifyClaims(request(mind.id));
+    expect(await pageShows(core, mind.id, client)).toEqual([
+      { state: "unsupported" },
+      { state: "unsupported" },
+    ]);
+
+    retype(client, from, to);
+
+    expect(await pageShows(core, mind.id, client)).toEqual(
+      ["Cash", "Fixed assets"].map((label) =>
+        (rechecked as readonly string[]).includes(label)
+          ? { state: "needs-recheck", why: "context" }
+          : { state: "unsupported" },
+      ),
+    );
+  });
+
+  // protects=a result stands on the headings it is under: renaming a heading re-checks the claims under it and leaves those under another heading standing (#3412, #3455); fails_when=a claim keeps a result made under a heading that now says otherwise, or the rename re-checks every claim of the Note
+  test("a heading renamed re-checks the claims under it, not those under another heading", async () => {
     const { core, report } = await setUp();
     const { mind, client } = await verified(core, report);
     await core.findClaims(request(mind.id));
     await core.verifyClaims(request(mind.id));
 
-    typeInto(client, 2, 0, "Not all ");
+    typeInto(client, 1, 2, "Spring ");
 
-    expect((await shownChecks(core, client)).map((each) => each.shown)).toEqual([
-      { state: "needs-recheck", why: "edited" },
-      { state: "contradicted" },
+    expect(await pageShows(core, mind.id, client)).toEqual([
+      { state: "needs-recheck", why: "context" },
+      { state: "needs-recheck", why: "context" },
       { state: "unsupported" },
     ]);
   });
+
+  // protects=results checked before an upgrade still stand after it: a line framed by no more than its headings keeps the fingerprint the app stored before a table's caption, a section's opening lines, a list's lead-in and a paragraph's earlier sentences were added to what a result stands on (#3455), and a result the last release stored, which keeps none, reads as checked; fails_when=a change to what a result stands on, or to how it is hashed, puts results already checked behind Needs re-check after an upgrade
+  test.each([
+    [
+      "a file with no headings",
+      "Harbour notes.pdf",
+      buildPdf([
+        { lines: ["Harbour report", SUPPORTED, CONTRADICTED] },
+        { lines: [UNSUPPORTED, THANKS] },
+      ]),
+      ["A4WLRMZcgeZZ5ctC7sjr3Q", "Z21rs9XTHLZvnjpnr0r17D", "wMXZ3tQ1WJaabIR0f3ZsQz"],
+    ],
+    [
+      "a file whose lines only its headings frame",
+      "Harbour notes.md",
+      [
+        "# Harbour report",
+        "",
+        "## Tides",
+        "",
+        SUPPORTED,
+        "",
+        CONTRADICTED,
+        "",
+        "## Wildlife",
+        "",
+        UNSUPPORTED,
+        "",
+        THANKS,
+      ].join("\n"),
+      ["lva-hHdoJJha0yELmwiuLl", "Rj4LL0TUEYi07whgCKkslT", "zWUAWW07-LT3VhtYrv2bFa"],
+    ],
+  ])(
+    "results checked before an upgrade still stand after it: %s",
+    async (_, name, file, stored) => {
+      const { core, sources } = await setUp();
+      const { mind, client } = await verified(core, await writeSourceFile(sources, name, file));
+      await core.findClaims(request(mind.id));
+      await core.verifyClaims(request(mind.id));
+
+      const checks = await shownChecks(core, client);
+      expect(checks.map(({ check }) => check.judgedWith)).toEqual(stored);
+      const verdicts = [
+        { state: "supported" },
+        { state: "contradicted" },
+        { state: "unsupported" },
+      ];
+      expect(await pageShows(core, mind.id, client)).toEqual(verdicts);
+
+      const versions = new Map(
+        (await core.listDocuments()).map((each) => [each.id, each.contentHash]),
+      );
+      expect(
+        checks.map(({ sentence, check: { judgedWith: _, ...kept } }) =>
+          claimCheckShown(kept, {
+            footing: "not-yet-known",
+            text: sentence,
+            versions,
+            folderId: null,
+            scope: null,
+            judgedWith: () => "a fingerprint it never kept",
+          }),
+        ),
+      ).toEqual(verdicts);
+    },
+  );
 
   test("empty states: no claims found, and nothing to check against", async () => {
     const { core, report } = await setUp(checkingModel({}));

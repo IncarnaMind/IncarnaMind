@@ -4,6 +4,7 @@ import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type * as Y from "yjs";
+import type { AgentPairing, ChatReadiness } from "../../src/core/api";
 import type { CheckEstimateView } from "../../src/renderer/src/editor/checkEstimateState";
 import type { Planned } from "../../src/renderer/src/mindCheck";
 
@@ -72,9 +73,20 @@ vi.mock("../../src/renderer/src/layoutSlice", () => ({
   groupsMerged: () => false,
 }));
 vi.mock("../../src/renderer/src/motion", () => ({ useFade: () => {} }));
-vi.mock("../../src/renderer/src/store", () => ({
-  useAppStore: Object.assign(() => undefined, { getState: () => ({}) }),
+const app = vi.hoisted(() => ({
+  state: { chatReadiness: null } as { chatReadiness: ChatReadiness | null },
+  listeners: [] as ((state: { chatReadiness: ChatReadiness | null }) => void)[],
 }));
+vi.mock("../../src/renderer/src/store", () => ({
+  useAppStore: Object.assign(() => undefined, {
+    getState: () => app.state,
+    subscribe: (listener: (state: { chatReadiness: ChatReadiness | null }) => void) => {
+      app.listeners.push(listener);
+      return () => undefined;
+    },
+  }),
+}));
+vi.mock("../../src/renderer/src/core", () => ({ core: { on: () => () => undefined } }));
 vi.mock("../../src/renderer/src/unreadFiles", () => ({ useCheckUnread: () => [] }));
 vi.mock("../../src/renderer/src/useWindowWidth", () => ({ useGroupsMerged: () => false }));
 vi.mock("../../src/renderer/src/verify", () => ({
@@ -280,4 +292,33 @@ test("the last price line stays after the run ends", async () => {
 test("a card with no price line keeps no empty line at rest", async () => {
   await render("none", planned, null);
   expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
+});
+
+// protects=a check asked of the User's own AI hides the card's Check only while no model is set up: once one is, Check is back and the badge has no asked state left to show, while a summary asked of that AI stays (#3587); fails_when=Check stays hidden after a model is set up, the asked check outlives it, or the summary's ask goes with it
+test("the card's Check is back once a model is set up while the User's own AI was asked", async () => {
+  const { rememberAsked, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
+  const codex = { id: "pairing-codex", name: "Codex", client: "codex" } as AgentPairing;
+  const asked = () => Object.values(useAgentAsked.getState().byKey).map((each) => each.for.kind);
+  const readiness = async (chatReadiness: ChatReadiness) => {
+    await act(() => {
+      app.state = { chatReadiness };
+      for (const listener of app.listeners) listener(app.state);
+    });
+  };
+  await readiness({ ready: false, reason: "no-provider" });
+  const at = new Date().toISOString();
+  rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
+  rememberAsked(codex, { kind: "summary", documentId: "harbour" }, { copied: true, at });
+  await render("price", planned);
+  const check = () => container.querySelector('[data-testid="badge-check-mind"]');
+  expect(check()?.hasAttribute("data-hidden")).toBe(true);
+  expect(check()?.hasAttribute("disabled")).toBe(true);
+
+  await readiness({ ready: true } as ChatReadiness);
+  expect(check()?.hasAttribute("data-hidden")).toBe(false);
+  expect(check()?.hasAttribute("disabled")).toBe(false);
+  expect(asked()).toEqual(["summary"]);
+  // An ask that answers after the model was set up leaves no check asked either.
+  rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
+  expect(asked()).toEqual(["summary"]);
 });

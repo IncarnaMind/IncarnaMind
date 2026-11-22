@@ -103,22 +103,22 @@ export function withCueMarks(
   text: string,
   units: readonly PageText[],
   speakers: TranscriptSpeakers | null = null,
+  window = { start: 0, end: text.length },
+  speakerAt = speakerMark,
 ): string {
   const cues = cuesOf(units);
   const found = cueRun(text, cues);
   let marked = "";
-  let from = 0;
+  let from = window.start;
   for (const [index, at] of found.starts.entries()) {
     const cue = cues[found.first + index];
     if (!cue) break;
     const { label } = cue;
     const mark = (ms: number) => {
-      const speaker = label ? markWords(speakerMark(speakers, ms, label)) : undefined;
+      const speaker = label ? markWords(speakerAt(speakers, ms, label)) : undefined;
       return `[${clockTime(ms)}${speaker ? ` ${speaker}` : ""}] `;
     };
-    marked += `${text.slice(from, at)}${mark(cue.startMs)}`;
-    from = at;
-    // A line the User split (#138) reads as its parts, each marked with its own time and Speaker.
+    const marks = [{ offset: at, ms: cue.startMs }];
     const parts = label
       ? partsOf(speakers, {
           startMs: cue.startMs,
@@ -128,11 +128,22 @@ export function withCueMarks(
         }).slice(1)
       : [];
     for (const part of parts) {
-      const place = at + part.at;
-      if (text.slice(place, place + part.text.length) !== part.text) break;
-      marked += `${text.slice(from, place)}${mark(part.startMs)}`;
-      from = place;
+      const offset = at + part.at;
+      const available = Math.min(part.text.length, text.length - offset);
+      if (
+        available <= 0 ||
+        text.slice(offset, offset + available) !== part.text.slice(0, available)
+      )
+        break;
+      marks.push({ offset, ms: part.startMs });
+    }
+    for (const [i, entry] of marks.entries()) {
+      const until = marks[i + 1]?.offset ?? at + cue.line.length;
+      if (until <= window.start || entry.offset >= window.end) continue;
+      const showAt = Math.max(window.start, entry.offset);
+      marked += text.slice(from, showAt) + mark(entry.ms);
+      from = showAt;
     }
   }
-  return marked + text.slice(from);
+  return marked + text.slice(from, window.end);
 }

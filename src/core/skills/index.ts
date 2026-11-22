@@ -146,6 +146,8 @@ interface SkillRow {
   files: string;
   enabled: number;
   built_in: number;
+  meeting_template: number;
+  meeting_fill_uncovered: number;
   built_in_digest: string | null;
   created_at: string;
   updated_at: string;
@@ -158,7 +160,7 @@ interface Staged {
 }
 
 const COLUMNS =
-  "id, name, description, license, compatibility, files, enabled, built_in, built_in_digest, created_at, updated_at";
+  "id, name, description, license, compatibility, files, enabled, built_in, meeting_template, meeting_fill_uncovered, built_in_digest, created_at, updated_at";
 const LIVE = "deleted_at IS NULL";
 const ORDER = "ORDER BY name, created_at, rowid";
 
@@ -179,10 +181,16 @@ const toSkill = (row: SkillRow): Skill => ({
   compatibility: row.compatibility,
   enabled: row.enabled !== 0,
   builtIn: row.built_in !== 0,
+  meetingTemplate: row.meeting_template !== 0,
+  ...(row.meeting_template !== 0 && { meetingFillUncovered: row.meeting_fill_uncovered !== 0 }),
   files: filesOf(row),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+const templateMetadata = { "incarnamind-kind": "meeting-template" };
+const isMeetingTemplate = (frontmatter: SkillFrontmatter) =>
+  frontmatter.metadata["incarnamind-kind"] === templateMetadata["incarnamind-kind"];
 
 const describe = (files: readonly SkillSourceFile[]): SkillFile[] =>
   files.map((file) => ({ path: file.path, size: file.data.length, script: isScript(file.path) }));
@@ -263,7 +271,7 @@ function checkDraft(
 /** A checked draft as a Skill staged to be written: its SKILL.md alone. */
 function stagedFrom(
   draft: SkillDraft,
-  kept?: SkillFrontmatter,
+  kept?: Pick<SkillFrontmatter, "license" | "compatibility" | "metadata">,
   text = composeSkillMd(draft, kept),
 ): Staged {
   const parsed = parseSkillMd(text);
@@ -483,13 +491,14 @@ export function createSkills(options: SkillsOptions) {
       putFilesSync(live.id, skill.files, () =>
         db.run(
           `UPDATE skills SET description = ?, license = ?, compatibility = ?, files = ?,
-             built_in_digest = ?, updated_at = ? WHERE id = ?`,
+             built_in_digest = ?, meeting_template = ?, updated_at = ? WHERE id = ?`,
           [
             frontmatter.description,
             frontmatter.license,
             frontmatter.compatibility,
             files,
             digest,
+            Number(isMeetingTemplate(frontmatter)),
             at,
             live.id,
           ],
@@ -502,8 +511,8 @@ export function createSkills(options: SkillsOptions) {
     putFilesSync(skillId, skill.files, () =>
       db.run(
         `INSERT INTO skills (id, name, description, license, compatibility, files, enabled,
-           built_in, built_in_digest, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`,
+           built_in, built_in_digest, meeting_template, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`,
         [
           skillId,
           frontmatter.name,
@@ -512,6 +521,7 @@ export function createSkills(options: SkillsOptions) {
           frontmatter.compatibility,
           files,
           digest,
+          Number(isMeetingTemplate(frontmatter)),
           at,
           at,
         ],
@@ -567,7 +577,7 @@ export function createSkills(options: SkillsOptions) {
     try {
       if (existing) {
         db.run(
-          `UPDATE skills SET name = ?, description = ?, license = ?, compatibility = ?, files = ?, updated_at = ?
+          `UPDATE skills SET name = ?, description = ?, license = ?, compatibility = ?, files = ?, meeting_template = ?, updated_at = ?
            WHERE id = ?`,
           [
             frontmatter.name,
@@ -575,14 +585,15 @@ export function createSkills(options: SkillsOptions) {
             frontmatter.license,
             frontmatter.compatibility,
             files,
+            Number(isMeetingTemplate(frontmatter)),
             at,
             skillId,
           ],
         );
       } else {
         db.run(
-          `INSERT INTO skills (id, name, description, license, compatibility, files, enabled, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          `INSERT INTO skills (id, name, description, license, compatibility, files, enabled, meeting_template, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
           [
             skillId,
             frontmatter.name,
@@ -590,6 +601,7 @@ export function createSkills(options: SkillsOptions) {
             frontmatter.license,
             frontmatter.compatibility,
             files,
+            Number(isMeetingTemplate(frontmatter)),
             at,
             at,
           ],
@@ -653,6 +665,7 @@ export function createSkills(options: SkillsOptions) {
         pending.delete(old);
       }
       const preview: SkillImportPreview = {
+        meetingTemplate: isMeetingTemplate(parsed.frontmatter),
         importId,
         source: path,
         name,
@@ -705,6 +718,21 @@ export function createSkills(options: SkillsOptions) {
       return toSkill(rowOf(row.id));
     },
 
+    setMeetingFillUncovered(skillId: unknown, fill: unknown): Skill {
+      const row = rowOf(skillId);
+      if (typeof fill !== "boolean" || row.meeting_template === 0) {
+        throw new InvalidInputError({ key: "error.meeting.template" });
+      }
+      if ((row.meeting_fill_uncovered !== 0) !== fill) {
+        db.run("UPDATE skills SET meeting_fill_uncovered = ?, updated_at = ? WHERE id = ?", [
+          fill ? 1 : 0,
+          now(),
+          row.id,
+        ]);
+      }
+      return toSkill(rowOf(row.id));
+    },
+
     remove(skillId: unknown): Promise<void> {
       const id = parseId(skillId, "A Skill id");
       return serially(async () => {
@@ -746,8 +774,8 @@ export function createSkills(options: SkillsOptions) {
         const at = now();
         try {
           db.run(
-            `INSERT INTO skills (id, name, description, license, compatibility, files, enabled, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+            `INSERT INTO skills (id, name, description, license, compatibility, files, enabled, meeting_template, meeting_fill_uncovered, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
             [
               skillId,
               name,
@@ -755,6 +783,8 @@ export function createSkills(options: SkillsOptions) {
               row.license,
               row.compatibility,
               JSON.stringify(inSkillOrder(describe(files))),
+              row.meeting_template,
+              row.meeting_fill_uncovered,
               at,
               at,
             ],
@@ -779,7 +809,11 @@ export function createSkills(options: SkillsOptions) {
       return serially(async () => {
         const checked = checkDraft(draft, (name) => rowNamed(name) !== undefined);
         if (!checked.ok) return checked;
-        const skill = await commit(stagedFrom(checked.draft), undefined);
+        const meetingTemplate = isRecord(input) && input.meetingTemplate === true;
+        const kept = meetingTemplate
+          ? { license: null, compatibility: null, metadata: templateMetadata }
+          : undefined;
+        const skill = await commit(stagedFrom(checked.draft, kept), undefined);
         return { ok: true, skill };
       });
     },

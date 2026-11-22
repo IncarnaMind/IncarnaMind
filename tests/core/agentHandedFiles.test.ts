@@ -129,7 +129,7 @@ describe("files an outside agent hands over", () => {
     expect(unchecked).toMatchObject({
       version: 1,
       status: "not-checked",
-      why: "No AI model is set up in IncarnaMind for checks, so it wasn’t checked. With no model in IncarnaMind, check it yourself, as you check a note you wrote: check_mind_yourself with its mindId, then report_check.",
+      why: "Not checked yet: no AI model is set up in IncarnaMind. Check this file yourself now: check_mind_yourself with its mindId gives what to check in it, then report_check.",
       claims: [],
     });
     const task = structured<{ mindId: string; sentences: { text: string }[] }>(
@@ -310,6 +310,92 @@ describe("files an outside agent hands over", () => {
       "Rent — 2026: 14000",
       "Moorings — 2026: 2200",
     ]);
+  });
+
+  // protects=a row the agent judges on several quotes counts as its verdict in what the file's check is said to have found, as one on a single quote does, and Check again gives it no more (#3587); fails_when=a Supported row kept with two quotes counts as not checked or as needing a look, or a Contradicted one as anything else
+  it("counts a row judged on several quotes as its verdict", async () => {
+    const { core, coast, writer, files } = await started();
+    for (const provider of await core.listChatProviders()) {
+      await core.deleteChatProvider(provider.id);
+    }
+    const agent = await connectLegacyAgent(writer.launch);
+    const book = new WorkbookBuilder();
+    book
+      .sheet("Inputs")
+      .text("A1", "Item")
+      .text("B1", "2026")
+      .text("A2", "Rent")
+      .number("B2", 14000)
+      .text("A3", "Moorings")
+      .number("B3", 2500);
+    const path = join(files, "Harbour budget.xlsx");
+    await writeFile(path, book.xlsx());
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: first.mindId } }),
+    );
+    const { passages } = structured<{ passages: { passageId: string; document: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "rent moorings 2026" } }),
+    );
+    const notes = passages.filter((each) => each.document === "Harbour budget notes");
+    const cite = async (quote: string) => {
+      const { citations } = structured<{ citations: { cite: string | null }[] }>(
+        await agent.callTool({
+          name: "cite",
+          arguments: { citations: notes.map(({ passageId }) => ({ passageId, quote })) },
+        }),
+      );
+      return citations.find((each) => each.cite !== null)?.cite;
+    };
+    const rent = await cite("Rent for 2026 is 14000.");
+    const moorings = await cite("Moorings for 2026 cost 2200.");
+    const reportAndCount = async (
+      task: string,
+      results: {
+        n: number;
+        verdict: string;
+        cites?: (string | null | undefined)[];
+        explanation?: string;
+      }[],
+    ) => {
+      expect(
+        structured<{ marked: number }>(
+          await agent.callTool({
+            name: "report_check",
+            arguments: { mindId: first.mindId, task, results },
+          }),
+        ),
+      ).toMatchObject({ marked: 2 });
+      return structured<{ sentences: unknown[]; checked: { supported: number; needLook: number } }>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: first.mindId } }),
+      );
+    };
+    const onOneQuote = await reportAndCount(given.task, [
+      { n: 1, verdict: "nothing to check" },
+      { n: 2, verdict: "supported", cites: [rent] },
+      { n: 3, verdict: "contradicted", cites: [moorings], explanation: "2200." },
+    ]);
+    expect(onOneQuote.sentences).toEqual([]);
+    const again = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+      await agent.callTool({
+        name: "check_mind_yourself",
+        arguments: { mindId: first.mindId, again: true },
+      }),
+    );
+    const row = (text: string) =>
+      again.sentences.find((each) => each.text.startsWith(text))?.n ?? 0;
+    const onSeveral = await reportAndCount(again.task, [
+      { n: row("Rent"), verdict: "supported", cites: [rent, moorings] },
+      {
+        n: row("Moorings"),
+        verdict: "contradicted",
+        cites: [moorings, rent],
+        explanation: "2200.",
+      },
+    ]);
+    expect(onSeveral.sentences).toEqual([]);
+    expect(onSeveral.checked).toEqual(onOneQuote.checked);
+    expect(onSeveral.checked).toMatchObject({ needLook: 1 });
   });
 
   // protects=IncarnaMind reads only the file the agent named, a regular file of a kind it checks, and only for an agent the User let write (#3412); fails_when=a folder, a link, another kind of file or a read-only agent's call is taken

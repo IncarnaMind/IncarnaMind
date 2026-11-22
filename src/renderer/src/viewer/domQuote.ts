@@ -164,12 +164,21 @@ export function markText(
  * Finds `quote` in `nodes` and wraps what it covers in marks; returns them in
  * order, or null if the quote isn't there.
  */
-export function markQuote(nodes: readonly Text[], quote: string): HTMLElement[] | null {
-  return markText(nodes, quote, {
-    className: "quote-highlight",
-    data: { quoteHighlight: "" },
-    joins: true,
-  });
+export function markQuote(
+  nodes: readonly Text[],
+  quote: string,
+  chosen?: TextRange,
+): HTMLElement[] | null {
+  return markText(
+    nodes,
+    quote,
+    {
+      className: "quote-highlight",
+      data: { quoteHighlight: "" },
+      joins: true,
+    },
+    chosen,
+  );
 }
 
 /** Takes the marks `markQuote` made out again, leaving the text as it was. */

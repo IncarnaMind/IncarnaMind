@@ -17,11 +17,6 @@ import {
   useChecks,
 } from "../checks";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
-import {
-  ReadinessExplanation,
-  readinessAction,
-  readinessAlso,
-} from "../components/providers/ChatReadinessNotice";
 import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { useComposer } from "../composer";
 import { useContradictionLine } from "../contradictions";
@@ -37,6 +32,7 @@ import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import type { BadgeMark } from "./badgeState";
+import { AskedCheckLine, CheckNotReady } from "./CheckNotReady";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -446,19 +442,9 @@ export function HealthCard({
         </p>
       )}
       {!running && problem?.kind === "not-ready" && (
-        <ProblemLine
-          testId="checks-problem"
-          className="mind-health-line"
-          action={readinessAction(problem.readiness, t, openSettings, t("question.setUp"), () =>
-            dismissCheckProblem(mindId),
-          )}
-          also={readinessAlso(problem.readiness, t, openSettings, () =>
-            dismissCheckProblem(mindId),
-          )}
-        >
-          <ReadinessExplanation readiness={problem.readiness} inLine />
-        </ProblemLine>
+        <CheckNotReady mindId={mindId} readiness={problem.readiness} />
       )}
+      {!running && <AskedCheckLine mindId={mindId} />}
       {!running && problem?.kind === "local-mode" && (
         <ProblemLine
           testId="checks-problem"

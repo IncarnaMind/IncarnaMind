@@ -2,9 +2,10 @@
  * Outside agents (#351, experimental): AI agents the User runs themselves,
  * such as Claude Code or Codex, that use IncarnaMind as an MCP server (ADR-0013,
  * addendum of 2026-10-11). Each is a pairing the User makes: a name, the
- * Folders it may read (none until the User picks some; Not in a Folder is one
- * of the list's entries, as `NOT_IN_A_FOLDER_ID`, so storing it needs no
- * migration, and an older version drops it as a Folder that doesn't exist),
+ * Folders it may read (none until the User picks some; Not in a Folder, and all
+ * of the User's Documents and Notes (#3544), are entries of the list, as
+ * `NOT_IN_A_FOLDER_ID` and `ALL_SHARED_ID`, so storing them needs no
+ * migration, and an older version drops them as Folders that don't exist),
  * its own consent (the "agents" data flow, one service per pairing) and a
  * token only it holds, kept by ../secrets. Off by default: nothing listens
  * until the User turns it on, and Local mode pauses every pairing, because
@@ -29,6 +30,7 @@ import {
   type AgentRequest,
   type AgentSettings,
   type AgentToolName,
+  ALL_SHARED_ID,
   type ConnectedAgent,
   type DataKind,
   type Effect,
@@ -107,6 +109,8 @@ export interface AgentsOptions {
   writeValue(key: string, value: unknown): void;
   /** Local mode is on: every pairing is paused. */
   localOnly(): boolean;
+  /** Whether IncarnaMind has an AI model of its own ready now; `ask` and `check_mind` can only refuse without one. */
+  modelReady(): Promise<boolean>;
   /** Where the shim reaches the app (see ./socket). */
   socketPath: string;
   launcher: AgentLauncher;
@@ -355,15 +359,19 @@ export function createAgents(options: AgentsOptions) {
     }
   };
 
+  /** An entry of a pairing's Folders that is no Folder. */
+  const isEntry = (id: string) => id === NOT_IN_A_FOLDER_ID || id === ALL_SHARED_ID;
+
   const parseFolders = (value: unknown): string[] => {
     if (value === undefined) return [];
     if (!Array.isArray(value) || !value.every((id) => typeof id === "string")) {
       throw new InvalidInputError("folderIds must be a list of Folder ids.");
     }
     const live = new Set(options.access.folders().map((folder) => folder.id));
-    const unknown = value.find((id) => id !== NOT_IN_A_FOLDER_ID && !live.has(id));
+    const unknown = value.find((id) => !isEntry(id) && !live.has(id));
     if (unknown !== undefined) throw new NotFoundError({ key: "error.folder.notFound" });
     assertFoldersCanShare(value as string[]);
+    if (value.includes(ALL_SHARED_ID)) return [ALL_SHARED_ID];
     return [...new Set(value as string[])];
   };
 
@@ -425,7 +433,7 @@ export function createAgents(options: AgentsOptions) {
     }
     use?.(pairing.id);
     const live = new Set(options.access.folders().map((folder) => folder.id));
-    const folderIds = pairing.folderIds.filter((id) => id === NOT_IN_A_FOLDER_ID || live.has(id));
+    const folderIds = pairing.folderIds.filter((id) => isEntry(id) || live.has(id));
     assertFoldersCanShare(folderIds);
     return {
       id: pairing.id,
@@ -509,8 +517,8 @@ export function createAgents(options: AgentsOptions) {
     citations,
     requests: {
       ofPairing: requests.ofPairing,
-      markRead: (id) => {
-        const read = requests.markRead(id);
+      markRead: (id, text) => {
+        const read = requests.markRead(id, text);
         if (read) options.requested(shownRequest(read));
         return read;
       },
@@ -539,6 +547,16 @@ export function createAgents(options: AgentsOptions) {
     }
   };
 
+  /** Read at each connection; a model that can't be read is no reason to refuse the agent, which gets every Tool. */
+  const modelReady = async (): Promise<boolean> => {
+    try {
+      return await options.modelReady();
+    } catch (error) {
+      options.reportError(error);
+      return true;
+    }
+  };
+
   const closeConnections = async (pairingId: string | null) => {
     const open = connections.get(pairingId);
     connections.delete(pairingId);
@@ -551,6 +569,7 @@ export function createAgents(options: AgentsOptions) {
       ({ serveConnection }) =>
         serveConnection(socket, {
           open,
+          modelReady,
           version: options.version,
           paired: (pairingId, connection) => {
             if (closed) {
@@ -655,6 +674,25 @@ export function createAgents(options: AgentsOptions) {
           }
         })
         .sort((a, b) => latest(b).localeCompare(latest(a)));
+    },
+
+    /** Of these Folders and Documents, those this pairing can read now (#3533). */
+    reads(
+      pairingId: string,
+      named: { folderIds: readonly string[]; documentIds: readonly string[] },
+    ): { folderIds: string[]; documentIds: string[] } {
+      try {
+        const admitted = admissible(pairingId);
+        const reached = reachedFolders(accessDeps, admitted);
+        const readable = new Set(documentsForPairing(accessDeps, admitted, [...reached], reached));
+        return {
+          folderIds: named.folderIds.filter((id) => reached.has(id)),
+          documentIds: named.documentIds.filter((id) => readable.has(id)),
+        };
+      } catch (error) {
+        if (error instanceof AgentRefusedError) return { folderIds: [], documentIds: [] };
+        throw error;
+      }
     },
 
     async setEnabled(value: unknown): Promise<AgentSettings> {
@@ -800,6 +838,13 @@ export function createAgents(options: AgentsOptions) {
 
     /** Local mode was turned on or off: pairings are paused or go on. */
     localModeChanged: changed,
+
+    /** A model of IncarnaMind's own became ready, or none is now: each connection's Tool list follows (#3533). */
+    modelChanged(ready: boolean): void {
+      for (const open of connections.values()) {
+        for (const connection of open) connection.modelChanged(ready);
+      }
+    },
 
     /** Tells the windows the settings changed, e.g. after a Skill was written. */
     announce: changed,

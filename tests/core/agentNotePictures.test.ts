@@ -1013,7 +1013,7 @@ describe("an agent reads its Note as the User sees it, and its check and the Not
     const done = await task();
     expect(done.sentences).toEqual([]);
     expect(done.how).toBe(
-      "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those; there is nothing to hand to report_check.",
+      "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those. To judge the sentences again yourself, call check_mind_yourself with again: true and hand your results to report_check: a verdict only in your reply leaves the note’s marks as they are.",
     );
     const rows = await pageRows(core, made.mindId);
     expect(done.checked).toMatchObject({
@@ -1052,6 +1052,41 @@ describe("an agent reads its Note as the User sees it, and its check and the Not
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
       ).sentences,
     ).toEqual([]);
+  });
+
+  // protects=a chart the agent finds contradicted on two Citations counts on the Note as one it finds contradicted on one, on each of its values, and the check doesn't give it again (#3587); fails_when=the chart judged on two Citations counts as not checked yet or as anything but what one Citation gives
+  it("marks a chart found contradicted on several Citations as on one", async () => {
+    const { core, agent, files } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const counted = async (cites: string[]) => {
+      const made = structured<Written>(await create(agent, written(files, apples, pears)));
+      const given = structured<CheckTask>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+      );
+      const results = given.sentences.map(({ n, text }) =>
+        text === "Apples" || text === "Pears"
+          ? { n, verdict: "nothing to check" }
+          : text.startsWith('{"kind"')
+            ? { n, verdict: "contradicted", cites, explanation: "Pears came to 610 tonnes." }
+            : { n, verdict: "supported", cites: [text === "610" ? pears : apples] },
+      );
+      expect(
+        structured<{ marked: number }>(
+          await agent.callTool({
+            name: "report_check",
+            arguments: { mindId: made.mindId, task: given.task, results },
+          }),
+        ),
+      ).toMatchObject({ marked: 4, unconfirmed: [], next: null });
+      const left = structured<CheckTask>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+      );
+      return { rows: await pageRows(core, made.mindId), left: left.sentences };
+    };
+    const onOne = await counted([pears]);
+    expect(onOne.rows).toEqual({ supported: 3, look: 1 });
+    expect(onOne.left).toEqual([]);
+    expect(await counted([pears, apples])).toEqual(onOne);
   });
 
   // protects=an agent that reads on from a Citation it holds gets its Passage, so it never spends a dozen refused calls on it; fails_when=a [cite:…] token, bracketed or bare, given as a passageId is refused, or one of another agent's or none reads anything

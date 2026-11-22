@@ -5,12 +5,13 @@
  */
 import { useEffect, useState } from "react";
 import * as Y from "yjs";
-import type { AgentClient, AgentPairing } from "../../core/api";
+import type { AgentClient, AgentPairing, Document } from "../../core/api";
 import { isListedMind } from "../../shared/listedMinds";
 import { noteWriterOf } from "../../shared/noteWriter";
+import { askableDocuments } from "../../shared/readyQuestion";
 import { core } from "./core";
 import { homeReading, type NoteState } from "./noteState";
-import { useAppStore } from "./store";
+import { allExamples, isOwnDocument, useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
 
 /** A Note an agent wrote, and how its check stands; null `state` before anything was checked. */
@@ -55,6 +56,56 @@ export function useAgentAlone(): boolean {
   const pairings = useAgentPairings();
   const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
   return (pairings?.length ?? 0) > 0 && !modelReady;
+}
+
+/** What the card's ask step can name (#3572): a Document some connected agent reads, or why none. */
+export type SummaryDocument =
+  | { kind: "reading" }
+  | { kind: "none" }
+  | { kind: "unshared" }
+  | { kind: "named"; document: Document };
+
+/**
+ * The newest Document of the User's own that a Question can be about and at least one connected
+ * agent can read now: the one the card names when it asks their AI for a summary (#3572). `none`:
+ * the User has no such Document; `unshared`: they have, and no connected agent reads any.
+ */
+export function useSummaryDocument(): SummaryDocument {
+  const documents = useAppStore((state) => state.documents);
+  const examples = useAppStore((state) => state.examples);
+  const otherExamples = useAppStore((state) => state.otherExamples);
+  const own = documents.filter((each) =>
+    isOwnDocument(each, allExamples({ examples, otherExamples })),
+  );
+  const candidates = askableDocuments(own).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const wanted = candidates.map((each) => each.id).join(",");
+  const [read, setRead] = useState<{ wanted: string; readable: string[] } | null>(null);
+  useEffect(() => {
+    if (wanted === "") return;
+    let version = 0;
+    const ask = () => {
+      const current = ++version;
+      core.listDocumentsToAsk(wanted.split(",")).then((readable) => {
+        if (current === version) setRead({ wanted, readable });
+      }, useAppStore.getState().reportError);
+    };
+    ask();
+    const stops = [
+      core.on("agents.changed", ask),
+      core.on("library.changed", ask),
+      core.on("library.assignments", ask),
+      core.on("settings.changed", ask),
+      core.on("dataFlows.changed", ask),
+    ];
+    return () => {
+      version++;
+      for (const stop of stops) stop();
+    };
+  }, [wanted]);
+  if (candidates.length === 0) return { kind: "none" };
+  if (read?.wanted !== wanted) return { kind: "reading" };
+  const document = candidates.find((each) => read.readable.includes(each.id));
+  return document ? { kind: "named", document } : { kind: "unshared" };
 }
 
 /** At most this many of the newest Notes are read for the one an agent wrote. */

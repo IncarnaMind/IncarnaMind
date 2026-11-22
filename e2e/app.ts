@@ -271,6 +271,12 @@ export interface LaunchOptions {
     speech?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
   };
   /**
+   * An HTML file the app opens in a hidden window of its own and offers as the
+   * one window a Meeting can read (ADR-0031), captured as a tab is: no test
+   * captures a real window or screen. Without, a Meeting reads none.
+   */
+  sharedWindow?: string;
+  /**
    * The scripted Task that asks for approval and writes files (src/main/scriptedTask.ts),
    * started with `startScriptedTask`. Needs a test build.
    */
@@ -403,6 +409,7 @@ export async function launchApp(
     noAudioEngine = false,
     transcriber,
     scans,
+    sharedWindow,
     scansAtOnce,
     modelDownloads,
     web,
@@ -469,6 +476,7 @@ export async function launchApp(
     INCARNAMIND_TEST_SYSTEM_CALENDAR: systemCalendar && JSON.stringify(systemCalendar),
     INCARNAMIND_TEST_CALENDAR_SYNC_MS: calendarSyncMs ? String(calendarSyncMs) : undefined,
     INCARNAMIND_TEST_SCANS: scans,
+    INCARNAMIND_TEST_SHARED_WINDOW: sharedWindow,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
     INCARNAMIND_TEST_WEB: web ? String(web) : undefined,
@@ -1311,6 +1319,15 @@ export async function openServiceList(
   await expect(form).toBeVisible();
   // The key only reached the list: the form starts as it would from Settings.
   await form.locator('input[type="password"]').fill("");
+}
+
+/**
+ * In the setup's Your AI step, a model in IncarnaMind is one quiet line until it is pressed
+ * (#3537): opens it, as a person who wants a key or a model of their own here does.
+ */
+export async function openInAppModel(step: Locator): Promise<void> {
+  await step.getByTestId("setup-in-app-open").click();
+  await expect(step.getByTestId("setup-in-app-open")).toHaveCount(0);
 }
 
 /**

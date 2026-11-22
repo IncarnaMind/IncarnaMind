@@ -15,11 +15,14 @@ import {
   expectReadyDocuments,
   frontMind,
   launchApp,
+  motionSettled,
+  openDocumentAt,
   openSettings,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   urlsOpened,
+  useLocalChatModel,
 } from "./app";
 
 test.skip(
@@ -35,6 +38,10 @@ test.skip(
  * Claude Code has a link that opens it with one line typed; VS Code has none, so the line is
  * copied. The rest waits for the agent's read_request, which the card and its Activity then show.
  * The app opens nothing here: each link it would open is recorded.
+ *
+ * With no model set up (#3533): a question typed with a Document open names it in the line, its id
+ * waits for the agent, and an agent that finds no request waiting is told so, not refused; Check
+ * on a Note asks that agent, or says what a check needs, and a model set up changes neither.
  */
 
 let dataDir: string;
@@ -263,6 +270,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     // opens the assistant on model setup, with the cursor in its key field.
     await window.getByTestId("own-ai-pill-others").focus();
     await window.keyboard.press("Enter");
+    await expect(window.getByRole("menuitem", { name: "Continue in the open chat" })).toBeFocused();
+    await window.keyboard.press("ArrowDown");
     await expect(window.getByRole("menuitem", { name: "Ask VS Code" })).toBeFocused();
     await window.keyboard.press("ArrowDown");
     const useModel = window.getByTestId("own-ai-pill-use-model");
@@ -312,6 +321,430 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await pointAndClick(window, mark);
     await expect(card.getByTestId("claim-asked")).toHaveText("等 Claude Code 读取你的请求。");
     await shot(window, "ask-card-waiting-zh-CN");
+  } finally {
+    await app.close();
+  }
+});
+
+const FERRY_NOTE = `${CROSSINGS} ${OVERSTATED}\n\n${BOOKING}`;
+
+/** A Note Claude Code wrote with none of its sentences checked, which a Check would check. */
+async function writtenUnchecked(launch: AgentLaunch, title = TITLE): Promise<string> {
+  const agent = await claudeCode(launch);
+  try {
+    const made = await agent.callTool({
+      name: "create_mind",
+      arguments: { title, markdown: FERRY_NOTE },
+    });
+    return (made.structuredContent as { mindId: string }).mindId;
+  } finally {
+    await agent.close();
+  }
+}
+
+test("Continue in the open chat, from the Ask pill's menu: the line an Ask types is copied, no new chat opens, Claude's app comes forward, and the notice says where to paste (#3588)", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    const launch = await connected(window);
+    const mindId = await writtenUnchecked(launch);
+    await pointAndClick(
+      window,
+      window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`),
+    );
+    await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
+    const noteNamed = `About my note “${TITLE}” in IncarnaMind:`;
+    const menu = window.getByTestId("own-ai-pill-others");
+    const choice = window.getByTestId("own-ai-pill-continue");
+
+    // Claude Code, used last: its documentation gives no link that comes back to a session, so the
+    // line is copied and nothing opens.
+    await expect(window.getByTestId("own-ai-pill-ask")).toContainText("Ask Claude Code");
+    // By the keyboard: the menu opens on its first item, the new one, and Escape gives the ⌄ back.
+    await menu.focus();
+    await window.keyboard.press("Enter");
+    await expect(choice).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(choice).toBeHidden();
+    await expect(menu).toBeFocused();
+    await pointAndClick(window, menu);
+    await expect(choice).toHaveText("Continue in the open chat");
+    await motionSettled(window);
+    await shot(window, "continue-menu-en");
+    await pointAndClick(window, choice);
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "Copied. Open Claude Code and paste it into the chat you were in.",
+    );
+    expect(await copied(window)).toBe(noteNamed);
+    expect(await urlsOpened(app)).toEqual([]);
+    await motionSettled(window);
+    await shot(window, "continue-copied-en");
+
+    // The request waits for Claude Code as an Ask's does, read once.
+    const agent = await claudeCode(launch);
+    try {
+      const read = await agent.callTool({ name: "read_request", arguments: { note: TITLE } });
+      expect(read.structuredContent).toMatchObject({ mindId, title: TITLE });
+    } finally {
+      await agent.close();
+    }
+
+    // Claude's app, connected since: its documented chat link with no chat's id brings it to the
+    // front on the User's recent chats, and starts none.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [first] = (await bridge.getAgents()).pairings;
+      if (!first) throw new Error("No agent was connected.");
+      await bridge.connectAgent({
+        name: "Claude",
+        client: "claude-desktop",
+        folderIds: first.folderIds,
+      });
+    });
+    await expect(window.getByTestId("own-ai-pill-ask")).toContainText("Ask Claude");
+    await expect(window.getByTestId("own-ai-pill-ask")).not.toContainText("Claude Code");
+    await pointAndClick(window, menu);
+    await pointAndClick(window, choice);
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "Copied, and Claude is in front: paste it into the chat you were in.",
+    );
+    await expect.poll(() => urlsOpened(app)).toEqual(["claude://claude.ai/chat/"]);
+    expect(await copied(window)).toBe(noteNamed);
+
+    // The default press is unchanged: a new chat with the line typed.
+    await pointAndClick(window, window.getByTestId("own-ai-pill-ask"));
+    await expect.poll(async () => (await urlsOpened(app)).length).toBe(2);
+    const [, opened] = await urlsOpened(app);
+    expect(opened?.startsWith("claude://claude.ai/new?q=")).toBe(true);
+    expect(new URL(opened ?? "about:blank").searchParams.get("q")).toBe(noteNamed);
+
+    // The same, in Chinese.
+    await setLanguage(window, "zh-CN");
+    await pointAndClick(window, menu);
+    await expect(choice).toHaveText("在已打开的对话中继续");
+    await motionSettled(window);
+    await shot(window, "continue-menu-zh-CN");
+    await pointAndClick(window, choice);
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "已复制，并已切到 Claude：粘贴到你刚才的对话里即可。",
+    );
+    await motionSettled(window);
+    await shot(window, "continue-fronted-zh-CN");
+  } finally {
+    await app.close();
+  }
+});
+
+test("with no model, a question typed with a Document open names it in the line, its id waits for the agent, and an agent that finds nothing waiting is not refused", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    const launch = await connected(window);
+    const documentId = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [document] = await bridge.listDocuments();
+      if (!document) throw new Error("The Document wasn't added.");
+      return document.id;
+    });
+    await openDocumentAt(window, { documentId });
+    await expect(
+      window.getByTestId("viewer-tab-strip").or(window.getByTestId("tab-group")),
+    ).toBeVisible();
+
+    // ⌘J goes to the chat box; Enter offers Claude Code for the words, and Enter again asks it.
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("Summarise this document");
+    await window.keyboard.press("Enter");
+    const offer = window.getByTestId("composer-ask-agent");
+    await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
+    await shot(window, "ask-document-offer-en");
+    await window.keyboard.press("Enter");
+    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    expect(typedIn((await urlsOpened(app))[0])).toBe(
+      "About my document “Annual summary 2025” in IncarnaMind:\n\nSummarise this document",
+    );
+
+    // The rest waits for the agent, once; a second look finds nothing waiting, and is no failed call.
+    const agent = await claudeCode(launch);
+    try {
+      const first = await agent.callTool({ name: "read_request", arguments: {} });
+      expect(first.isError ?? false).toBe(false);
+      expect(first.structuredContent).toEqual({
+        mindId: null,
+        title: "Annual summary 2025",
+        request: `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${documentId}).`,
+      });
+      const again = await agent.callTool({ name: "read_request", arguments: {} });
+      expect(again.isError ?? false).toBe(false);
+      expect(again.structuredContent).toMatchObject({ mindId: null, title: "" });
+    } finally {
+      await agent.close();
+    }
+
+    // The same, in Chinese.
+    await setLanguage(window, "zh-CN");
+    await window.keyboard.press("ControlOrMeta+j");
+    await window.keyboard.type("总结一下这个文档");
+    await window.keyboard.press("Enter");
+    await expect(offer.getByTestId("composer-ask-agent-ask")).toBeFocused();
+    await window.keyboard.press("Enter");
+    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
+    expect(typedIn((await urlsOpened(app))[1])).toBe(
+      "关于我在 IncarnaMind 中的文档“Annual summary 2025”：\n\n总结一下这个文档",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("with no model, one press of Check asks the User's own AI and the Note says how it goes until its marks land, each card showing every quote; with no agent it says what a check needs; with a model it checks as before", async () => {
+  const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    const launch = await connected(window);
+    // A second Note, left unchecked for the checks without an agent and with a model.
+    const spare = await writtenUnchecked(launch, "Ferry report, second draft");
+    const mindId = await writtenUnchecked(launch);
+    const openNote = async (id: string) => {
+      await pointAndClick(window, window.locator(`[data-testid="mind-tab"][data-mind-id="${id}"]`));
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", id);
+    };
+    await openNote(mindId);
+    const press = async () => {
+      if (!(await window.getByTestId("check-card").isVisible())) {
+        await pointAndClick(window, window.getByTestId("check-badge-open"));
+      }
+      await pointAndClick(window, window.getByTestId("badge-check-mind"));
+    };
+
+    // One press asks Claude Code, the one the Ask pill asks: its app opens with the line typed, and
+    // the badge and the card say so, offering VS Code and a model behind; no second button to press.
+    await press();
+    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    expect(typedIn((await urlsOpened(app))[0])).toBe(
+      `Check my note “${TITLE}” in IncarnaMind against my Documents.`,
+    );
+    const ASKED = "Asked Claude Code: send the request there.";
+    const asked = window.getByTestId("checks-asked");
+    const badge = window.getByTestId("badge-asked");
+    await expect(asked).toHaveText(ASKED);
+    await expect(badge).toHaveText("Asked your AI");
+    await expect(badge).toHaveAttribute("title", ASKED);
+    await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
+    await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Ask again");
+    await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
+    await expect(window.getByTestId("checks-asked-set-up")).toHaveText("Set up a model");
+    await expect(window.getByTestId("badge-check-mind")).toBeDisabled();
+    await expect(window.getByTestId("check-card")).not.toContainText("Asking needs an AI model");
+    await shot(window, "check-no-model-asked-en");
+    await setLanguage(window, "zh-CN");
+    await expect(asked).toHaveText("已交给 Claude Code：在那里发送请求即可。");
+    await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("再问一次");
+    await shot(window, "check-no-model-asked-zh-CN");
+    await setLanguage(window, "en");
+
+    // Claude Code picks the Note up: the Note says it is checking, with nothing read from a request.
+    const agent = await claudeCode(launch);
+    try {
+      const { task, sentences } = (
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
+      ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
+      await expect(asked).toHaveText("Checking this note in Claude Code.");
+      await expect(badge).toHaveText("Your AI is checking");
+      await shot(window, "check-no-model-checking-en");
+      await setLanguage(window, "zh-CN");
+      await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
+      await expect(badge).toHaveText("你的 AI 正在核对");
+      await shot(window, "check-no-model-checking-zh-CN");
+      await setLanguage(window, "en");
+
+      // What waits for Claude Code says how to check the Note with the Tools it has, once.
+      const read = await agent.callTool({ name: "read_request", arguments: { note: TITLE } });
+      const { request } = read.structuredContent as { request: string };
+      expect(request).toContain(`(mindId: ${mindId})`);
+      expect(request).toContain("check_mind_yourself");
+      expect(request).toContain("report_check");
+
+      // Its report lands: the line goes, the marks show, and the card of a verdict it rested on
+      // two places shows both quotes, in the order it gave them.
+      const found = (
+        await agent.callTool({ name: "search", arguments: { query: "crossings fuel cost 2025" } })
+      ).structuredContent as { passages: { passageId: string }[] };
+      const cite = async (quote: string) => {
+        const { citations } = (
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: found.passages.map(({ passageId }) => ({ passageId, quote })) },
+          })
+        ).structuredContent as { citations: { cite: string | null }[] };
+        const token = citations.find((each) => each.cite !== null)?.cite;
+        if (!token) throw new Error(`No Passage holds “${quote}”.`);
+        return token;
+      };
+      const RAN = "In 2025 the company ran 2,816 crossings.";
+      const FUEL = "Fuel cost £310,000 over the year, up from £284,000 in 2024.";
+      const numbered = (text: string) => sentences.find((each) => each.text === text)?.n;
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task,
+          results: [
+            { n: numbered(CROSSINGS), verdict: "supported", cites: [await cite(RAN)] },
+            {
+              n: numbered(OVERSTATED),
+              verdict: "overstated",
+              cites: [await cite(FUEL), await cite(RAN)],
+              explanation: "£310,000 against £284,000 is not double.",
+            },
+            { n: numbered(BOOKING), verdict: "not found", explanation: "No Document mentions it." },
+          ],
+        },
+      });
+      await expect(asked).toHaveCount(0);
+      await expect(badge).toHaveCount(0);
+      await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
+      await pointAndClick(
+        window,
+        window.locator('[data-testid="claim-mark"][data-check="unsupported"]').first(),
+      );
+      const card = window.getByTestId("claim-card").filter({ visible: true });
+      await expect(card.getByTestId("claim-part-citation")).toHaveText([FUEL, RAN]);
+      await shot(window, "check-no-model-two-quotes-en");
+      await window.keyboard.press("Escape");
+    } finally {
+      await agent.close();
+    }
+
+    // No agent either: the line is about checking, with the way to set a model up.
+    await openNote(spare);
+    const connectedAgents = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { pairings } = await bridge.getAgents();
+      for (const each of pairings) await bridge.disconnectAgent(each.id);
+      return pairings.length;
+    });
+    expect(connectedAgents).toBe(2);
+    await press();
+    const alone = window.getByTestId("checks-problem");
+    await expect(alone).toContainText("Checking needs an AI model");
+    await expect(alone).not.toContainText("Asking");
+    await shot(window, "check-no-model-alone-en");
+    await setLanguage(window, "zh-CN");
+    await expect(alone).toContainText("核对需要 AI 模型");
+    await shot(window, "check-no-model-alone-zh-CN");
+    await setLanguage(window, "en");
+
+    // With a model set up the Check runs: neither line shows.
+    // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
+    await useLocalChatModel(window);
+    await press();
+    await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
+    await expect(window.getByTestId("check-card")).not.toContainText("Checking needs an AI model");
+    await shot(window, "check-with-model-en");
+    await setLanguage(window, "zh-CN");
+    await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
+    await shot(window, "check-with-model-zh-CN");
+  } finally {
+    await app.close();
+  }
+});
+
+test("what their own AI makes opens in a tab, in front once the User is in another app, and the app comes to the front with it only after the User asked from IncarnaMind", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    const launch = await connected(window);
+    // The shell's own step to the front is counted, since a window can't be seen to come forward
+    // on every machine the spec runs on.
+    await app.evaluate(({ app: electron }) => {
+      const kept = globalThis as { fronted?: number };
+      kept.fronted = 0;
+      electron.focus = () => {
+        kept.fronted = (kept.fronted ?? 0) + 1;
+      };
+    });
+    const fronted = () => app.evaluate(() => (globalThis as { fronted?: number }).fronted ?? 0);
+    const agent = await claudeCode(launch);
+    try {
+      const write = async (title: string) => {
+        const made = await agent.callTool({
+          name: "create_mind",
+          arguments: { title, markdown: `${CROSSINGS}` },
+        });
+        return (made.structuredContent as { mindId: string }).mindId;
+      };
+      const tab = (mindId: string) =>
+        window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`);
+
+      // A first Note is the only tab, so it is the one in front.
+      const first = await write("The tab in front");
+      await expect(tab(first)).toHaveAttribute("aria-selected", "true");
+
+      // An agent the User works with on its own: its Note opens in a tab behind the one in front,
+      // and the app stays where it is.
+      const alone = await write("Written on its own");
+      await expect(tab(alone)).toBeVisible();
+      await expect(tab(alone)).toHaveAttribute("aria-selected", "false");
+      expect(await fronted()).toBe(0);
+
+      // The same agent while the User is in its app, not in IncarnaMind: its Note is the tab in
+      // front when they come back, and the app still stays where it is. A page says it is in use
+      // under Playwright whatever the screen shows, so the page is told it isn't. What the User
+      // had just typed in the Note they left is kept.
+      await pointAndClick(window, frontMind(window).getByTestId("mind-editor"));
+      await window.keyboard.type("Typed before I left. ");
+      await window.evaluate(() => {
+        document.hasFocus = () => false;
+      });
+      const away = await write("Written while I was away");
+      await expect(tab(away)).toHaveAttribute("aria-selected", "true");
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", away);
+      expect(await fronted()).toBe(0);
+      await window.evaluate(() => {
+        Reflect.deleteProperty(document, "hasFocus");
+      });
+      await pointAndClick(window, tab(first));
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", first);
+      await expect(frontMind(window).getByTestId("mind-editor")).toContainText(
+        "Typed before I left.",
+      );
+
+      // Asked from IncarnaMind and read by the agent: what it writes next opens in front, and the
+      // app comes forward with it.
+      const asking = await window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const [claude] = (await bridge.getAgents()).pairings.filter(
+          (each) => each.name === "Claude Code",
+        );
+        const [mind] = await bridge.listMinds();
+        if (!claude || !mind) throw new Error("No agent or Note to ask about.");
+        await bridge.askAgent({ pairingId: claude.id, mindId: mind.id, ask: { kind: "note" } });
+        return true;
+      });
+      expect(asking).toBe(true);
+      await agent.callTool({ name: "read_request", arguments: {} });
+      const asked = await write("Written for my request");
+      await expect(tab(asked)).toHaveAttribute("aria-selected", "true");
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", asked);
+      expect(await fronted()).toBeGreaterThan(0);
+      await shot(window, "agent-made-opens-en");
+
+      // In Chinese, the same.
+      await setLanguage(window, "zh-CN");
+      const again = await write("为我的请求写的笔记");
+      await expect(tab(again)).toHaveAttribute("aria-selected", "true");
+      await shot(window, "agent-made-opens-zh-CN");
+    } finally {
+      await agent.close();
+    }
   } finally {
     await app.close();
   }

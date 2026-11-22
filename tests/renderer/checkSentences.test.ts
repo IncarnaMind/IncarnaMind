@@ -24,6 +24,7 @@ vi.mock("../../src/renderer/src/editor/editSelection", () => ({
 const asked: { input: CheckSentencesInput; running: unknown }[] = [];
 let checks: typeof Checks;
 let failNext = false;
+let noModelNext = false;
 
 beforeAll(async () => {
   const bridge = new Proxy(
@@ -36,6 +37,10 @@ beforeAll(async () => {
               if (failNext) {
                 failNext = false;
                 throw new Error("temporary failure");
+              }
+              if (noModelNext) {
+                noModelNext = false;
+                return { kind: "not-ready", readiness: { ready: false, reason: "no-provider" } };
               }
               return { kind: "checked", sentences: 1, checked: 1, smallModel: false };
             }
@@ -170,3 +175,15 @@ test.each([true, false])(
     );
   },
 );
+
+// protects=#3533: the selection toolbar's and ⌘K's Check against Documents, with no AI model set up, leaves the Note's one line that says so, where the User's own AI is offered, and throws nothing; fails_when=it ends with no line, or the rejection is left unhandled
+test("Check against Documents with no AI model set up leaves the line that says so", async () => {
+  asked.length = 0;
+  noModelNext = true;
+  await checks.checkSentences(editor, "mind-1", new Y.Doc(), "check-against-documents");
+  expect(checks.useChecks.getState().problems["mind-1"]).toEqual({
+    kind: "not-ready",
+    readiness: { ready: false, reason: "no-provider" },
+  });
+  expect(checks.useChecks.getState().running["mind-1"]).toBeUndefined();
+});

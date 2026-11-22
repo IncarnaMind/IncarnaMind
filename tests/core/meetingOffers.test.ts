@@ -14,12 +14,16 @@ import { readMind } from "../helpers/minds";
  * go of it.
  */
 
-async function offersCore({ setUp = true } = {}) {
+async function offersCore({ setUp = true, endRecordingOnRelease = true } = {}) {
   const dataDir = await createTempDataFolder();
   const clock = manualClock();
   const calls = createFakeCallWatcher();
   const capture = createFakeCapture({ now: () => clock.now().getTime() });
-  const core = startCore(dataDir, { audioCapture: capture, now: clock.now, callWatcher: calls });
+  const core = startCore(dataDir, {
+    audioCapture: capture,
+    now: clock.now,
+    callWatcher: { ...calls, endRecordingOnRelease },
+  });
   // As the first-recording sheet leaves them: Meetings set up, and the offers turned on with them.
   if (setUp)
     await core.updateSettings({ device: { meetingNoticeAccepted: true, callOffers: true } });
@@ -300,6 +304,28 @@ describe("Take notes", () => {
     vi.advanceTimersByTime(60_000);
     await nextTurn();
     expect((await recorded(core))[0]?.status).toBe("recording");
+  });
+
+  test("a Windows microphone release expires a stale offer but never stops a recording", async () => {
+    const { core, calls } = await offersCore({ endRecordingOnRelease: false });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    calls.use(["chrome"]);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (!offer) throw new Error("No offer.");
+    calls.use([]);
+    await expect(core.takeMeetingOffer(offer.id)).rejects.toThrow();
+    expect(await recorded(core)).toEqual([]);
+
+    calls.use(["chrome"]);
+    const meeting = await core.takeMeetingOffer(offer.id);
+    expect(meeting.status).toBe("recording");
+    calls.use([]);
+    expect((await core.getMeetingOffers()).ending).toBeNull();
+    vi.advanceTimersByTime(60_000);
+    await nextTurn();
+    expect((await recorded(core))[0]?.status).toBe("recording");
+
+    expect((await core.stopMeeting(meeting.id)).status).toBe("stopped");
   });
 
   test("a watcher that stops mid-call keeps the recording going", async () => {

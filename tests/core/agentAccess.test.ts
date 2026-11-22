@@ -20,7 +20,12 @@ import type { OutsideAnswer } from "../../src/core/answers";
 import { createElement } from "../../src/core/answers/blocks";
 import type { OutsideCheck } from "../../src/core/answers/checks/mindCheck";
 import { recheckCitation } from "../../src/core/answers/citations";
-import { type CitationLocation, type MarkedCitation, MIND_CONTENT_FIELD } from "../../src/core/api";
+import {
+  ALL_SHARED_ID,
+  type CitationLocation,
+  type MarkedCitation,
+  MIND_CONTENT_FIELD,
+} from "../../src/core/api";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import { translate } from "../../src/shared/i18n";
@@ -44,6 +49,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     foldersInside: (folderId) => [folderId],
     documentsIn: () => ["tides"],
     noteTranscripts: () => [],
+    refreshLiveTranscripts: () => undefined,
     search: async () => [],
     passage: () => null,
     passagesBetween: () => [],
@@ -64,6 +70,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     minds: () => [],
     documentsNamed: () => [],
     duplicatedFrom: () => null,
+    exampleNotes: () => [],
     liveDocuments: () => [],
     mindBlocks: () => {
       throw new Error("Not called.");
@@ -77,6 +84,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     checkpoint: () => undefined,
     noteChanged: () => undefined,
     show: () => undefined,
+    opened: () => undefined,
     mindMarkdown: () => "",
     createMind: () => {
       throw new Error("Not called.");
@@ -128,10 +136,42 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     handedAt: () => null,
     handOver: () => Promise.reject(new Error("No file is handed over here.")),
     handedCheck: () => Promise.reject(new Error("No file is handed over here.")),
+    checksWritten: () => false,
     ...overrides,
   };
   return createAgentAccess(deps, "pairing");
 }
+
+describe("refreshing a shared live Transcript", () => {
+  // protects=a Folder withdrawn during indexing stays private; fails_when=the pending read returns words or the search consults the withdrawn Transcript
+  it.each(["search", "read"] as const)("checks the grant again before a %s", async (tool) => {
+    let shared = ["tides"];
+    const refresh = Promise.withResolvers<void>();
+    const search = vi.fn(async () => []);
+    const passagesBetween = vi.fn(() => []);
+    const refreshLiveTranscripts = vi.fn(() => refresh.promise);
+    const access = accessAnswering(
+      { asked: false, reason: "not-ready" },
+      {
+        documentsIn: () => shared,
+        refreshLiveTranscripts,
+        search,
+        passagesBetween,
+      },
+    );
+    const reading =
+      tool === "read"
+        ? access.readPassages({ documentId: "tides" })
+        : access.search({ query: "delivery" });
+    expect(refreshLiveTranscripts).toHaveBeenCalledWith(["tides"]);
+    shared = [];
+    refresh.resolve();
+    if (tool === "read") await expect(reading).rejects.toMatchObject({ problem: "outside-scope" });
+    else await expect(reading).resolves.toMatchObject({ passages: [] });
+    expect(search).not.toHaveBeenCalled();
+    expect(passagesBetween).not.toHaveBeenCalled();
+  });
+});
 
 describe("ask, when IncarnaMind's Answer isn't written", () => {
   it("is paused in Local mode, as every Tool is", async () => {
@@ -811,6 +851,44 @@ describe("a call that waits while what the agent reaches changes (#3458 review)"
     );
     const found = await access.search({ query: "spring tides" });
     expect(found.passages.map((each) => each.documentId)).toEqual(["tides"]);
+  });
+
+  // protects=a share of everything narrowed to one Folder while a search waits gives nothing from outside the new share, and its line says there is more as the share is now (#3544); fails_when=the results or the line are read with the share as it was when the search began
+  it("tells, of all narrowed during the search, only what the new share reaches", async () => {
+    let share = [ALL_SHARED_ID];
+    let narrows = false;
+    const access = accessAnswering(
+      { asked: false, reason: "not-ready" },
+      {
+        admit: (pairingId) => ({
+          id: pairingId,
+          name: "Codex",
+          folderIds: share,
+          createdAt: AT,
+          propose: false,
+        }),
+        folders: () => [
+          { id: "coast", name: "Coast", parentId: null, keepInside: false },
+          { id: "finance", name: "Finance", parentId: null, keepInside: false },
+        ],
+        documentsIn: (folderIds) => [
+          ...(folderIds.includes("coast") ? ["tides"] : []),
+          ...(folderIds.includes("finance") ? ["budget"] : []),
+        ],
+        search: async () => {
+          if (narrows) share = ["coast"];
+          return [passageOf("tides", "Tides"), passageOf("budget", "Budget")];
+        },
+      },
+    );
+    const before = await access.search({ query: "spring tides" });
+    expect(before.passages.map((each) => each.documentId)).toEqual(["tides", "budget"]);
+    expect(before.notShared).toBeUndefined();
+    narrows = true;
+    const found = await access.search({ query: "spring tides" });
+    expect(found.passages.map((each) => each.documentId)).toEqual(["tides"]);
+    expect(found.notShared).toBe(translate("en", "agents.notShared"));
+    expect(JSON.stringify(found)).not.toMatch(/Budget|Finance/);
   });
 
   // protects=an Answer written from a Document the User took from the agent while it was written isn't given to the agent; fails_when=the Answer and its quotes are handed over with the grant as it was when the Question was asked

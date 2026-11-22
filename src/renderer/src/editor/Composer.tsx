@@ -905,7 +905,9 @@ export function Composer({
         </>
       )}
       <AskQueued draftKey={key} />
-      {offersAgent && <ComposerAskAgent agents={agents} draftKey={key} mindId={mindId} />}
+      {offersAgent && (
+        <ComposerAskAgent agents={agents} draftKey={key} mindId={mindId} scope={resolvedScope} />
+      )}
       {problem && !offersAgent && (
         <AskProblem
           problem={problem}
@@ -1194,12 +1196,13 @@ export function Composer({
             <button
               type="button"
               data-testid="composer-scope-all"
-              aria-label={
+              aria-label={allLabel}
+              aria-description={
                 leftOutCount > 0
-                  ? allLabel
+                  ? undefined
                   : folderName !== null && !folderHolds
                     ? t("composer.scope.allEmptyFolder", { folder: folderName })
-                    : t("composer.scope.allLabel")
+                    : t("composer.scope.allTitle")
               }
               title={
                 leftOutCount > 0

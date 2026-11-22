@@ -31,9 +31,9 @@
   <a href="https://github.com/IncarnaMind/IncarnaMind/stargazers"><img alt="GitHub 星标" src="https://img.shields.io/github/stars/IncarnaMind/IncarnaMind?color=17191C"></a>
 </p>
 
-<p align="center"><img src="docs/images/check-card-zh-CN.png" width="880" alt="Claude Code 写进 IncarnaMind 的一份信贷备忘录，对照文件核对。有一句被标为“部分有依据”：它说利息覆盖率是“最主要的信息缺口”，卡片指出“最主要”是撰写者自己的判断，文件并未说明。"></p>
+<p align="center"><img src="docs/images/demo-agent-zh-CN.gif" width="880" alt="请 Claude Code 写一份 Northwind Retail 的信贷备忘录，并配一张杠杆率对照契约上限的图表。它根据文件把备忘录写进 IncarnaMind，再逐句核对。笔记打开后有表格和图表，其中一句标为“部分有依据”。在这句的卡片上点“交给 Claude Code”，Claude Code 按文件原文改写，标记随之消失。接着录制一段通话，在这台电脑上转写。停止后点“用 Claude Code 整理会议笔记”，Claude Code 给出会议笔记，每一条都引用转写稿原话。"></p>
 
-<p align="center"><sub>应用里的一份真实备忘录，用的是测试文档：由 Claude Code 使用 Claude Haiku 5.5 撰写，核对用 Claude Sonnet 5.5。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
+<p align="center"><sub>应用里的两次真实操作，用的是测试文档和一段合成人声的测试通话：Claude Code 使用 Claude Haiku 5.5 撰写、核对并修改这份备忘录，并整理会议笔记，IncarnaMind 里没有设置 AI 模型。通话在这台电脑上转写。等待的部分已剪掉，Claude Code 一栏按运行记录重绘。<a href="https://github.com/IncarnaMind/IncarnaMind/releases/download/v0.1.0-alpha.6/IncarnaMind-film-2026-11-21-zh-CN.mp4">下载 46 秒的高清影片</a>（MP4，4 MB）。<br>Alpha 阶段：免费测试版，暂未签名。公开 alpha 将在 2027 年初开放。</sub></p>
 
 ## 下载
 
@@ -70,7 +70,7 @@ npm install && npm run dev
 
 | | |
 |---|---|
-| **你的 AI 在这里写** | 把你选的文件夹交给 [Claude Code](docs/claude-code.md#简体中文) 或[其他智能体](docs/agents.zh-CN.md)。它写的内容在这里以笔记打开。一篇笔记就是为一个主题准备的笔记本。它对你自己笔记的修改要等你确认。 |
+| **你的 AI 在这里写** | 把你的全部文档，或你选的文件夹，交给 [Claude Code](docs/claude-code.md#简体中文) 或[其他智能体](docs/agents.zh-CN.md)。它写的内容在这里以笔记打开。一篇笔记就是为一个主题准备的笔记本。它对你自己笔记的修改要等你确认。 |
 | **核对** | 把笔记，或别人发来的 PDF、Word、PowerPoint、Excel 文件，对照你的文件逐句核对。只标出需要看一眼的句子，附上能下结论的那一页；点一下就把这句话交给你的 AI 去改。整张表的汇总在你的电脑上重新算一遍，并给出算的过程。 |
 | **知识库** | 在原处读取你的文件：PDF、Word、PowerPoint、Excel 等。一次问遍所有文档，每一页都有引用。 |
 | **整理** | 关联你的文件夹，“整理”推荐文件夹和标签，由你确认。 |

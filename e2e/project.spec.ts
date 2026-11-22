@@ -9,6 +9,7 @@ import { translate } from "../src/shared/i18n";
 import { plainDeck } from "../tests/helpers/pptx";
 import {
   acceptPlainTextKeys,
+  checkAssistantWrites,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
@@ -69,12 +70,14 @@ for (const language of ["en", "zh-CN"] as const) {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate(language, key, params);
 
-  // protects=a new User makes a Linked folder a Project from its menu, with Undo; its files are filed in it; an agent given it alone sees its folder named in Settings › Agents, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507); fails_when=the menu has no such item, the files stay in Not in a Folder, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
+  // protects=a new User makes a Linked folder a Project from its menu, with Undo; its files are filed in it; an agent given it alone sees its folder named in Settings › Agents, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507); fails_when=the menu has no such item, the files stay in Not in a Folder, Undo leaves the file put in no Folder by the User or Redo doesn't file it again, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
   test(`a Linked folder made a Project: the agent's deck and Note there are checked (${language})`, async () => {
     test.setTimeout(150_000);
     const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
+    // A hand-over is checked as it lands only with this on (#3576).
+    await checkAssistantWrites(window);
     try {
       await acceptPlainTextKeys(window);
       await setWindowSize(app, window, 1440, 900);
@@ -98,7 +101,8 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       expect(project).toMatchObject({ keepInside: true, filed: 1 });
       await shot(window, `project-made-${language}`);
-      // Undo takes the Project back, its file in no Folder again; redo brings both back.
+      // Undo takes the Project back, its file as it was: in no Folder, and not as the User's choice,
+      // so Organize may still place it and a Project made again files it. Redo brings both back.
       const projects = () =>
         bridge(window).then((core) =>
           core.evaluate(
@@ -107,10 +111,22 @@ for (const language of ["en", "zh-CN"] as const) {
                 .length,
           ),
         );
+      const planFiling = () =>
+        bridge(window).then((core) =>
+          core.evaluate(async (each) => {
+            const plan = (await each.listDocuments()).find((one) => one.name === "Quay plan");
+            const row = (await each.getLibrary()).assignments.find(
+              (one) => one.documentId === plan?.id,
+            );
+            return { groupId: row?.groupId ?? null, byUser: row?.source === "user" };
+          }),
+        );
       await window.keyboard.press("ControlOrMeta+z");
       await expect.poll(projects).toBe(0);
+      await expect.poll(planFiling).toEqual({ groupId: null, byUser: false });
       await window.keyboard.press("ControlOrMeta+Shift+z");
       await expect.poll(projects).toBe(1);
+      await expect.poll(planFiling).toEqual({ groupId: project.id, byUser: true });
       // Made once: the item isn't offered again for the same folder.
       const again = await openLinkedFolderMenu(linkedFolderRow(window, basename(work)));
       await expect(again.getByTestId("linkedFolder.makeProject")).toHaveCount(0);

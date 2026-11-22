@@ -92,6 +92,7 @@ const CHECKS = [
 ] as const satisfies readonly CitationCheck[];
 
 const REASONS = [
+  "screen-deleted",
   "quote-not-on-pages",
   "quoted-words-not-on-pages",
   "pages-outside-passage",
@@ -214,6 +215,27 @@ function parsePlace(value: unknown): DocumentPlace {
       endMs: cue.endMs,
       ...(cue.part && { part: cue.part }),
     };
+    if (cue.excerpt !== undefined) {
+      const excerpt = cue.excerpt;
+      if (
+        !isRecord(excerpt) ||
+        typeof excerpt.start !== "number" ||
+        typeof excerpt.end !== "number" ||
+        !Number.isSafeInteger(excerpt.start) ||
+        !Number.isSafeInteger(excerpt.end) ||
+        excerpt.start < 0 ||
+        excerpt.end <= excerpt.start ||
+        excerpt.end - excerpt.start !== place.quote?.length ||
+        typeof excerpt.cueHash !== "string" ||
+        !/^[a-z0-9]{1,11}$/u.test(excerpt.cueHash)
+      )
+        throw new InvalidInputError({ key: "error.layout.transcriptCue" });
+      place.transcriptCue.excerpt = {
+        start: excerpt.start,
+        end: excerpt.end,
+        cueHash: excerpt.cueHash,
+      };
+    }
   }
   if (value.wordPlace !== undefined) {
     if (typeof value.wordPlace !== "string" || !WORD_PLACE.test(value.wordPlace)) {
@@ -291,6 +313,8 @@ function parseAssistantPlace(value: unknown): Partial<AssistantPlace> {
   }
   const folded = optionalBoolean(value.folded, "folded");
   if (folded !== undefined) place.folded = folded;
+  const heightChosen = optionalBoolean(value.heightChosen, "heightChosen");
+  if (heightChosen !== undefined) place.heightChosen = heightChosen;
   if (value.foldedBy !== undefined) {
     if (value.foldedBy !== null && value.foldedBy !== "user" && value.foldedBy !== "agent") {
       throw new InvalidInputError({ key: "error.layout.foldedBy" });
@@ -323,6 +347,7 @@ function readSavedAssistant(value: unknown): AssistantPlace {
     ...((value.foldedBy === "user" || value.foldedBy === "agent") && { foldedBy: value.foldedBy }),
     width: readPx(value.width, { min: 1 }) ?? DEFAULT_ASSISTANT.width,
     height: readPx(value.height, { min: 1 }) ?? DEFAULT_ASSISTANT.height,
+    ...(value.heightChosen === true && { heightChosen: true }),
     float: readFloat(value.float) ?? { ...DEFAULT_ASSISTANT.float },
   };
 }

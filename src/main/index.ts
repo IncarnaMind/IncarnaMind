@@ -40,7 +40,7 @@ import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
 import { closingLastWindowQuits, keptRunning, startsWithoutWindow } from "./background";
 import { serveBackground } from "./backgroundHost";
 import { createFakeCallWatcher, type FakeCalls } from "./calls/fakeWatcher";
-import { macWatcherPath } from "./calls/macWatcher";
+import { callWatcherPath } from "./calls/helper";
 import { createCallWatcher } from "./calls/watcher";
 import { allowCanvases, CANVAS_SCHEME_PRIVILEGES, serveCanvases } from "./canvases";
 import { DOCUMENT_SCHEME_PRIVILEGES, serveDocumentFiles } from "./documentProtocol";
@@ -56,7 +56,7 @@ import {
 import { handle } from "./ipc";
 import { startLogging } from "./logging";
 import { createFileLoginItem, createSystemLoginItem, openedAtLogin } from "./loginItem";
-import { isCaptureWindow } from "./meetings/capture";
+import { isCaptureWindow } from "./meetings/captureWindow";
 import { isGuideWindow, servePermissionGuide } from "./meetings/guide";
 import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
 import { installAppMenu } from "./menu";
@@ -278,11 +278,14 @@ async function testTaskKinds(): Promise<TaskKind[]> {
 function callWatching(): { callWatcher?: CallWatcher } {
   if (import.meta.env.MODE === "test") {
     if (process.env.INCARNAMIND_TEST_CALLS !== "1") return {};
-    const fake = createFakeCallWatcher();
+    const fake = {
+      ...createFakeCallWatcher(),
+      endRecordingOnRelease: process.platform !== "win32",
+    };
     (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls = fake;
     return { callWatcher: fake };
   }
-  const program = macWatcherPath();
+  const program = callWatcherPath();
   return {
     callWatcher: createCallWatcher({
       log: logger,
@@ -291,7 +294,7 @@ function callWatching(): { callWatcher?: CallWatcher } {
         pids: () => new Set(app.getAppMetrics().map((each) => each.pid)),
         bundles: ["com.incarnamind.app", "com.github.electron"],
       },
-      macWatcher: existsSync(program) ? program : null,
+      helper: program && existsSync(program) ? program : null,
     }),
   };
 }
@@ -396,10 +399,14 @@ function exposeCore(core: Core): void {
     });
   }
   core.onAnyEvent((name, payload) => {
-    // An outside agent asked to show a Citation (#351): the app comes in front to show it, in
-    // a new window once loaded if none is open.
-    if (name === "agents.citationShown" && closingForUpdate) return;
-    if (name === "agents.citationShown" && appWindows().length === 0) {
+    // An outside agent asked to show a Citation (#351), or made something for a request the User
+    // made from IncarnaMind (#3534): the app comes in front to show it, in a new window once
+    // loaded if none is open.
+    const brings =
+      name === "agents.citationShown" ||
+      (name === "agents.opened" && payload !== null && "front" in payload && payload.front);
+    if (brings && closingForUpdate) return;
+    if (brings && appWindows().length === 0) {
       const window = createWindow();
       window.webContents.once("did-finish-load", () =>
         window.webContents.send(EVENT_CHANNEL, name, payload),
@@ -409,7 +416,7 @@ function exposeCore(core: Core): void {
     for (const window of listeningWindows()) {
       if (!window.isDestroyed()) window.webContents.send(EVENT_CHANNEL, name, payload);
     }
-    if (name === "agents.citationShown") showFront();
+    if (brings) showFront();
   });
 }
 

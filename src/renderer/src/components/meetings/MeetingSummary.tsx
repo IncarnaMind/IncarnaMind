@@ -1,16 +1,15 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef } from "react";
 import type { Meeting, MeetingSummaryItem } from "../../../../core/api";
-import { core } from "../../core";
 import { useT } from "../../i18n";
 import { frontTabOfMind } from "../../layoutSlice";
 import { clockTime } from "../../meetingTime";
 import { useMeetingNoteViews } from "../../meetingViews";
 import { useAppStore } from "../../store";
 import { useGroupsMerged } from "../../useWindowWidth";
-import { ProblemLine, ProblemMark } from "../ProblemLine";
 import { useTabPlace } from "../tabs/tabItems";
 import { MeetingSummaryCandidates } from "./MeetingSummaryCandidates";
 import { MeetingSummaryItems } from "./MeetingSummaryItems";
+import { MeetingSummaryProblem } from "./MeetingSummaryProblem";
 
 const NO_ITEMS: readonly MeetingSummaryItem[] = [];
 
@@ -24,7 +23,6 @@ export function MeetingSummary({
   const id = useId();
   const heading = useRef<HTMLHeadingElement | null>(null);
   const t = useT();
-  const [retrying, setRetrying] = useState(false);
   const place = useTabPlace();
   const layout = useAppStore((state) => state.layout);
   const merged = useGroupsMerged();
@@ -47,25 +45,18 @@ export function MeetingSummary({
     text && summary.throughMs > 0
       ? t("meetings.summary.coverage", { time: clockTime(summary.throughMs) })
       : null;
-  const progress =
-    summary.state === "failed"
-      ? null
-      : summary.state === "ready"
-        ? text || items.length > 0
-          ? null
-          : t("meetings.summary.empty")
-        : t(text ? "meetings.summary.updating" : "meetings.summary.preparing");
-
-  const retry = async () => {
-    setRetrying(true);
-    try {
-      await core.retryMeetingSummary(meeting.id);
-    } catch (error) {
-      useAppStore.getState().reportError(error);
-    } finally {
-      setRetrying(false);
-    }
-  };
+  const needsRecovery =
+    summary.state === "failed" ||
+    (summary.state !== "ready" &&
+      meeting.transcript?.state !== "saved" &&
+      !!meeting.transcript?.problem);
+  const progress = needsRecovery
+    ? null
+    : summary.state === "ready"
+      ? text || items.length > 0
+        ? null
+        : t("meetings.summary.empty")
+      : t(text ? "meetings.summary.updating" : "meetings.summary.preparing");
 
   return (
     <section
@@ -86,22 +77,7 @@ export function MeetingSummary({
       >
         {t("meetings.summary.title")}
       </h2>
-      {summary.state === "failed" && (
-        <ProblemLine
-          testId="meeting-summary-problem"
-          action={{
-            label: t("meetings.fill.tryAgain"),
-            testId: "meeting-summary-retry",
-            disabled: retrying,
-            onClick: () => void retry(),
-          }}
-        >
-          <ProblemMark />
-          {summary.problem === "codex-input-limit"
-            ? t("error.meeting.codexSummaryTooLong")
-            : t(text ? "meetings.summary.updateFailed" : "meetings.summary.failed")}
-        </ProblemLine>
-      )}
+      {needsRecovery && <MeetingSummaryProblem meeting={meeting} summary={summary} />}
       {(progress || coverage) && (
         <p role="status" className="text-[13px] leading-5 text-ink-meta">
           {[progress, coverage].filter(Boolean).join(" · ")}

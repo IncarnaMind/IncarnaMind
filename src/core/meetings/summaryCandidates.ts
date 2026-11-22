@@ -96,12 +96,17 @@ export function candidateExcerpts(
         return null;
       return [excerpt];
     }
-    if (
-      !("excerpt" in entry) ||
-      Object.keys(entry).some((key) => key !== "excerpt" && key !== "excerpt_2")
-    )
+    const keys = Object.keys(entry);
+    if ("excerpts" in entry && keys.length === 1) {
+      words = entry.excerpts;
+    } else if (
+      "excerpt" in entry &&
+      keys.every((key) => key === "excerpt" || key === "excerpt_2")
+    ) {
+      words = "excerpt_2" in entry ? [entry.excerpt, entry.excerpt_2] : [entry.excerpt];
+    } else {
       return null;
-    words = "excerpt_2" in entry ? [entry.excerpt, entry.excerpt_2] : [entry.excerpt];
+    }
   }
   if (!Array.isArray(words) || words.length < 1 || words.length > 2) return null;
   const excerpts: string[] = [];

@@ -9,6 +9,7 @@ import {
 } from "../../core/api";
 import { applyFigureScheduleChange } from "../../shared/figureSchedule";
 import { fingerprintOfMind } from "../../shared/mindState";
+import { checkAsked } from "./askedAgent";
 import { useChecks } from "./checks";
 import { core } from "./core";
 import { figurePlace } from "./editor/figurePlaces";
@@ -169,7 +170,9 @@ function answered(mindId: string): Promise<void> {
  * Tie out figures: runs the one Check when any figure isn't checked since its last edit, then
  * shows the schedule beside the note, which fills in as results come. A Check that asks first
  * (above $1 or under a spending cap) keeps the note's question in front; in a window too narrow
- * for groups side by side the schedule then comes to the front once the User answers.
+ * for groups side by side the schedule then comes to the front once the User answers. A Check
+ * that ends in a line in the note's card instead, such as no AI model set up, keeps the note and
+ * its line in front there, the schedule behind: it is why nothing was checked.
  */
 export async function tieOutFigures(mindId: string): Promise<void> {
   const schedule = await core.getFigureSchedule(mindId);
@@ -177,8 +180,11 @@ export async function tieOutFigures(mindId: string): Promise<void> {
     (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
   );
   const asks = stale ? await startAsking(mindId) : false;
-  if (!(asks && groupsMerged())) return openFigureSchedule(mindId);
+  // A line in the note's card stays in front: a problem, or the User's own AI asked to check (#3587).
+  const said = stale && (useChecks.getState().problems[mindId] !== undefined || checkAsked(mindId));
+  if (!((asks || said) && groupsMerged())) return openFigureSchedule(mindId);
   await openFigureSchedule(mindId, false);
+  if (said) return;
   await answered(mindId);
   // Answered in the note's card, so the note is still in front unless the User has left it.
   if (frontTabOfMind(useAppStore.getState().layout, mindId, groupsMerged()))

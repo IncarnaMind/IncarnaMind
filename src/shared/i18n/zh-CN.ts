@@ -2,6 +2,10 @@ import type { Dictionary } from "./types";
 
 /** Simplified Chinese. `satisfies Dictionary` fails the type-check on a missing or unknown key. */
 export const zhCN = {
+  "meetings.start.noticeText.screen":
+    "如果我在会议中向 AI 共享窗口，提问时，它可能收到窗口中的文字或一张画面。会议结束后，IncarnaMind 会删除截取的画面和识别出的文字。",
+  "consent.data.chat.passages":
+    "与问题相关的文档段落；会议中提问时，还会包含最新转写和你所选窗口中的文字",
   "library.title": "资料库",
   "library.open.keywords": "ziliaoku 资料库 文档 全部 文件",
   "library.open": "打开资料库",
@@ -26,6 +30,16 @@ export const zhCN = {
   "library.organize.failed": "“整理”未能处理 {count} 个文档",
   "library.organize.retry": "重试",
   "library.organize.explain": "为每个文档建议文件夹和标签，由你决定。",
+  "agents.ask.line.organize": "帮我整理 IncarnaMind 里的文档。请先读取我在里面留的整理要求。",
+  "agents.ask.request.organize":
+    "{scope} 先读完 list_sorting 的每一页，从同一条文档记录复制 id 和 version。用 propose_sorting 提建议时，列表里有合适的文件夹或标签就用它；都不合适时，用中文起一个新名称，但至少要有 3 个文档适合它。文件夹按工作领域或主题划分，不按文档类型划分。把建议留给我确认。",
+  "agents.ask.organize.folder":
+    "只整理直接放在文件夹 {folder} 里的文档。如果建议移动，只能移入这些子文件夹：{folders}，或按名称新建的子文件夹（会建在这个文件夹里）。没有合适的就留在原处。",
+  "agents.ask.organize.loose": "只整理还没放进文件夹的文档（folderId 为 null）。",
+  "agents.ask.organize.selected": "只整理这些 ID 对应的文档：{ids}。",
+  "library.organize.withAgent": "请{agent}整理",
+  "library.organize.askAgent": "你的 AI 会建议文件夹和标签，由你确认。",
+  "library.organize.share": "要用自己的 AI 整理这些文档，请在智能体设置里共享它们所在的位置。",
   "library.organize.needsModel": "选好 AI 模型，就能整理文档。",
   "library.toSort.one": "1 个待整理",
   "library.toSort.other": "{count} 个待整理",
@@ -80,6 +94,9 @@ export const zhCN = {
   "organizeReview.section.leftOut": "未归入",
   "organizeReview.notNow": "以后再说",
   "organizeReview.confirm": "确认",
+  "organizeReview.confirmAll": "全部确认",
+  "organizeReview.suggestedBy": "{agent}建议：{what}",
+  "organizeReview.nothingFrom": "{agent}没有可建议的文件夹或标签。",
   "organizeReview.menu": "更多",
   "organizeReview.fewer": "少一些文件夹",
   "organizeReview.fewer.fewest": "整理最少建议 {count} 个文件夹",
@@ -231,6 +248,7 @@ export const zhCN = {
   "library.drop.formats": "PDF、Word、PowerPoint、Excel、Markdown 和文本",
   "library.drop.stay": "文件保留在原处。",
   "library.review": "查看",
+  "library.row.suggested": "建议放入“{folder}”",
   "library.sources": "磁盘上的文件夹",
   "library.collapse": "收起 {name}",
   "library.expand": "展开 {name}",
@@ -403,6 +421,29 @@ export const zhCN = {
   "calendars.allow": "允许",
   "calendars.openSystemSettings": "打开系统设置",
   "calendars.fromInvite": "邀请中的人",
+  "meetings.brief.questions": "对方可能会问",
+  "meetings.brief.noAnswer": "这次会议的资料中没有找到答案。",
+  "error.meeting.briefChanged": "会议或资料已更新，请重新打开会前简报以使用最新信息。",
+  "error.meeting.briefTooLong":
+    "本次会议的资料超过了模型的上下文长度。请为这篇笔记选择支持更长上下文的模型。",
+  "error.meeting.briefIncomplete": "模型未能准备好三个问题，请重新生成会前简报。",
+  "meetings.brief.keepQuestions": "只将问题保留到笔记",
+  "meetings.brief.dismissQuestions": "收起这些问题",
+  "meetings.brief.title": "会前简报",
+  "meetings.brief.inInvite": "会议标题中提到的文档",
+  "meetings.brief.prepare": "用 {service} 准备简报",
+  "meetings.brief.readInvite": "查找会议资料",
+  "meetings.brief.sending": "正在准备会前简报…",
+  "meetings.brief.clientDisclosure":
+    "将会议标题以及获准使用的过往会议摘录，以及与笔记关联、位于当前文件夹或所选搜索范围内的文档摘录发送给 {service}。费用由已连接的 AI 账户结算。",
+  "meetings.brief.disclosure":
+    "将会议标题、与相同参会人上次会议的相关摘录，以及与笔记关联、位于当前文件夹或所选搜索范围内的文档摘录发送给 {service}。",
+  "meetings.brief.localDisclosure": "在这台电脑上使用会议标题、与相同参会人的过往会议和相关文档。",
+  "meetings.brief.chooseModel": "要生成问题，请为这篇笔记选择模型，或连接有权读取会议资料的 AI。",
+  "meetings.brief.nothing": "没有可用于准备简报的会议资料。",
+  "meetings.brief.lastTime": "上次与这些人开会",
+  "meetings.brief.keep": "保留到笔记",
+  "meetings.brief.dismiss": "关闭会前简报",
   "eventBar.label": "日历中的会议",
   "eventBar.today": "今天",
   "eventBar.tomorrow": "明天",
@@ -1692,6 +1733,7 @@ export const zhCN = {
   "checks.acceptAndCheck": "全部接受并核对",
   "checks.problem.local-mode": "未核对：已开启“所有内容都留在这台电脑上”。",
   "checks.problem.chooseModel": "选择模型",
+  "checks.problem.no-provider": "核对需要 AI 模型",
   "checks.tryAgain": "重试",
   "checks.problem.failed": "没能核对",
   "checks.problem.no-folder": "没有可对照的文档：这篇笔记不在文件夹中。",
@@ -2381,6 +2423,7 @@ export const zhCN = {
   "location.lines.one": "第 {range} 行",
   "location.lines.other": "第 {range} 行",
 
+  "location.screen": "共享屏幕 {time}",
   "documents.add": "添加文档",
   "documents.add.files": "文件…",
   "documents.add.filesOrFolder": "添加文件或文件夹…",
@@ -2664,9 +2707,9 @@ export const zhCN = {
   "status.taggingWith.one": "正在用 {service} 为 1 个文档打标签…",
   "status.taggingWith.other": "正在用 {service} 为 {count} 个文档打标签…",
   "status.sends":
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 {service}；使用聊天模型时，还有你的界面语言。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都会发送到 {service}；如果模型不是专门用来整理的，还有你的界面语言。",
   "status.sends.onThisComputer":
-    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；使用聊天模型时，还有你的界面语言。",
+    "文档类别、你自己的标签的名称和描述，以及每个文档的名称、类型和开头部分的文字，都留在这台电脑上；如果模型不是专门用来整理的，还有你的界面语言。",
   "status.sends.organize":
     "文件夹和你自己的标签的名称和描述、文档类别，以及每个文档的名称、目录和简短摘录，都会发送到 {service}。",
   "status.sends.organize.onThisComputer":
@@ -3136,7 +3179,7 @@ export const zhCN = {
   "setup.sorting.asks":
     "已开启新文档自动整理和打标签：第一个文档发送给 {service} 前，IncarnaMind 会先问你。",
   "setup.sorting.sendsWhenOn":
-    "开启自动打标签后，新文档会生成建议，由你确认，关联文件夹里的新文件也一样。{service} 会收到文档名称、文件类型、页数和开头的一段文字（最多约 1,500 个汉字或 6,000 个英文字符），以及演示文稿的幻灯片标题或工作簿的工作表名称。它还会收到文档类别、你的标签和文件夹的名称及描述。聊天模型也会收到你的界面语言。已有文档可以在需要时手动整理。",
+    "开启自动打标签后，新文档会生成建议，由你确认，关联文件夹里的新文件也一样。{service} 会收到文档名称、文件类型、页数和开头的一段文字（最多约 1,500 个汉字或 6,000 个英文字符），以及演示文稿的幻灯片标题或工作簿的工作表名称。它还会收到文档类别、你的标签和文件夹的名称及描述。不是专门用来整理的 AI 模型，还会收到你的界面语言。已有文档可以在需要时手动整理。",
   "command.tagging.turnOn": "开启自动给新文档打标签…",
   "command.tagging.turnOn.keywords": "zidong dabiaoqian 自动打标签 标签 开启 设置",
   "setup.sorting.chat": "标签和文件夹使用 {model}",
@@ -3195,6 +3238,9 @@ export const zhCN = {
   "setupPage.ai.services": "选择服务",
   "setupPage.ai.agents": "用你已经在用的 AI",
   "setupPage.ai.inApp": "在 IncarnaMind 里用一个模型",
+  "setupPage.ai.sorting": "设置用来整理新文档和打标签的模型（可选）",
+  "setupPage.ai.sorting.about":
+    "自动整理你添加的文档，并为它们打标签。需要 AI 服务的密钥，或这台电脑上的模型。不设置时，IncarnaMind 会用你设置的模型，或在你点“整理”时请你的 AI 来做。",
   "setupPage.agents.failed": "未能列出这台电脑上的智能体",
   "setupPage.agent.found": "在这台电脑上",
   "setupPage.agent.connected": "已连接{agent}",
@@ -3572,7 +3618,7 @@ export const zhCN = {
   "consent.flow.scan-images": "扫描件的页面图片",
   "consent.flow.scan-images.purpose": "读取没有文字的扫描件，以便整理",
   "consent.data.page-images": "没有文字的扫描件：最多 3 页的页面图片",
-  "consent.data.pictures": "你在笔记中选中要询问的图片",
+  "consent.data.pictures": "你在笔记中选中的图片，以及会议中针对画面提问时所选窗口的一张截图",
   "consent.flow.embeddings": "文档搜索",
   "consent.flow.embeddings.purpose": "按含义搜索你的文档",
   "consent.data.document-text": "每个文档的文字，每段都带着所属文档的名称；更换模型时会重新发送",
@@ -3805,6 +3851,11 @@ export const zhCN = {
   "privacy.skills.title": "技能脚本",
   "privacy.skills.body":
     "技能脚本在这台电脑上运行，可发送它读取的内容。每个脚本运行前都会询问，除非你设为“始终允许”。",
+  "privacy.screen.title": "共享屏幕",
+  "privacy.screen.sendsText": "你提问时，屏幕文字可能发给所选模型。",
+  "privacy.screen.sendsPicture": "问题需要看图时，还可能发送一张画面。",
+  "privacy.screen.stop": "停止会议录音后，截取的画面和识别出的文字会被删除。",
+  "privacy.screen.body": "只在本机读取你选择的窗口。",
   "privacy.aiUse.title": "AI 使用记录",
   "privacy.aiUse.body": "记录 AI 写了什么、核对了什么。",
   "privacy.aiUse.private":
@@ -3859,7 +3910,6 @@ export const zhCN = {
   "composer.scope.leftOut.one": "全部文档 · 已排除 1 个文件夹",
   "composer.scope.leftOut": "全部文档 · 已排除 {count} 个文件夹",
   "scope.openNote": "在其中新建笔记",
-  "composer.scope.allLabel": "搜索范围：你的全部文档。缩小范围（@）",
   "composer.scope.allTitle": "搜索你的全部文档。输入 @ 缩小范围",
   "composer.scope.allEmptyFolder": "“{folder}”中还没有文档，因此搜索你的全部文档。输入 @ 缩小范围",
   "composer.scope.change": "{name}。更改搜索范围（@）",
@@ -3995,6 +4045,8 @@ export const zhCN = {
   "models.directory.noMatch": "没有与“{query}”匹配的服务。",
   "models.directory.added": "已添加",
   "ai.lede": "AI 的来源，以及每项任务使用的模型",
+  "ai.ownAi.line":
+    "在 IncarnaMind 里设置模型是可选的。设置后可使用助手、连接器、技能、自动整理和会后笔记。",
   "ai.jobs.title": "各项任务使用的模型",
   "ai.jobs.answers": "回答和写作",
   "ai.jobs.answers.line": "助手、提问、对比、编辑和核对",
@@ -4028,8 +4080,8 @@ export const zhCN = {
   "ai.jobs.search.offLine": "按含义查找段落 · 135 MB，在这台电脑上",
   "ai.jobs.search.line": "按含义查找段落，在这台电脑上",
   "ai.jobs.search.server": "其他服务器…",
-  "ai.jobs.checkWrites": "自动核对助手写入的内容",
-  "ai.jobs.checkWrites.line": "写入后立即核对。关闭时，等你点“核对”后再核对。",
+  "ai.jobs.checkWrites": "自动核对助手和你自己的 AI 写入的内容",
+  "ai.jobs.checkWrites.line": "写入或交来后立即核对。关闭时，等你点“核对”后再核对。",
   "ai.jobs.web": "回答时搜索网页",
   "ai.jobs.web.line": "使用回答模型自带的搜索",
   "ai.payer.plan": "{plan}已包含",
@@ -4177,6 +4229,7 @@ export const zhCN = {
   "mind.writing": "正在修改…",
   "mind.opening": "正在打开新笔记…",
   "answer.phase.waiting-for-consent": "等待你允许发送",
+  "answer.phase.listening": "正在听…",
   "answer.phase.loading": "正在加载模型…",
   "answer.phase.searching": "正在搜索你的文档…",
   "answer.phase.writing": "正在回答…",
@@ -4653,6 +4706,12 @@ export const zhCN = {
   "citation.badge.notFound.document": "未在“{document}”中找到引文",
   "citation.badge.found.transcript": "已在转写稿 {location} 处找到引文",
   "citation.badge.notFound.transcript": "未在转写稿 {location} 处找到引文",
+  "citation.badge.found.screen": "从共享屏幕读取",
+  "citation.badge.notFound.screen": "共享屏幕上未找到引文",
+  "citation.screen.deleted": "会议结束后已删除",
+  "citation.screen.window": "{window} 窗口",
+  "citation.screen.kept": "在这台电脑上识别。会议结束后，屏幕上的内容都不保留。",
+  "citation.screen.picture": "{time} 的共享屏幕",
   "citation.badge.cantCheck": "无法核对",
   "citation.badge.pictureNotChecked": "图片，未核对",
   "citation.badge.checkPage": "请核对原页",
@@ -4666,6 +4725,7 @@ export const zhCN = {
   "citation.reason.no-text": "所引位置没有文字，例如扫描页。",
   "citation.reason.picture": "这条引用指向一张图片，没有可核对的文字。",
   "citation.reason.document-removed": "这个文档已删除。",
+  "citation.reason.screen-deleted": "会议结束后，共享屏幕上的内容都不保留，所以没有可打开的内容。",
   "citation.reason.source-removed": "来源已移除。",
   "citation.yourNote": "你的笔记：{title}，{date}",
   "citation.ownRecord": "你自己的记录",
@@ -4775,6 +4835,39 @@ export const zhCN = {
   "skills.settings.license": "许可证：{license}",
   "skills.settings.scripts.one": "1 个脚本",
   "skills.settings.scripts": "{count} 个脚本",
+  "skills.builtIn.meeting-board.title": "董事会会议",
+  "skills.builtIn.meeting-board.short": "议案、表决结果、行动事项和会上提到的风险。",
+  "skills.builtIn.meeting-board":
+    "区分提案和通过的决议。逐字稿给出了票数或弃权情况时才记录，风险写明由谁提出。",
+  "skills.builtIn.meeting-client.title": "客户会议",
+  "skills.builtIn.meeting-client.short": "客户提了什么、双方谈妥了什么，还有什么待确认。",
+  "skills.builtIn.meeting-client":
+    "先写客户的诉求，再写双方明确同意的内容。仍在商量的要求留在待确认事项里。",
+  "skills.builtIn.meeting-interview.title": "面试",
+  "skills.builtIn.meeting-interview.short": "按主题整理回答，保留已提出的疑问和建议。",
+  "skills.builtIn.meeting-interview":
+    "将候选人的原话和面试官的判断分开。只有会上明确给出建议，才写进建议一栏。",
+  "skills.builtIn.meeting-legal.title": "法律咨询",
+  "skills.builtIn.meeting-legal.short": "当事人陈述、律师意见及适用范围、待补材料和下一步。",
+  "skills.builtIn.meeting-legal":
+    "区分当事人陈述和律师意见。意见的适用条件与原话一起保留，不自行补充法律判断。",
+  "skills.builtIn.meeting-one-on-one.title": "一对一",
+  "skills.builtIn.meeting-one-on-one.short": "整理双方关心的事、反馈和各自答应的下一步。",
+  "skills.builtIn.meeting-one-on-one":
+    "双方单独沟通时，记录各自的优先事项、反馈和需要的支持。只有本人答应的事才列为待办。",
+  "skills.builtIn.meeting-sales.title": "销售通话",
+  "skills.builtIn.meeting-sales.short": "客户需求、答复、异议、报价和商定的下一步。",
+  "skills.builtIn.meeting-sales":
+    "把每个问题和当场答复放在一起，附上原话。分清报价和已经谈妥的条款，没人回答的地方保留问题。",
+  "skills.builtIn.meeting-team.title": "团队例会",
+  "skills.builtIn.meeting-team.short": "各项工作的进展、决定、阻碍和下一步。",
+  "skills.builtIn.meeting-team":
+    "进展按事项归纳。把阻碍与已经作出的决定分开。待办只写会上明确的负责人和时间。",
+  "meetings.template.importOther": "请选择会议模板的文件夹或压缩包。",
+  "meetings.settings.templates": "会议模板",
+  "skills.settings.meetings": "会议",
+  "skills.settings.meetingFillUncovered": "补全笔记没写到的部分",
+  "skills.settings.newMeeting": "新建会议模板…",
   "skills.settings.builtIn": "内置",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.
   "skills.builtIn.chronology.title": "事件时间线",
@@ -6084,13 +6177,18 @@ export const zhCN = {
   "error.restore.folderLimit": "资料库最多可有 100 个文件夹，请先删除一个，再恢复。",
   "error.restore.notDeleted": "“{name}”尚未删除，无法彻底删除。",
   "error.history.gone": "该版本已不再保留。",
+  "error.linkedFolder.inData":
+    "这个文件夹是 IncarnaMind 自己的数据文件夹，或在其中，无法关联。请选择你自己的文件夹。",
   "error.linkedFolder.keep": "IncarnaMind 无法确定要保留哪些文档。",
   "error.linkedFolder.notThis": "这个文件夹中没有“{name}”的文件。请选择存放这些文件的文件夹。",
   "error.linkedFolder.overlaps": "这个文件夹与某个关联文件夹重叠。请选择“{name}”现在所在的文件夹。",
   "error.linkedFolder.taken": "“{file}”已在 IncarnaMind 中。先删除它，再定位文件夹。",
   "error.agent.notConnected": "这个智能体尚未连接。",
   "error.agent.cantAsk": "这个智能体现在无法读取这篇笔记。",
+  "error.agent.cantOrganize":
+    "这个智能体目前没有权限整理这些文档。请在智能体设置里查看共享的文件夹。",
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
+  "error.agent.cantAskDocument": "这个智能体现在无法读取这个文档。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
   "error.agent.nameEmpty": "输入智能体的名称。",
   "error.firstRun.work": "这些不是设置里可选的工作类型。",
@@ -6113,11 +6211,15 @@ export const zhCN = {
   "error.library.autoNotLocal": "自动分类必须在这台电脑上运行。",
   "error.library.localModelMissing": "输入本地服务器和分类模型。",
   "error.library.ollamaNotLocal": "Ollama 分类模型必须在这台电脑上运行。",
+  "error.library.projectUndo": "无法撤销设为项目：不知道文件夹中各个文件原先在哪里。",
   "error.meeting.notFound": "这个会议不存在或已删除。",
   "error.meeting.purgeFailed":
     "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
   "error.meeting.otherRecording": "正在录制另一个会议。先停止它。",
   "error.meeting.noticeUnread": "录制会议前，先阅读录制提示。",
+  "error.meeting.noSharedScreen": "这个版本的 IncarnaMind 无法读取共享屏幕。",
+  "error.meeting.noWindow": "选择要读取的窗口。",
+  "error.meeting.screenNotKept": "会议中的这个屏幕已不再保留。",
   "error.meeting.cantDiscard": "只有尚未开始的会议才能删除。",
   "error.meeting.alreadyStarted": "这个会议已经开始。",
   "error.meeting.notRecording": "这个会议没有在录制。",
@@ -6174,6 +6276,7 @@ export const zhCN = {
   "error.transcription.serverScheme": "服务器地址必须以 wss:// 或 https:// 开头。",
   "error.transcription.serverEncrypted":
     "会议音频只能加密发送到其他电脑：请使用 wss:// 或 https:// 地址。",
+  "error.meeting.templateBusy": "请等笔记补全后再更改模板。",
   "error.meeting.template": "这不是会议模板。请从模板菜单中选择。",
   "error.comparison.noQuestion": "先添加一个要对比的问题。",
   "error.comparison.tooManyQuestions": "对比表最多可以有 {max} 个问题。",
@@ -6556,12 +6659,16 @@ export const zhCN = {
   "approvals.card.alwaysAllow": "始终允许",
   "approvals.card.alwaysAllowHint": "今后运行 {tool} 时不再询问 · 可在“设置 › 批准”中恢复默认",
   "approvals.card.deny": "拒绝",
+  "approvals.thirdParty.read.sharedScreen": "这条回答读过共享屏幕，所以会先问你。",
+  "approvals.thirdParty.read.transcript": "这条回答读过会议中别人说的话，所以会先问你。",
   "approvals.thirdParty.read.imported": "会先问你：这条回答读过含有导入文字的笔记。",
   "approvals.thirdParty.read.webPage": "会先问你：这条回答读过网页。",
   "approvals.thirdParty.read.checkedDocument": "会先问你：这条回答读过正在核对的文档。",
   "approvals.thirdParty.task.imported": "会先问你：这个任务读过含有导入文字的笔记。",
   "approvals.thirdParty.task.webPage": "会先问你：这个任务读过网页。",
   "approvals.thirdParty.task.checkedDocument": "会先问你：这个任务读过正在核对的文档。",
+  "approvals.thirdParty.mind.sharedScreen": "这篇笔记里有来自共享屏幕的文字，所以会先问你。",
+  "approvals.thirdParty.mind.transcript": "这篇笔记里有来自会议转录稿的文字，所以会先问你。",
   "approvals.thirdParty.mind.imported": "会先问你：这篇笔记里有导入的文字。",
   "approvals.thirdParty.mind.webPage": "会先问你：这篇笔记里有来自网页的文字。",
   "approvals.thirdParty.mind.checkedDocument": "会先问你：这篇笔记里有正在核对的文档中的文字。",
@@ -6575,6 +6682,10 @@ export const zhCN = {
     "会先问你：这个任务读过一篇笔记，里面有已连接智能体写的文字。",
   "approvals.thirdParty.mind.outsideAgent": "会先问你：这篇笔记里有已连接智能体写的文字。",
   "approvals.thirdParty.conversation.outsideAgent": "会先问你：这个对话里有已连接智能体写的文字。",
+  "approvals.thirdParty.conversation.transcript":
+    "这个对话里有来自会议转写稿的文字，所以会先问你。",
+  "approvals.thirdParty.conversation.sharedScreen":
+    "这个对话里有来自共享屏幕的文字，所以会先问你。",
   "approvals.call.waiting": "等待你的批准：{connector}：{tool}",
   "approvals.call.denied": "未允许：{connector}：{tool}",
   "approvals.call.allowed": "经你批准，已调用 {connector}：{tool}",
@@ -6623,11 +6734,12 @@ export const zhCN = {
   "firstOpen.step.files.done": "已添加你的文档",
   "firstOpen.step.agentAsk.title": "让你的 AI 写一份文档",
   "firstOpen.step.agentAsk.done": "你的 AI 写好了一篇笔记",
-  "firstOpen.agent.paste": "把这句话粘贴到{agent}：",
-  "firstOpen.agent.line": "在 IncarnaMind 里把我的文档总结成一篇新笔记，然后对照这些文档核对一遍。",
+  "firstOpen.agent.line": "在 IncarnaMind 里把文档{document}简要总结成一篇新笔记。",
+  "firstOpen.agent.noDocument": "还没有文档。添加一份，你的 AI 就能为它写一篇笔记。",
+  "firstOpen.agent.unshared": "已连接的 AI 都还读不了你的文档。请在智能体设置里共享给它们。",
   "firstOpen.step.agentLook.title": "查看需要留意的地方",
   "firstOpen.step.agentLook.done": "已查看需要留意的地方",
-  "firstOpen.step.agentLook.waiting": "{agent}核对完这篇笔记后，结果会显示在这里。",
+  "firstOpen.step.agentLook.waiting": "笔记核对完后，需要留意的地方会显示在这里。",
   "firstOpen.step.agentLook.look.one": "1 处需要留意。",
   "firstOpen.step.agentLook.look": "{count} 处需要留意。",
   "firstOpen.step.agentLook.all": "全部有依据。",
@@ -6802,11 +6914,12 @@ export const zhCN = {
   "settings.calendarOffers": "日历上的会议",
   "settings.calendarOffers.detail": "两人或以上的日程开始前 1 分钟，提示“记录会议”。",
   "settings.callOffers": "不在日历上的通话",
+  "settings.callOffers.detailWindows": "会议应用使用麦克风时提示。离开通话时请手动停止录制。",
   "settings.callOffers.detail": "会议应用开始使用麦克风时提示。",
   "settings.callOffers.perApp": "按应用…",
   "settings.callOffers.apps": "这些应用使用麦克风时询问",
   "settings.callOffers.noPactl": "需要 PulseAudio 的 pactl，这台电脑上没有。",
-  "settings.callOffers.notOnWindows": "Windows 上暂时还不能发现通话，后续版本会加入。",
+  "settings.callOffers.notOnWindows": "此 Windows 版本无法发现通话。",
   "offers.turnOn.line":
     "IncarnaMind 现在可以保留在菜单栏中、登录时打开，并在通话开始时提示你记录会议。",
   "offers.turnOn.line.other":
@@ -6897,6 +7010,45 @@ export const zhCN = {
   "meetings.transcript.speakersFailed": "转写稿已保存，但未能区分发言人。",
   "meetings.transcript.retry": "重试",
   "meetings.transcript.save": "保存",
+  "meetings.settings.pictureLimit": "每场会议的图片上限",
+  "meetings.settings.pictureLimitBody": "设为 0 时只发送文字。",
+  "meetings.screen.use.text": "读取了共享屏幕上的文字",
+  "meetings.screen.use.picture": "看了共享屏幕",
+  "meetings.screen.use.no-vision": "这次用了屏幕文字。你选的模型不支持图片。",
+  "meetings.screen.use.limit": "这次用了屏幕文字。已达到本次会议的图片上限。",
+  "meetings.screen.use.budget": "这次用了屏幕文字。发送图片会超出费用上限。",
+  "meetings.screen.look": "看一下屏幕",
+  "citation.screen.fromPicture": "从 {time} 共享屏幕的画面中读取，无法对照文字核实。",
+  "meetings.screen.ask": "会上有人共享屏幕吗？",
+  "meetings.screen.askProvider": "你提问时，{provider} 可以收到屏幕文字，需要时也会收到一张画面。",
+  "meetings.screen.askModel": "你提问时，所选模型可以收到屏幕文字，需要时也会收到一张画面。",
+  "meetings.screen.askExternal": "在通话助手中，你连接的 AI 会使用转录稿。",
+  "meetings.screen.choose": "选择窗口…",
+  "meetings.screen.decline": "这次不用",
+  "meetings.screen.explain": "macOS 会请求“屏幕录制”权限。只读取你选的窗口，什么都不保留。",
+  "meetings.screen.continue": "继续",
+  "meetings.screen.offer": "读取共享屏幕…",
+  "meetings.screen.choosing": "正在开始读取窗口…",
+  "meetings.screen.reading": "正在读取“{window}”窗口",
+  "meetings.screen.readingShared": "正在读取共享的窗口",
+  "meetings.screen.downloading":
+    "正在读取“{window}”窗口 · 正在准备文字识别（{percent}%，共 {size}）",
+  "meetings.screen.downloadingShared":
+    "正在读取共享的窗口 · 正在准备文字识别（{percent}%，共 {size}）",
+  "meetings.screen.stop": "停止",
+  "meetings.screen.wholeScreen":
+    "只能读取一个窗口，不能读取整个屏幕。选择会议应用的窗口，或通话所在的浏览器窗口。",
+  "meetings.screen.denied": "IncarnaMind 没有“屏幕录制”权限，所以不读取共享屏幕。",
+  "meetings.screen.closed": "共享的窗口已关闭。",
+  "meetings.screen.failed": "无法读取共享屏幕。",
+  "meetings.screen.retry": "重试",
+  "meetings.screen.picker.title": "选择要读取的窗口",
+  "meetings.screen.picker.body":
+    "选择会议应用或通话所在的浏览器窗口。提问时，你选的模型可能收到窗口中的文字；如果问题需要看图，还可能收到一张截图。停止录音后，IncarnaMind 会删除画面和识别出的文字。",
+  "meetings.screen.picker.loading": "正在查找窗口…",
+  "meetings.screen.picker.none": "没有可读取的窗口。打开会议后再试一次。",
+  "meetings.screen.picker.read": "读取此窗口",
+  "meetings.screen.picker.cancel": "取消",
   "meetings.fill.section.summary": "摘要",
   "meetings.fill.section.decisions": "决定",
   "meetings.fill.section.actions": "待办事项",
@@ -6946,6 +7098,7 @@ export const zhCN = {
   "meetings.fill.tryAgain": "重试",
   "meetings.fill.problem.noTranscript": "转写稿里没有内容",
   "meetings.fill.problem.model": "模型未能补全笔记",
+  "meetings.fill.problem.templateNeedsNotes": "此模板只补全你写下的笔记",
   "meetings.fill.problem.empty": "模型没有找到可补充的内容",
   "meetings.fill.problem.unchecked": "模型写的内容都没能在转写稿中核对上",
   "meetings.fill.notMentioned": "会上没有提到。",
@@ -7097,6 +7250,8 @@ export const zhCN = {
   "meetings.settings.routeChange": "在“设置 › AI”中更改",
   "meetings.settings.whatBoth": "你的麦克风和其他人（电脑声音）。",
   "meetings.settings.whatMe": "只录制你的麦克风。",
+  "meetings.settings.screen": "会议开始时询问是否读取共享屏幕",
+  "meetings.settings.screenBody": "每次开会时，选择要读取的窗口。",
   "meetings.settings.keepAudio": "保留会议音频",
   "meetings.settings.keepAudioOff": "会议结束一天后删除音频。",
   "meetings.settings.keepAudioOn": "会议音频一直保留，直到你删除。",
@@ -7309,6 +7464,7 @@ export const zhCN = {
   "meetings.command.audioWhileRecording": "暂停或停止录制后，才能删除音频",
   "transcript.action.menu": "这句的操作",
   "transcript.action.menu.line": "这句的操作：{time}，{text}",
+  "transcript.action.selection": "将选中的原话加入待办",
   "transcript.action.add": "加入待办事项",
   "transcript.action.already": "待办事项中已有这句",
   "transcript.addToNote": "加入笔记",
@@ -7553,6 +7709,8 @@ export const zhCN = {
   "meetings.help.addToNotes": "加入笔记",
   "meetings.help.added": "已加入笔记",
   "meetings.help.recommended": "推荐",
+  "meetings.template.selection": "模板：{name}",
+  "meetings.template.fillAgain": "重新补全",
   "meetings.template.chip": "模板",
   "meetings.template.title": "模板：为这类会议添加专门的帮助",
   "meetings.template.none": "无",
@@ -7618,6 +7776,7 @@ export const zhCN = {
   "steps.searched": "已搜索{scope} · {sources}",
   "steps.searchedWeb": "已联网搜索 · {sources}",
   "steps.listened": "已听实时转写 · {sources}",
+  "steps.listened.screen": "读了共享屏幕和实时转写 · {sources}",
   "steps.sources": "{count} 个来源",
   "steps.sources.one": "1 个来源",
   "steps.sources.none": "没有来源",
@@ -7965,17 +8124,32 @@ export const zhCN = {
     "等待期间，这个智能体能读取的内容有了变化，因此没有返回任何内容。请再调用一次。",
   "agents.problem.wallShared": "“{folder}”只在本文件夹内工作，不能和其他文件夹共用一个智能体",
   "agents.problem.not-found": "共享给此智能体的文件夹中没有这个段落、文档、笔记或引用。",
+  "agents.cite.left.one":
+    "为免结果过长，你的 {total} 条引文中最后 1 条没有核对：请在下一次调用中重新发送。",
+  "agents.cite.left.other":
+    "为免结果过长，你的 {total} 条引文中最后 {count} 条没有核对：请在下一次调用中重新发送这 {count} 条。",
+  "agents.problem.citeWithoutPassage":
+    "没有引用任何内容：每条引文都要填写 search 或 read_passages 给出的 passageId，或在 path 中填写文件的完整路径。",
+  "agents.problem.citeNotFound":
+    "没有引用任何内容：共享给此智能体的文件夹中没有段落“{passageId}”。请为每条引文填写 search 或 read_passages 给出的 passageId，原样填写。",
+  "agents.read.left.one":
+    "这不是整篇文档：其 {total} 个段落中还有最后 1 个未读，摘要或引文需要每个段落的全文，所以请先把 from 设为 next 接着读，再写关于它的内容。",
+  "agents.read.left.other":
+    "这不是整篇文档：其 {total} 个段落中还有 {count} 个未读，摘要或引文需要每个段落的全文，所以请先把 from 设为 next 接着读，再写关于它的内容。",
+  "agents.problem.documentChanged": "你开始读取后，“{document}”有了改动。请从开头重新读取。",
+  "agents.notShared":
+    "用户在 IncarnaMind 中还有未共享给你的内容。如果用户问的内容不在这里，请告诉用户可以在“设置 → 智能体”中共享更多内容给你。",
   "agents.problem.chat-not-ready":
     "IncarnaMind 还没有可用的 AI 模型。在“设置 › AI”中设置一个，或改为搜索并引用。",
   "agents.problem.chat-consent":
     "IncarnaMind 的 AI 模型尚未获得允许。在 IncarnaMind 中提一个问题即可允许。",
   "agents.problem.answer-failed": "IncarnaMind 无法回答：{message}",
-  "agents.problem.noRequest":
-    "IncarnaMind 中没有等你读取的请求：每条请求只能读取一次。请按用户写的内容处理，或请用户在 IncarnaMind 中重新发送。",
+  "agents.request.none":
+    "IncarnaMind 中没有等你读取的请求：每条请求只能读取一次。请按用户写的内容处理。",
   "agents.problem.requestNoteDeleted":
-    "这条请求涉及的笔记已在 IncarnaMind 中删除，没有可改的内容。请告诉用户；用户恢复这篇笔记后，可以再问一次。",
+    "这条请求涉及的内容已在 IncarnaMind 中删除，没有可继续处理的内容。请告诉用户；用户恢复后，可以再问一次。",
   "agents.problem.requestOutOfReach":
-    "这条请求涉及的笔记你现在无法读取。请告诉用户在“设置 → 智能体”中与你共享它所在的文件夹，然后再问一次。",
+    "这条请求涉及的内容你现在无法读取。请告诉用户在“设置 → 智能体”中与你共享它所在的文件夹，然后再问一次。",
   "agents.problem.invalid": "IncarnaMind 无法读取这个请求。",
   "agents.problem.failed": "IncarnaMind 出了点问题。再试一次。",
   "agents.answer.notFound": "[未找到引文]",
@@ -8014,7 +8188,7 @@ export const zhCN = {
     "check_mind_yourself 给出句子之后，这篇笔记有了改动。重新调用 check_mind_yourself，再交回结果。",
   "agents.check.results": "请提供 results：每个句子一条结果，最多 {max} 条。",
   "agents.check.nothingLeft":
-    "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户；没有要交给 report_check 的结果。",
+    "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户。如果要自己重新核对这些句子，用 again: true 调用 check_mind_yourself，再把结果交给 report_check：只写在回复里的结论不会改变笔记上的标记。",
   "agents.check.reportAgain":
     "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用、这次核对中 run_analysis 的结果，或一份计算过程（其中每个数都出自所引原文，算式能得出所给结果），且不能来自用户自己的工作文件。",
   "agents.note.writtenBy": "{name} 写入，{when}",
@@ -8108,6 +8282,14 @@ export const zhCN = {
     "笔记中有 1 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这一句。",
   "agents.propose.unchecked":
     "笔记中有 {count} 句现在没有核对结果：结束前用 check_mind_yourself 核对，它只给出这些句子。",
+  "agents.write.waits.one":
+    "笔记中有 1 句还没有核对结果，等用户在 IncarnaMind 里点“核对”；如果用户让你核对这篇笔记，现在就用 check_mind_yourself 核对，它会给出这一句。",
+  "agents.write.waits":
+    "笔记中有 {count} 句还没有核对结果，等用户在 IncarnaMind 里点“核对”；如果用户让你核对这篇笔记，现在就用 check_mind_yourself 核对，它会给出这些句子。",
+  "agents.write.checkNow.one":
+    "笔记中有 1 句还没有核对结果，而用户开启了写入后立即核对：结束前现在就用 check_mind_yourself 核对这一句，再用 report_check 交回结果。",
+  "agents.write.checkNow":
+    "笔记中有 {count} 句还没有核对结果，而用户开启了写入后立即核对：结束前现在就用 check_mind_yourself 核对这些句子，再用 report_check 交回结果。",
   "agents.read.unchecked.one":
     "这篇笔记中有 1 句还没有核对结果：要告诉用户它对不对，先用 check_mind_yourself 核对，它会给出这一句。",
   "agents.read.unchecked":
@@ -8116,10 +8298,10 @@ export const zhCN = {
   "settings.pages.agents": "智能体",
   "agents.settings.experimental": "实验",
   "agents.settings.lead": "在 Claude、Codex 或 Cursor 里问你的文档。",
-  "agents.settings.intro": "让你常用的 AI 工具读取你选定的文件夹。",
+  "agents.settings.intro": "让你常用的 AI 工具读取你的文档。",
   "agents.settings.switch": "连接 AI 智能体",
   "agents.settings.switch.off": "已关闭：任何智能体都无法读取你的文档。",
-  "agents.settings.switch.on": "已开启：IncarnaMind 打开时，各智能体可读取各自的文件夹。",
+  "agents.settings.switch.on": "已开启：IncarnaMind 打开时，各智能体可读取你共享给它的内容。",
   "agents.settings.paused": "智能体已暂停：已开启“所有内容都留在这台电脑上”。",
   "agents.settings.paused.open": "设置 › AI",
   "agents.settings.connected": "已连接的智能体",
@@ -8146,6 +8328,7 @@ export const zhCN = {
   "agents.sentence.other": "你的智能体",
   "agents.pairing.reads": "可读取：{folders}",
   "agents.pairing.readsNothing": "还没有可读取的文件夹",
+  "agents.pairing.readsAll": "可读取你的全部文档和笔记，包括以后添加的",
   "agents.pairing.proposes": "可在其中新建笔记和页面、提交文件，对你的笔记提出修改",
   "agents.pairing.inside": "也读取其中的文件夹：{folders}",
   "agents.folders.sharedWith": "已随“{folder}”共享",
@@ -8154,7 +8337,7 @@ export const zhCN = {
   "agents.pairing.installAgain": "在 Claude 中重新打开安装",
   "agents.pairing.renameLabel": "{agent}的名称",
   "agents.pairing.folders": "文件夹…",
-  "agents.pairing.foldersTitle": "{agent}可以读取的文件夹",
+  "agents.pairing.foldersTitle": "{agent}可以读取的内容",
   "agents.pairing.activity": "活动",
   "agents.pairing.disconnect": "断开连接",
   "agents.pairing.details": "技术细节",
@@ -8227,7 +8410,9 @@ export const zhCN = {
   "agents.handOver.unread.range": "这个工作簿没有这个名字的工作表。",
   "agents.handOver.unread.word": "IncarnaMind 已保留文件，但无法作为 Word 文件读取。",
   "agents.handOver.notChecked.not-ready":
-    "IncarnaMind 还没有设置用于核对的 AI 模型，所以没有核对。IncarnaMind 里没有模型时，请你自己核对，就像核对你写的笔记一样：用它的 mindId 调用 check_mind_yourself，再用 report_check 交回结果。",
+    "还没有核对：IncarnaMind 里没有设置 AI 模型。请你现在自己核对这个文件：用它的 mindId 调用 check_mind_yourself，取得要核对的内容，再用 report_check 交回结果。",
+  "agents.handOver.notChecked.waits":
+    "还没有核对：等用户在 IncarnaMind 里点“核对”。如果用户让你核对，现在就核对：用它的 mindId 调用 check_mind_yourself，再用 report_check 交回结果。",
   "agents.handOver.notChecked.consent-needed":
     "用户还没有允许把 IncarnaMind 的核对发送到其 AI 模型服务，所以没有核对。用户可以在它的笔记里核对。",
   "agents.handOver.notChecked.local-mode":
@@ -8270,10 +8455,10 @@ export const zhCN = {
   "agents.reason.no-python": "这台电脑无法为它运行代码",
   "agents.connect.title": "允许{agent}读取你的文档？",
   "agents.connect.body":
-    "它可以读取你所选的文件夹及其中的文件夹，以及其中的笔记、会议和页面，包括每场会议的转写稿及其中的发言人名字；选了“不在文件夹中”时，还能读取它自己写在那里的笔记和页面。只在本文件夹内工作的文件夹只能单独共享。列出时会发送每个文件夹的名称、内部 ID 和它在其中的位置、其中每个文档的名称、类型和内部 ID、每篇笔记的名称、内部 ID 和最后修改时间（会议笔记还有会议开始的时间），以及每个页面的标题、内部 ID、版本号和最后修改时间；读取页面时会发送页面的 HTML，以及其中文件的名称、类型和大小。IncarnaMind 还可以在这台电脑上为它运行代码：对这些文件夹中的表格或 CSV 文件运行时，发送代码给出的结果；对它可读取内容的名称、类型、文件夹和标签运行时，只发送算出的数字。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。你让它整理文档时，它可以读取文档开头的文字，以及共享文件夹内文档上已有标签的名称和内部 ID。它提出的建议由你确认。",
+    "它可以读取你共享的文件夹及其中的文件夹，以及其中的笔记、会议和页面，包括每场会议的转写稿及其中的发言人名字；选了“不在文件夹中”时，还能读取它自己写在那里的笔记和页面。“全部文档和笔记”指每个文件夹（包括你以后新建的）和不在文件夹中的内容（包括你在那里的笔记），但从不包括示例。只在本文件夹内工作的文件夹从不在其中，只能单独共享。列出时会发送每个文件夹的名称、内部 ID 和它在其中的位置、其中每个文档的名称、类型和内部 ID、每篇笔记的名称、内部 ID 和最后修改时间（会议笔记还有会议开始的时间），以及每个页面的标题、内部 ID、版本号和最后修改时间；读取页面时会发送页面的 HTML，以及其中文件的名称、类型和大小。IncarnaMind 还可以在这台电脑上为它运行代码：对这些文件夹中的表格或 CSV 文件运行时，发送代码给出的结果；对它可读取内容的名称、类型、文件夹和标签运行时，只发送算出的数字。它列出和读取的内容都会发送给{agent}所用的 AI 模型，适用该服务的条款；某些套餐可能会用这些内容训练模型。你让它整理文档时，它可以读取文档开头的文字，以及共享文件夹内文档上已有标签的名称和内部 ID。它提出的建议由你确认。",
   "agents.connect.name": "名称",
   "agents.connect.namePlaceholder": "我的智能体",
-  "agents.connect.folders": "它可以读取的文件夹",
+  "agents.connect.folders": "它可以读取的内容",
   "agents.connect.allUnfiled":
     "你的文档还没有放进文件夹，这里就是全部文档。想只分享一部分，先把它们放进一个文件夹。",
   "agents.connect.noneYet": "还没有文档：之后添加且不在文件夹中的文档，它都能读取。",
@@ -8281,13 +8466,15 @@ export const zhCN = {
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
-    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版并加以核对。它对你笔记的修改等你处理。",
-  "agents.connect.reads.folders":
-    "它可以读取你在下面勾选的文件夹。它读取的内容会发送给{agent}所用的 AI 模型。",
+    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版。它写入的内容等你点“核对”，除非你在“设置 › AI”中开启了写入后立即核对。它对你笔记的修改等你处理。",
   "agents.connect.reads.all":
-    "它可以读取你的全部文档，包括之后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
-  "agents.connect.reads.none":
-    "你还没有添加文档，之后添加的它都能读取。它读取的内容会发送给{agent}所用的 AI 模型。",
+    "它可以读取你的全部文档和笔记，包括以后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
+  "agents.connect.reads": "它读取的内容会发送给{agent}所用的 AI 模型。",
+  "agents.connect.reads.projects": "它读取的内容会发送给{agent}所用的 AI 模型。项目只能单独共享。",
+  "agents.connect.reads.walled":
+    "它读取的内容会发送给{agent}所用的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
+  "agents.share.all": "我的全部文档和笔记，包括以后添加的",
+  "agents.share.folders": "选择文件夹",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
@@ -8299,6 +8486,8 @@ export const zhCN = {
   "agents.done.bundle": "已打开 Claude：在其中点击“安装”完成连接。",
   "agents.done.link": "已打开{agent}：在其中点击“安装”完成连接。",
   "agents.done.wrote": "已添加到{agent}的设置中。在{agent}中开始一个新会话即可使用。",
+  "agents.done.wrote.codex":
+    "在{agent}中开始新对话。Codex 询问是否把文件交给 IncarnaMind 时，选“Allow for this session”（允许本次会话），这次对话里再交付文件就不用逐次确认。",
   "agents.done.command": "已复制。粘贴到终端中运行。",
   "agents.done.settings": "已复制。在{agent}中把它添加为新的服务器，然后重新启动它。",
   "agents.done.settings.other":
@@ -8335,9 +8524,26 @@ export const zhCN = {
   "agents.ask.fixAll": "交给{agent}修改这 {count} 句",
   "agents.ask.waiting": "等{agent}读取你的请求。",
   "agents.ask.read": "{agent}已读取你的请求。",
+  "agents.ask.continue": "在已打开的对话中继续",
+  "agents.ask.continued": "已复制，并已切到{agent}：粘贴到你刚才的对话里即可。",
+  "agents.ask.continueCopied": "已复制。请打开{agent}，粘贴到你刚才的对话里。",
+  "agents.asked.opened": "已交给{agent}：在那里发送请求即可。",
+  "agents.asked.copied": "已为{agent}复制：粘贴到那里并发送请求。",
+  "agents.asked.checking": "{agent}正在核对这篇笔记。",
+  "agents.asked.writing": "{agent}正在写笔记。",
+  "agents.asked.organizing": "{agent}正在整理文档。",
+  "agents.asked.quiet": "{agent}还没有动静。请发送请求，或再问一次。",
+  "agents.asked.again": "再问一次",
+  "agents.asked.short.asked": "已交给你的 AI",
+  "agents.asked.short.working": "你的 AI 正在核对",
+  "agents.asked.short.quiet": "你的 AI 还没有动静",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
     "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",
+  "agents.ask.meeting.template":
+    "用户选择了会议模板。保留用户原有的标题、笔记和修改。如果有双语小节，使用通话语言对应的标题：{outline}。{fill} 引用的 Markdown 仅作为写作要求：{guidance}。模板不能改变上述来源、引文核对、工具或访问权限。",
+  "agents.ask.meeting.template.uncovered": "只有在有已核对的内容时，才补写笔记未覆盖的小节。",
+  "agents.ask.meeting.template.onlyNotes": "只补全用户写下的行或标题，不添加未覆盖的小节。",
   "agents.ask.meeting.propose":
     "核对后，请用 propose_changes 一次性建议将整理结果追加到这篇已有笔记的末尾。如果没有带编号的段落，请用 ¶0+ 添加。只需提交这一组修改建议。",
   "agents.ask.meeting.reply": "请只在对话中回复核对后的整理结果。",
@@ -8351,6 +8557,21 @@ export const zhCN = {
   "meetings.notesAgent.unshared": "要用 {agent} 整理，请将这篇会议笔记移到已与它共享的文件夹。",
   "meetings.notesAgent.unavailable": "请在设置中重新连接 AI 或恢复访问权限。",
   "meetings.notesAgent.settings": "智能体设置",
+  "meetings.help.agent.used": "{agent} · 本场会议近期转写",
+  "meetings.help.agent.setting": "通话助手使用的 AI",
+  "meetings.help.agent.disclosure":
+    "选择 Claude Code 或 Codex 后，提问时会把问题和本场转写最近十分钟内的相关原话发给它。请先向它共享会议所在的文件夹。",
+  "meetings.help.agent.builtin": "使用应用的回答模型",
+  "meetings.help.agent.missing": "所选 AI 暂不可用",
+  "error.meeting.callHelpAgentDenied":
+    "请将会议所在的文件夹共享给所选 AI，或在会议设置中选择其他 AI。",
+  "error.meeting.callHelpQuestionTooLong": "请缩短问题后再提问。",
+  "error.meeting.callHelpAgentFailed": "所选 AI 未能回答。请在通话助手中重试。",
+  "meetings.help.agent.insufficient": "目前的会议转写还不足以回答这个问题。",
+  "error.meeting.callHelpAgentRetry": "请在会议进行时回到通话助手重新提问。",
+  "meetings.help.agent.sourceMissing": "会议转写中已找不到这句原话。",
+  "meetings.help.agent.openTranscript": "在转写中打开",
+  "meetings.help.agent.original": "原话 {number} · {location}",
   "meetings.summary.setting": "自动生成会议摘要",
   "meetings.summary.disclosure":
     "录音期间大约每分钟以及结束录音后，所选 AI 会收到新确认的转写内容，以及上一版概览、决定和待办事项。云端请求计入所选服务的用量。",
@@ -8413,6 +8634,9 @@ export const zhCN = {
   "error.meeting.codexSummaryTooLong":
     "本次更新超出了当前 Codex 客户端的 4,000 字节上限。请使用支持较长会议更新的 Codex 版本后重试。",
   "error.meeting.summaryUnavailable": "请在设置中查看所选的摘要 AI，以及它是否有权读取这场会议。",
+  "meetings.summary.needsTranscript": "请先保存转写稿，再生成摘要。",
+  "meetings.summary.retryTranscript": "重试转写",
+  "meetings.summary.share": "请先让你的 AI 可以读取这场会议的笔记和转写稿，再生成摘要。",
   "meetings.summary.failed": "无法生成摘要。",
   "meetings.summary.updateFailed": "无法补全摘要。",
   "agents.ask.line.fix": "把 IncarnaMind 在笔记{title}里标出来的那句改好。",
@@ -8420,7 +8644,12 @@ export const zhCN = {
   "agents.ask.line.note": "关于我在 IncarnaMind 中的笔记{title}：",
   "agents.ask.line.question": "关于我在 IncarnaMind 中的笔记{title}：\n\n{question}",
   "agents.ask.line.questionAlone": "请根据我在 IncarnaMind 中的文档回答：\n\n{question}",
-  "agents.ask.line.meeting": "整理我在 IncarnaMind 中的会议笔记{title}。",
+  "agents.ask.line.questionDocument": "关于我在 IncarnaMind 中的文档{document}：\n\n{question}",
+  "agents.ask.line.questionNoteDocument":
+    "关于我在 IncarnaMind 中的笔记{title}和文档{document}：\n\n{question}",
+  "agents.ask.line.questionScope": "请根据我在 IncarnaMind 中搜索范围内的文档回答：\n\n{question}",
+  "agents.ask.line.check": "对照我在 IncarnaMind 中的文档，核对笔记{title}。",
+  "agents.ask.line.meeting": "先读取我留在 IncarnaMind 里的请求，再按要求整理会议笔记{title}。",
   "agents.ask.request.fix":
     "在 IncarnaMind 中，我的笔记{title}（mindId：{mindId}）经核对，这句话{verdict}：\n\n{sentence}{quote}\n\n请根据我的文档改正这句话，笔记的其他内容不要改动。改完后请你自己再核对一遍这篇笔记。",
   "agents.ask.request.fixAll":
@@ -8440,6 +8669,14 @@ export const zhCN = {
     "我这条消息说的是你提交给 IncarnaMind 的文件{title}（第 {version} 版，来自 {path}）。",
   "agents.ask.request.note":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
+  "agents.ask.request.document": "我这条消息说的是我在 IncarnaMind 中打开的文档：{documents}。",
+  "agents.ask.request.documents":
+    "我这条消息说的是我在 IncarnaMind 中打开的几个文档，最前面的排第一：{documents}。",
+  "agents.ask.request.scope":
+    "我把这个问题限定在 IncarnaMind 的这些文件夹和文档里：{items}。只在这些范围内查找。",
+  "agents.ask.request.item": "{name}（{idName}：{id}）",
+  "agents.ask.request.check":
+    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。如果这篇笔记不是你写的，就用 read_mind 读取，自己核对。最后告诉我哪些句子需要留意。",
   "agents.ask.verdict.unsupported": "没有依据",
   "agents.ask.verdict.contradicted": "与我的文档矛盾",
   "agents.ask.verdict.not-found": "在我的文档中找不到",

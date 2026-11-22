@@ -346,8 +346,9 @@
   .transcript-turn:is(:hover, :focus-within) .transcript-sentence[data-aimed] {
     @apply bg-hover;
   }
-  .transcript-sentence--partial {
-    @apply text-ink-placeholder;
+  .transcript-sentence--partial,
+  .transcript-turn--partial .transcript-text {
+    @apply text-ink-secondary;
   }
   /*
    * A column for the turn's actions keeps them beside the words when shown on pointer or focus.
@@ -360,9 +361,6 @@
   }
   .transcript-line-actions {
     @apply w-7 justify-center px-0;
-  }
-  .transcript-turn--partial .transcript-text {
-    @apply text-ink-placeholder;
   }
   /*
    * In a narrow group the words keep the width: Add to note keeps only its icon, and the page

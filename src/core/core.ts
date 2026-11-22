@@ -34,7 +34,9 @@ import {
   helpLabel,
   isMeetingHelpKind,
   isMeetingTemplate,
+  type MeetingHelpKind,
 } from "../shared/meetingHelp";
+import { meetingSummaryModelRoute } from "../shared/meetingSummary";
 import { bibliographyShown } from "../shared/mindBibliography";
 import {
   chosenCitationStyle,
@@ -64,6 +66,7 @@ import { isPaperOrBook } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { folderScope, hasSearchScope, NO_SCOPE, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
+import { cueTarget } from "../shared/units";
 import { readVerification, verificationOf, writeVerification } from "../shared/verification";
 import { wordFileOf } from "../shared/wordFiles";
 import { wordFontsOf, wordLookOf } from "../shared/wordLook";
@@ -218,7 +221,7 @@ import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
 import { readVtt } from "./documents/formats/vtt";
 import { createOwnFiles } from "./documents/ownFiles";
-import { approximateTokens } from "./documents/passages";
+import { approximateTokens, livePassageText } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
 import {
@@ -232,6 +235,7 @@ import {
   createTextRecognitionModel,
   type TextRecognitionModel,
 } from "./documents/scan";
+import { keywordSearch, windowedPassagesBySeq } from "./documents/search";
 import type { Reranker } from "./documents/searchTool";
 import { tunedSearch } from "./documents/searchTuning";
 import { LANGUAGE_SAMPLE, writtenInChinese } from "./documents/textLanguage";
@@ -301,7 +305,21 @@ import {
   meetingRecord,
   otherCallTranscripts,
 } from "./meetings";
+import {
+  answerWithMeetingAgent,
+  deniedCallHelp,
+  prepareCallHelp,
+  watchCallHelpAccess,
+} from "./meetings/agentHelp";
 import { listParts, meetingFolder, sourceRecording } from "./meetings/audioFiles";
+import {
+  BRIEF_DISMISSED,
+  meetingBriefBlocks,
+  QUESTIONS_DISMISSED,
+  readMeetingBriefHistory,
+} from "./meetings/brief";
+import { briefDocuments } from "./meetings/briefDocuments";
+import { completeBriefAnswer, generateBriefQuestions } from "./meetings/briefQuestions";
 import { createMeetingCandidateReview } from "./meetings/candidateReviews";
 import { createMeetingFill, FILL_PARTS_AT_ONCE, reasonAlone } from "./meetings/fill";
 import { createCaptureHealth } from "./meetings/health";
@@ -317,12 +335,15 @@ import {
   transcriptsApart,
   undoMeetingJoin,
 } from "./meetings/oneItem";
+import { createBriefPreparation } from "./meetings/prepareBrief";
+import { createSharedScreens } from "./meetings/screens";
 import { createSpeakerPass } from "./meetings/speakerPass";
 import { createMeetingSpeakerReview } from "./meetings/speakerReview";
 import { meetingSummaryRoute } from "./meetings/summaryRoute";
 import { meetingSummarySources } from "./meetings/summarySources";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
+import { calendarTemplate, helpTemplateForWriteup, writeupPlan } from "./meetings/writeupTemplates";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
@@ -1501,6 +1522,7 @@ export function createCore(adapters: CoreAdapters): Core {
   if (documents.searchableCount() > 0) rerank.prepare();
   /** Set once outside agents exist: Local mode pauses them. */
   let agentsLocalModeChanged = () => {};
+  let agentsModelChanged = (_ready: boolean) => {};
   /**
    * Where meeting audio may go changed: a live cloud stream whose gate closed stops now (#141).
    * Resolves once the transcription process has dropped it (#2702).
@@ -2242,7 +2264,7 @@ export function createCore(adapters: CoreAdapters): Core {
     requireMind: (mindId) => writableMind(mindId).id,
     mindExists,
     readableMindName,
-    liveTranscript: (mindId) => liveTranscriptOf(mindId),
+    liveTranscript: (mindId, question) => liveTranscriptOf(mindId, question),
     noteCall: (mindId) => noteCallOf(mindId),
     meetingHelp: (mindId, question) => meetingHelpOf(mindId, question),
     otherCallTranscripts: (mindId) => otherCallTranscripts(db, mindId),
@@ -4108,12 +4130,31 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   /** The Folder a Linked folder's file is filed in as it arrives (ADR-0030); null for none. */
   const boundFolderAt = (path: string) => library.boundTo(documents.foldersAbove(path));
-  /** Files a Linked folder's Document in its bound Folder, as the User's, unless it has a filing. */
+  /**
+   * Files a Linked folder's Document in its bound Folder, as the User's, unless it has a filing.
+   * Returns the change, null for none.
+   */
   const fileInBoundFolder = (documentId: string) => {
     const [document] = documents.getMany([documentId]);
-    if (!document?.linkedFolderId || library.hasFiling(documentId)) return;
+    if (!document?.linkedFolderId || library.hasFiling(documentId)) return null;
     const groupId = boundFolderAt(document.path);
-    if (groupId !== null) library.file(documentId, groupId);
+    return groupId === null ? null : library.file(documentId, groupId);
+  };
+  /**
+   * Files each Document under these folders on disk that has no filing of its own in the Project
+   * nearest above it, as binding does (ADR-0030). Returns the changes, for Undo.
+   */
+  const fileUnder = (folderIds: readonly string[]) =>
+    documents.list({}).flatMap((document) => {
+      const above = document.linkedFolderId ? documents.foldersAbove(document.path) : [];
+      if (!above.some((id) => folderIds.includes(id))) return [];
+      const change = fileInBoundFolder(document.id);
+      return change ? [change] : [];
+    });
+  /** Whether a Document is in this folder on disk: a Linked folder's own Folder or one inside it. */
+  const inFolderOnDisk = (documentId: string, folderId: string) => {
+    const [document] = documents.getMany([documentId]);
+    return !!document?.linkedFolderId && documents.foldersAbove(document.path).includes(folderId);
   };
   const mindSources = createMindSources({
     dataDir,
@@ -4373,6 +4414,14 @@ export function createCore(adapters: CoreAdapters): Core {
       else layouts.forgetClosed(canvasIds);
     },
     forgotten: (ids) => layouts.forgetClosed(ids),
+    foldersRestored: (folderIds) => {
+      const bound = library
+        .folders()
+        .flatMap((each) =>
+          folderIds.includes(each.id) && each.boundFolderId ? [each.boundFolderId] : [],
+        );
+      if (bound.length > 0) fileUnder(bound);
+    },
     conversationsChanged,
     tagsChanged,
     tagged: announceTagged,
@@ -4646,7 +4695,10 @@ export function createCore(adapters: CoreAdapters): Core {
         () => chat.readiness(),
         () => lifetime.signal.aborted,
       );
-      if (!lifetime.signal.aborted && newest()) events.emit("chatReadiness.changed", readiness);
+      if (!lifetime.signal.aborted && newest()) {
+        events.emit("chatReadiness.changed", readiness);
+        agentsModelChanged(readiness.ready);
+      }
     } catch (error) {
       // Reading the keychain is async, so the core may have closed meanwhile: nobody is listening.
       if (!lifetime.signal.aborted) throw error;
@@ -4954,7 +5006,7 @@ export function createCore(adapters: CoreAdapters): Core {
     restoreMind: (mindId) =>
       recentlyDeleted.restore([{ kind: "mind", id: mindId }], { reopen: true }),
     editMind: (mindId, change) => content.edit(mindId, change),
-    linkFolder: (path) => documents.linkedFolders.add(path),
+    linkFolder: (path) => documents.linkedFolders.add(path, true),
     unlinkFolder,
     restoreFolder: (linkedFolderId) => {
       db.transaction(() => {
@@ -5063,7 +5115,10 @@ export function createCore(adapters: CoreAdapters): Core {
     _question: { id?: string; text: string },
   ): CallHelpKind | null => null;
   /** See `AnswersOptions.liveTranscript`; set once Meetings are. */
-  let liveTranscriptOf = async (_mindId: string): Promise<LiveTranscript | null> => null;
+  let liveTranscriptOf = async (
+    _mindId: string,
+    _question: string,
+  ): Promise<LiveTranscript | null> => null;
   /** See `AnswersOptions.noteCall`; set once Meetings are. */
   let noteCallOf = (_mindId: string): { live: boolean; transcript: string | null } | null => null;
   let transcriptSaved = (_meetingId: string) => {};
@@ -5227,6 +5282,43 @@ export function createCore(adapters: CoreAdapters): Core {
       log: adapters.log ?? silentLogger,
     });
 
+  // The shared screen (ADR-0031): one window a recording Meeting reads, in memory only.
+  const screenCapture = adapters.screenCapture;
+  const screens =
+    screenCapture && textRecognitionModel
+      ? createSharedScreens({
+          capture: screenCapture,
+          reader: textRecognitionModel,
+          now,
+          asks: () => settings.get().device.meetingScreenAsk,
+          pictureLimit: () => settings.get().device.meetingScreenPictureLimit,
+          providerId: (mindId) => modelInUseIn(mindId)?.providerId ?? null,
+          searchLibrary: async (meetingId, text) => {
+            const scope = resolveScope(NO_SCOPE, meetingOf(meetingId).mindId);
+            const found = await documents.search(text, {
+              mode: "keyword",
+              limit: 5,
+              ...(scope && { documentIds: scope }),
+            });
+            return found.flatMap((passage) => documents.passage(passage.passageId) ?? []);
+          },
+          passage(meetingId, passageId) {
+            const found = documents.passage(passageId);
+            return found &&
+              !documents.get(found.documentId).notCited &&
+              documents.searchableCount([found.documentId]) > 0 &&
+              walledDocument(found.documentId) === walledFolder(meetingOf(meetingId).mindId)
+              ? found
+              : null;
+          },
+          changed: meetingsChanged,
+          log: adapters.log ?? silentLogger,
+        })
+      : undefined;
+  events.on("textRecognitionModel.status", () => {
+    if (screens?.waitingForModel()) meetingsChanged();
+  });
+
   if (transcripts) readsTimedByWriter = (path) => transcripts.timesReads(path);
   transcripts?.dropPurged();
   // Meetings (#135): while audio is being captured, background model work holds back.
@@ -5237,6 +5329,18 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     capture: adapters.audioCapture,
     transcriptVersion: documents.currentVersion,
+    writeupTemplateForMind(mindId) {
+      const event = calendars.noteEvent(mindId);
+      const name = event && calendarTemplate(event);
+      return name
+        ? (skills.list().find((skill) => skill.name === name && skill.builtIn && skill.enabled)
+            ?.id ?? null)
+        : null;
+    },
+    helpForWriteupTemplate(skillId) {
+      const template = skills.list().find((skill) => skill.id === skillId && skill.meetingTemplate);
+      return helpTemplateForWriteup(template?.builtIn ? template.name : null);
+    },
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
@@ -5267,10 +5371,16 @@ export function createCore(adapters: CoreAdapters): Core {
       documents.hold(capturing);
     },
     ...(transcripts && { transcripts }),
+    ...(screens && { screens }),
     health: captureHealth,
     log: adapters.log ?? silentLogger,
   });
   listMeetings = () => meetings.list();
+  const meetingOf = (meetingId: string): Meeting => {
+    const meeting = meetings.list().find((each) => each.id === meetingId);
+    if (!meeting) throw new NotFoundError({ key: "error.meeting.notFound" });
+    return meeting;
+  };
   noteReadAgain = (mindId) => {
     if (!transcripts || lifetime.signal.aborted) return;
     const meeting = meetings.liveOf(mindId);
@@ -5379,9 +5489,11 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return meeting;
   };
+  type AgentPress = ReturnType<typeof prepareAgentPress>;
   interface CallAsk {
     conversationId?: unknown;
     typed?: boolean;
+    kind?: MeetingHelpKind;
   }
   /** Each live Meeting's ask under way, which the next waits for: so it goes on in its conversation. */
   const asking = new Map<string, Promise<unknown>>();
@@ -5392,9 +5504,11 @@ export function createCore(adapters: CoreAdapters): Core {
    * call is still live.
    */
   const askInCall = (meeting: Meeting, text: string, how: CallAsk = {}) => {
-    const ask = (asking.get(meeting.id) ?? Promise.resolve()).then(() =>
-      askNow(liveCall(meeting.id), text, how),
-    );
+    const pairingId = settings.get().device.meetingCallHelpAgentId;
+    const selectedAgent = pairingId ? prepareAgentPress(meeting, pairingId, text, how.kind) : null;
+    const ask = (asking.get(meeting.id) ?? Promise.resolve())
+      .then(() => askNow(liveCall(meeting.id), text, how, selectedAgent))
+      .finally(() => selectedAgent?.close());
     // A failed ask is its caller's to tell; the next one goes on.
     asking.set(
       meeting.id,
@@ -5405,7 +5519,8 @@ export function createCore(adapters: CoreAdapters): Core {
   const askNow = async (
     meeting: Meeting,
     text: string,
-    { conversationId, typed = false }: CallAsk,
+    { conversationId, typed = false, kind }: CallAsk,
+    selectedAgent: AgentPress | null,
   ): Promise<ConversationAskResult> => {
     const { folderId } = minds.get(meeting.mindId);
     const kept = (questionId: string) => {
@@ -5417,7 +5532,7 @@ export function createCore(adapters: CoreAdapters): Core {
         text,
         mindId: meeting.mindId,
         scope: folderId ? { folderIds: [folderId], tagIds: [], documentIds: [] } : null,
-        model: modelInUseIn(meeting.mindId),
+        model: selectedAgent ? null : modelInUseIn(meeting.mindId),
       }),
       ...(typed && { kept }),
     });
@@ -5432,10 +5547,144 @@ export function createCore(adapters: CoreAdapters): Core {
         asked = question(null);
       }
     }
-    const result = await answers.askInConversation(asked);
+    const result = selectedAgent
+      ? await askSelectedCallAgent(meeting, selectedAgent, asked, kind)
+      : await answers.askInConversation(asked);
     if (result.asked) helpConversations.set(meeting.id, result.conversation.id);
     return result;
   };
+  function prepareAgentPress(
+    meeting: Meeting,
+    pairingId: string,
+    text: string,
+    kind?: MeetingHelpKind,
+  ) {
+    const documentId = meeting.transcript?.documentId ?? null;
+    const selectedClient = () => {
+      const document = documentId ? liveDocument(documentId) : undefined;
+      const current = meetings.list().find((each) => each.id === meeting.id);
+      if (
+        !current ||
+        (current.status !== "recording" && current.status !== "paused") ||
+        current.mindId !== meeting.mindId ||
+        (current.transcript?.documentId ?? null) !== documentId ||
+        settings.get().device.meetingCallHelpAgentId !== pairingId ||
+        (documentId && (!document || document.notCited))
+      )
+        return null;
+      const client = agents
+        .askable(current.mindId, documentId ?? undefined)
+        .find((each) => each.id === pairingId)?.client;
+      return client === "claude-code" || client === "codex" ? client : null;
+    };
+    const client = selectedClient();
+    const run = adapters.summarizeWithMeetingAgent;
+    if (!client || !run) throw deniedCallHelp();
+    const request = prepareCallHelp(
+      documentId ? (transcripts?.confirmedCues(meeting.id) ?? []) : [],
+      text,
+      kind ?? "question",
+    );
+    return {
+      pairingId,
+      documentId,
+      client,
+      request,
+      run,
+      ...watchCallHelpAccess(
+        events,
+        lifetime.signal,
+        documentId,
+        () => selectedClient() === client,
+      ),
+    } as const;
+  }
+  async function askSelectedCallAgent(
+    meeting: Meeting,
+    { pairingId, documentId, request, signal, run, client, check }: AgentPress,
+    question: QuestionInput,
+    kind?: MeetingHelpKind,
+  ): Promise<ConversationAskResult> {
+    try {
+      const sentAt = now();
+      check();
+      signal.throwIfAborted();
+      const reply = await answerWithMeetingAgent({
+        request,
+        client,
+        run,
+        signal,
+        insufficient: translate(settings.get().language, "meetings.help.agent.insufficient"),
+        async cite(sources) {
+          if (!documentId) return [];
+          await transcripts?.refresh(meeting.id);
+          signal.throwIfAborted();
+          const indexed = await transcriptCues(documentId);
+          return sources.map((source) => {
+            const matches = indexed.filter(
+              (cue) =>
+                cue.target === cueTarget(source.startMs, source.endMs) && cue.text === source.text,
+            );
+            const [cue] = matches;
+            return cue && matches.length === 1
+              ? citing.citeUnit(cue.passageId, cue.text, cue.page, cue.at)
+              : null;
+          });
+        },
+      });
+      check();
+      signal.throwIfAborted();
+      const { turn, answer } = db.transaction(() => {
+        const { turn } = conversations.add(
+          {
+            ...question,
+            scope: documentId ? { folderIds: [], tagIds: [], documentIds: [documentId] } : null,
+            model: null,
+          },
+          null,
+          null,
+          undefined,
+          kind ?? null,
+        );
+        const answer = conversations.writeAnswer(turn.answer.id, {
+          text: reply.text,
+          citations: reply.citations,
+          figures: [],
+          analyses: [],
+          toolCalls: [],
+          support: null,
+          textOrigin: null,
+          read: null,
+          steps: {
+            sentAt: reply.sent ? sentAt : null,
+            finishedAt: now(),
+            phases: [],
+            reasoning: null,
+            meetingHelpAgent: { meetingId: meeting.id, pairingId, client },
+            ...(kind && { pressed: kind }),
+          },
+          outcome: { status: "done", error: null },
+        });
+        return { turn, answer };
+      });
+      question.kept?.(turn.question.id);
+      publishConversation({ ...turn, answer: answer ?? turn.answer });
+      return {
+        asked: true,
+        conversation: turn.conversation,
+        questionId: turn.question.id,
+        answerId: turn.answer.id,
+      };
+    } catch (error) {
+      if (signal.aborted) throw deniedCallHelp();
+      if (error instanceof InvalidInputError) throw error;
+      (adapters.log ?? silentLogger).warn("meeting.callHelpAgentFailed", {
+        kind: error instanceof Error ? error.name : "unknown",
+      });
+      throw new InvalidInputError({ key: "error.meeting.callHelpAgentFailed" });
+    }
+  }
+
   const askMeetingHelp = async (given: unknown): Promise<ConversationAskResult> => {
     const input = isRecord(given) ? given : {};
     const meeting = liveCall(input.meetingId);
@@ -5445,6 +5694,7 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     const result = await askInCall(meeting, translate(settings.get().language, helpLabel(kind)), {
       conversationId: input.conversationId,
+      kind,
     });
     if (result.asked) {
       const from = HEARD_FROM[kind];
@@ -5523,12 +5773,55 @@ export function createCore(adapters: CoreAdapters): Core {
     const wall = walledFolderId(folderId);
     return { scope: wall === null ? null : folderScope(wall) };
   };
+  async function transcriptCues(documentId: string) {
+    await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
+    const version = documents.currentVersion(documentId);
+    if (!version) return [];
+    const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const covering = (page: number) =>
+      passages.filter(
+        (passage) =>
+          passage.pageFrom !== null &&
+          passage.pageTo !== null &&
+          page >= passage.pageFrom &&
+          page <= passage.pageTo,
+      );
+    const cues: (MemoCue & { target: string })[] = [];
+    for (const unit of documents.pageTexts(documentId, version, null, null)) {
+      if (unit.page === null) continue;
+      const candidates = covering(unit.page);
+      const [first] = candidates;
+      if (!first) continue;
+      for (const anchor of unit.anchors ?? []) {
+        const text = unit.text.slice(anchor.start, anchor.end);
+        // A Passage's pages can cover the Unit while its text holds only part of it (#2031).
+        const passage = candidates.find((each) => each.text.includes(text)) ?? first;
+        cues.push({
+          target: anchor.target,
+          text,
+          passageId: passage.passageId,
+          page: unit.page,
+          at: { start: anchor.start, end: anchor.end },
+        });
+      }
+    }
+    return cues;
+  }
+  async function meetingWriteupTemplate(skillId: string) {
+    const skill = skills
+      .list()
+      .find((each) => each.id === skillId && each.meetingTemplate && each.enabled);
+    if (!skill) return null;
+    const { steps } = await skills.draftOf(skill.id);
+    return { steps, fillUncovered: skill.meetingFillUncovered !== false };
+  }
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     notesAgentId: () => settings.get().device.meetingNotesAgentId,
     content,
     meetings,
     userName: () => settings.get().user.authorName,
+    writeupTemplate: meetingWriteupTemplate,
     transcript: async (documentId) => {
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
       const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
@@ -5615,39 +5908,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return result.verdict === "supported";
     },
     citeUnit: (passageId, quote, page, at) => citing.citeUnit(passageId, quote, page, at),
-    async cues(documentId) {
-      await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      const version = documents.currentVersion(documentId);
-      if (!version) return [];
-      const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
-      const covering = (page: number) =>
-        passages.filter(
-          (passage) =>
-            passage.pageFrom !== null &&
-            passage.pageTo !== null &&
-            page >= passage.pageFrom &&
-            page <= passage.pageTo,
-        );
-      const cues: MemoCue[] = [];
-      for (const unit of documents.pageTexts(documentId, version, null, null)) {
-        if (unit.page === null) continue;
-        const candidates = covering(unit.page);
-        const [first] = candidates;
-        if (!first) continue;
-        for (const anchor of unit.anchors ?? []) {
-          const text = unit.text.slice(anchor.start, anchor.end);
-          // A Passage's pages can cover the Unit while its text holds only part of it (#2031).
-          const passage = candidates.find((each) => each.text.includes(text)) ?? first;
-          cues.push({
-            text,
-            passageId: passage.passageId,
-            page: unit.page,
-            at: { start: anchor.start, end: anchor.end },
-          });
-        }
-      }
-      return cues;
-    },
+    cues: transcriptCues,
     checkpoint: (mindId) => checkpoints.save(mindId, "enhance"),
     startsBeforeSpeakers: () => adapters.notesBeforeSpeakers?.() ?? true,
     language: () => settings.get().language,
@@ -5764,12 +6025,16 @@ export function createCore(adapters: CoreAdapters): Core {
     });
     return meetings.start({ meetingId: meeting.id }).id;
   };
-  let liveOfferMeetings = new Set(
-    meetings
-      .list()
-      .filter(isLive)
-      .map((meeting) => meeting.id),
-  );
+  const liveCalls = (list: readonly Meeting[]) =>
+    new Map(
+      list
+        .filter(isLive)
+        .map(
+          ({ id, kind, transcript }) =>
+            [id, kind === "meeting" ? transcript?.documentId : null] as const,
+        ),
+    );
+  let liveMeetings = liveCalls(meetings.list());
   const meetingOffers = createMeetingOffers({
     watcher: adapters.callWatcher,
     watching: () => {
@@ -5784,8 +6049,8 @@ export function createCore(adapters: CoreAdapters): Core {
       offerAllowed(settings.get().device, { kind: "calendar" }),
     calendarEvents: calendars.reminderEvents,
     markCalendarReminderSeen: calendars.markReminderSeen,
-    busy: () => liveOfferMeetings.size > 0,
-    live: (meetingId) => liveOfferMeetings.has(meetingId),
+    busy: () => liveMeetings.size > 0,
+    live: (meetingId) => liveMeetings.has(meetingId),
     record: () => recordOffer(),
     recordCalendar: (eventId) => {
       const { mindId, joinUrl } = calendars.takeReminderNotes(eventId);
@@ -5801,7 +6066,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("settings.changed", () => meetingOffers.refresh());
   events.on("meetings.changed", (list) => {
-    liveOfferMeetings = new Set(list.filter(isLive).map((meeting) => meeting.id));
+    liveMeetings = liveCalls(list);
     meetingOffers.refresh();
   });
   events.on("calendarEvents.changed", () => meetingOffers.refresh());
@@ -5820,7 +6085,7 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       : null;
   };
-  liveTranscriptOf = async (mindId) => {
+  liveTranscriptOf = async (mindId, question) => {
     // A voice memo's speech isn't a call's: no Question listens to it (#1568).
     const meeting = meetings
       .list()
@@ -5831,14 +6096,24 @@ export function createCore(adapters: CoreAdapters): Core {
           (each.status === "recording" || each.status === "paused"),
       );
     if (!meeting) return null;
+    const screen = screens?.forQuestion(meeting.id, question);
     const documentId = meeting.transcript?.documentId;
-    if (!documentId || !transcripts) return { passages: [], behind: isBehind(meeting) };
+    if (!documentId || !transcripts) return { passages: [], behind: isBehind(meeting), screen };
     await transcripts.refresh(meeting.id);
     await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
     const now = meetings.list().find((each) => each.id === meeting.id) ?? meeting;
+    const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const first = passages[0];
     return {
-      passages: await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
+      passages:
+        first && passages.length > 1
+          ? livePassageText(
+              passages,
+              documents.pageTexts(documentId, first.contentHash, null, null),
+            )
+          : passages,
       behind: isBehind(now),
+      screen,
     };
   };
 
@@ -5860,6 +6135,7 @@ export function createCore(adapters: CoreAdapters): Core {
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
     contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
+    dropPurged: () => documents.dropPurged(),
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
@@ -5885,6 +6161,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     say: (key, params) => translate(settings.get().language, key, params),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    checksWritten: () => settings.get().user.checkAssistantWrites,
     log: adapters.log ?? silentLogger,
   });
 
@@ -5942,6 +6219,7 @@ export function createCore(adapters: CoreAdapters): Core {
       });
       let supported = 0;
       let checking = 0;
+      let judged = 0;
       const stale: string[] = [];
       const needLook: (FoundClaim & { checkId: string })[] = [];
       for (const marked of checkedSentences(fragment)) {
@@ -5951,6 +6229,7 @@ export function createCore(adapters: CoreAdapters): Core {
           checking++;
           continue;
         }
+        judged++;
         // Not counted: a check makes it again, and told as not checked if none can.
         if (shown.state === "needs-recheck") stale.push(check.id);
         // The writer's own view, and what the User keeps as theirs: the check doesn't rule on it.
@@ -6011,6 +6290,7 @@ export function createCore(adapters: CoreAdapters): Core {
         supported,
         checking,
         stale,
+        judged,
         needLook,
         formulas: workbook
           ? {
@@ -6057,6 +6337,7 @@ export function createCore(adapters: CoreAdapters): Core {
     readValue: (key) => settings.readDeviceValue(key),
     writeValue: (key, value) => settings.writeDeviceValue(key, value),
     localOnly: () => embedding.localOnly(),
+    modelReady: async () => (await chat.readiness()).ready,
     socketPath: adapters.agents?.socketPath ?? agentSocketPath(dataDir),
     // Without a host's launcher there is no shim to start; tests and the evaluation give theirs.
     launcher: adapters.agents?.launcher ?? { command: process.execPath, args: [] },
@@ -6066,7 +6347,7 @@ export function createCore(adapters: CoreAdapters): Core {
         db,
         () => settings.get().language,
         (run, rows) => organizeReview.propose(run, rows),
-        () => translate(settings.get().language, "agents.sorting.invalid"),
+        (key, values) => translate(settings.get().language, key, values),
       ),
       say: (key, params) => translate(settings.get().language, key, params),
       folders: () =>
@@ -6099,6 +6380,15 @@ export function createCore(adapters: CoreAdapters): Core {
         return reached.filter((id) => sources.has(id));
       },
       noteTranscripts: () => noteTranscripts(db),
+      refreshLiveTranscripts: (documentIds) => {
+        if (!transcripts) return;
+        const checks = [...liveMeetings].flatMap(([meetingId, documentId]) =>
+          documentId && documentIds.includes(documentId)
+            ? [transcripts.refresh(meetingId, { waitForPassages: true })]
+            : [],
+        );
+        if (checks.length) return Promise.all(checks).then(() => undefined);
+      },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.
       search: (query, documentIds, parameters, signal) =>
@@ -6123,6 +6413,7 @@ export function createCore(adapters: CoreAdapters): Core {
       notCited: (passageId) => documents.citationSource(passageId)?.notCited ?? false,
       recheck: (input) => recheckCitation(documents, input),
       minds: () => listedMinds().filter((mind) => isKnownKind(mind.kind)),
+      exampleNotes: () => examples.made().mindIds,
       duplicatedFrom: (mindId) => minds.duplicatedFrom(mindId),
       documentsNamed: (documentIds) =>
         documents
@@ -6177,16 +6468,19 @@ export function createCore(adapters: CoreAdapters): Core {
         answers.answerOutside(question, documentIds, signal),
       checkNote: (mindId, documentIds) =>
         inFlow("check-mind", () => checks.checkMindOutside(mindId, new Set(documentIds))),
-      checkTask: (mindId, documentIds) => checks.checkTaskOutside(mindId, documentIds),
+      checkTask: (mindId, documentIds, every) =>
+        checks.checkTaskOutside(mindId, documentIds, every),
       landJudged: (mindId, documentIds, agent, task, judged) =>
         checks.landJudgedOutside(mindId, documentIds, agent, task, judged),
       checkRecord: (mindId, reach) => checkRecord.build(mindId, reach),
       show: (place) => events.emit("agents.citationShown", place),
+      opened: (opened) => events.emit("agents.opened", opened),
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
+      checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     skillState: (client) => skillFiles.stateFor(client),
     changed: (value) => events.emit("agents.changed", value),
@@ -6195,6 +6489,7 @@ export function createCore(adapters: CoreAdapters): Core {
     reportError: (error) => console.error(error),
   });
   agentsLocalModeChanged = () => agents.localModeChanged();
+  agentsModelChanged = (ready) => agents.modelChanged(ready);
   agents.start().catch((error: unknown) => console.error(error));
   // Setting IncarnaMind up in the User's agent, from Settings → Agents.
   const agentSetup = createAgentSetup({
@@ -6255,7 +6550,187 @@ export function createCore(adapters: CoreAdapters): Core {
     return doc;
   }
 
+  async function meetingItemSources(meetingId: string, itemId: number) {
+    const documentId = meetings.transcriptOf(meetingId);
+    if (!documentId) return null;
+    const line = meetings.summaryItemEvidence(meetingId, itemId)?.line;
+    if (line) {
+      const sources = await candidateReviews.transcriptActionSources(meetingId, documentId, line);
+      return meetings.summaryItemEvidence(meetingId, itemId)?.documentId === documentId
+        ? { documentId, sources }
+        : null;
+    }
+    await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
+    if (!meetingSummaryDocument(meetingId, documentId)) return null;
+    const evidence = meetings.summaryItemEvidence(meetingId, itemId);
+    const version = documents.currentVersion(documentId);
+    if (!evidence || evidence.documentId !== documentId || !version) return null;
+    const units = documents.pageTexts(documentId, version, null, null);
+    return {
+      documentId,
+      sources: meetingSummarySources(units, evidence.quotes),
+    };
+  }
+  function upcomingBriefEvent(mindId: string) {
+    const event = calendars.noteEvent(mindId, true);
+    if (
+      !event?.eventId ||
+      event.endsAt <= now() ||
+      !readableMindName(mindId) ||
+      content.readSettings(mindId, (state) => state.get(BRIEF_DISMISSED) === true)
+    )
+      return null;
+    const started = db.get(
+      "SELECT 1 FROM meetings WHERE mind_id = ? AND deleted_at IS NULL AND status <> 'ready'",
+      [mindId],
+    );
+    return started ? null : { ...event, eventId: event.eventId };
+  }
+
+  function earlierBriefMeetings(mindId: string) {
+    const event = upcomingBriefEvent(mindId);
+    if (!event) return [];
+    const wall = walledFolder(mindId);
+    return calendars.earlierMeetings(event, mindId).flatMap((id) => {
+      const meeting = meetings.get(id);
+      const title = readableMindName(meeting.mindId);
+      const documentId = meetings.transcriptOf(id);
+      if (!title || !documentId || walledFolder(meeting.mindId) !== wall) return [];
+      const doc = meetingSummaryDocument(id, documentId);
+      return doc && !doc.notCited && doc.fileStatus === "available"
+        ? [{ ...meeting, title, documentId }]
+        : [];
+    });
+  }
+  function meetingBriefHistory(mindId: string) {
+    return readMeetingBriefHistory({
+      earlier: () => earlierBriefMeetings(mindId),
+      currentVersion: (id) => documents.currentVersion(id),
+      indexed: transcriptCues,
+      itemSources: meetingItemSources,
+      cite: citing.citeUnit,
+    });
+  }
+
+  const briefPreparation = createBriefPreparation({
+    events,
+    lifetime: lifetime.signal,
+    questionsHidden: (mindId) =>
+      content.readSettings(mindId, (state) => state.get(QUESTIONS_DISMISSED) === true),
+    context(mindId) {
+      const event = upcomingBriefEvent(mindId);
+      if (!event) return null;
+      const side = walledFolder(mindId);
+      const chosen = settings.get().device.meetingNotesAgentId;
+      const pairing =
+        chosen && !side && !embedding.localOnly() && adapters.summarizeWithMeetingAgent
+          ? agents
+              .askable(mindId)
+              .find((p) => p.id === chosen && (p.client === "codex" || p.client === "claude-code"))
+          : null;
+      const choice = ownModelIn(mindId) ?? settings.get().user.chatModel;
+      const model =
+        !chosen && choice && chat.canPrepareMeetingSummary(choice, side !== null)
+          ? chat.describeModel(choice)
+          : null;
+      const route = pairing
+        ? { id: pairing.id, label: pairing.name, external: true, client: true as const }
+        : model
+          ? {
+              id: meetingSummaryModelRoute(model.choice, model.service?.id),
+              label: model.service ? `${model.name} · ${model.service.name}` : model.name,
+              external: !!model.service,
+            }
+          : null;
+      const mayRead = (id: string, noteId = mindId) =>
+        !pairing || agents.askable(noteId, id).some((p) => p.id === pairing.id);
+      const attached = content.read(mindId, (blocks) => {
+        const cited: CitedVersions = new Map();
+        addCitedVersions(blocks, cited);
+        return [...cited.keys()];
+      });
+      const folder = minds.get(mindId).folderId;
+      const selected = content.readSettings(mindId, mindScopeIn);
+      const direct = [
+        ...new Set([
+          ...attached,
+          ...(folder ? library.treeDocumentIds(folder) : []),
+          ...(selected && hasSearchScope(selected) ? (resolveScope(selected, mindId) ?? []) : []),
+        ]),
+      ];
+      const permitted = evidence.scope(mindId, direct).documentIds ?? direct;
+      const current = briefDocuments(
+        documents.getMany(permitted.filter((id) => walledDocument(id) === side && mayRead(id))),
+        event.title,
+      );
+      const prior = earlierBriefMeetings(mindId)
+        .filter((call) => mayRead(call.documentId, call.mindId))
+        .map((call) => ({
+          id: call.id,
+          documentId: call.documentId,
+          title: call.title,
+          contentHash: documents.currentVersion(call.documentId) ?? "",
+          items: call.summary?.items ?? [],
+        }));
+      return {
+        event,
+        route,
+        documents: current
+          .map(({ doc, invited }) => ({
+            id: doc.id,
+            title: doc.name,
+            contentHash: doc.contentHash,
+            invited,
+          }))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+        prior,
+        language: settings.get().language,
+      };
+    },
+    history: meetingBriefHistory,
+    search: (query, ids) => windowedPassagesBySeq(db, keywordSearch(db, query, 12, ids)),
+    first: (id) => documents.passagesBetween(id, 0, 0),
+    passage: (id) => documents.passage(id),
+    cite: (id, quote) => {
+      const current = documents.passage(id);
+      return current && completeBriefAnswer(current.text, quote)
+        ? citing.citeQuote(id, quote)
+        : null;
+    },
+    async generate(mindId, route, packet, check, signal) {
+      const chosen = settings.get().device.meetingNotesAgentId;
+      if (chosen) {
+        const agent = agents.askable(mindId).find((p) => p.id === chosen && chosen === route.id);
+        if (
+          !adapters.summarizeWithMeetingAgent ||
+          (agent?.client !== "codex" && agent?.client !== "claude-code")
+        )
+          throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+        check();
+        return adapters.summarizeWithMeetingAgent({
+          client: agent.client,
+          purpose: "meeting-brief",
+          ...packet,
+          signal,
+        });
+      }
+      const choice = ownModelIn(mindId) ?? settings.get().user.chatModel;
+      if (!choice) throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      const prepared = await chat.prepareModel(choice, "chat", "off", { background: true });
+      check();
+      if (
+        meetingSummaryModelRoute(
+          { providerId: prepared.provider.id, modelId: prepared.modelId },
+          prepared.provider.service?.id,
+        ) !== route.id
+      )
+        throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      return generateBriefQuestions(prepared, packet, signal);
+    },
+  });
+
   const candidateReviews = createMeetingCandidateReview({
+    pendingSpeakers: (meetingId) => transcripts?.pendingSpeakers(meetingId) ?? null,
     meetings,
     documents,
     summaryRoute,
@@ -6311,7 +6786,34 @@ export function createCore(adapters: CoreAdapters): Core {
         throw error;
       }
     },
+    async meetingWriteup(meetingId, mindId) {
+      const meeting = meetings.get(meetingId);
+      const skillId = meeting.writeupTemplateId;
+      if (meeting.mindId !== mindId || !skillId) return null;
+      const template = await meetingWriteupTemplate(skillId);
+      if (!template || meetings.get(meetingId).writeupTemplateId !== skillId) return null;
+      const language = settings.get().language;
+      const english = writeupPlan(template, "en");
+      const chinese = writeupPlan(template, "zh-CN");
+      const outline = JSON.stringify(
+        english.sections.join("\n") === chinese.sections.join("\n")
+          ? english.sections
+          : { en: english.sections, "zh-CN": chinese.sections },
+      );
+      return translate(language, "agents.ask.meeting.template", {
+        outline,
+        fill: translate(
+          language,
+          template.fillUncovered
+            ? "agents.ask.meeting.template.uncovered"
+            : "agents.ask.meeting.template.onlyNotes",
+        ),
+        guidance: JSON.stringify(template.steps),
+      });
+    },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
+    reads: (pairingId, ids) => agents.reads(pairingId, ids),
+    nameOf: (kind, id) => scopeItemName(kind, id),
     handedFile(mindId) {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;
@@ -6678,7 +7180,11 @@ export function createCore(adapters: CoreAdapters): Core {
     stopExampleReadyQuestion: async () => {
       for (const stop of [...stopReadyWaits]) stop();
     },
-    regenerateConversationAnswer: async (input) => answers.regenerateInConversation(input),
+    regenerateConversationAnswer: async (input) => {
+      if (conversations.answer(conversations.questionOf(input).answerId)?.steps?.meetingHelpAgent)
+        throw new InvalidInputError({ key: "error.meeting.callHelpAgentRetry" });
+      return answers.regenerateInConversation(input);
+    },
     countScopeDocuments: async (scope) => {
       const wanted = parseSearchScope(scope);
       return documents.searchableCount(scopeDocuments(wanted) ?? undefined);
@@ -7006,7 +7512,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     readScannedText: async (id) => documents.readScannedText(id),
     readScannedQuote: async (input) => documents.readScannedQuote(parseQuoted(input)),
-    readableQuote: async (input) => documents.readableQuote(parseQuoted(input)),
+    readableQuote: async (input) => documents.readableQuote(parseQuoted(input), true),
     previewLinkedFolder: (path) => documents.linkedFolders.preview(path),
     addLinkedFolder: async (path, options) => {
       const groupId = library.target(options);
@@ -7684,19 +8190,26 @@ export function createCore(adapters: CoreAdapters): Core {
         ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
         : folders.get(folderId);
       const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
-      if (already) return already;
+      if (already) return { folder: already, filed: [] };
       const made = library.create({
         name: folder.name.slice(0, 100),
         description: "",
         keepInside: true,
       });
       const bound = library.bind(made.id, folder.id);
-      for (const document of documents.list({ linkedFolderId: folder.linkedFolderId })) {
-        if (documents.foldersAbove(document.path).includes(folder.id)) {
-          fileInBoundFolder(document.id);
-        }
-      }
-      return bound;
+      return { folder: bound, filed: fileUnder([folder.id]) };
+    },
+    undoBoundFolder: async (groupId, filed) => {
+      const { boundFolderId } = library.folder(groupId);
+      db.transaction(() => {
+        const back =
+          boundFolderId === null
+            ? []
+            : library.unfileBound(groupId, filed, (id) => inFolderOnDisk(id, boundFolderId));
+        removeFolder(groupId);
+        // Each has no filing of its own again, so a Project still above it takes it (ADR-0030).
+        for (const id of back) fileInBoundFolder(id);
+      });
     },
     updateLibraryGroup: async (id, input) => library.update(id, input),
     moveLibraryGroups: async (moves) => library.moveGroups(moves),
@@ -8124,6 +8637,11 @@ export function createCore(adapters: CoreAdapters): Core {
       skillsChanged();
       return skill;
     },
+    setMeetingTemplateFillUncovered: async (skillId, fill) => {
+      const skill = skills.setMeetingFillUncovered(skillId, fill);
+      skillsChanged();
+      return skill;
+    },
     getSkillDraft: async (skillId) => skills.draftOf(skillId),
     createSkill: async (draft) => {
       const result = await skills.create(draft);
@@ -8437,6 +8955,51 @@ export function createCore(adapters: CoreAdapters): Core {
     listCalendarEvents: async (input) => calendars.list(input),
     takeEventNotes: async (eventId) => calendars.takeNotes(eventId),
     getNoteEvent: async (mindId) => calendars.noteEvent(mindId),
+    getMeetingBriefPreparation: async (mindId) => briefPreparation.read(mindId),
+    prepareMeetingBrief: (mindId, route) => briefPreparation.prepare(mindId, route),
+    getMeetingBriefHistory: meetingBriefHistory,
+    keepMeetingBrief: async (mindId, section) => {
+      if (section !== undefined && section !== "questions")
+        throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      const items = section ? [] : await meetingBriefHistory(mindId);
+      const prepared = briefPreparation.read(mindId);
+      const prep = section && prepared ? { ...prepared, invitation: [] } : prepared;
+      const dismissed = section ? QUESTIONS_DISMISSED : BRIEF_DISMISSED;
+      const lang = settings.get().language;
+      const blocks = meetingBriefBlocks(
+        {
+          history: translate(lang, "meetings.brief.lastTime"),
+          invite: translate(lang, "meetings.brief.inInvite"),
+          questions: translate(lang, "meetings.brief.questions"),
+          missing: translate(lang, "meetings.brief.noAnswer"),
+        },
+        items,
+        prep,
+      );
+      if (!blocks.length) return false;
+      const kept = content.edit(writableMind(mindId).id, (note) => {
+        const flags = note.doc?.getMap(MIND_SETTINGS_FIELD);
+        if (!flags || flags.get(dismissed) === true) return false;
+        insertBlocks(note, blocks);
+        flags.set(dismissed, true);
+        return true;
+      });
+      if (kept) {
+        if (!section) briefPreparation.clear(mindId);
+        mindsChanged();
+      }
+      return kept;
+    },
+    dismissMeetingBrief: async (mindId, section) => {
+      if (section !== undefined && section !== "questions")
+        throw new InvalidInputError({ key: "error.meeting.briefChanged" });
+      if (!calendars.noteEvent(mindId, true)) return;
+      content.editSettings(writableMind(mindId).id, (state) =>
+        state.set(section ? QUESTIONS_DISMISSED : BRIEF_DISMISSED, true),
+      );
+      if (!section) briefPreparation.clear(mindId);
+      mindsChanged();
+    },
     openCalendarSettings: () => calendars.openSettings(),
     listMeetings: async () => meetings.list(),
     listJoinedMeetings: async () => joinedMeetings(db),
@@ -8472,27 +9035,7 @@ export function createCore(adapters: CoreAdapters): Core {
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
     resumeMeeting: async (meetingId) => meetings.resume(meetingId),
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
-    getMeetingSummaryItemSources: async (meetingId, itemId) => {
-      const documentId = meetings.transcriptOf(meetingId);
-      if (!documentId) return null;
-      const line = meetings.summaryItemEvidence(meetingId, itemId)?.line;
-      if (line) {
-        const sources = await candidateReviews.transcriptActionSources(meetingId, documentId, line);
-        return meetings.summaryItemEvidence(meetingId, itemId)?.documentId === documentId
-          ? { documentId, sources }
-          : null;
-      }
-      await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
-      if (!meetingSummaryDocument(meetingId, documentId)) return null;
-      const evidence = meetings.summaryItemEvidence(meetingId, itemId);
-      const version = documents.currentVersion(documentId);
-      if (!evidence || evidence.documentId !== documentId || !version) return null;
-      const units = documents.pageTexts(documentId, version, null, null);
-      return {
-        documentId,
-        sources: meetingSummarySources(units, evidence.quotes),
-      };
-    },
+    getMeetingSummaryItemSources: meetingItemSources,
     canReviewMeetingSummaryCandidates: async (meetingId) => candidateReviews.canReview(meetingId),
     getMeetingSummaryCandidates: candidateReviews.get,
     reviewMeetingSummaryCandidates: candidateReviews.review,
@@ -8522,6 +9065,40 @@ export function createCore(adapters: CoreAdapters): Core {
     writeMeetingRecording: (meetingId, path) => meetings.writeRecording(meetingId, path),
     readMeetingAudio: async (input) => meetings.readAudio(input),
     retryTranscript: async (meetingId) => meetings.retryTranscript(meetingId),
+    listShareableWindows: async (meetingId) => {
+      if (!screens) throw new InvalidInputError({ key: "error.meeting.noSharedScreen" });
+      if (typeof meetingId !== "string") throw new NotFoundError({ key: "error.meeting.notFound" });
+      if (meetingOf(meetingId).status !== "recording")
+        throw new InvalidInputError({ key: "error.meeting.notRecording" });
+      return screens.windows(meetingId);
+    },
+    readSharedScreen: async (input) => {
+      if (!screens) throw new InvalidInputError({ key: "error.meeting.noSharedScreen" });
+      if (!isRecord(input) || typeof input.meetingId !== "string") {
+        throw new InvalidInputError({ key: "error.meeting.noWindow" });
+      }
+      if (meetingOf(input.meetingId).status !== "recording") {
+        throw new InvalidInputError({ key: "error.meeting.notRecording" });
+      }
+      await screens.read(input.meetingId, input.windowId);
+      return meetingOf(input.meetingId);
+    },
+    declineSharedScreen: async (meetingId) => {
+      screens?.decline(meetingId);
+      return meetingOf(meetingId);
+    },
+    stopSharedScreen: async (meetingId) => {
+      screens?.stop(meetingId);
+      return meetingOf(meetingId);
+    },
+    getSharedScreen: async (input) => {
+      if (!isRecord(input) || typeof input.screen !== "string") {
+        throw new InvalidInputError({ key: "error.meeting.screenNotKept" });
+      }
+      const from = typeof input.from === "number" ? input.from : 0;
+      const to = typeof input.to === "number" ? input.to : 0;
+      return screens?.frame(input.screen, from, to) ?? null;
+    },
     getMeetingSpeakerReview: (id) => speakerReview.quote(id),
     reviewMeetingSpeakers: (input) => speakerReview.review(input),
     cancelMeetingSpeakerReview: async (id) => speakerReview.cancel(id),
@@ -8550,12 +9127,43 @@ export function createCore(adapters: CoreAdapters): Core {
     openAudioSettings: (source) => meetings.openSettings(source),
     askMeetingHelp,
     askMeetingQuestion,
+    setMeetingWriteupTemplate: async (meetingId, templateId) => {
+      if (
+        templateId !== null &&
+        !skills
+          .list()
+          .some((skill) => skill.id === templateId && skill.meetingTemplate && skill.enabled)
+      ) {
+        throw new InvalidInputError({ key: "error.meeting.template" });
+      }
+      const meeting = meetings.get(meetingId);
+      if (
+        meeting.kind === "meeting" &&
+        meeting.status === "stopped" &&
+        meeting.transcript?.state === "saved"
+      ) {
+        return meetingFill.refill(meetingId, templateId);
+      }
+      return meetings.setWriteupTemplate(meetingId, templateId);
+    },
     setMeetingTemplate: async (input) => {
       const { meetingId, template } = isRecord(input) ? input : {};
       if (template !== null && !isMeetingTemplate(template)) {
         throw new InvalidInputError({ key: "error.meeting.template" });
       }
-      return meetings.setTemplate(meetingId, template);
+      const writeup =
+        template === null
+          ? null
+          : skills
+              .list()
+              .find(
+                (skill) =>
+                  skill.builtIn &&
+                  skill.meetingTemplate &&
+                  skill.enabled &&
+                  helpTemplateForWriteup(skill.name) === template,
+              )?.id;
+      return meetings.setTemplate(meetingId, template, writeup);
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
     addQuickNote: async (input) => {
@@ -8667,9 +9275,31 @@ export function createCore(adapters: CoreAdapters): Core {
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),
     copyAgentSetup: (pairingId) => agentSetup.settingsFor(pairingId),
     openAgentInstallAgain: (pairingId) => agentSetup.openInstallAgain(pairingId),
+    agentsForOrganize: async (target) => {
+      if (organizeModelOf(library.settings())) return { eligible: [], connected: false };
+      const available = agentAsk.forOrganize(target);
+      return available.connected && (await tagging.resolve())
+        ? { eligible: [], connected: false }
+        : available;
+    },
     listAgentsToAsk: async (mindId, documentId) =>
       agents.askable(typeof mindId === "string" && mindId !== "" ? mindId : null, documentId),
+    listDocumentsToAsk: async (documentIds) => {
+      const wanted = Array.isArray(documentIds)
+        ? documentIds.filter((id): id is string => typeof id === "string")
+        : [];
+      const readable = new Set(
+        agents
+          .askable(null)
+          .flatMap(
+            (pairing) =>
+              agents.reads(pairing.id, { folderIds: [], documentIds: wanted }).documentIds,
+          ),
+      );
+      return wanted.filter((id) => readable.has(id));
+    },
     askAgent: (input) => agentAsk.ask(input),
+    frontAgent: (pairingId) => agentAsk.front(pairingId),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;

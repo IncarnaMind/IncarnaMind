@@ -9,6 +9,7 @@ import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
+import { lineKey } from "../../src/shared/speakers";
 import { agentsAdapter } from "../helpers/agents";
 import {
   createMemoryKeychain,
@@ -17,7 +18,13 @@ import {
   startCore,
 } from "../helpers/core";
 import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
-import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
+import {
+  fakeSeparator,
+  inProcessTranscriber,
+  NO_SPEAKER_FILES,
+  NO_TRANSCRIPTION_FILES,
+  until,
+} from "../helpers/transcription";
 
 const release = "The release review is next Friday.";
 const question = "Should Nora compare the draft agendas?";
@@ -28,6 +35,7 @@ const awaitingAgent = (run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"
 async function record(
   lines: string[],
   model: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>,
+  speakerSeparator?: CoreAdapters["speakerSeparator"],
 ) {
   const dir = await createTempDataFolder();
   const clock = manualClock();
@@ -44,6 +52,7 @@ async function record(
     audioCapture: capture,
     transcriber,
     transcriptionModelSource: NO_TRANSCRIPTION_FILES,
+    ...(speakerSeparator && { speakerSeparator, speakerModelSource: NO_SPEAKER_FILES }),
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
     summarizeWithMeetingAgent: model,
   };
@@ -83,6 +92,7 @@ type SummaryAdapter = NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>;
 
 async function recordPair(
   review: SummaryAdapter = async () => JSON.stringify([[question, reply]]),
+  speakerSeparator?: CoreAdapters["speakerSeparator"],
 ) {
   const model = awaitingAgent(async (request) => {
     if (request.purpose === "candidate-review") return review(request);
@@ -92,7 +102,7 @@ async function recordPair(
         : { summary: release, changes: [{ ...generatedDecision, id: null, quote: release }] },
     );
   });
-  const fixture = await record([release, question, reply], model);
+  const fixture = await record([release, question, reply], model, speakerSeparator);
   const { core, meeting, push } = fixture;
   try {
     push(2500);
@@ -123,6 +133,90 @@ async function recordPair(
 }
 
 const reviewUnavailable = { wording: { key: "error.meeting.summaryCandidateReviewUnavailable" } };
+
+test("a quote review requested while speakers are being identified uses the settled labels once", async () => {
+  const done = Promise.withResolvers<void>();
+  const { separator } = fakeSeparator({ holds: done.promise });
+  const review = vi.fn(async () => JSON.stringify([[question, reply]]));
+  const { core, meeting } = await recordPair(review, separator);
+  try {
+    expect((await core.listMeetings())[0]?.transcript?.separating).toBe(true);
+    const first = core.reviewMeetingSummaryCandidates(meeting.id);
+    const second = core.reviewMeetingSummaryCandidates(meeting.id);
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    expect(review).not.toHaveBeenCalled();
+    done.resolve();
+    const [rows, repeated] = await Promise.all([first, second]);
+    expect(rows.map((row) => row.sources.map((source) => source.text))).toEqual([
+      [question, reply],
+    ]);
+    expect(repeated).toEqual(rows);
+    expect(review).toHaveBeenCalledOnce();
+  } finally {
+    done.resolve();
+    core.close();
+  }
+});
+
+test("a reviewed line split between speakers keeps its whole quote without crediting it to one voice", async () => {
+  const review = vi.fn<SummaryAdapter>(async () => JSON.stringify([[question, reply]]));
+  const { core, meeting } = await recordPair(review);
+  try {
+    const docId = (await core.listMeetings())[0]?.transcript?.documentId;
+    const doc = (await core.listDocuments()).find((item) => item.id === docId);
+    if (!doc?.path) throw new Error("The test needs a saved Transcript.");
+    const line = readVtt(await readFile(doc.path, "utf8")).cues.find(
+      (cue) => cue.text === question,
+    );
+    if (!line?.speaker) throw new Error("The test needs attributed speech.");
+    const middle = Math.floor((line.startMs + line.endMs) / 2);
+    await core.setTranscriptSpeakers({
+      documentId: doc.id,
+      speakers: {
+        labels: { [line.speaker]: "Dana", "Speaker 8": "Nora" },
+        lines: { [lineKey(middle, line.speaker)]: "Speaker 8" },
+        splits: {
+          [lineKey(line.startMs, line.speaker)]: {
+            text: question,
+            parts: [{ at: question.indexOf("compare"), ms: middle }],
+          },
+        },
+      },
+    });
+    const [candidate] = await core.reviewMeetingSummaryCandidates(meeting.id);
+    expect(candidate?.sources.map((source) => source.text)).toEqual([question, reply]);
+    const prompt = review.mock.calls[0]?.[0].prompt;
+    if (!prompt) throw new Error("The test needs a candidate review request.");
+    expect(JSON.parse(prompt).utterances).toEqual(
+      expect.arrayContaining([
+        { text: question, speaker: null },
+        { text: reply, speaker: "Dana" },
+      ]),
+    );
+  } finally {
+    core.close();
+  }
+});
+
+test("revoking access while a quote review waits for speakers sends nothing", async () => {
+  const done = Promise.withResolvers<void>();
+  const { separator } = fakeSeparator({ holds: done.promise });
+  const review = vi.fn(async () => "[]");
+  const { core, meeting } = await recordPair(review, separator);
+  try {
+    const pending = expect(core.reviewMeetingSummaryCandidates(meeting.id)).rejects.toMatchObject(
+      reviewUnavailable,
+    );
+    await core.setAgentsEnabled(false);
+    await pending;
+    done.resolve();
+    await until(core, meeting.id, (transcript) => !transcript.separating);
+    expect(review).not.toHaveBeenCalled();
+  } finally {
+    done.resolve();
+    core.close();
+  }
+});
 
 test("accepting a reviewed exchange is local, idempotent, undoable and survives a restart", async () => {
   const { core, dir, adapters, meeting, model, route } = await recordPair();

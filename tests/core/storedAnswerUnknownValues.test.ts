@@ -726,6 +726,7 @@ describe("Stored Answers keep values and phases this version does not know (#307
       calculateUnavailable: true,
       askedAgainFor: ["search"],
       example: true,
+      meetingHelpAgent: { meetingId: "call", pairingId: "agent", client: "codex" },
       coverage: { kind: "main", used: [{ id: "doc-1", name: "Tides" }], rest: ["doc-2"] },
       writtenFrom: { documents: 1, total: 2 },
       stillReading: { count: 1, name: "Harbour.pdf" },

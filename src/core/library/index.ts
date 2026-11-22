@@ -319,6 +319,16 @@ function parseAssignmentState(input: unknown): AssignmentState {
   };
 }
 
+/** Each Document's place before, from the changes that filed it. */
+function parseFiled(input: unknown): { documentId: string; before: AssignmentState }[] {
+  const invalid = new InvalidInputError({ key: "error.library.projectUndo" });
+  if (!Array.isArray(input)) throw invalid;
+  return input.map((each: unknown) => {
+    if (!isRecord(each) || typeof each.documentId !== "string") throw invalid;
+    return { documentId: each.documentId, before: parseAssignmentState(each.before) };
+  });
+}
+
 /**
  * What Organize sends to a cloud model: the Folders and Tags, and each
  * Document's excerpt. A scan's page images are the "scan-images" flow's, which
@@ -974,6 +984,28 @@ export function createLibrary(options: {
         ],
       );
     }
+  };
+
+  /** A Document's change since its rows were `before` and `taggingBefore`, for Undo. */
+  const changeSince = (
+    id: string,
+    before: AssignmentRow | undefined,
+    taggingBefore: DocumentTagging | null,
+  ): AssignmentChange => {
+    const after = assignment(id);
+    const taggingAfter = taggingSnapshot(id);
+    const taggingMoved = taggingKey(taggingBefore) !== taggingKey(taggingAfter);
+    return {
+      documentId: id,
+      before: {
+        assignment: before ? assignmentFields(before) : null,
+        tagging: taggingMoved ? taggingBefore : null,
+      },
+      after: {
+        assignment: after ? assignmentFields(after) : null,
+        tagging: taggingMoved ? taggingAfter : null,
+      },
+    };
   };
 
   /** Puts a Document's assignment back as a change found it, or removes it when it had none. */
@@ -2187,22 +2219,10 @@ export function createLibrary(options: {
         "UPDATE documents SET tagging_status = 'waiting-for-provider' WHERE id = ? AND tagging_status IN ('pending', 'tagging')",
         [doc.id],
       );
-      const after = assignment(doc.id);
-      const taggingAfter = taggingSnapshot(doc.id);
-      const taggingMoved = taggingKey(taggingBefore) !== taggingKey(taggingAfter);
+      const change = changeSince(doc.id, before, taggingBefore);
       options.tagged([doc.id]);
       announce([doc.id]);
-      return {
-        documentId: doc.id,
-        before: {
-          assignment: before ? assignmentFields(before) : null,
-          tagging: taggingMoved ? taggingBefore : null,
-        },
-        after: {
-          assignment: after ? assignmentFields(after) : null,
-          tagging: taggingMoved ? taggingAfter : null,
-        },
-      };
+      return change;
     },
     /** See `CoreApi.restoreAssignment`. */
     restoreAssignment(id: unknown, beforeInput: unknown, afterInput: unknown) {
@@ -2273,12 +2293,50 @@ export function createLibrary(options: {
       if (!isRecord(input)) throw new InvalidInputError("Choose where to add the Documents.");
       return input.groupId === undefined || input.groupId === null ? null : group(input.groupId).id;
     },
-    file(id: string, groupId: string) {
-      if (!groups().some((item) => item.id === groupId)) return;
+    /**
+     * Files a Document in a live Folder as the User's choice. Returns the change, null for a
+     * Folder that isn't live.
+     */
+    file(id: string, groupId: string): AssignmentChange | null {
+      if (!groups().some((item) => item.id === groupId)) return null;
+      const doc = fileable(id);
+      const before = assignment(doc.id);
+      const taggingBefore = taggingSnapshot(doc.id);
       const { automatic, taggingStopped } = getSettings();
-      write(fileable(id), groupId, "user", automatic ? "pending" : "classified");
+      write(doc, groupId, "user", automatic ? "pending" : "classified");
       if (taggingStopped.includes(groupId)) stopped(id);
       else announce([id]);
+      return changeSince(doc.id, before, taggingBefore);
+    },
+    /**
+     * Takes back what a bound Folder filed as it is taken back itself (ADR-0030): each Document
+     * filed in it as the User's that `ofItsFolder` says is in its folder on disk goes back as
+     * `filed` (the changes that filed it) found it, or to no filing, as one filed as it arrived.
+     * Returns those it put back.
+     */
+    unfileBound(
+      groupId: string,
+      filed: unknown,
+      ofItsFolder: (documentId: string) => boolean,
+    ): string[] {
+      const before = new Map(parseFiled(filed).map((each) => [each.documentId, each.before]));
+      const back = db.transaction(() =>
+        everyFiledDocumentIdsOf(group(groupId).id).filter((id) => {
+          const row = assignment(id);
+          if (row?.group_id !== groupId || row.source !== "user" || !ofItsFolder(id)) return false;
+          const was = before.get(id);
+          restoreAssignmentRow(document(id), was?.assignment ?? null);
+          if (was?.tagging) restoreTaggingRow(id, was.tagging);
+          return true;
+        }),
+      );
+      if (back.length === 0) return back;
+      // One put back to no filing has no row to announce: the snapshot says so.
+      revision++;
+      changed();
+      options.tagged(back);
+      announce(back);
+      return back;
     },
     documentChanged(id: string) {
       if (lifetime.signal.aborted) return;

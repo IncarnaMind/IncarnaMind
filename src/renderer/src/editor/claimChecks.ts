@@ -272,7 +272,8 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
         : child.type.name === CALCULATED_FIGURE_NODE
           ? readClaimCheck(child.attrs[CLAIM_CHECK_MARK])
           : null;
-      if (check) {
+      // As the core reads marks: a blank space never stretches one over the next sentence (#3541).
+      if (check && !(child.isText && child.text?.trim() === "")) {
         const known = found.get(check.id);
         if (known) known.to = to;
         else found.set(check.id, { check, from, to });

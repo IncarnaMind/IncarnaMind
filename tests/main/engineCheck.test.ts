@@ -55,7 +55,8 @@ vi.mock("../../src/main/systemCalendar", () => ({
     },
   }),
 }));
-vi.mock("../../src/main/calls/macWatcher", () => ({
+vi.mock("../../src/main/calls/helper", () => ({
+  callWatcherPath: () => (process.platform === "darwin" ? "/call-watcher" : null),
   callWatcherCheck: () => ({
     name: "the call watcher",
     load: async () => {

@@ -9,8 +9,11 @@
  */
 import { useEffect } from "react";
 import { create } from "zustand";
-import type { AgentAsk, AgentPairing, AgentRequest } from "../../core/api";
+import type { AgentAsk, AgentPairing, AgentRequest, SearchScope } from "../../core/api";
+import { type AskedFor, rememberAsked } from "./askedAgent";
 import { core } from "./core";
+import { documentsOnScreen } from "./documentsOnScreen";
+import { noModelSetUp } from "./noModelSetUp";
 import { useNotices } from "./notices";
 import { useAppStore } from "./store";
 
@@ -74,7 +77,7 @@ const useRequests = create<{ byMind: Readonly<Record<string, readonly AgentReque
   byMind: {},
 }));
 
-const keepRequest = (request: AgentRequest) =>
+const keepRequest = (request: AgentRequest & { mindId: string }) =>
   useRequests.setState(({ byMind }) => {
     const list = byMind[request.mindId];
     if (!list) return { byMind };
@@ -99,7 +102,7 @@ export function useReadAgentRequests(mindId: string): void {
       useRequests.setState(({ byMind }) => ({ byMind: { ...byMind, [mindId]: list } }));
     }, useAppStore.getState().reportError);
     const stop = core.on("agents.request", (request) => {
-      if (request.mindId === mindId) keepRequest(request);
+      if (request.mindId === mindId) keepRequest({ ...request, mindId });
     });
     return () => {
       current = false;
@@ -135,27 +138,73 @@ export function askedAbout(
 }
 
 const noModelIn = (state: ReturnType<typeof useAppStore.getState>) =>
-  state.chatReadiness?.ready === false && state.chatReadiness.reason === "no-provider";
+  noModelSetUp(state.chatReadiness);
 
 /** No model is set up in IncarnaMind: the User's own AI is the way to ask, where one is connected. */
 export const noModel = (): boolean => noModelIn(useAppStore.getState());
 export const useNoModel = (): boolean => useAppStore(noModelIn);
 
-/** Hands `ask` to `agent`. Resolves to whether it went: a failure is a notice. */
+/**
+ * Hands `ask` to `agent`. A question goes with what the User is looking at, as the assistant is
+ * told it: the Documents open on screen and the chat box's Search scope (#3533). `openChat`: for
+ * the chat the User has open there, the line copied and no new chat opened (#3588). Resolves to
+ * whether it went: a failure is a notice.
+ */
 export async function askAgent(
   agent: AgentPairing,
   mindId: string | null,
   ask: AgentAsk,
+  scope?: SearchScope,
+  { openChat = false }: { openChat?: boolean } = {},
 ): Promise<boolean> {
   try {
-    const result = await core.askAgent({ pairingId: agent.id, mindId, ask });
+    const at = new Date().toISOString();
+    const result = await core.askAgent({
+      pairingId: agent.id,
+      mindId,
+      ask,
+      ...(ask.kind === "question" && { onScreen: documentsOnScreen(), scope: scope ?? null }),
+      ...(openChat && { openChat: true }),
+    });
     if (result.kind === "copy") await navigator.clipboard.writeText(result.text);
+    // Only once it is copied: the app can take the focus the copy needs.
+    const fronted = openChat && (await core.frontAgent(agent.id));
+    const about: AskedFor | null =
+      ask.kind === "check" && mindId !== null
+        ? { kind: "check", mindId }
+        : ask.kind === "summary"
+          ? { kind: "summary", documentId: ask.documentId }
+          : ask.kind === "organize"
+            ? { kind: "organize", target: ask.target }
+            : null;
+    if (about) rememberAsked(agent, about, { copied: result.kind === "copy", at });
     useNotices
       .getState()
-      .confirm(result.kind === "copy" ? "agents.ask.copied" : "agents.ask.opened", {
-        agent: agent.name,
-      });
+      .confirm(
+        result.kind === "opened"
+          ? "agents.ask.opened"
+          : !openChat
+            ? "agents.ask.copied"
+            : fronted
+              ? "agents.ask.continued"
+              : "agents.ask.continueCopied",
+        { agent: agent.name },
+      );
     return true;
+  } catch (error) {
+    useAppStore.getState().reportError(error);
+    return false;
+  }
+}
+
+/**
+ * A Check with no model set up asks the User's own AI at once (#3587): the one the Ask pill asks,
+ * connected or used last. Resolves to whether one was asked; with none that reads the Note, none is.
+ */
+export async function askToCheck(mindId: string): Promise<boolean> {
+  try {
+    const [agent] = await core.listAgentsToAsk(mindId);
+    return agent ? await askAgent(agent, mindId, { kind: "check" }) : false;
   } catch (error) {
     useAppStore.getState().reportError(error);
     return false;

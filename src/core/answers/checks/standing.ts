@@ -14,6 +14,7 @@ import {
 import { isVerifiedBlock, readVerification, type Verification } from "../../../shared/verification";
 import { type ClaimCheckAttributes, MIND_SETTINGS_FIELD, type SearchScope } from "../../api";
 import type { RecordCitePlace } from "../../recordCites/referents";
+import { framesAbove } from "./figureOccurrences";
 import {
   checkText,
   everySentence,
@@ -23,6 +24,7 @@ import {
   noteTextOfMarked,
   recordCiteNote,
   type SelectedSentence,
+  wordsOf,
 } from "./sentences";
 import { tableClaim, type WorkbookCells } from "./verifyTables";
 
@@ -89,9 +91,36 @@ export const saidOf = (
   claimOf(sentence, verification) ?? { claim: sentence.text, context: sentence.context };
 
 /**
- * The fingerprint of what a check was given (`ClaimCheckBasis.judgedWith`), made from exactly what
- * it was sent, so a result stands only while its line would be sent the same.
+ * What a line's result stands on, of what its check is given (`saidOf`): the claim and what frames
+ * its line by the Note's own structure (#3455). A deck's line: its slide. Else: what its paragraph
+ * says before it, where "it" and "this" point; for a table row, its table's caption and section
+ * label; and what the Note's structure puts above it (`framesAbove`). A line of its own section,
+ * or of a sibling section, is sent only for what the claim's words refer to: were it in, editing
+ * one claim would put every finding after it behind Needs re-check. A frame only its meaning
+ * shows ("The figures below are in thousands." among a section's lines) is left out with them.
  */
+export function standsOn(
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): { claim: string; context: string } {
+  const said = saidOf(sentence, verification);
+  if (said.onSlide !== undefined) return said;
+  const row = tableClaim(sentence, workbookCellsOf(verification));
+  const table =
+    row !== null && row !== "not-a-claim" && row.context !== row.claim ? [row.context] : [];
+  return {
+    claim: said.claim,
+    context: [
+      wordsOf(sentence.element, 0, sentence.from).trim(),
+      ...table,
+      ...framesAbove(sentence.element),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  };
+}
+
+/** The fingerprint of what a result stands on (`standsOn`, `ClaimCheckBasis.judgedWith`). */
 export const fingerprintOf = ({ claim, context }: { claim: string; context: string }): string =>
   createHash("sha256").update(`${claim}\n\n${context}`).digest("base64url").slice(0, 22);
 
@@ -116,12 +145,12 @@ export function fileCheckLines(
   });
 }
 
-/** The fingerprint of all a line is judged with (`ClaimCheckBasis.judgedWith`). */
+/** The fingerprint of what a line's result stands on (`ClaimCheckBasis.judgedWith`). */
 export function judgedWithOf(
   sentence: SelectedSentence,
   verification: Verification | null,
 ): string {
-  return fingerprintOf(saidOf(sentence, verification));
+  return fingerprintOf(standsOn(sentence, verification));
 }
 
 const verificationIn = (blocks: Y.XmlFragment): Verification | null =>

@@ -1,0 +1,18 @@
+#include <winver.h>
+1 VERSIONINFO
+FILEVERSION @VERSION_NUMERIC@
+PRODUCTVERSION @VERSION_NUMERIC@
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo" BEGIN
+    BLOCK "040904B0" BEGIN
+      VALUE "FileDescription", "IncarnaMind call watcher"
+      VALUE "ProductName", "IncarnaMind"
+      VALUE "ProductVersion", "@VERSION_DOTTED@"
+      VALUE "FileVersion", "@VERSION_DOTTED@"
+    END
+  END
+  BLOCK "VarFileInfo" BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

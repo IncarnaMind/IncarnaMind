@@ -7,11 +7,10 @@ import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
 import { TranslatableError } from "../../src/core/errors";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { openDatabase } from "../../src/core/storage";
-import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
-import { agentsAdapter } from "../helpers/agents";
-import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import { sha256, waitForDocuments, waitForProcessing } from "../helpers/documents";
-import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "../helpers/transcription";
+import { startLiveAgentMeeting } from "../helpers/liveAgentMeeting";
+import { until } from "../helpers/transcription";
 
 const monday = "The launch is on Monday.";
 const friday = "Correction, the launch is on Friday.";
@@ -24,58 +23,34 @@ function launchReply(text: string, quote: string, id: number | null) {
   });
 }
 
-async function setup(
+const setup = (
   run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>,
   grant = true,
   lines = [monday, friday],
-) {
-  const dir = await createTempDataFolder();
-  const clock = manualClock();
-  const capture = createFakeCapture({ now: () => clock.now().getTime() });
-  const { transcriber } = inProcessTranscriber(
-    {},
-    undefined,
-    createFakeCloud({ voices: 1, lines }),
+) => startLiveAgentMeeting(run, grant, lines);
+
+test("the first summary covers both confirmed lines of a short call in one request", async () => {
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async () =>
+    launchReply("Launch on Friday.", friday, null),
   );
-  const adapters = {
-    now: clock.now,
-    agents: await agentsAdapter(dir),
-    audioCapture: capture,
-    transcriber,
-    transcriptionModelSource: NO_TRANSCRIPTION_FILES,
-    transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
-    summarizeWithMeetingAgent: run,
-  };
-  const core = startCore(dir, adapters);
-  const folder = await core.createLibraryGroup({ name: "Launch", description: "" });
-  await core.setAgentsEnabled(true);
-  const { pairing } = await core.connectAgent({
-    name: "Codex",
-    client: "codex",
-    folderIds: [folder.id],
-  });
-  await core.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key-0123456789" });
-  await core.updateSettings({
-    device: {
-      meetingNoticeAccepted: true,
-      meetingNotesAgentId: pairing.id,
-      meetingSummaryRoute: grant ? pairing.id : null,
-      transcriptionRoute: "soniox",
-    },
-  });
-  const meeting = await core.createMeeting({ folderId: folder.id });
-  await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
-  await until(core, meeting.id, (m) => m.cloud === "soniox");
-  await core.setMeetingMicrophone({ meetingId: meeting.id, paused: true });
-  const push = (millis: number) => {
-    for (let i = 0; i < millis; i += 500) {
-      clock.advance(500);
-      capture.push("system", 500);
-    }
-  };
-  const summary = async () => (await core.listMeetings()).find((m) => m.id === meeting.id)?.summary;
-  return { dir, core, pairing, adapters, meeting, push, summary };
-}
+  const { core, meeting, push, summary } = await setup(run);
+  try {
+    push(4500);
+    await until(core, meeting.id, (state) => state.lines >= 2);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await summary()).toMatchObject({
+        state: "ready",
+        text: "Launch on Friday.",
+      }),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.lastCall?.[0].prompt).toContain(monday);
+    expect(run.mock.lastCall?.[0].prompt).toContain(friday);
+  } finally {
+    core.close();
+  }
+});
 
 // protects=an authorized participant can read a warm summary at Stop and receive the last correction later
 test("a ready draft is returned by Stop while the last confirmed decision is still being summarized", async () => {
@@ -306,6 +281,58 @@ test("revoking folder access cancels the outstanding request and discards its la
     await until(core, meeting.id, (m) => m.state === "saved");
     expect((await summary())?.text).toBe("");
     await expect(core.retryMeetingSummary(meeting.id)).rejects.toThrow();
+    expect(run).toHaveBeenCalledTimes(1);
+  } finally {
+    core.close();
+  }
+});
+
+test("restoring access while a stopped meeting's cancelled request settles waits for Retry", async () => {
+  const cancelled = Promise.withResolvers<string>();
+  const answer = launchReply("Launch on Monday.", monday, null);
+  const run = vi
+    .fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>()
+    .mockImplementationOnce(() => cancelled.promise)
+    .mockResolvedValue(answer);
+  const { core, pairing, meeting, push, summary } = await setup(run);
+  try {
+    push(2500);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (state) => state.state === "saved");
+    await core.updateAgent(pairing.id, { folderIds: [] });
+    expect(run.mock.calls[0]?.[0].signal.aborted).toBe(true);
+    await core.updateAgent(pairing.id, { folderIds: pairing.folderIds });
+    cancelled.resolve(answer);
+    await new Promise<void>((done) => setImmediate(done));
+    expect((await summary())?.state).toBe("failed");
+    expect(run).toHaveBeenCalledTimes(1);
+    await core.retryMeetingSummary(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    cancelled.resolve(answer);
+    core.close();
+  }
+});
+
+test("sharing a stopped meeting after a refusal lets its owner choose when to retry", async () => {
+  const run = vi.fn(async () => launchReply("Launch on Monday.", monday, null));
+  const { core, pairing, meeting, push, summary } = await setup(run);
+  try {
+    await core.updateAgent(pairing.id, { folderIds: [] });
+    push(2500);
+    await until(core, meeting.id, (state) => state.lines > 0);
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (state) => state.state === "saved");
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("failed"));
+    await core.updateAgent(pairing.id, { folderIds: pairing.folderIds });
+    expect(await core.listAgentsToAsk(meeting.mindId)).toContainEqual(
+      expect.objectContaining({ id: pairing.id }),
+    );
+    expect(run).not.toHaveBeenCalled();
+    await core.retryMeetingSummary(meeting.id);
+    await vi.waitFor(async () => expect((await summary())?.state).toBe("ready"));
     expect(run).toHaveBeenCalledTimes(1);
   } finally {
     core.close();

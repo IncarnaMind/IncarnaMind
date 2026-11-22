@@ -9,7 +9,7 @@
  * downloaded. e2e/packaged/engines.packaged.ts runs it, and the release runs that before it
  * uploads anything.
  */
-import { constants, mkdirSync, rmSync } from "node:fs";
+import { constants, existsSync, mkdirSync, rmSync } from "node:fs";
 import { access, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ import {
   type EngineModuleCheck,
 } from "../core/engineModules";
 import type { AnalysisEnd } from "../shared/analysis";
-import { callWatcherCheck } from "./calls/macWatcher";
+import { callWatcherCheck, callWatcherPath } from "./calls/helper";
 import { EMBEDDING_PROCESS } from "./embedder";
 import { type EngineProcess, startEngineProcess } from "./engineProcess";
 import type { FileLogger } from "./log";
@@ -93,11 +93,16 @@ function checkProcess(engine: EngineProcess): Promise<EngineCheck[]> {
  * macOS the calendar helper (#190) and the call watcher (#208) it runs.
  */
 function mainModules(log: FileLogger): EngineModule[] {
+  const watcher = callWatcherPath();
+  if (process.platform === "win32")
+    return watcher && existsSync(watcher) ? [callWatcherCheck(watcher)] : [];
   if (process.platform !== "darwin" && process.platform !== "linux") return [];
   const helper = seccompHelper();
   return [
     SANDBOX_RUNTIME,
-    ...(process.platform === "darwin" ? [calendarHelperCheck(log), callWatcherCheck()] : []),
+    ...(process.platform === "darwin" && watcher
+      ? [calendarHelperCheck(log), callWatcherCheck(watcher)]
+      : []),
     ...(helper === undefined
       ? []
       : [

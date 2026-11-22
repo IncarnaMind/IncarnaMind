@@ -9,9 +9,11 @@ import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { readNoteState } from "../../src/renderer/src/noteState";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { checkRows } from "../../src/shared/noteHealth";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import {
@@ -201,6 +203,47 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
     expect((await task(agent, mindId)).sentences).toEqual([]);
   });
 
+  // protects=asked to check a Note it checked before, the agent's new verdict lands in the Note's marks rather than staying in its reply (#3541); fails_when=check_mind_yourself gives nothing to judge again, or a result handed back for a sentence that held one leaves the earlier mark
+  it("gives every sentence again when asked, and the new results replace the Note's marks", async () => {
+    const { core, agent, mindId, coast } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice] },
+        { n: 2, verdict: "supported", cites: [largest] },
+        { n: 3, verdict: "not found" },
+        { n: 4, verdict: "nothing to check" },
+      ]),
+    );
+    const done = await task(agent, mindId);
+    expect(done.sentences).toEqual([]);
+    expect(done.how).toContain("again: true");
+
+    const again = structured<Task>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId, again: true } }),
+    );
+    expect(again.sentences.map((each) => each.text)).toEqual([SPRING, NEAP, PENGUINS]);
+    expect(again.how).toContain("report_check");
+    const neap = again.sentences.find((each) => each.text === NEAP)?.n;
+    const penguins = again.sentences.find((each) => each.text === PENGUINS)?.n;
+    // A result handed back again is held to what a first one is: Supported only on a quote found.
+    expect(
+      structured<Reported>(
+        await report(agent, mindId, again.task, [
+          { n: neap, verdict: "contradicted", cites: [largest] },
+          { n: penguins, verdict: "supported", cites: ["[cite:made-up]"] },
+        ]),
+      ),
+    ).toMatchObject({ marked: 2, unconfirmed: [penguins] });
+    expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
+      [SPRING, "supported"],
+      [NEAP, "contradicted"],
+      [PENGUINS, "not-checked"],
+    ]);
+  });
+
   // protects=a ✓ in the User's Note always rests on words that are in their Document; fails_when=an agent's supported with no Citation, or with one it made up, is marked Supported
   it("marks Not checked a supported or contradicted result with no Citation it can confirm, and gives it out again", async () => {
     const { core, agent, mindId, coast } = await paired();
@@ -256,6 +299,8 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
   // protects=a Note the agent changes after its check is checked again before the User reads it, and nothing checked is judged twice; fails_when=the change doesn't say what is left to check, or the task gives back sentences that hold a result
   it("after the agent changes the Note it checked, says what is left and gives only that", async () => {
     const { core, agent, mindId, coast } = await paired();
+    // Checking as it lands on: off, what is left waits for the User (agentCheckWaits, #3576).
+    await core.updateSettings({ user: { checkAssistantWrites: true } });
     const given = await task(agent, mindId);
     const twice = await cited(agent, "Spring tides happen twice a month");
     const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
@@ -443,12 +488,118 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
 
     for (const call of [
       agent.callTool({ name: "check_mind_yourself", arguments: { mindId: own.id } }),
+      agent.callTool({ name: "check_mind_yourself", arguments: { mindId: own.id, again: true } }),
       report(agent, own.id, "any", []),
     ]) {
       expect(refusal(await call)).toBe(
         "Only a note this agent wrote with create_mind can be checked. It didn’t write this one.",
       );
     }
+  });
+
+  // protects=a mark's card shows every quote the agent's verdict rests on, in the order it gave them, never only the first, whichever place each is from, and an overstated one on a single quote keeps it for its card (#3587); fails_when=a verdict on two quotes keeps only the first, an overstated one loses its quote, a sentence takes more than one mark, or a Supported or Contradicted result on one quote is stored differently from before (which would read as changed)
+  it("keeps every quote a verdict rests on, in the order given, on the sentence's one mark", async () => {
+    const { core, agent, mindId, coast, tides } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const quoted = async () => {
+      const client = await connectToMind(core, mindId);
+      await client.settled();
+      return claimSpans(readMind(client)).map(({ sentence, check }) => ({
+        text: sentence.text,
+        quotes: check.parts?.flatMap((part) => [
+          ...(part.unsupported?.word === "own-view" && part.unsupported.quoted
+            ? [part.unsupported.quoted.quote]
+            : []),
+          ...part.evidence.map((citation) => citation.quote),
+        ]),
+        everyQuote: check.parts?.map((part) => part.restsOnEveryQuote === true),
+      }));
+    };
+    /** The rows the Note's page counts, and what the agent is told of them once nothing is left. */
+    const counted = async () => {
+      const client = await connectToMind(core, mindId);
+      await client.settled();
+      const { health } = readNoteState({
+        doc: client.doc,
+        cellFigures: [],
+        footing: [],
+        documents: await core.listDocuments(),
+        keptCitationTexts: [],
+        folderId: coast.id,
+      });
+      const done = structured<Task & { checked: { supported: number; needLook: number } }>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+      );
+      return {
+        page: Object.fromEntries(checkRows(health).map(({ row, places }) => [row, places.length])),
+        left: done.sentences,
+        told: { supported: done.checked.supported, needLook: done.checked.needLook },
+      };
+    };
+
+    structured<Reported>(
+      await report(agent, mindId, given.task, [
+        { n: 1, verdict: "supported", cites: [twice] },
+        { n: 2, verdict: "contradicted", cites: [largest, twice], explanation: "Not neap." },
+        { n: 3, verdict: "overstated", cites: [twice], explanation: "No penguins." },
+        { n: 4, verdict: "own view", cites: [largest, twice] },
+      ]),
+    );
+    const SPRING_QUOTE = "Spring tides happen twice a month";
+    const RANGE_QUOTE = "The range of a spring tide is the largest of the month.";
+    expect(await quoted()).toEqual([
+      // One quote is kept as it always was: no result stored before this reads as changed.
+      { text: SPRING, quotes: [SPRING_QUOTE], everyQuote: [false] },
+      { text: NEAP, quotes: [RANGE_QUOTE, SPRING_QUOTE], everyQuote: [true] },
+      { text: PENGUINS, quotes: [SPRING_QUOTE], everyQuote: [true] },
+      { text: SOURCES, quotes: [RANGE_QUOTE, SPRING_QUOTE], everyQuote: [true] },
+    ]);
+    const onOneQuote = await counted();
+    expect(onOneQuote).toMatchObject({
+      page: { look: 2, notYetCited: 1, ownViews: 1 },
+      left: [],
+      // A Supported sentence that cites nothing yet is "can be cited", for the agent too.
+      told: { supported: 0, needLook: 2 },
+    });
+
+    const again = structured<Task>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId, again: true } }),
+    );
+    const numbered = (text: string) => again.sentences.find((each) => each.text === text)?.n;
+    structured<Reported>(
+      await report(agent, mindId, again.task, [
+        { n: numbered(SPRING), verdict: "supported", cites: [twice, largest] },
+        { n: numbered(PENGUINS), verdict: "partly supported", cites: [largest, twice] },
+      ]),
+    );
+    expect(
+      (await quoted()).filter((each) => each.text === SPRING || each.text === PENGUINS),
+    ).toEqual([
+      { text: SPRING, quotes: [SPRING_QUOTE, RANGE_QUOTE], everyQuote: [true] },
+      { text: PENGUINS, quotes: [RANGE_QUOTE, SPRING_QUOTE], everyQuote: [true] },
+    ]);
+    // A verdict on several quotes reads as itself wherever it is read: its mark, the Note's page,
+    // what the agent is told, and Check again, which gives it no more.
+    expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
+      [SPRING, "supported"],
+      [NEAP, "contradicted"],
+      [PENGUINS, "unsupported"],
+      [SOURCES, "own-view"],
+    ]);
+    expect(await counted()).toEqual(onOneQuote);
+
+    // What they rest on is each quote's Document: changed, every one that quotes it is given again.
+    await writeFile(tides.path, `${TIDES}\n\nNeap tides come in between.\n`);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [tides.id]);
+    expect((await task(agent, mindId)).sentences.map((each) => each.text)).toEqual([
+      SPRING,
+      NEAP,
+      PENGUINS,
+      SOURCES,
+    ]);
   });
 });
 
@@ -535,5 +686,72 @@ describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
         }).state,
       ]),
     ).toEqual([["610", "supported"]]);
+  });
+
+  // protects=a Note the agent rewrote a paragraph of after its check counts as not checked yet only what its check is given again, so asked later whether the Note is right the agent has no unchecked sentence it can't report on (#3541); fails_when=a space the rewrite kept carries an earlier result past the next sentence, and the Note counts that result as changed while check_mind_yourself says nothing is left
+  it("after the agent rewrites a paragraph it checked, counts as not checked just what it gives again", async () => {
+    const { core, agent, coast } = await paired();
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const lead = "**Spring tides matter most.**";
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Spring tides",
+          markdown: `${lead} Spring tides come twice a month ${twice}, so we plan around them. Their range is the largest of the month ${largest}, the biggest of all (twice that of neaps) ${largest}. They come at new moon and full moon ${twice}. Fishing boats wait for them ${twice}, so the harbour is busy.`,
+          folderId: coast.id,
+        },
+      }),
+    );
+    const first = await task(agent, mindId);
+    structured<Reported>(
+      await report(
+        agent,
+        mindId,
+        first.task,
+        first.sentences.map(({ n }) =>
+          n === 1 ? { n, verdict: "own view" } : { n, verdict: "supported", cites: [twice] },
+        ),
+      ),
+    );
+
+    const { version } = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    structured(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version,
+          changes: [
+            {
+              paragraph: "¶1",
+              text: `${lead} Spring tides come twice a month ${twice}, so we plan around them. Their range of the month is the largest of all ${largest}, and they come at new and full moon ${twice}.`,
+            },
+          ],
+        },
+      }),
+    );
+    const again = await task(agent, mindId);
+    structured<Reported>(
+      await report(
+        agent,
+        mindId,
+        again.task,
+        again.sentences.map(({ n }) => ({ n, verdict: "supported", cites: [largest, twice] })),
+      ),
+    );
+
+    const done = structured<Task & { checked?: { notChecked: number } }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+    );
+    expect(done.sentences).toEqual([]);
+    expect(done.checked?.notChecked).toBe(0);
+    // The Note's page reads its marks the same way: none of them reads as changed.
+    const shown = await marks(core, mindId, coast.id);
+    expect(shown.find((each) => each.state === "own-view")?.text).toBe("Spring tides matter most.");
+    expect(shown.map((each) => each.state)).not.toContain("needs-recheck");
   });
 });

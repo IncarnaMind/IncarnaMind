@@ -92,11 +92,17 @@ import {
   undoMoves,
 } from "./moves";
 import { untitledFolderName } from "./newFolder";
+import { noModelSetUp } from "./noModelSetUp";
 import { useNotices } from "./notices";
 import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
-import { resolveSettingsPage, type SettingsPage, type SettingsTarget } from "./settingsPages";
+import {
+  pagesOffered,
+  resolveSettingsPage,
+  type SettingsPage,
+  type SettingsTarget,
+} from "./settingsPages";
 import { sortOf, useSort } from "./sortChoices";
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
@@ -156,6 +162,8 @@ export interface AppState extends LayoutSlice {
   settings: Settings | null;
   /** Whether Questions can be asked. Set once loaded, then follows the core's event. */
   chatReadiness: ChatReadiness | null;
+  /** Whether a Connector is on. Set once loaded, then follows the core's event. */
+  connectorsOn: boolean;
   /** Most recently added first. */
   documents: Document[];
   /**
@@ -498,7 +506,8 @@ export interface AppState extends LayoutSlice {
   setLinkedFolderPaused(linkedFolderId: string, paused: boolean): Promise<Undoable | undefined>;
   /**
    * Makes a Linked folder a Project (ADR-0030): a Folder named after it, keeping its work inside it,
-   * that its files are filed in as they arrive. With Undo, which deletes that Folder again.
+   * that its files are filed in as they arrive. With Undo, which deletes that Folder again and puts
+   * its files back where they were.
    */
   makeProject(linkedFolderId: string): Promise<void>;
   /** Downloads a Linked folder's online-only files and indexes them. */
@@ -622,6 +631,7 @@ type PushedList =
   | "tags"
   | "skills"
   | "chatReadiness"
+  | "connectorsOn"
   | "embeddingModel"
   | "embedding"
   | "rerank"
@@ -641,6 +651,12 @@ function readList<T>(list: PushedList, request: Promise<T>, readAt: Map<PushedLi
 /** Whether the list was pushed after `load` read it. */
 const pushedSince = (list: PushedList, readAt: Map<PushedList, number>) =>
   (lastPushed.get(list) ?? 0) > (readAt.get(list) ?? 0);
+
+const offeredNow = (state: Pick<AppState, "chatReadiness" | "connectorsOn">) =>
+  pagesOffered({
+    noModel: noModelSetUp(state.chatReadiness),
+    connectorsOn: state.connectorsOn,
+  });
 
 const LOADED_KEY = "incarnamind.window.loaded";
 
@@ -1081,6 +1097,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     pickingDocuments: false,
     settings: null,
     chatReadiness: null,
+    connectorsOn: false,
     documents: [],
     heldDocuments: null,
     keptCitationTexts: [],
@@ -1239,7 +1256,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("keptCitationTexts", core.listKeptCitationTexts(), readAt),
           readEveryExample(),
           core.readyQuestion(),
-          core.listConnectors(),
+          readList("connectorsOn", core.listConnectors(), readAt),
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
           documentsRead,
@@ -1258,6 +1275,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           settings,
           keptCitationTexts,
           chatReadiness,
+          connectorsOn: connectors.some((connector) => connector.enabled),
           folders,
           embeddingModel,
           tags,
@@ -1861,11 +1879,15 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     openSettings(page, at) {
       // Also a click handler: anything but a page name opens General.
-      set({ settingsOpen: true, settingsPage: resolveSettingsPage(page), settingsAt: at ?? null });
+      set({
+        settingsOpen: true,
+        settingsPage: resolveSettingsPage(page, offeredNow(get())),
+        settingsAt: at ?? null,
+      });
     },
 
     showSettingsPage(page) {
-      set({ settingsPage: resolveSettingsPage(page) });
+      set({ settingsPage: resolveSettingsPage(page, offeredNow(get())) });
     },
 
     closeSettings() {
@@ -2205,13 +2227,13 @@ export const useAppStore = create<AppState>()((set, get) => {
       attempt(async () => {
         const linked = get().linkedFolders.find((each) => each.id === linkedFolderId);
         if (!linked) return;
-        const project = await core.createBoundFolder(linked.folderId);
+        const { folder: project, filed } = await core.createBoundFolder(linked.folderId);
         await get().refreshLibrary();
         push({
           said: (t) => t("undo.projectMade", { name: project.name }),
           name: (t) => t("undo.name.makeProject"),
           undo: async () => {
-            await core.deleteLibraryGroup(project.id);
+            await core.undoBoundFolder(project.id, filed);
             await get().refreshLibrary();
           },
           redo: async () => {
@@ -2523,7 +2545,11 @@ export function recordUsage(event: UiUsageEvent): void {
   core.recordUsage(event).catch((error: unknown) => console.error(error));
 }
 
-core.on("connectors.changed", (connectors) => tickIndexed(connectors.length));
+core.on("connectors.changed", (connectors) => {
+  pushed("connectorsOn");
+  useAppStore.setState({ connectorsOn: connectors.some((connector) => connector.enabled) });
+  tickIndexed(connectors.length);
+});
 
 // An Answer to a Question of the User's own: anything but the example Answer, written again.
 // Only one that arrives: not one refused or failed (#766).
@@ -2538,17 +2564,6 @@ core.on("answer.finished", ({ answerId, status }) => {
 core.on("chatReadiness.changed", (chatReadiness) => {
   pushed("chatReadiness");
   useAppStore.setState({ chatReadiness });
-});
-
-// A Canvas an agent publishes opens behind the tab in front, as a Note it writes does (#3406).
-core.on("agents.canvasChanged", (change) => {
-  if (change.kind !== "published") return;
-  void useAppStore.getState().changeLayout({
-    type: "open",
-    item: { kind: "canvas", canvasId: change.canvasId },
-    where: { in: "group" },
-    behind: true,
-  });
 });
 
 // An outside agent asked to show one of its Citations (#351): it opens beside the Mind, at its quote.

@@ -11,6 +11,7 @@ import { isRecord } from "../errors";
 export const PHASES: Record<AnswerPhase, true> = {
   "waiting-for-consent": true,
   loading: true,
+  listening: true,
   searching: true,
   writing: true,
   "checking-quotes": true,
@@ -49,6 +50,7 @@ export const STEP_KEYS = {
   calculateUnavailable: true,
   askedAgainFor: true,
   example: true,
+  meetingHelpAgent: true,
   coverage: true,
   writtenFrom: true,
   stillReading: true,
@@ -91,6 +93,7 @@ const STILL_READING_KEYS = {
 } satisfies KnownKeys<Required<NonNullable<AnswerSteps["stillReading"]>>>;
 
 const SENT_KEYS = {
+  sharedScreen: true,
   documents: true,
   transcript: true,
 } satisfies KnownKeys<Required<NonNullable<AnswerSteps["sent"]>>>;
@@ -248,6 +251,13 @@ export function mergeStoredSteps(raw: string | null, steps: AnswerSteps): string
     ...(steps.uncitedChecks !== undefined && {
       uncitedChecks: mergeStoredUncitedChecks(existing.uncitedChecks, steps.uncitedChecks),
     }),
+    ...(steps.meetingHelpAgent && {
+      meetingHelpAgent: mergeKnownKeys(
+        existing.meetingHelpAgent,
+        { meetingId: true, pairingId: true, client: true },
+        steps.meetingHelpAgent,
+      ),
+    }),
     ...(steps.coverage !== undefined && {
       coverage: mergeStoredCoverage(existing.coverage, steps.coverage),
     }),
@@ -266,6 +276,7 @@ export function mergeStoredSteps(raw: string | null, steps: AnswerSteps): string
     ...(steps.sent !== undefined && {
       sent: mergeKnownKeys(existing.sent, SENT_KEYS, {
         documents: steps.sent.documents,
+        ...(steps.sent.sharedScreen && { sharedScreen: steps.sent.sharedScreen }),
         ...(steps.sent.transcript === true && { transcript: true }),
       }),
     }),

@@ -3353,6 +3353,30 @@ export const migrations: readonly Migration[] = [
     description: "Reserve action item IDs for Meetings with no generated summary",
     sql: "ALTER TABLE meetings ADD COLUMN last_transcript_action_id INTEGER NOT NULL DEFAULT 0;",
   },
+  {
+    version: 156,
+    description: "What a request to the User's own AI names, kept apart from its text (#3533)",
+    sql: `
+      -- The Documents open, and the Folders and Documents of the Search scope, that a question
+      -- named, as JSON ids: the agent's reach to each is read again when it reads the request, and
+      -- their names are put in its text then, as they are by then. NULL for every other request.
+      -- On this device only, as agent_requests is.
+      ALTER TABLE agent_requests ADD COLUMN named TEXT;
+    `,
+  },
+  {
+    version: 157,
+    description: "Meeting write-up templates in Skills (#688)",
+    sql: "ALTER TABLE skills ADD COLUMN meeting_template INTEGER NOT NULL DEFAULT 0;",
+  },
+  {
+    version: 158,
+    description: "Keep the Meeting's chosen write-up template (#688)",
+    sql: `
+      ALTER TABLE meetings ADD COLUMN writeup_template_id TEXT;
+      ALTER TABLE skills ADD COLUMN meeting_fill_uncovered INTEGER NOT NULL DEFAULT 1;
+    `,
+  },
 ];
 
 /**

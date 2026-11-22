@@ -224,6 +224,7 @@ for (const language of ["en", "zh-CN"] as const) {
         .getByTestId("agent-connect")
         .click();
       const dialog = window.getByTestId("connect-agent-dialog");
+      await dialog.getByTestId("agent-share-folders").check();
       const offered = dialog.getByTestId("agent-folder-list");
       await rowOf(offered, "Coast").tick.check();
       await expect(rowOf(offered, "Engineering").tick).toBeDisabled();

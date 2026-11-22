@@ -113,6 +113,7 @@ export async function started(
     reading,
     folders = [],
     analysisRuntime,
+    asItLands = true,
   }: {
     plans?: Record<string, Plan>;
     /** The checking model, in place of one that checks as `plans` say. */
@@ -123,6 +124,8 @@ export async function started(
     folders?: readonly string[];
     /** Python for `run_analysis`; none by default. */
     analysisRuntime?: AnalysisRuntime;
+    /** Settings › AI's checking as it lands: on here, as these tests check what a hand-over checks (#3576). */
+    asItLands?: boolean;
   } = {},
 ) {
   const kept = await createTempDataFolder();
@@ -144,6 +147,7 @@ export async function started(
     ...(analysisRuntime && { analysisRuntime }),
   });
   const { core } = started;
+  await core.updateSettings({ user: { checkAssistantWrites: asItLands } });
   const sources = await createSourceFolder();
   const added = await addAndProcess(core, [
     await writeSourceFile(sources, "Harbour survey.md", SURVEY),
@@ -165,8 +169,8 @@ export async function started(
   });
   const reader = await core.connectAgent({ name: "Codex", folderIds: [coast.id] });
   const agentFiles = await createSourceFolder();
-  /** The same data folder opened again, as after a quit. */
-  const restart = async () => {
+  /** The same data folder opened again, as after a quit, on `now` when the test moves the clock. */
+  const restart = async (now?: () => Date) => {
     await core.close();
     return startCore(started.dataDir, {
       createChatModel: started.models.createChatModel,
@@ -174,9 +178,20 @@ export async function started(
       agents: await agentsAdapter(started.dataDir),
       canvasFiles,
       keychain,
+      ...(now && { now }),
     });
   };
-  return { core, coast, writer, reader, files: agentFiles, added, more, restart };
+  return {
+    core,
+    dataDir: started.dataDir,
+    coast,
+    writer,
+    reader,
+    files: agentFiles,
+    added,
+    more,
+    restart,
+  };
 }
 
 export const handOver = (agent: Agent, args: Record<string, unknown>) =>

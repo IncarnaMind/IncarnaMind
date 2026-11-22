@@ -126,6 +126,22 @@ async function click(selector: string) {
   await act(() => button.click());
 }
 
+test("the open review shows when it is waiting for speakers and when the AI is checking", async () => {
+  const pending = Promise.withResolvers<(typeof candidate)[]>();
+  api.review.mockReturnValueOnce(pending.promise);
+  if (!meeting.transcript) throw new Error("The test needs a saved Transcript.");
+  meeting.transcript.separating = true;
+  await show(fresh);
+  await click("button[aria-expanded]");
+  const status = () => container.querySelector('[role="status"]')?.textContent;
+  expect(status()).toBe(translate("en", "meetings.transcript.separating"));
+  meeting.transcript.separating = false;
+  await show(fresh);
+  expect(status()).toBe(translate("en", "meetings.summary.candidates.checking"));
+  expect(api.review).toHaveBeenCalledOnce();
+  await act(() => pending.resolve([]));
+});
+
 test("the newest access answer controls first-open; cached quotes stay local after a route is revoked", async () => {
   const initial = Promise.withResolvers<boolean>();
   api.eligible.mockReturnValueOnce(initial.promise).mockResolvedValueOnce(false);

@@ -544,6 +544,15 @@ export interface MovedDocument extends MovedItem {
 }
 
 /**
+ * A Folder bound to a folder on disk (ADR-0030), and each Document filed in it then with its place
+ * before and after, for `undoBoundFolder`.
+ */
+export interface BoundFolderChange {
+  folder: LibraryGroup;
+  filed: AssignmentChange[];
+}
+
+/**
  * The name of the Y.XmlFragment that holds a Mind's Blocks in its Yjs document
  * (ADR-0003). The editor binds to it, and the core reads it.
  */
@@ -1111,7 +1120,13 @@ export const INCLUDE_IN_CONTEXT_ATTRIBUTE = "includeInContext";
  * - "outside-agent": text an outside agent proposed for a Note (#352), or a Note it wrote
  *   whole (#3306).
  */
-export type ThirdPartySource = "imported" | "web-page" | "checked-document" | "outside-agent";
+export type ThirdPartySource =
+  | "imported"
+  | "web-page"
+  | "checked-document"
+  | "outside-agent"
+  | "transcript"
+  | "shared-screen";
 
 /**
  * Third-party text a Run reads itself: a saved web page a search found, the
@@ -2434,6 +2449,7 @@ export type CitationCheck =
   | "contradicted";
 
 export type CitationCheckReason =
+  | "screen-deleted"
   /** Not found: the quote isn't in the text of the cited Units (pages, slides…). */
   | "quote-not-on-pages"
   /** Not found: the words the Answer put in quotation marks aren't in the text of the cited Units (#483). */
@@ -2484,6 +2500,7 @@ export type CitationCheckReason =
 
 /** Every check reason, for reading one the app didn't write: a value outside these is no reason. */
 export const CITATION_CHECK_REASONS = [
+  "screen-deleted",
   "quote-not-on-pages",
   "quoted-words-not-on-pages",
   "pages-outside-passage",
@@ -2921,6 +2938,7 @@ interface MaybeArea {
 }
 
 export type CitationLocation =
+  | ({ kind: "screen"; at: string; screen: string; from: number; to: number } & MaybeArea)
   | ({
       kind: "page";
       from: number;
@@ -3750,6 +3768,8 @@ export interface DeviceSettings {
   meetingSystemAudio: boolean;
   /** The connected agent chosen for notes after Stop on this device. */
   meetingNotesAgentId: string | null;
+  /** The pairing allowed to answer explicit Call Help requests on this device. */
+  meetingCallHelpAgentId: string | null;
   /** The pairing or chat model allowed to prepare a summary during Meetings on this device. */
   meetingSummaryRoute: string | null;
   /**
@@ -3780,6 +3800,12 @@ export interface DeviceSettings {
    * that the other people should be told. Recording waits for it.
    */
   meetingNoticeAccepted: boolean;
+  /**
+   * The meeting bar asks, when a recording starts, whether someone will
+   * share their screen, to read it for Answers during the call (ADR-0031).
+   */
+  meetingScreenAsk: boolean;
+  meetingScreenPictureLimit: number;
   /** Settings › Meetings › "Show the call help panel": it appears while a Meeting records. */
   meetingPanel: boolean;
   /** Settings › Meetings › "Keep the panel out of my screen share", where the system honours it. */
@@ -4155,6 +4181,19 @@ export interface AgentCanvasChange {
   version: number;
 }
 
+/**
+ * What an outside agent made, for the windows to open (#3534): a Note it wrote, the Note a file it
+ * handed over lives in, or a Canvas it published.
+ */
+export interface AgentOpened {
+  item: { kind: "mind"; mindId: string } | { kind: "canvas"; canvasId: string };
+  /**
+   * The User asked this agent from IncarnaMind and it read the request in this connection: the item
+   * opens in front and the app comes to the front with it. Else it opens behind, and the app stays.
+   */
+  front: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Tabs and groups: everything that opens is a tab, in up to three groups side
 // by side, as VS Code's editor groups. Each window keeps its own layout.
@@ -4233,7 +4272,12 @@ export interface DocumentPlace {
    */
   wordPlace?: string;
   /** The original Transcript cue, or an exact displayed speaker part within it. */
-  transcriptCue?: { startMs: number; endMs: number; part?: true };
+  transcriptCue?: {
+    startMs: number;
+    endMs: number;
+    part?: true;
+    excerpt?: TextRange & { cueHash: string };
+  };
 }
 
 export interface LayoutTab {
@@ -4317,6 +4361,8 @@ export interface AssistantPlace {
   width: number;
   /** A bottom dock's height, in CSS pixels. */
   height: number;
+  /** The divider was sized by hand, even if it landed on the default height. */
+  heightChosen?: boolean;
   float: AssistantFloat;
 }
 
@@ -7133,6 +7179,14 @@ export interface OrganizeLibraryInput {
   folders?: FolderCountAim;
 }
 
+/** A Library Organize press: its loose Documents, a selection, or the Documents in one Folder. */
+export type OrganizeTarget = { ids: readonly string[] | null } | { folderId: string };
+
+export interface OrganizeAgents {
+  eligible: AgentPairing[];
+  connected: boolean;
+}
+
 /** How many new Folders a plan made again aims at, against how many the last plan proposed. */
 export type FolderCountAim = { fewerThan: number } | { moreThan: number };
 
@@ -7945,6 +7999,12 @@ export interface ClaimCheckPart
    * shown as a quote, and the part says nothing in `says`.
    */
   restsOnPassage?: true;
+  /**
+   * A verdict that rests on every one of its quotes, none of them deciding it before another: an
+   * outside agent's, which names its quotes and not which one decides (#3587). Its card shows them
+   * all.
+   */
+  restsOnEveryQuote?: true;
   figures?: ClaimPartFigure[];
   remainder?: ClaimPartJudgment | null;
   evidence: CitationAttributes[];
@@ -8404,9 +8464,9 @@ export interface ClaimCheckBasis {
    */
   citedOnly?: true;
   /**
-   * A fingerprint of all the claim was judged with, its words and what stands above it (#3412):
-   * read against the line as it is now, a reading that knows it says whether the result still
-   * stands there. Absent on a check that kept none.
+   * A fingerprint of what the result stands on, its claim and what frames its line: a deck's slide,
+   * else the headings it is under (#3412): read against the line as it is now, a reading that knows
+   * it says whether the result still stands there. Absent on a check that kept none.
    */
   judgedWith?: string;
 }
@@ -8823,6 +8883,8 @@ export interface AnswerDelta extends AnswerPlace {
  */
 export type AnswerPhase =
   | "waiting-for-consent"
+  /** Asked during a call: the live transcript is brought up to now first (#144). */
+  | "listening"
   | "loading"
   | "searching"
   | "writing"
@@ -8864,7 +8926,12 @@ export interface UncitedCheck {
   judgedAt: string;
 }
 
+export const SHARED_SCREEN_USES = ["text", "picture", "no-vision", "limit", "budget"] as const;
+export type SharedScreenUse = (typeof SHARED_SCREEN_USES)[number];
+
 export interface AnswerSteps {
+  /** A reply made from this Meeting’s confirmed speech by the User’s chosen agent. */
+  meetingHelpAgent?: { meetingId: string; pairingId: string; client: "claude-code" | "codex" };
   /** When its Question went to the model; null when none did (its Search scope had no Documents). */
   sentAt: string | null;
   /** When it ended; null while it is being written. */
@@ -8954,7 +9021,7 @@ export interface AnswerSteps {
    * Documents whose whole text went with the Question, and whether the live transcript of a
    * meeting did. Absent: an Answer written before this was kept, or one that isn't in the assistant.
    */
-  sent?: { documents: string[]; transcript?: true };
+  sent?: { documents: string[]; transcript?: true; sharedScreen?: SharedScreenUse };
   /**
    * A help button was pressed while its Meeting's live text was behind (#1366): the lines it had,
    * if any, went with the Question, and the reply says so first. Absent: it wasn't behind, or this
@@ -9603,6 +9670,10 @@ export interface Skill {
    * its name; `duplicateSkill` makes a copy that is the User's own.
    */
   builtIn: boolean;
+  /** Its SKILL.md defines the sections of a Meeting write-up. */
+  meetingTemplate: boolean;
+  /** Whether a Meeting template adds the sections the User's notes do not already cover. */
+  meetingFillUncovered?: boolean;
   /** Every file in the Skill: SKILL.md first, then the others in path order. */
   files: SkillFile[];
   /** ISO 8601, UTC. */
@@ -9635,6 +9706,7 @@ export interface SkillImportPreview {
   importId: string;
   /** The folder or zip it was read from. */
   source: string;
+  meetingTemplate: boolean;
   name: string;
   description: string;
   license: string | null;
@@ -12106,6 +12178,28 @@ export interface MeetingSummarySource {
   text: string;
 }
 
+export interface MeetingBriefPreparation {
+  route: { id: string; label: string; external: boolean; client?: true } | null;
+  invitation: Citation[];
+  questions: MeetingBriefQuestion[];
+  prepared: boolean;
+}
+
+export interface MeetingBriefQuestion {
+  question: string;
+  /** The cited sentence in the source's own words; null when there is no checked answer. */
+  citation: Citation | null;
+}
+
+export interface MeetingBriefItem {
+  meetingId: string;
+  itemId: number;
+  title: string;
+  kind: MeetingSummaryItem["kind"];
+  text: string;
+  citation: Citation;
+}
+
 export interface MeetingSummaryCandidate {
   id: number;
   sources: MeetingSummarySource[];
@@ -12117,6 +12211,8 @@ export interface MeetingSummary {
   candidateCount?: number;
   candidatesReviewed?: true;
   problem?: "codex-input-limit";
+  /** The connected agent originally selected for a failed summary. */
+  retryAgentId?: string;
   throughMs: number;
   state: "preparing" | "updating" | "ready" | "failed";
 }
@@ -12151,6 +12247,8 @@ export interface Meeting {
   saveError: string | null;
   /** Its Transcript, made on this computer (#136); null before it starts, or where this copy can't transcribe. */
   transcript: MeetingTranscript | null;
+  /** Its shared screen (ADR-0031), while it records or is paused; null otherwise, or where this copy can't read one. */
+  screen?: MeetingScreen | null;
   /** How well its capture went, so a bad recording can be explained (#161). */
   health: CaptureHealth;
   /**
@@ -12167,6 +12265,8 @@ export interface Meeting {
   helps: MeetingHelp[];
   /** The kind of meeting the help buttons are for, as the User chose it; null: the general buttons only. */
   helpTemplate: MeetingHelpTemplate | null;
+  /** The Skill chosen for the Meeting's write-up. Otherwise it uses the default sections. */
+  writeupTemplateId?: string;
   /** Its notes filled in from the Transcript after Stop (#142); null before Stop. */
   fill: MeetingFill | null;
   createdAt: string;
@@ -12546,6 +12646,76 @@ export interface MeetingAudioStretch {
 /** How long a Meeting's audio is kept after its last recording, at most. */
 export const MEETING_AUDIO_KEPT_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * A Meeting's shared screen (ADR-0031), kept in memory only while it records
+ * or is paused:
+ * - "ask": the meeting bar asks whether someone will share their screen.
+ * - "off": nothing is read: the User said Not this time, Stop, or wasn't asked.
+ * - "choosing": the window picker is open.
+ * - "reading": `window` is read each time what it shows changes.
+ */
+export interface MeetingScreen {
+  /** The provider chosen for Questions in this Meeting's Note. */
+  providerId: string | null;
+  state: "ask" | "off" | "choosing" | "reading";
+  /** The window being read, by its name ("Zoom Meeting"), while reading. */
+  window: string | null;
+  /** What stopped the last choice or reading, until the next one. */
+  problem: SharedScreenProblem | null;
+  /** The id of this recording, separate for every Meeting. */
+  memory: string;
+  /** Screen ids still available for checking a Citation. */
+  retained: string[];
+  /** How many screens have been read. */
+  screens: number;
+  /**
+   * Whether IncarnaMind may capture a window: on macOS, the Screen Recording
+   * permission, which the first Choose window… asks for ("not-asked" until then).
+   */
+  permission: "granted" | "not-asked" | "denied";
+  /** The text recognition model, while it downloads before the first screen can be read, or failed to. */
+  model: EmbeddingModelStatus | null;
+}
+
+/**
+ * Why the shared screen isn't being read:
+ * - "whole-screen": a whole screen was chosen; only one window is read.
+ * - "denied": the system didn't allow IncarnaMind to capture the window.
+ * - "closed": the window closed, or its sharing was stopped from outside.
+ * - "failed": it couldn't be read: the text recognition model, say.
+ */
+export type SharedScreenProblem = "whole-screen" | "denied" | "closed" | "failed";
+
+/** A window the User can choose to read, in IncarnaMind's own picker. */
+export interface ShareableWindow {
+  id: string;
+  /** Its title, or its app's name. */
+  name: string;
+  /** A small picture of it, as a data: URL. */
+  thumbnail: string;
+}
+
+export interface ReadSharedScreenInput {
+  meetingId: string;
+  /** A window from `listShareableWindows`. */
+  windowId: string;
+}
+
+/** A screen read during a Meeting, as its Citation's card shows it while the Meeting records. */
+export interface SharedScreenFrame {
+  id: string;
+  /** When it was read (ISO 8601). */
+  at: string;
+  /** The window it was read from. */
+  window: string;
+  /** Its picture, as a JPEG data: URL. */
+  image: string;
+  /** The quote asked for, as read; "" when none was. */
+  quote: string;
+  /** The quote's lines on the picture, as fractions of its size: left, top, right, bottom. */
+  boxes: [number, number, number, number][];
+}
+
 export interface CreateMeetingInput {
   /** An empty Mind to hold it. Not given: a new Mind, named for the day. */
   mindId?: string;
@@ -12671,6 +12841,14 @@ export interface ListCalendarEventsInput {
 export const NOT_IN_A_FOLDER_ID = "not-in-a-folder";
 
 /**
+ * Stands for all of the User's Documents and Notes, those added later too, where a pairing's
+ * Folders go (#3544): every Folder outside a work wall at the time of each call, the Documents
+ * and Notes in no Folder, and never the examples. A walled Folder is never part of it, and can't
+ * be shared with it. An older version drops it as a Folder that doesn't exist, which shares less.
+ */
+export const ALL_SHARED_ID = "all";
+
+/**
  * An outside agent the User connected: an AI agent they run themselves, such
  * as Claude Code or Codex, that uses IncarnaMind as an MCP server. One pairing
  * per agent, on this device only: the agent runs on this computer.
@@ -12683,8 +12861,8 @@ export interface AgentPairing {
   name: string;
   /**
    * The Folders it may search and read, with their Minds, and `NOT_IN_A_FOLDER_ID` for the
-   * Documents in no Folder at the time of each call, without their Minds. None until the
-   * User picks some.
+   * Documents in no Folder at the time of each call, without their Minds; or `ALL_SHARED_ID`
+   * alone. None until the User chooses.
    */
   folderIds: string[];
   /** The agent it was set up in, e.g. "codex"; null for one set up by hand. */
@@ -12736,7 +12914,7 @@ export interface AgentDisconnected {
 export interface ConnectAgentInput {
   /** Trimmed; must not be empty, nor another pairing's name (ignoring case). */
   name: string;
-  /** Folders (by id, or `NOT_IN_A_FOLDER_ID`) it may read; none by default. */
+  /** Folders (by id, or `NOT_IN_A_FOLDER_ID`), or `ALL_SHARED_ID`, it may read; none by default. */
   folderIds?: string[];
   /** The agent it is set up in, e.g. "codex": lower-case letters, digits and hyphens. */
   client?: string;
@@ -12882,7 +13060,7 @@ export type AgentSetupResult =
 
 export interface SetUpAgentInput {
   client: AgentClientId;
-  /** The Folders it may read; the User picks at least one. */
+  /** The Folders it may read, or `ALL_SHARED_ID`; the User picks at least one. */
   folderIds: string[];
   /** The name the User gave it ("Other agent" only); otherwise its own name. */
   name?: string;
@@ -12923,19 +13101,37 @@ export const MAX_ASKED_SENTENCES = 30;
 /**
  * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
  * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
- * named, to go on in their AI.
+ * named, to go on in their AI; or to check the Note, with no model set up in IncarnaMind to do it
+ * (#3533); or, from Get started, to write a short summary of one Document as a new Note (#3572).
  */
 export type AgentAsk =
+  | { kind: "organize"; target: OrganizeTarget }
+  | { kind: "summary"; documentId: string }
   | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
-  | { kind: "note" };
+  | { kind: "note" }
+  | { kind: "check" };
 
 export interface AskAgentInput {
   pairingId: string;
   /** The Note it is about, named by its title; null for a question about no Note. */
   mindId: string | null;
   ask: AgentAsk;
+  /**
+   * With a question: the Documents open on screen, by id, the focused group's first, as
+   * `AskInConversationInput.onScreen`: what "this document" means. Only those the agent can read
+   * are named or kept (#3533).
+   */
+  onScreen?: string[] | null;
+  /** With a question: the chat box's Search scope, as `AskInConversationInput.scope`; only the Folders and Documents of it that the agent can read are named or kept. */
+  scope?: SearchScope | null;
+  /**
+   * Continue in the chat the User has open (#3588): the request is kept as an Ask keeps it, the
+   * line comes back to copy, and no link opens. `frontAgent` brings the app forward once it is
+   * copied.
+   */
+  openChat?: boolean;
 }
 
 /**
@@ -12952,7 +13148,8 @@ export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string }
 export interface AgentRequest {
   id: string;
   pairingId: string;
-  mindId: string;
+  /** The Note it is about; null for a question about the Documents the User has open (#3533). */
+  mindId: string | null;
   /** The sentences a fix names, each with the check result it was asked on; none for any other request. */
   sentences: { sentence: string; checkId: string | null }[];
   /** ISO 8601, UTC. */
@@ -12979,7 +13176,8 @@ export type AgentToolName = (typeof AGENT_TOOLS)[number];
  * - "not-found": no such Passage, Document, Mind or Citation;
  * - "chat-not-ready": `ask` needs a chat model that is set up and allowed;
  * - "read-only": it may read but not propose changes (`AgentPairing.propose`);
- * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold;
+ * - "changed": the Note changed since the agent read it, so its paragraphs' names may not hold, or
+ *   the Document it reads in parts changed between two of them;
  * - "waiting": a paragraph it names has changes waiting for the User, or is being written;
  * - "invalid": its arguments make no sense;
  * - "no-python": `run_analysis` needs Python, which this computer can't run for IncarnaMind (#3363);
@@ -13058,9 +13256,17 @@ export interface CoreApi {
    * Makes a Folder bound to a folder on disk (ADR-0030): `folderId` is a Linked folder's own
    * Folder (`LinkedFolder.folderId`) or one inside it (`listFolders`). The new Folder is named
    * after it and keeps its work inside it; the folder's Documents with no filing of their own are
-   * filed in it now, and its new ones as they arrive. One already bound to it is returned as it is.
+   * filed in it now, and its new ones as they arrive, and again when it is restored from Recently
+   * deleted. One already bound to it is returned as it is, filing nothing.
    */
-  createBoundFolder(folderId: string): Promise<LibraryGroup>;
+  createBoundFolder(folderId: string): Promise<BoundFolderChange>;
+  /**
+   * Takes back a Folder `createBoundFolder` made (ADR-0030). Each of its folder's Documents still
+   * filed in it goes back as it was: one it filed as `filed` found it, one filed since to no
+   * filing. Then it is deleted as `deleteLibraryGroup` deletes one; `restore` brings it back with
+   * its folder's Documents filed in it again.
+   */
+  undoBoundFolder(groupId: string, filed: BoundFolderChange["filed"]): Promise<void>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
   /**
    * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
@@ -13794,8 +14000,9 @@ export interface CoreApi {
   readScannedQuote(input: ScannedQuoteInput): Promise<ScannedQuote | null>;
   /**
    * A Citation's quote as its Document's text reads it (#905): a word a PDF split at a line end
-   * whole again, and a quote that stops at one run to the end of its word. Null when the quote
-   * isn't in the Units it cites, which leaves the quote as it is.
+   * whole again, and a quote that stops at one run to the end of its word. The line breaks the
+   * Document's viewer shows as its own (a text file's lines, a transcript's turns) stay (#3587).
+   * Null when the quote isn't in the Units it cites, which leaves the quote as it is.
    */
   readableQuote(input: ScannedQuoteInput): Promise<string | null>;
   /** The built-in text recognition model's download state (#397). */
@@ -14979,6 +15186,8 @@ export interface CoreApi {
   cancelSkillImport(importId: string): Promise<void>;
   /** Turns a Skill on or off. Answers list and load only Skills that are on. Returns the Skill. */
   setSkillEnabled(skillId: string, enabled: boolean): Promise<Skill>;
+  /** Saves the per-template choice of whether a write-up adds sections beyond the User's notes. */
+  setMeetingTemplateFillUncovered(skillId: string, fill: boolean): Promise<Skill>;
   /**
    * Removes a Skill: soft-deleted in the database (ADR-0003). Its files are
    * deleted once nothing uses them, e.g. after Answers still being written with it finish.
@@ -14998,7 +15207,7 @@ export interface CoreApi {
    * Saves a new Skill the User wrote or edited from a draft, turned on. A name
    * another Skill has is refused (`name-taken`), never replaced.
    */
-  createSkill(draft: SkillDraft): Promise<SkillSaveResult>;
+  createSkill(draft: SkillDraft & { meetingTemplate?: boolean }): Promise<SkillSaveResult>;
   /**
    * Saves what the User changed in a Skill that isn't built-in, keeping its
    * other files and whether it's on. Only the name, the description and the
@@ -15222,6 +15431,11 @@ export interface CoreApi {
   takeEventNotes(eventId: string): Promise<{ mindId: string; created: boolean }>;
   /** The calendar event a Note was made for, as the calendar has it now; null for any other Note. */
   getNoteEvent(mindId: string): Promise<NoteEvent | null>;
+  getMeetingBriefPreparation(mindId: string): Promise<MeetingBriefPreparation | null>;
+  prepareMeetingBrief(mindId: string, route: string | null): Promise<MeetingBriefPreparation>;
+  getMeetingBriefHistory(mindId: string): Promise<MeetingBriefItem[]>;
+  keepMeetingBrief(mindId: string, section?: "questions"): Promise<boolean>;
+  dismissMeetingBrief(mindId: string, section?: "questions"): Promise<void>;
   /** Opens the system's Calendars privacy settings, after the Mac's calendar access was refused. */
   openCalendarSettings(): Promise<void>;
 
@@ -15346,6 +15560,7 @@ export interface CoreApi {
     meetingId: string,
     documentId: string,
     source: MeetingSummarySource,
+    excerpt?: TextRange,
   ): Promise<{ itemId: number; added: boolean }>;
   undoAddMeetingTranscriptAction(meetingId: string, itemId: number): Promise<void>;
   undoAddMeetingSummaryCandidate(meetingId: string, candidateId: number): Promise<Meeting>;
@@ -15356,6 +15571,7 @@ export interface CoreApi {
   ): Promise<{
     documentId: string;
     sources: (MeetingSummarySource & {
+      excerpt?: TextRange & { cueHash: string };
       part?: true;
       parentCue?: { startMs: number; endMs: number };
     })[];
@@ -15375,6 +15591,27 @@ export interface CoreApi {
   /** Opens the system's settings where the User allows IncarnaMind to record this source. */
   openAudioSettings(source: AudioSource): Promise<void>;
   /**
+   * The windows a recording Meeting can read (ADR-0031), for IncarnaMind's
+   * picker. On macOS the first call asks for the Screen Recording permission;
+   * null when it isn't given, which the Meeting's screen line then says.
+   */
+  listShareableWindows(meetingId: string): Promise<ShareableWindow[] | null>;
+  /** Reads one window of a recording Meeting, each time what it shows changes. */
+  readSharedScreen(input: ReadSharedScreenInput): Promise<Meeting>;
+  /** Not this time: the meeting bar stops asking, and offers "Read the shared screen…" instead. */
+  declineSharedScreen(meetingId: string): Promise<Meeting>;
+  /** Stops reading the shared screen. What was read stays until the Meeting stops. */
+  stopSharedScreen(meetingId: string): Promise<Meeting>;
+  /**
+   * A screen read during a Meeting that is still recording or paused, with
+   * the quote between `from` and `to` in its text; null once it was deleted.
+   */
+  getSharedScreen(input: {
+    screen: string;
+    from: number;
+    to: number;
+  }): Promise<SharedScreenFrame | null>;
+  /**
    * One-click help during the call: asks the button's Question in a conversation, from
    * the Meeting's Mind, while it records or is paused; its Answer is one or two options to
    * say, read from the live transcript and from what the Mind's Folder says about its newest
@@ -15392,6 +15629,8 @@ export interface CoreApi {
   askMeetingQuestion(input: AskMeetingQuestionInput): Promise<ConversationAskResult>;
   /** Sets the kind of meeting a live Meeting's help buttons are for: its template adds two or three. */
   setMeetingTemplate(input: SetMeetingTemplateInput): Promise<Meeting>;
+  /** Chooses the Skill for a Meeting's write-up. Choosing null uses the default sections. */
+  setMeetingWriteupTemplate(meetingId: string, templateId: string | null): Promise<Meeting>;
   /**
    * Pauses the microphone of a Meeting that records or is paused, or resumes it. Paused, nothing
    * from the microphone is saved, transcribed or sent to a transcription service, and the Transcript
@@ -15487,6 +15726,10 @@ export interface CoreApi {
   openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
+  /** Of these Documents, those at least one connected agent can be asked about now, in the order given (#3572). */
+  listDocumentsToAsk(documentIds: string[]): Promise<string[]>;
+  /** With no Organize model, the connected agents that can read the whole target the User chose. */
+  agentsForOrganize(target: OrganizeTarget): Promise<OrganizeAgents>;
   /**
    * Ask your AI (#3373): one line in the interface language, in the User's words, for them to send
    * in their own AI. Its app opens with the line typed where it documents a link for that;
@@ -15494,6 +15737,12 @@ export interface CoreApi {
    * IncarnaMind for that agent's `read_request` (#3419).
    */
   askAgent(input: AskAgentInput): Promise<AskAgentResult>;
+  /**
+   * Brings the agent's app to the front, starting no chat, for the chat the User has open (#3588),
+   * where its documentation gives a link for that. Called once the line is copied: the app can take
+   * the focus a copy needs. False where it gives none, or no app took the link.
+   */
+  frontAgent(pairingId: string): Promise<boolean>;
   /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
@@ -15799,6 +16048,8 @@ export interface CoreEvents {
   "canvases.changed": Canvas[];
   /** An outside agent published a Canvas, or a new version of one (#3406). */
   "agents.canvasChanged": AgentCanvasChange;
+  /** An outside agent made a Note, a file's Note or a Canvas: open it (#3534). */
+  "agents.opened": AgentOpened;
 }
 
 export type CoreEventName = keyof CoreEvents;
@@ -16083,6 +16334,7 @@ const methods: Record<CoreApiMethod, true> = {
   getLibrary: true,
   createLibraryGroup: true,
   createBoundFolder: true,
+  undoBoundFolder: true,
   updateLibraryGroup: true,
   moveLibraryGroups: true,
   deleteLibraryGroup: true,
@@ -16176,6 +16428,7 @@ const methods: Record<CoreApiMethod, true> = {
   importSkill: true,
   cancelSkillImport: true,
   setSkillEnabled: true,
+  setMeetingTemplateFillUncovered: true,
   removeSkill: true,
   duplicateSkill: true,
   getSkillDraft: true,
@@ -16228,6 +16481,11 @@ const methods: Record<CoreApiMethod, true> = {
   listCalendarEvents: true,
   takeEventNotes: true,
   getNoteEvent: true,
+  getMeetingBriefPreparation: true,
+  prepareMeetingBrief: true,
+  getMeetingBriefHistory: true,
+  keepMeetingBrief: true,
+  dismissMeetingBrief: true,
   openCalendarSettings: true,
   createMeeting: true,
   discardMeeting: true,
@@ -16263,9 +16521,15 @@ const methods: Record<CoreApiMethod, true> = {
   undoMeetingFill: true,
   followMeetingFillUndo: true,
   openAudioSettings: true,
+  listShareableWindows: true,
+  readSharedScreen: true,
+  declineSharedScreen: true,
+  stopSharedScreen: true,
+  getSharedScreen: true,
   askMeetingHelp: true,
   askMeetingQuestion: true,
   setMeetingTemplate: true,
+  setMeetingWriteupTemplate: true,
   setMeetingMicrophone: true,
   addQuickNote: true,
   setQuickNoteDraft: true,
@@ -16292,8 +16556,11 @@ const methods: Record<CoreApiMethod, true> = {
   undoAgentSetup: true,
   copyAgentSetup: true,
   openAgentInstallAgain: true,
+  agentsForOrganize: true,
   listAgentsToAsk: true,
+  listDocumentsToAsk: true,
   askAgent: true,
+  frontAgent: true,
   handedFileOf: true,
   listCanvases: true,
   showCanvas: true,

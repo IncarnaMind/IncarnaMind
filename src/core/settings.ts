@@ -302,12 +302,15 @@ const deviceScope: Scope<DeviceSettings> = {
     tips: {},
     meetingSystemAudio: true,
     meetingNotesAgentId: null,
+    meetingCallHelpAgentId: null,
     meetingSummaryRoute: null,
     keepMeetingAudio: false,
     transcriptionRoute: null,
     checkDecisionModel: null,
     modelSource: "auto",
     meetingNoticeAccepted: false,
+    meetingScreenAsk: true,
+    meetingScreenPictureLimit: 30,
     meetingPanel: true,
     meetingPanelHidden: true,
     meetingHelpKeys: {},
@@ -333,6 +336,8 @@ const deviceScope: Scope<DeviceSettings> = {
     tips: isTipCounts,
     meetingSystemAudio: isBoolean,
     meetingSummaryRoute: (value): value is string | null => value === null || isNonBlankText(value),
+    meetingCallHelpAgentId: (value): value is string | null =>
+      value === null || isNonBlankText(value),
     meetingNotesAgentId: (value): value is string | null => value === null || isNonBlankText(value),
     keepMeetingAudio: isBoolean,
     transcriptionRoute: (value): value is TranscriptionRoute | null =>
@@ -342,6 +347,9 @@ const deviceScope: Scope<DeviceSettings> = {
     modelSource: (value): value is ModelSourceChoice =>
       MODEL_SOURCE_CHOICES.some((choice) => choice === value),
     meetingNoticeAccepted: isBoolean,
+    meetingScreenAsk: isBoolean,
+    meetingScreenPictureLimit: (value): value is number =>
+      typeof value === "number" && Number.isSafeInteger(value) && value >= 0,
     meetingPanel: isBoolean,
     meetingPanelHidden: isBoolean,
     meetingHelpKeys: isHelpKeys,

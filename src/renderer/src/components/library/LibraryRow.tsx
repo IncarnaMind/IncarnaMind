@@ -39,6 +39,7 @@ import { useTabPlace } from "../tabs/tabItems";
 import { focusStillWith } from "../useFocusReturn";
 import { documentsToMove, useDocumentMove } from "./DocumentMoveTo";
 import { RowTags } from "./RowTags";
+import { SuggestionMark } from "./SuggestionMark";
 
 /**
  * The columns past the name: as far as it takes for no name to be cut (`useFittingColumns`),
@@ -351,6 +352,7 @@ export const LibraryRow = memo(function LibraryRow({
                 <NotCitedLabel item={doc} />
                 <CitedByLabel item={doc} />
                 <DocumentStatusLabel item={doc} />
+                <SuggestionMark documentId={doc.id} />
                 {notSorted !== null && (
                   <span
                     data-testid="library-not-sorted"

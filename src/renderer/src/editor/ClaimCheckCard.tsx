@@ -1045,13 +1045,9 @@ export function ClaimCard({
   const already = decision.kind === "already" ? decision.citation : null;
   // A Mark that rests on its Passage shows no quote: the card names the place, which opens (#3118).
   const resting = restsOnPassage(awaiting ? claim.check : check);
-  const citedQuote = resting
-    ? null
-    : already?.attributes.quote
-      ? already.attributes
-      : property || library
-        ? null
-        : evidence;
+  // The quote is always the verdict's own, the one it opens: a Citation the sentence already holds
+  // at that place is its number beside it, never its words in place of the verdict's (#3587).
+  const citedQuote = resting || property || library ? null : evidence;
   const quote = useReadableQuote(citedQuote);
   const documents = useAppStore((store) => store.documents);
   const where =
@@ -1318,6 +1314,9 @@ export function ClaimCard({
       onClick: () => onAsk?.(agent),
     }),
   );
+  // Its Answer's judgement read only its Citations: a check in the Note searches for the rest
+  // first, before its words are changed to what a Citation says (#2809).
+  const searchFirst = state === "unsupported" && check.citedOnly === true && fixes;
   const actions = (
     [
       ...(askFirst ? asks : []),
@@ -1380,7 +1379,7 @@ export function ClaimCard({
           key: "fix",
           testId: "claim-fix",
           label: t("claim.fixSentence"),
-          primary: fixable,
+          primary: fixable && !searchFirst,
           disabled: fixable && noteRunning,
           onClick: onFix,
         },
@@ -1429,8 +1428,7 @@ export function ClaimCard({
         },
       // Checked again, a ✓ waiting on its found Passage gets the same answer: adding it is the way (#3019).
       (state === "needs-recheck" ||
-        // Its Answer's judgement read only its Citations: a check in the Note searches for the rest (#2809).
-        (state === "unsupported" && check.citedOnly && fixes) ||
+        searchFirst ||
         (state === "not-checked" &&
           added === 0 &&
           !lineAction &&

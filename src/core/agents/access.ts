@@ -7,7 +7,11 @@
  * and it reaches only the Documents in the pairing's Folders and those
  * Folders' Minds, and, if Not in a Folder is one of them, the Documents in no
  * Folder at the time of each call and the Minds there the pairing wrote itself
- * (#3364), never another's. Nothing here changes the
+ * (#3364), never another's; given all of the User's Documents and Notes, it
+ * reaches every Folder outside a wall at the time of each call, and every Mind
+ * in no Folder but the examples (#3544). Where a result can read as "nothing is
+ * there", it says in one line, naming nothing, when the User has more than the
+ * pairing reaches (`holdsMore`). Nothing here changes the
  * User's Documents, and a Mind only through `propose_changes`, which the User
  * allows per pairing and whose changes wait for them as Proposals (#352,
  * ./proposals). With the same leave `create_mind` writes a new Mind (#3306):
@@ -28,7 +32,12 @@
  */
 
 import * as Y from "yjs";
-import { citedLocation, type LiveDocument, withShownName } from "../../shared/citations";
+import {
+  citedLocation,
+  type LiveDocument,
+  liveDocumentOf,
+  withShownName,
+} from "../../shared/citations";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { isListedMind } from "../../shared/listedMinds";
@@ -42,6 +51,7 @@ import {
   decideProposals,
   waitingChanges,
 } from "../../shared/proposals";
+import { shownSpeaker } from "../../shared/speakers";
 import { setTextOrigin } from "../../shared/textOrigins";
 import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
@@ -56,11 +66,16 @@ import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
 import type { AnswerDocuments } from "../answers/citations";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
+import { estimateTokens } from "../answers/context";
+import { saidBetween, withCueMarks } from "../answers/cueMarks";
+import { withoutOverlap } from "../answers/documentText";
 import {
   type AgentActivity,
   type AgentCitationShown,
   type AgentNoteChange,
+  type AgentOpened,
   type AgentToolName,
+  ALL_SHARED_ID,
   BLOCK_ID_ATTRIBUTE,
   type Citation,
   type CitationLocation,
@@ -82,8 +97,10 @@ import type { Language } from "../language";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
 import { isKnownKind } from "../mindAccess";
+import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
+import { type Looking, lookingText } from "./ask";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -114,8 +131,8 @@ import {
   newBlocks,
   proposeNamed,
 } from "./proposals";
-import { AgentRefusedError, MAX_PATH_CHARS, text, whole } from "./refusals";
-import type { AgentRequests } from "./requests";
+import { AgentRefusedError, MAX_PATH_CHARS, NotReachedError, text, whole } from "./refusals";
+import type { AgentRequests, RequestNamed } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
@@ -153,6 +170,7 @@ export interface AgentPassage {
   quote: string | null;
   /** A ready Citation of `quote`, to write as it is; null with `quote`. */
   cite: string | null;
+  timedText?: string;
   /** The Passage's text, at most `PASSAGE_CHARS` characters around `quote`. */
   text: string;
 }
@@ -162,27 +180,34 @@ export interface AgentSearchResult {
   page: number;
   /** There are more results on the next page. */
   more: boolean;
+  /** Present when the User has more than the agent reaches (`holdsMore`): one line, naming nothing. */
+  notShared?: string;
 }
 
 export interface AgentReadInput {
   /** Read around this Passage. */
   passageId?: string;
-  /** Or read this Document from its start. */
+  /** Or read this Document from its start, whole or its first part (`READ_PART_TOKENS`). */
   documentId?: string;
-  /** Passages before `passageId` to read too, at most `MAX_AROUND`. */
+  /** Or read on from this Passage, a part's `next`, in a part as large. */
+  from?: string;
+  /** Passages before `passageId` to read too; more than `MAX_AROUND` reads `MAX_AROUND`. */
   before?: number;
-  /** Passages after it (or after the start of `documentId`) to read too, at most `MAX_AROUND`. */
+  /** Passages after `passageId` to read too; more than `MAX_AROUND` reads `MAX_AROUND`. */
   after?: number;
 }
 
 export interface AgentReadResult {
   documentId: string;
   document: string;
-  passages: { passageId: string; location: string | null; text: string }[];
+  /** In a part, each Passage's text leaves out what it repeats of the one before it. */
+  passages: { passageId: string; location: string | null; text: string; timedText?: string }[];
   /** The Passage before the first one read, to read on backwards; null at the start. */
   previous: string | null;
   /** The Passage after the last one read, to read on; null at the end. */
   next: string | null;
+  /** In a part before a Document's last: that it isn't the whole, what is left, to read on (#3586). */
+  left?: string;
 }
 
 export interface AgentCiteInput {
@@ -206,6 +231,8 @@ export interface AgentCited {
 
 export interface AgentCiteResult {
   citations: AgentCited[];
+  /** When every quote's answer wouldn't fit in `READ_PART_TOKENS`: how many of the last are left. */
+  left?: string;
 }
 
 export interface AgentCheckInput {
@@ -266,6 +293,8 @@ export interface AgentMindList {
     /** The Canvases in it the agent reaches (#3406), when there are any. */
     canvases?: AgentCanvasListed[];
   }[];
+  /** As `AgentSearchResult.notShared`. */
+  notShared?: string;
 }
 
 /** A Meeting or voice memo a Note holds, as `list_minds` marks the Note (#3384). */
@@ -369,6 +398,8 @@ export interface AgentCreated {
   uncited: string[];
   /** Each picture or chart that isn't in the Note, and why: the Note has a line saying so (#3413). */
   refused: VisualLeftOut[];
+  /** How many of its sentences hold no check result, and whether they wait for the User (#3576). */
+  next: string | null;
 }
 
 /** A picture or chart an agent wrote that isn't in the Note: what it wrote, and why, in words. */
@@ -380,6 +411,11 @@ export interface VisualLeftOut {
 export interface AgentCheckMindInput {
   /** A Note the agent wrote with `create_mind`. */
   mindId: string;
+}
+
+export interface AgentCheckYourselfInput extends AgentCheckMindInput {
+  /** Every sentence, its result or not: the agent judges the Note again. */
+  again?: boolean;
 }
 
 /** A claim of a checked Note that needs a look, isn't checked or can be cited. */
@@ -510,7 +546,8 @@ export interface AgentReadRequestInput {
 }
 
 export interface AgentReadRequest {
-  mindId: string;
+  /** The Note it is about; null for a request about no Note, and for the answer that none waits. */
+  mindId: string | null;
   title: string;
   /** What the User asked, beyond the line they sent: which Note, which sentences, what to do. */
   request: string;
@@ -549,7 +586,7 @@ export interface AgentAccess {
   /** Has a Note the agent wrote checked claim by claim against its Folder's Documents (#3317). */
   checkMind(input: AgentCheckMindInput): Promise<AgentMindCheck>;
   /** The sentences of a Note the agent wrote, for it to judge with its own model (#3342). */
-  checkMindYourself(input: AgentCheckMindInput): Promise<AgentCheckTask>;
+  checkMindYourself(input: AgentCheckYourselfInput): Promise<AgentCheckTask>;
   /** Marks the Note with the agent's results, each on the Citations IncarnaMind can confirm. */
   reportCheck(input: AgentReportInput): Promise<AgentReported>;
   /** Runs code over what the agent may read, in IncarnaMind's sandbox (#3363). */
@@ -584,8 +621,18 @@ export const MAX_SEARCH_PAGE = 5;
 export const PASSAGE_CHARS = 1200;
 /** The most Passages read before or after one. */
 export const MAX_AROUND = 3;
-/** The most quotes one `cite` call checks. */
-export const MAX_CITES = 20;
+/**
+ * The most tokens one part of a Document carries, as `estimateTokens` counts its result: an
+ * hour-long interview in two or three parts. Codex cuts the middle out of a Tool result over
+ * 10,000 tokens, Claude Code saves one over 25,000 to a file (#3573).
+ */
+export const READ_PART_TOKENS = 8_000;
+const PART_BATCH = 64;
+/**
+ * The most quotes one `cite` call checks, in order while their answers fit in `READ_PART_TOKENS`:
+ * a Note's, for an agent that read its Documents whole (#3585). A quote by path reads its file.
+ */
+export const MAX_CITES = 40;
 /** The most sentences `check_citations` lists as uncited. */
 export const MAX_UNCITED = 20;
 /** The most characters of a Mind one `read_mind` returns. */
@@ -658,6 +705,8 @@ export interface AgentAccessDeps {
   documentsIn(folderIds: readonly string[]): string[];
   /** Every live Transcript that belongs to a Note (#2528). */
   noteTranscripts(): readonly NoteTranscript[];
+  /** Indexes confirmed words in these live Meeting Transcripts; undefined when none are live. */
+  refreshLiveTranscripts(documentIds: readonly string[]): Promise<void> | undefined;
   /** The search Answers use, without reranking, over these Documents. */
   search(
     query: string,
@@ -704,8 +753,12 @@ export interface AgentAccessDeps {
   }): CitationRecheck;
   /** Shows a Citation in the viewer, the app in front. */
   show(place: AgentCitationShown): void;
+  /** Opens what the agent made, in front where the User asked it from IncarnaMind (#3534). */
+  opened(opened: AgentOpened): void;
   /** The Minds there are. */
   minds(): Mind[];
+  /** The examples' Minds: never the User's, so no share of everything reaches one in no Folder. */
+  exampleNotes(): readonly string[];
   /** The Mind a Mind was duplicated from; null for one that is no copy. */
   duplicatedFrom(mindId: string): string | null;
   /** These Documents' names and kinds, those that are live, in this order. */
@@ -729,10 +782,7 @@ export interface AgentAccessDeps {
   /** Tells the windows of a Note an agent wrote, or changed at once (#3371). */
   noteChanged(change: AgentNoteChange): void;
   /** A Mind as Markdown, each Citation's footnote as `footnote` words it (see ../exports). */
-  mindMarkdown(
-    mindId: string,
-    footnote: (attributes: Record<string, unknown>) => { source: string; unverified: boolean },
-  ): string;
+  mindMarkdown(mindId: string, footnote: (attributes: Record<string, unknown>) => Footnote): string;
   /** A new, empty Mind in a Folder, or in none; with no `title`, its text names it. */
   createMind(title: string, folderId: string | null): Mind;
   /** How many Notes the pairing wrote since `since` (ISO 8601, UTC). */
@@ -744,8 +794,11 @@ export interface AgentAccessDeps {
    * searching none but `documentIds`, the Documents the agent may read.
    */
   checkNote(mindId: string, documentIds: readonly string[]): Promise<OutsideCheck>;
-  /** A Note's sentences that hold no result yet, when its Check searches none but `documentIds`. */
-  checkTask(mindId: string, documentIds: ReadonlySet<string>): Judged<CheckTask>;
+  /**
+   * A Note's sentences that hold no result yet, or with `every` all it judges, results or not, when
+   * its Check searches none but `documentIds`.
+   */
+  checkTask(mindId: string, documentIds: ReadonlySet<string>, every?: boolean): Judged<CheckTask>;
   /** Marks a task's sentences with what the agent `agent` judged of them. */
   landJudged(
     mindId: string,
@@ -773,6 +826,8 @@ export interface AgentAccessDeps {
   versions: Map<string, string>;
   /** `CHECK_WAIT_MS`, unless a test waits less. */
   checkWaitMs?: number;
+  /** Whether what is written is checked as it lands (Settings › AI), else it waits for the User's Check. */
+  checksWritten(): boolean;
   citations: AgentCitations;
   /** The requests the User made of their own AI, kept for each agent to read once (./requests). */
   requests: Pick<AgentRequests, "ofPairing" | "markRead">;
@@ -889,15 +944,20 @@ function makesAClaim(sentence: string): boolean {
 }
 
 /** The part of a Passage's text an agent gets: all of it, or `PASSAGE_CHARS` around `quote`. */
-function excerpt(text: string, quote: string | null): string {
-  if (text.length <= PASSAGE_CHARS) return text;
+function excerptWindow(text: string, quote: string | null) {
+  if (text.length <= PASSAGE_CHARS) return { start: 0, end: text.length };
   const at = quote ? Math.max(0, text.indexOf(quote)) : 0;
   const centre = at + (quote?.length ?? 0) / 2;
   const start = Math.max(
     0,
     Math.min(text.length - PASSAGE_CHARS, Math.round(centre - PASSAGE_CHARS / 2)),
   );
-  const end = start + PASSAGE_CHARS;
+  return { start, end: start + PASSAGE_CHARS };
+}
+
+function excerpt(text: string, quote: string | null): string {
+  const { start, end } = excerptWindow(text, quote);
+  if (start === 0 && end === text.length) return text;
   return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
 }
 
@@ -1120,24 +1180,62 @@ interface Done<T> {
   effects?: Effect[];
   /** The request the call read (`read_request`). */
   requestId?: string;
+  /** What its activity line says, when only the call knows (`read_request`: the names it gave). */
+  summary?: string;
 }
 
 type ReachDeps = Pick<
   AgentAccessDeps,
-  "foldersInScope" | "foldersInside" | "mindBlocks" | "duplicatedFrom"
+  | "folders"
+  | "wallOf"
+  | "foldersInScope"
+  | "foldersInside"
+  | "mindBlocks"
+  | "duplicatedFrom"
+  | "exampleNotes"
 >;
+
+/** The pairing was given all of the User's Documents and Notes, those added later too (#3544). */
+export const sharesAll = (pairing: Pick<AdmittedPairing, "folderIds">): boolean =>
+  pairing.folderIds.includes(ALL_SHARED_ID);
 
 /**
  * Everything a pairing reaches, by Folder (#3394): each Folder it was granted, as walls allow, with
  * the Folders inside it up to the next wall, and `NOT_IN_A_FOLDER_ID` when it was granted that.
- * Its Documents and its Notes are those in these Folders, and a meeting goes with its Note.
+ * Given all, every Folder outside a wall now, and `NOT_IN_A_FOLDER_ID` (#3544). Its Documents and
+ * its Notes are those in these Folders, and a meeting goes with its Note.
  */
 export function reachedFolders(deps: ReachDeps, pairing: AdmittedPairing): Set<string> {
+  if (sharesAll(pairing)) {
+    return new Set([
+      ...deps
+        .folders()
+        .filter((folder) => deps.wallOf(folder.id) === null)
+        .map((folder) => folder.id),
+      NOT_IN_A_FOLDER_ID,
+    ]);
+  }
   return new Set(
     deps
       .foldersInScope(pairing.folderIds)
       .flatMap((id) => (id === NOT_IN_A_FOLDER_ID ? [id] : deps.foldersInside(id))),
   );
+}
+
+/**
+ * The Folders a pairing's reach is named by, as the User granted them: given all, those of the
+ * Folders it reaches that are inside none of them, a Folder inside one being part of it.
+ */
+function grantedFolders(deps: ReachDeps, pairing: AdmittedPairing): string[] {
+  if (!sharesAll(pairing)) return deps.foldersInScope(pairing.folderIds);
+  const reached = reachedFolders(deps, pairing);
+  return deps
+    .folders()
+    .filter(
+      (folder) =>
+        reached.has(folder.id) && (folder.parentId === null || !reached.has(folder.parentId)),
+    )
+    .map((folder) => folder.id);
 }
 
 /**
@@ -1158,17 +1256,21 @@ function pairingWrote(deps: ReachDeps, pairing: AdmittedPairing, mindId: string)
 
 /**
  * Whether `read_mind` reads this Mind for the pairing: in a Folder it reaches, or in none when it
- * wrote it there. `reached`: the pairing's `reachedFolders`, when the caller has them.
+ * wrote it there, or when it was given all and the Mind is no example's. `reached`: the pairing's
+ * `reachedFolders`, when the caller has them.
  */
 export const pairingReaches = (
   deps: ReachDeps,
   pairing: AdmittedPairing,
   mind: Mind,
   reached: ReadonlySet<string> = reachedFolders(deps, pairing),
-): boolean =>
-  mind.folderId === null
-    ? reached.has(NOT_IN_A_FOLDER_ID) && pairingWrote(deps, pairing, mind.id)
-    : reached.has(mind.folderId);
+): boolean => {
+  if (mind.folderId !== null) return reached.has(mind.folderId);
+  if (!reached.has(NOT_IN_A_FOLDER_ID)) return false;
+  return sharesAll(pairing)
+    ? !deps.exampleNotes().includes(mind.id)
+    : pairingWrote(deps, pairing, mind.id);
+};
 
 /**
  * The Documents filed in these Folders, of those the pairing reaches, a Transcript among them only
@@ -1192,7 +1294,7 @@ export function documentsForPairing(
         // No Note it wrote is older than the pairing, which spares reading the others' records.
         return (
           !mind ||
-          (mind.folderId === null && mind.createdAt < pairing.createdAt) ||
+          (mind.folderId === null && !sharesAll(pairing) && mind.createdAt < pairing.createdAt) ||
           !pairingReaches(deps, pairing, mind, reached)
         );
       })
@@ -1201,12 +1303,43 @@ export function documentsForPairing(
   return documentIds.filter((id) => !apart.has(id));
 }
 
+/**
+ * Whether the User has a Folder, a Document or a Note the pairing doesn't reach (#3544): the one
+ * thing an agent is told of what it wasn't given, never which, how many or of what kind. The
+ * examples, Recently deleted and the files agents hand over count for nothing: no share reaches
+ * them. A meeting's Transcript counts as its Note does.
+ */
+export function holdsMore(
+  deps: AgentAccessDeps,
+  pairing: AdmittedPairing,
+  reached: ReadonlySet<string> = reachedFolders(deps, pairing),
+): boolean {
+  if (deps.folders().some((folder) => !reached.has(folder.id))) return true;
+  if (!reached.has(NOT_IN_A_FOLDER_ID)) {
+    const transcripts = new Set(deps.noteTranscripts().map((each) => each.documentId));
+    if (deps.documentsIn([NOT_IN_A_FOLDER_ID]).some((id) => !transcripts.has(id))) return true;
+  }
+  const examples = new Set(deps.exampleNotes());
+  return deps
+    .minds()
+    .some(
+      (mind) =>
+        mind.folderId === null &&
+        isListedMind(mind) &&
+        !examples.has(mind.id) &&
+        !pairingReaches(deps, pairing, mind, reached),
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The implementation
 
 /** The core interface for one pairing's calls. */
 export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
+  /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
+  let askedFromIncarnaMind = false;
+  const opened = (item: AgentOpened["item"]) => deps.opened({ item, front: askedFromIncarnaMind });
   const pictureLimit = { max: NOTE_PICTURE_LIMITS.bytes / (1024 * 1024) };
   const reasonOf = (left: VisualRefused) =>
     left.kind === "picture"
@@ -1239,9 +1372,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     pageFrom: number | null,
     pageTo: number | null,
     documentId?: string | null,
+    quote?: string,
   ) =>
     citedLocation(
-      { location, pageFrom, pageTo, documentId },
+      { location, pageFrom, pageTo, documentId, ...(quote && { quote }) },
       t,
       location?.kind === "time" && documentId ? deps.liveDocuments() : null,
     );
@@ -1310,6 +1444,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           count: done.count,
           documentIds: [...new Set(done.documentIds)],
           effects: done.effects ?? effects,
+          ...(done.summary !== undefined && { summary: clip(done.summary, SUMMARY_CHARS) }),
         },
         done.requestId,
       );
@@ -1317,13 +1452,29 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     } catch (error) {
       if (error instanceof AgentRefusedError) {
         record(error.problem === "failed" ? "failed" : "refused", { problem: error.problem });
-        throw error;
+        throw error instanceof NotReachedError ? withNotShared(error) : error;
       }
       deps.reportError(error);
       record("failed", { problem: "failed" });
       throw new AgentRefusedError("failed", t("agents.problem.failed"));
     }
   }
+
+  /** The line that the User has more than the pairing reaches now, read after any wait; null if not. */
+  const notShared = (): string | null => {
+    try {
+      return holdsMore(deps, deps.admit(pairingId)) ? t("agents.notShared") : null;
+    } catch (error) {
+      if (error instanceof AgentRefusedError) return null;
+      throw error;
+    }
+  };
+
+  /** A refusal that found nothing of what was named, with `notShared`'s line where it has one. */
+  const withNotShared = (error: AgentRefusedError): AgentRefusedError => {
+    const line = notShared();
+    return line === null ? error : new AgentRefusedError(error.problem, `${error.message} ${line}`);
+  };
 
   /**
    * The Documents a call may read: everything its pairing reaches, or only what the Folders it
@@ -1376,27 +1527,150 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     pairing: AdmittedPairing,
     inScope: ReadonlySet<string>,
     passageId: unknown,
+    notFound = (_id: string) => t("agents.problem.not-found"),
   ): WindowedPassage => {
     const id = text(passageId, "passageId", 200);
     // A Citation's token stands for its Passage too: agents give one where a passageId goes (#3465).
     const token = [...id.matchAll(CITATION_TOKEN)][0]?.[1] ?? id;
     const passage =
       deps.passage(id) ?? deps.passage(deps.citations.find(pairing.id, token)?.passageId ?? "");
-    if (!passage || !inScope.has(passage.documentId)) {
-      throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
-    }
+    if (!passage || !inScope.has(passage.documentId)) throw new NotReachedError(notFound(id));
     return passage;
   };
 
-  /** Where a Passage is; a Transcript's as `cite` places a Citation of all of it, by who said its first line. */
-  const passageLocation = (passage: WindowedPassage) => {
-    const whole =
-      passage.documentKind === "transcript"
-        ? deps.citing.citeQuote(passage.passageId, passage.text)
-        : null;
-    return whole?.check === "found"
-      ? label(whole.location, whole.pageFrom, whole.pageTo, passage.documentId)
-      : label(deps.citing.locate(passage), passage.pageFrom, passage.pageTo, passage.documentId);
+  const passageReading = (
+    passage: WindowedPassage,
+    window = { start: 0, end: passage.text.length },
+  ) => {
+    if (passage.documentKind !== "transcript")
+      return {
+        location: label(
+          deps.citing.locate(passage),
+          passage.pageFrom,
+          passage.pageTo,
+          passage.documentId,
+        ),
+      };
+    if (passage.pageFrom === null || passage.pageTo === null) return { location: null };
+    const units = deps.pageTexts(
+      passage.documentId,
+      passage.contentHash,
+      passage.pageFrom,
+      passage.pageTo,
+    );
+    const span = saidBetween(passage.text, units);
+    const speakers = liveDocumentOf(
+      { documentId: passage.documentId },
+      deps.liveDocuments(),
+    )?.speakers;
+    const marked = withCueMarks(passage.text, units, speakers, window, (who, ms, label) =>
+      shownSpeaker(who, ms, label, t),
+    );
+    return {
+      location: span ? label({ kind: "time", ...span }, null, null, passage.documentId) : null,
+      ...(marked !== passage.text.slice(window.start, window.end) && {
+        timedText: `${window.start ? "…" : ""}${marked}${window.end < passage.text.length ? "…" : ""}`,
+      }),
+    };
+  };
+
+  /**
+   * A part of a Document, from the Passage at `position` on: its Passages in reading order, each
+   * without what it repeats of the one before (Passages overlap), as many as fit in
+   * `READ_PART_TOKENS` as the result is sent, and always one.
+   */
+  const partOf = (documentId: string, position: number): AgentReadResult => {
+    const passages: AgentReadResult["passages"] = [];
+    let behind = position > 0 ? deps.passagesBetween(documentId, position - 1, position - 1) : [];
+    const previous = behind[0]?.passageId ?? null;
+    let document: string | null = null;
+    let next: string | null = null;
+    let nextAt = 0;
+    let size = 0;
+    const leftLine = (count: number, total: number) =>
+      t(count === 1 ? "agents.read.left.one" : "agents.read.left.other", { count, total });
+    for (let at = position; next === null; at += PART_BATCH) {
+      const batch = deps.passagesBetween(documentId, at, at + PART_BATCH - 1);
+      const first = batch[0];
+      if (!first) break;
+      if (document === null) {
+        document = first.documentName;
+        size = estimateTokens(
+          JSON.stringify({
+            documentId,
+            document,
+            passages,
+            previous,
+            next: first.passageId,
+            left: leftLine(99_999, 99_999),
+          }),
+        );
+      }
+      const shown = new Map(
+        withoutOverlap([...behind, ...batch]).map((each) => [each.passageId, each.text]),
+      );
+      for (const passage of batch) {
+        const text = shown.get(passage.passageId);
+        if (text === undefined) continue;
+        const entry = {
+          passageId: passage.passageId,
+          text,
+          ...passageReading(passage, {
+            start: passage.text.length - text.length,
+            end: passage.text.length,
+          }),
+        };
+        const cost = estimateTokens(JSON.stringify(entry)) + 1;
+        if (passages.length > 0 && size + cost > READ_PART_TOKENS) {
+          next = passage.passageId;
+          nextAt = passage.position;
+          break;
+        }
+        passages.push(entry);
+        size += cost;
+      }
+      behind = batch.slice(-1);
+    }
+    if (document === null) throw new NotReachedError(t("agents.problem.not-found"));
+    if (next === null) return { documentId, document, passages, previous, next };
+    // An agent that writes from a part it skimmed or stopped at is told, as it reads, what it hasn't.
+    const rest = deps.passagesBetween(documentId, nextAt, Number.MAX_SAFE_INTEGER).length;
+    return { documentId, document, passages, previous, next, left: leftLine(rest, nextAt + rest) };
+  };
+
+  /** The first part of a Document the pairing reaches. */
+  const readStart = async (
+    reach: ReadonlySet<string>,
+    given: unknown,
+  ): Promise<AgentReadResult> => {
+    const documentId = text(given, "passageId or documentId", 200);
+    if (!reach.has(documentId)) throw new NotReachedError(t("agents.problem.not-found"));
+    const refresh = deps.refreshLiveTranscripts([documentId]);
+    if (refresh) {
+      await refresh;
+      stillReaching([documentId]);
+    }
+    return partOf(documentId, 0);
+  };
+
+  /**
+   * The part of a Document from `from`, a part's `next`, on. A Document changed since that part
+   * has new Passages, so the one named is no longer live: that is said, to read it again from its
+   * start, rather than read on in another version of it.
+   */
+  const readOn = (reach: ReadonlySet<string>, given: unknown): AgentReadResult => {
+    const from = text(given, "from", 200);
+    const passage = deps.passage(from);
+    if (passage && reach.has(passage.documentId))
+      return partOf(passage.documentId, passage.position);
+    const earlier = passage ? null : deps.citationSource(from);
+    if (earlier && !earlier.documentDeleted && reach.has(earlier.documentId)) {
+      throw new AgentRefusedError(
+        "changed",
+        t("agents.problem.documentChanged", { document: earlier.documentName }),
+      );
+    }
+    throw new NotReachedError(t("agents.problem.not-found"));
   };
 
   /** Mints the token of a Citation the check found. */
@@ -1417,6 +1691,21 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const checkReach = (pairing: AdmittedPairing): Set<string> =>
     new Set([...scopeOf(pairing, undefined), ...deps.citedFiles()]);
 
+  /**
+   * What an agent's write leaves unchecked: with checking as it lands on, to check now; else that
+   * it waits for the User's Check or their asking (#3576). A new Note says why it is to be checked:
+   * nothing else tells the agent to check what it just wrote.
+   */
+  const leftToCheck = (unchecked: number, made: boolean): string | null => {
+    if (unchecked === 0) return null;
+    const [one, more] = !deps.checksWritten()
+      ? (["agents.write.waits.one", "agents.write.waits"] as const)
+      : made
+        ? (["agents.write.checkNow.one", "agents.write.checkNow"] as const)
+        : (["agents.propose.unchecked.one", "agents.propose.unchecked"] as const);
+    return t(unchecked === 1 ? one : more, { count: unchecked });
+  };
+
   /** A Passage as a search result: its best sentence cited, if the check finds it. */
   const asResult = (
     pairing: AdmittedPairing,
@@ -1430,13 +1719,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         : null;
     const found = citation?.check === "found" ? citation : null;
     const minted = found ? mint(pairing, found) : null;
+    const reading = passageReading(passage, excerptWindow(passage.text, found?.quote ?? null));
     return {
       passageId: passage.passageId,
       documentId: passage.documentId,
       document: passage.documentName,
+      ...reading,
       location: found
-        ? label(found.location, found.pageFrom, found.pageTo, passage.documentId)
-        : passageLocation(passage),
+        ? label(found.location, found.pageFrom, found.pageTo, passage.documentId, found.quote)
+        : reading.location,
       quote: found ? found.quote : null,
       cite: minted ? citeTag(minted.token) : null,
       text: excerpt(passage.text, found?.quote ?? null),
@@ -1525,7 +1816,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         cite: citeTag(token),
         check,
         document: withShownName(kept, live).documentName,
-        location: label(now.location ?? kept.location, now.pageFrom, now.pageTo, kept.documentId),
+        location: label(
+          now.location ?? kept.location,
+          now.pageFrom,
+          now.pageTo,
+          kept.documentId,
+          kept.quote,
+        ),
         quote: kept.quote,
         changed,
       },
@@ -1543,7 +1840,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   const mindInScope = (pairing: AdmittedPairing, mindId: string): Mind => {
     const mind = deps.minds().find((each) => each.id === mindId);
     if (!mind || !reaches(pairing, mind)) {
-      throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+      throw new NotReachedError(t("agents.problem.not-found"));
     }
     return mind;
   };
@@ -1651,6 +1948,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
     if (folderId === undefined) {
+      // Given all, a Note goes where a Note the User makes goes, until the agent names a Folder.
+      if (sharesAll(pairing)) return none;
       const [only, ...others] = folders.filter((folder) => granted.includes(folder.id));
       if (only && others.length === 0) return only;
       if (!only) return none;
@@ -1762,7 +2061,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           mindIds: [...reach.mindIds].filter((id) => id !== checking),
         };
         // Named as the User granted them: a Folder inside one is part of it.
-        const granted = deps.foldersInScope(pairing.folderIds);
+        const granted = grantedFolders(deps, pairing);
         const names = [
           ...deps
             .folders()
@@ -1800,7 +2099,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   });
 
   const canvasTools = createCanvasTools({
-    deps,
+    deps: {
+      ...deps,
+      canvasChanged: (change) => {
+        deps.canvasChanged(change);
+        if (change.kind === "published") opened({ kind: "canvas", canvasId: change.canvasId });
+      },
+    },
     t,
     call,
     reached: (pairing) => reachedFolders(deps, pairing),
@@ -1816,6 +2121,72 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       });
     },
   });
+
+  /**
+   * What a request named, as it is now: each Document and Folder that was deleted since is left
+   * out, and one that exists but isn't this pairing's to read now refuses the request, as a Note
+   * out of reach does, which then waits for the User to share it again.
+   */
+  const lookingNow = (pairing: AdmittedPairing, named: RequestNamed): Looking => {
+    const reached = reachedFolders(deps, pairing);
+    const readable = new Set(documentsForPairing(deps, pairing, [...reached], reached));
+    const folders = new Map(deps.folders().map((folder) => [folder.id, folder.name]));
+    const documents = new Map(
+      deps.documentsNamed([...named.open, ...named.documents]).map((each) => [each.id, each.name]),
+    );
+    const outOfReach = () =>
+      new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+    const still = (
+      ids: readonly string[],
+      nameOf: (id: string) => string | undefined,
+      reads: (id: string) => boolean,
+    ) =>
+      ids.flatMap((id) => {
+        const name = nameOf(id);
+        if (name === undefined) return [];
+        if (!reads(id)) throw outOfReach();
+        return [{ id, name }];
+      });
+    const document = (id: string) => documents.get(id);
+    return {
+      open: still(named.open, document, (id) => readable.has(id)),
+      folders: still(
+        named.folders,
+        (id) => folders.get(id),
+        (id) => reached.has(id),
+      ),
+      documents: still(named.documents, document, (id) => readable.has(id)),
+    };
+  };
+
+  function sortingRequest(
+    pairing: AdmittedPairing,
+    target: NonNullable<RequestNamed["organize"]>,
+    looking: Looking,
+  ) {
+    let scope: string;
+    if (target === "selected") {
+      scope = t("agents.ask.organize.selected", {
+        ids: JSON.stringify(looking.documents.map((doc) => doc.id)),
+      });
+    } else {
+      const reached = reachedFolders(deps, pairing);
+      if (target === "loose") {
+        if (!reached.has(NOT_IN_A_FOLDER_ID))
+          throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
+        scope = t("agents.ask.organize.loose");
+      } else {
+        const folder = looking.folders[0]?.id;
+        if (!folder)
+          throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+        const children = deps
+          .foldersInside(folder)
+          .filter((id) => id !== folder && reached.has(id));
+        scope = t("agents.ask.organize.folder", { folder, folders: JSON.stringify(children) });
+      }
+    }
+    return t("agents.ask.request.organize", { scope });
+  }
 
   /**
    * The results a Note holds, as its page counts them, and what a Document says of each sentence
@@ -1913,9 +2284,20 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       return call("search", query, [READ_DOCUMENTS], async (pairing) => {
         const words = text(input?.query, "query", MAX_QUERY_CHARS);
         const page = whole(input?.page, "page", 1, MAX_SEARCH_PAGE, 1);
-        const documentIds = scopeOf(pairing, input?.folderIds);
+        let documentIds = scopeOf(pairing, input?.folderIds);
+        const refresh = deps.refreshLiveTranscripts(documentIds);
+        if (refresh) {
+          await refresh;
+          const current = new Set(scopeOf(deps.admit(pairingId), input?.folderIds));
+          documentIds = documentIds.filter((id) => current.has(id));
+        }
         if (documentIds.length === 0) {
-          return { result: { passages: [], page, more: false }, count: 0, documentIds: [] };
+          const line = notShared();
+          return {
+            result: { passages: [], page, more: false, ...(line !== null && { notShared: line }) },
+            count: 0,
+            documentIds: [],
+          };
         }
         // Enough for this page and one more result, to know if there is a next page.
         const wanted = SEARCH_PAGE_SIZE * page + 1;
@@ -1935,8 +2317,15 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const shown = ranked.slice(SEARCH_PAGE_SIZE * (page - 1), SEARCH_PAGE_SIZE * page);
         const terms = keywordTerms(words);
         const passages = shown.map((passage) => asResult(granted, passage, terms));
+        // Told with every page: only the agent can tell whether its Passages answer the User.
+        const line = holdsMore(deps, granted) ? t("agents.notShared") : null;
         return {
-          result: { passages, page, more: ranked.length > SEARCH_PAGE_SIZE * page },
+          result: {
+            passages,
+            page,
+            more: ranked.length > SEARCH_PAGE_SIZE * page,
+            ...(line !== null && { notShared: line }),
+          },
           count: passages.length,
           documentIds: passages.map((passage) => passage.documentId),
         };
@@ -1944,34 +2333,29 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
 
     readPassages(input) {
-      return call("read_passages", "", [READ_DOCUMENTS], (pairing) => {
-        const before = whole(input?.before, "before", 0, MAX_AROUND, 0);
-        const after = whole(input?.after, "after", 0, MAX_AROUND, input?.passageId ? 0 : 2);
-        let documentId: string;
-        let from: number;
-        let to: number;
-        if (input?.passageId !== undefined) {
-          const passage = passageInScope(
-            pairing,
-            new Set(scopeOf(pairing, undefined)),
-            input.passageId,
-          );
-          documentId = passage.documentId;
-          from = Math.max(0, passage.position - before);
-          to = passage.position + after;
-        } else {
-          documentId = text(input?.documentId, "passageId or documentId", 200);
-          if (!scopeOf(pairing, undefined).includes(documentId)) {
-            throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
-          }
-          from = 0;
-          to = after;
+      return call("read_passages", "", [READ_DOCUMENTS], async (pairing) => {
+        const reach = new Set(scopeOf(pairing, undefined));
+        if (input?.passageId === undefined) {
+          const result =
+            input?.from !== undefined
+              ? readOn(reach, input.from)
+              : await readStart(reach, input?.documentId);
+          return { result, count: result.passages.length, documentIds: [result.documentId] };
         }
+        // More than it reads is no reason to refuse: `previous` and `next` say how to read on (#3586).
+        const around = (given: unknown, what: string) =>
+          Math.min(MAX_AROUND, whole(given, what, 0, Number.MAX_SAFE_INTEGER, 0));
+        const before = around(input.before, "before");
+        const after = around(input.after, "after");
+        const passage = passageInScope(pairing, reach, input.passageId);
+        const documentId = passage.documentId;
+        const from = Math.max(0, passage.position - before);
+        const to = passage.position + after;
         // One more on each side, to say whether there is more to read.
         const read = deps.passagesBetween(documentId, Math.max(0, from - 1), to + 1);
         const inRange = read.filter((each) => each.position >= from && each.position <= to);
         const first = inRange[0];
-        if (!first) throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+        if (!first) throw new NotReachedError(t("agents.problem.not-found"));
         const previous = read.find((each) => each.position === from - 1)?.passageId ?? null;
         const next = read.find((each) => each.position === to + 1)?.passageId ?? null;
         return {
@@ -1980,8 +2364,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             document: first.documentName,
             passages: inRange.map((passage) => ({
               passageId: passage.passageId,
-              location: passageLocation(passage),
               text: passage.text,
+              ...passageReading(passage),
             })),
             previous,
             next,
@@ -2001,17 +2385,41 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         .filter(Boolean)
         .join(" · ");
       return call("cite", summary, [READ_DOCUMENTS], async (pairing) => {
-        if (list.length === 0 || list.length > MAX_CITES) {
+        if (list.length === 0) {
           throw new AgentRefusedError(
             "invalid",
-            `citations must list 1 to ${MAX_CITES} quotes, each with its passageId or path.`,
+            "citations must list at least one quote, with its passageId or path.",
           );
         }
         const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
         let inScope = new Set(scopeOf(pairing, undefined));
         const read: string[] = [];
         const citations: AgentCited[] = [];
-        for (const entry of list) {
+        // Each answer gives back its quote, and a quote not found up to `PASSAGE_CHARS` of its
+        // Passage, so the result is bounded by its size, as a part of a Document is. A list past
+        // what one call checks is never refused: the agent is told how many to send again (#3585).
+        const leftLine = (count: number) =>
+          t(count === 1 ? "agents.cite.left.one" : "agents.cite.left.other", {
+            count,
+            total: list.length,
+          });
+        let size = estimateTokens(JSON.stringify({ citations, left: leftLine(list.length) }));
+        let left = 0;
+        const fits = (answer: AgentCited, at: number) => {
+          const cost = estimateTokens(JSON.stringify(answer)) + 1;
+          if (citations.length > 0 && size + cost > READ_PART_TOKENS) {
+            left = list.length - at;
+            return false;
+          }
+          citations.push(answer);
+          size += cost;
+          return true;
+        };
+        for (const [at, entry] of list.entries()) {
+          if (at === MAX_CITES) {
+            left = list.length - at;
+            break;
+          }
           const record = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
             string,
             unknown
@@ -2035,21 +2443,28 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               );
             }
             const minted = found ? mint(pairing, found) : null;
-            citations.push({
+            const answer: AgentCited = {
               passageId: found?.passageId ?? null,
               quote: found?.quote ?? quote,
               check: found ? "found" : "not-found",
               cite: minted ? citeTag(minted.token) : null,
               document: filed.name,
               location: found
-                ? label(found.location, found.pageFrom, found.pageTo, filed.documentId)
+                ? label(found.location, found.pageFrom, found.pageTo, filed.documentId, found.quote)
                 : null,
               // The agent has the file: IncarnaMind gives back nothing of it but where its quote is.
               text: null,
-            });
+            };
+            if (!fits(answer, at)) break;
             continue;
           }
-          const passage = passageInScope(pairing, inScope, record.passageId);
+          if (typeof record.passageId !== "string") {
+            throw new AgentRefusedError("invalid", t("agents.problem.citeWithoutPassage"));
+          }
+          // One quote of many names a Passage it doesn't have: the agent is told which (#3573).
+          const passage = passageInScope(pairing, inScope, record.passageId, (id) =>
+            t("agents.problem.citeNotFound", { passageId: id }),
+          );
           if (deps.notCited(passage.passageId)) {
             throw new AgentRefusedError(
               "invalid",
@@ -2059,13 +2474,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           read.push(passage.documentId);
           const quote = text(record.quote, "quote", MAX_QUOTE_CHARS);
           const citation = deps.citing.citeQuote(passage.passageId, quote);
-          if (!citation) throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          if (!citation) throw new NotReachedError(t("agents.problem.not-found"));
           const check =
             citation.check === "found" || citation.check === "cant-check"
               ? citation.check
               : "not-found";
           const minted = check === "found" ? mint(pairing, citation) : null;
-          citations.push({
+          const answer: AgentCited = {
             passageId: passage.passageId,
             quote: citation.quote,
             check,
@@ -2076,14 +2491,19 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               citation.pageFrom,
               citation.pageTo,
               passage.documentId,
+              citation.quote,
             ),
             text: check === "found" ? null : excerpt(passage.text, null),
-          });
+          };
+          if (!fits(answer, at)) break;
         }
         // Nothing read under an earlier grant goes out under one that leaves it out (#3458).
         stillReaching(read.filter((documentId) => !deps.citedOutside(documentId)));
         return {
-          result: { citations },
+          result: {
+            citations,
+            ...(left > 0 && { left: leftLine(left) }),
+          },
           count: citations.filter((each) => each.check === "found").length,
           documentIds: read,
         };
@@ -2131,6 +2551,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               now.pageFrom,
               now.pageTo,
               kept.documentId,
+              kept.quote,
             ),
             quote: kept.quote,
             changed: now.contentHash !== null && now.contentHash !== kept.contentHash,
@@ -2152,7 +2573,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         const token = [...tag.matchAll(CITATION_TOKEN)][0]?.[1] ?? tag;
         const kept = deps.citations.find(pairing.id, token);
         if (!kept || !usable(new Set(scopeOf(pairing, undefined)), kept.documentId)) {
-          throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          throw new NotReachedError(t("agents.problem.not-found"));
         }
         const now = deps.recheck({
           documentId: kept.documentId,
@@ -2162,10 +2583,10 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           location: kept.location,
         });
         if (now.contentHash === null) {
-          throw new AgentRefusedError("not-found", t("agents.problem.not-found"));
+          throw new NotReachedError(t("agents.problem.not-found"));
         }
         const location = now.location ?? kept.location;
-        const where = label(location, now.pageFrom, now.pageTo, kept.documentId);
+        const where = label(location, now.pageFrom, now.pageTo, kept.documentId, kept.quote);
         deps.show({
           documentId: kept.documentId,
           ...(now.pageFrom !== null && { pageFrom: now.pageFrom }),
@@ -2304,13 +2725,18 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             name: "",
             ...listed(documentIds),
             minds: minds
-              .filter((mind) => mind.folderId === null && yours(mind))
-              .map((mind) => row(mind, true, new Set(documentIds))),
+              .filter(
+                (mind) =>
+                  mind.folderId === null &&
+                  (sharesAll(pairing) ? reaches(pairing, mind, reached) : yours(mind)),
+              )
+              .map((mind) => row(mind, yours(mind), new Set(documentIds))),
             ...canvasesIn(NOT_IN_A_FOLDER_ID),
           });
         }
+        const line = holdsMore(deps, pairing, reached) ? t("agents.notShared") : null;
         return {
-          result: { folders },
+          result: { folders, ...(line !== null && { notShared: line }) },
           count: folders.reduce((sum, folder) => sum + folder.minds.length, 0),
           documentIds: [],
         };
@@ -2363,6 +2789,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             citation.pageFrom,
             citation.pageTo,
             citation.documentId,
+            citation.quote,
           );
           const source = where ? `${citation.documentName}, ${where}` : citation.documentName;
           if (citation.check !== "found") return { source, unverified: true };
@@ -2370,7 +2797,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           // Made before Citations kept their Passage: checked, but nothing to mint from.
           if (citation.passageId === "") return { source, unverified: false };
           return {
-            source: `${citeTag(mint(pairing, citation).token)} ${source}`,
+            agentCite: citeTag(mint(pairing, citation).token),
+            source,
             unverified: false,
           };
         });
@@ -2443,6 +2871,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
                   citation.pageFrom,
                   citation.pageTo,
                   citation.documentId,
+                  citation.quote,
                 ),
                 quote: citation.quote,
               });
@@ -2597,12 +3026,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
             // As the change's bar counts them, from what was written, the Citations kept too.
             uncited: written.uncited.slice(0, MAX_UNCITED).map((sentence) => clip(sentence, 200)),
             refused: leftOut(written.refused),
-            next:
-              unchecked === 0
-                ? null
-                : t(unchecked === 1 ? "agents.propose.unchecked.one" : "agents.propose.unchecked", {
-                    count: unchecked,
-                  }),
+            next: leftToCheck(unchecked, false),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
           count: own ? null : written.waiting,
@@ -2720,7 +3144,9 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           tables: 0,
           step: null,
         });
+        opened({ kind: "mind", mindId: mind.id });
         const listed = deps.minds().find((each) => each.id === mind.id);
+        const left = deps.checkTask(mind.id, inScope);
         return {
           result: {
             mindId: mind.id,
@@ -2732,6 +3158,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
               (token) => tokens.get(token)?.cited?.citable === true,
             ),
             refused: leftOut(made.refused),
+            next: leftToCheck(left.ok ? left.value.sentences.length : 0, true),
           },
           count: 1,
           documentIds: [...tokens.values()].flatMap((each) =>
@@ -2796,7 +3223,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
       return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
         const mind = ownNote(pairing, input?.mindId);
-        const found = deps.checkTask(mind.id, checkReach(pairing));
+        const found = deps.checkTask(mind.id, checkReach(pairing), input?.again === true);
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
         const { task, sentences } = found.value;
@@ -2936,7 +3363,11 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     publishCanvas: canvasTools.publishCanvas,
     readCanvas: canvasTools.readCanvas,
     updateCanvas: canvasTools.updateCanvas,
-    handOverFile: handedFileTool.handOverFile,
+    async handOverFile(input) {
+      const handed = await handedFileTool.handOverFile(input);
+      if (handed.mindId !== null) opened({ kind: "mind", mindId: handed.mindId });
+      return handed;
+    },
     readRequest(input) {
       const named = typeof input?.note === "string" ? comparableName(input.note) : "";
       const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
@@ -2952,20 +3383,28 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const about =
         given.length > 0
           ? given
-          : kept.filter((each) => comparableName(titleOf(each.mindId)) === named);
+          : kept.filter(
+              (each) => each.mindId !== null && comparableName(titleOf(each.mindId)) === named,
+            );
       const chosen = (named !== "" && about.length > 0 ? about : kept).find(
         (each) => each.readAt === null,
       );
-      const effects: Effect[] = chosen
+      const effects: Effect[] = chosen?.mindId
         ? [{ action: "read", scope: { kind: "mind", mindId: chosen.mindId } }]
         : [];
-      const summary = chosen ? titleOf(chosen.mindId) : (input?.note ?? "");
-      return call(
-        "read_request",
-        typeof summary === "string" ? summary : "",
-        effects,
-        (pairing) => {
-          if (!chosen) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
+      // Nothing waiting is a look that found nothing, not a failure of the agent's call (#3533):
+      // its activity line says it looked, as it always did.
+      const none = {
+        result: { mindId: null, title: "", request: t("agents.request.none") },
+        count: 0,
+        documentIds: [],
+      };
+      // What a request about no Note names is not said until it is read: only then are its
+      // Documents and Folders known to be the agent's to read, and named as they are by then.
+      const summary = chosen?.mindId ? titleOf(chosen.mindId) : "";
+      return call("read_request", summary, effects, (pairing) => {
+        if (!chosen) return none;
+        if (chosen.mindId !== null) {
           const mind = minds.get(chosen.mindId);
           if (!mind) {
             // Sharing a Folder can't bring it back, so the request goes rather than wait in front of
@@ -2976,16 +3415,47 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           if (!reaches(pairing, mind)) {
             throw new AgentRefusedError("outside-scope", t("agents.problem.requestOutOfReach"));
           }
-          const read = deps.requests.markRead(chosen.id);
-          if (!read) throw new AgentRefusedError("not-found", t("agents.problem.noRequest"));
-          return {
-            result: { mindId: mind.id, title: titleOf(mind.id), request: read.text },
-            count: 1,
-            documentIds: [],
-            requestId: read.id,
-          };
-        },
-      );
+        }
+        const looking = chosen.named === null ? null : lookingNow(pairing, chosen.named);
+        const [first] = [
+          ...(looking?.open ?? []),
+          ...(looking?.documents ?? []),
+          ...(looking?.folders ?? []),
+        ];
+        if (
+          looking !== null &&
+          chosen.mindId === null &&
+          !first &&
+          chosen.named?.organize !== "loose"
+        ) {
+          // Everything it named was deleted since: nothing is left to go on, as for a deleted Note.
+          deps.requests.markRead(chosen.id);
+          throw new AgentRefusedError("not-found", t("agents.problem.requestNoteDeleted"));
+        }
+        const request =
+          looking && chosen.named?.organize
+            ? sortingRequest(pairing, chosen.named.organize, looking)
+            : [chosen.text, looking ? lookingText(looking, t) : ""]
+                .filter((part) => part !== "")
+                .join("\n\n");
+        const read = deps.requests.markRead(chosen.id, request);
+        if (!read) return none;
+        askedFromIncarnaMind = true;
+        // As the line named it: the Note, else the Document in front.
+        const title =
+          chosen.mindId !== null
+            ? titleOf(chosen.mindId)
+            : chosen.named?.organize
+              ? chosen.title
+              : (looking?.open[0]?.name ?? "");
+        return {
+          result: { mindId: chosen.mindId, title, request },
+          count: 1,
+          documentIds: [],
+          requestId: read.id,
+          summary: title,
+        };
+      });
     },
   };
 }
