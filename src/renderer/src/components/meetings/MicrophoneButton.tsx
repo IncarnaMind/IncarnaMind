@@ -24,6 +24,7 @@ export function MicrophoneButton({
   const t = useT();
   const settings = useAppStore((state) => state.settings);
   const paused = meeting.microphonePausedAtMs !== null;
+  performance.mark("mic:render-"+testId+"-"+paused);
   const shortcut = keys === undefined ? helpKeysLabel("mic", settings) : keys;
   const title = paused
     ? shortcut

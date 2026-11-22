@@ -333,6 +333,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     pause: (meetingId) => attempt(meetingId, () => core.pauseMeeting(meetingId)),
     resume: (meetingId) => attempt(meetingId, () => core.resumeMeeting(meetingId)),
     async setMicrophonePaused(meetingId, paused) {
+      performance.mark("mic:store-start");
       const before = get().meetings.find((each) => each.id === meetingId);
       const show = (meeting: Meeting) =>
         set((state) => ({
@@ -346,6 +347,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
           : null,
       };
       if (shown) show(shown);
+      performance.mark("mic:store-published");
       await attempt(meetingId, async () => {
         try {
           await core.setMeetingMicrophone({ meetingId, paused });

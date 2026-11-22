@@ -250,8 +250,10 @@ function Palette() {
   useBackdropClose(dialog, close);
 
   const choose = (item: PaletteItem, inTab = false) => {
+    performance.mark("mic:palette-choose");
     // Closed first, so the focus is back where it was before what was chosen moves it.
     close();
+    performance.mark("mic:palette-closed");
     runItem(item, { inTab, context }).catch((error: unknown) =>
       useAppStore.getState().reportError(error),
     );

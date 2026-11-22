@@ -127,8 +127,13 @@ async function pressedAfter(
       (globalThis as { pressedAfter?: Promise<number> }).pressedAfter = new Promise<number>(
         (resolve) => {
           let from: number | null = null;
+          const events: unknown[] = [];
+          const tasks: unknown[] = [];
+          const long = new PerformanceObserver(list=>{for(const e of list.getEntries()) tasks.push([Math.round(e.startTime),Math.round(e.duration)])});
+          long.observe({type:"longtask"});
           const start = (event: Event) => {
             from ??= event.timeStamp;
+            events.push([event.type,(event as KeyboardEvent).key,event.target instanceof Element ? event.target.getAttribute("data-testid") : null,event.timeStamp,performance.now()]);
           };
           document.addEventListener("click", start, true);
           document.addEventListener("keydown", start, true);
@@ -138,7 +143,11 @@ async function pressedAfter(
             watch.disconnect();
             document.removeEventListener("click", start, true);
             document.removeEventListener("keydown", start, true);
-            resolve(performance.now() - from);
+            const elapsed = performance.now()-from;
+            const stages = performance.getEntriesByType("mark").filter(e=>e.name.startsWith("mic:") && e.startTime>=from!-1).map(e=>[e.name,Math.round(e.startTime-from!)]);
+            long.disconnect();
+            (globalThis as unknown as {micProbe:unknown}).micProbe={elapsed,expected,events,tasks,stages};
+            resolve(elapsed);
           });
           watch.observe(document.body, { attributes: true, childList: true, subtree: true });
         },
@@ -147,9 +156,11 @@ async function pressedAfter(
     [testId, pressed] as const,
   );
   await act();
-  return window.evaluate(
+  const elapsed = await window.evaluate(
     async () => (globalThis as { pressedAfter?: Promise<number> }).pressedAfter ?? -1,
   );
+  console.log("[2586-mic]",JSON.stringify(await window.evaluate(()=>(globalThis as unknown as {micProbe:unknown}).micProbe)));
+  return elapsed;
 }
 
 const msOf = (clock: string) => {
