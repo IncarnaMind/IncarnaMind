@@ -8592,7 +8592,7 @@ export const zhCN = {
   "agents.ownCheck.problem.plan-limit":
     "{agent} 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
   "agents.ownCheck.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
-  "agents.ownCheck.problem.stalled": "{agent} 两分钟没有回应，核对已停止。再试一次。",
+  "agents.ownCheck.problem.stalled": "{agent} 六分钟没有回应，核对已停止。再试一次。",
   "agents.ownCheck.problem.timeout": "{agent} 超过 15 分钟仍未完成，核对已停止。再试一次。",
   "agents.ownCheck.problem.no-marks":
     "{agent} 已结束，但没有标记这篇笔记。再试一次，或在 {agent} 中提问。",
@@ -8659,7 +8659,7 @@ export const zhCN = {
     "{agent} 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
   "noteAsk.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
   "noteAsk.problem.timeout": "{agent} 超过 15 分钟仍未完成，已停止。再试一次。",
-  "noteAsk.problem.stalled": "{agent} 两分钟没有回应，已停止。再发送一次。",
+  "noteAsk.problem.stalled": "{agent} 六分钟没有回应，已停止。再发送一次。",
   "noteAsk.problem.no-marks": "{agent} 已结束，但没有做任何修改。",
   "noteAsk.problem.isolation": "{agent} 带有你所在组织设置的钩子或插件，无法在这里运行。",
   "noteAsk.problem.access": "{agent} 已无法读取这篇笔记，已停止。",

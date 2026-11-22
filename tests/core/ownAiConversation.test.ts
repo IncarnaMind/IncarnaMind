@@ -296,6 +296,23 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     );
   });
 
+  // protects=once a turn has ended, a call of its run that finishes later tells no window it is working again; fails_when=the input stays on Working for good, with nothing to stop
+  it("tells nothing of a run after its turn ended", async () => {
+    const run = runner(async (agent) => {
+      // Left running: the run's end closes its connection under it, and the call still finishes.
+      agent
+        .callTool({ name: "search", arguments: { query: "ferry passengers" } })
+        .catch((error: unknown) => expect(String(error)).toMatch(/Connection closed/));
+      return { kind: "failed", reason: "stalled" };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "anything new?" });
+    expect(await ended()).toMatchObject({ state: "failed", problem: "stalled" });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const last = turns.findIndex((turn) => turn.state !== "working");
+    expect(turns.slice(last + 1)).toEqual([]);
+  });
+
   // protects=a turn ends when its run does, though the command line's connection is still open and listening for the Tool list to change, as Claude Code's can be then; fails_when=closing that connection waits on a message to a socket already gone, and the request stays working for good
   it("ends a turn whose command line hasn't let go of its connection yet", async () => {
     const run = runner(

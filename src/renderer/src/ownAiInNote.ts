@@ -103,6 +103,8 @@ const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMi
 function heard(event: NoteTurnEvent): void {
   const was = useNoteAsks.getState().byMind[event.mindId];
   if (was && was.turnId !== null && was.turnId !== event.turnId && was.state === "working") return;
+  // A turn that ended stays ended: nothing of it said later takes it back to working.
+  if (was?.turnId === event.turnId && was.state !== "working" && event.state === "working") return;
   // Stopped, the request leaves nothing behind: no line, no reply (#3677).
   if (event.state === "stopped") {
     askedHere.delete(event.turnId);

@@ -33,10 +33,11 @@ const MAX_REPLY_CHARS = 4000;
 const STATUS_MS = 15_000;
 /**
  * How long a run may send nothing before it is stopped as stalled. While it works it sends a tick
- * about every second as it thinks, and its words as it writes; the longest quiet in #3677's real
- * runs was a Tool call of a second or two.
+ * about every second as it thinks, its words and Tool inputs as it writes them, and a heartbeat
+ * every 30 s during a Tool call; past Claude Code's own 5 minutes with no data, its own watchdog
+ * and retry act first (#3677).
  */
-const STALL_MS = 120_000;
+const STALL_MS = 6 * 60_000;
 
 /** What `claude purge` 2.1.330 prints, exiting 1, for a folder it holds nothing of. */
 const NOTHING_TO_PURGE = /No Claude Code project data found/;

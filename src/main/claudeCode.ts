@@ -126,11 +126,16 @@ export async function runClaudeCodeTurn(turn: ClaudeCodeTurn): Promise<Record<st
       // The User's CLAUDE.md files and Claude Code's memory are not IncarnaMind's to give the turn.
       CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+      // A Tool input streams as it is written, so a run writing a long one isn't quiet meanwhile.
+      ...(turn.partial && { CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1" }),
     },
     processGroup: true,
   });
   return readTurn(child, turn);
 }
+
+/** How much more than `maxResponseBytes` a turn may print with its words and calls as they come. */
+const RAW_TIMES = 8;
 
 /** How long a stopped turn's output may take to close before IncarnaMind stops reading it. */
 const STOP_WAIT_MS = 5_000;
@@ -164,13 +169,16 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     kill();
     lines.close();
   };
+  // What the turn printed, its words and calls as they came left out: they repeat what the
+  // whole messages say. All of it is bounded too, more loosely.
   let bytes = 0;
+  let raw = 0;
   let heard = Date.now();
   let stalled = false;
   child.stdout.on("data", (chunk: Buffer) => {
     heard = Date.now();
-    bytes += chunk.length;
-    if (bytes > turn.maxResponseBytes) stop();
+    raw += chunk.length;
+    if (raw > turn.maxResponseBytes * RAW_TIMES) stop();
   });
   const { stallMs } = turn;
   const watch =
@@ -195,6 +203,11 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     for await (const line of lines) {
       signal.throwIfAborted();
       const msg = parseLine(line);
+      if (msg.type !== "stream_event") bytes += line.length;
+      if (bytes > turn.maxResponseBytes) {
+        stop();
+        break;
+      }
       if (msg.type === "control_response" && !sent) {
         const control = object(msg.response);
         const settings = object(control.response);

@@ -1711,7 +1711,7 @@ export interface OwnAiRunner {
     instructions: string;
     prompt: string;
     conversation?: { key: string; sessionId: string; resume: boolean };
-    /** Hears what the run is doing as it goes; with it, the stream carries the words as they come. */
+    /** Hears what the run is doing as it goes: its words as they come, each call as it starts. */
     progress?(step: OwnAiProgress): void;
     signal: AbortSignal;
   }): Promise<{ kind: "finished"; reply: string } | { kind: "failed"; reason: OwnAiFailure }>;

@@ -528,6 +528,24 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
     expect(Date.now() - started).toBeLessThan(10_000);
   });
 
+  // protects=a run that keeps sending, however long, is never stopped as stalled; fails_when=a run still at work is cut off
+  it("lets a run that keeps sending go on past the stall limit", async () => {
+    useClaude({
+      run: `
+        let ticks = 0;
+        ${session([init()])};
+        const timer = setInterval(() => {
+          console.log(JSON.stringify({ type: "system", subtype: "thinking_tokens", estimated_tokens: 10 }));
+          if (++ticks === 10) {
+            clearInterval(timer);
+            console.log(JSON.stringify(${JSON.stringify(done)}));
+          }
+        }, 200);
+      `,
+    });
+    await expect(ask(undefined, 500)).resolves.toEqual({ kind: "finished", reply: "Checked." });
+  });
+
   // protects=what the run says to the User between its calls, and each call as it starts, reach IncarnaMind as they come; fails_when=the line can only show a call once it has ended
   it("says what the run is doing as its stream tells it", async () => {
     const steps: unknown[] = [];

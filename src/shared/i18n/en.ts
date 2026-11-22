@@ -9135,7 +9135,7 @@ export const en = {
   "agents.ownCheck.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
   "agents.ownCheck.problem.stalled":
-    "{agent} stopped answering for two minutes, so the check stopped. Try again.",
+    "{agent} stopped answering for six minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.timeout":
     "{agent} took longer than 15 minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.no-marks":
@@ -9209,7 +9209,7 @@ export const en = {
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
   "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped. Try again.",
   "noteAsk.problem.stalled":
-    "{agent} stopped answering for two minutes, so it stopped. Send it again.",
+    "{agent} stopped answering for six minutes, so it stopped. Send it again.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",

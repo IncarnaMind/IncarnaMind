@@ -13250,7 +13250,7 @@ export type OwnAiCheckProblem =
   | "plan-limit"
   | "billing"
   | "timeout"
-  /** It sent nothing for two minutes, and was stopped. */
+  /** It sent nothing for six minutes, and was stopped. */
   | "stalled"
   | "no-marks"
   | "isolation"
