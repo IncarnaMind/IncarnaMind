@@ -3024,6 +3024,32 @@
    * bars; in Chinese, whose words are shorter, 395px, 369px, 343px, 287px and 261px. Each query
    * is the width that still fits.
    */
+  @container meeting-bar (586px <= width < 746px) {
+    .meeting-controls:has([data-fold="template"])
+      .meeting-button--words:not([data-fold="template"]) {
+      justify-content: center;
+      width: 24px;
+      padding: 0;
+    }
+    .meeting-controls:has([data-fold="template"])
+      .meeting-button--words:not([data-fold="template"])
+      .meeting-button-word {
+      display: none;
+    }
+  }
+  @container meeting-bar (586px <= width < 610px) {
+    [data-fold="template"] {
+      max-width: 128px;
+    }
+  }
+  @container meeting-bar (width < 466px) {
+    [data-fold="template"] {
+      display: none;
+    }
+    .meeting-controls:has([data-fold="template"]) .meeting-more {
+      display: inline-flex;
+    }
+  }
   @container meeting-bar (width < 586px) {
     .meeting-button--words {
       justify-content: center;

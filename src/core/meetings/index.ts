@@ -81,6 +81,7 @@ import {
 import { type CandidateReviewScope, candidateReviewUnavailable } from "./candidateReviewLifecycle";
 import type { CaptureHealthRecords } from "./health";
 import type { StoredMeetingSummary } from "./liveSummary";
+import type { FillVersion, Refill } from "./refill";
 import {
   acceptedSummaryCandidates,
   addTranscriptAction as appendTranscriptAction,
@@ -169,8 +170,8 @@ const COLUMNS =
   "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, writeup_template_id, last_transcript_action_id, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
-export interface StoredFill extends MeetingFill {
-  blocks: string[];
+export interface StoredFill extends FillVersion {
+  refill?: Refill;
 }
 
 function storedSummaryOf(row: Pick<MeetingRow, "summary">): StoredSummaryWithReview | null {
@@ -414,7 +415,12 @@ export function createMeetings(options: MeetingsOptions) {
   function fillOf(row: MeetingRow): MeetingFill | null {
     const stored = storedFillOf(row);
     if (!stored) return null;
-    const { blocks, ...fill } = stored;
+    const { refill, ...latest } = stored;
+    const {
+      blocks,
+      fingerprints: _fingerprints,
+      ...fill
+    } = refill?.undone ? refill.previous : latest;
     return { ...fill, addedBlockIds: [...(blocks ?? [])] };
   }
 
@@ -1505,8 +1511,11 @@ export function createMeetings(options: MeetingsOptions) {
     },
 
     /** Records the Meeting's fill (#142) and reports the change. */
-    setFill(meetingId: string, fill: StoredFill): Meeting {
-      save(meetingId, { fill: JSON.stringify(fill) });
+    setFill(meetingId: string, fill: StoredFill, templateId?: string | null): Meeting {
+      save(meetingId, {
+        fill: JSON.stringify(fill),
+        ...(templateId === undefined ? {} : { writeup_template_id: templateId }),
+      });
       changed();
       return toMeeting(rowOf(meetingId));
     },
@@ -1841,12 +1850,19 @@ export function createMeetings(options: MeetingsOptions) {
       return toMeeting(row);
     },
 
-    setTemplate(meetingId: unknown, template: MeetingHelpTemplate | null): Meeting {
+    setTemplate(
+      meetingId: unknown,
+      template: MeetingHelpTemplate | null,
+      writeup?: string | null,
+    ): Meeting {
       const row = rowOf(meetingId);
       if (!isLiveRow(row)) throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
       templates.set(row.id, template);
+      if (writeup !== undefined && writeup !== row.writeup_template_id) {
+        save(row.id, { writeup_template_id: writeup });
+      }
       changed();
-      return toMeeting(row);
+      return toMeeting(rowOf(row.id));
     },
 
     setWriteupTemplate(meetingId: string, templateId: string | null): Meeting {

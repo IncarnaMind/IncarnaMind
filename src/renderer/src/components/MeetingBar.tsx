@@ -27,6 +27,7 @@ import {
 } from "./lineIcons";
 import { BarMore } from "./meetings/BarMore";
 import { LevelBars } from "./meetings/LevelBars";
+import { MeetingTemplatePicker } from "./meetings/MeetingTemplatePicker";
 import { MicrophoneButton } from "./meetings/MicrophoneButton";
 import { ViewSwitch } from "./meetings/ViewSwitch";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
@@ -174,8 +175,9 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
           </button>
           <CallHelpToggle />
           <CaptureDetailsToggle meeting={meeting} />
+          <MeetingTemplatePicker meeting={meeting} />
           {tabId && <ViewSwitch meeting={meeting} tabId={tabId} />}
-          <BarMore />
+          <BarMore meeting={meeting} />
         </>
       )}
     </div>
