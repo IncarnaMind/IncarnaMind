@@ -822,8 +822,8 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
   test.each([
     [
       "en",
-      "Claude Code isn't signed in on this computer. Sign in to it in a terminal, then press Check again.",
-      "Claude Code stopped: your Claude plan's limit is reached. Try again later.",
+      "Claude Code isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
+      "Claude Code stopped: your Claude plan’s limit is reached. Try again later.",
       "Check again",
     ],
     [
