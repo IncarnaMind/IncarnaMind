@@ -228,7 +228,8 @@ export function createLiveSummaries(options: Options) {
     const input = {
       previous: samePrefix && prior ? prior.summary.text : null,
       ...(items && { items }),
-      closing: !recording && to === cues.length && !!items?.some((item) => item.status === "active"),
+      closing:
+        !recording && to === cues.length && !!items?.some((item) => item.status === "active"),
       utterances: slice.map(({ text, speaker }) => ({ text, speaker })),
     };
     void Promise.resolve()
