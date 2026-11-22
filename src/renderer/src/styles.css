@@ -2975,6 +2975,21 @@
     overflow: hidden;
     scrollbar-gutter: stable;
   }
+  @media (max-height: 640px) {
+    .workbench[data-dock="bottom"] .meeting-note-transcript-top {
+      padding-top: 4px;
+    }
+    .workbench[data-dock="bottom"]
+      .meeting-note-transcript-top
+      .meeting-bar:not(:has(.meeting-line-over)) {
+      margin-bottom: 4px;
+    }
+    .workbench[data-dock="bottom"]
+      .meeting-note-transcript:has(.meeting-note-transcript-top)
+      :is(.viewer-text-backdrop, .transcript-page) {
+      padding-block: 4px;
+    }
+  }
   .meeting-beside {
     display: inline-flex;
     flex-shrink: 0;

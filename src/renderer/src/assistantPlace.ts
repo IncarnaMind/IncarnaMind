@@ -198,7 +198,7 @@ export const groupsMergedAt = (windowWidth: number, cardWidth: number | null): b
  * it; a floating box keeps its corner and its distance to it.
  */
 export function restoredSize(place: AssistantPlace, dock: AssistantDock): Partial<AssistantPlace> {
-  if (dock === "bottom") return { height: DEFAULT_ASSISTANT.height };
+  if (dock === "bottom") return { height: DEFAULT_ASSISTANT.height, heightChosen: false };
   if (dock === "float") {
     const { width, height } = DEFAULT_ASSISTANT.float;
     return { float: { ...place.float, width, height } };

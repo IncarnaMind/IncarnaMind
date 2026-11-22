@@ -346,7 +346,8 @@
   .transcript-turn:is(:hover, :focus-within) .transcript-sentence[data-aimed] {
     @apply bg-hover;
   }
-  .transcript-sentence--partial {
+  .transcript-sentence--partial,
+  .transcript-turn--partial .transcript-text {
     @apply text-ink-secondary;
   }
   /*
@@ -360,9 +361,6 @@
   }
   .transcript-line-actions {
     @apply w-7 justify-center px-0;
-  }
-  .transcript-turn--partial .transcript-text {
-    @apply text-ink-placeholder;
   }
   /*
    * In a narrow group the words keep the width: Add to note keeps only its icon, and the page

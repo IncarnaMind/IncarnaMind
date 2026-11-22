@@ -4341,6 +4341,8 @@ export interface AssistantPlace {
   width: number;
   /** A bottom dock's height, in CSS pixels. */
   height: number;
+  /** The divider was sized by hand, even if it landed on the default height. */
+  heightChosen?: boolean;
   float: AssistantFloat;
 }
 

@@ -291,6 +291,8 @@ function parseAssistantPlace(value: unknown): Partial<AssistantPlace> {
   }
   const folded = optionalBoolean(value.folded, "folded");
   if (folded !== undefined) place.folded = folded;
+  const heightChosen = optionalBoolean(value.heightChosen, "heightChosen");
+  if (heightChosen !== undefined) place.heightChosen = heightChosen;
   if (value.foldedBy !== undefined) {
     if (value.foldedBy !== null && value.foldedBy !== "user" && value.foldedBy !== "agent") {
       throw new InvalidInputError({ key: "error.layout.foldedBy" });
@@ -323,6 +325,7 @@ function readSavedAssistant(value: unknown): AssistantPlace {
     ...((value.foldedBy === "user" || value.foldedBy === "agent") && { foldedBy: value.foldedBy }),
     width: readPx(value.width, { min: 1 }) ?? DEFAULT_ASSISTANT.width,
     height: readPx(value.height, { min: 1 }) ?? DEFAULT_ASSISTANT.height,
+    ...(value.heightChosen === true && { heightChosen: true }),
     float: readFloat(value.float) ?? { ...DEFAULT_ASSISTANT.float },
   };
 }
