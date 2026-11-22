@@ -38,6 +38,7 @@ export function openDocumentPicker(
   const space = before !== "" && !/\s/u.test(before) ? " " : "";
   const text = `${space}@`;
   const { anchor, head } = editor.state.selection;
+  console.log("[selection]", JSON.stringify({at,anchor,head,phase:"open"}));
   editor.view.focus();
   editor.commands.insertContentAt(at, { type: "text", text });
   if (forCommand) typed.set(editor, { from: at, to: at + text.length, text, anchor, head });
@@ -88,6 +89,7 @@ export function listenForDocumentPickerKeys(
  */
 export function takeTypedTrigger(editor: Editor, to: number, cancelled: boolean): void {
   const waiting = typed.get(editor);
+  console.log("[selection]",JSON.stringify({waiting,to,cancelled,phase:"exit"}));
   typed.delete(editor);
   if (!waiting || editor.isDestroyed) return;
   const end = Math.min(Math.max(to, waiting.to), editor.state.doc.content.size);

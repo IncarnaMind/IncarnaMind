@@ -553,6 +553,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(editor).toBeFocused();
       await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides");
 
+      window.on("console", (msg) => { if(msg.text().startsWith("[selection]")) console.log(msg.text()); });
+      await editor.evaluate((node) => {
+        const model = (node as unknown as { editor: import("@tiptap/core").Editor }).editor;
+        const report = (phase:string) => console.log("[selection]",JSON.stringify({phase,focus:document.activeElement?.tagName, selection:getSelection()?.toString(), model:[model.state.selection.anchor,model.state.selection.head],text:model.getText()}));
+        model.on("transaction", ({transaction})=>report("transaction "+JSON.stringify(transaction.steps.map(step=>step.toJSON()))));
+        for(const event of ["selectionchange","focusin","focusout","keydown","keyup"]) document.addEventListener(event,(e)=>report(event+" "+((e as KeyboardEvent).key ?? "")),true);
+        report("before Shift");
+      });
       await window.keyboard.press("Shift+ArrowLeft");
       await open();
       await window.keyboard.press("Escape");
