@@ -18,7 +18,13 @@ import { extractDocx } from "./formats/docx";
 import { extractPptx } from "./formats/pptx";
 import { type FigureReading, readWebPage, webUnits } from "./formats/web";
 import { extractXlsx, unreadPartsOf } from "./formats/xlsx";
-import { joinPrintedLines, type PrintedLine, type PrintedText } from "./lineWrap";
+import {
+  joinCjkLineWraps,
+  joinPrintedLines,
+  type PrintedLine,
+  type PrintedText,
+  pageMeasures,
+} from "./lineWrap";
 import { type FileAnnotation, readFileAnnotations } from "./pdfAnnotations";
 import { passwordProblem } from "./pdfPasswords";
 import { printedPageNames } from "./printedPages";
@@ -313,12 +319,21 @@ function printedLines(items: readonly object[]): PrintedLine[] {
   let right = 0;
   let size = 0;
   let baseline: number | null = null;
+  let left = Number.POSITIVE_INFINITY;
+  let levelBaseline: number | null = null;
   const end = () => {
-    lines.push({ text, size, right });
+    lines.push({
+      text,
+      size,
+      right,
+      ...(levelBaseline !== null && { left, baseline: levelBaseline }),
+    });
     text = "";
     right = 0;
     size = 0;
     baseline = null;
+    left = Number.POSITIVE_INFINITY;
+    levelBaseline = null;
   };
   for (const item of items) {
     // Marked-content boundaries carry no text.
@@ -336,12 +351,16 @@ function printedLines(items: readonly object[]): PrintedLine[] {
       placed.baseline - baseline >= placed.size * MARK_RAISE &&
       MARK_AFTER_NUMBER.test(text);
     text += mark ? shiftedDigits(read, true) : read;
-    // A line set at an angle has no right end to compare, but its size still tells a heading
-    // from the text under it, so only the edge is left out.
+    // A line set at an angle has no edges to compare, but its size still tells a heading from the
+    // text under it, so only the edges are left out.
     if (placed && placed.str.trim() !== "") {
       size = Math.max(size, placed.fontSize);
       baseline ??= placed.baseline;
-      if (placed.level) right = Math.max(right, placed.x + placed.width);
+      if (placed.level) {
+        right = Math.max(right, placed.x + placed.width);
+        left = Math.min(left, placed.x);
+        levelBaseline ??= placed.baseline;
+      }
     }
     if ("hasEOL" in item && item.hasEOL === true) end();
   }
@@ -507,16 +526,34 @@ export function textLayerParts(items: readonly object[]): PagePart[] | null {
   });
   const parts: PagePart[] = [];
   const shown = new Set<(typeof tables)[number]>();
-  let text: object[] = [];
+  // Read as the page's stored text is, each line measured as the page sets it, so a heading the
+  // page set apart stays apart (#3288).
+  const measured = pageMeasures(printedLines(items));
+  let line = 0;
+  let text: { items: object[]; line: number }[] = [];
   const flush = () => {
-    const words = pageText(text);
+    const lines = text.flatMap(({ items: on, line: at }) =>
+      printedLines(on)
+        .slice(0, 1)
+        .map((printed) => ({ printed, measure: measured[at] })),
+    );
+    const read = joinPrintedLines(
+      lines.map((each) => each.printed),
+      lines.map((each) => each.measure),
+    );
+    const words = joinCjkLineWraps(read.text, read.kept);
     if (words !== "") parts.push({ kind: "text", text: words });
     text = [];
   };
   for (const item of items) {
+    if (!("str" in item) || typeof item.str !== "string") continue;
+    const on = line;
+    if ("hasEOL" in item && item.hasEOL === true) line++;
     const table = tableOf.get(item);
     if (!table) {
-      text.push(item);
+      const last = text.at(-1);
+      if (last?.line === on) last.items.push(item);
+      else text.push({ items: [item], line: on });
       continue;
     }
     if (shown.has(table)) continue;

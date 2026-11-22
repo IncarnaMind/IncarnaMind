@@ -779,6 +779,7 @@ describe("Verify a document", () => {
     expect(blocks.map((block) => block.type)).toEqual([
       "paragraph",
       "paragraph",
+      "paragraph",
       "table",
       "paragraph",
       "table",
@@ -787,11 +788,16 @@ describe("Verify a document", () => {
       "heading",
       "paragraph",
     ]);
+    // The unit line and the table's title under it are paragraphs of their own (#3288).
+    expect(blocks.slice(1, 3).map((block) => block.content?.[0]?.text)).toEqual([
+      "（未经审计） 单位：人民币万元",
+      "一、资产负债表（2025 年 12 月 31 日）",
+    ]);
     const cells = (table: JSONContent | undefined) =>
       (table?.content ?? []).map((row) =>
         (row.content ?? []).map((cell) => [cell.type, cell.content?.[0]?.content?.[0]?.text ?? ""]),
       );
-    const balance = cells(blocks[2]);
+    const balance = cells(blocks[3]);
     expect(balance[0]).toEqual([
       ["tableHeader", "项目"],
       ["tableHeader", "期末余额"],
@@ -803,7 +809,7 @@ describe("Verify a document", () => {
       ["tableCell", "8,860"],
     ]);
     expect(balance).toHaveLength(9);
-    expect(blocks[3]?.content?.[0]?.text).toBe("二、利润表（2025 年度）");
+    expect(blocks[4]?.content?.[0]?.text).toBe("二、利润表（2025 年度）");
 
     expect(await core.findClaims(request(mind.id))).toEqual({ kind: "found", claims: 2 });
     await client.settled();
