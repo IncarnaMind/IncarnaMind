@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useSelection } from "./selection";
 import type {
   ChatReadiness,
   DeviceSettings,
@@ -1190,6 +1191,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       );
       const next = order.find((id) => !state.reviewedAttention.has(id));
       if (next === undefined) return;
+      useSelection.getState().choose("library", { kind: "document", id: next });
       set({ reviewTarget: next, reviewedAttention: new Set([...state.reviewedAttention, next]) });
       get().openLibrary();
     },
