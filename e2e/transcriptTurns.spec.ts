@@ -167,12 +167,18 @@ for (const language of ["en", "zh-CN"] as const) {
       // The page stays on the Transcript the User was reading.
       await expect(lines.first()).toBeVisible();
 
-      // Saved: still one turn, in paragraphs that end at a sentence's end, the cut lines whole.
+      // Stop can land inside a sentence. Only a break between paragraphs needs a sentence end.
       const turn = turns.first();
       await expect(turns).toHaveCount(1);
       const paragraphs = await paragraphsOf(turn);
       expect(paragraphs.length).toBeGreaterThanOrEqual(2);
-      for (const paragraph of paragraphs) expect(paragraph.trim()).toMatch(/[.。]$/u);
+      for (const paragraph of paragraphs.slice(0, -1)) expect(paragraph.trim()).toMatch(/[.。]$/u);
+      const savedLines = await lines.allTextContents();
+      expect(savedLines).toEqual(
+        savedLines.map((_, index) => words.lines[index % words.lines.length]),
+      );
+      const finalLine = await lines.last().innerText();
+      expect(paragraphs.at(-1)?.trimEnd().endsWith(finalLine)).toBe(true);
       expect(paragraphs.join(" ")).toContain(words.joined);
       const starts = await lines.evaluateAll((all) =>
         all.map((each) => Number(each.getAttribute("data-start"))),
