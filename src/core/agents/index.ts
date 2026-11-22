@@ -53,6 +53,7 @@ import {
   pairingReaches,
   reachedFolders,
 } from "./access";
+import { createAskedChecks } from "./askedChecks";
 import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
 import type { ServedConnection } from "./mcp";
@@ -127,6 +128,7 @@ export interface AgentsOptions {
     | "versions"
     | "citations"
     | "requests"
+    | "askedChecks"
     | "clock"
     | "now"
     | "newId"
@@ -222,6 +224,7 @@ export function createAgents(options: AgentsOptions) {
   const { db } = options;
   const citations = createAgentCitations(db, options.now);
   const requests = createAgentRequests(db, options.now, randomUUID);
+  const askedChecks = createAskedChecks(options.now);
   /** Tokens read from ../secrets, by pairing, so a connection needn't read the keychain. */
   const tokens = new Map<string, string>();
   /** The connections being served, by pairing (null: a token that belongs to none). */
@@ -523,6 +526,7 @@ export function createAgents(options: AgentsOptions) {
         return read;
       },
     },
+    askedChecks,
     clock: options.clock,
     now: options.now,
     newId: randomUUID,
@@ -830,6 +834,9 @@ export function createAgents(options: AgentsOptions) {
       options.requested(kept);
       return kept;
     },
+
+    /** The User asked this agent to check the Note: its marks land there while the ask stands (#3622). */
+    askedToCheck: askedChecks.asked,
 
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */
     requestsFor(mindId: string): AgentRequest[] {

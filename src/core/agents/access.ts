@@ -101,6 +101,7 @@ import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
+import type { AskedChecks } from "./askedChecks";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -831,6 +832,8 @@ export interface AgentAccessDeps {
   citations: AgentCitations;
   /** The requests the User made of their own AI, kept for each agent to read once (./requests). */
   requests: Pick<AgentRequests, "ofPairing" | "markRead">;
+  /** The checks the User asked of an agent, for a Note it may not have written (./askedChecks). */
+  askedChecks: Pick<AskedChecks, "holds" | "end">;
   /** Keeps a call for the pairing's activity list, with the request it read. */
   record(activity: Omit<AgentActivity, "id" | "at" | "request">, requestId?: string): void;
   /** A message in the interface language. */
@@ -1918,6 +1921,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     }
     return mind;
   };
+
+  /** The Note a check by the agent's own model takes: one it wrote, or one the User asked it to check. */
+  const noteToCheck = (pairing: AdmittedPairing, mindId: unknown): Mind =>
+    typeof mindId === "string" && deps.askedChecks.holds(pairing.id, mindId)
+      ? mindInScope(pairing, text(mindId, "mindId", 200))
+      : ownNote(pairing, mindId);
 
   const notJudged = (reason: NotJudgedReason, mind: Mind): AgentRefusedError => {
     switch (reason) {
@@ -3222,7 +3231,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const known = deps.minds().find((mind) => mind.id === mindId);
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
       return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
-        const mind = ownNote(pairing, input?.mindId);
+        const mind = noteToCheck(pairing, input?.mindId);
         const found = deps.checkTask(mind.id, checkReach(pairing), input?.again === true);
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
@@ -3254,7 +3263,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       return call("report_check", known ? mindName(known) : "", effects, (pairing) => {
-        const mind = ownNote(pairing, input?.mindId);
+        const mind = noteToCheck(pairing, input?.mindId);
         const task = text(input?.task, "task", 200);
         if (!Array.isArray(input?.results) || input.results.length > MAX_REPORTED_SENTENCES) {
           throw new AgentRefusedError(
@@ -3313,8 +3322,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           ];
         });
         const landed = deps.landJudged(mind.id, inScope, pairing.name, task, judged);
+        // A report on sentences that changed since is refused, and the ask stands, as the refusal
+        // tells the agent to take them again: the User may go on writing while their AI checks.
         if (!landed.ok) throw notJudged(landed.reason, mind);
         const { marked, unconfirmed, unreported } = landed.value;
+        // Told to report again what didn't land, the agent keeps the ask until nothing is left.
+        if (unconfirmed.length === 0 && unreported.length === 0) {
+          deps.askedChecks.end(pairing.id, mind.id);
+        }
         return {
           result: {
             mindId: mind.id,

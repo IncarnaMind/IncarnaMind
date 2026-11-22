@@ -111,6 +111,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       },
     },
     requests: { ofPairing: () => [], markRead: () => null },
+    askedChecks: { holds: () => false, end: () => undefined },
     record: () => undefined,
     say: (key, params) => translate("en", key, params),
     language: () => "en",
