@@ -106,6 +106,8 @@ jobs:
       - name: Run the specs
         shell: bash
         run: |
+          export INCARNAMIND_SCREENSHOTS="$RUNNER_TEMP/settings-pictures"
+          mkdir -p "$INCARNAMIND_SCREENSHOTS"
           args=(--repeat-each "$REPEAT" --add-reporter json)
           if [ -n "$GREP" ]; then args+=("--grep=$GREP"); fi
           if [ "$RUNNER_OS" = Linux ]; then
@@ -119,6 +121,13 @@ jobs:
             args+=(--workers=2)
           fi
           npm run test:smoke -- $SPECS "${args[@]}"
+          for picture in first-run settings-{general,ai,meetings,connectors,skills,privacy}; do
+            test -s "$INCARNAMIND_SCREENSHOTS/$picture.png"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: settings-pictures-${{ inputs.os }}
+          path: ${{ runner.temp }}/settings-pictures/*.png
       # Every test's trace, video and window picture, passed or failed (e2e/app.ts).
       - name: Upload the results
         if: always()
