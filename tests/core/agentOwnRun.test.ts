@@ -241,6 +241,16 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
       `The User pressed Check on their note “Tide notes” (mindId: ${mindId}). Check it.`,
     );
     expect(request?.prompt).not.toContain(SPRING);
+    // The same launcher as a written connection's (from an AppImage, the script in the data folder),
+    // with a grant of its own in place of the pairing's token.
+    expect(request?.server.command).toBe(claude.launch.command);
+    expect(request?.server.args).toEqual(claude.launch.args);
+    expect(request?.server.env.INCARNAMIND_AGENT_SOCKET).toBe(
+      claude.launch.env.INCARNAMIND_AGENT_SOCKET,
+    );
+    expect(request?.server.env.INCARNAMIND_AGENT_TOKEN).not.toBe(
+      claude.launch.env.INCARNAMIND_AGENT_TOKEN,
+    );
   });
 
   // protects=the run's grant reaches only the check's Tools, for that Note, and dies with the run; fails_when=the background run can read or write other Notes, call other Tools, or its launch still works afterwards
