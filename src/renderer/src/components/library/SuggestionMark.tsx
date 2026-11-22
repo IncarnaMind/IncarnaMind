@@ -30,12 +30,15 @@ export function SuggestionMark({ documentId }: { documentId: string }) {
   const groups = useAppStore((state) => state.library?.groups);
   if (!item) return null;
   const { placement } = item;
+  const intoFolder = placement.kind === "folder" || placement.kind === "newFolder";
   const folder =
     placement.kind === "folder"
       ? groups?.find((group) => group.id === placement.folderId)?.name
       : placement.kind === "newFolder"
         ? folders?.find((each) => each.id === placement.newFolderId)?.name
         : undefined;
+  // A Folder deleted since is gone from the Library before the Suggestions are read again.
+  if (intoFolder && folder === undefined) return null;
   return (
     <button
       type="button"
