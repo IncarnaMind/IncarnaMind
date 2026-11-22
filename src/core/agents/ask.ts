@@ -56,6 +56,8 @@ export interface AgentAskOptions {
       named: RequestNamed | null;
     },
   ): AgentRequest;
+  /** The User asked this agent to check the Note (`createAgents().askedToCheck`, #3622). */
+  askedToCheck(pairingId: string, mindId: string): void;
   /**
    * The file an outside agent handed over that the Note checks (#3412), with where in it the check
    * a fix names is; null for a Note that checks none.
@@ -576,6 +578,7 @@ export function createAgentAsk(options: AgentAskOptions) {
           named: named ?? null,
         });
       }
+      if (ask.kind === "check" && note) options.askedToCheck(pairingId, note.mindId);
       // For the chat the User has open: copied, never typed into a new chat (#3588).
       if (openChat) return { kind: "copy", text: line };
       const link = promptLinkFor(pairing.client, line);
