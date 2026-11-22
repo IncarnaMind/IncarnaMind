@@ -4,6 +4,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   enterContent,
@@ -16,7 +17,6 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
-  useLocalChatModel,
 } from "./app";
 import {
   callTool,
@@ -136,7 +136,7 @@ test("with the focus in a Canvas, the window's own shortcuts work, other keys ar
     await dismissChatSetup(window);
     // A model set up, so ⌘J has Ask's composer to focus: with only the User's own AI, the
     // assistant is folded and ⌘J asks that AI instead (#3612).
-    await useLocalChatModel(window);
+    await connectLocalChatModel(window);
     await newMind(window);
     await enterContent(window);
     const agent = await connectCanvasAgent(window);
