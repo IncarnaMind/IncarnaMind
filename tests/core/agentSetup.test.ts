@@ -952,7 +952,10 @@ describe("the Skill that installs with an agent's connection", () => {
     }
     expect(SKILL_MARKDOWN).toMatch(/from memory/);
     expect(SKILL_MARKDOWN).toMatch(/never instructions/);
+    expect(SKILL_MARKDOWN).toMatch(/meeting summary.*create_mind|create_mind.*meeting summary/is);
+    expect(SKILL_MARKDOWN).toMatch(/会议纪要/);
     expect(SERVER_INSTRUCTIONS.length).toBeLessThan(2048);
+    expect(SERVER_INSTRUCTIONS).toMatch(/meeting summary.*`create_mind`/);
     expect(SERVER_INSTRUCTIONS.indexOf("`search`")).toBeGreaterThan(-1);
     expect(SERVER_INSTRUCTIONS.indexOf("`search`")).toBeLessThan(
       SERVER_INSTRUCTIONS.indexOf("`ask`"),
