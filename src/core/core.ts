@@ -342,6 +342,7 @@ import { meetingSummaryRoute } from "./meetings/summaryRoute";
 import { meetingSummarySources } from "./meetings/summarySources";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
+import { calendarTemplate, helpTemplateForWriteup } from "./meetings/writeupTemplates";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
@@ -5287,6 +5288,18 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     capture: adapters.audioCapture,
     transcriptVersion: documents.currentVersion,
+    writeupTemplateForMind(mindId) {
+      const event = calendars.noteEvent(mindId);
+      const name = event && calendarTemplate(event);
+      return name
+        ? (skills.list().find((skill) => skill.name === name && skill.builtIn && skill.enabled)
+            ?.id ?? null)
+        : null;
+    },
+    helpForWriteupTemplate(skillId) {
+      const template = skills.list().find((skill) => skill.id === skillId && skill.meetingTemplate);
+      return helpTemplateForWriteup(template?.builtIn ? template.name : null);
+    },
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
@@ -8533,6 +8546,11 @@ export function createCore(adapters: CoreAdapters): Core {
       skillsChanged();
       return skill;
     },
+    setMeetingTemplateFillUncovered: async (skillId, fill) => {
+      const skill = skills.setMeetingFillUncovered(skillId, fill);
+      skillsChanged();
+      return skill;
+    },
     getSkillDraft: async (skillId) => skills.draftOf(skillId),
     createSkill: async (draft) => {
       const result = await skills.create(draft);
@@ -8984,6 +9002,17 @@ export function createCore(adapters: CoreAdapters): Core {
     openAudioSettings: (source) => meetings.openSettings(source),
     askMeetingHelp,
     askMeetingQuestion,
+    setMeetingWriteupTemplate: async (meetingId, templateId) => {
+      if (
+        templateId !== null &&
+        !skills
+          .list()
+          .some((skill) => skill.id === templateId && skill.meetingTemplate && skill.enabled)
+      ) {
+        throw new InvalidInputError({ key: "error.meeting.template" });
+      }
+      return meetings.setWriteupTemplate(meetingId, templateId);
+    },
     setMeetingTemplate: async (input) => {
       const { meetingId, template } = isRecord(input) ? input : {};
       if (template !== null && !isMeetingTemplate(template)) {

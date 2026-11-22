@@ -3369,6 +3369,14 @@ export const migrations: readonly Migration[] = [
     description: "Meeting write-up templates in Skills (#688)",
     sql: "ALTER TABLE skills ADD COLUMN meeting_template INTEGER NOT NULL DEFAULT 0;",
   },
+  {
+    version: 158,
+    description: "Keep the Meeting's chosen write-up template (#688)",
+    sql: `
+      ALTER TABLE meetings ADD COLUMN writeup_template_id TEXT;
+      ALTER TABLE skills ADD COLUMN meeting_fill_uncovered INTEGER NOT NULL DEFAULT 1;
+    `,
+  },
 ];
 
 /**

@@ -5080,6 +5080,7 @@ export const en = {
   "meetings.template.importOther": "Choose a meeting template folder or zip.",
   "meetings.settings.templates": "Meeting templates",
   "skills.settings.meetings": "Meetings",
+  "skills.settings.meetingFillUncovered": "Fill sections my notes don’t cover",
   "skills.settings.newMeeting": "New meeting template…",
   "skills.settings.builtIn": "Built-in",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.

@@ -4844,6 +4844,7 @@ export const zhCN = {
   "meetings.template.importOther": "请选择会议模板的文件夹或压缩包。",
   "meetings.settings.templates": "会议模板",
   "skills.settings.meetings": "会议",
+  "skills.settings.meetingFillUncovered": "补全笔记没写到的部分",
   "skills.settings.newMeeting": "新建会议模板…",
   "skills.settings.builtIn": "内置",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.

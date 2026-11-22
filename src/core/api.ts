@@ -9647,6 +9647,8 @@ export interface Skill {
   builtIn: boolean;
   /** Its SKILL.md defines the sections of a Meeting write-up. */
   meetingTemplate: boolean;
+  /** Whether a Meeting template adds the sections the User's notes do not already cover. */
+  meetingFillUncovered?: boolean;
   /** Every file in the Skill: SKILL.md first, then the others in path order. */
   files: SkillFile[];
   /** ISO 8601, UTC. */
@@ -12236,6 +12238,8 @@ export interface Meeting {
   helps: MeetingHelp[];
   /** The kind of meeting the help buttons are for, as the User chose it; null: the general buttons only. */
   helpTemplate: MeetingHelpTemplate | null;
+  /** The Skill chosen for the Meeting's write-up. Otherwise it uses the default sections. */
+  writeupTemplateId?: string;
   /** Its notes filled in from the Transcript after Stop (#142); null before Stop. */
   fill: MeetingFill | null;
   createdAt: string;
@@ -15085,6 +15089,8 @@ export interface CoreApi {
   cancelSkillImport(importId: string): Promise<void>;
   /** Turns a Skill on or off. Answers list and load only Skills that are on. Returns the Skill. */
   setSkillEnabled(skillId: string, enabled: boolean): Promise<Skill>;
+  /** Saves the per-template choice of whether a write-up adds sections beyond the User's notes. */
+  setMeetingTemplateFillUncovered(skillId: string, fill: boolean): Promise<Skill>;
   /**
    * Removes a Skill: soft-deleted in the database (ADR-0003). Its files are
    * deleted once nothing uses them, e.g. after Answers still being written with it finish.
@@ -15503,6 +15509,8 @@ export interface CoreApi {
   askMeetingQuestion(input: AskMeetingQuestionInput): Promise<ConversationAskResult>;
   /** Sets the kind of meeting a live Meeting's help buttons are for: its template adds two or three. */
   setMeetingTemplate(input: SetMeetingTemplateInput): Promise<Meeting>;
+  /** Chooses the Skill for a Meeting's write-up. Choosing null uses the default sections. */
+  setMeetingWriteupTemplate(meetingId: string, templateId: string | null): Promise<Meeting>;
   /**
    * Pauses the microphone of a Meeting that records or is paused, or resumes it. Paused, nothing
    * from the microphone is saved, transcribed or sent to a transcription service, and the Transcript
@@ -16300,6 +16308,7 @@ const methods: Record<CoreApiMethod, true> = {
   importSkill: true,
   cancelSkillImport: true,
   setSkillEnabled: true,
+  setMeetingTemplateFillUncovered: true,
   removeSkill: true,
   duplicateSkill: true,
   getSkillDraft: true,
@@ -16395,6 +16404,7 @@ const methods: Record<CoreApiMethod, true> = {
   askMeetingHelp: true,
   askMeetingQuestion: true,
   setMeetingTemplate: true,
+  setMeetingWriteupTemplate: true,
   setMeetingMicrophone: true,
   addQuickNote: true,
   setQuickNoteDraft: true,

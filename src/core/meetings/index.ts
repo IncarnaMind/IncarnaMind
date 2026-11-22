@@ -157,6 +157,7 @@ interface MeetingRow {
   fill: string | null;
   summary: string | null;
   summary_corrections: string | null;
+  writeup_template_id: string | null;
   last_transcript_action_id: number;
   transcript_document_id: string | null;
   purged_at: string | null;
@@ -165,7 +166,7 @@ interface MeetingRow {
 }
 
 const COLUMNS =
-  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, last_transcript_action_id, transcript_document_id, purged_at, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, writeup_template_id, last_transcript_action_id, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends MeetingFill {
@@ -225,6 +226,8 @@ interface Live {
 }
 
 export interface MeetingsOptions {
+  writeupTemplateForMind?(mindId: string): string | null;
+  helpForWriteupTemplate?(skillId: string): MeetingHelpTemplate | null;
   transcriptVersion?(documentId: string): string | null;
   db: Database;
   dataDir: string;
@@ -354,7 +357,7 @@ export function createMeetings(options: MeetingsOptions) {
   const writing = new Map<string, { stop: boolean }>();
   /** The call's help, oldest first, kept in memory: it matters only while the Meeting is live. */
   const help = new Map<string, MeetingHelp[]>();
-  const templates = new Map<string, MeetingHelpTemplate>();
+  const templates = new Map<string, MeetingHelpTemplate | null>();
   const microphonePausedAt = new Map<string, number>();
   const microphoneResumedAt = new Map<string, number>();
 
@@ -446,6 +449,14 @@ export function createMeetings(options: MeetingsOptions) {
       readCorrections(row.summary_corrections),
       isCurrentCandidateReview(row, storedSummary),
     );
+    const writeupTemplateId = row.writeup_template_id;
+    const override = templates.get(row.id);
+    const helpTemplate =
+      override !== undefined
+        ? override
+        : row.status !== "stopped" && writeupTemplateId
+          ? (options.helpForWriteupTemplate?.(writeupTemplateId) ?? null)
+          : null;
     return {
       id: row.id,
       mindId: row.mind_id,
@@ -472,7 +483,8 @@ export function createMeetings(options: MeetingsOptions) {
       microphonePausedAtMs: microphonePausedAt.get(row.id) ?? null,
       help: help.get(row.id)?.at(-1) ?? null,
       helps: [...(help.get(row.id) ?? [])],
-      helpTemplate: templates.get(row.id) ?? null,
+      helpTemplate,
+      ...(writeupTemplateId && { writeupTemplateId }),
       fill: fillOf(row),
       ...(summary && { summary }),
       createdAt: row.created_at,
@@ -1095,6 +1107,10 @@ export function createMeetings(options: MeetingsOptions) {
          VALUES (?, ?, ?, 'ready', ?, ?, ?)`,
         [id, mind, kind, systemAudio ? 1 : 0, at, at],
       );
+      const template = kind === "meeting" ? options.writeupTemplateForMind?.(mind) : null;
+      if (template) {
+        db.run("UPDATE meetings SET writeup_template_id = ? WHERE id = ?", [template, id]);
+      }
     });
     return { row: rowOf(id), createdMindId };
   }
@@ -1828,10 +1844,24 @@ export function createMeetings(options: MeetingsOptions) {
     setTemplate(meetingId: unknown, template: MeetingHelpTemplate | null): Meeting {
       const row = rowOf(meetingId);
       if (!isLiveRow(row)) throw new InvalidInputError({ key: "error.meeting.notBeingRecorded" });
-      if (template) templates.set(row.id, template);
-      else templates.delete(row.id);
+      templates.set(row.id, template);
       changed();
       return toMeeting(row);
+    },
+
+    setWriteupTemplate(meetingId: string, templateId: string | null): Meeting {
+      const row = rowOf(meetingId);
+      if (row.kind !== "meeting") throw new InvalidInputError({ key: "error.meeting.template" });
+      if (row.writeup_template_id !== templateId) {
+        db.run("UPDATE meetings SET writeup_template_id = ?, updated_at = ? WHERE id = ?", [
+          templateId,
+          now(),
+          row.id,
+        ]);
+      }
+      templates.delete(row.id);
+      changed();
+      return toMeeting(rowOf(row.id));
     },
 
     liveOf(mindId: string): Meeting | null {
