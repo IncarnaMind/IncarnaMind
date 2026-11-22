@@ -529,6 +529,18 @@ test("an input method's Esc or Enter in the field leaves the search open, and ci
 test("⌘K reaches Cite… and Link a Document", async () => {
   const { app, window, editor } = await started();
   try {
+    window.on("console",event=>{if(event.text().startsWith("[2586-key]"))console.log(event.text());});
+    await window.evaluate(() => {
+      const name = (e:EventTarget|null) => e instanceof HTMLElement ? [e.tagName,e.getAttribute("data-testid"),e.getAttribute("contenteditable")] : null;
+      const state = () => ({active:name(document.activeElement),editor:!!document.activeElement?.closest(".ProseMirror"),picker:!!document.querySelector('[data-testid="scope-picker"]'),palette:!!document.querySelector('[data-testid="palette"]')});
+      for(const type of ["keydown","focusin","focusout"]){
+        document.addEventListener(type,e=>{
+          if(e instanceof KeyboardEvent && !["Escape","Enter","k"].includes(e.key))return;
+          console.log("[2586-key]",JSON.stringify({phase:"capture",type,time:performance.now(),key:e instanceof KeyboardEvent?e.key:null,target:name(e.target),state:state()}));
+          if(e instanceof KeyboardEvent&&e.key==="Escape")requestAnimationFrame(()=>console.log("[2586-key]",JSON.stringify({phase:"next-frame",time:performance.now(),prevented:e.defaultPrevented,state:state()})));
+        },true);
+      }
+    });
     await window.keyboard.type("Spring tides flood.");
     const palette = window.getByTestId("palette");
 

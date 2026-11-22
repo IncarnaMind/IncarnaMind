@@ -69,6 +69,18 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
   }
 
   // Look is the Note's, beside Style in its ⋯ menu; the group's ⋯ is about the group.
+  await window.evaluate(() => {
+    const samples: number[][] = [];
+    let frames = 0;
+    const tick = () => {
+      const word = document.querySelector('[data-testid="look-word"]');
+      const style = document.querySelector('[data-testid="page-style"]');
+      if (word && style) samples.push([performance.now(), style.getBoundingClientRect().y, word.getBoundingClientRect().y]);
+      if (++frames < 240) requestAnimationFrame(tick);
+    };
+    Object.assign(globalThis, { menuGeometry: samples });
+    requestAnimationFrame(tick);
+  });
   await pointAndClick(window, window.getByTestId("group-menu"));
   await expect(window.getByTestId("group-menu-items").getByRole("menuitem").first()).toBeVisible();
   await expect(window.getByTestId("look-word")).toHaveCount(0);
@@ -79,6 +91,11 @@ test("a contract imported from Word shows the file's look, and Look › Plain Mi
   await expect(word).toHaveAttribute("aria-checked", "true");
   await expect(menu.getByTestId("look-plain")).toHaveAttribute("aria-checked", "false");
   const [styleBox, wordBox] = [await style.boundingBox(), await word.boundingBox()];
+  const together = await menu.evaluate(element => {
+    const get=(name:string)=>element.querySelector('[data-testid="'+name+'"]')?.getBoundingClientRect().y;
+    return {style:get("page-style"),word:get("look-word"),viewport:[innerWidth,innerHeight],frames:Reflect.get(globalThis,"menuGeometry")};
+  });
+  console.log("[2586-word]",JSON.stringify({styleBox,wordBox,together}));
   expect(wordBox && styleBox && wordBox.y > styleBox.y).toBe(true);
   if (SCREENSHOTS) {
     await motionSettled(window);

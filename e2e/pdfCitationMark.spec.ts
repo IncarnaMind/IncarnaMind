@@ -122,6 +122,11 @@ async function expectQuoteAndMark(window: Page, width: number): Promise<boolean>
   expect(markBox.x + markBox.width, `the mark inside the page at ${width}px`).toBeLessThanOrEqual(
     pageBox.x + pageBox.width,
   );
+  const geometry = await mark.evaluate(m => {
+    const rect=(e:Element|null) => {if(!e)return null;const r=e.getBoundingClientRect();return [r.x,r.right,r.width,r.height];};
+    return {viewport:[innerWidth,innerHeight],shown:m.getAttribute("data-label-shown"),mark:rect(m),copies:[...document.querySelectorAll(".quote-mark--copy")].map(rect),font:document.fonts.status,scale:devicePixelRatio};
+  });
+  console.log("[2586-pdf]",JSON.stringify({width,geometry,pageBox,lineRight}));
   return (await mark.getAttribute("data-label-shown")) === "true";
 }
 
