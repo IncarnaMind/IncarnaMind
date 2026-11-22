@@ -135,6 +135,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     canvasChanged: () => undefined,
     doneSince: () => 0,
     handedAt: () => null,
+    handedNote: () => null,
     handOver: () => Promise.reject(new Error("No file is handed over here.")),
     handedCheck: () => Promise.reject(new Error("No file is handed over here.")),
     checksWritten: () => false,
