@@ -3,7 +3,7 @@ import { Extension } from "@tiptap/core";
 import { type EditorState, PluginKey } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import { Suggestion, type SuggestionProps } from "@tiptap/suggestion";
-import { type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Fragment, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { QUESTION_BLOCK } from "../../../core/api";
 import { useT } from "../i18n";
 import { matchSlashItems, noteSlashItems, type SlashItem } from "./slashItems";
@@ -142,27 +142,33 @@ function SlashMenuList({ items, query, command, ref }: SlashMenuListProps) {
     >
       {shown.length === 0 && <p className="editor-menu-empty">{t("editor.slash.empty")}</p>}
       {shown.map((item, index) => (
-        <button
-          key={item.id}
-          ref={(element) => {
-            options.current[index] = element;
-          }}
-          type="button"
-          role="option"
-          aria-selected={index === selected}
-          data-testid={`slash-item-${item.id}`}
-          // Keep the cursor in the editor.
-          onMouseDown={(event) => event.preventDefault()}
-          onMouseEnter={() => {
-            if (moved.current) setSelected(index);
-          }}
-          onClick={() => command(item)}
-          title={item.hint}
-          className="editor-menu-item"
-        >
-          <span className="editor-menu-icon">{item.icon}</span>
-          <span className="truncate">{labelOf(item)}</span>
-        </button>
+        <Fragment key={item.id}>
+          {item.section && item.section !== shown[index - 1]?.section && (
+            <p role="presentation" className="px-2 pt-1 text-xs text-ink-meta">
+              {t(item.section)}
+            </p>
+          )}
+          <button
+            ref={(element) => {
+              options.current[index] = element;
+            }}
+            type="button"
+            role="option"
+            aria-selected={index === selected}
+            data-testid={`slash-item-${item.id}`}
+            // Keep the cursor in the editor.
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => {
+              if (moved.current) setSelected(index);
+            }}
+            onClick={() => command(item)}
+            title={item.hint}
+            className="editor-menu-item"
+          >
+            <span className="editor-menu-icon">{item.icon}</span>
+            <span className="truncate">{labelOf(item)}</span>
+          </button>
+        </Fragment>
       ))}
     </div>
   );

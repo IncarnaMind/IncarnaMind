@@ -178,7 +178,7 @@ function layOut(pages: readonly PageText[]) {
     offset += trimmed.length;
   }
   const text = laidOut(pages);
-  const pageAt = (at: number): number | null => {
+  const pageAt = (at: number) => {
     let low = 0;
     let high = starts.length - 1;
     while (low < high) {
@@ -186,7 +186,7 @@ function layOut(pages: readonly PageText[]) {
       if (item(starts, middle).offset <= at) low = middle;
       else high = middle - 1;
     }
-    return starts[low]?.page ?? null;
+    return starts[low];
   };
   return { text, pageAt };
 }
@@ -234,6 +234,14 @@ function passageSpans(
   { maxTokens, overlapTokens }: PassageParameters,
 ): Pick<BuiltPassage, "pageFrom" | "pageTo" | "text">[] {
   const { text, pageAt } = layOut(pages);
+  return textRanges(text, maxTokens, overlapTokens).map(({ start, end }) => ({
+    pageFrom: pageAt(start)?.page ?? null,
+    pageTo: pageAt(end - 1)?.page ?? null,
+    text: text.slice(start, end).trim(),
+  }));
+}
+
+function textRanges(text: string, maxTokens: number, overlapTokens: number) {
   const pieces = toPieces(text, maxTokens);
   if (pieces.length === 0) return [];
 
@@ -254,13 +262,50 @@ function passageSpans(
   });
   spans.push([from, pieces.length - 1]);
 
-  return spans.map(([first, last]) => {
-    const start = item(pieces, first).start;
-    const end = item(pieces, last).end;
-    return {
-      pageFrom: pageAt(start),
-      pageTo: pageAt(end - 1),
-      text: text.slice(start, end).trim(),
-    };
+  return spans.map(([first, last]) => ({
+    start: item(pieces, first).start,
+    end: item(pieces, last).end,
+  }));
+}
+
+/** Retains repetitions actually spoken, even when two adjacent indexed Passages have identical text. */
+export function livePassageText<T extends Pick<BuiltPassage, "position" | "text">>(
+  passages: T[],
+  units: readonly PageText[],
+): (T & { liveCueWindow?: { start: number; end: number } })[] {
+  if (passages.length < 2) return passages;
+  const { text, pageAt } = layOut(units);
+  const ranges = textRanges(text, PASSAGE_PARAMETERS.maxTokens, PASSAGE_PARAMETERS.overlapTokens);
+  if (
+    ranges.length !== passages.length ||
+    !passages.every((passage, index) => {
+      const range = ranges[index];
+      return (
+        range &&
+        passage.position === index &&
+        text.slice(range.start, range.end).trim() === passage.text
+      );
+    })
+  )
+    return passages;
+
+  return passages.flatMap((passage, index) => {
+    const range = item(ranges, index);
+    const start = Math.max(range.start, ranges[index - 1]?.end ?? 0);
+    const raw = text.slice(start, range.end);
+    const body = raw.trim();
+    const from = start + raw.length - raw.trimStart().length;
+    const to = from + body.length;
+    const first = pageAt(from);
+    if (!body || !first) return [];
+    return [
+      {
+        ...passage,
+        text: body,
+        pageFrom: first.page,
+        pageTo: pageAt(to - 1)?.page ?? null,
+        liveCueWindow: { start: from - first.offset, end: to - first.offset },
+      },
+    ];
   });
 }

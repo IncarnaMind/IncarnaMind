@@ -221,7 +221,7 @@ import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
 import { readVtt } from "./documents/formats/vtt";
 import { createOwnFiles } from "./documents/ownFiles";
-import { approximateTokens } from "./documents/passages";
+import { approximateTokens, livePassageText } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
 import {
@@ -343,6 +343,7 @@ import { meetingSummaryRoute } from "./meetings/summaryRoute";
 import { meetingSummarySources } from "./meetings/summarySources";
 import { createTranscripts } from "./meetings/transcript";
 import { meetingWords } from "./meetings/words";
+import { calendarTemplate, helpTemplateForWriteup, writeupPlan } from "./meetings/writeupTemplates";
 import { accessFor, isKnownKind, parseKind } from "./mindAccess";
 import { contentVersionOf, createMindContent, hasPendingMindChanges } from "./mindContent";
 import { createMindIndex, lineUnderName } from "./mindIndex";
@@ -5328,6 +5329,18 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     capture: adapters.audioCapture,
     transcriptVersion: documents.currentVersion,
+    writeupTemplateForMind(mindId) {
+      const event = calendars.noteEvent(mindId);
+      const name = event && calendarTemplate(event);
+      return name
+        ? (skills.list().find((skill) => skill.name === name && skill.builtIn && skill.enabled)
+            ?.id ?? null)
+        : null;
+    },
+    helpForWriteupTemplate(skillId) {
+      const template = skills.list().find((skill) => skill.id === skillId && skill.meetingTemplate);
+      return helpTemplateForWriteup(template?.builtIn ? template.name : null);
+    },
     noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
@@ -5794,12 +5807,21 @@ export function createCore(adapters: CoreAdapters): Core {
     }
     return cues;
   }
+  async function meetingWriteupTemplate(skillId: string) {
+    const skill = skills
+      .list()
+      .find((each) => each.id === skillId && each.meetingTemplate && each.enabled);
+    if (!skill) return null;
+    const { steps } = await skills.draftOf(skill.id);
+    return { steps, fillUncovered: skill.meetingFillUncovered !== false };
+  }
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     notesAgentId: () => settings.get().device.meetingNotesAgentId,
     content,
     meetings,
     userName: () => settings.get().user.authorName,
+    writeupTemplate: meetingWriteupTemplate,
     transcript: async (documentId) => {
       await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
       const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
@@ -6080,8 +6102,16 @@ export function createCore(adapters: CoreAdapters): Core {
     await transcripts.refresh(meeting.id);
     await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
     const now = meetings.list().find((each) => each.id === meeting.id) ?? meeting;
+    const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const first = passages[0];
     return {
-      passages: await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
+      passages:
+        first && passages.length > 1
+          ? livePassageText(
+              passages,
+              documents.pageTexts(documentId, first.contentHash, null, null),
+            )
+          : passages,
       behind: isBehind(now),
       screen,
     };
@@ -6755,6 +6785,31 @@ export function createCore(adapters: CoreAdapters): Core {
         if (error instanceof NotFoundError) return null;
         throw error;
       }
+    },
+    async meetingWriteup(meetingId, mindId) {
+      const meeting = meetings.get(meetingId);
+      const skillId = meeting.writeupTemplateId;
+      if (meeting.mindId !== mindId || !skillId) return null;
+      const template = await meetingWriteupTemplate(skillId);
+      if (!template || meetings.get(meetingId).writeupTemplateId !== skillId) return null;
+      const language = settings.get().language;
+      const english = writeupPlan(template, "en");
+      const chinese = writeupPlan(template, "zh-CN");
+      const outline = JSON.stringify(
+        english.sections.join("\n") === chinese.sections.join("\n")
+          ? english.sections
+          : { en: english.sections, "zh-CN": chinese.sections },
+      );
+      return translate(language, "agents.ask.meeting.template", {
+        outline,
+        fill: translate(
+          language,
+          template.fillUncovered
+            ? "agents.ask.meeting.template.uncovered"
+            : "agents.ask.meeting.template.onlyNotes",
+        ),
+        guidance: JSON.stringify(template.steps),
+      });
     },
     askable: (mindId, documentId) => agents.askable(mindId, documentId),
     reads: (pairingId, ids) => agents.reads(pairingId, ids),
@@ -8582,6 +8637,11 @@ export function createCore(adapters: CoreAdapters): Core {
       skillsChanged();
       return skill;
     },
+    setMeetingTemplateFillUncovered: async (skillId, fill) => {
+      const skill = skills.setMeetingFillUncovered(skillId, fill);
+      skillsChanged();
+      return skill;
+    },
     getSkillDraft: async (skillId) => skills.draftOf(skillId),
     createSkill: async (draft) => {
       const result = await skills.create(draft);
@@ -9067,12 +9127,43 @@ export function createCore(adapters: CoreAdapters): Core {
     openAudioSettings: (source) => meetings.openSettings(source),
     askMeetingHelp,
     askMeetingQuestion,
+    setMeetingWriteupTemplate: async (meetingId, templateId) => {
+      if (
+        templateId !== null &&
+        !skills
+          .list()
+          .some((skill) => skill.id === templateId && skill.meetingTemplate && skill.enabled)
+      ) {
+        throw new InvalidInputError({ key: "error.meeting.template" });
+      }
+      const meeting = meetings.get(meetingId);
+      if (
+        meeting.kind === "meeting" &&
+        meeting.status === "stopped" &&
+        meeting.transcript?.state === "saved"
+      ) {
+        return meetingFill.refill(meetingId, templateId);
+      }
+      return meetings.setWriteupTemplate(meetingId, templateId);
+    },
     setMeetingTemplate: async (input) => {
       const { meetingId, template } = isRecord(input) ? input : {};
       if (template !== null && !isMeetingTemplate(template)) {
         throw new InvalidInputError({ key: "error.meeting.template" });
       }
-      return meetings.setTemplate(meetingId, template);
+      const writeup =
+        template === null
+          ? null
+          : skills
+              .list()
+              .find(
+                (skill) =>
+                  skill.builtIn &&
+                  skill.meetingTemplate &&
+                  skill.enabled &&
+                  helpTemplateForWriteup(skill.name) === template,
+              )?.id;
+      return meetings.setTemplate(meetingId, template, writeup);
     },
     setMeetingMicrophone: async (input) => meetings.setMicrophonePaused(input),
     addQuickNote: async (input) => {

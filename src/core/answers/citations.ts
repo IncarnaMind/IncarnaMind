@@ -81,7 +81,7 @@ import {
 import type { CitationSource, DocumentDate } from "../documents";
 import { BOILERPLATE_PARAMETERS } from "../documents/boilerplate";
 import { HEADER_ROWS } from "../documents/formats/grid";
-import type { PageText } from "../documents/passages";
+import { laidOut, type PageText } from "../documents/passages";
 import { unsureSpansIn } from "../documents/scan/layout";
 import type { WindowedPassage } from "../documents/search";
 import { writtenInCjk } from "../documents/textLanguage";
@@ -324,56 +324,61 @@ function quoteInCues(
 ): TextRange[] | null {
   // Cue marks round down, so a named second includes cues that start within it.
   const until = time.to + 1000;
-  const then = (span: { startMs: number; endMs: number }) =>
-    span.startMs < until && span.endMs > time.from;
-  const turn = turnGoingOn(speakers);
-  if (!time.speaker) {
+  const match = (atMark: boolean) => {
+    const then = (span: { startMs: number; endMs: number }) =>
+      span.startMs < until && (atMark ? span.startMs >= time.from : span.endMs > time.from);
+    const turn = turnGoingOn(speakers);
+    if (!time.speaker) {
+      return quoteInCueWindow(
+        units,
+        quote,
+        (cue, label, said) => turn.stretches(cue, label, said, then(cue)),
+        matching,
+      );
+    }
+    const asked = markWords(time.speaker);
+    // Of a line the User split (#138), only the named Speaker's parts, each run of them that holds
+    // a part said then, as a line that isn't split is whole: a quote that runs into another
+    // Speaker's part isn't theirs.
     return quoteInCueWindow(
       units,
       quote,
-      (cue, label, said) => turn.stretches(cue, label, said, then(cue)),
+      (cue, label, said) => {
+        const parts = turn.partsIn(cue, label, said);
+        const theirs = parts.map(
+          (part) =>
+            label !== null &&
+            (asked === markWords(speakerMark(speakers, part.startMs, label)) ||
+              asked === markWords(speakerOf(speakers, part.startMs, label))),
+        );
+        const ranges: CueStretch[] = [];
+        const end = (index: number) => parts[index + 1]?.at ?? said.length;
+        for (let first = 0; first < parts.length; first++) {
+          if (!theirs[first]) {
+            turn.stop();
+            continue;
+          }
+          let last = first;
+          while (theirs[last + 1]) last++;
+          const run = parts.slice(first, last + 1);
+          if (run.some(then)) {
+            ranges.push({ start: (run[0] as TurnPart).at, end: end(last) });
+            turn.cited(run.at(-1) as TurnPart);
+          } else {
+            for (let at = first; at <= last && turn.goesOn(parts[at] as TurnPart); at++) {
+              ranges.push({ start: (parts[at] as TurnPart).at, end: end(at), goesOn: true });
+            }
+          }
+          first = last;
+        }
+        return ranges;
+      },
       matching,
     );
-  }
-  const asked = markWords(time.speaker);
-  // Of a line the User split (#138), only the named Speaker's parts, each run of them that holds
-  // a part said then, as a line that isn't split is whole: a quote that runs into another
-  // Speaker's part isn't theirs.
-  return quoteInCueWindow(
-    units,
-    quote,
-    (cue, label, said) => {
-      const parts = turn.partsIn(cue, label, said);
-      const theirs = parts.map(
-        (part) =>
-          label !== null &&
-          (asked === markWords(speakerMark(speakers, part.startMs, label)) ||
-            asked === markWords(speakerOf(speakers, part.startMs, label))),
-      );
-      const ranges: CueStretch[] = [];
-      const end = (index: number) => parts[index + 1]?.at ?? said.length;
-      for (let first = 0; first < parts.length; first++) {
-        if (!theirs[first]) {
-          turn.stop();
-          continue;
-        }
-        let last = first;
-        while (theirs[last + 1]) last++;
-        const run = parts.slice(first, last + 1);
-        if (run.some(then)) {
-          ranges.push({ start: (run[0] as TurnPart).at, end: end(last) });
-          turn.cited(run.at(-1) as TurnPart);
-        } else {
-          for (let at = first; at <= last && turn.goesOn(parts[at] as TurnPart); at++) {
-            ranges.push({ start: (parts[at] as TurnPart).at, end: end(at), goesOn: true });
-          }
-        }
-        first = last;
-      }
-      return ranges;
-    },
-    matching,
-  );
+  };
+  // A displayed clock names the cue starting in that second, even if the preceding cue
+  // ends partway through it and both say the same words.
+  return (time.from === time.to ? match(true) : null) ?? match(false);
 }
 
 /** A part of a cue, by its Speaker as the User's who's who has it now (#138): null for none. */
@@ -2869,11 +2874,13 @@ export function createCitationSession(
         ? (documents.speakers?.(passage.documentId) ?? null)
         : null;
       const plain = foldRadicals(
-        withCueMarks(
-          withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
-          units,
-          speakers,
-        ),
+        passage.liveCueWindow
+          ? withCueMarks(laidOut(units), units, speakers, passage.liveCueWindow)
+          : withCueMarks(
+              withSetAsideMarks(firstMark ? `${firstMark} ${marked}` : marked, passage.text, units),
+              units,
+              speakers,
+            ),
       );
       const text = withUnsureMarks(plain, units);
       const notCited = documents.citationSource(passage.passageId)?.notCited ?? false;

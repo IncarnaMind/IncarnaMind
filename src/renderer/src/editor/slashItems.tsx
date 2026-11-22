@@ -25,6 +25,7 @@ export interface SlashItem {
   label: MessageKey | { text: string };
   /** Shown when the item is pointed at, e.g. what a Skill is for. */
   hint?: string;
+  section?: MessageKey;
   /** More words that find the item when typed after the slash, whatever the interface language. */
   keywords?: readonly string[];
   /** A small glyph before the label. */

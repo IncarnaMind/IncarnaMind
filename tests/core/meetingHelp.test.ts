@@ -5,11 +5,14 @@
  * Meeting names its latest help, the line it answers and the conversation it went to; the
  * template adds its buttons.
  */
+import { readFile } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import type { Core, Meeting, MeetingHelpKind } from "../../src/core";
 import { helpOwnLines, meetingHelpInstructions } from "../../src/core/answers/meetingHelp";
 import { CITE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
+import { readVtt } from "../../src/core/documents/formats/vtt";
 import { setMindModel } from "../../src/shared/mindModel";
+
 import { answerEnded, answerJudged, shownPassages } from "../helpers/citations";
 import { createTempDataFolder } from "../helpers/core";
 import { createSourceFolder, waitForProcessing, writeSourceFile } from "../helpers/documents";
@@ -183,6 +186,103 @@ async function ask(core: Core, meeting: Meeting, text: string) {
 }
 
 describe("Help during the call", { timeout: 60_000 }, () => {
+  test.each(["en", "zh-CN"] as const)(
+    "a button and a typed question hear every cue once and in order (%s)",
+    async (language) => {
+      const words = Array.from({ length: 48 }, (_, index) =>
+        language === "en"
+          ? `Item ${index + 1}: the warehouse team will review the shipping schedule for this delivery before the handover.`
+          : `第${index + 1}项，仓库团队会在交接之前核对这批货物的发运时间，然后逐项确认。`,
+      );
+      words.fill(words[7] ?? "", 3, 36);
+      const calls: ModelCall[] = [];
+      const models = scriptedModels(
+        scriptedModel(
+          (call) => {
+            calls.push(call);
+            if (call.results.some((result) => result.tool === "cite"))
+              return {
+                text:
+                  language === "en"
+                    ? "- The team will review the schedule [^1]."
+                    : "- 团队会核对发运时间 [^1]。",
+              };
+            for (const passage of shownPassages(block(call.prompt, "live-transcript") ?? "")) {
+              const line = /^\[(1:07 [^\]]+)\] (.+)$/m.exec(passage.text);
+              if (line)
+                return {
+                  calls: [
+                    {
+                      tool: "cite",
+                      input: {
+                        citations: [
+                          { marker: 1, passage: passage.id, location: line[1], quote: line[2] },
+                        ],
+                      },
+                    },
+                  ],
+                };
+            }
+            throw new Error("Missing the repeated utterance at 1:07");
+          },
+          { judgesItsAnswers: true },
+        ),
+      );
+      const { core, record } = await transcribingCore(await createTempDataFolder(), {
+        createChatModel: models.createChatModel,
+        engine: { lines: words },
+      });
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      await core.updateSettings({ user: { language } });
+      const meeting = await core.createMeeting();
+      await core.startMeeting({ meetingId: meeting.id });
+      for (let index = 0; index < words.length; index += 4) {
+        record((index === 0 ? 9 : 8) * SECOND, ["microphone"]);
+        await until(core, meeting.id, (state) => state.lines >= index + 4);
+      }
+      const heard = () => {
+        const text = block(calls[0]?.prompt ?? "", "live-transcript");
+        const passages = shownPassages(text ?? "");
+        expect(passages.length).toBeGreaterThan(1);
+        const lines = passages.flatMap(({ text }) =>
+          text.split("\n").filter((line) => line.trim()),
+        );
+        const marks = lines.map((line) => /^\[([^\]]+)\]/.exec(line)?.[1]);
+        expect(marks).not.toContain(undefined);
+        expect(new Set(marks).size).toBe(words.length);
+        return lines.map((line) => line.replace(/^\[[^\]]+\]\s*/, "").trim());
+      };
+      const button = await press(core, meeting, "sum");
+      const transcriptId = button.latest?.transcript?.documentId;
+      if (!transcriptId) throw new Error("The meeting has no indexed Transcript.");
+      const transcript = (await core.listDocuments()).find((doc) => doc.id === transcriptId);
+      if (!transcript) throw new Error("Missing the Transcript file.");
+      const selected = readVtt(await readFile(transcript.path, "utf8")).cues[34];
+      if (!selected || selected.text !== words[34]) throw new Error("Missing the selected cue.");
+      const expectedCitation = [
+        expect.objectContaining({
+          check: "found",
+          quote: words[34],
+          location: expect.objectContaining({
+            kind: "time",
+            from: selected.startMs,
+            to: selected.endMs,
+          }),
+        }),
+      ];
+      expect(heard()).toEqual(words);
+      expect(button.answer.citations).toEqual(expectedCitation);
+      calls.length = 0;
+      const typed = await ask(
+        core,
+        meeting,
+        language === "en" ? "What did the team say?" : "刚才团队说了什么？",
+      );
+      expect(heard()).toEqual(words);
+      expect(typed.answer.citations).toEqual(expectedCitation);
+    },
+  );
+
   test("a button asks its name with the live transcript and the options' shape, offered the Documents' Tools only, and the Meeting names its help", async () => {
     const { core, meeting, calls } = await setUp();
 
