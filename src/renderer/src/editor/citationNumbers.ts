@@ -521,14 +521,16 @@ export function citationNumbersPlugin(
 
 /**
  * What a key does beside a chip that stands for several Citations (#3654). The Citations it hides
- * take no room, so the caret steps over them with the chip, as one; Backspace or Delete removes the
- * chip with every Citation it stands for, wherever in its run they are; beside a hidden one that
- * another chip stands for, they act on the chip beyond it and leave that one to its own. Null where
- * the key does what it always does, as beside a chip of one Citation.
+ * take no room, so the caret steps over them with the chip, as one, and Shift with an arrow takes
+ * the whole chip into the selection; Backspace or Delete removes the chip with every Citation it
+ * stands for, wherever in its run they are; beside a hidden one that another chip stands for, they
+ * act on the chip beyond it and leave that one to its own. Null where the key does what it always
+ * does, as beside a chip of one Citation.
  */
 export function groupKeyStep(state: EditorState, key: string): Transaction | null {
   const { selection } = state;
-  if (!selection.empty) return null;
+  const widens = key === "Shift-ArrowRight" || key === "Shift-ArrowLeft";
+  if (!selection.empty && !widens) return null;
   const citations = numbersKey.getState(state)?.citations ?? [];
   const placeAt = new Map(citations.map((each, place) => [each.pos, place]));
   const hidden = (pos: number) => {
@@ -539,9 +541,9 @@ export function groupKeyStep(state: EditorState, key: string): Transaction | nul
     const place = placeAt.get(pos);
     return place !== undefined && citations[place]?.shownBy === place ? place : null;
   };
-  const step = key === "ArrowRight" || key === "Delete" ? 1 : -1;
+  const step = key === "ArrowRight" || key === "Shift-ArrowRight" || key === "Delete" ? 1 : -1;
   const ahead = (pos: number) => (step === 1 ? pos : pos - 1);
-  let at = selection.from;
+  let at = selection.head;
   let skipped = false;
   // The spaces a run of Citations side by side may hold are passed with the hidden ones they lead to.
   const spaceAt = (pos: number) =>
@@ -562,12 +564,14 @@ export function groupKeyStep(state: EditorState, key: string): Transaction | nul
     if (shownAt(ahead(past)) !== null) at = past;
   }
   const chip = shownAt(ahead(at));
-  if (key === "ArrowRight" || key === "ArrowLeft") {
+  if (key === "ArrowRight" || key === "ArrowLeft" || widens) {
     if (chip !== null) {
       at += step;
       skipHidden();
     }
-    return skipped ? state.tr.setSelection(TextSelection.create(state.doc, at)) : null;
+    if (!skipped) return null;
+    const anchor = widens ? selection.anchor : at;
+    return state.tr.setSelection(TextSelection.create(state.doc, anchor, at));
   }
   if (key !== "Backspace" && key !== "Delete") return null;
   if (chip === null) return null;
@@ -637,6 +641,8 @@ export const CitationNumbers = Extension.create<{
     return {
       ArrowLeft: press("ArrowLeft"),
       ArrowRight: press("ArrowRight"),
+      "Shift-ArrowLeft": press("Shift-ArrowLeft"),
+      "Shift-ArrowRight": press("Shift-ArrowRight"),
       Backspace: press("Backspace"),
       Delete: press("Delete"),
     };
