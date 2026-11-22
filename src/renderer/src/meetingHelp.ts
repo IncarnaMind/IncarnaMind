@@ -47,7 +47,7 @@ export type PendingHelp = Pick<MeetingHelp, "kind" | "question">;
 
 interface HelpState {
   /** What was asked, by Meeting, until its Answer is the Meeting's `help`. */
-  pending: Readonly<Record<string, PendingHelp>>;
+  pending: Readonly<Record<string, PendingHelp & { earlier: readonly MeetingHelp[] }>>;
   /**
    * How many asks this window has made, by Meeting: the panel opens each one and brings it into
    * view, though a quick reply has come and gone from `pending` before the panel draws (#2925).
@@ -152,7 +152,7 @@ async function ask(
   presses.set(meeting.id, press);
   const latest = () => presses.get(meeting.id) === press;
   useMeetingHelp.setState((state) => ({
-    pending: { ...state.pending, [meeting.id]: asked },
+    pending: { ...state.pending, [meeting.id]: { ...asked, earlier: meeting.helps } },
     asked: { ...state.asked, [meeting.id]: (state.asked[meeting.id] ?? 0) + 1 },
     blocked: Object.fromEntries(
       Object.entries(state.blocked).filter(([meetingId]) => meetingId !== meeting.id),
