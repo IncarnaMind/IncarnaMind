@@ -328,6 +328,8 @@ export interface LaunchOptions {
    * a trace keeps all of it, so never a real key.
    */
   extraEnv?: Record<string, string>;
+  /** More arguments for the app's start, after its own: a link a system passes on (#3534). */
+  extraArgs?: readonly string[];
   /** Keeps the app's trace at `tracePath` when it closes, as INCARNAMIND_KEEP_ARTIFACTS does, without the video. */
   trace?: boolean;
   /** Chromium switches the app starts with, such as a proxy that stands in for the network. */
@@ -426,6 +428,7 @@ export async function launchApp(
     systemCalendar,
     calendarSyncMs,
     extraEnv,
+    extraArgs = [],
     trace = false,
     switches = [],
     systemColours = false,
@@ -498,6 +501,7 @@ export async function launchApp(
       ...(sandboxNotice === "switch" ? ["--no-sandbox"] : []),
       ...(packaged ? [] : [appDir]),
       ...APP_ARGS,
+      ...extraArgs,
     ],
     env,
     ...(systemColours && { colorScheme: null }),

@@ -5,6 +5,7 @@ import { basename, dirname, extname, isAbsolute, join } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
+import { readAppLink } from "../shared/appLinks";
 import { meetingTimeAt } from "../shared/blockTimes";
 import { canvasHostOf } from "../shared/canvases";
 import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
@@ -124,6 +125,7 @@ import type { LiveTranscript } from "./answers/liveTranscript";
 import {
   type AddDocumentsResult,
   type AddedToNote,
+  type AgentOpened,
   type AnnotationColour,
   type AnswerPlace,
   BLOCK_ID_ATTRIBUTE,
@@ -547,6 +549,11 @@ export interface Core extends CoreApi, CoreEventSource {
    */
   openDocumentInApp(documentId: string): Promise<void>;
   /**
+   * Shows the item an app link names in front (#3534, ADR-0033), as what an agent makes opens:
+   * true when it is there, false for any other link or an item that isn't, which shows nothing.
+   */
+  showLinked(link: string): boolean;
+  /**
    * Shows a live Document's file selected in the system's file manager,
    * through the `shell` adapter. Throws NotFoundError as `openDocumentFile` does.
    */
@@ -859,6 +866,15 @@ export function createCore(adapters: CoreAdapters): Core {
       return false;
     }
   };
+  /** What an app link names, if it is there now (ADR-0033); null for any other link. */
+  const linkedItem = (link: string): AgentOpened["item"] | null => {
+    const linked = readAppLink(link);
+    if (linked?.kind === "canvas") {
+      return canvases.get(linked.id) ? { kind: "canvas", canvasId: linked.id } : null;
+    }
+    const mindId = linked?.kind === "file" ? newestHandedNote(linked.id) : linked?.id;
+    return mindId && mindExists(mindId) ? { kind: "mind", mindId } : null;
+  };
   /** A Mind's name while the User can read it now; null once it is deleted or newer than this version. */
   const readableMindName = (mindId: string): string | null => {
     const found = minds.locate(mindId);
@@ -867,6 +883,14 @@ export function createCore(adapters: CoreAdapters): Core {
     return found.name || translate(settings.get().language, "mind.untitled");
   };
   const handedFiles = createAgentFiles({ db, now, newId: () => crypto.randomUUID() });
+  /** The Note of a handed-over file's newest version that has one; null for none (#3534). */
+  const newestHandedNote = (fileId: string): string | null =>
+    handedFiles.get(fileId)
+      ? (handedFiles
+          .versions(fileId)
+          .filter((version) => version.mindId !== null)
+          .at(-1)?.mindId ?? null)
+      : null;
   /**
    * The Notes as the window lists them: the check of an earlier version of a file an outside agent
    * handed over names the Note of its newest version still kept, where it opens (#3412).
@@ -6478,13 +6502,7 @@ export function createCore(adapters: CoreAdapters): Core {
       canvases,
       canvasChanged: (change) => events.emit("agents.canvasChanged", change),
       handedAt: (pairingId, path) => handedFiles.atPath(pairingId, path),
-      handedNote: (fileId) =>
-        handedFiles.get(fileId)
-          ? (handedFiles
-              .versions(fileId)
-              .filter((version) => version.mindId !== null)
-              .at(-1)?.mindId ?? null)
-          : null,
+      handedNote: newestHandedNote,
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
       checksWritten: () => settings.get().user.checkAssistantWrites,
@@ -9243,6 +9261,11 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     openDocumentImage: (documentId, path) => documents.openImage(documentId, path),
     readCellNumber: (documentId, sheet, ref) => documents.cellNumber(documentId, sheet, ref),
+    showLinked: (link) => {
+      const item = linkedItem(link);
+      if (item) events.emit("agents.opened", { item, front: true });
+      return item !== null;
+    },
     openDocumentInApp: async (documentId) => {
       const address = documents.get(documentId).web?.address;
       if (address) return adapters.browser.open(address);

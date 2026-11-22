@@ -25,6 +25,7 @@ import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
 import { installedOllamaModels } from "../core/providers/ollama";
+import { appLinkIn } from "../shared/appLinks";
 import { channelFor, EVENT_CHANNEL, FILES_CHANNELS, SERVED_CHANNEL } from "../shared/bridge";
 import { translate } from "../shared/i18n";
 import { ANALYSIS_SCHEME_PRIVILEGES } from "./analysis";
@@ -37,6 +38,7 @@ import {
   windowColour,
 } from "./appearance";
 import { showDevelopmentDockIcon, windowIcon } from "./appIcon";
+import { createAppLinkInbox } from "./appLinkInbox";
 import { closingLastWindowQuits, keptRunning, startsWithoutWindow } from "./background";
 import { serveBackground } from "./backgroundHost";
 import { createFakeCallWatcher, type FakeCalls } from "./calls/fakeWatcher";
@@ -351,14 +353,31 @@ function showFrontAndSend(channel: string, ...message: unknown[]): void {
   else send();
 }
 
-const secondLaunch = () => {
+// An app link the system hands over (ADR-0033) shows its item once the app is up, else only
+// brings it forward: macOS sends it as an event, Windows and Linux start the app again with it.
+const appLinks = createAppLinkInbox({
+  show: (link) => core?.showLinked(link) ?? false,
+  front: () => void showFront(),
+});
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  appLinks.arrived(url);
+});
+const startedWith = appLinkIn(process.argv);
+if (startedWith) appLinks.arrived(startedWith);
+
+const secondLaunch = (args: readonly string[] = []) => {
   if (closingForUpdate) return false;
   const waits = startWaitsForQuit();
   logger.info("app.secondLaunch", { quitting: waits });
-  if (!waits) showFront();
+  const link = appLinkIn(args);
+  if (!waits) {
+    if (link) appLinks.arrived(link);
+    else showFront();
+  }
   return !waits;
 };
-app.on("second-instance", secondLaunch);
+app.on("second-instance", (_event, argv) => secondLaunch(argv));
 
 function finishStartup(): void {
   if (
@@ -369,7 +388,8 @@ function finishStartup(): void {
   )
     return;
   instanceReady = true;
-  if (instance.kind === "owner") instance.owner.ready(secondLaunch);
+  if (instance.kind === "owner") instance.owner.ready((start) => secondLaunch(start.args));
+  appLinks.ready();
   // Once the window has been shown: the keyword index an older version built is rewritten
   // off this thread (#2042), and the text fingerprints it didn't keep are filled in (#2216).
   setImmediate(() => {

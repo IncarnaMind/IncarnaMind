@@ -8,6 +8,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AgentOpened } from "../../src/core/api";
+import { appLink } from "../../src/shared/appLinks";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { type Handed, handOver, refusal, started, structured } from "../helpers/handedFiles";
@@ -169,6 +170,56 @@ describe("what an outside agent makes, opened in IncarnaMind", () => {
     expect(
       refusal(await agent.callTool({ name: "show_citation", arguments: { canvas: hidden.id } })),
     ).toContain(translate("en", "agents.canvas.notFound"));
+    expect(opened).toEqual([]);
+  });
+
+  // protects=an app link shows in front the Note, the handed-over file's newest version or the Canvas it names, through the same event what an agent makes opens by; any other link, or an item that isn't there, shows nothing (#3534, ADR-0033); fails_when=a link shows something else, a file's link shows an older version, or a bad link opens anything
+  it("shows in front what an app link names, and nothing for any other link", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const note = await core.createMind({ title: "Harbour note", folderId: coast.id });
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(
+      path,
+      plainDeck([{ title: "Harbour" }, { lines: ["The ferry sails at six."] }]),
+    );
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    await writeFile(
+      path,
+      plainDeck([{ title: "Harbour" }, { lines: ["The ferry sails at seven."] }]),
+    );
+    const second = structured<Handed>(await handOver(agent, { path }));
+    const canvas = structured<{ canvasId: string }>(
+      await agent.callTool({
+        name: "publish_canvas",
+        arguments: { title: "Harbour tides", html: "<p>Tides</p>" },
+      }),
+    );
+    const gone = await core.createMind({ title: "Old note", folderId: coast.id });
+    await core.deleteMind(gone.id);
+    const opened: AgentOpened[] = [];
+    core.on("agents.opened", (each) => opened.push(each));
+
+    expect(core.showLinked(appLink({ kind: "note", id: note.id }))).toBe(true);
+    expect(core.showLinked(appLink({ kind: "file", id: first.fileId }))).toBe(true);
+    expect(core.showLinked(appLink({ kind: "canvas", id: canvas.canvasId }))).toBe(true);
+    expect(opened).toEqual([
+      { item: { kind: "mind", mindId: note.id }, front: true },
+      { item: { kind: "mind", mindId: second.mindId }, front: true },
+      { item: { kind: "canvas", canvasId: canvas.canvasId }, front: true },
+    ]);
+    opened.length = 0;
+
+    for (const link of [
+      appLink({ kind: "note", id: gone.id }),
+      appLink({ kind: "note", id: crypto.randomUUID() }),
+      appLink({ kind: "canvas", id: note.id }),
+      appLink({ kind: "file", id: note.id }),
+      `${appLink({ kind: "note", id: note.id })}?edit=1`,
+      `https://example.com/note/${note.id}`,
+    ]) {
+      expect(core.showLinked(link)).toBe(false);
+    }
     expect(opened).toEqual([]);
   });
 });
