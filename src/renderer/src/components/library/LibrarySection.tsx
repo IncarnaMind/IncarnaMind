@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { Document, LibraryGroup } from "../../../../core/api";
+import { useBoundPlace } from "../../boundFolders";
 import { useDraggedRef, useDragSource, useDropTarget } from "../../dragDrop";
 import { folderDrag, folderTarget } from "../../folderDrag";
 import { folderPathLabel } from "../../folders";
@@ -12,7 +13,7 @@ import {
   type SearchMatch,
   type LibrarySection as Section,
 } from "../../libraryPage";
-import { formatCount } from "../../linkedFolders";
+import { formatCount, linkedFolderRowState, rowStateLabel } from "../../linkedFolders";
 import { organizeDocuments } from "../../organizeDocuments";
 import { fixOrganizeProblem } from "../../organizeFix";
 import { organizeStateOf } from "../../organizeOutcome";
@@ -30,6 +31,7 @@ import { useSidebarMove } from "../../sidebarMoves";
 import { useAppStore } from "../../store";
 import { foldKeys, isMoveToKey, TREE_ROW } from "../../treeKeys";
 import { useRename } from "../../useRename";
+import { BoundMark } from "../BoundMark";
 import { InlineName } from "../InlineName";
 import { ChevronRightLineIcon, FolderLineIcon, LockLineIcon } from "../lineIcons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
@@ -437,6 +439,8 @@ function FolderHead({
     open ? undefined : () => useLibraryFolds.getState().setOpen(folder.id, true),
   );
   const dragSource = useDragSource(() => (rename.renaming ? null : folderDrag(folder, "library")));
+  const bound = useBoundPlace(folder.id);
+  const status = bound && rowStateLabel(linkedFolderRowState(bound.linked, count > 0), t, language);
   let name: ReactNode;
   if (rename.renaming) {
     name = (
@@ -492,14 +496,26 @@ function FolderHead({
         name={name}
         count={count}
         after={
-          inSubfolders > 0 && (
-            <span
-              data-testid="library-section-subfolders"
-              className="shrink-0 text-[12px] tabular-nums text-ink-meta"
-            >
-              · {t("library.inSubfolders", { count: formatCount(inSubfolders, language) })}
-            </span>
-          )
+          <>
+            {inSubfolders > 0 && (
+              <span
+                data-testid="library-section-subfolders"
+                className="shrink-0 text-[12px] tabular-nums text-ink-meta"
+              >
+                · {t("library.inSubfolders", { count: formatCount(inSubfolders, language) })}
+              </span>
+            )}
+            {bound && <BoundMark path={bound.path} size="size-4" />}
+            {status && (
+              <span
+                data-testid="folder-status"
+                title={status.full}
+                className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+              >
+                {status.short}
+              </span>
+            )}
+          </>
         }
         tip={folder.description}
         testId="library-section-head"

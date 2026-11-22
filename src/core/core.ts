@@ -55,6 +55,7 @@ import {
   writeMindStyle,
 } from "../shared/mindStyle";
 import { missingNumberWords } from "../shared/missingNumbers";
+import { sameName } from "../shared/names";
 import { mindName } from "../shared/naming";
 import { recordNoteWriter } from "../shared/noteWriter";
 import { paperFor } from "../shared/printDocument";
@@ -4138,6 +4139,31 @@ export function createCore(adapters: CoreAdapters): Core {
       const change = fileInBoundFolder(document.id);
       return change ? [change] : [];
     });
+  /**
+   * Makes a Folder bound to a folder on disk, named after it, inside `parentId` (#3613): a Linked
+   * folder's own Folder, known before a scan has made its row, or one inside it. One already bound
+   * to it is returned as it is, filing nothing.
+   */
+  const bindFolderOnDisk = (folderId: string, parentId: string | null) => {
+    const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
+    const folder = linked ? { id: folderId, name: basename(linked.path) } : folders.get(folderId);
+    const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
+    if (already) return { folder: already, filed: [] };
+    const made = library.create({
+      name: freeFolderName(folder.name.slice(0, 100), parentId),
+      description: "",
+      parentId,
+    });
+    return { folder: library.bind(made.id, folder.id), filed: fileUnder([folder.id]) };
+  };
+  /** The name, or the first of "name 2", "name 3"… that no Folder beside it has. */
+  const freeFolderName = (name: string, parentId: string | null) => {
+    const beside = library.folders().filter((each) => each.parentId === parentId);
+    const taken = (candidate: string) => beside.some((each) => sameName(each.name, candidate));
+    let free = name;
+    for (let n = 2; taken(free); n += 1) free = `${name.slice(0, 96)} ${n}`;
+    return free;
+  };
   /** Whether a Document is in this folder on disk: a Linked folder's own Folder or one inside it. */
   const inFolderOnDisk = (documentId: string, folderId: string) => {
     const [document] = documents.getMany([documentId]);
@@ -7208,9 +7234,13 @@ export function createCore(adapters: CoreAdapters): Core {
     readableQuote: async (input) => documents.readableQuote(parseQuoted(input), true),
     previewLinkedFolder: (path) => documents.linkedFolders.preview(path),
     addLinkedFolder: async (path, options) => {
-      const groupId = library.target(options);
+      const dropped = library.target(options);
       const known = new Set(documents.linkedFolders.list().map((each) => each.id));
       const linked = await documents.linkedFolders.add(path);
+      // Linking makes its Folder at once, inside the one it was dropped on (#3613).
+      const groupId = known.has(linked.id)
+        ? dropped
+        : bindFolderOnDisk(linked.folderId, dropped).folder.id;
       // Its first scan only starts adding Documents once this has returned.
       const batchId = batches.begin(groupId);
       // A folder inside one already linked adds nothing: its scans aren't this batch.
@@ -7876,22 +7906,7 @@ export function createCore(adapters: CoreAdapters): Core {
 
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
-    createBoundFolder: async (folderId) => {
-      // A Linked folder's own Folder is known before a scan has made its row: binding works by id.
-      const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
-      const folder = linked
-        ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
-        : folders.get(folderId);
-      const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
-      if (already) return { folder: already, filed: [] };
-      const made = library.create({
-        name: folder.name.slice(0, 100),
-        description: "",
-        keepInside: true,
-      });
-      const bound = library.bind(made.id, folder.id);
-      return { folder: bound, filed: fileUnder([folder.id]) };
-    },
+    createBoundFolder: async (folderId) => bindFolderOnDisk(folderId, null),
     undoBoundFolder: async (groupId, filed) => {
       const { boundFolderId } = library.folder(groupId);
       db.transaction(() => {

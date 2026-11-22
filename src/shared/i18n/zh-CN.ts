@@ -540,6 +540,9 @@ export const zhCN = {
   "folder.wall.refusal": "只在本文件夹内工作。",
   "folder.wall.changed": "在生成回答期间，该文件夹的“只在本文件夹内工作”发生了变化。",
   "folder.wall.title": "只在本文件夹内工作",
+  "folder.bound.mark": "关联文件夹：{path}",
+  "folder.bound.promise": "IncarnaMind 不会更改、移动或删除这个文件夹中已有的文件。",
+  "folder.fileAsFolder": "归为一个文件夹",
   "folder.wall.notFiled":
     "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
   "folder.wall.pageNotFiled":
@@ -629,6 +632,10 @@ export const zhCN = {
   "menu.showExamples": "重新显示示例",
   "undo.folderLinked": "已添加关联文件夹“{name}”",
   "undo.projectMade": "已将“{name}”设为项目",
+  "undo.fileAsFolder.on": "已将“{name}”归为一个文件夹",
+  "undo.fileAsFolder.off": "已不再将“{name}”归为一个文件夹",
+  "undo.name.fileAsFolder.on": "归为一个文件夹",
+  "undo.name.fileAsFolder.off": "不再归为一个文件夹",
   "undo.folderUnlinked": "已移除关联文件夹“{name}”",
   "undo.linkedFolder.mergedGone": "并入的关联文件夹“{name}”已不在磁盘上。",
   "undo.linkedFolderPaused": "已暂停读取“{name}”",
@@ -655,6 +662,7 @@ export const zhCN = {
   "undo.tabMoveRefused": "未能移动标签页",
   "object.renamed": "已重命名为“{name}”",
   "object.deleted": "已将“{name}”移到回收站",
+  "object.removed.keepsFile": "已从 IncarnaMind 中移除“{name}”，文件仍在“{folder}”中。",
   "object.deleted.documents": "已将 {count} 个文档移到回收站",
   "object.deleting.documents": "正在将 {count} 个文档移到回收站…",
   "object.restoring.count": "正在恢复 {count} 项…",
@@ -2605,6 +2613,8 @@ export const zhCN = {
     "无法读取哪些文件夹可以添加文件。打开保存位置，在那里回答。",
   "linkedFolders.preview.readOnly":
     "IncarnaMind 只读取这个文件夹，不会更改、移动或删除其中的任何内容。",
+  "linkedFolders.preview.becomesFolder":
+    "其中的文件会放进同名文件夹，新文件也会自动加入。IncarnaMind 不会更改、移动或删除其中已有的文件。",
   "linkedFolders.preview.merge.one":
     "已添加的关联文件夹“{names}”位于其中，将并入这里，保留标签和引用。",
   "linkedFolders.preview.merge.other":

@@ -13,6 +13,7 @@ import { formatShortDate, formatTime } from "../../../shared/dates";
 import { displayName } from "../../../shared/documentNames";
 import { type FileDates, fileDates, shownFileDate } from "../../../shared/fileProperties";
 import { mindName } from "../../../shared/naming";
+import { useBoundPlace } from "../boundFolders";
 import { copyText } from "../copied";
 import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
@@ -559,17 +560,45 @@ function FolderInfo({ group }: { group: LibraryGroup }) {
   const documents = t(count === 1 ? "library.count.one" : "library.count", {
     count: formatCount(count, language),
   });
+  const bound = useBoundPlace(group.id);
+  const state = bound && rowStateLabel(linkedFolderRowState(bound.linked, true), t, language);
   return (
     <>
       <Header icon={<FolderLineIcon className="size-7" />} name={group.name} line={documents} />
       <Rows>
+        {bound && (
+          <Row label={t("info.where")} testId="info-path">
+            {bound.path}
+          </Row>
+        )}
         <Row label={t("info.description")} testId="info-description">
           {group.description || <span className="text-ink-meta">{t("info.description.none")}</span>}
         </Row>
+        {bound && (
+          <Row label={t("info.status")} testId="info-status">
+            {state?.full ?? t("info.upToDate")}
+          </Row>
+        )}
         <Row label={t("info.added")} testId="info-added">
           {addedDate(group.createdAt, language)}
         </Row>
       </Rows>
+      {bound && (
+        <>
+          <p
+            data-testid="info-promise"
+            className="px-4 pb-3 text-[12px] leading-[18px] text-ink-meta"
+          >
+            {t("folder.bound.promise")}
+          </p>
+          <Actions
+            path={bound.path}
+            canShow={bound.linked.status !== "unavailable"}
+            showLabel={t(showFileLabelKey(navigator.platform))}
+            onShow={() => void useAppStore.getState().showLinkedFolder(bound.linked.id)}
+          />
+        </>
+      )}
     </>
   );
 }

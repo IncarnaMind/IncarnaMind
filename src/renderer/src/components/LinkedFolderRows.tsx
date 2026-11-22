@@ -1,16 +1,13 @@
 import { useEffect, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { LinkedFolder } from "../../../core/api";
+import { exampleLinkedIds, unboundLinkedFolders } from "../boundFolders";
 import { sidebarHandle } from "../commands/handles";
-import { buildFolderTree } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { sourceRequest } from "../libraryPage";
-import { indexingShare, linkedFolderRowState, rowStateLabel } from "../linkedFolders";
+import { folderName, indexingShare, linkedFolderRowState, rowStateLabel } from "../linkedFolders";
 import { isListedDocument } from "../meetingTranscript";
-import { showOutputLocationSetting, useLinkedFolderWriting } from "../outputFiles";
 import { useRequests } from "../requests";
-import { sorted } from "../sort";
-import { useSort } from "../sortChoices";
-import { folderFields } from "../sortFields";
 import { allExamples, useAppStore } from "../store";
 import { useTreeItem } from "../treeKeys";
 import { ExampleChip } from "./GettingStarted";
@@ -29,62 +26,35 @@ import {
 const LINKED_WASH_MS = 1600;
 
 /**
- * The sidebar's Linked folders (ADR-0010): a row each, with its state. A row
- * doesn't unfold, since its files already sit in the Folders and Not in a
- * Folder; it opens the Library on its Documents (its Source location, #1507),
- * where they are shown as on disk once #1250 adds Source locations.
+ * The User's Linked folders filed as no Folder (#3613), each a row in the one list of Folders: a
+ * Linked folder is a Folder bound to it until the User turns that off from its menu. A row
+ * doesn't unfold; it opens the Library on its Documents (its Source location, #1507).
  */
-export function LinkedFolderRows({ hideExamples = false }: { hideExamples?: boolean }) {
-  const folders = useAppStore((state) => state.folders);
-  const linkedFolders = useAppStore((state) => state.linkedFolders);
-  const writing = useLinkedFolderWriting();
-  const documents = useAppStore((state) => state.documents);
-  const exampleIds = useAppStore((state) =>
-    allExamples(state)
-      .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
-      .join(" "),
+export function UnboundLinkedFolderRows() {
+  const exampleIds = useAppStore(exampleLinkedIds);
+  const rows = useAppStore(
+    useShallow((state) => unboundLinkedFolders(state, new Set(exampleIds.split(" ")))),
   );
+  const folders = useAppStore((state) => state.folders);
+  const documents = useAppStore((state) => state.documents);
   const filled = useMemo(
     () => new Set(documents.filter(isListedDocument).map((each) => each.linkedFolderId)),
     [documents],
   );
-  const examples = useMemo(
-    () => new Set(hideExamples ? exampleIds.split(" ").filter(Boolean) : []),
-    [hideExamples, exampleIds],
-  );
-  const language = useLanguage();
-  const sidebarSort = useSort((state) => state.scopes.sidebar ?? state.all);
-  const roots = useMemo(
-    () =>
-      sorted(
-        buildFolderTree(folders).filter(
-          (node) =>
-            node.folder.parentId === null && !examples.has(node.folder.linkedFolderId ?? ""),
-        ),
-        sidebarSort,
-        (node) => folderFields(node.folder),
-        language,
-      ),
-    [folders, sidebarSort, language, examples],
-  );
-  const linkedById = new Map(linkedFolders.map((linked) => [linked.id, linked]));
+  if (rows.length === 0) return null;
   return (
     <ul role="none" data-testid="linked-folder-rows">
-      {roots.map(({ folder }) => {
-        const linked = linkedById.get(folder.linkedFolderId);
-        return linked ? (
-          <LinkedFolderRow
-            key={folder.id}
-            // No answer yet for this folder is read-only; an unread or failed read says so, not read-only.
-            readOnly={!writing.reading && !writing.problem && writing.allowed[linked.id] !== true}
-            unchecked={writing.problem}
-            linked={linked}
-            folderId={folder.id}
-            name={folder.name}
-            hasContents={filled.has(linked.id)}
-          />
-        ) : null;
-      })}
+      {rows.map((linked) => (
+        <LinkedFolderRow
+          key={linked.id}
+          linked={linked}
+          folderId={linked.folderId}
+          name={
+            folders.find((each) => each.id === linked.folderId)?.name ?? folderName(linked.path)
+          }
+          hasContents={filled.has(linked.id)}
+        />
+      ))}
     </ul>
   );
 }
@@ -94,17 +64,11 @@ function LinkedFolderRow({
   folderId,
   name,
   hasContents,
-  readOnly,
-  unchecked,
 }: {
   linked: LinkedFolder;
   folderId: string;
   name: string;
   hasContents: boolean;
-  /** The User hasn't allowed IncarnaMind to add files here, so its row says read-only (#1942). */
-  readOnly: boolean;
-  /** That answer couldn't be read: the row says so, and opens where it is given. */
-  unchecked: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -161,15 +125,6 @@ function LinkedFolderRow({
             {name}
           </span>
           {!status && isExample && <ExampleChip />}
-          {!status && !isExample && readOnly && (
-            <span
-              data-testid="linked-folder-read-only"
-              title={t("linkedFolders.readOnly.full")}
-              className="shrink-0 text-label font-semibold text-ink-meta"
-            >
-              {t("linkedFolders.readOnly")}
-            </span>
-          )}
           {status && (
             <span
               data-testid="folder-status"
@@ -187,21 +142,6 @@ function LinkedFolderRow({
             </span>
           )}
         </button>
-        {!status && !isExample && unchecked && (
-          // Not read-only, only unknown: saying where the answer lives is the honest line (#1942).
-          // Beside the row's button, never in it: one control inside another runs both on one click.
-          // Its 33px keep it clear of the row's actions, which take that room when the row is pointed at.
-          <button
-            type="button"
-            data-testid="linked-folder-writing-unchecked"
-            title={t("linkedFolders.readOnly.unchecked.title")}
-            onClick={showOutputLocationSetting}
-            tabIndex={-1}
-            className="mr-[33px] shrink-0 rounded-sm text-label font-semibold text-ink-meta hover:text-ink hover:underline"
-          >
-            {t("linkedFolders.readOnly.unchecked")}
-          </button>
-        )}
         {progress !== null && (
           <span
             aria-hidden="true"

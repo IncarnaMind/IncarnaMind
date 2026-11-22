@@ -1,6 +1,7 @@
 import type { LinkedFolder, TabItem } from "../../../core/api";
 import { WALL_SWITCH } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
+import { boundPlaceOf } from "../boundFolders";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
 import { showFileLabelKey, userFile } from "../fileInfo";
@@ -48,10 +49,13 @@ const folderOf = (ctx: CommandContext) => {
   const id = idsOf(ctx, "folder")[0];
   return store().library?.groups.find((each) => each.id === id);
 };
+/** The Linked folder a row stands for: its own row's, or the one its Folder is bound to (#3613). */
 const linkedOf = (ctx: CommandContext): LinkedFolder | undefined => {
   const id = idsOf(ctx, "linkedFolder")[0];
-  return store().linkedFolders.find((each) => each.id === id);
+  if (id !== undefined) return store().linkedFolders.find((each) => each.id === id);
+  return boundPlaceOf(folderOf(ctx), store())?.linked;
 };
+const isBound = (ctx: CommandContext) => folderOf(ctx)?.boundFolderId != null;
 
 /** How many Documents a selection holds, or 0 for one: its commands then say "these 3". */
 const many = (ctx: CommandContext): number => {
@@ -394,7 +398,10 @@ export const documentCommands: readonly Command[] = [
       many(ctx)
         ? t("documents.deleteAction.many", { count: countNow(many(ctx)) })
         : t(
-            documentsOf(ctx).every((document) => document.fileStatus === "missing")
+            // A Linked folder's file stays where it is (ADR-0010, #3613).
+            documentsOf(ctx).every(
+              (document) => document.fileStatus === "missing" || document.linkedFolderId !== null,
+            )
               ? "documents.removeAction"
               : "documents.deleteAction",
           ),
@@ -563,6 +570,8 @@ export const folderCommands: readonly Command[] = [
     group: "danger",
     destructive: true,
     appliesTo: ["folder"],
+    // A bound Folder goes with its folder: Unlink… stands in its place (#3613).
+    when: (ctx) => !isBound(ctx),
     reversible: true,
     async run(ctx) {
       const folder = folderOf(ctx);
@@ -731,7 +740,8 @@ export const linkedFolderCommands: readonly Command[] = [
     label: (ctx, t) =>
       t(linkedOf(ctx)?.status === "paused" ? "linkedFolders.resume" : "linkedFolders.pause"),
     group: "main",
-    appliesTo: ["linkedFolder"],
+    appliesTo: ["linkedFolder", "folder"],
+    when: (ctx) => linkedOf(ctx) !== undefined,
     reversible: true,
     run(ctx) {
       const linked = linkedOf(ctx);
@@ -739,17 +749,18 @@ export const linkedFolderCommands: readonly Command[] = [
     },
   },
   {
-    id: "linkedFolder.makeProject",
-    label: "linkedFolders.makeProject",
+    // On for a Folder bound to its folder; off, the folder is a row of its own (#3613).
+    id: "linkedFolder.fileAsFolder",
+    label: "folder.fileAsFolder",
     group: "main",
-    appliesTo: ["linkedFolder"],
-    when(ctx) {
-      const linked = linkedOf(ctx);
-      const groups = store().library?.groups ?? [];
-      return linked !== undefined && !groups.some((each) => each.boundFolderId === linked.folderId);
-    },
+    appliesTo: ["linkedFolder", "folder"],
+    when: (ctx) =>
+      linkedOf(ctx) !== undefined && (isBound(ctx) || idsOf(ctx, "linkedFolder").length > 0),
+    checked: (ctx) => isBound(ctx),
     reversible: true,
     run: async (ctx) => {
+      const folder = folderOf(ctx);
+      if (folder?.boundFolderId) return store().stopFilingAsFolder(folder.id);
       const linked = linkedOf(ctx);
       if (linked) await store().makeProject(linked.id);
     },
@@ -763,7 +774,7 @@ export const linkedFolderCommands: readonly Command[] = [
         : t("linkedFolders.downloadOnlineOnly.other", { count: countNow(count) });
     },
     group: "main",
-    appliesTo: ["linkedFolder"],
+    appliesTo: ["linkedFolder", "folder"],
     when(ctx) {
       const online = linkedOf(ctx)?.onlineOnly;
       return online !== undefined && !online.downloading && online.files > 0;
@@ -778,7 +789,8 @@ export const linkedFolderCommands: readonly Command[] = [
     id: "linkedFolder.reveal",
     label: REVEAL,
     group: "file",
-    appliesTo: ["linkedFolder"],
+    appliesTo: ["linkedFolder", "folder"],
+    when: (ctx) => linkedOf(ctx) !== undefined,
     enabled: (ctx) =>
       linkedOf(ctx)?.status === "unavailable"
         ? { reason: "linkedFolders.reveal.unavailableReason" }
@@ -793,7 +805,9 @@ export const linkedFolderCommands: readonly Command[] = [
     id: "linkedFolder.locate",
     label: "linkedFolders.locateAction",
     group: "file",
-    appliesTo: ["linkedFolder"],
+    appliesTo: ["linkedFolder", "folder"],
+    // On a Folder only while its folder can't be reached: moved, renamed or unplugged.
+    when: (ctx) => idsOf(ctx, "linkedFolder").length > 0 || linkedOf(ctx)?.status === "unavailable",
     // Locating it again, where it was, puts it back.
     reversible: true,
     run: async (ctx) => {
@@ -807,7 +821,8 @@ export const linkedFolderCommands: readonly Command[] = [
     label: "linkedFolders.unlinkAction",
     group: "danger",
     destructive: true,
-    appliesTo: ["linkedFolder"],
+    appliesTo: ["linkedFolder", "folder"],
+    when: (ctx) => linkedOf(ctx) !== undefined,
     reversible: { confirm: "linkedFolders.unlink.body" },
     run(ctx) {
       const linked = linkedOf(ctx);

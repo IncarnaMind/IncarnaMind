@@ -90,11 +90,18 @@ registerMenu("folder", [
   "folder.tagWithAi",
   "folder.editDescription",
   "folder.keepInside",
+  "linkedFolder.fileAsFolder",
+  "linkedFolder.pause",
+  "linkedFolder.download",
   "folder.sort",
   "folder.moveTo",
   "folder.rename",
+  "linkedFolder.reveal",
+  "file.copyPath",
   "file.info",
+  "linkedFolder.locate",
   "folder.delete",
+  "linkedFolder.unlink",
 ]);
 
 registerMenu("tag", [
@@ -109,8 +116,8 @@ registerMenu("tag", [
 registerMixedMenu(["selection.moveTo", "selection.delete"]);
 
 registerMenu("linkedFolder", [
+  "linkedFolder.fileAsFolder",
   "linkedFolder.pause",
-  "linkedFolder.makeProject",
   "folder.sort",
   "linkedFolder.download",
   "linkedFolder.reveal",

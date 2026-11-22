@@ -510,6 +510,8 @@ export interface AppState extends LayoutSlice {
    * its files back where they were.
    */
   makeProject(linkedFolderId: string): Promise<void>;
+  /** Files a Linked folder's files as no Folder: its Folder goes, with Undo (#3613). */
+  stopFilingAsFolder(groupId: string): Promise<void>;
   /** Downloads a Linked folder's online-only files and indexes them. */
   downloadOnlineOnlyFiles(linkedFolderId: string): Promise<void>;
   /** Shows a Linked folder in the system's file manager. */
@@ -2072,14 +2074,19 @@ export const useAppStore = create<AppState>()((set, get) => {
               : work();
           await remove();
           const shown = first ? displayName(first) : "";
-          push(
-            deleted(
-              shown,
-              live.map((id) => ({ kind: "document", id })),
-              remove,
-              { putBack, takeOut },
-            ),
+          const change = deleted(
+            shown,
+            live.map((id) => ({ kind: "document", id })),
+            remove,
+            { putBack, takeOut },
           );
+          // A Linked folder's file stays where it is: the line says so (ADR-0010, #3613).
+          const onDisk = get().linkedFolders.find((each) => each.id === first?.linkedFolderId);
+          if (live.length === 1 && onDisk) {
+            const folder = linkedFolderName(onDisk.path);
+            change.said = (t) => t("object.removed.keepsFile", { name: shown, folder });
+          }
+          push(change);
         }),
       ),
 
@@ -2230,14 +2237,34 @@ export const useAppStore = create<AppState>()((set, get) => {
         const { folder: project, filed } = await core.createBoundFolder(linked.folderId);
         await get().refreshLibrary();
         push({
-          said: (t) => t("undo.projectMade", { name: project.name }),
-          name: (t) => t("undo.name.makeProject"),
+          said: (t) => t("undo.fileAsFolder.on", { name: project.name }),
+          name: (t) => t("undo.name.fileAsFolder.on"),
           undo: async () => {
             await core.undoBoundFolder(project.id, filed);
             await get().refreshLibrary();
           },
           redo: async () => {
             await core.restore([{ kind: "folder", id: project.id }]);
+            await get().refreshLibrary();
+          },
+        });
+      }),
+
+    stopFilingAsFolder: (groupId) =>
+      attempt(async () => {
+        const folder = get().library?.groups.find((each) => each.id === groupId);
+        if (!folder) return;
+        await core.undoBoundFolder(groupId, []);
+        await get().refreshLibrary();
+        push({
+          said: (t) => t("undo.fileAsFolder.off", { name: folder.name }),
+          name: (t) => t("undo.name.fileAsFolder.off"),
+          undo: async () => {
+            await core.restore([{ kind: "folder", id: groupId }]);
+            await get().refreshLibrary();
+          },
+          redo: async () => {
+            await core.undoBoundFolder(groupId, []);
             await get().refreshLibrary();
           },
         });

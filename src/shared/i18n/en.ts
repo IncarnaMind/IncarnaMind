@@ -586,6 +586,10 @@ export const en = {
   "undo.readHiddenSheets": "Read the hidden sheets of “{name}”",
   "undo.name.readHiddenSheets": "Read hidden sheets",
   "folder.wall.title": "This Folder keeps its work inside it",
+  "folder.bound.mark": "Linked folder: {path}",
+  "folder.bound.promise":
+    "IncarnaMind never changes, moves or deletes the files already in this folder.",
+  "folder.fileAsFolder": "File as one Folder",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
   "tag.color": "Color",
@@ -650,6 +654,10 @@ export const en = {
   "menu.showExamples": "Show the examples again",
   "undo.folderLinked": "Linked “{name}”",
   "undo.projectMade": "Made “{name}” a project",
+  "undo.fileAsFolder.on": "Filed “{name}” as one Folder",
+  "undo.fileAsFolder.off": "Stopped filing “{name}” as one Folder",
+  "undo.name.fileAsFolder.on": "File as one Folder",
+  "undo.name.fileAsFolder.off": "Stop filing as one Folder",
   "undo.folderUnlinked": "Unlinked “{name}”",
   "undo.linkedFolder.mergedGone":
     "“{name}”, the Linked folder this link took in, isn’t on the disk any more.",
@@ -677,6 +685,7 @@ export const en = {
   "undo.tabMoveRefused": "the tabs couldn’t be changed",
   "object.renamed": "Renamed to “{name}”",
   "object.deleted": "Moved “{name}” to Recently deleted",
+  "object.removed.keepsFile": "Removed “{name}” from IncarnaMind. The file stays in “{folder}”.",
   "object.deleted.documents": "Moved {count} Documents to Recently deleted",
   "object.deleting.documents": "Moving {count} Documents to Recently deleted…",
   "object.restoring.count": "Restoring {count} items…",
@@ -2720,6 +2729,8 @@ export const en = {
     "IncarnaMind couldn’t read which folders it may add files to. Open the Output location to answer it there.",
   "linkedFolders.preview.readOnly":
     "IncarnaMind only reads this folder. It never changes, moves or deletes anything.",
+  "linkedFolders.preview.becomesFolder":
+    "Its files go in a Folder of the same name, and new files join them as they arrive. IncarnaMind never changes, moves or deletes the files already there.",
   "linkedFolders.preview.merge.one":
     "“{names}”, already linked, merges into this folder and keeps its Tags and Citations.",
   "linkedFolders.preview.merge.other":
