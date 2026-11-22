@@ -19,7 +19,9 @@ import {
   filePropertyNames,
   type TranscriptSpeakers,
 } from "../core/api";
+import type { Language } from "../core/language";
 import { clockTime, parseClockTime } from "./clock";
+import { formatTime } from "./dates";
 import { type MessageKey, type MessageParams, translate } from "./i18n";
 import { parseLibraryFact, parseLibrarySource } from "./libraryFacts";
 import { findQuote, type MatchOptions, type TextRange } from "./quoteMatch";
@@ -109,6 +111,16 @@ export function parseLocation(value: unknown): CitationLocation | null {
       if (!isTime(from) || !isTime(to) || to < from) return null;
       const speaker = typeof location.speaker === "string" ? location.speaker.trim() : "";
       return withArea(speaker ? { kind, from, to, speaker } : { kind, from, to });
+    }
+    case "screen": {
+      const { at, screen } = location;
+      return typeof at === "string" &&
+        typeof screen === "string" &&
+        isTime(from) &&
+        isTime(to) &&
+        to >= from
+        ? { kind, at, screen, from, to }
+        : null;
     }
     case "rows":
       if (!isCount(from) || !isCount(to) || to < from) return null;
@@ -212,6 +224,7 @@ export type Translate = (key: MessageKey, params?: MessageParams) => string;
 
 /** How a Transcript's Location names who said its quote. */
 export interface SpeakerWording {
+  language?: Language;
   /** False: the time alone. */
   speaker?: boolean;
   /** The Transcript's who's who (#138), so the Speaker shows as the User named them now. */
@@ -228,7 +241,7 @@ export interface SpeakerWording {
 export function formatLocation(
   location: CitationLocation,
   t: Translate,
-  { speaker = true, speakers = null, quote }: SpeakerWording = {},
+  { speaker = true, speakers = null, quote, language = "en" }: SpeakerWording = {},
 ): string {
   switch (location.kind) {
     case "page": {
@@ -276,6 +289,8 @@ export function formatLocation(
           })
         : clockTime(from);
     }
+    case "screen":
+      return t("location.screen", { time: formatTime(location.at, language) });
     case "section": {
       const section = location.notes
         ? t("location.section.notes")
@@ -354,7 +369,10 @@ export const englishPrintedLocation = (location: CitationLocation): string =>
 
 /** The kinds of Location the card's "Open …" button names: the page, the slide, the section… */
 export const openKind = (location: CitationLocation | null) =>
-  location === null || location.kind === "properties" || location.kind === "library"
+  location === null ||
+  location.kind === "screen" ||
+  location.kind === "properties" ||
+  location.kind === "library"
     ? "document"
     : location.kind;
 

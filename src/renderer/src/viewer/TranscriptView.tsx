@@ -27,6 +27,7 @@ import { transcriptHandle, useHandle, useViewerHandle } from "../commands/handle
 import { MicOffLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction } from "../components/ProblemLine";
+import { Popover } from "../editor/Popover";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
 import { openSpeakerReview } from "../meetingSpeakerReview";
@@ -46,6 +47,7 @@ import { TranscriptHeadLine } from "./TranscriptHeadLine";
 import { TranscriptPlayerBar } from "./TranscriptPlayerBar";
 import { TranscriptSpeakerReview } from "./TranscriptSpeakerReview";
 import { TranscriptTurn } from "./TranscriptTurn";
+import { markTranscriptExcerpt, useTranscriptActionSelection } from "./transcriptActionSelection";
 import { fileLineOf, lineId, type PartRow, type TurnRow, turnRowsOf } from "./transcriptTurnRows";
 import { piecesBetween, wordPieces } from "./transcriptWords";
 import type { LoadedFile } from "./useDocumentFile";
@@ -235,14 +237,14 @@ function lineBeside(
 
 function quoteLinesAt(
   body: HTMLElement,
-  { startMs, endMs, part }: NonNullable<ViewerTarget["transcriptCue"]>,
+  { startMs, endMs, part, excerpt }: NonNullable<ViewerTarget["transcriptCue"]>,
   quote: string,
 ) {
   const selector = part
     ? `[data-start="${startMs}"][data-end="${endMs}"]`
     : `[data-cue-start="${startMs}"][data-cue-end="${endMs}"]`;
   const lines = Array.from(body.querySelectorAll<HTMLElement>(selector));
-  if (!part) return lines;
+  if (!part || excerpt) return lines;
   const exact = lines.filter((line) => line.textContent === quote);
   return exact.length === 1 ? exact : [];
 }
@@ -375,6 +377,10 @@ function TranscriptContent({
     document?.kind === "transcript" &&
     meeting.transcript?.documentId === document.id;
   // Who speaks is said on a Meeting's saved Transcript, once the speaker pass has settled (#138).
+  const [selected, clearSelected] = useTranscriptActionSelection(list, canAddAction);
+  const selectedRow =
+    selected &&
+    parts.find((row) => row.id === selected.lineId && row.part.text === selected.lineText);
   const nameable = canAddAction && !meeting?.transcript?.separating ? document : null;
   const reviewTrigger = useRef<HTMLButtonElement>(null);
   const reviewable = nameable !== null && meetingId !== null && transcript.cues.length > 0;
@@ -451,12 +457,17 @@ function TranscriptContent({
     [document, meetingId, units],
   );
   const addAction = useCallback(
-    async ({ part: { startMs, endMs, text } }: PartRow) => {
+    async ({ id, part: { startMs, endMs, text } }: PartRow) => {
       if (!canAddAction || !meetingId || !document) return;
-      const result = await addTranscriptAction(meetingId, document.id, { startMs, endMs, text });
+      const result = await addTranscriptAction(
+        meetingId,
+        document.id,
+        { startMs, endMs, text },
+        id === selected?.lineId && text === selected.lineText ? selected.excerpt : undefined,
+      );
       setAdded(result === "already" ? "transcript.action.already" : null);
     },
-    [canAddAction, document, meetingId],
+    [canAddAction, document, meetingId, selected],
   );
   useEffect(() => {
     if (added === null) return;
@@ -583,14 +594,14 @@ function TranscriptContent({
       () =>
         canAddAction
           ? {
-              hasLine: () => activeRow() !== null,
+              hasLine: () => !!selectedRow || activeRow() !== null,
               add: async () => {
-                const row = activeRow();
+                const row = selectedRow ?? activeRow();
                 if (row) await addAction(row);
               },
             }
           : null,
-      [activeRow, addAction, canAddAction],
+      [activeRow, addAction, canAddAction, selectedRow],
     ),
     frame?.tabId,
   );
@@ -696,16 +707,19 @@ function TranscriptContent({
       range.setStartBefore(first);
       range.setEndAfter(last);
     }
-    const marks = cueLines
-      ? markQuote(
-          cueLines.flatMap((line) => textNodes(line)),
-          target.quote,
-        )
-      : target.pageFrom === undefined
-        ? markQuote(textNodes(body), target.quote)
-        : range && markQuote(textNodes(body, range), target.quote);
-    setHighlighted((count) => (marks ? count + 1 : 0));
-    const anchor = marks?.[0] ?? first ?? null;
+    const marks =
+      cueLines && cue?.excerpt
+        ? markTranscriptExcerpt(cueLines, partsRef.current, cue, cue.excerpt, target.quote)
+        : cueLines
+          ? markQuote(
+              cueLines.flatMap((line) => textNodes(line)),
+              target.quote,
+            )
+          : target.pageFrom === undefined
+            ? markQuote(textNodes(body), target.quote)
+            : range && markQuote(textNodes(body, range), target.quote);
+    setHighlighted((count) => (marks?.length ? count + 1 : 0));
+    const anchor = marks?.[0] ?? (cue?.excerpt ? null : first);
     if (anchor) {
       following.current = false;
       const top =
@@ -766,6 +780,29 @@ function TranscriptContent({
 
   return (
     <>
+      {selected && selectedRow && (
+        <Popover
+          anchor={selected.anchor}
+          still
+          data-transcript-selection=""
+          role="group"
+          aria-label={t("transcript.action.selection")}
+          onDismiss={clearSelected}
+        >
+          <button
+            type="button"
+            className="editor-menu-item"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              void addAction(selectedRow);
+              clearSelected();
+              window.getSelection()?.removeAllRanges();
+            }}
+          >
+            {t("transcript.action.selection")}
+          </button>
+        </Popover>
+      )}
       <ViewerHeader placeGone={!live && citedPlaceGone(target, units.length)}>
         {live && state === "live" && (
           <span data-testid="transcript-live" className="transcript-live">

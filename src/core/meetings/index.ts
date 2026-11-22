@@ -82,6 +82,7 @@ import { type CandidateReviewScope, candidateReviewUnavailable } from "./candida
 import type { CaptureHealthRecords } from "./health";
 import type { StoredMeetingSummary } from "./liveSummary";
 import type { FillVersion, Refill } from "./refill";
+import type { SharedScreens } from "./screens";
 import {
   acceptedSummaryCandidates,
   addTranscriptAction as appendTranscriptAction,
@@ -251,6 +252,8 @@ export interface MeetingsOptions {
   level?(level: MeetingLevel): void;
   /** Transcribes Meetings (#136); absent where this copy can't. */
   transcripts?: Transcripts;
+  /** Reads the window the User shares (ADR-0024); absent where this copy can't. */
+  screens?: SharedScreens;
   health: CaptureHealthRecords;
   log: Logger;
 }
@@ -348,7 +351,7 @@ export function linkTranscript(db: Database, meetingId: string, documentId: stri
 const codeOf = (error: unknown) => (error as NodeJS.ErrnoException).code ?? "unknown";
 
 export function createMeetings(options: MeetingsOptions) {
-  const { db, now, capture, transcripts, health, log } = options;
+  const { db, now, capture, transcripts, screens, health, log } = options;
   const clock = () => Date.parse(now());
   const folderOf = (meetingId: string) => meetingFolder(options.dataDir, meetingId);
   let live: Live | null = null;
@@ -485,6 +488,10 @@ export function createMeetings(options: MeetingsOptions) {
       saveError: current?.saveError ?? null,
       transcript:
         transcripts && row.status !== "ready" ? transcripts.of(row.id, hasAudio(row.id)) : null,
+      screen:
+        screens && (row.status === "recording" || row.status === "paused")
+          ? screens.of(row.id, row.mind_id)
+          : null,
       health: health.of(row.id),
       microphonePausedAtMs: microphonePausedAt.get(row.id) ?? null,
       help: help.get(row.id)?.at(-1) ?? null,
@@ -797,6 +804,7 @@ export function createMeetings(options: MeetingsOptions) {
     if (current.sources.system === "starting") current.due.set("system", period.offsetMs);
     current.watching = setInterval(() => watchForNothing(current), NOTHING_HEARD_EVERY_MS);
     current.watching.unref?.();
+    if (row.kind === "meeting") screens?.begin(row.id);
     current.session = capture.start(
       { systemAudio: systemAudio && capture.systemAudio },
       {
@@ -822,6 +830,7 @@ export function createMeetings(options: MeetingsOptions) {
         message: error instanceof Error ? error.message : String(error),
       });
     });
+    screens?.pause(current.meetingId);
     options.onCapturingChange(false);
     const audioEnd = Math.max(0, ...current.ends.values());
     const length = Math.max(
@@ -917,6 +926,7 @@ export function createMeetings(options: MeetingsOptions) {
     microphonePausedAt.delete(row.id);
     microphoneResumedAt.delete(row.id);
     transcripts?.forget(row.id);
+    screens?.forget(row.id);
     health.forget(row.id);
     deleteAudio(row.id, "discarded");
   }
@@ -958,6 +968,7 @@ export function createMeetings(options: MeetingsOptions) {
     for (const { id, mind_id, audio_deleted_at } of purged) {
       try {
         transcripts?.forget(id);
+        screens?.forget(id);
         health.forget(id);
         if (audio_deleted_at === null) deleteAudio(id, "purged");
       } catch (error) {
@@ -1280,6 +1291,7 @@ export function createMeetings(options: MeetingsOptions) {
         audio_expires_at: dueOr(row, expiryOf(row, periods)),
       });
       transcripts?.stop(row.id);
+      screens?.forget(row.id);
       help.delete(row.id);
       templates.delete(row.id);
       log.info("meeting.stopped", { meetingId: row.id });
@@ -1898,6 +1910,7 @@ export function createMeetings(options: MeetingsOptions) {
      */
     close(): void {
       clearInterval(sweeping);
+      screens?.close();
       if (live) {
         endMicrophonePause(live.meetingId, meetingTime(live));
         end(live);

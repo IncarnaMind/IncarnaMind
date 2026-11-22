@@ -18,6 +18,8 @@ const SOURCES: readonly ThirdPartySource[] = [
   "web-page",
   "checked-document",
   "outside-agent",
+  "transcript",
+  "shared-screen",
 ];
 
 /** A stored source, or null for none, or one this version doesn't know. */

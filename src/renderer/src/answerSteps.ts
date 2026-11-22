@@ -128,7 +128,13 @@ export type FoldedLine =
   | { kind: "searched-web"; sources: number }
   /** The Documents whose whole text went with the Question, and the Mind it read beside them. */
   | { kind: "read-documents"; documents: ReadDocument[]; read: MindReadLine | null }
-  | { kind: "listened"; sources: number }
+  /** Asked during a call: what was said, and what was read from the shared screen when an Answer cites it. */
+  | {
+      kind: "listened";
+      sources: number;
+      screen?: true;
+      screenUse?: import("../../core/api").SharedScreenUse;
+    }
   | MindReadLine
   | { kind: "asked"; mind: AskedFrom }
   | { kind: "answered"; model: string };
@@ -136,6 +142,8 @@ export type FoldedLine =
 export type LiveStep =
   | { kind: "waiting" }
   | { kind: "consent" }
+  /** Asked during a call: the live transcript is brought up to now (#144). */
+  | { kind: "listening" }
   | { kind: "loading" }
   | { kind: "reading"; mind: AskedFrom }
   | { kind: "searching" }
@@ -518,7 +526,16 @@ export function foldedLine(input: StepsInput): FoldedLine | null {
   const { answer, meeting } = input;
   const cited = citedBy(answer);
   const sources = sourceCount(cited);
-  if (meeting) return { kind: "listened", sources };
+  if (meeting) {
+    const screen = answer.citations.some((citation) => citation.location?.kind === "screen");
+    const screenUse = answer.steps?.sent?.sharedScreen;
+    return {
+      kind: "listened",
+      sources,
+      ...((screen || screenUse) && { screen: true as const }),
+      ...(screenUse && { screenUse }),
+    };
+  }
   if (answer.toolCalls.some((call) => isSearch(call) && call.status === "done")) {
     // Never "no sources" once Passages were read: when the model cited nothing itself, what
     // was read, and what came of checking the Answer against it.
@@ -561,6 +578,7 @@ export function liveStep({
 }): LiveStep {
   if (waitingForApproval) return { kind: "waiting" };
   if (phase === "waiting-for-consent") return { kind: "consent" };
+  if (phase === "listening") return { kind: "listening" };
   if (phase === "loading") return { kind: "loading" };
   if (phase === "checking-quotes") {
     return { kind: "checking", count: shownCitations(answer).length };

@@ -1,6 +1,8 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { readVtt, writeVtt } from "../src/core/documents/formats/vtt";
 import { meetingSummaryModelRoute } from "../src/shared/meetingSummary";
 import {
   acceptPlainTextKeys,
@@ -20,6 +22,7 @@ import {
   useLocalChatModel as selectLocalChatModel,
   setLanguage,
   setWindowSize,
+  slideSelect,
   startRecording,
   transcriptSaved,
   turnOf,
@@ -853,6 +856,131 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await stopFilm?.();
       await running?.app.close();
+      await removeDataFolder(dir);
+    }
+  });
+}
+
+// protects=two work assignments spoken in a single turn can be kept or undone independently
+// fails_when=adding selected words saves the full turn or opens the wrong occurrence
+for (const language of ["en", "zh-CN"] as const) {
+  test(`two selected excerpts from one saved transcript line keep their own tasks (${language})`, async () => {
+    const first =
+      language === "en"
+        ? "as the industrial designer , you're gonna be working on you know the actual working design of it"
+        : "工业设计负责人研究实际设计";
+    const second =
+      language === "en" ? "for user interface , technical functions" : "界面负责人确定技术功能";
+    const text =
+      language === "en"
+        ? `Um ${first} so y you know what you're doing there . Um ${second} , I guess that's you know like what we've been talking about .`
+        : `先说分工，${first}，${second}，下一次再讨论。`;
+    const dir = await createDataFolder();
+    const app = await launchApp(dir, {
+      computerSound: "silent",
+      transcriber: { live: true, lines: [text] },
+    });
+    try {
+      const { window } = app;
+      await dismissChatSetup(window);
+      await setLanguage(window, language);
+      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await firstTranscriptLine(window);
+      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+      const inline = window.getByTestId("meeting-note-transcript");
+      await pointAndClick(window, inline.getByTestId("meeting-stop"));
+      await transcriptSaved(window);
+      await settleFirstFill(window);
+      const bridge = await coreOf(window);
+      const decoy = `${text} Extra words from another speaker.`;
+      if (language === "en") {
+        const id = await bridge.evaluate(async (core) => (await core.listMeetings())[0]?.id);
+        if (!id) throw new Error("Missing saved meeting.");
+        const file = join(dir, "Transcripts", `${id}.vtt`);
+        const recorded = readVtt(await readFile(file, "utf8"));
+        const cue = recorded.cues.find((row) => row.text === text);
+        if (!cue) throw new Error("Missing original cue.");
+        await writeFile(
+          file,
+          writeVtt({
+            ...recorded,
+            cues: [
+              { ...cue, speaker: "Morgan", text: decoy },
+              { ...cue, speaker: "Riley" },
+            ],
+          }),
+        );
+        await expect(
+          inline.getByTestId("transcript-line").filter({ hasText: decoy }),
+        ).toBeVisible();
+      }
+      const line = inline
+        .getByTestId("transcript-line")
+        .filter({ hasText: text, hasNotText: "Extra words from another speaker" })
+        .first();
+      const addWords = async (quote: string) => {
+        const ends = quote === first ? ["as the", "it"] : ["for user", "functions"];
+        if (language === "en")
+          await slideSelect(window, line, ends[0] ?? quote, { line, words: ends[1] ?? quote });
+        else await slideSelect(window, line, quote);
+        await expect
+          .poll(() => window.evaluate(() => document.getSelection()?.toString()))
+          .toBe(quote);
+        await pointAndClick(
+          window,
+          inline.getByRole("button", {
+            name: language === "en" ? "Add selected words to action items" : "将选中的原话加入待办",
+          }),
+        );
+      };
+      const read = () =>
+        bridge.evaluate(async (core) => {
+          const [meeting] = await core.listMeetings();
+          if (!meeting) throw new Error("The stopped meeting is missing.");
+          const items = meeting.summary?.items ?? [];
+          return Promise.all(
+            items.map(async (item) => ({
+              text: item.text,
+              sources: (await core.getMeetingSummaryItemSources(meeting.id, item.id))?.sources,
+            })),
+          );
+        });
+      await addWords(first);
+      await expect.poll(async () => (await read()).map((item) => item.text)).toEqual([first]);
+      await addWords(second);
+      await expect
+        .poll(async () => (await read()).map((item) => item.text))
+        .toEqual([first, second]);
+      const bounds = {
+        startMs: Number(await line.getAttribute("data-start")),
+        endMs: Number(await line.getAttribute("data-end")),
+      };
+      expect(await read()).toMatchObject(
+        [first, second].map((text) => ({ text, sources: [{ ...bounds, text }] })),
+      );
+      const items = inline.getByTestId("meeting-summary-items");
+      if ((await items.getAttribute("open")) === null)
+        await pointAndClick(window, items.locator("summary"));
+      const item = items.getByTestId("meeting-summary-item").filter({ hasText: second });
+      const speech = await showSpeech(window, item, second);
+      await pointAndClick(window, speech.getByTestId("meeting-summary-item-source"));
+      const highlight = window.locator(
+        `[data-testid="viewer-transcript"] [data-start="${bounds.startMs}"][data-end="${bounds.endMs}"] [data-quote-highlight]`,
+      );
+      await expect.poll(async () => (await highlight.allTextContents()).join("")).toBe(second);
+      if (language === "en")
+        await expect(
+          window
+            .getByTestId("viewer-transcript")
+            .getByTestId("transcript-line")
+            .filter({ hasText: decoy })
+            .locator("[data-quote-highlight]"),
+        ).toHaveCount(0);
+
+      await pointAndClick(window, window.getByTestId("undo-action"));
+      await expect.poll(async () => (await read()).map((row) => row.text)).toEqual([first]);
+    } finally {
+      await app.app.close();
       await removeDataFolder(dir);
     }
   });
