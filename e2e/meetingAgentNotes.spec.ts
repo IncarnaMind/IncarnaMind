@@ -63,6 +63,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await settings.getByLabel("AI for meeting notes").selectOption(ids.agent);
       await closeSettings(window);
       const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await (await coreOf(window)).evaluate(async (core) => {
+        const meeting = (await core.listMeetings()).find((item) => item.status === "recording");
+        const template = (await core.listSkills()).find((skill) => skill.name === "meeting-sales");
+        if (!meeting || !template) throw new Error("Missing Meeting or Sales template.");
+        await core.setMeetingWriteupTemplate(meeting.id, template.id);
+      });
       await firstTranscriptLine(window);
       await window.evaluate(async (lang) => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -114,6 +120,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const request = await requestRead(ids.launch);
       expect(request).toContain(meeting?.mindId);
       expect(request).toContain(meeting?.transcript?.documentId);
+      expect(request).toContain("Pricing and terms discussed");
+      expect(request).toContain("谈到的价格和条款");
       const workAi = await window.evaluate(async ({ agent, group }) => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await bridge.disconnectAgent(agent);

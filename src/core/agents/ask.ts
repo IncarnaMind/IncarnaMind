@@ -47,6 +47,7 @@ export interface AgentAskOptions {
   nameOf(kind: "folder" | "document", id: string): string | null;
   minds(): Mind[];
   meetingTranscript(meetingId: string, mindId: string): string | null;
+  meetingWriteup?(meetingId: string, mindId: string): Promise<string | null>;
   /** Keeps what the line doesn't say, for the pairing to read (`createAgents().keepRequest`). */
   keepRequest(
     request: Pick<AgentRequest, "pairingId" | "mindId" | "sentences"> & {
@@ -121,7 +122,7 @@ export function agentRequest(
   note: { title: string; mindId: string } | null,
   ask: Exclude<AgentAsk, { kind: "organize" | "summary" }>,
   say: Say,
-  meeting?: { transcriptId: string; propose: boolean },
+  meeting?: { transcriptId: string; propose: boolean; writeup?: string | null },
   file?: HandedFileAsked | null,
   looking: Looking = NOTHING_IN_SIGHT,
 ): AgentRequestText {
@@ -139,11 +140,18 @@ export function agentRequest(
       if (!meeting) throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
       return {
         line: say("agents.ask.line.meeting", { title }),
-        request: say("agents.ask.request.meeting", {
-          ...named,
-          transcriptId: meeting.transcriptId,
-          action: say(meeting.propose ? "agents.ask.meeting.propose" : "agents.ask.meeting.reply"),
-        }),
+        request: [
+          say("agents.ask.request.meeting", {
+            ...named,
+            transcriptId: meeting.transcriptId,
+            action: say(
+              meeting.propose ? "agents.ask.meeting.propose" : "agents.ask.meeting.reply",
+            ),
+          }),
+          meeting.writeup,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
         sentences: [],
       };
     case "question":
@@ -518,11 +526,25 @@ export function createAgentAsk(options: AgentAskOptions) {
         ask.kind === "meeting" && note
           ? options.meetingTranscript(ask.meetingId, note.mindId)
           : null;
-      if (
-        transcriptId &&
-        !options.askable(mindId, transcriptId).some((each) => each.id === pairingId)
-      ) {
+      const canReadMeeting = () =>
+        transcriptId !== null &&
+        options.askable(mindId, transcriptId).find((each) => each.id === pairingId);
+      let meetingPairing = transcriptId ? canReadMeeting() : null;
+      if (transcriptId && !meetingPairing) {
         throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
+      }
+      const writeup =
+        ask.kind === "meeting" && note && transcriptId
+          ? await options.meetingWriteup?.(ask.meetingId, note.mindId)
+          : null;
+      if (ask.kind === "meeting" && note && transcriptId) {
+        meetingPairing = canReadMeeting();
+        if (
+          !meetingPairing ||
+          options.meetingTranscript(ask.meetingId, note.mindId) !== transcriptId
+        ) {
+          throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
+        }
       }
       const looking = ask.kind === "question" ? lookingAt(pairingId, onScreen, scope) : undefined;
       if ((ask.kind === "organize" || ask.kind === "summary") && mindId !== null)
@@ -536,7 +558,9 @@ export function createAgentAsk(options: AgentAskOptions) {
                 note,
                 ask,
                 options.say,
-                transcriptId ? { transcriptId, propose: pairing.propose } : undefined,
+                transcriptId && meetingPairing
+                  ? { transcriptId, propose: meetingPairing.propose, writeup }
+                  : undefined,
                 note ? options.handedFile(note.mindId) : null,
                 looking,
               );

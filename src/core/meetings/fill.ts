@@ -26,6 +26,7 @@ import {
   type ProviderErrorKind,
 } from "../api";
 import type { WindowedPassage } from "../documents/search";
+import { InvalidInputError } from "../errors";
 import type { Language } from "../language";
 import type { MindContent } from "../mindContent";
 import { inFlow } from "../timing/flows";
@@ -62,7 +63,15 @@ import {
   tidiedNote,
   wordsAdded,
 } from "./memo";
+import {
+  fillFingerprint,
+  fillFingerprints,
+  removePreviousFill,
+  replaceableFillBlocks,
+  restorePreviousFill,
+} from "./refill";
 import { withUserName } from "./userName";
+import { type WriteupTemplate, writeupPlan } from "./writeupTemplates";
 
 /**
  * The most of a Transcript the first request reads, for every model: about an hour of loose talk
@@ -184,7 +193,7 @@ interface Written {
   omitted?: number;
   unfinishedParts?: number;
   stretches?: MeetingFillStretch[];
-  place(blocks: Y.XmlFragment): string[];
+  place(blocks: Y.XmlFragment, replaced?: ReadonlySet<string>): string[];
 }
 
 export interface MeetingFillOptions {
@@ -192,7 +201,7 @@ export interface MeetingFillOptions {
   meetings: {
     get(meetingId: string): Meeting;
     storedFill(meetingId: string): StoredFill | null;
-    setFill(meetingId: string, fill: StoredFill): Meeting;
+    setFill(meetingId: string, fill: StoredFill, templateId?: string | null): Meeting;
     unfinishedFills(): { meetingId: string; fill: StoredFill }[];
     isDeleted(meetingId: string): boolean;
   };
@@ -204,6 +213,7 @@ export interface MeetingFillOptions {
   route(mindId: string): Promise<FillRoute>;
   /** The name the User set in Settings › General, never the computer's login name: null for none. */
   userName(): string | null;
+  writeupTemplate?(skillId: string): Promise<WriteupTemplate | null>;
   answers: {
     answerMeetingFill(input: {
       context: QuestionContext;
@@ -294,24 +304,31 @@ function linesIn(
   parent: Y.XmlFragment | Y.XmlElement,
   allHeadings: boolean,
   found: Y.XmlElement[] = [],
+  replaced?: ReadonlySet<string>,
 ): Y.XmlElement[] {
   for (const child of parent.toArray()) {
     if (!(child instanceof Y.XmlElement) || NOT_NOTES.has(child.nodeName)) continue;
+    const id = child.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (typeof id === "string" && replaced?.has(id)) continue;
     if (LINE_TYPES.has(child.nodeName)) {
       const { text, generated } = readLine(child);
       if ((allHeadings && child.nodeName === "heading") || (text !== "" && !generated))
         found.push(child);
-    } else linesIn(child, allHeadings, found);
+    } else linesIn(child, allHeadings, found, replaced);
   }
   return found;
 }
 
-function userLines(blocks: Y.XmlFragment, allHeadings = false): UserLine[] {
+function userLines(
+  blocks: Y.XmlFragment,
+  allHeadings = false,
+  replaced?: ReadonlySet<string>,
+): UserLine[] {
   const lines: UserLine[] = [];
   const ancestors: { id: string; marker: string; level: number }[] = [];
   let filled = 0;
   let headings = 0;
-  for (const element of linesIn(blocks, allHeadings)) {
+  for (const element of linesIn(blocks, allHeadings, [], replaced)) {
     const ownId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     const id = typeof ownId === "string" ? ownId : "";
     const heading = element.nodeName === "heading";
@@ -858,6 +875,15 @@ export function createMeetingFill(options: MeetingFillOptions) {
     signal: AbortSignal,
   ): Promise<Written> {
     const lines = content.read(meeting.mindId, (blocks) => userLines(blocks));
+    const selected = meeting.writeupTemplateId
+      ? await options.writeupTemplate?.(meeting.writeupTemplateId)
+      : null;
+    if (selected?.fillUncovered === false && lines.length === 0) {
+      throw new FillProblemError({
+        kind: "empty",
+        message: alone("meetings.fill.problem.templateNeedsNotes"),
+      });
+    }
     const mode = lines.length > 0 ? "notes" : "sections";
     const name = options.userName();
     const filling: Partial<StoredFill> = {
@@ -889,6 +915,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     // the call's language, whatever the interface's (#2770).
     const spoken = callLanguage(passages);
     const language = spoken ? CALL_LANGUAGES[spoken] : options.language();
+    const template = selected ? writeupPlan(selected, language) : undefined;
     const question = translate(
       language,
       mode === "notes" ? "meetings.fill.question.notes" : "meetings.fill.question.sections",
@@ -931,8 +958,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
       };
       const context =
         mode === "notes"
-          ? notesContext(lines, question, history, spoken, name !== null)
-          : sectionsContext(question, history, spoken, name !== null);
+          ? notesContext(lines, question, history, spoken, name !== null, template)
+          : sectionsContext(question, history, spoken, name !== null, template);
       part.out = ask(context, part.passages, transcriptId, route, signal)
         // A reply cut off after it closed some frames keeps them (#2306).
         .then((answer) => ({ answer, parsed: parseFactReply(answer, addresses) }))
@@ -1173,7 +1200,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       );
     }
     const summary =
-      unfinishedParts === 0
+      !template && unfinishedParts === 0
         ? await wholeCall({
             meetingId: meeting.id,
             overviews,
@@ -1206,9 +1233,9 @@ export function createMeetingFill(options: MeetingFillOptions) {
       omitted,
       unfinishedParts,
       parts: asked,
-      place: (blocks) => {
+      place: (blocks, replaced) => {
         const matched = lines.map((line) => ({ line, element: findLine(blocks, line) }));
-        const current = userLines(blocks, true);
+        const current = userLines(blocks, true, replaced);
         const addresses = new Map<string, string>();
         for (const line of current) {
           const element = findLine(blocks, line);
@@ -1239,6 +1266,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
             translate(language, `meetings.fill.reference.${direction}`, { topic }),
           unanswered: nowhere,
           notMentioned: translate(language, "meetings.fill.notMentioned"),
+          ...(template && { template }),
         });
         if (planned.unplaced > 0) {
           log.warn("meeting.fillLineMoved", { meetingId: meeting.id, facts: planned.unplaced });
@@ -1385,13 +1413,38 @@ export function createMeetingFill(options: MeetingFillOptions) {
           ? await memo(meeting, transcriptId, route, controller.signal)
           : await notes(meeting, transcriptId, route, controller.signal);
       if (controller.signal.aborted) throw new FillProblemError({ kind: "stopped", message: "" });
+      const refill = meetings.storedFill(meetingId)?.refill;
+      if (
+        refill?.previous.blocks.length &&
+        (written.problem || written.omitted || written.unfinishedParts)
+      ) {
+        throw new FillProblemError(
+          written.problem ?? {
+            kind: "unchecked",
+            message: alone("meetings.fill.problem.unchecked"),
+          },
+        );
+      }
       options.checkpoint(meeting.mindId);
-      const added = content.edit(
+      const { added, fingerprints, removed } = content.edit(
         meeting.mindId,
-        written.place,
+        (blocks) => {
+          const find = (id: string) => findById(blocks, id);
+          const replaced = refill && replaceableFillBlocks(refill.previous, find);
+          const added = written.place(blocks, replaced);
+          const removed =
+            refill && added.length > 0 ? removePreviousFill(refill.previous, find) : [];
+          return { added, removed, fingerprints: fillFingerprints(added, find) };
+        },
         undefined,
         meetingFillCause(meetingId),
       );
+      if (refill?.previous.blocks.length && !added.length) {
+        throw new FillProblemError({
+          kind: "empty",
+          message: alone("meetings.fill.problem.empty"),
+        });
+      }
       const done = set(meetingId, {
         state: "filled",
         mode: written.mode,
@@ -1399,6 +1452,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
         omitted: written.omitted ?? 0,
         unfinishedParts: written.unfinishedParts ?? 0,
         blocks: added,
+        fingerprints,
+        ...(refill && { refill: { ...refill, removed } }),
       });
       log.info("meeting.filled", {
         meetingId,
@@ -1564,10 +1619,53 @@ export function createMeetingFill(options: MeetingFillOptions) {
       if (meetings.storedFill(meetingId)?.state === "waiting") start(meetingId);
     },
 
+    refill(meetingId: string, templateId: string | null): Meeting {
+      const meeting = meetings.get(meetingId);
+      const original = meetings.storedFill(meetingId);
+      if (
+        original?.state === "waiting" ||
+        original?.state === "filling" ||
+        running.has(meetingId) ||
+        starting.has(meetingId)
+      ) {
+        throw new InvalidInputError({ key: "error.meeting.templateBusy" });
+      }
+      const { refill: earlier, ...latest } = original ?? {
+        state: "off" as const,
+        mode: null,
+        local: false,
+        problem: null,
+        blocks: [],
+      };
+      const earlierStillShows = earlier && (earlier.undone || latest.state !== "filled");
+      const previous = earlierStillShows ? earlier.previous : latest;
+      const previousTemplateId = earlierStillShows
+        ? earlier.previousTemplateId
+        : (meeting.writeupTemplateId ?? null);
+      const chosen = meetings.setFill(
+        meetingId,
+        {
+          state: "waiting",
+          mode: null,
+          local: false,
+          problem: null,
+          blocks: [],
+          agentId: options.notesAgentId() ?? undefined,
+          refill: { previous, previousTemplateId, templateId, removed: [] },
+        },
+        templateId,
+      );
+      if (!meeting.transcript?.separating || told.has(meetingId)) start(meetingId);
+      return chosen;
+    },
+
     /** Try again, after a problem or an Undo. */
     retry(meetingId: string): Meeting {
-      const fill = meetings.storedFill(meetingId);
+      const stored = meetings.storedFill(meetingId);
+      const previous = stored?.refill?.undone ? stored.refill.previous : null;
+      const fill = previous ?? stored;
       if (fill?.state === "failed" || fill?.state === "off" || fill?.state === "undone") {
+        if (previous) meetings.setFill(meetingId, previous);
         const separating = meetings.get(meetingId).transcript?.separating === true;
         if (separating) set(meetingId, { state: "waiting", problem: null, blocks: [] });
         // While a room's speakers are told apart, its notes wait for them, as at Stop: the pass's
@@ -1580,19 +1678,30 @@ export function createMeetingFill(options: MeetingFillOptions) {
     /** Takes out what was added, but a Block the User has typed in since. */
     undo(meetingId: string): Meeting {
       const fill = meetings.storedFill(meetingId);
-      if (fill?.state !== "filled") return meetings.get(meetingId);
+      if (fill?.state !== "filled" || fill.refill?.undone) return meetings.get(meetingId);
       const { mindId } = meetings.get(meetingId);
+      const { refill } = fill;
       content.edit(mindId, (blocks) => {
         for (const id of fill.blocks) {
           const element = findById(blocks, id);
           const parent = element?.parent;
           if (!element || !untouched(element)) continue;
+          if (refill && fill.fingerprints?.[id] !== fillFingerprint(element)) continue;
           if (parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment) {
             parent.delete(parent.toArray().indexOf(element), 1);
           }
         }
+        if (refill && blocks.doc) {
+          restorePreviousFill(refill.removed, blocks.doc, (id) => findById(blocks, id));
+        }
       });
-      return set(meetingId, { state: "undone", omitted: 0, unfinishedParts: 0, blocks: [] });
+      return refill
+        ? meetings.setFill(
+            meetingId,
+            { ...fill, refill: { ...refill, undone: true } },
+            refill.previousTemplateId,
+          )
+        : set(meetingId, { state: "undone", omitted: 0, unfinishedParts: 0, blocks: [] });
     },
 
     /**
@@ -1601,6 +1710,15 @@ export function createMeetingFill(options: MeetingFillOptions) {
      */
     followUndo(meetingId: string, undone: boolean): Meeting {
       const fill = meetings.storedFill(meetingId);
+      if (fill?.refill && fill.state === "filled") {
+        const { undone: wasUndone, ...refill } = fill.refill;
+        if (undone === (wasUndone === true)) return meetings.get(meetingId);
+        return meetings.setFill(
+          meetingId,
+          { ...fill, refill: { ...refill, ...(undone && { undone: true }) } },
+          undone ? refill.previousTemplateId : refill.templateId,
+        );
+      }
       if (undone && fill?.state === "filled") return set(meetingId, { state: "undone" });
       if (!undone && fill?.state === "undone" && fill.blocks.length > 0) {
         return set(meetingId, { state: "filled" });

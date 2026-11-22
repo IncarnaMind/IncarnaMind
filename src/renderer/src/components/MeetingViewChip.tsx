@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
 import { captureLines } from "../captureHealth";
 import { commands } from "../commands/registry";
@@ -23,6 +23,12 @@ import {
   ChevronRightLineIcon,
   PulseLineIcon,
 } from "./lineIcons";
+import {
+  applyMeetingWriteupTemplate,
+  canChooseMeetingTemplate,
+  MeetingTemplateRows,
+  useMeetingTemplateLabel,
+} from "./meetings/MeetingTemplatePicker";
 import { ProblemMark } from "./ProblemLine";
 import { menuFrameClass, menuItemClass, menuRuleClass } from "./ui";
 import { usePopoverMenu } from "./usePopoverMenu";
@@ -49,6 +55,11 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
   const menu = usePopoverMenu({ align: "end" });
   const asked = useRequests((state) => state.deleteAudio?.meetingId === meeting.id);
   const hasTranscript = !!meeting.transcript?.documentId;
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const templateLabel = useMeetingTemplateLabel(meeting);
+  const canChooseTemplate =
+    useAppStore((state) => state.skills.some((skill) => skill.enabled && skill.meetingTemplate)) &&
+    canChooseMeetingTemplate(meeting);
   const { show, close } = menu;
 
   const inFront = useAppStore((state) => currentTabOf(state.layout)?.id === tabId);
@@ -86,6 +97,7 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
   // Closed with the question open, the audio is kept, as Keep it does.
   const wasOpen = useRef(menu.open);
   useEffect(() => {
+    if (!menu.open) setTemplatesOpen(false);
     const closed = wasOpen.current && !menu.open;
     wasOpen.current = menu.open;
     if (!closed || !askedHere.current) return;
@@ -138,6 +150,37 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
               {t(LABELS[choice])}
             </button>
           ))}
+        {canChooseTemplate && (
+          <>
+            <hr className={menuRuleClass} />
+            <button
+              role="menuitem"
+              type="button"
+              aria-expanded={templatesOpen}
+              data-testid="meeting-writeup-saved"
+              className={`${menuItemClass} pl-2`}
+              onClick={() => setTemplatesOpen(!templatesOpen)}
+            >
+              <span className="flex-1 truncate">{templateLabel}</span>
+              {templatesOpen ? (
+                <ChevronDownLineIcon className="size-3" />
+              ) : (
+                <ChevronRightLineIcon className="size-3" />
+              )}
+            </button>
+            {templatesOpen && (
+              <MeetingTemplateRows
+                meeting={meeting}
+                onChoose={async (id) => {
+                  close();
+                  if (await applyMeetingWriteupTemplate(meeting.id, id)) {
+                    showMeetingNoteView(tabId, meeting.mindId, "notes", { focus: true });
+                  }
+                }}
+              />
+            )}
+          </>
+        )}
         <hr className={menuRuleClass} />
         <AudioRow meeting={meeting} asked={asked} open={menu.open} />
         <hr className={menuRuleClass} />

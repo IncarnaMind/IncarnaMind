@@ -176,7 +176,12 @@ export async function summarizeWithMeetingAgent(input: {
     });
     return await runClaude(child, instructions ? `${instructions}\n\n${prompt}` : prompt, signal);
   } finally {
-    await rm(cwd, { recursive: true, force: true });
+    try {
+      await rm(cwd, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      console.warn("Could not remove the temporary meeting agent directory.");
+    }
+    input.signal.throwIfAborted();
   }
 }
 
@@ -393,16 +398,21 @@ async function runCodex(
     }
     return summaryText(sampled.text, "Codex");
   } finally {
-    try {
-      if (threadId && stdin.writable) {
+    signal.removeEventListener("abort", abort);
+    clearTimeout(abortTimer);
+    if (threadId) {
+      // A stalled cleanup must not replace a finished reply or its original failure.
+      const deleteTimer = setTimeout(kill, 1_000);
+      try {
         await call("thread/delete", { threadId });
+      } catch {
+        console.warn("Codex could not confirm deletion of the meeting setup thread.");
+      } finally {
+        clearTimeout(deleteTimer);
       }
-    } finally {
-      signal.removeEventListener("abort", abort);
-      clearTimeout(abortTimer);
-      lines.close();
-      kill();
-      await closed;
     }
+    lines.close();
+    kill();
+    await closed;
   }
 }
