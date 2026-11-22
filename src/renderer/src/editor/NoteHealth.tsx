@@ -32,7 +32,7 @@ import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import type { BadgeMark } from "./badgeState";
-import { CheckNotReady } from "./CheckNotReady";
+import { AskedCheckLine, CheckNotReady } from "./CheckNotReady";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -444,6 +444,7 @@ export function HealthCard({
       {!running && problem?.kind === "not-ready" && (
         <CheckNotReady mindId={mindId} readiness={problem.readiness} />
       )}
+      {!running && <AskedCheckLine mindId={mindId} />}
       {!running && problem?.kind === "local-mode" && (
         <ProblemLine
           testId="checks-problem"

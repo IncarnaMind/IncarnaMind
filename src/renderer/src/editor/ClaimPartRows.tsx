@@ -158,9 +158,12 @@ export const partQuotes = (part: ClaimCheckPart): readonly CitationAttributes[] 
     ? [part.unsupported.quoted, ...part.evidence]
     : part.evidence;
 
-/** Whether a row shows every quote at once: what an own view or a worked-out verdict rests on (#3322). */
+/**
+ * Whether a row shows every quote at once: what an own view or a worked-out verdict rests on
+ * (#3322), or a verdict no one quote decides (#3587).
+ */
 export const showsEveryQuote = (part: ClaimCheckPart): boolean =>
-  isOwnView(part) || workedOutOf(part) !== null;
+  isOwnView(part) || workedOutOf(part) !== null || part.restsOnEveryQuote === true;
 
 /** The colours a row takes: its verdict's, and the quiet ones while its check is to be read again. */
 export function partTone(row: CardPart, stale: boolean): string {

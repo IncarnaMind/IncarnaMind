@@ -633,6 +633,12 @@ const withTitle = (name: string, title: string | null) => {
   return heading && shown && !same(name).includes(same(shown)) ? `${name} (“${shown}”)` : name;
 };
 
+/**
+ * The kinds whose viewer shows their own line breaks, which a quote shown on a card keeps: a text
+ * file's lines, a Word file's paragraphs, a slide's lines, a transcript's turns. A PDF's or a
+ * scan's breaks are where its layout ran out of room; Markdown and the files read as Markdown wrap.
+ */
+const OWN_LINES: ReadonlySet<string> = new Set(["text", "docx", "pptx", "transcript"]);
 export function createDocuments(options: DocumentsOptions) {
   const { db, dataDir, now, model, emitStatus } = options;
   const reportError = options.reportError ?? ((error: unknown) => console.error(error));
@@ -3129,8 +3135,11 @@ export function createDocuments(options: DocumentsOptions) {
       };
     },
 
-    /** A Citation's quote as the Document's text reads it (see `CoreApi.readableQuote`). */
-    readableQuote(input: ScannedQuoteInput): string | null {
+    /**
+     * A Citation's quote as the Document's text reads it (see `CoreApi.readableQuote`). `asShown`:
+     * with the line breaks its viewer shows as the Document's own, for a card (#3587).
+     */
+    readableQuote(input: ScannedQuoteInput, asShown = false): string | null {
       const row = find(parseId(input.documentId));
       if (!row) return null;
       const units = pageTexts(
@@ -3140,7 +3149,10 @@ export function createDocuments(options: DocumentsOptions) {
         input.pageTo ?? input.pageFrom,
       );
       const ranges = quoteInUnits(units, cleanQuote(input.quote));
-      return ranges && ranges.length > 0 ? readableQuote(joinUnits(units).text, ranges) : null;
+      const lines = asShown && OWN_LINES.has(row.kind) ? "keep" : "join";
+      return ranges && ranges.length > 0
+        ? readableQuote(joinUnits(units).text, ranges, lines)
+        : null;
     },
 
     /** A Citation's quote read from a scan (see `CoreApi.readScannedQuote`). */

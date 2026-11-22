@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
+import { useAskedAgent } from "../askedAgent";
 import { useNoModel } from "../askYourAi";
 import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
@@ -147,7 +148,16 @@ function MindBadge({
     [unexaminedKeys],
   );
   const running = useChecks((state) => state.running[mindId]);
-  const health = useHealth(editor, skipped, unexamined, doc, running !== undefined);
+  // The User's own AI asked to check the Note: the badge says how that goes until its marks land (#3587).
+  const asked = useAskedAgent({ kind: "check", mindId });
+  // Counted again as the AI's marks land, as at a run's end, so the badge says what it marked.
+  const health = useHealth(
+    editor,
+    skipped,
+    unexamined,
+    doc,
+    running !== undefined || asked !== null,
+  );
   const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
@@ -174,7 +184,7 @@ function MindBadge({
     },
     checkable: health.checkable,
     toCheck: health.toCheck.length,
-    running: running !== undefined,
+    running: running !== undefined || asked !== null,
     asking: askingMind || askingContradictions,
     problem,
     checked: justChecked,
@@ -184,13 +194,23 @@ function MindBadge({
     <BadgeFrame
       mindId={mindId}
       badge={badgeOf(input)}
-      state={running ? null : state}
+      state={input.running ? null : state}
       ask={input.asking || problem}
       // A problem lands in a card that opened with less, as a Check pressed in it leaves one: the
       // card takes its height again then, so the line is not left below its fold (#3533).
-      holdKey={problem ? "problem" : "plain"}
-      running={running && <RunningText editor={editor} mindId={mindId} />}
-      onStop={() => stopCheck(mindId)}
+      holdKey={problem ? "problem" : asked ? "asked" : "plain"}
+      running={
+        running ? (
+          <RunningText editor={editor} mindId={mindId} />
+        ) : (
+          asked && (
+            <span data-testid="badge-asked" data-state={asked.asked.state} title={asked.words}>
+              {asked.short}
+            </span>
+          )
+        )
+      }
+      onStop={running ? () => stopCheck(mindId) : null}
       actions={
         <CheckActions
           editor={editor}
@@ -279,6 +299,10 @@ export function CheckActions({
   });
   const askAll = useAskAll(editor, mindId, true);
   const noModel = useNoModel();
+  // While the User's own AI is asked to check, the card's line says how that goes and asks again
+  // itself: a second Check here would ask once more (#3587).
+  const asked = useAskedAgent({ kind: "check", mindId }) !== null;
+  const pressHidden = running || asked;
   // A model fixes the sentences; with none, Change to corrects them, or the User's own AI does (#3383).
   const fixes = noModel ? correctable : fixable;
   const askLeads = askAll !== null && noModel && correctable === 0;
@@ -343,9 +367,9 @@ export function CheckActions({
             ref={checkPress}
             type="button"
             data-testid="badge-check-mind"
-            data-hidden={running ? "" : undefined}
-            aria-hidden={running || undefined}
-            disabled={running}
+            data-hidden={pressHidden ? "" : undefined}
+            aria-hidden={pressHidden || undefined}
+            disabled={pressHidden}
             title={planned === null ? undefined : checkTitle(t, planned)}
             className={buttonStyle(fixes > 0 || askLeads ? "secondary" : "primary", "sm")}
             onClick={() =>
@@ -535,7 +559,8 @@ function BadgeFrame({
   /** When it changes, the card takes the height of what is in it now, as at its first paint. */
   holdKey?: string;
   running: ReactNode;
-  onStop(): void;
+  /** Null for what runs elsewhere, such as the User's own AI checking: nothing here can stop it. */
+  onStop: (() => void) | null;
   foot?: ReactNode;
   /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
   actions?: ReactNode;
@@ -756,7 +781,7 @@ function BadgePill({
   /** It keeps one width while a run is on or a finished check shows; opening the card leaves it. */
   stable: boolean;
   onToggle(): void;
-  onStop(): void;
+  onStop: (() => void) | null;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -879,7 +904,7 @@ function BadgePill({
       >
         {parts}
       </button>
-      {badge.running && running && (
+      {badge.running && running && onStop && (
         <>
           <span className="check-badge-sep" aria-hidden="true">
             ·

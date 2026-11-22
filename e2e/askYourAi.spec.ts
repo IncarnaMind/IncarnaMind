@@ -327,12 +327,12 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
 const FERRY_NOTE = `${CROSSINGS} ${OVERSTATED}\n\n${BOOKING}`;
 
 /** A Note Claude Code wrote with none of its sentences checked, which a Check would check. */
-async function writtenUnchecked(launch: AgentLaunch): Promise<string> {
+async function writtenUnchecked(launch: AgentLaunch, title = TITLE): Promise<string> {
   const agent = await claudeCode(launch);
   try {
     const made = await agent.callTool({
       name: "create_mind",
-      arguments: { title: TITLE, markdown: FERRY_NOTE },
+      arguments: { title, markdown: FERRY_NOTE },
     });
     return (made.structuredContent as { mindId: string }).mindId;
   } finally {
@@ -492,19 +492,21 @@ test("with no model, a question typed with a Document open names it in the line,
   }
 });
 
-test("with no model, Check asks the User's own AI to check the Note; with no agent it says what a check needs; with a model it checks as before", async () => {
+test("with no model, one press of Check asks the User's own AI and the Note says how it goes until its marks land, each card showing every quote; with no agent it says what a check needs; with a model it checks as before", async () => {
   const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
   await acceptPlainTextKeys(window);
   try {
     await dismissChatSetup(window);
     await catchCopies(window);
     const launch = await connected(window);
+    // A second Note, left unchecked for the checks without an agent and with a model.
+    const spare = await writtenUnchecked(launch, "Ferry report, second draft");
     const mindId = await writtenUnchecked(launch);
-    await pointAndClick(
-      window,
-      window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`),
-    );
-    await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
+    const openNote = async (id: string) => {
+      await pointAndClick(window, window.locator(`[data-testid="mind-tab"][data-mind-id="${id}"]`));
+      await expect(frontMind(window)).toHaveAttribute("data-mind-id", id);
+    };
+    await openNote(mindId);
     const press = async () => {
       if (!(await window.getByTestId("check-card").isVisible())) {
         await pointAndClick(window, window.getByTestId("check-badge-open"));
@@ -512,38 +514,107 @@ test("with no model, Check asks the User's own AI to check the Note; with no age
       await pointAndClick(window, window.getByTestId("badge-check-mind"));
     };
 
-    // An agent that can read the Note: the card's line offers to ask it, as "Ask {agent}" is worded
-    // everywhere, and says nothing about asking a model.
+    // One press asks Claude Code, the one the Ask pill asks: its app opens with the line typed, and
+    // the badge and the card say so, offering VS Code and a model behind; no second button to press.
     await press();
-    const line = window.getByTestId("checks-ask-agent");
-    await expect(line.getByTestId("checks-ask-agent-ask")).toHaveText("Ask Claude Code");
-    await expect(line.getByTestId("checks-ask-agent-set-up")).toHaveText("Set up a model");
-    await expect(window.getByTestId("check-card")).not.toContainText("Asking needs an AI model");
-    await shot(window, "check-no-model-agent-en");
-    await setLanguage(window, "zh-CN");
-    await expect(line.getByTestId("checks-ask-agent-ask")).toHaveText("交给 Claude Code");
-    await shot(window, "check-no-model-agent-zh-CN");
-    await setLanguage(window, "en");
-    await pointAndClick(window, line.getByTestId("checks-ask-agent-ask"));
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(
       `Check my note “${TITLE}” in IncarnaMind against my Documents.`,
     );
-    await expect(line).toHaveCount(0);
+    const ASKED = "Asked Claude Code: send the request there.";
+    const asked = window.getByTestId("checks-asked");
+    const badge = window.getByTestId("badge-asked");
+    await expect(asked).toHaveText(ASKED);
+    await expect(badge).toHaveText("Asked your AI");
+    await expect(badge).toHaveAttribute("title", ASKED);
+    await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
+    await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Ask again");
+    await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
+    await expect(window.getByTestId("checks-asked-set-up")).toHaveText("Set up a model");
+    await expect(window.getByTestId("badge-check-mind")).toBeDisabled();
+    await expect(window.getByTestId("check-card")).not.toContainText("Asking needs an AI model");
+    await shot(window, "check-no-model-asked-en");
+    await setLanguage(window, "zh-CN");
+    await expect(asked).toHaveText("已交给 Claude Code：在那里发送请求即可。");
+    await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("再问一次");
+    await shot(window, "check-no-model-asked-zh-CN");
+    await setLanguage(window, "en");
 
-    // What waits for Claude Code says how to check the Note with the Tools it has, once.
+    // Claude Code picks the Note up: the Note says it is checking, with nothing read from a request.
     const agent = await claudeCode(launch);
     try {
+      const { task, sentences } = (
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
+      ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
+      await expect(asked).toHaveText("Checking this note in Claude Code.");
+      await expect(badge).toHaveText("Your AI is checking");
+      await shot(window, "check-no-model-checking-en");
+      await setLanguage(window, "zh-CN");
+      await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
+      await expect(badge).toHaveText("你的 AI 正在核对");
+      await shot(window, "check-no-model-checking-zh-CN");
+      await setLanguage(window, "en");
+
+      // What waits for Claude Code says how to check the Note with the Tools it has, once.
       const read = await agent.callTool({ name: "read_request", arguments: { note: TITLE } });
       const { request } = read.structuredContent as { request: string };
       expect(request).toContain(`(mindId: ${mindId})`);
       expect(request).toContain("check_mind_yourself");
       expect(request).toContain("report_check");
+
+      // Its report lands: the line goes, the marks show, and the card of a verdict it rested on
+      // two places shows both quotes, in the order it gave them.
+      const found = (
+        await agent.callTool({ name: "search", arguments: { query: "crossings fuel cost 2025" } })
+      ).structuredContent as { passages: { passageId: string }[] };
+      const cite = async (quote: string) => {
+        const { citations } = (
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: found.passages.map(({ passageId }) => ({ passageId, quote })) },
+          })
+        ).structuredContent as { citations: { cite: string | null }[] };
+        const token = citations.find((each) => each.cite !== null)?.cite;
+        if (!token) throw new Error(`No Passage holds “${quote}”.`);
+        return token;
+      };
+      const RAN = "In 2025 the company ran 2,816 crossings.";
+      const FUEL = "Fuel cost £310,000 over the year, up from £284,000 in 2024.";
+      const numbered = (text: string) => sentences.find((each) => each.text === text)?.n;
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task,
+          results: [
+            { n: numbered(CROSSINGS), verdict: "supported", cites: [await cite(RAN)] },
+            {
+              n: numbered(OVERSTATED),
+              verdict: "overstated",
+              cites: [await cite(FUEL), await cite(RAN)],
+              explanation: "£310,000 against £284,000 is not double.",
+            },
+            { n: numbered(BOOKING), verdict: "not found", explanation: "No Document mentions it." },
+          ],
+        },
+      });
+      await expect(asked).toHaveCount(0);
+      await expect(badge).toHaveCount(0);
+      await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
+      await pointAndClick(
+        window,
+        window.locator('[data-testid="claim-mark"][data-check="unsupported"]').first(),
+      );
+      const card = window.getByTestId("claim-card").filter({ visible: true });
+      await expect(card.getByTestId("claim-part-citation")).toHaveText([FUEL, RAN]);
+      await shot(window, "check-no-model-two-quotes-en");
+      await window.keyboard.press("Escape");
     } finally {
       await agent.close();
     }
 
     // No agent either: the line is about checking, with the way to set a model up.
+    await openNote(spare);
     const connectedAgents = await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const { pairings } = await bridge.getAgents();

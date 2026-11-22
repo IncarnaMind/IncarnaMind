@@ -589,6 +589,7 @@ export function showsPartRows(check: Pick<ClaimCheckAttributes, "parts">): boole
             part.kind === "opinion" ||
             part.coverage ||
             part.evidence.length > 1 ||
+            part.restsOnEveryQuote ||
             part.unsupported?.kind,
         )),
   );

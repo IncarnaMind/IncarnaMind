@@ -536,14 +536,18 @@ function withResult(
       const { correction: _row, ...judged } = anchored;
       anchored = judged;
     }
+    const everyQuote = result.parts.some((part) => part.restsOnEveryQuote);
     result = {
       ...anchored,
       ...resultFromParts([
-        partWithResult(
-          { span: { start: 0, end: check.text.length }, kind: "fact" },
-          anchored,
-          evidence,
-        ),
+        {
+          ...partWithResult(
+            { span: { start: 0, end: check.text.length }, kind: "fact" },
+            anchored,
+            evidence,
+          ),
+          ...(everyQuote && { restsOnEveryQuote: true as const }),
+        },
       ]),
     };
   }
