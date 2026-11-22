@@ -3780,6 +3780,87 @@ test.each([
   expect(mindCitations(client)).toHaveLength(1);
 });
 
+test.each([
+  {
+    language: "en",
+    said: { mine: MY_LINES, theirs: THEIR_LINES },
+    title: "Pricing",
+    fillUncovered: true,
+  },
+  { language: "zh-CN", said: CHINESE_LINES, title: "价格", fillUncovered: false },
+] as const)(
+  "a template fill keeps unchecked claims in their own review section ($language)",
+  async (fixture) => {
+    const [price, , rollout] = fixture.said.mine;
+    const [budget] = fixture.said.theirs;
+    const stop = fixture.language === "en" ? "." : "。";
+    const model = fillingModel(
+      [
+        fact("P1_price", "Price", `${price} [^1]${stop}`, {
+          heading: fixture.title,
+          lines: ["L1"],
+          claim: true,
+        }),
+        fact("P1_budget", "Budget", `${budget} [^2]${stop}`, {
+          heading: fixture.title,
+          lines: ["L1"],
+          claim: true,
+        }),
+        fact("P1_rollout", "Rollout", `${rollout} [^3]${stop}`, {
+          heading: fixture.title,
+          claim: true,
+        }),
+      ].join("\n"),
+      { 1: price, 2: budget, 3: rollout },
+      { [`${price}${stop}`]: { verdict: "supported", quote: price } },
+    );
+    let templateId: string | undefined;
+    let folderId: string | undefined;
+    const { core, meeting, client } = await recorded(
+      model,
+      [note(fixture.title)],
+      async (core) => {
+        await core.updateSettings({ user: { language: fixture.language } });
+        folderId = await callFolder(core, { "Price list.md": `${price}\n` });
+        const template = await core.createSkill({
+          name: "budget-review",
+          description: "Write up a budget meeting.",
+          steps: `## Sections\n\n- ${fixture.title}`,
+          meetingTemplate: true,
+        });
+        if (!template.ok) throw new Error("Couldn't create the template.");
+        templateId = template.skill.id;
+        await core.setMeetingTemplateFillUncovered(templateId, fixture.fillUncovered);
+      },
+      undefined,
+      {
+        lines: fixture.said,
+        folder: () => folderId,
+        async stop(core, meetingId) {
+          if (!templateId) throw new Error("Missing template.");
+          await core.setMeetingWriteupTemplate(meetingId, templateId);
+          await core.stopMeeting(meetingId);
+        },
+      },
+    );
+    expect((await settledFill(core, meeting)).state).toBe("filled");
+    await client.settled();
+    const heading = translate(fixture.language, "meetings.fill.section.claims");
+    const pointer = translate(fixture.language, "meetings.fill.reference.below", {
+      topic: "Budget",
+    });
+    expect(outline(client).filter(Boolean)).toEqual([
+      fixture.title,
+      `«${price} »\uFFFC«${stop}»`,
+      `«${pointer} »\uFFFC`,
+      `## «${heading}»`,
+      `- «${budget} »\uFFFC«${stop}»`,
+      `- «${rollout} »\uFFFC«${stop}»`,
+    ]);
+    expect(mindCitations(client)).toHaveLength(4);
+  },
+);
+
 test("a different template refills a saved Note, keeps an edited AI heading, and restores the previous fill with Undo", async () => {
   const model = fillingModel(
     (prompt) =>

@@ -96,13 +96,24 @@ function factReference(
 
 function placeTemplateFacts(input: FactPlacementInput, template: WriteupPlan): FactPlacement {
   const lines = new Map<string, NodeJSON[]>();
-  const ordinary = input.lines.filter((line) => !line.heading);
-  const positions = new Map(ordinary.map((line, index) => [line.marker, index]));
+  const sections = new Map<FillSection, NodeJSON[]>();
+  const positions = new Map(
+    input.lines.flatMap((line, index) => (line.heading ? [] : [[line.marker, index] as const])),
+  );
+  const claimPlace = sectionPlace(input, "claims");
   const hosts = new Map(input.topicHeadings.map((heading) => [topicKey(heading.text), heading]));
   const titles = new Map(template.sections.map((title) => [topicKey(title), title]));
   const topics = new Map<string, PlacedTopic>();
   for (const fact of input.facts) {
     const related = [...new Set(fact.lines)].filter((marker) => positions.has(marker));
+    if (input.claims.has(fact.id)) {
+      append(sections, "claims", [fact.body]);
+      for (const marker of related) {
+        const direction = claimPlace.position < (positions.get(marker) ?? 0) ? "above" : "below";
+        append(lines, marker, factReference(fact, input, direction));
+      }
+      continue;
+    }
     const first = related[0];
     if (first !== undefined) {
       append(lines, first, [fact.body]);
@@ -124,11 +135,7 @@ function placeTemplateFacts(input: FactPlacementInput, template: WriteupPlan): F
     topic.nodes.push(fact.body);
     topics.set(key, topic);
   }
-  fillUnanswered(
-    input,
-    ordinary.map((line) => line.marker),
-    lines,
-  );
+  fillUnanswered(input, positions.keys(), lines);
   const written = [...topics];
   const topicsByTemplate = [
     ...written.filter(([, topic]) => topic.heading !== null).map(([, topic]) => topic),
@@ -139,7 +146,7 @@ function placeTemplateFacts(input: FactPlacementInput, template: WriteupPlan): F
         })
       : written.filter(([, topic]) => topic.heading === null).map(([, topic]) => topic)),
   ];
-  return { lines, sections: new Map(), topics: topicsByTemplate, unplaced: 0 };
+  return { lines, sections, topics: topicsByTemplate, unplaced: 0 };
 }
 
 function fillUnanswered(
