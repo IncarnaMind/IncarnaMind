@@ -5,12 +5,14 @@
  * about the Note or the Document, which the core tells the windows as it records each call, so
  * nothing polls the agent. Quiet: nothing from it for a while, and the words say how to ask again;
  * a later call makes it working again. It ends when what was asked for lands: the check's report,
- * or the Note the agent wrote.
+ * or the Note the agent wrote; a check's ends too once a model is set up.
  */
 import { create } from "zustand";
-import type { AgentActivity, AgentPairing } from "../../core/api";
+import type { AgentActivity, AgentPairing, ChatReadiness } from "../../core/api";
 import { core } from "./core";
 import { useT } from "./i18n";
+import { noModelSetUp } from "./noModelSetUp";
+import { useAppStore } from "./store";
 
 export type AskedFor = { kind: "check"; mindId: string } | { kind: "summary"; documentId: string };
 
@@ -85,6 +87,21 @@ function heard(activity: AgentActivity): void {
   }
 }
 
+const modelSetUp = (readiness: ChatReadiness | null): boolean =>
+  readiness !== null && !noModelSetUp(readiness);
+
+/**
+ * A check stands asked of the User's own AI only while no model is set up: with one, the Note's
+ * own Check runs it, and a report the AI sends after still lands its marks. A summary is the
+ * User's own AI's either way.
+ */
+function forgetChecks({ chatReadiness }: { chatReadiness: ChatReadiness | null }): void {
+  if (!modelSetUp(chatReadiness)) return;
+  for (const [key, asked] of Object.entries(useAgentAsked.getState().byKey)) {
+    if (asked.for.kind === "check") put(key, null);
+  }
+}
+
 /** The request went to `agent`: the place it is about says so from now. */
 export function rememberAsked(
   agent: AgentPairing,
@@ -94,7 +111,9 @@ export function rememberAsked(
   if (!listening) {
     listening = true;
     core.on("agents.activity", heard);
+    useAppStore.subscribe(forgetChecks);
   }
+  if (asked.kind === "check" && modelSetUp(useAppStore.getState().chatReadiness)) return;
   put(keyOf(asked), { agent, for: asked, copied, state: "asked", at, seen: false });
 }
 

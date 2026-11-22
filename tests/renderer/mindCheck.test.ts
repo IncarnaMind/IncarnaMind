@@ -41,6 +41,7 @@ vi.mock("../../src/renderer/src/store", () => ({
       settings: { language: store.language },
       chatReadiness: store.chatReadiness,
     }),
+    subscribe: () => () => undefined,
   },
 }));
 vi.mock("../../src/renderer/src/checks", () => ({

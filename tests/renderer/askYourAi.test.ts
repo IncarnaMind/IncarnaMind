@@ -618,6 +618,23 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     }
   });
 
+  // protects=a model set up while the User's own AI is asked to check ends that ask, so the Note offers its own Check again rather than an asked line no press can clear, while Get started's summary ask stays the User's own AI's (#3587); fails_when=the asked line or state for the check outlives the model's setup, or the summary's ask goes with it
+  test("a model set up meanwhile ends the asked check, and only it", async () => {
+    user(NO_MODEL, [codex]);
+    expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
+    expect(await askAgent(codex, null, { kind: "summary", documentId: "harbour-report" })).toBe(
+      true,
+    );
+    const { container, part } = await askedLine();
+    expect(part("checks-asked")?.dataset.state).toBe("asked");
+
+    await act(async () => useAppStore.setState({ chatReadiness: MODEL }));
+    expect(container.textContent).toBe("");
+    expect(Object.values(useAgentAsked.getState().byKey).map((each) => each.for)).toEqual([
+      { kind: "summary", documentId: "harbour-report" },
+    ]);
+  });
+
   // protects=the Chinese words for an AI that never came; fails_when=Chinese gets English words
   test("says it in Chinese too", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

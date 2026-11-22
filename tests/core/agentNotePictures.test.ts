@@ -1054,6 +1054,41 @@ describe("an agent reads its Note as the User sees it, and its check and the Not
     ).toEqual([]);
   });
 
+  // protects=a chart the agent finds contradicted on two Citations counts on the Note as one it finds contradicted on one, on each of its values, and the check doesn't give it again (#3587); fails_when=the chart judged on two Citations counts as not checked yet or as anything but what one Citation gives
+  it("marks a chart found contradicted on several Citations as on one", async () => {
+    const { core, agent, files } = await paired();
+    const { apples, pears } = await tokens(agent);
+    const counted = async (cites: string[]) => {
+      const made = structured<Written>(await create(agent, written(files, apples, pears)));
+      const given = structured<CheckTask>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+      );
+      const results = given.sentences.map(({ n, text }) =>
+        text === "Apples" || text === "Pears"
+          ? { n, verdict: "nothing to check" }
+          : text.startsWith('{"kind"')
+            ? { n, verdict: "contradicted", cites, explanation: "Pears came to 610 tonnes." }
+            : { n, verdict: "supported", cites: [text === "610" ? pears : apples] },
+      );
+      expect(
+        structured<{ marked: number }>(
+          await agent.callTool({
+            name: "report_check",
+            arguments: { mindId: made.mindId, task: given.task, results },
+          }),
+        ),
+      ).toMatchObject({ marked: 4, unconfirmed: [], next: null });
+      const left = structured<CheckTask>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
+      );
+      return { rows: await pageRows(core, made.mindId), left: left.sentences };
+    };
+    const onOne = await counted([pears]);
+    expect(onOne.rows).toEqual({ supported: 3, look: 1 });
+    expect(onOne.left).toEqual([]);
+    expect(await counted([pears, apples])).toEqual(onOne);
+  });
+
   // protects=an agent that reads on from a Citation it holds gets its Passage, so it never spends a dozen refused calls on it; fails_when=a [cite:…] token, bracketed or bare, given as a passageId is refused, or one of another agent's or none reads anything
   it("reads the Passage a Citation's token stands for, given where a passageId goes", async () => {
     const { agent } = await paired();
