@@ -82,7 +82,7 @@ function press(editor: Editor, key: string): void {
     shiftKey: false,
     altKey: false,
     ctrlKey: false,
-    metaKey: true,
+    metaKey: key === "k",
     preventDefault: () => undefined,
   } as unknown as KeyboardEvent;
   editor.state.plugins.some(
@@ -111,4 +111,11 @@ test("after Select All collapses at the end, the next key uses the page's caret"
   press(editor, "k");
   expect(editor.state.selection.empty).toBe(true);
   expect(editor.state.selection.from).toBe(1 + LINE.length);
+});
+
+test("Enter after a native move to the end keeps the paragraph above the new line", () => {
+  const editor = clickedInto(LINE.length);
+  editor.commands.setTextSelection(1);
+  press(editor, "Enter");
+  expect(editor.state.doc.children.map((block) => block.textContent)).toEqual([LINE, ""]);
 });
