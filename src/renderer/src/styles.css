@@ -9489,6 +9489,15 @@
     :is(.node-citation, .node-citation + .ProseMirror-separator) + .node-citation .citation-marker {
       margin-left: 2px;
     }
+    /* A Citation another's chip draws takes no room here either (#3654). */
+    .citation-marker.citation-marker--joined,
+    :is(.node-citation, .node-citation + .ProseMirror-separator)
+      + .node-citation
+      .citation-marker.citation-marker--joined {
+      height: 1px;
+      margin: 0;
+      padding: 0;
+    }
     /* In a cell, centred on the line: raised, it would make its row taller than the others. */
     :is(th, td) .citation-marker {
       vertical-align: middle;

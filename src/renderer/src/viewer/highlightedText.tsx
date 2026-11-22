@@ -11,22 +11,33 @@ export function HighlightedText({
 }): ReactNode {
   const step = useContext(QuoteStepContext);
   if (!ranges || ranges.length === 0) return text;
+  // Quotes of one chip may overlap: the text is cut at every edge, each piece written once, and
+  // a piece two quotes share is shown as the one the viewer is on.
+  const points = [
+    ...new Set([0, text.length, ...ranges.flatMap((range) => [range.start, range.end])]),
+  ]
+    .filter((point) => point >= 0 && point <= text.length)
+    .sort((a, b) => a - b);
   const parts: ReactNode[] = [];
-  let at = 0;
-  for (const range of ranges) {
-    if (range.start > at) parts.push(text.slice(at, range.start));
+  for (let index = 0; index < points.length - 1; index++) {
+    const from = points[index] as number;
+    const to = points[index + 1] as number;
+    const covering = ranges.filter((range) => range.start <= from && range.end >= to);
+    if (covering.length === 0) {
+      parts.push(text.slice(from, to));
+      continue;
+    }
+    const shown = (covering.find((range) => range.quote === step) ?? covering[0]) as QuoteRange;
     parts.push(
       <mark
-        key={range.start}
+        key={from}
         data-quote-highlight=""
-        {...quoteIndexProps(range.quote)}
-        className={`quote-highlight${quoteClass(range.quote, step)}`}
+        {...quoteIndexProps(shown.quote)}
+        className={`quote-highlight${quoteClass(shown.quote, step)}`}
       >
-        {text.slice(range.start, range.end)}
+        {text.slice(from, to)}
       </mark>,
     );
-    at = range.end;
   }
-  if (at < text.length) parts.push(text.slice(at));
   return <>{parts}</>;
 }

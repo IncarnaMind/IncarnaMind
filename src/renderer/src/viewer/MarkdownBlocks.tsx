@@ -51,7 +51,9 @@ export function Slice({
   for (let index = 0; index < sorted.length - 1; index++) {
     const from = sorted[index] as number;
     const to = sorted[index + 1] as number;
-    const quote = quotes.find((range) => range.start <= from && range.end >= to);
+    const covering = quotes.filter((range) => range.start <= from && range.end >= to);
+    // Two quotes of one chip may share words: they show as the one the viewer is on.
+    const quote = covering.find((range) => range.quote === step) ?? covering[0];
     const annotation = marks.find((range) => range.start <= from && range.end >= to);
     if (!quote && !annotation) {
       parts.push(source.slice(from, to));

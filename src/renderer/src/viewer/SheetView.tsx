@@ -52,6 +52,7 @@ import {
   QuoteStepsLine,
   quoteClass,
   quoteIndexProps,
+  quotesIn,
   useQuoteSteps,
 } from "./quoteSteps";
 import { citeRangeAction, SheetSelectionMenu } from "./SelectionMenu";
@@ -201,8 +202,8 @@ function Sheets({
     const quotes = quotesOf({ quote: target.quote, quotes: target.quotes });
     let sheet: string | null = null;
     const cells = new Set<string>();
-    /** Which quote each cell is of, when several quotes of one chip are marked. */
-    const quoteOf = new Map<string, number>();
+    /** Which quotes each cell is of, when several quotes of one chip are marked. */
+    const quoteOf = new Map<string, number[]>();
     for (const [index, quote] of quotes.entries()) {
       const one = findCells(units, quote, target.pageFrom, target.pageTo);
       if (!one) continue;
@@ -210,7 +211,7 @@ function Sheets({
       if (one.sheet !== sheet) continue;
       for (const cell of one.cells) {
         cells.add(cell);
-        if (quotes.length > 1 && !quoteOf.has(cell)) quoteOf.set(cell, index);
+        if (quotes.length > 1) quoteOf.set(cell, [...(quoteOf.get(cell) ?? []), index]);
       }
     }
     return sheet === null ? null : { sheet, cells, quoteOf };
@@ -312,7 +313,12 @@ function Sheets({
     Boolean(hasContent) && (citedSheet === null || sheet?.name === citedSheet),
     citedArea,
   );
-  const { step, stepper } = useQuoteSteps({ target, root: box, drawn: found });
+  // The grid draws only the rows in view: the quotes found count, not those drawn yet.
+  const foundQuotes = useMemo(
+    () => quotesIn([...(found?.quoteOf.values() ?? [])].flat().map((quote) => ({ quote }))),
+    [found],
+  );
+  const { step, stepper } = useQuoteSteps({ target, root: box, drawn: found, found: foundQuotes });
 
   return (
     <QuoteStepContext.Provider value={step}>
@@ -615,7 +621,7 @@ function Grid({
   headerRow: number | null;
   highlighted: ReadonlySet<string> | null;
   /** Which of the quotes opened together each highlighted cell is of (`useQuoteSteps`). */
-  quoteOf: ReadonlyMap<string, number> | null;
+  quoteOf: ReadonlyMap<string, readonly number[]> | null;
   mark: ReturnType<typeof quoteMarkOf>;
   scrollTo: ScrollRequest | null;
 }) {
@@ -978,7 +984,9 @@ function Grid({
       const { at, cell, shown, text } = contentOf(top, column);
       const style = styleOf(top, column);
       const isHighlighted = highlighted?.has(cellKey(sheet.name, ref)) ?? false;
-      const quote = isHighlighted ? quoteOf?.get(cellKey(sheet.name, ref)) : undefined;
+      // A cell two quotes share shows as the one the viewer is on.
+      const of = isHighlighted ? (quoteOf?.get(cellKey(sheet.name, ref)) ?? []) : [];
+      const quote = of.includes(step) ? step : of[0];
       const isPicked = activeRange !== null && isInRange(activeRange, top, column);
 
       // Its extent: merged rows and columns in view, or empty cells its text spills over.

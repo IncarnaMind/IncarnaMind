@@ -50,6 +50,7 @@ import {
   type QuoteRange,
   QuoteStepContext,
   QuoteStepsLine,
+  quotesIn,
   useQuoteSteps,
 } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
@@ -114,7 +115,13 @@ export function SlidesView({ document, target }: { document: Document; target: V
 
 /** Where the quote was found: in a drawn slide's text, an outline sheet's, a slide's notes, or nowhere (a slide-level mark). */
 type Found =
-  | { slide: number; where: "slide" | "outline" | "notes"; ranges: Map<string, QuoteRange[]> }
+  | {
+      slide: number;
+      where: "slide" | "outline" | "notes";
+      ranges: Map<string, QuoteRange[]>;
+      /** A drawn slide's quotes in its speaker notes, beside those on the slide (one chip's). */
+      notes: Map<string, QuoteRange[]>;
+    }
   | { slide: number; where: "none" };
 
 const isFailed = (slide: SlideDrawing | FailedSlide): slide is FailedSlide => "failed" in slide;
@@ -305,30 +312,38 @@ function Slides({
         const drawnSlide = drawn.get(slide.number);
         if (drawnSlide && !isFailed(drawnSlide)) {
           const ranges = findInDrawing(drawnSlide, quote);
-          if (ranges) return { slide: slide.number, where: "slide", ranges };
+          if (ranges) return { slide: slide.number, where: "slide", ranges, notes: new Map() };
           const notes = findInNotes(slide, quote);
-          if (notes) return { slide: slide.number, where: "notes", ranges: notes };
+          if (notes)
+            return { slide: slide.number, where: "notes", ranges: notes, notes: new Map() };
         } else {
           const ranges = findInOutline(slide, quote);
-          if (ranges) return { slide: slide.number, where: "outline", ranges };
+          if (ranges) return { slide: slide.number, where: "outline", ranges, notes: new Map() };
         }
       }
       return null;
     };
-    // The quotes of one chip are of one slide: each is drawn where the first one found is.
+    // The quotes of one chip are of one slide, on it or in its speaker notes (which are part of it).
     let found: Extract<Found, { ranges: unknown }> | null = null;
     for (const [index, quote] of quotes.entries()) {
       const one = findOne(quote);
       if (!one || one.where === "none") continue;
-      if (found === null) found = { ...one, ranges: new Map() };
-      if (one.slide !== found.slide || one.where !== found.where) continue;
+      if (found === null) found = { ...one, ranges: new Map(), notes: new Map() };
+      if (one.slide !== found.slide) continue;
+      const into =
+        one.where === found.where
+          ? found.ranges
+          : one.where === "notes" && found.where === "slide"
+            ? found.notes
+            : null;
+      if (!into) continue;
       for (const [key, ranges] of one.ranges) {
         const tagged = ranges.map((range) =>
           quotes.length > 1 ? { ...range, quote: index } : range,
         );
-        found.ranges.set(
+        into.set(
           key,
-          [...(found.ranges.get(key) ?? []), ...tagged].sort((a, b) => a.start - b.start),
+          [...(into.get(key) ?? []), ...tagged].sort((a, b) => a.start - b.start),
         );
       }
     }
@@ -339,7 +354,15 @@ function Slides({
       : null;
   }, [slides, drawn, target.quote, target.quotes, target.pageFrom, target.pageTo]);
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
-  const { step, stepper } = useQuoteSteps({ target, root: scroller, drawn: highlight });
+  // The slides draw once the viewer is measured: the quotes found count, not those drawn yet.
+  const found = useMemo(
+    () =>
+      highlight && highlight.where !== "none"
+        ? quotesIn([...highlight.ranges.values(), ...highlight.notes.values()].flat())
+        : [],
+    [highlight],
+  );
+  const { step, stepper } = useQuoteSteps({ target, root: scroller, drawn: highlight, found });
 
   // The slides fit the viewer's width, beside a gutter for the Citation's mark when there is one.
   useLayoutEffect(() => {
@@ -515,7 +538,13 @@ function Slides({
                     />
                   );
                 }
-                const notesOpen = notesToggled.get(slide.number) ?? found?.where === "notes";
+                // Open where the quote the viewer is on lies in the speaker notes.
+                const notesOpen =
+                  notesToggled.get(slide.number) ??
+                  (found?.where === "notes" ||
+                    (found !== null &&
+                      found.where === "slide" &&
+                      quotesIn([...found.notes.values()].flat()).includes(step)));
                 return (
                   <SlideFrame
                     key={slide.number}
@@ -580,7 +609,8 @@ function SlideFrame({
   const step = useContext(QuoteStepContext);
   const [markTop, setMarkTop] = useState<number | null>(null);
   const slideRanges = found?.where === "slide" ? found.ranges : null;
-  const notesRanges = found?.where === "notes" ? found.ranges : null;
+  const notesRanges =
+    found?.where === "notes" ? found.ranges : found?.where === "slide" ? found.notes : null;
 
   // The mark sits in the gutter, level with the quote's first line, or the slide's top.
   // biome-ignore lint/correctness/useExhaustiveDependencies: placed again as the slide scales or its notes open

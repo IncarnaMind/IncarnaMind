@@ -44,6 +44,13 @@ export const quoteIndexProps = (quote: number | undefined) =>
 export const quoteClass = (quote: number | undefined, step: number) =>
   quote !== undefined && quote !== step ? ` ${OTHER_QUOTE}` : "";
 
+/** The quotes some highlights are of, by their place, each once and in order (`useQuoteSteps`). */
+export function quotesIn(highlights: Iterable<{ quote?: number }>): number[] {
+  const found = new Set<number>();
+  for (const { quote } of highlights) if (quote !== undefined) found.add(quote);
+  return [...found].sort((a, b) => a - b);
+}
+
 /** The quote the viewer opens at, among `quotesOf(target)`: the one the Citation pressed names. */
 export function startOf(target: Pick<ViewerTarget, "quote" | "quotes">): number {
   const at = target.quote === undefined ? -1 : quotesOf(target).indexOf(target.quote);
@@ -84,14 +91,17 @@ export function useQuoteSteps({
   root: RefObject<HTMLElement | null>;
   drawn: unknown;
   /**
-   * The quotes found, by their place, where the viewer draws their highlights later than it
-   * finds them (a PDF page's text layer); else those drawn are read from `root`.
+   * The quotes found, by their place (`quotesIn`), where the viewer knows them before or apart
+   * from what it draws: a PDF page's text layer comes later, and of two quotes that share words
+   * only one shows them; else those drawn are read from `root`.
    */
   found?: readonly number[];
 }): { step: number; stepper: ReactNode } {
   const [chosen, setChosen] = useState<{ request: number; step: number } | null>(null);
   const [present, setPresent] = useState<readonly number[]>([]);
-  const step = chosen && chosen.request === target.request ? chosen.step : startOf(target);
+  const asked = chosen && chosen.request === target.request ? chosen.step : startOf(target);
+  // The quote asked for may not be on the page (not found there): the first one that is.
+  const step = present.length === 0 || present.includes(asked) ? asked : (present[0] ?? asked);
   const several = quotesOf(target).length > 1;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again whenever the highlights are drawn

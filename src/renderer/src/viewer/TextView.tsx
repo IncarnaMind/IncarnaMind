@@ -35,6 +35,7 @@ import {
   type QuoteRange,
   QuoteStepContext,
   QuoteStepsLine,
+  quotesIn,
   useQuoteSteps,
 } from "./quoteSteps";
 import { sourceSelection, useSelectionReader } from "./selectedText";
@@ -327,7 +328,8 @@ function TextContent({
     for (const [unit, index] of headingIndexes(units)) if (index >= 0) starts.set(unit.page, index);
     return starts;
   }, [units]);
-  const { step, stepper } = useQuoteSteps({ target, root: column, drawn: highlight });
+  const found = useMemo(() => quotesIn(highlight), [highlight]);
+  const { step, stepper } = useQuoteSteps({ target, root: column, drawn: highlight, found });
   const mark = quoteMarkOf(target.citation);
   const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
   const [markTop, setMarkTop] = useState<number | null>(null);

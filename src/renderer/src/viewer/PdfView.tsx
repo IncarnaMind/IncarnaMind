@@ -1437,9 +1437,11 @@ const PdfPage = memo(function PdfPage(props: PdfPageProps) {
         const from = sorted[index] as number;
         const to = sorted[index + 1] as number;
         if (from === to) continue;
-        const quoted = ranges.find(
+        const covering = ranges.filter(
           (range) => range.quote && range.start <= from && range.end >= to,
         );
+        // Two quotes of one chip may share words: they show as the one the viewer is on.
+        const quoted = covering.find((range) => range.index === step) ?? covering[0];
         const quote = quoted !== undefined;
         const annotation = ranges.find(
           (range) => range.annotation && range.start <= from && range.end >= to,

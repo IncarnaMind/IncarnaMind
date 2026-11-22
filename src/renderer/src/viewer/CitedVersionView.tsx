@@ -22,6 +22,7 @@ import {
   QuoteStepsLine,
   quoteClass,
   quoteIndexProps,
+  quotesIn,
   useQuoteSteps,
 } from "./quoteSteps";
 import { ViewerFrameContext, ViewerHeader } from "./ViewerHeader";
@@ -293,7 +294,8 @@ function CitedVersionContent({
     (units.length === 1 && shown[0]?.label ? shown[0].label : null);
 
   const highlighted = page !== null || shown.some((part) => part.ranges.length > 0);
-  const { step, stepper } = useQuoteSteps({ target, root: column, drawn: shown });
+  const found = useMemo(() => quotesIn(shown.flatMap((part) => part.ranges)), [shown]);
+  const { step, stepper } = useQuoteSteps({ target, root: column, drawn: shown, found });
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-placed for each read of the version
   useLayoutEffect(() => {
     const element = column.current;

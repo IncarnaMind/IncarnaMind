@@ -23,7 +23,7 @@ import { quotesOf } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { FitWidthIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 import { CitationMark, quoteMarkOf } from "./quoteMark";
-import { OTHER_QUOTE, QuoteStepsLine, useQuoteSteps } from "./quoteSteps";
+import { OTHER_QUOTE, QuoteStepsLine, quotesIn, useQuoteSteps } from "./quoteSteps";
 import { scannedTextLayer, useScannedPages } from "./scannedText";
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
@@ -188,7 +188,8 @@ export function ImageView({ document, target }: { document: Document; target: Vi
         })) ?? [],
     );
   }, [page, target.quote, target.quotes, target.request]);
-  const { step, stepper } = useQuoteSteps({ target, root: section, drawn: marked });
+  const found = useMemo(() => quotesIn(highlights), [highlights]);
+  const { step, stepper } = useQuoteSteps({ target, root: section, drawn: marked, found });
 
   // Lays the text read from the picture over it, then washes the quote in it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: laid again once the picture's size is known
@@ -221,18 +222,29 @@ export function ImageView({ document, target }: { document: Document; target: Vi
         if (tag(div, only.quote)) first ??= div;
         continue;
       }
+      // Quotes of one chip may overlap: the run is cut at every edge and each piece written once,
+      // a piece two quotes share shown as the one the viewer is on.
+      const points = [
+        ...new Set([0, text.length, ...ranges.flatMap(({ start, end }) => [start, end])]),
+      ].sort((a, b) => a - b);
       const children: (string | HTMLElement)[] = [];
-      let at = 0;
-      for (const { start, end, quote } of [...ranges].sort((a, b) => a.start - b.start)) {
+      for (let at = 0; at < points.length - 1; at++) {
+        const from = points[at] as number;
+        const to = points[at + 1] as number;
+        const covering = ranges.filter(({ start, end }) => start <= from && end >= to);
+        if (covering.length === 0) {
+          children.push(text.slice(from, to));
+          continue;
+        }
+        const quote = (covering.find((range) => range.quote === step) ?? covering[0])?.quote;
         const mark = window.document.createElement("span");
         mark.className = "highlight appended";
-        mark.textContent = text.slice(start, end);
+        mark.textContent = text.slice(from, to);
         mark.dataset.quoteHighlight = "";
-        children.push(text.slice(at, start), mark);
-        at = end;
+        children.push(mark);
         if (tag(mark, quote)) first ??= mark;
       }
-      div.replaceChildren(...children, text.slice(at));
+      div.replaceChildren(...children);
     }
     firstHighlight.current = first;
     setMarked((count) => count + 1);
