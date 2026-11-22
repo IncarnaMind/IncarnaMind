@@ -18,6 +18,7 @@ import {
 } from "../../shared/capture";
 import { createFrames } from "./frames";
 import { createMicrophone, startMicrophone } from "./microphone";
+import { serveScreen } from "./screen";
 
 const found = (window as unknown as Partial<Record<string, CaptureBridge>>)[CAPTURE_BRIDGE_KEY];
 if (!found) throw new Error("The capture window's preload didn't load.");
@@ -220,3 +221,4 @@ bridge.onStop(() => {
     bridge.stopped();
   });
 });
+serveScreen(bridge);

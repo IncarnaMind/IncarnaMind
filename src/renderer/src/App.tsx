@@ -33,6 +33,7 @@ import { ChatGptWelcomeDialog } from "./components/providers/ChatGptSignIn";
 import { RequestedDialogs } from "./components/RequestedDialogs";
 import { ResizeRod } from "./components/ResizeRod";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { SharedScreenPicker } from "./components/SharedScreenPicker";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarControlContext } from "./components/SidebarToggle";
 import { SortMenu } from "./components/SortMenu";
@@ -365,6 +366,7 @@ function Workspace() {
           {/* Open after the dialog that triggered the request, so they show on top of it. */}
           <ConsentDialog />
           <MeetingNoticeDialog />
+          <SharedScreenPicker />
           <FileWriteDialog />
         </PanelBoundary>
         <ErrorNotices />

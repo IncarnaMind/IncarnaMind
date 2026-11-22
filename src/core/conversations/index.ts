@@ -68,6 +68,7 @@ import {
   CLAIMED_TOOLS,
   MOST_ASKED_QUOTES,
   PROVIDER_ERROR_KINDS,
+  SHARED_SCREEN_USES,
   TOO_LONG_PARTS,
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
@@ -286,6 +287,9 @@ function storedSteps(value: string | null): AnswerSteps | null {
     : [];
   const unrun = claimedTools(unrunTools);
   const askedAbout = claimedTools(askedAgainFor);
+  const screenUse = isRecord(sent)
+    ? SHARED_SCREEN_USES.find((use) => use === sent.sharedScreen)
+    : undefined;
   return {
     ...(isRecord(parsed.meetingHelpAgent) &&
       (parsed.meetingHelpAgent.client === "codex" ||
@@ -352,6 +356,7 @@ function storedSteps(value: string | null): AnswerSteps | null {
         sent: {
           documents: sent.documents.filter((each): each is string => typeof each === "string"),
           ...(sent.transcript === true && { transcript: true as const }),
+          ...(screenUse && { sharedScreen: screenUse }),
         },
       }),
     // Any button's name: one this version doesn't have still reads as a press.

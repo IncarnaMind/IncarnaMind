@@ -261,7 +261,10 @@ export interface DocumentLanguage {
  * Documents' Tools from it, and the ways of answering without Tools use it too.
  */
 export interface AnswerTools {
-  /** Documents with Passages to search. With none, there is no document search. */
+  /**
+   * Documents with Passages to search, or 1 when Passages were given without a
+   * search (a meeting's shared screen). With none, there is no document search.
+   */
   readonly documentCount: number;
   /**
    * The languages the Documents to search are in, the most common first: the

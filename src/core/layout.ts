@@ -92,6 +92,7 @@ const CHECKS = [
 ] as const satisfies readonly CitationCheck[];
 
 const REASONS = [
+  "screen-deleted",
   "quote-not-on-pages",
   "quoted-words-not-on-pages",
   "pages-outside-passage",
