@@ -202,6 +202,7 @@ import {
   calculates as offersCalculate,
   offersCode,
   offersWorkbookTools,
+  readsImages,
 } from "../providers/capabilities";
 import type { AnswerFlow } from "../providers/catalog/answerPaths";
 import type { ThinkingKind } from "../providers/catalog/types";
@@ -417,6 +418,7 @@ import {
 import { quotedWordsIn, withoutQuotationMarks } from "./quotedWords";
 import { readKinds } from "./readKinds";
 import { nameScope, type ScopeSource, SEARCH_SCOPE_RULE, scopeLines } from "./scopeLine";
+import { withSharedScreenPicture } from "./sharedScreenPicture";
 import { setAsideMarksInWords } from "./sheetRows";
 import type { ChangeStates } from "./toolRecord";
 import type { TurnCheck } from "./turnChecks";
@@ -692,7 +694,7 @@ export interface AnswersOptions {
    * Passages in reading order, none while it has no line, and whether it is behind; null when the
    * Mind's Meeting isn't recording.
    */
-  liveTranscript(mindId: string): Promise<LiveTranscript | null>;
+  liveTranscript(mindId: string, question: string): Promise<LiveTranscript | null>;
   /**
    * The help a Question in a conversation is, asked from a Mind whose Meeting records or is
    * paused: a button, whose name its text is, or "question", one the User typed in the call-help
@@ -1585,7 +1587,7 @@ export function createAnswers(options: AnswersOptions) {
     checkScales?: boolean;
     /**
      * Asked from a Mind whose Meeting may be recording (#144): its live Transcript, indexed up
-     * to now, to go with the Question. Absent: none.
+     * to now, and its shared screens, to go with the Question. Absent: none.
      */
     listening?: () => Promise<LiveTranscript | null>;
     /**
@@ -1689,6 +1691,8 @@ export function createAnswers(options: AnswersOptions) {
     let mindRequest = input.mind?.request;
     /** It listened to a meeting's live transcript: the Question went with it. */
     let heard: LiveTranscript | null = null;
+    let screenUse: NonNullable<AnswerSteps["sent"]>["sharedScreen"];
+    let closeScreen: (() => void) | undefined;
     /** Help asked while its Meeting's live text was behind (#1366). */
     let textBehind = false;
     /** The Documents whose whole text went with the Question; null until the assistant's request is built. */
@@ -1861,9 +1865,10 @@ export function createAnswers(options: AnswersOptions) {
         ...(writtenFrom && wroteNewText() && { writtenFrom }),
         ...(textBehind && { textBehind: true as const }),
         ...(reading && { stillReading: reading }),
-        ...(sentDocuments && {
+        ...((sentDocuments || screenUse) && {
           sent: {
-            documents: [...sentDocuments],
+            documents: [...(sentDocuments ?? [])],
+            ...(screenUse && { sharedScreen: screenUse }),
             ...(heard && transcripts.size > 0 && { transcript: true as const }),
           },
         }),
@@ -2276,6 +2281,7 @@ export function createAnswers(options: AnswersOptions) {
     const finish = (outcome: Outcome) => {
       if (finished) return;
       finished = true;
+      closeScreen?.();
       finishedAt = Date.now();
       replyEnded();
       if (limitShown) options.waiting?.(answerId, null);
@@ -2826,7 +2832,12 @@ export function createAnswers(options: AnswersOptions) {
       let consenting = input.consentNeeded;
       let activity: Extract<
         AnswerPhase,
-        "searching" | "writing" | "checking-quotes" | "checking-figures" | "checking-claims"
+        | "listening"
+        | "searching"
+        | "writing"
+        | "checking-quotes"
+        | "checking-figures"
+        | "checking-claims"
       > = "writing";
       let loading = false;
       let responded = false;
@@ -2851,6 +2862,7 @@ export function createAnswers(options: AnswersOptions) {
       let harder: Promise<PreparedChatModel | null> | null = null;
       // Help during a call is read within seconds: the model answers without thinking first.
       const thinking = help ? "off" : (input.thinking ?? (input.task ? "task" : "answer"));
+      let fallbackReadsPictures = true;
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
       try {
         prepared = await options.prepareModel(model, thinking);
@@ -2858,6 +2870,7 @@ export function createAnswers(options: AnswersOptions) {
         if (helpModel) {
           try {
             const quick = await options.prepareModel(helpModel, thinking);
+            fallbackReadsPictures = readsImages(prepared.capabilities);
             // Where the provider refuses call help's model, or it is busy, the press goes on with
             // the Answers model, with nothing said in the panel (#2526).
             prepared = {
@@ -2952,16 +2965,44 @@ export function createAnswers(options: AnswersOptions) {
         }
       }
       if (input.listening) {
+        activity = "listening";
+        showPhase();
         try {
           heard = await input.listening();
         } catch (error) {
           options.reportError(error);
         }
+        activity = "writing";
         if (finished) return;
         const kept = newestWithin(heard?.passages ?? [], listenedTokens(prepared.window));
         // Known before they are shown, so this call's lines are marked as this call's (#3005).
         for (const passage of kept) transcripts.add(passage.documentId);
-        if (heard) messages = withTranscript(messages, session.show(kept));
+        if (heard) {
+          const screens = (heard.screen?.readings ?? []).map((screen) => ({
+            ...screen,
+            library: screen.library.filter(
+              ({ documentId }) => documentIds === null || documentIds.includes(documentId),
+            ),
+          }));
+          if (heard.screen && screens.length) {
+            const ended = heard.screen.ended;
+            const stop = () => finish({ status: "stopped" });
+            if (ended.aborted) {
+              stop();
+              return;
+            }
+            ended.addEventListener("abort", stop, { once: true });
+            closeScreen = () => ended.removeEventListener("abort", stop);
+            screenUse = "text";
+            contextReasons.push({ via: "read", source: "shared-screen" });
+            textOrigin ??= "shared-screen";
+          }
+          if (kept.length) {
+            contextReasons.push({ via: "read", source: "transcript" });
+            textOrigin ??= "transcript";
+          }
+          messages = withTranscript(messages, session.show(kept), session.showScreens(screens));
+        }
         const hasEarlierTurns = messages.length > 1;
         if (heard && hasEarlierTurns) {
           messages = withLineBefore(messages, CALL_SCOPE_NOTE, context.question, context.question);
@@ -3077,6 +3118,44 @@ export function createAnswers(options: AnswersOptions) {
       }
       sentAt = Date.now();
       if (!(await openSkills()) || !skills) return;
+      const sharedWindow = heard?.screen;
+      if (finished) return;
+      const usePicture =
+        sharedWindow &&
+        (help === "answer"
+          ? sharedWindow.mostlyVisual
+          : (!help || help === "question") &&
+            (sharedWindow.mostlyVisual || sharedWindow.refersToScreen));
+      if (sharedWindow && usePicture) {
+        if (!readsImages(prepared.capabilities) || !fallbackReadsPictures) {
+          if (sharedWindow.firstTextOnlyAnswer()) screenUse = "no-vision";
+        } else {
+          const picture = sharedWindow.picture();
+          if (picture.state === "limit") screenUse = "limit";
+          if (picture.state === "sent") {
+            const screen = session.pictureOfScreen(picture.id);
+            if (screen) {
+              prepared = {
+                ...prepared,
+                model: withSharedScreenPicture(
+                  prepared.model,
+                  screen,
+                  picture.data,
+                  sharedWindow.ended,
+                  () => {
+                    screenUse = "picture";
+                  },
+                  () => {
+                    screenUse = "budget";
+                    session.forgetPicture();
+                    picture.refund();
+                  },
+                ),
+              };
+            }
+          }
+        }
+      }
       const { listed, forced } = skills;
       const opened: SkillSession = skills;
       // The Tools of the providers the core registered (the Connectors that are on), next to
@@ -4001,7 +4080,7 @@ export function createAnswers(options: AnswersOptions) {
             analysisInstructions(withAnalysisTools),
             codeInstructions(withCodeTools, withAnalysisTools),
             workbookInstructions(withWorkbookTools),
-            meetingInstructions(heard !== null, unmarked),
+            meetingInstructions(heard !== null, unmarked, Boolean(heard?.screen?.readings.length)),
             signInNeededInstructions(signInNeeded.map((connector) => connector.name)),
             help ? "" : language,
           ]
@@ -4818,7 +4897,7 @@ export function createAnswers(options: AnswersOptions) {
       forcedSkill: question.forcedSkill,
       analyse: question.analyse,
       consentNeeded: ready.consentNeeded,
-      ...(mind && { listening: () => options.liveTranscript(mind.mindId) }),
+      ...(mind && { listening: () => options.liveTranscript(mind.mindId, question.text) }),
       ...(mind && options.noteCall?.(mind.mindId)?.live && { callIn: mind.mindId }),
       ...(help && { help }),
       quoted: callOnly ? [] : quoted,

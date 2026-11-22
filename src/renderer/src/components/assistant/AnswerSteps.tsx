@@ -516,6 +516,8 @@ function liveText(
       return t("approvals.answer.waiting");
     case "consent":
       return t("answer.phase.waiting-for-consent");
+    case "listening":
+      return t("answer.phase.listening");
     case "loading":
       return t("answer.phase.loading");
     case "reading":

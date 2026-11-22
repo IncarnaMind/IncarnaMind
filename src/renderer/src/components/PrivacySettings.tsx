@@ -192,6 +192,20 @@ export function PrivacySettings() {
         </SettingsSection>
       </div>
 
+      {/* What a Meeting reads from a shared window, and where it goes (ADR-0031). */}
+      <div data-testid="shared-screen-note" role="note">
+        <SettingsSection title={t("privacy.screen.title")}>
+          <SettingsHelp>
+            {[
+              t("privacy.screen.body"),
+              t("privacy.screen.sendsText"),
+              t("privacy.screen.sendsPicture"),
+              t("privacy.screen.stop"),
+            ].join(" ")}
+          </SettingsHelp>
+        </SettingsSection>
+      </div>
+
       <AiUseSettings />
 
       {/* Only a copy built with a crash-report address can send reports, so only it offers them. */}

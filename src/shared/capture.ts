@@ -1,9 +1,12 @@
 /**
  * What the main process and the hidden capture window say to each other
- * while a Meeting records (ADR-0015): the channels, and the bridge the
- * window's preload gives its page.
+ * while a Meeting records (ADR-0015) or reads its shared screen (ADR-0031):
+ * the channels, and the bridge the window's preload gives its page.
  */
 import type { AudioSource } from "../core/api";
+
+/** How wide the shared window's thumbnails are: about a 20th of a 1080p frame, enough to see a slide change. */
+export const SCREEN_THUMBNAIL_WIDTH = 96;
 
 /** The capture window's page reaches its preload as `window.incarnamindCapture`. */
 export const CAPTURE_BRIDGE_KEY = "incarnamindCapture";
@@ -24,6 +27,20 @@ export const CAPTURE_CHANNELS = {
   state: "capture:state",
   /** Page → main: everything captured has been sent. */
   stopped: "capture:stopped",
+  /** Main → page: capture the shared window (ADR-0031), which the next display request gives. */
+  screenStart: "capture:screen-start",
+  /** Page → main: `ScreenStarted`. */
+  screenStarted: "capture:screen-started",
+  /** Page → main: (width, height, pixels) of a small grey thumbnail, about once a second. */
+  screenSample: "capture:screen-sample",
+  /** Main → page: (id) send the window as it is now, at full size. */
+  screenGrab: "capture:screen-grab",
+  /** Page → main: (id, `ScreenGrabbed`). */
+  screenFrame: "capture:screen-frame",
+  /** Page → main: the shared window's capture ended by itself: closed, or stopped from outside. */
+  screenEnded: "capture:screen-ended",
+  /** Main → page: stop capturing the shared window. */
+  screenStop: "capture:screen-stop",
 } as const;
 
 export interface CaptureStart {
@@ -61,6 +78,21 @@ export function createMicrophoneRelay(page: {
 /** How a source is doing, as the capture window sees it (`CaptureState` in the core's adapters). */
 export type CaptureWindowState = "waiting" | "recording" | "denied" | "unavailable" | "ended";
 
+/** How the shared window's capture started: its name, or why it didn't. */
+export type ScreenStarted =
+  | { started: true }
+  | { started: false; reason: "whole-screen" | "denied" | "closed"; message: string };
+
+/** The shared window as it was when asked for: grey to read, and a JPEG to show. */
+export type ScreenGrabbed =
+  | {
+      width: number;
+      height: number;
+      pixels: Uint8Array;
+      preview?: { width: number; height: number; bgra: Uint8Array };
+    }
+  | { error: string };
+
 export interface CaptureBridge {
   onStart(listener: (request: CaptureStart) => void): void;
   onStop(listener: () => void): void;
@@ -69,6 +101,13 @@ export interface CaptureBridge {
   audio(source: AudioSource, samples: Int16Array, capturedAt: number): void;
   state(source: AudioSource, state: CaptureWindowState): void;
   stopped(): void;
+  onScreenStart(listener: (selection: number) => void): void;
+  onScreenGrab(listener: (selection: number, id: number, keepImage: boolean) => void): void;
+  onScreenStop(listener: (selection: number) => void): void;
+  screenStarted(selection: number, started: ScreenStarted): void;
+  screenSample(selection: number, width: number, height: number, pixels: Uint8Array): void;
+  screenFrame(selection: number, id: number, frame: ScreenGrabbed): void;
+  screenEnded(selection: number): void;
 }
 
 /** Web Audio's samples (-1 to 1) as 16-bit PCM, clipped. */

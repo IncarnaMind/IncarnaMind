@@ -309,6 +309,8 @@ const deviceScope: Scope<DeviceSettings> = {
     checkDecisionModel: null,
     modelSource: "auto",
     meetingNoticeAccepted: false,
+    meetingScreenAsk: true,
+    meetingScreenPictureLimit: 30,
     meetingPanel: true,
     meetingPanelHidden: true,
     meetingHelpKeys: {},
@@ -345,6 +347,9 @@ const deviceScope: Scope<DeviceSettings> = {
     modelSource: (value): value is ModelSourceChoice =>
       MODEL_SOURCE_CHOICES.some((choice) => choice === value),
     meetingNoticeAccepted: isBoolean,
+    meetingScreenAsk: isBoolean,
+    meetingScreenPictureLimit: (value): value is number =>
+      typeof value === "number" && Number.isSafeInteger(value) && value >= 0,
     meetingPanel: isBoolean,
     meetingPanelHidden: isBoolean,
     meetingHelpKeys: isHelpKeys,
