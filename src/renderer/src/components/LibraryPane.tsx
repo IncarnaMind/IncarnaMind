@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Document, LibraryGroup } from "../../../core/api";
 import { askFirstAgent } from "../askYourAi";
@@ -318,7 +318,7 @@ export function LibraryPane() {
   }, [shownIds]);
   // The row may hide behind the search, a filter or a folded section: clear what hides it before
   // the reveal looks, which gives up after 120 frames (#2308).
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (reviewTarget === null) return;
     useAppStore.setState({ reviewTarget: null });
     useOrganizeReview.setState({ open: false });
@@ -364,8 +364,9 @@ export function LibraryPane() {
       }
       if (frames++ < 120) requestAnimationFrame(reveal);
     };
-    requestAnimationFrame(reveal);
-  }, [reviewTarget, folders, folderOf]);
+    if (narrowing) requestAnimationFrame(reveal);
+    else reveal();
+  }, [reviewTarget, folders, folderOf, narrowing]);
   const selectingMany = useSelection(
     (state) => state.surface === "library" && state.items.length > 1,
   );
