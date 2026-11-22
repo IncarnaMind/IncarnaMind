@@ -12,7 +12,7 @@ Two names are still open: the scheme the app registers with the system (the app'
 
 ## The web link the agent gives
 
-Most of the apps an agent's reply is read in don't open a custom scheme (#3534's findings): Claude's desktop app shows such a link and does nothing, VS Code's chat removes it, and the Codex command line prints it as plain text. Every one of them opens an https link. So the link an agent gives is `https://<our site>/open#note/<id>` (a file or a Canvas likewise). A static page of our site reads the part after `#` in the browser and hands it to the app's own link, which the browser asks once to open.
+Most of the apps an agent's reply is read in don't open a custom scheme (#3534's findings): Claude's desktop app shows such a link and does nothing, VS Code's chat removes it, and the Codex command line prints it as plain text. Every one of them opens an https link. So the link an agent gives is `https://<our site>/open/#note/<id>` (a file or a Canvas likewise; the site's paths end in a slash). A static page of our site reads the part after `#` in the browser and hands it to the app's own link, which the browser asks once to open.
 
 - **The part after `#` never reaches a server.** The page logs nothing, sets nothing, and loads nothing from anyone else.
 - **Where the app isn't there, or the hand-over is refused,** the page says in one line what the link is for and where to get the app.
