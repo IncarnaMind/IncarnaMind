@@ -379,6 +379,9 @@ export function createCanvasTools(context: CanvasToolContext) {
       });
     },
 
+    /** The Canvas named, if the pairing reaches it; a refusal that tells nothing of the others. */
+    reached: reachedCanvas,
+
     /** The Canvases in one of the Folders `list_minds` lists, as the pairing reaches them. */
     listedIn(pairing: AdmittedPairing, folderId: string): AgentCanvasListed[] {
       const reached = context.reached(pairing);

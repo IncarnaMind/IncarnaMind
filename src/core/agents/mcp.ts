@@ -310,10 +310,15 @@ export function createAgentServer(
   server.registerTool(
     tool("show_citation"),
     {
-      title: "Show a Citation",
+      title: "Show in IncarnaMind",
       description:
-        "Open a [cite:…] in IncarnaMind at its quote, when the User asks to see a source.",
-      inputSchema: z.object({ cite: z.string().describe("A [cite:…] IncarnaMind gave.") }),
+        "Open a [cite:…] at its quote, or a Note, file or Canvas by its id, in IncarnaMind when the User asks to see or open it.",
+      inputSchema: z.object({
+        cite: z.string().optional().describe("A [cite:…] IncarnaMind gave."),
+        note: z.string().optional(),
+        file: z.string().optional(),
+        canvas: z.string().optional(),
+      }),
       outputSchema: z.object({
         shown: z.literal(true),
         document: z.string(),

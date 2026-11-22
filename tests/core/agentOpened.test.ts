@@ -8,8 +8,9 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { AgentOpened } from "../../src/core/api";
+import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
-import { type Handed, handOver, started, structured } from "../helpers/handedFiles";
+import { type Handed, handOver, refusal, started, structured } from "../helpers/handedFiles";
 import { plainDeck } from "../helpers/pptx";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
@@ -81,5 +82,93 @@ describe("what an outside agent makes, opened in IncarnaMind", () => {
     const other = await makeAll(looking, files, coast.id, "Other");
     expect(opened).toEqual(other.map((item) => ({ item, front: false })));
     expect(before).toHaveLength(3);
+  });
+
+  // protects=asked to open again what it made, an agent shows a Note, a handed-over file and a Canvas by their ids in front, as it shows a Citation, so the User gets back to it from any client; a file's id shows its newest version; nothing changes (#3534); fails_when=one of them isn't shown, comes up behind, a file shows an older version, or showing writes anything
+  it("shows again, in front, a Note, a handed-over file's newest version and a Canvas by their ids, changing nothing", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const note = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Harbour note", markdown: "The harbour opens at six." },
+      }),
+    );
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(
+      path,
+      plainDeck([{ title: "Harbour" }, { lines: ["The ferry sails at six."] }]),
+    );
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    await writeFile(
+      path,
+      plainDeck([{ title: "Harbour" }, { lines: ["The ferry sails at seven."] }]),
+    );
+    const second = structured<Handed>(await handOver(agent, { path }));
+    expect(second.mindId).not.toBe(first.mindId);
+    const canvas = structured<{ canvasId: string }>(
+      await agent.callTool({
+        name: "publish_canvas",
+        arguments: { title: "Harbour tides", html: "<p>Tides</p>" },
+      }),
+    );
+    const minds = await core.listMinds();
+    const canvases = await core.listCanvases();
+    const opened: AgentOpened[] = [];
+    core.on("agents.opened", (each) => opened.push(each));
+
+    const shown = [
+      await agent.callTool({ name: "show_citation", arguments: { note: note.mindId } }),
+      await agent.callTool({ name: "show_citation", arguments: { file: first.fileId } }),
+      await agent.callTool({ name: "show_citation", arguments: { canvas: canvas.canvasId } }),
+    ].map((result) => structured<{ shown: true; document: string }>(result));
+
+    expect(shown.map((each) => each.document)).toEqual([
+      "Harbour note",
+      expect.stringContaining("Harbour review"),
+      "Harbour tides",
+    ]);
+    expect(opened).toEqual([
+      { item: { kind: "mind", mindId: note.mindId }, front: true },
+      { item: { kind: "mind", mindId: second.mindId }, front: true },
+      { item: { kind: "canvas", canvasId: canvas.canvasId }, front: true },
+    ]);
+    expect(await core.listMinds()).toEqual(minds);
+    expect(await core.listCanvases()).toEqual(canvases);
+  });
+
+  // protects=showing again reveals nothing the connection may not read: an id that isn't there, a deleted Note, a Note in a Folder the agent wasn't given, and one kind's id passed as another all show nothing and are not found (#3534); fails_when=any of them opens a window, or its refusal says whether the item exists
+  it("shows nothing for an id that isn't there, was deleted, isn't shared with the agent, or is of another kind", async () => {
+    const { core, coast, writer, more } = await started([], { folders: ["Private"] });
+    const agent = await connectLegacyAgent(writer.launch);
+    const canvas = structured<{ canvasId: string }>(
+      await agent.callTool({
+        name: "publish_canvas",
+        arguments: { title: "Harbour tides", html: "<p>Tides</p>", folderId: coast.id },
+      }),
+    );
+    const gone = await core.createMind({ title: "Old harbour note", folderId: coast.id });
+    await core.deleteMind(gone.id);
+    await core.updateAgent(writer.pairing.id, { folderIds: [coast.id] });
+    const hidden = await core.createMind({ title: "Pay review", folderId: more[0]?.id ?? null });
+    const opened: AgentOpened[] = [];
+    core.on("agents.opened", (each) => opened.push(each));
+    const refused: string[] = [];
+    for (const args of [
+      { note: crypto.randomUUID() },
+      { note: gone.id },
+      { note: hidden.id },
+      { note: canvas.canvasId },
+      { file: crypto.randomUUID() },
+    ]) {
+      refused.push(refusal(await agent.callTool({ name: "show_citation", arguments: args })));
+    }
+    // One refusal for all, so none says whether the item is there.
+    expect(refused[0]?.startsWith(translate("en", "agents.problem.not-found"))).toBe(true);
+    expect(new Set(refused).size).toBe(1);
+    expect(
+      refusal(await agent.callTool({ name: "show_citation", arguments: { canvas: hidden.id } })),
+    ).toContain(translate("en", "agents.canvas.notFound"));
+    expect(opened).toEqual([]);
   });
 });

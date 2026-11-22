@@ -260,11 +260,16 @@ export interface AgentCheckResult {
 
 export interface AgentShowInput {
   /** A Citation IncarnaMind gave, e.g. "[cite:k3x9a2b7]". */
-  cite: string;
+  cite?: string;
+  /** Or, without one, what the agent made to show again (#3534): a Note's id, a handed-over file's or a Canvas's. */
+  note?: string;
+  file?: string;
+  canvas?: string;
 }
 
 export interface AgentShown {
   shown: true;
+  /** The Citation's Document, or the name of the Note, file or Canvas shown. */
   document: string;
   location: string | null;
 }
@@ -852,6 +857,8 @@ export interface AgentAccessDeps {
   doneSince: CanvasToolDeps["doneSince"];
   /** The files outside agents hand over (#3412). */
   handedAt: HandedFileToolDeps["handedAt"];
+  /** The Note of a handed-over file's newest version that has one, by the file's id; null for none. */
+  handedNote(fileId: string): string | null;
   handOver: HandedFileToolDeps["handOver"];
   handedCheck: HandedFileToolDeps["handedCheck"];
 }
@@ -2141,6 +2148,38 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
   });
 
+  /** What `show_citation` is asked to show again without a Citation (#3534), the first named. */
+  const shownItem = (input: AgentShowInput | undefined) => {
+    for (const kind of ["note", "file", "canvas"] as const)
+      if (input?.[kind] !== undefined) return { kind, id: input[kind] };
+    return null;
+  };
+
+  /**
+   * Shows a Note, the Note of a handed-over file's newest version, or a Canvas in front, as a
+   * Citation is shown: it changes nothing, and an id the pairing doesn't reach is not found.
+   */
+  const showItem = ({ kind, id }: { kind: "note" | "file" | "canvas"; id: unknown }) =>
+    call("show_citation", typeof id === "string" ? id : "", [READ_DOCUMENTS], (pairing) => {
+      const given = text(id, kind, 200);
+      if (kind === "canvas") {
+        const canvas = canvasTools.reached(pairing, given);
+        deps.opened({ item: { kind: "canvas", canvasId: canvas.id }, front: true });
+        return {
+          result: { shown: true as const, document: canvas.title, location: null },
+          count: 1,
+          documentIds: [],
+        };
+      }
+      const mind = mindInScope(pairing, kind === "file" ? (deps.handedNote(given) ?? "") : given);
+      deps.opened({ item: { kind: "mind", mindId: mind.id }, front: true });
+      return {
+        result: { shown: true as const, document: mindName(mind), location: null },
+        count: 1,
+        documentIds: [],
+      };
+    });
+
   /**
    * What a request named, as it is now: each Document and Folder that was deleted since is left
    * out, and one that exists but isn't this pairing's to read now refuses the request, as a Note
@@ -2607,6 +2646,8 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
 
     showCitation(input) {
+      const item = input?.cite === undefined ? shownItem(input) : null;
+      if (item) return showItem(item);
       const given = typeof input?.cite === "string" ? input.cite : "";
       return call("show_citation", given, [READ_DOCUMENTS], (pairing) => {
         const tag = text(input?.cite, "cite", 100);

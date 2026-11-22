@@ -49,6 +49,7 @@ import type { FakeTranscriberOptions } from "../core/transcription/fake";
 import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
 import { PLOT_FONT } from "../shared/analysisWindow";
+import { agentLauncher } from "./agentLauncher";
 import { createAgentSkillFiles } from "./agentSkillFiles";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCanvasFiles } from "./canvasFiles";
@@ -1080,11 +1081,12 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     // running the shim built beside this file (inside app.asar, which Node mode reads).
     agents: {
       offered: SHOW_AGENT_CONNECTION,
-      launcher: {
-        command: process.execPath,
-        args: [join(__dirname, "agentShim.js")],
-        env: { ELECTRON_RUN_AS_NODE: "1" },
-      },
+      launcher: agentLauncher({
+        execPath: process.execPath,
+        shim: join(__dirname, "agentShim.js"),
+        appImage: process.env.APPIMAGE,
+        dataFolder: app.getPath("userData"),
+      }),
       shimScript: join(__dirname, "agentShim.js"),
       version: app.getVersion(),
       openLink: openAgentLink,
