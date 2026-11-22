@@ -391,6 +391,9 @@ describe("a second prompt pressed after a finished first one", () => {
       for (const step of steps) {
         await step();
         expect(shown()).toEqual(sumOutline);
+        expect(all("help-earlier").map((row) => row.textContent)).toEqual([
+          expect.stringContaining("What do they want?"),
+        ]);
       }
       await loaded([
         answerOf("answer-want", WANT, "done"),
@@ -467,13 +470,13 @@ describe("a press whose Meeting stops before its reply", () => {
     const want = { kind: "want", question: null };
     await changed(null);
     await press("want");
-    expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": want });
+    expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": { ...want, earlier: [] } });
     if (first === "stop") {
       await stop();
       await replied(0, "answer-want");
     } else {
       await replied(0, "answer-want");
-      expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": want });
+      expect(useMeetingHelp.getState().pending).toEqual({ "meeting-1": { ...want, earlier: [] } });
       await stop();
     }
     expect(useMeetingHelp.getState().pending).toEqual({});
