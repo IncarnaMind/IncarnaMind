@@ -925,7 +925,7 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
       ),
     ).toMatchObject({
       unconfirmed: [1],
-      next: expect.stringMatching(/1: the run's code writes 1\.03 itself, which no quote gives/),
+      next: expect.stringMatching(/1: the run's code writes 1\.03 itself, and no quote cited/),
     });
     expect(
       (await marks(grown.core, grown.mindId, grown.coast.id)).map((each) => each.state),
@@ -950,6 +950,56 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     });
     expect(await marks(checked.core, checked.mindId, checked.coast.id)).toMatchObject([
       { text: PASSENGERS, state: "supported", workedOut: "passengers = 350" },
+    ]);
+  });
+  // protects=a number a working or a run's code writes itself is backed where it stands, by its digits, in a quote cited with the verdict (#3661); fails_when=a working or a run resting on a cited number is refused because the number is written rather than given as an input
+  it("backs a number written into a working or a run's code that a quote cited with the verdict gives", async () => {
+    const written = [{ value: 750_000, line: 1, text: "750_000" }];
+    const { core, agent, mindId, coast } = await paired((job) => ({
+      output: {
+        literals: written,
+        results: [
+          {
+            kind: "figure",
+            name: "passengers",
+            label: "Passengers",
+            unit: null,
+            value: rowsOf(job).reduce((sum, row) => sum + Number(row[2] ?? 0), 0),
+          },
+        ],
+      },
+    }));
+    const given = await task(agent, mindId);
+    const spring = await passageOf(agent, "fares spring", "Harbour");
+    const [springCite = "", autumnCite = ""] = await citesOf(agent, spring, [SPRING, AUTUMN]);
+    const crossings = await passageOf(agent, "passengers crossings", "Crossings");
+    const id = runId(await run(agent, [{ name: "crossings", passageId: crossings }]));
+    const reported = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            { n: 1, verdict: "supported", run: id, cites: [autumnCite] },
+            {
+              n: 2,
+              verdict: "supported",
+              cites: [autumnCite],
+              working: {
+                inputs: [{ name: "spring", value: 1_250_000, cite: springCite }],
+                expression: "spring + 750000",
+                figure: "£2,000,000",
+              },
+            },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ marked: 2, unconfirmed: [] });
+    expect(await marks(core, mindId, coast.id)).toMatchObject([
+      { text: PASSENGERS, state: "supported", workedOut: "Passengers = 350" },
+      { text: FARES, state: "supported", workedOut: "1,250,000 + 750000 = £2,000,000" },
     ]);
   });
 });

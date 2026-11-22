@@ -5,9 +5,11 @@
  * `report_check` for a figure it worked out itself from numbers Passages give (#3393), whose
  * numbers are confirmed in their quotes and whose expression is worked out again.
  */
+
+import type { AnalysisLiteral } from "../../shared/analysis";
 import { figureResultText } from "../../shared/figures";
 import { LIBRARY_FACTS } from "../../shared/libraryFacts";
-import { workPlain } from "../../shared/plainFigures";
+import { locate, workPlain } from "../../shared/plainFigures";
 import type { AnalysisRuntime } from "../adapters";
 import { analysisTool, writtenIn } from "../analysis/tool";
 import { answerLanguage, givenList } from "../answers/calculations";
@@ -34,6 +36,10 @@ interface AgentWorking {
   mindId: string | null;
   read: AgentReach;
   worked: Worked;
+  /** Numbers the run's code wrote itself, other than `NOT_DATA`. */
+  wrote: readonly AnalysisLiteral[];
+  /** What it backs where one of them stands in no quote cited with the verdict (#3661). */
+  unbacked: Worked;
 }
 
 /** What IncarnaMind worked out for agents, by id, and the Note each pairing is checking. */
@@ -93,6 +99,10 @@ const NO_FILE =
  * number a working or a run writes itself is one no quote gives (#3661).
  */
 export const NOT_DATA: readonly number[] = [0, 1, 2, -1, 100];
+
+/** Whether a number a working or a run wrote itself stands, by its digits, in one of `quotes`. */
+const quoted = (value: number, quotes: readonly string[]) =>
+  quotes.some((quote) => locate(value, quote)?.inCharacters === false);
 
 export const pythonRuns = (runtime: AnalysisRuntime | undefined): runtime is AnalysisRuntime =>
   runtime?.languages.some((each) => each.language === "python") === true;
@@ -195,6 +205,7 @@ export function createWorkOut(deps: WorkOutDeps) {
     if (!run) return { result: { id: null, report }, documentIds: [] };
     const rows = rowsOf(run);
     const documentIds = [...new Set(rows.map((each) => each.citation.documentId))];
+    const counted = read && listed.some(isLibraryList) ? { ...read, listed } : null;
     const id = keep("run", {
       pairingId: to.pairingId,
       mindId,
@@ -203,14 +214,17 @@ export function createWorkOut(deps: WorkOutDeps) {
         folderIds: read?.read.folderIds ?? [],
         mindIds: read?.read.mindIds ?? [],
       },
-      worked: workedRun(run, read && listed.some(isLibraryList) ? { ...read, listed } : null),
+      worked: workedRun(run, counted, false),
+      wrote: run.output.literals.filter((each) => !NOT_DATA.includes(each.value)),
+      unbacked: workedRun(run, counted, true),
     });
     return { result: { id, report: `Run ${id}\n${report}` }, documentIds };
   }
 
   /**
    * A calculation or run this pairing had made while it checked `mindId`, as a verdict rests on it;
-   * null when it is no such thing, or read what the pairing may no longer.
+   * null when it is no such thing, or read what the pairing may no longer. `quotes`: those cited
+   * with the verdict, where a number the run's code wrote must stand.
    */
   function confirmed(
     id: string,
@@ -221,6 +235,7 @@ export function createWorkOut(deps: WorkOutDeps) {
       folderIds: ReadonlySet<string>;
       mindIds: ReadonlySet<string>;
     },
+    quotes: readonly string[] = [],
   ): Worked | null {
     const working = workings.made.get(id.trim());
     if (!working || working.pairingId !== pairingId || working.mindId !== mindId) return null;
@@ -229,7 +244,11 @@ export function createWorkOut(deps: WorkOutDeps) {
       read.documentIds.every((each) => reach.documentIds.has(each)) &&
       read.folderIds.every((each) => reach.folderIds.has(each)) &&
       read.mindIds.every((each) => reach.mindIds.has(each));
-    return within ? working.worked : null;
+    if (!within) return null;
+    const unbacked = working.wrote.filter((each) => !quoted(each.value, quotes));
+    if (unbacked.length === 0) return working.worked;
+    const texts = [...new Set(unbacked.map((each) => each.text))].join(", ");
+    return working.unbacked.ok ? working.unbacked : { ...working.unbacked, detail: texts };
   }
 
   return {
@@ -251,6 +270,7 @@ export function createWorkOut(deps: WorkOutDeps) {
 function workedRun(
   run: AnswerAnalysis,
   lists: { lists: LibraryLists; version: string | null; listed: string[] } | null,
+  recalculatedOnly: boolean,
 ): Worked {
   const rows = rowsOf(run);
   const file = rows[0]?.citation.documentName ?? run.title;
@@ -259,22 +279,19 @@ function workedRun(
   // A figure IncarnaMind worked out again from the cells and found different has no marker: the
   // run's report says it can't be used, and no verdict rests on it.
   const usable = new Set(run.markers.figures.map((each) => each.result));
-  // Where the code wrote a number of its own, only a figure worked out again from the cells is
-  // backed: any other may rest on that number, which no quote gives (#3661).
-  const wrote = run.output.literals.length > 0;
+  // Where the code wrote a number no cited quote gives, only a figure worked out again from the
+  // cells is backed: any other may rest on that number (#3661).
   const recalculated = new Set((run.recalculations ?? []).map((each) => each.result));
   const figures = run.output.results.flatMap((each) =>
-    each.kind === "figure" && usable.has(each.name) && (!wrote || recalculated.has(each.name))
+    each.kind === "figure" &&
+    usable.has(each.name) &&
+    (!recalculatedOnly || recalculated.has(each.name))
       ? [each]
       : [],
   );
   if (figures.length === 0) {
-    return wrote
-      ? {
-          ok: false,
-          reason: "number-not-worked-out",
-          detail: [...new Set(run.output.literals.map((each) => each.text))].join(", "),
-        }
+    return recalculatedOnly
+      ? { ok: false, reason: "number-not-worked-out", detail: null }
       : { ok: false, reason: "no-evidence", detail: null };
   }
   const library = lists ? libraryRead(lists.lists, lists.listed.filter(isLibraryList)) : null;
@@ -319,6 +336,7 @@ function workedRun(
 export function workedFrom(
   given: unknown,
   citationOf: (cite: string) => Citation | null,
+  withVerdict: readonly Citation[] = [],
 ): { ok: true; worked: Worked } | { ok: false; problem: string } {
   const working = fields(given);
   const expression = words(working.expression);
@@ -357,9 +375,12 @@ export function workedFrom(
     shown: figure,
   });
   if ("problems" in worked) return { ok: false, problem: worked.problems.join("; ") };
+  const quotes = [...withVerdict, ...cited.map((each) => each.citation)].map((each) => each.quote);
   const written = [
     ...new Set(
-      worked.literals.flatMap((each) => (NOT_DATA.includes(each.value) ? [] : [each.text])),
+      worked.literals.flatMap((each) =>
+        NOT_DATA.includes(each.value) || quoted(each.value, quotes) ? [] : [each.text],
+      ),
     ),
   ];
   if (written.length > 0) {
