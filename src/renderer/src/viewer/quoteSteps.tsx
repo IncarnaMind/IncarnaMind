@@ -86,6 +86,7 @@ export function useQuoteSteps({
   root,
   drawn,
   found: known,
+  reach,
 }: {
   target: ViewerTarget;
   root: RefObject<HTMLElement | null>;
@@ -96,6 +97,8 @@ export function useQuoteSteps({
    * only one shows them; else those drawn are read from `root`.
    */
   found?: readonly number[];
+  /** Brings a quote found but not drawn yet into view: on a PDF page or sheet rows not drawn. */
+  reach?: (quote: number) => void;
 }): { step: number; stepper: ReactNode } {
   const [chosen, setChosen] = useState<{ request: number; step: number } | null>(null);
   const [present, setPresent] = useState<readonly number[]>([]);
@@ -129,11 +132,11 @@ export function useQuoteSteps({
       const next = present[Math.min(Math.max(at + by, 0), present.length - 1)];
       if (next === undefined || next === step) return;
       setChosen({ request: target.request, step: next });
-      root.current
-        ?.querySelector(`[data-quote-index="${next}"]`)
-        ?.scrollIntoView({ block: "center", inline: "nearest" });
+      const drawnHighlight = root.current?.querySelector(`[data-quote-index="${next}"]`);
+      if (drawnHighlight) drawnHighlight.scrollIntoView({ block: "center", inline: "nearest" });
+      else reach?.(next);
     },
-    [present, step, target.request, root],
+    [present, step, target.request, root, reach],
   );
 
   const stepper =

@@ -24,6 +24,7 @@ import type { CitationForm } from "../../../shared/citationStyles";
 import { type CitationLive, citationSubject, footnoteSubjectKey } from "../../../shared/citations";
 import { MOST_QUOTES_AT_ONCE } from "../../../shared/documentViewer";
 import { FootnoteNumbering } from "../../../shared/footnoteNumbers";
+import { citationLocation } from "../../../shared/locations";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { asOneStep } from "./editorUndo";
 
@@ -216,11 +217,13 @@ export function numberFootnotes(
       if (!beside) shown = new Map();
       // One number is one source and place in Numbered, but one note of several in a note style:
       // a chip stands only for Citations of one place, so one opening shows all its quotes.
+      // A screen's Citation keeps its own chip: its card shows the screen it quotes.
+      const ownChip = citationLocation(attributes)?.kind === "screen";
       const chip = `${number}\u0000${footnoteSubjectKey(citationSubject(attributes, live))}`;
-      const joins = shown.get(chip);
+      const joins = ownChip ? undefined : shown.get(chip);
       const shownBy = joins && joins.count < MOST_QUOTES_AT_ONCE ? joins.at : citations.length;
       if (joins && shownBy === joins.at) joins.count += 1;
-      else shown.set(chip, { at: citations.length, count: 1 });
+      else if (!ownChip) shown.set(chip, { at: citations.length, count: 1 });
       citations.push({
         pos: at,
         number,

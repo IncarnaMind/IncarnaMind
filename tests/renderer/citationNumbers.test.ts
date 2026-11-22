@@ -227,6 +227,29 @@ describe("Citations side by side with one number (#3654)", () => {
     expect(shown(state)).toEqual(["1@0", "2@1", "1@0"]);
   });
 
+  test("never join a screen's Citations: each card shows the screen it quotes", () => {
+    const screen = (from: number): JSONContent => ({
+      type: CITATION_NODE,
+      attrs: {
+        documentId: "meeting",
+        documentName: "Meeting",
+        contentHash: "meeting-v1",
+        quote: "Words on the shared screen.",
+        location: {
+          kind: "screen",
+          at: "2026-10-14T13:05:00.000Z",
+          screen: "m/1",
+          from,
+          to: from + 8,
+        },
+        check: "found",
+        checkReason: null,
+      },
+    });
+    const state = stateWith([paragraph("a", text("Shown"), screen(0), screen(0))]);
+    expect(shown(state)).toEqual(["1@0", "1@1"]);
+  });
+
   test("never join a quote found with one not found: they carry two numbers", () => {
     const state = stateWith([
       paragraph("a", text("Mixed"), placed("tides", 2), placed("tides", 2, "not-found")),

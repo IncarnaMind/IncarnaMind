@@ -737,34 +737,50 @@ describe("the writer's notes", () => {
       unverified: true,
       failed: { check: "not-found", quote, verdict: null },
     });
-    const blocks = [
-      paragraph(
-        words("Slow"),
-        cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "first words") }),
-        cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "second words") }),
-      ),
-    ];
-    const { data } = renderDocx(blocks, {
-      title: "",
-      labels: exportLabels("en"),
-      language: "en-US",
-      paper: "a4",
-      created: "2026-10-22T00:00:00Z",
-      font: null,
-      lineSpacing: null,
-      review: {
-        trackAs: null,
-        markAiText: false,
-        commentFailedChecks: true,
-        now: "2026-10-22T00:00:00Z",
-        authorName: "Test User",
-      },
+    const written = (...between: Inline[]) => {
+      const { data } = renderDocx(
+        [
+          paragraph(
+            words("Slow"),
+            cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "first words") }),
+            ...between,
+            cited("Tides, p. 2", true, { footnote: failed("Tides, p. 2", "second words") }),
+          ),
+        ],
+        {
+          title: "",
+          labels: exportLabels("en"),
+          language: "en-US",
+          paper: "a4",
+          created: "2026-10-22T00:00:00Z",
+          font: null,
+          lineSpacing: null,
+          review: {
+            trackAs: null,
+            markAiText: false,
+            commentFailedChecks: true,
+            now: "2026-10-22T00:00:00Z",
+            authorName: "Test User",
+          },
+        },
+      );
+      const files = unzip(data);
+      return {
+        marks: part(files, "word/document.xml").match(/<w:footnoteReference /g)?.length ?? 0,
+        comments: part(files, "word/comments.xml"),
+      };
+    };
+    // Side by side, and with spaces two waiting changes add between them: a change's edge falls there.
+    const waitingSpace = (id: string): Inline => ({
+      ...words(" "),
+      inserted: { id, at: null },
     });
-    const files = unzip(data);
-    expect(part(files, "word/document.xml").match(/<w:footnoteReference /g)).toHaveLength(1);
-    const comments = part(files, "word/comments.xml");
-    expect(comments).toContain("first words");
-    expect(comments).toContain("second words");
+    for (const between of [[], [waitingSpace("p1"), waitingSpace("p2")]]) {
+      const { marks, comments } = written(...between);
+      expect(marks).toBe(1);
+      expect(comments).toContain("first words");
+      expect(comments).toContain("second words");
+    }
   });
 
   test("a Citation a change still waiting adds keeps its own mark beside one of its place", () => {

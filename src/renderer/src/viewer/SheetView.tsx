@@ -318,7 +318,31 @@ function Sheets({
     () => quotesIn([...(found?.quoteOf.values() ?? [])].flat().map((quote) => ({ quote }))),
     [found],
   );
-  const { step, stepper } = useQuoteSteps({ target, root: box, drawn: found, found: foundQuotes });
+  // A quote in rows not drawn yet is brought into view as an opening's rows are.
+  const reachQuote = useCallback(
+    (quote: number) => {
+      if (!found) return;
+      const refs = cellsOn(found)
+        .filter((ref) => found.quoteOf.get(cellKey(found.sheet, ref))?.includes(quote))
+        .flatMap((ref) => parseCellRef(ref) ?? []);
+      if (refs.length === 0) return;
+      setScrollTo({
+        top: Math.min(...refs.map((ref) => ref.row)),
+        bottom: Math.max(...refs.map((ref) => ref.row)),
+        left: Math.min(...refs.map((ref) => ref.column)),
+        right: Math.max(...refs.map((ref) => ref.column)),
+        request: target.request,
+      });
+    },
+    [found, target.request],
+  );
+  const { step, stepper } = useQuoteSteps({
+    target,
+    root: box,
+    drawn: found,
+    found: foundQuotes,
+    reach: reachQuote,
+  });
 
   return (
     <QuoteStepContext.Provider value={step}>
@@ -639,7 +663,8 @@ function Grid({
   const keys = useRef<HTMLButtonElement>(null);
   const { measured, onSize: measuredMark } = useMarkMeasure(mark);
   const gutter = measured ? markGutter(measured, view.width - ROW_HEADER_WIDTH) : 0;
-  const applied = useRef<number | null>(null);
+  /** The scroll asked for last: an opening's, or a step's to a quote in rows not drawn. */
+  const applied = useRef<ScrollRequest | null>(null);
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
   const csv = model.look === null;
   const settingUp = useSettingUp();
@@ -768,10 +793,10 @@ function Grid({
   // own size, as the rows past the sheet's last are counted from it, and for the mark's width.
   useLayoutEffect(() => {
     const element = scroller.current;
-    if (!element || !scrollTo || applied.current === scrollTo.request) return;
+    if (!element || !scrollTo || applied.current === scrollTo) return;
     if (view.height !== element.clientHeight || view.width !== element.clientWidth) return;
     if (mark && !measured) return;
-    applied.current = scrollTo.request;
+    applied.current = scrollTo;
     const frozenHeight = rows.start(model.frozen.rows + 1);
     const body = element.clientHeight - HEADER_HEIGHT - frozenHeight;
     element.scrollTop = Math.max(0, rows.start(scrollTo.top) - frozenHeight - body / 3);

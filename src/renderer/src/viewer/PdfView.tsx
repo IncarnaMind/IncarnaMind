@@ -43,7 +43,13 @@ import { loadOutline, type OutlineItem } from "./outline";
 import { isMissingDocumentError, isPasswordError, loadPdfJs, openPdf, type PdfJs } from "./pdfjs";
 import { PlaceMemoryContext } from "./place";
 import { CitationMark, type QuoteMark, quoteMarkOf, quoteTone } from "./quoteMark";
-import { OTHER_QUOTE, QuoteStepContext, QuoteStepsLine, useQuoteSteps } from "./quoteSteps";
+import {
+  OTHER_QUOTE,
+  QuoteStepContext,
+  QuoteStepsLine,
+  startOf,
+  useQuoteSteps,
+} from "./quoteSteps";
 import { type ScannedPage, scannedTextLayer, useScannedPages } from "./scannedText";
 import { pdfSelection, useSelectionReader } from "./selectedText";
 import { UnreadPagesLine } from "./UnreadPagesLine";
@@ -781,10 +787,32 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
   }, []);
 
   const firstHighlightPage = highlights.size > 0 ? Math.min(...highlights.keys()) : null;
+  /** The first page a quote of those opened together is on, when there are several. */
+  const pageOfQuote = useCallback(
+    (quote: number) => {
+      const pages = [...highlights]
+        .filter(([, runs]) => runs.some((run) => run.quote === quote))
+        .map(([page]) => page);
+      return pages.length > 0 ? Math.min(...pages) : firstHighlightPage;
+    },
+    [highlights, firstHighlightPage],
+  );
+  const openingPage = pageOfQuote(startOf(target));
+  /** The quote a step went to on a page not drawn yet: shown once its text layer is. */
+  const steppingTo = useRef<number | null>(null);
   const onHighlightShown = useCallback(
     (page: number, element: HTMLElement) => {
       const container = scroller.current;
-      if (!container || page !== firstHighlightPage) return;
+      if (!container) return;
+      if (
+        steppingTo.current !== null &&
+        element.dataset.quoteIndex === String(steppingTo.current)
+      ) {
+        steppingTo.current = null;
+        element.scrollIntoView({ block: "center", inline: "nearest" });
+        return;
+      }
+      if (page !== openingPage) return;
       if (pendingHighlight.current !== target.request) return;
       pendingHighlight.current = null;
       shownHighlight.current = target.request;
@@ -795,7 +823,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
       placed.current = { page, scrollTop: container.scrollTop };
       setCurrentPage(page);
     },
-    [firstHighlightPage, target.request],
+    [openingPage, target.request],
   );
 
   const setPageElement = useCallback((page: number, element: HTMLElement | null) => {
@@ -820,12 +848,23 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
     [highlights],
   );
   // A page's text layer is drawn when it comes near: the quotes found count, not those drawn yet.
+  const reachQuote = useCallback(
+    (quote: number) => {
+      const page = pageOfQuote(quote);
+      if (page === null) return;
+      steppingTo.current = quote;
+      goToPage(page);
+    },
+    [pageOfQuote, goToPage],
+  );
   const { step, stepper } = useQuoteSteps({
     target,
     root: scroller,
     drawn: highlights,
     found: foundQuotes,
+    reach: reachQuote,
   });
+  const markPage = pageOfQuote(step);
 
   return (
     <QuoteStepContext.Provider value={step}>
@@ -891,7 +930,7 @@ function PdfPages({ document, pdfjs, pdf, firstPage, target, banner }: PdfPagesP
                   scanned={scanned.get(page)}
                   highlights={highlights.get(page)}
                   annotationRuns={pageRuns(page)}
-                  mark={page === firstHighlightPage ? mark : null}
+                  mark={page === markPage ? mark : null}
                   onSize={onPageSize}
                   onHighlightShown={onHighlightShown}
                   setElement={setPageElement}

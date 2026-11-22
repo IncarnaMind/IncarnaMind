@@ -1123,7 +1123,8 @@ export class DocxWriter {
             xml += this.noteApart(content[index - 1]);
             // The mark carries the failed checks of every Citation it stands for.
             const footnotes = [item.footnote];
-            for (let next = index + 1; next < to; next++) {
+            // Past this run's end too: a change's edge can fall between Citations that share it.
+            for (let next = index + 1; next < content.length; next++) {
               const later = content[next];
               if (!later || isBlank(later)) continue;
               if (later.kind !== "citation" || !sharesMarkBefore(content, next, noteOf, isBlank))
