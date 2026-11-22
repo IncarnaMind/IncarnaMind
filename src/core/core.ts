@@ -6268,7 +6268,7 @@ export function createCore(adapters: CoreAdapters): Core {
         db,
         () => settings.get().language,
         (run, rows) => organizeReview.propose(run, rows),
-        () => translate(settings.get().language, "agents.sorting.invalid"),
+        (key, values) => translate(settings.get().language, key, values),
       ),
       say: (key, params) => translate(settings.get().language, key, params),
       folders: () =>

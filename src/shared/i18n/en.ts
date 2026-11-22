@@ -30,9 +30,9 @@ export const en = {
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
   "agents.ask.line.organize": "Organize my Documents in IncarnaMind. Read my request there first.",
   "agents.ask.request.organize":
-    "{scope} From list_sorting, copy the selected Document’s id and version together. Use only matching Folder and Tag IDs from that list in propose_sorting. Leave the Suggestions for me to review.",
+    "{scope} Read every page of list_sorting first, and copy each Document’s id and version together. In propose_sorting, use a listed Folder or Tag where one fits; where none does, name a new one in English that 3 or more of these Documents share. A Folder is an area of work, never a kind of Document. Leave the Suggestions for me to review.",
   "agents.ask.organize.folder":
-    "Only organize Documents directly in Folder {folder}. Suggest moves only into these subfolders: {folders}. Otherwise leave the Document in place.",
+    "Only organize Documents directly in Folder {folder}. Suggest moves only into these subfolders: {folders}, or into a new one by name, which is made inside it. Otherwise leave the Document in place.",
   "agents.ask.organize.loose":
     "Only organize Documents that are not in a Folder (folderId is null).",
   "agents.ask.organize.selected": "Only organize these Document IDs: {ids}.",
@@ -95,6 +95,9 @@ export const en = {
   "organizeReview.section.leftOut": "Left out",
   "organizeReview.notNow": "Not Now",
   "organizeReview.confirm": "Confirm",
+  "organizeReview.confirmAll": "Confirm all",
+  "organizeReview.suggestedBy": "Suggested by {agent}: {what}",
+  "organizeReview.nothingFrom": "{agent} had no Folder or Tag to suggest.",
   "organizeReview.menu": "More",
   "organizeReview.fewer": "Fewer Folders",
   "organizeReview.fewer.fewest": "{count} Folders is the fewest Organize proposes",
@@ -253,6 +256,7 @@ export const en = {
   "library.drop.formats": "PDF, Word, PowerPoint, Excel, Markdown, text",
   "library.drop.stay": "Your files stay where they are.",
   "library.review": "Review",
+  "library.row.suggested": "Suggested: “{folder}”",
   "library.sources": "Folders on disk",
   "library.collapse": "Collapse {name}",
   "library.expand": "Expand {name}",
@@ -8971,6 +8975,7 @@ export const en = {
   "agents.asked.copied": "Copied for {agent}: paste the request there and send it.",
   "agents.asked.checking": "Checking this note in {agent}.",
   "agents.asked.writing": "Writing the note in {agent}.",
+  "agents.asked.organizing": "Organizing your Documents in {agent}.",
   "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",
   "agents.asked.again": "Ask again",
   "agents.asked.short.asked": "Asked your AI",
