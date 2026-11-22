@@ -9238,7 +9238,7 @@ export const en = {
     "I limited this question to these folders and documents in IncarnaMind: {items}. Look only there.",
   "agents.ask.request.item": "{name} ({idName}: {id})",
   "agents.ask.request.check":
-    "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. If you didn’t write the note, read it with read_mind and check it yourself instead. Then tell me which sentences need a look.",
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. Then tell me which sentences need a look.",
   // A selection handed to the User's own AI (#3612): the line names the Note or Document, the rest waits.
   // A change says where it goes, for an agent that skips read_request.
   "agents.ask.line.selection.explain": "About my note {title} in IncarnaMind: explain {quote}.",
